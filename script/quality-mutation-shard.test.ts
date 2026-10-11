@@ -248,6 +248,13 @@ test("shard slices resume append-only progress and join into the single full rec
   const overclaimed = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", overclaiming, "--budget", "1"]);
   expect(overclaimed.exitCode).toBe(2);
   expect(String(record(overclaimed.document.error).message)).toContain("claims 3 results but 1 rows precede it");
+  const resultless = join(input.root, "resultless-progress.jsonl");
+  cpSync(progress0, resultless);
+  appendFileSync(resultless, `${JSON.stringify({ type: "proof", run: "resultless-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true })}\n`);
+  const unsettled = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", resultless, "--budget", "1"]);
+  expect(unsettled.exitCode).toBe(2);
+  expect(record(unsettled.document.error).code).toBe("progress");
+  expect(String(record(unsettled.document.error).message)).toContain("Proof of run resultless-run carries no results count");
   appendFileSync(progress0, `${JSON.stringify({ type: "proof", run: "env-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true, results: 1 })}\n`);
   // A job killed mid-append leaves a torn trailing line; the next run drops
   // exactly that line with a warning and repairs the artifact.

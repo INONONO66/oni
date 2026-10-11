@@ -2109,6 +2109,7 @@ function progressRows(parsed: (ObjectValue | null)[], inventoryHash: string): {
 			const run = text(row.run);
 			const settled = unproven.filter((result) => result.run === run);
 			const proven = (provenByRun.get(run) ?? 0) + settled.length;
+			if (typeof row.results !== "number") return fail("progress", `Proof of run ${run} carries no results count`);
 			if (number(row.results) !== proven)
 				return fail("progress", `Proof of run ${run} claims ${number(row.results)} results but ${proven} rows precede it`);
 			recorded.push(...settled);
@@ -2185,9 +2186,14 @@ function verifyCarried(progress: ShardProgress, slice: Candidate[]): void {
 function proofCheckpoint(context: ExecutionContext, progress: ShardProgress, results: number): void {
 	const { options, inventory, temporary, executionTreeSha256 } = context;
 	const shard = options.shard ?? fail("arguments", "Shard proof requires shard options");
+	// Same attestation as the receipt's proof minus canonical verification,
+	// which spawns the inventory tool and stays an end-of-run cost.
 	verifySources(options.root, inventory);
 	if (executionTreeHash(join(temporary, "frozen")) !== executionTreeSha256)
 		fail("tamper", "Frozen execution copy changed");
+	pinned(options.contract, options.contractHash);
+	pinned(options.inventory, options.inventoryHash);
+	pinned(options.decision, options.decisionHash);
 	appendFileSync(shard.progress, progressLine({
 		type: "proof",
 		run: progress.run,
