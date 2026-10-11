@@ -165,20 +165,34 @@ test("shard slices resume append-only progress and join into the single full rec
   const mismatched = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", mismatch, "--budget", "1"]);
   expect(mismatched.exitCode).toBe(2);
   expect(String(record(mismatched.document.error).message)).toContain("does not match its candidate");
-  // Rows from a run that never appended its restoration/cleanup proof are never
-  // carried: append a tampered duplicate under an unproven run id and confirm
-  // the resumed run keeps the proven outcomes.
-  const tamperedResult = { ...record(sample.result) };
-  tamperedResult.outcome = tamperedResult.outcome === "killed" ? "survived" : "killed";
-  appendFileSync(progress0, `${JSON.stringify({ ...sample, run: "unproven-run", result: tamperedResult })}\n`);
-  // A proven environmental outcome is dropped from the carry and re-executed.
+  // A run killed by the job deadline never appends its end-of-run proof. Each
+  // result row carries its own restoration proof and source hash, so every
+  // row of such a run is carried and nothing is re-executed.
+  const killed = join(input.root, "killed-progress.jsonl");
+  const killedRows = readFileSync(progress0, "utf8").split("\n").filter((line) => line.length && !line.includes('"type":"proof"'));
+  expect(killedRows.length).toBe(sliceSize + 1);
+  writeFileSync(killed, `${killedRows.join("\n")}\n`);
+  const afterKill = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", killed]);
+  expect(afterKill.exitCode).toBe(0);
+  expect(afterKill.document.complete).toBe(true);
+  expect(jsonNumber(afterKill.shard.executed)).toBe(0);
+  expect(jsonNumber(afterKill.shard.recorded)).toBe(sliceSize);
+  expect(record(afterKill.document.counts)).toEqual(record(first.document.counts));
+  // A row without its restoration proof is refused rather than carried.
+  const unrestored = join(input.root, "unrestored-progress.jsonl");
+  cpSync(progress0, unrestored);
+  appendFileSync(unrestored, `${JSON.stringify({ ...sample, run: "unrestored-run", result: { ...record(sample.result), restored: false } })}\n`);
+  const unrestoredRun = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", unrestored]);
+  expect(unrestoredRun.exitCode).toBe(2);
+  expect(String(record(unrestoredRun.document.error).message)).toContain("without restoration proof");
+  // An environmental outcome is dropped from the carry and re-executed.
   appendFileSync(progress0, `${JSON.stringify({ ...sample, run: "env-run", result: { ...record(sample.result), outcome: "infrastructure" } })}\n`);
   appendFileSync(progress0, `${JSON.stringify({ type: "proof", run: "env-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true })}\n`);
   // A job killed mid-append leaves a torn trailing line; the next run drops
   // exactly that line with a warning and repairs the artifact.
   appendFileSync(progress0, '{"type":"result","run":"torn');
-  // Resuming carries every proven behavioral result and re-executes only the
-  // candidate whose latest proven outcome was environmental.
+  // Resuming carries every recorded behavioral result and re-executes only
+  // the candidate whose latest outcome was environmental.
   const resumed = await runnerMain([...runnerArgv(input), ...shard0]);
   expect(resumed.exitCode).toBe(0);
   expect(resumed.stderr).toContain("dropping torn trailing progress line");
@@ -201,9 +215,9 @@ test("shard slices resume append-only progress and join into the single full rec
   expect(record(carried.document.counts)).toEqual(record(first.document.counts));
   const lines = readFileSync(progress0, "utf8").split("\n").filter((line) => line.length).map((line) => record(decode(line)));
   expect(lines[0]?.type).toBe("shard-progress");
-  // sliceSize proven rows plus the tampered unproven duplicate, the proven
-  // environmental duplicate (all kept in the artifact) and the re-executed row.
-  expect(lines.filter((line) => line.type === "result")).toHaveLength(sliceSize + 3);
+  // sliceSize recorded rows plus the environmental duplicate (kept in the
+  // artifact) and the re-executed row.
+  expect(lines.filter((line) => line.type === "result")).toHaveLength(sliceSize + 2);
   expect(lines.filter((line) => line.type === "proof").length).toBeGreaterThanOrEqual(4);
   // Second shard completes its disjoint slice.
   expect(await mutationMain([...base, "--shard", "1", "--shard-count", "2", "--progress", join(input.root, "progress", "shard-1.jsonl"), "--output", "shard-1"])).toBe(0);

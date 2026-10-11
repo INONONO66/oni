@@ -522,10 +522,11 @@ function addCandidate(
 	if (seen.has(id)) return;
 	seen.add(id);
 	const value = mode === "expression" ? valueBoundary(siteNode) : siteNode;
-	// A literal switch discriminant becomes an entry marker on the statement.
-	const literalSwitch = literalDiscriminantSwitch(value);
-	const boundary = literalSwitch ?? value;
-	const siteMode = literalSwitch ? "statement" : mode;
+	// A literal switch discriminant or an iteration-head pattern becomes an
+	// entry marker on the statement.
+	const statement = statementBoundary(value);
+	const boundary = statement ?? value;
+	const siteMode = statement ? "statement" : mode;
 	const start = boundary.getStart(source);
 	// Keep block-owned statements at their lexical level, including super().
 	const end = siteMode === "statement" && ts.isBlock(boundary.parent) ? start : boundary.end;
@@ -810,6 +811,9 @@ function assignmentConsumer(node: ts.Node): ts.Node | undefined {
 			parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
 			? parent
 			: undefined;
+	// `for ([a] of xs)` / `for ({ a } in o)`: the head pattern is consumed by
+	// the loop statement, so the probe becomes an entry marker on it.
+	if ((ts.isForOfStatement(parent) || ts.isForInStatement(parent)) && parent.initializer === node) return parent;
 	if (
 		ts.isArrayLiteralExpression(parent) ||
 		ts.isSpreadElement(parent) ||
@@ -857,6 +861,14 @@ function literalDiscriminantSwitch(node: ts.Node): ts.SwitchStatement | undefine
 	while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
 	if (inner.kind !== ts.SyntaxKind.TrueKeyword && inner.kind !== ts.SyntaxKind.FalseKeyword) return undefined;
 	return ts.isSwitchStatement(node.parent) && node.parent.expression === node ? node.parent : undefined;
+}
+// `continue label` needs its label on the loop itself, so the wrapping block
+// goes around the outermost label of an iteration statement.
+function statementBoundary(value: ts.Node): ts.Statement | undefined {
+	if (!ts.isForOfStatement(value) && !ts.isForInStatement(value)) return literalDiscriminantSwitch(value);
+	let statement: ts.Statement = value;
+	while (ts.isLabeledStatement(statement.parent)) statement = statement.parent;
+	return statement;
 }
 function narrowingBoundary(node: ts.Node): ts.Node {
 	const parent = node.parent;
@@ -1965,6 +1977,33 @@ async function compilerBatch(
 	);
 }
 
+/** Longest wall-clock one test run over `tests` can hold: every package batch
+ * is killed at max(suite timeout, per-test timeout x files). */
+function testRunDeadline(root: string, tests: string[], options: Options): number {
+	let total = 0;
+	for (const selected of testGroups(root, tests).values())
+		total += Math.max(options.suiteTimeout, options.timeout * selected.length);
+	return total;
+}
+/** Longest wall-clock one candidate can hold before its outcome settles, so a
+ * candidate is dispatched only when it can finish inside the budget and the
+ * wrapper deadline never kills a run that honored its budget. A TypeScript
+ * candidate without reach evidence settles without any child; a reached one
+ * spends one compiler batch (the worker's per-request deadline) and one test
+ * run; a Python candidate compiles in the engine, probes the original site
+ * and runs the mutated tests. */
+function candidateReserve(context: ExecutionContext, candidate: Candidate, tests: string[]): number {
+	const { options, contract, reachMap } = context;
+	const python = candidate.operator.startsWith("py-");
+	if (!python && !reachMap.get(candidate.id)?.reached) return 0;
+	const testRun = testRunDeadline(options.root, tests, options);
+	return python
+		? options.timeout + 2 * testRun
+		: options.timeout * Math.max(1, contract.projects.length) + testRun;
+}
+function budgetAllows(context: ExecutionContext, candidate: Candidate, tests: string[]): boolean {
+	return Date.now() - context.started + candidateReserve(context, candidate, tests) <= context.options.budget;
+}
 type ExecutionContext = {
 	options: Options;
 	compilerWorker: MutationCompilerWorker | null;
@@ -1977,7 +2016,7 @@ type ExecutionContext = {
 	reachMap: Map<string, ProbeEvidence>;
 };
 async function executeSelection(context: ExecutionContext): Promise<Result[]> {
-	const { options, compilerWorker, contract, temporary, started, enumerated, tests, errors, reachMap } = context;
+	const { options, compilerWorker, contract, temporary, enumerated, tests, errors, reachMap } = context;
 	const results: Result[] = [];
 	const selected = selectedCandidates(options, enumerated.candidates);
 	if (!selected.length) errors.push("zero selected candidates");
@@ -1989,7 +2028,7 @@ async function executeSelection(context: ExecutionContext): Promise<Result[]> {
 		else if (
 			errors.length ||
 			executed >= options.maxCandidates ||
-			Date.now() - started >= options.budget
+			!budgetAllows(context, candidate, reachMap.get(candidate.id)?.tests ?? tests)
 		)
 			results.push(defaultResult(candidate, tests));
 		else {
@@ -2069,7 +2108,7 @@ function loadShardProgress(options: Options): ShardProgress {
 		catch { return null; }
 	});
 	// A run killed mid-append leaves exactly one torn trailing line. Dropping
-	// it is sound: its row has no proof line, so it could never be carried.
+	// it is sound: a torn row never decodes, so it carries no restoration proof.
 	if (parsed.length > 1 && parsed.at(-1) === null) {
 		console.error("[mutation] dropping torn trailing progress line");
 		lines.pop();
@@ -2093,9 +2132,10 @@ function loadShardProgress(options: Options): ShardProgress {
 			fail("progress", `Progress artifact does not match this shard (${key}: ${JSON.stringify(head[key])} != ${JSON.stringify(header[key])})`);
 	const { proofs, recorded } = progressRows(parsed, options.inventoryHash);
 	const carried = new Map<string, CarriedResult>();
-	// Only rows from runs that appended their restoration/cleanup proof are
-	// carried; a killed run's unproven tail is re-executed, never mixed in.
-	for (const row of recorded) if (proofs.has(text(row.run))) carriedResult(row, carried);
+	// Every recorded row carries its own restoration proof (`restored`) and
+	// source digest, so a killed run's settled rows are carried like any other;
+	// the run-level proof line only feeds the receipt's carried-proof list.
+	for (const row of recorded) carriedResult(row, carried);
 	return { carried, proofs: [...proofs.values()], run };
 }
 function verifyCarried(progress: ShardProgress, slice: Candidate[]): void {
@@ -2110,7 +2150,7 @@ async function executeShardSelection(
 	pending: Candidate[],
 	progress: ShardProgress,
 ): Promise<{ executed: Result[]; budgetExhausted: boolean }> {
-	const { options, compilerWorker, contract, temporary, started, enumerated, tests, errors, reachMap } = context;
+	const { options, compilerWorker, contract, temporary, enumerated, tests, errors, reachMap } = context;
 	const shard = options.shard ?? fail("arguments", "Shard execution requires shard options");
 	const pendingIds = new Set(pending.map((candidate) => candidate.id));
 	const executed: Result[] = [];
@@ -2119,14 +2159,15 @@ async function executeShardSelection(
 	for (const [index, candidate] of enumerated.candidates.entries()) {
 		if (errors.length) break;
 		if (!pendingIds.has(candidate.id)) continue;
-		if (Date.now() - started >= options.budget) {
+		const reached = reachMap.get(candidate.id)?.tests ?? tests;
+		if (!budgetAllows(context, candidate, reached)) {
 			budgetExhausted = true;
 			break;
 		}
 		console.error(`[mutation] shard ${shard.index}/${shard.count} mutant ${executed.length + 1}/${pending.length} start ${candidate.path}:${candidate.startOffset} ${candidate.operator}`);
 		if (compilerWorker && !candidate.operator.startsWith("py-") && reachMap.get(candidate.id)?.reached && !checked.has(candidate.id))
 			checked = await compilerBatch(enumerated.candidates, index, pendingIds, reachMap, compilerWorker, temporary);
-		const result = await runCandidate(candidate, compilerWorker, checked.get(candidate.id), options, contract, temporary, reachMap.get(candidate.id)?.tests ?? tests, reachMap);
+		const result = await runCandidate(candidate, compilerWorker, checked.get(candidate.id), options, contract, temporary, reached, reachMap);
 		checked.delete(candidate.id);
 		appendFileSync(shard.progress, progressLine({ type: "result", run: progress.run, inventorySha256: options.inventoryHash, candidateId: candidate.id, result }));
 		executed.push(result);

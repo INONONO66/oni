@@ -702,6 +702,45 @@ test("reach probes on assignment targets wrap the consuming assignment", async (
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);
 
+// #1097/#1175 defect 3: a destructuring pattern in a `for (... of/in ...)` head
+// has no consuming assignment expression; probing it as a value yields an
+// invalid assignment target, so the probe is an entry marker on the loop
+// statement, hoisted above any label so `continue label` keeps its target.
+// (TypeScript refuses a destructuring `for...in` head, so only `for...of`
+// patterns can appear in a strict fixture.)
+test("reach probes on iteration-head patterns become entry markers on the loop statement", async () => {
+	const source = 'export function run() { let a = 0; let x = 0; let y = 0; const items = [{ a: 1 }, { a: 2 }]; const pairs: [number, number][] = [[1, 2], [3, 4]]; for ({ a } of items) x += a; outer: for ([x, y] of pairs) { if (x > 1) continue outer; y += 1; } return { a, x, y, sum: [x, y].length }; }';
+	const input = await fixture(source, "expect(run().sum).toBe(2);");
+	const contract = readContract(join(input.root, "contract.json"));
+	const operators = ["object-literal", "array-literal", "arithmetic"]
+		.map((id) => ({ id, replacements: new Map([["+", ["-"]]]) }));
+	const candidates = analyze(input.root, contract, buildInventory(input.root, contract), operators)
+		.enumerated.candidates.filter((candidate) => candidate.path === "src/a.ts");
+	const heads = [
+		["{ a } of items", "for ({ a } of items)"],
+		["[x, y] of pairs", "outer: for ([x, y] of pairs)"],
+	] as const;
+	for (const [pattern, statement] of heads) {
+		const offset = source.indexOf(pattern);
+		const probed = candidates.filter((candidate) => candidate.startOffset === offset);
+		expect(probed.length).toBeGreaterThan(0);
+		for (const candidate of probed) {
+			expect(candidate.site.mode).toBe("statement");
+			expect(candidate.site.start).toBe(source.indexOf(statement));
+		}
+	}
+	const directory = mkdtempSync(join(tmpdir(), "mutation-iteration-probe-"));
+	try {
+		const transformed = instrument(source, candidates.map((candidate, index) => ({
+			id: `site-${index}`, path: candidate.path, sourceSha256: candidate.sourceSha256, site: candidate.site, tests: [],
+		})), directory);
+		const path = join(directory, "a.ts");
+		writeFileSync(path, transformed);
+		expect(strictDiagnostics(strictProgram(directory, path))).toEqual([]);
+		expect(new Bun.Transpiler({ loader: "ts" }).transformSync(transformed)).toContain("writeFileSync");
+	} finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
+
 test("enumeration preserves directive prologues and mutates regex quantifiers and anchors", async () => {
 	const source = '"use strict"; "custom directive"; export function run() { "use strict"; const pattern = /^a+b*c?$/; "ordinary"; if (true) "branch string"; return pattern.test("ab"); }';
 	const input = await fixture(source, "expect(run()).toBe(true);");
@@ -1273,6 +1312,18 @@ test("exhausted budget accounts every candidate as uncompleted", async () => {
 	expect(result.report.complete).toBe(false);
 	expect(result.selected.every((row) => row.outcome === "uncompleted")).toBe(true);
 	expect(result.selected.length).toBeGreaterThan(0);
+}, 90000);
+
+test("a candidate whose worst-case run cannot finish inside the budget is not dispatched", async () => {
+	// Setup takes seconds, so a ten-minute budget is far from exhausted when the
+	// first candidate is considered; its reserve (one compiler batch plus one
+	// test run capped by the sixty-minute suite timeout) is what cannot fit.
+	const input = await fixture("export const run = () => true;", "expect(run()).toBe(true);");
+	const result = await invoke(input, "budget-reserve", ["--budget", "600000", "--suite-timeout", "3600000"]);
+	expect(result.code).toBe(2);
+	expect(result.report.complete).toBe(false);
+	expect(result.selected.length).toBeGreaterThan(0);
+	expect(result.selected.every((row) => row.outcome === "uncompleted")).toBe(true);
 }, 90000);
 
 test("work budget cannot silently turn an unfinished full run into a selected pass", async () => {

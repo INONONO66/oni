@@ -52,6 +52,12 @@ test("native pilot executes the real campaign without creating a full ratchet me
   expect(existsSync(join(input.root, "quality-mutation-results/current.json"))).toBe(false);
   await expect(mutationMain(["--limit", "1"])).rejects.toThrow("--limit/--target require --pilot");
   await expect(mutationMain(["--target", "src/a.ts"])).rejects.toThrow("--limit/--target require --pilot");
+  // The budget plus the settle allowance must fit the runner deadline; the
+  // refusal names the maximum so the workflow input can be corrected.
+  const shard = ["--shard", "0", "--shard-count", "2", "--progress", "p.jsonl"];
+  await expect(mutationMain([...shard, "--budget-minutes", "341"])).rejects.toThrow(
+    "--budget-minutes exceeds the runner deadline (maximum 340)",
+  );
 }, 90000);
 
 test("native full campaign records a complete measurement receipt and exits by survivor count", async () => {

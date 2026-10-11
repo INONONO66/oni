@@ -25,6 +25,16 @@ import { nativeJson } from "./quality-native-process";
 /** One test selection under one mutant may run this long before the runner
  * kills it and records the mutant as killed by non-termination. */
 const SUITE_TIMEOUT_MS = 300_000;
+/** The runner child is killed at this deadline whatever its budget says. */
+const RUNNER_TIMEOUT_MS = 21_000_000;
+/** Wall-clock the runner needs after its budget stops dispatching mutants:
+ * compiler-worker disposal, original-tree restoration, cleanup and receipts.
+ * A budget is accepted only when budget + settle fits the runner deadline, so
+ * the deadline never kills a run that honored its budget. The runner's budget
+ * clock starts before setup, baseline and reach selection, which therefore
+ * count against the budget. */
+const RUNNER_SETTLE_MS = 600_000;
+const MAX_BUDGET_MS = RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS;
 
 export function normalizeMutation(value: Json, identity: Identity, root: string): Measurement {
   const row = completeDocument(value);
@@ -125,7 +135,7 @@ function mutationArguments(values: {
   "shard-count"?: string;
   progress?: string;
   "budget-minutes"?: string;
-}): { shardMode: boolean; budgetMinutes: number | null } {
+}): { shardMode: boolean; budgetMs: number } {
   requireMeasurement(!(values.limit || values.target) || values.pilot, "--limit/--target require --pilot");
   const shardValues = [values.shard, values["shard-count"], values.progress];
   const shardMode = shardValues.some((value) => value !== undefined);
@@ -136,10 +146,15 @@ function mutationArguments(values: {
   requireMeasurement(!(shardMode && values.pilot), "--shard is incompatible with --pilot");
   const budgetMinutes = values["budget-minutes"] === undefined ? null : Number(values["budget-minutes"]);
   requireMeasurement(
-    budgetMinutes === null || (Number.isSafeInteger(budgetMinutes) && budgetMinutes >= 1 && budgetMinutes <= 10_000),
+    budgetMinutes === null || (Number.isSafeInteger(budgetMinutes) && budgetMinutes >= 1),
     "invalid --budget-minutes",
   );
-  return { shardMode, budgetMinutes };
+  const budgetMs = budgetMinutes === null ? MAX_BUDGET_MS : budgetMinutes * 60_000;
+  requireMeasurement(
+    budgetMs <= MAX_BUDGET_MS,
+    `--budget-minutes exceeds the runner deadline (maximum ${MAX_BUDGET_MS / 60_000})`,
+  );
+  return { shardMode, budgetMs };
 }
 export async function mutationMain(argv = Bun.argv.slice(2)): Promise<number> {
   const { values } = parseArgs({
@@ -160,7 +175,7 @@ export async function mutationMain(argv = Bun.argv.slice(2)): Promise<number> {
       "mutant-memory-mb": { type: "string", default: "6144" },
     },
   });
-  const { shardMode, budgetMinutes } = mutationArguments(values);
+  const { shardMode, budgetMs } = mutationArguments(values);
   console.error(`[mutation] fingerprinting source inventory (pilot=${values.pilot})`);
   const root = resolve(values.root),
     directory = resolve(root, values.output);
@@ -174,7 +189,7 @@ export async function mutationMain(argv = Bun.argv.slice(2)): Promise<number> {
   const result = await nativeJson({
     cwd: root,
     receipt: resolve(directory, "process.json"),
-    timeout: 21_000_000,
+    timeout: RUNNER_TIMEOUT_MS,
     onStderr: (chunk) => { process.stderr.write(chunk); },
     command: [
       process.execPath,
@@ -205,7 +220,7 @@ export async function mutationMain(argv = Bun.argv.slice(2)): Promise<number> {
       "--max-candidates",
       "1000000",
       "--budget",
-      String(budgetMinutes === null ? 20_000_000 : budgetMinutes * 60_000),
+      String(budgetMs),
       "--suite-timeout",
       String(SUITE_TIMEOUT_MS),
       "--mutant-memory-mb",
