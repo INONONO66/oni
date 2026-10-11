@@ -91,6 +91,10 @@ jobs:
       - name: Build workspace declarations with the CI entry point
         run: bun run ci build
       - run: bun run script/check-quality-python.ts
+      # The campaign baseline runs the whole suite, including the codemode
+      # browser recipe tests, so every shard needs the prerequisites.
+      - name: Browser prerequisites (codemode, #1275)
+        uses: ./.github/actions/browser-prerequisites
       - name: Download previous shard progress
         if: ${{ (inputs.pilot_limit || 0) == 0 && inputs.fresh_progress != true }}
         env:
