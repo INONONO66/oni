@@ -53,8 +53,8 @@ const CLEANUP_HEADROOM_MS = 60_000;
 const RUNNER_SETTLE_MS =
   RUNNER_PROJECT_TIMEOUT_MS * SETTLE_PROJECTS + RUNNER_PROJECT_TIMEOUT_MS + CLEANUP_HEADROOM_MS;
 /** The largest `--budget-minutes` accepted and the omitted-flag default: the
- * runner deadline minus settle, floored to whole minutes so the default is
- * exactly the advertised maximum (an explicit maximum never gets less). */
+ * runner deadline minus settle, floored to whole minutes so omitting the flag
+ * and passing the advertised maximum forward the same budget. */
 const MAX_BUDGET_MINUTES = Math.floor((RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS) / 60_000);
 export const MAX_BUDGET_MS = MAX_BUDGET_MINUTES * 60_000;
 
