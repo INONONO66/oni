@@ -20,7 +20,7 @@ on:
         type: number
         default: 8
       shard_budget_minutes:
-        description: 'Per-shard wall-clock budget in minutes before a clean partial stop (setup + baseline + reach take up to ~70 min before the budget clock starts; keep budget + 70 + one 5-minute suite timeout under the 360-minute job timeout)'
+        description: 'Per-shard wall-clock budget in minutes before a clean partial stop. The runner clock starts before the runner''s own setup, baseline and reach selection (not the job''s checkout and build steps), so the budget covers them; the wrapper refuses values above 340 (the 360-minute job timeout minus a 10-minute allowance for the steps around the runner, minus a settle sized for compiler-worker disposal, re-verification and cleanup) and a candidate is dispatched only when its worst-case run still fits'
         type: number
         default: 240
       mutant_memory_mb:

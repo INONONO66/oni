@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeJson, jsonArray, jsonObject, jsonString } from "./quality-inventory";
+import { JOB_TIMEOUT_MINUTES } from "./quality-native-mutation";
 
 // Workflow keys and command wiring are machine-consumed, not prose snapshots.
 test("full mutation is an explicit scheduled workflow, never a silently skipped PR gate", () => {
@@ -25,6 +26,9 @@ test("full mutation is an explicit scheduled workflow, never a silently skipped 
   const inputs = jsonObject(jsonObject(triggers.workflow_dispatch).inputs);
   expect(jsonObject(inputs.mutant_memory_mb).default).toBe(6144);
   const job = jsonObject(jsonObject(workflow.jobs).mutation);
+  // The wrapper derives the runner deadline from this job timeout, so the yml
+  // and the wrapper must agree on the outer deadline.
+  expect(job["timeout-minutes"]).toBe(JOB_TIMEOUT_MINUTES);
   const steps = jsonArray(job.steps, jsonObject);
   expect(
     steps.some(
