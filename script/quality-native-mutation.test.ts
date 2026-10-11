@@ -71,7 +71,9 @@ test("the settle window covers compiler-worker disposal for the real contract an
   expect(Array.isArray(projects)).toBe(true);
   expect(Array.isArray(projects) ? projects.length : Number.NaN).toBeLessThanOrEqual(SETTLE_PROJECTS);
   expect(RUNNER_TIMEOUT_MS).toBeLessThan(JOB_TIMEOUT_MINUTES * 60_000);
-  expect(Math.floor(MAX_BUDGET_MS / 60_000)).toBe(340);
+  // The advertised maximum, the omitted-flag default and the explicit
+  // `--budget-minutes 340` all forward the same whole-minute budget.
+  expect(MAX_BUDGET_MS).toBe(340 * 60_000);
 });
 
 test("native full campaign records a complete measurement receipt and exits by survivor count", async () => {
