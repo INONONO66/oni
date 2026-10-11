@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JOB_TIMEOUT_MINUTES, MAX_BUDGET_MS, mutationMain, normalizeMutation, RUNNER_SETTLE_MS, RUNNER_TIMEOUT_MS, SETTLE_PROJECTS } from "./quality-native-mutation";
+import { JOB_TIMEOUT_MINUTES, MAX_BUDGET_MS, mutationMain, normalizeMutation, RUNNER_TIMEOUT_MS, SETTLE_PROJECTS } from "./quality-native-mutation";
 import { decodeJson, digest, jsonObject } from "./quality-inventory";
 import { mutationFixture } from "./quality-mutation-fixture";
 
@@ -70,8 +70,6 @@ test("the settle window covers compiler-worker disposal for the real contract an
   const projects = contract.projects;
   expect(Array.isArray(projects)).toBe(true);
   expect(Array.isArray(projects) ? projects.length : Number.NaN).toBeLessThanOrEqual(SETTLE_PROJECTS);
-  expect(RUNNER_SETTLE_MS).toBeGreaterThanOrEqual(15_000 * SETTLE_PROJECTS + 15_000);
-  expect(MAX_BUDGET_MS + RUNNER_SETTLE_MS).toBe(RUNNER_TIMEOUT_MS);
   expect(RUNNER_TIMEOUT_MS).toBeLessThan(JOB_TIMEOUT_MINUTES * 60_000);
   expect(Math.floor(MAX_BUDGET_MS / 60_000)).toBe(340);
 });

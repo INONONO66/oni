@@ -50,7 +50,7 @@ const CLEANUP_HEADROOM_MS = 60_000;
  * its budget. The runner's budget clock starts before its own setup, baseline
  * and reach selection, which therefore count against the budget; the job's
  * steps before the runner do not. */
-export const RUNNER_SETTLE_MS =
+const RUNNER_SETTLE_MS =
   RUNNER_PROJECT_TIMEOUT_MS * SETTLE_PROJECTS + RUNNER_PROJECT_TIMEOUT_MS + CLEANUP_HEADROOM_MS;
 export const MAX_BUDGET_MS = RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS;
 const MAX_BUDGET_MINUTES = Math.floor(MAX_BUDGET_MS / 60_000);

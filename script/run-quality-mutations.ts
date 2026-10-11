@@ -1776,6 +1776,7 @@ function optionsFrom(values: Map<string, string[]>, testRuntime: TestRuntime): O
 		"shard",
 		"shard-count",
 		"progress",
+		"checkpoint-results",
 	];
 	for (const [key, entries] of values)
 		if (
@@ -2092,9 +2093,12 @@ function progressRows(parsed: (ObjectValue | null)[], inventoryHash: string): {
 	// attests that the original sources and the frozen execution copy were
 	// still intact after it settled. Rows after a run's last proof, and every
 	// row of a run that never proved, are re-executed; a proof never vouches
-	// for another run's rows. The last proof of each run is listed in the
-	// receipt (a completed run's final proof also attests cleanup).
+	// for another run's rows, and its `results` count must equal the rows of
+	// its run carried so far, so a proof vouches for exactly the rows it
+	// settled. The last proof of each run is listed in the receipt (a
+	// completed run's final proof also attests cleanup).
 	let unproven: ObjectValue[] = [];
+	const provenByRun = new Map<string, number>();
 	for (const row of parsed.slice(1)) {
 		if (row === null) return fail("progress", "Malformed progress row");
 		if (row.inventorySha256 !== inventoryHash)
@@ -2103,8 +2107,13 @@ function progressRows(parsed: (ObjectValue | null)[], inventoryHash: string): {
 		else if (row.type !== "proof") return fail("progress", "Unrecognized progress row");
 		else if (row.originalHashesVerified === true) {
 			const run = text(row.run);
-			recorded.push(...unproven.filter((result) => result.run === run));
+			const settled = unproven.filter((result) => result.run === run);
+			const proven = (provenByRun.get(run) ?? 0) + settled.length;
+			if (number(row.results) !== proven)
+				return fail("progress", `Proof of run ${run} claims ${number(row.results)} results but ${proven} rows precede it`);
+			recorded.push(...settled);
 			unproven = [];
+			provenByRun.set(run, proven);
 			proofs.set(run, row);
 		}
 	}
@@ -2212,7 +2221,7 @@ async function executeShardSelection(
 			// so the shard cannot complete until the budget is raised.
 			const reserve = candidateReserve(context, candidate, reached);
 			if (!budgetExhausted)
-				console.error(`[mutation] shard ${shard.index}/${shard.count} budget exhausted after ${Date.now() - context.started} ms of ${options.budget} ms: deferring ${candidate.path}:${candidate.startOffset} ${candidate.operator} (reserve ${reserve} ms${reserve > options.budget ? " exceeds the whole budget" : ""})`);
+				console.error(`[mutation] shard ${shard.index}/${shard.count} deferring ${candidate.path}:${candidate.startOffset} ${candidate.operator}: reserve ${reserve} ms does not fit the remaining budget after ${Date.now() - context.started} ms of ${options.budget} ms${reserve > options.budget ? " (the reserve alone exceeds the whole budget)" : ""}`);
 			budgetExhausted = true;
 			deferred++;
 			continue;

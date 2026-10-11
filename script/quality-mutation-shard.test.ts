@@ -146,7 +146,10 @@ test("shard slices resume append-only progress and join into the single full rec
   expect(tornRefused.exitCode).toBe(2);
   expect(record(tornRefused.document.error).code).toBe("progress");
   // Resumed in-process run completes shard 0 within its budget.
-  const first = await runnerMain([...runnerArgv(input), ...shard0]);
+  // A proof after every result makes the first run's artifact the fixture
+  // for the kill cases below: each result row is followed by the runner's own
+  // checkpoint rather than a hand-assembled proof.
+  const first = await runnerMain([...runnerArgv(input), ...shard0, "--checkpoint-results", "1"]);
   expect(first.exitCode).toBe(0);
   expect(first.document.full).toBe(false);
   expect(first.document.complete).toBe(true);
@@ -161,7 +164,7 @@ test("shard slices resume append-only progress and join into the single full rec
   const mismatch = join(input.root, "mismatch-progress.jsonl");
   cpSync(progress0, mismatch);
   appendFileSync(mismatch, `${JSON.stringify({ ...sample, run: "mismatch-run", result: { ...record(sample.result), id: "0".repeat(64) } })}\n`);
-  appendFileSync(mismatch, `${JSON.stringify({ type: "proof", run: "mismatch-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true })}\n`);
+  appendFileSync(mismatch, `${JSON.stringify({ type: "proof", run: "mismatch-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true, results: 1 })}\n`);
   const mismatched = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", mismatch, "--budget", "1"]);
   expect(mismatched.exitCode).toBe(2);
   expect(String(record(mismatched.document.error).message)).toContain("does not match its candidate");
@@ -172,10 +175,17 @@ test("shard slices resume append-only progress and join into the single full rec
   const firstRun = String(sample.run);
   const [header, ...rows] = readFileSync(progress0, "utf8").split("\n").filter((line) => line.length);
   const resultRows = rows.filter((line) => line.includes('"type":"result"'));
-  // Earlier partial runs proved with zero results; take the first run's own proof.
-  const checkpoint = rows.find((line) => line.includes('"type":"proof"') && line.includes(firstRun)) ?? "";
   expect(resultRows).toHaveLength(sliceSize);
-  expect(record(decode(checkpoint)).run).toBe(firstRun);
+  // Earlier partial runs proved with zero results; the first run's own rows
+  // alternate result, proof(results: 1), result, proof(results: 2), ... and
+  // end with the receipt's proof, which also attests cleanup.
+  const firstRunRows = rows.filter((line) => record(decode(line)).run === firstRun).map((line) => record(decode(line)));
+  expect(firstRunRows).toHaveLength(sliceSize * 2 + 1);
+  for (const [offset, row] of firstRunRows.slice(0, -1).entries()) {
+    expect(row.type).toBe(offset % 2 === 0 ? "result" : "proof");
+    if (row.type === "proof") expect(row.results).toBe((offset + 1) / 2);
+  }
+  expect(firstRunRows.at(-1)).toMatchObject({ type: "proof", results: sliceSize, cleanupVerified: true });
   const unproven = join(input.root, "unproven-progress.jsonl");
   writeFileSync(unproven, [header, ...resultRows].map((line) => `${line}\n`).join(""));
   const afterKill = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", unproven]);
@@ -184,10 +194,12 @@ test("shard slices resume append-only progress and join into the single full rec
   expect(jsonNumber(afterKill.shard.executed)).toBe(sliceSize);
   expect(jsonNumber(afterKill.shard.recorded)).toBe(sliceSize);
   expect(record(afterKill.document.counts)).toEqual(record(first.document.counts));
-  // Rows after a run's last proof are re-executed; the rows it covers carry.
-  const [provenRow, ...laterRows] = resultRows;
+  // A run killed right after its first checkpoint: the rows after that
+  // proof are re-executed, the one it covers carries.
   const afterProof = join(input.root, "after-proof-progress.jsonl");
-  writeFileSync(afterProof, [header, provenRow, checkpoint, ...laterRows].map((line) => `${line}\n`).join(""));
+  const firstProofAt = rows.findIndex((line) => line.includes('"type":"proof"') && line.includes(firstRun));
+  expect(firstProofAt).toBeGreaterThan(0);
+  writeFileSync(afterProof, [header, ...rows.slice(0, firstProofAt + 1), ...resultRows.slice(1)].map((line) => `${line}\n`).join(""));
   const partlyProven = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", afterProof]);
   expect(partlyProven.exitCode).toBe(0);
   expect(jsonNumber(partlyProven.shard.executed)).toBe(sliceSize - 1);
@@ -198,7 +210,7 @@ test("shard slices resume append-only progress and join into the single full rec
   const foreignProof = join(input.root, "foreign-proof-progress.jsonl");
   cpSync(progress0, foreignProof);
   appendFileSync(foreignProof, `${JSON.stringify({ ...sample, run: "unproven-run", result: { ...record(sample.result), outcome: "survived" } })}\n`);
-  appendFileSync(foreignProof, `${JSON.stringify({ type: "proof", run: "other-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true })}\n`);
+  appendFileSync(foreignProof, `${JSON.stringify({ type: "proof", run: "other-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true, results: 0 })}\n`);
   const notOverridden = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", foreignProof]);
   expect(notOverridden.exitCode).toBe(0);
   expect(jsonNumber(notOverridden.shard.executed)).toBe(0);
@@ -219,7 +231,7 @@ test("shard slices resume append-only progress and join into the single full rec
   const unrestored = join(input.root, "unrestored-progress.jsonl");
   cpSync(progress0, unrestored);
   appendFileSync(unrestored, `${JSON.stringify({ ...sample, run: "unrestored-run", result: { ...record(sample.result), restored: false } })}\n`);
-  appendFileSync(unrestored, `${JSON.stringify({ type: "proof", run: "unrestored-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true })}\n`);
+  appendFileSync(unrestored, `${JSON.stringify({ type: "proof", run: "unrestored-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true, results: 1 })}\n`);
   const unrestoredRun = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", unrestored]);
   expect(unrestoredRun.exitCode).toBe(2);
   expect(String(record(unrestoredRun.document.error).message)).toContain("without restoration proof");
@@ -227,7 +239,16 @@ test("shard slices resume append-only progress and join into the single full rec
   // of its candidate, which is then re-executed; its run's proof is what
   // admits the row and is listed in the receipt.
   appendFileSync(progress0, `${JSON.stringify({ ...sample, run: "env-run", result: { ...record(sample.result), outcome: "infrastructure" } })}\n`);
-  appendFileSync(progress0, `${JSON.stringify({ type: "proof", run: "env-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true })}\n`);
+  // A proof whose results count does not match the rows of its run that
+  // precede it is refused: it cannot vouch for rows it never settled.
+  const overclaiming = join(input.root, "overclaiming-progress.jsonl");
+  cpSync(progress0, overclaiming);
+  appendFileSync(overclaiming, `${JSON.stringify({ ...sample, run: "overclaiming-run" })}\n`);
+  appendFileSync(overclaiming, `${JSON.stringify({ type: "proof", run: "overclaiming-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true, results: 3 })}\n`);
+  const overclaimed = await runnerMain([...runnerArgv(input), "--shard", "0", "--shard-count", "2", "--progress", overclaiming, "--budget", "1"]);
+  expect(overclaimed.exitCode).toBe(2);
+  expect(String(record(overclaimed.document.error).message)).toContain("claims 3 results but 1 rows precede it");
+  appendFileSync(progress0, `${JSON.stringify({ type: "proof", run: "env-run", inventorySha256: inventoryHash, originalHashesVerified: true, cleanupVerified: true, results: 1 })}\n`);
   // A job killed mid-append leaves a torn trailing line; the next run drops
   // exactly that line with a warning and repairs the artifact.
   appendFileSync(progress0, '{"type":"result","run":"torn');
