@@ -25,16 +25,35 @@ import { nativeJson } from "./quality-native-process";
 /** One test selection under one mutant may run this long before the runner
  * kills it and records the mutant as killed by non-termination. */
 const SUITE_TIMEOUT_MS = 300_000;
+/** The workflow job's `timeout-minutes` (GitHub's hosted maximum); the
+ * workflow test pins the yml to this value. */
+export const JOB_TIMEOUT_MINUTES = 360;
+/** Job time outside the runner child: checkout, setup, pip, build, the Python
+ * check, artifact download, fingerprinting and the always() uploads. Measured
+ * at about 1.5 minutes per shard; sized with margin. */
+const JOB_STEPS_ALLOWANCE_MS = 600_000;
 /** The runner child is killed at this deadline whatever its budget says. */
-const RUNNER_TIMEOUT_MS = 21_000_000;
+export const RUNNER_TIMEOUT_MS = JOB_TIMEOUT_MINUTES * 60_000 - JOB_STEPS_ALLOWANCE_MS;
+/** The runner's per-project compiler deadline, passed as `--timeout`. */
+const RUNNER_PROJECT_TIMEOUT_MS = 15_000;
+/** Contract projects the settle window is sized for: compiler-worker disposal
+ * waits one project timeout per project before its kill fallback, so the real
+ * contract must stay at or below this count (the wrapper test asserts it). */
+export const SETTLE_PROJECTS = 32;
+/** Restoration check, frozen-tree hash, execution-copy removal and receipts;
+ * measured in seconds, sized with margin. */
+const CLEANUP_HEADROOM_MS = 60_000;
 /** Wall-clock the runner needs after its budget stops dispatching mutants:
- * compiler-worker disposal, original-tree restoration, cleanup and receipts.
- * A budget is accepted only when budget + settle fits the runner deadline, so
- * the deadline never kills a run that honored its budget. The runner's budget
- * clock starts before setup, baseline and reach selection, which therefore
- * count against the budget. */
-const RUNNER_SETTLE_MS = 600_000;
-const MAX_BUDGET_MS = RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS;
+ * compiler-worker disposal, canonical re-verification (one more bounded
+ * runner call) and cleanup. A budget is accepted only when budget + settle
+ * fits the runner deadline, so the deadline never kills a run that honored
+ * its budget. The runner's budget clock starts before its own setup, baseline
+ * and reach selection, which therefore count against the budget; the job's
+ * steps before the runner do not. */
+export const RUNNER_SETTLE_MS =
+  RUNNER_PROJECT_TIMEOUT_MS * SETTLE_PROJECTS + RUNNER_PROJECT_TIMEOUT_MS + CLEANUP_HEADROOM_MS;
+export const MAX_BUDGET_MS = RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS;
+const MAX_BUDGET_MINUTES = Math.floor(MAX_BUDGET_MS / 60_000);
 
 export function normalizeMutation(value: Json, identity: Identity, root: string): Measurement {
   const row = completeDocument(value);
@@ -152,7 +171,7 @@ function mutationArguments(values: {
   const budgetMs = budgetMinutes === null ? MAX_BUDGET_MS : budgetMinutes * 60_000;
   requireMeasurement(
     budgetMs <= MAX_BUDGET_MS,
-    `--budget-minutes exceeds the runner deadline (maximum ${MAX_BUDGET_MS / 60_000})`,
+    `--budget-minutes exceeds the runner deadline (maximum ${MAX_BUDGET_MINUTES})`,
   );
   return { shardMode, budgetMs };
 }
@@ -221,6 +240,8 @@ export async function mutationMain(argv = Bun.argv.slice(2)): Promise<number> {
       "1000000",
       "--budget",
       String(budgetMs),
+      "--timeout",
+      String(RUNNER_PROJECT_TIMEOUT_MS),
       "--suite-timeout",
       String(SUITE_TIMEOUT_MS),
       "--mutant-memory-mb",

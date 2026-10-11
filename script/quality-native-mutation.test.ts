@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mutationMain, normalizeMutation } from "./quality-native-mutation";
+import { JOB_TIMEOUT_MINUTES, MAX_BUDGET_MS, mutationMain, normalizeMutation, RUNNER_SETTLE_MS, RUNNER_TIMEOUT_MS, SETTLE_PROJECTS } from "./quality-native-mutation";
 import { decodeJson, digest, jsonObject } from "./quality-inventory";
 import { mutationFixture } from "./quality-mutation-fixture";
 
@@ -45,6 +45,9 @@ test("native pilot executes the real campaign without creating a full ratchet me
   ])).toBe(0);
   const result = jsonObject(decodeJson(readFileSync(join(input.root, "quality-mutation-results/native.json"), "utf8")));
   expect(result.command).toEqual(expect.arrayContaining(["--mutant-memory-mb", "7168"]));
+  // Without --budget-minutes the runner gets the whole deadline minus settle,
+  // and the per-project compiler timeout the settle is derived from.
+  expect(result.command).toEqual(expect.arrayContaining(["--budget", String(MAX_BUDGET_MS), "--timeout", "15000"]));
   const document = jsonObject(result.document);
   expect(document.full).toBe(false);
   expect(document.complete).toBe(true);
@@ -60,6 +63,19 @@ test("native pilot executes the real campaign without creating a full ratchet me
   );
 }, 90000);
 
+test("the settle window covers compiler-worker disposal for the real contract and fits the job", () => {
+  // Disposal waits one 15 s project timeout per contract project before its
+  // kill fallback; a contract that outgrows SETTLE_PROJECTS must raise it.
+  const contract = jsonObject(decodeJson(readFileSync(join(import.meta.dir, "conformance/quality-contract.json"), "utf8")));
+  const projects = contract.projects;
+  expect(Array.isArray(projects)).toBe(true);
+  expect(Array.isArray(projects) ? projects.length : Number.NaN).toBeLessThanOrEqual(SETTLE_PROJECTS);
+  expect(RUNNER_SETTLE_MS).toBeGreaterThanOrEqual(15_000 * SETTLE_PROJECTS + 15_000);
+  expect(MAX_BUDGET_MS + RUNNER_SETTLE_MS).toBe(RUNNER_TIMEOUT_MS);
+  expect(RUNNER_TIMEOUT_MS).toBeLessThan(JOB_TIMEOUT_MINUTES * 60_000);
+  expect(Math.floor(MAX_BUDGET_MS / 60_000)).toBe(340);
+});
+
 test("native full campaign records a complete measurement receipt and exits by survivor count", async () => {
   const input = await fixture("", "", {
     "src/a.test.ts": 'import "../support/assertion";',
@@ -67,9 +83,10 @@ test("native full campaign records a complete measurement receipt and exits by s
     "support/assertion.ts": 'import {test,expect} from "bun:test";import {run} from "../packages/demo/src/main";test("behavior",()=>expect(run).toBe(true));',
   });
   // Candidate ownership follows each project's root files, not an importer's.
-  expect(await mutationMain(prepareNative(input.root, true))).toBe(0);
+  // The advertised maximum budget is accepted and forwarded in milliseconds.
+  expect(await mutationMain([...prepareNative(input.root, true), "--budget-minutes", "340"])).toBe(0);
   const native = jsonObject(decodeJson(readFileSync(join(input.root, "quality-mutation-results/native.json"), "utf8")));
-  expect(native.command).toEqual(expect.arrayContaining(["--mutant-memory-mb", "6144"]));
+  expect(native.command).toEqual(expect.arrayContaining(["--mutant-memory-mb", "6144", "--budget", String(340 * 60_000)]));
   const document = jsonObject(native.document);
   expect(document.full).toBe(true);
   expect(document.complete).toBe(true);

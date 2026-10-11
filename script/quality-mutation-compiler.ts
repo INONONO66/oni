@@ -217,6 +217,10 @@ export type CompilerProcessReceipt = {
 export class MutationCompilerWorker {
   get identity(): string { return this.compilerIdentity; }
   get processReceipt(): CompilerProcessReceipt | undefined { return this.receipt; }
+  // True once the child has acknowledged initialization: a later request pays
+  // only its own deadline, the first one also pays the initialization deadline.
+  get initialized(): boolean { return this.initializationProof; }
+  private initializationProof = false;
   private readonly child: ChildProcessWithoutNullStreams;
   private ready: Promise<Response> | undefined;
   private pending: { resolve: (response: Response) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined;
@@ -299,6 +303,7 @@ export class MutationCompilerWorker {
     this.ready ??= this.send({ kind: "initialize", root: this.root, contract: this.contract, inventory: this.inventory, identity: this.compilerIdentity });
     const ready = await this.ready;
     if (ready.kind !== "ready") throw new Error("Missing compiler initialization proof");
+    this.initializationProof = true;
     const response = await this.send({ kind: "check", requests });
     if (response.kind !== "checked" || response.proofs.length !== requests.length || response.proofs.some((proof, index) => {
       const request = requests[index];

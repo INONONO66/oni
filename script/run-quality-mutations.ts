@@ -115,6 +115,7 @@ type Options = {
 	mutantMemoryBytes: number;
 	testRuntime: TestRuntime;
 	budget: number;
+	checkpointResults: number;
 	pilot: boolean;
 	failureOutput: string;
 	shard: { index: number; count: number; progress: string } | null;
@@ -812,7 +813,11 @@ function assignmentConsumer(node: ts.Node): ts.Node | undefined {
 			? parent
 			: undefined;
 	// `for ([a] of xs)` / `for ({ a } in o)`: the head pattern is consumed by
-	// the loop statement, so the probe becomes an entry marker on it.
+	// the loop statement, so the probe becomes an entry marker on it. The
+	// marker fires when the statement is entered even if the iterable is
+	// empty, so a pattern that is never bound still counts as reached: its
+	// mutant is executed and can only be reported survived, never hidden as
+	// noCoverage.
 	if ((ts.isForOfStatement(parent) || ts.isForInStatement(parent)) && parent.initializer === node) return parent;
 	if (
 		ts.isArrayLiteralExpression(parent) ||
@@ -862,8 +867,9 @@ function literalDiscriminantSwitch(node: ts.Node): ts.SwitchStatement | undefine
 	if (inner.kind !== ts.SyntaxKind.TrueKeyword && inner.kind !== ts.SyntaxKind.FalseKeyword) return undefined;
 	return ts.isSwitchStatement(node.parent) && node.parent.expression === node ? node.parent : undefined;
 }
+// Only for-of / for-in heads become statement probes (assignmentConsumer);
 // `continue label` needs its label on the loop itself, so the wrapping block
-// goes around the outermost label of an iteration statement.
+// goes around the outermost label of that loop statement.
 function statementBoundary(value: ts.Node): ts.Statement | undefined {
 	if (!ts.isForOfStatement(value) && !ts.isForInStatement(value)) return literalDiscriminantSwitch(value);
 	let statement: ts.Statement = value;
@@ -1813,6 +1819,7 @@ function optionsFrom(values: Map<string, string[]>, testRuntime: TestRuntime): O
 		mutantMemoryBytes: bound("mutant-memory-mb", 6144, 1048576) * 1024 * 1024,
 		testRuntime,
 		budget: bound("budget", 3600000, 604800000),
+		checkpointResults: bound("checkpoint-results", 8, 1000000),
 		failureOutput: values.get("--failure-output")?.[0] ?? "",
 		pilot,
 		shard,
@@ -1985,21 +1992,25 @@ function testRunDeadline(root: string, tests: string[], options: Options): numbe
 		total += Math.max(options.suiteTimeout, options.timeout * selected.length);
 	return total;
 }
-/** Longest wall-clock one candidate can hold before its outcome settles, so a
- * candidate is dispatched only when it can finish inside the budget and the
- * wrapper deadline never kills a run that honored its budget. A TypeScript
- * candidate without reach evidence settles without any child; a reached one
- * spends one compiler batch (the worker's per-request deadline) and one test
- * run; a Python candidate compiles in the engine, probes the original site
- * and runs the mutated tests. */
+// Worst-case wall clock of one candidate, summed from every deadline on its
+// path, so a candidate is dispatched only when it can settle inside the
+// budget and the wrapper deadline never kills a run that honored its budget.
+// A compiler request is bounded by one `--timeout` per contract project (the
+// worker's deadline), and the worker's first request also pays its
+// initialization under the same deadline. A Python candidate runs the compile
+// and probe workers (one `--timeout` each), one compiler request, the probe
+// test run and the mutant test run; a reached TS/JS candidate runs one compiler
+// request and one test run; an unreached one runs nothing.
 function candidateReserve(context: ExecutionContext, candidate: Candidate, tests: string[]): number {
-	const { options, contract, reachMap } = context;
+	const { options, contract, compilerWorker, reachMap } = context;
 	const python = candidate.operator.startsWith("py-");
 	if (!python && !reachMap.get(candidate.id)?.reached) return 0;
 	const testRun = testRunDeadline(options.root, tests, options);
+	const compilerRequest = options.timeout * Math.max(1, contract.projects.length);
+	const compiler = compilerWorker?.initialized ? compilerRequest : 2 * compilerRequest;
 	return python
-		? options.timeout + 2 * testRun
-		: options.timeout * Math.max(1, contract.projects.length) + testRun;
+		? 2 * options.timeout + compiler + 2 * testRun
+		: compiler + testRun;
 }
 function budgetAllows(context: ExecutionContext, candidate: Candidate, tests: string[]): boolean {
 	return Date.now() - context.started + candidateReserve(context, candidate, tests) <= context.options.budget;
@@ -2008,7 +2019,9 @@ type ExecutionContext = {
 	options: Options;
 	compilerWorker: MutationCompilerWorker | null;
 	contract: Contract;
+	inventory: Inventory;
 	temporary: string;
+	executionTreeSha256: string;
 	started: number;
 	enumerated: ReturnType<typeof enumerate>;
 	tests: string[];
@@ -2075,14 +2088,25 @@ function progressRows(parsed: (ObjectValue | null)[], inventoryHash: string): {
 } {
 	const proofs = new Map<string, ObjectValue>();
 	const recorded: ObjectValue[] = [];
+	// A result row is carried only when a later proof row of the same run
+	// attests that the original sources and the frozen execution copy were
+	// still intact after it settled. Rows after a run's last proof, and every
+	// row of a run that never proved, are re-executed; a proof never vouches
+	// for another run's rows. The last proof of each run is listed in the
+	// receipt (a completed run's final proof also attests cleanup).
+	let unproven: ObjectValue[] = [];
 	for (const row of parsed.slice(1)) {
 		if (row === null) return fail("progress", "Malformed progress row");
 		if (row.inventorySha256 !== inventoryHash)
 			return fail("progress", "Progress row inventory mismatch");
-		if (row.type === "proof" && row.originalHashesVerified === true && row.cleanupVerified === true)
-			proofs.set(text(row.run), row);
-		else if (row.type === "result") recorded.push(row);
+		if (row.type === "result") unproven.push(row);
 		else if (row.type !== "proof") return fail("progress", "Unrecognized progress row");
+		else if (row.originalHashesVerified === true) {
+			const run = text(row.run);
+			recorded.push(...unproven.filter((result) => result.run === run));
+			unproven = [];
+			proofs.set(run, row);
+		}
 	}
 	return { proofs, recorded };
 }
@@ -2132,9 +2156,8 @@ function loadShardProgress(options: Options): ShardProgress {
 			fail("progress", `Progress artifact does not match this shard (${key}: ${JSON.stringify(head[key])} != ${JSON.stringify(header[key])})`);
 	const { proofs, recorded } = progressRows(parsed, options.inventoryHash);
 	const carried = new Map<string, CarriedResult>();
-	// Every recorded row carries its own restoration proof (`restored`) and
-	// source digest, so a killed run's settled rows are carried like any other;
-	// the run-level proof line only feeds the receipt's carried-proof list.
+	// Each proven row also carries its own restoration proof (`restored`) and
+	// source digest; `carriedResult` re-checks both before the row is kept.
 	for (const row of recorded) carriedResult(row, carried);
 	return { carried, proofs: [...proofs.values()], run };
 }
@@ -2144,6 +2167,26 @@ function verifyCarried(progress: ShardProgress, slice: Candidate[]): void {
 		const candidate = byId.get(row.candidateId) ?? fail("progress", "Recorded result outside this shard slice");
 		if (candidate.sourceSha256 !== row.sourceSha256) fail("progress", "Recorded result source drift");
 	}
+}
+// A run-level proof attests that the original sources and the frozen
+// execution copy still match their pinned digests after the results settled
+// so far; `progressRows` carries a result row only when such a proof of the
+// same run follows it. The end-of-run proof written by `emitShardReceipt`
+// additionally attests cleanup.
+function proofCheckpoint(context: ExecutionContext, progress: ShardProgress, results: number): void {
+	const { options, inventory, temporary, executionTreeSha256 } = context;
+	const shard = options.shard ?? fail("arguments", "Shard proof requires shard options");
+	verifySources(options.root, inventory);
+	if (executionTreeHash(join(temporary, "frozen")) !== executionTreeSha256)
+		fail("tamper", "Frozen execution copy changed");
+	appendFileSync(shard.progress, progressLine({
+		type: "proof",
+		run: progress.run,
+		inventorySha256: options.inventoryHash,
+		executionTreeSha256,
+		originalHashesVerified: true,
+		results,
+	}));
 }
 async function executeShardSelection(
 	context: ExecutionContext,
@@ -2155,14 +2198,24 @@ async function executeShardSelection(
 	const pendingIds = new Set(pending.map((candidate) => candidate.id));
 	const executed: Result[] = [];
 	let budgetExhausted = false;
+	let deferred = 0;
 	let checked = new Map<string, CompilerCheck>();
 	for (const [index, candidate] of enumerated.candidates.entries()) {
 		if (errors.length) break;
 		if (!pendingIds.has(candidate.id)) continue;
 		const reached = reachMap.get(candidate.id)?.tests ?? tests;
 		if (!budgetAllows(context, candidate, reached)) {
+			// Deferred to the next run; a cheaper candidate later in the slice may
+			// still fit, so the loop continues instead of stopping here. The first
+			// deferral names elapsed, budget and reserve, and says when the reserve
+			// alone exceeds the budget: such a candidate is deferred by every run,
+			// so the shard cannot complete until the budget is raised.
+			const reserve = candidateReserve(context, candidate, reached);
+			if (!budgetExhausted)
+				console.error(`[mutation] shard ${shard.index}/${shard.count} budget exhausted after ${Date.now() - context.started} ms of ${options.budget} ms: deferring ${candidate.path}:${candidate.startOffset} ${candidate.operator} (reserve ${reserve} ms${reserve > options.budget ? " exceeds the whole budget" : ""})`);
 			budgetExhausted = true;
-			break;
+			deferred++;
+			continue;
 		}
 		console.error(`[mutation] shard ${shard.index}/${shard.count} mutant ${executed.length + 1}/${pending.length} start ${candidate.path}:${candidate.startOffset} ${candidate.operator}`);
 		if (compilerWorker && !candidate.operator.startsWith("py-") && reachMap.get(candidate.id)?.reached && !checked.has(candidate.id))
@@ -2172,7 +2225,10 @@ async function executeShardSelection(
 		appendFileSync(shard.progress, progressLine({ type: "result", run: progress.run, inventorySha256: options.inventoryHash, candidateId: candidate.id, result }));
 		executed.push(result);
 		console.error(`[mutation] shard ${shard.index}/${shard.count} mutant ${executed.length}/${pending.length} ${result.outcome}: ${result.reason}`);
+		if (executed.length % options.checkpointResults === 0) proofCheckpoint(context, progress, executed.length);
 	}
+	if (!errors.length && executed.length % options.checkpointResults !== 0) proofCheckpoint(context, progress, executed.length);
+	if (budgetExhausted) console.error(`[mutation] shard ${shard.index}/${shard.count} deferred ${deferred} of ${pending.length} pending candidates to the next run`);
 	return { executed, budgetExhausted };
 }
 function shardRows(slice: Candidate[], executed: Result[], carried: Map<string, CarriedResult>) {
@@ -2424,13 +2480,15 @@ function frozenCompilerInputs(options: Options) {
 }
 
 async function campaign(options: Options): Promise<number> {
+	// The budget clock starts before any work so that input pinning, canonical
+	// verification, snapshotting, analysis, baseline and reach all count.
+	const started = Date.now();
 	const { contract, inventory, operators } = frozenCompilerInputs(options);
 	const shardProgress = options.shard ? loadShardProgress(options) : null;
 	console.error("[mutation] verifying canonical inventory");
 	const canonical = await canonicalVerification(options);
 	verifySources(options.root, inventory);
 	const temporary = mkdtempSync(join(tmpdir(), "omo-quality-mutation-"));
-	const started = Date.now();
 	let cleanupVerified = false;
 	let compilerWorker: MutationCompilerWorker | null = null;
 	try {
@@ -2460,7 +2518,7 @@ async function campaign(options: Options): Promise<number> {
 		removeExecution(join(temporary, "reach"));
 		compilerWorker = errors.length || !executionRequired ? null : new MutationCompilerWorker(frozen, contract, inventory, executionTreeSha256, options.timeout * Math.max(1, contract.projects.length));
 		const executionContext: ExecutionContext = {
-			options, compilerWorker, contract, temporary, started, enumerated, tests, errors, reachMap: reach.map,
+			options, compilerWorker, contract, inventory, temporary, executionTreeSha256, started, enumerated, tests, errors, reachMap: reach.map,
 		};
 		const shardExecution = shardProgress
 			? await executeShardSelection(executionContext, pending, shardProgress)
