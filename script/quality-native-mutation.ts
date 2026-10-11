@@ -52,8 +52,11 @@ const CLEANUP_HEADROOM_MS = 60_000;
  * steps before the runner do not. */
 const RUNNER_SETTLE_MS =
   RUNNER_PROJECT_TIMEOUT_MS * SETTLE_PROJECTS + RUNNER_PROJECT_TIMEOUT_MS + CLEANUP_HEADROOM_MS;
-export const MAX_BUDGET_MS = RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS;
-const MAX_BUDGET_MINUTES = Math.floor(MAX_BUDGET_MS / 60_000);
+/** The largest `--budget-minutes` accepted and the omitted-flag default: the
+ * runner deadline minus settle, floored to whole minutes so the default is
+ * exactly the advertised maximum (an explicit maximum never gets less). */
+const MAX_BUDGET_MINUTES = Math.floor((RUNNER_TIMEOUT_MS - RUNNER_SETTLE_MS) / 60_000);
+export const MAX_BUDGET_MS = MAX_BUDGET_MINUTES * 60_000;
 
 export function normalizeMutation(value: Json, identity: Identity, root: string): Measurement {
   const row = completeDocument(value);
