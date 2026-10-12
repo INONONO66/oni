@@ -140,7 +140,6 @@ test("the chain fold: after rides the pending row, compactionHead is the execute
 
 import { Deferred, Effect, Fiber } from "effect";
 import { boundaryConsumption, DEFAULT_CONSUMPTION } from "../../../packages/agent/src/core/commit";
-import type { SessionRunner } from "../../../packages/agent/src/core/run";
 import { session } from "../../../packages/agent/src/testing/registry";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
@@ -152,6 +151,7 @@ import {
   withSessionServices,
   type SessionFixture,
 } from "../../../packages/agent/test/helpers/session-services";
+import { staleBoundaryRunner } from "./helpers/stale-boundary-runner";
 
 test("boundaryConsumption applies the stale split at every boundary", () => {
   const staleSteer = { ...row("a1", "action", 3), delivery: "steer" as const };
@@ -173,6 +173,22 @@ function fixture(): SessionFixture {
   };
 }
 
+function executedCompaction(sessionId: string, parentId: string | null, at: number) {
+  return {
+    id: "compaction-1",
+    parentId,
+    sessionId,
+    kind: "compaction" as const,
+    intent: { encodingVersion: 1 as const, value: { reason: "threshold" } },
+    effect: {
+      encodingVersion: 1 as const,
+      value: { phase: "result", terminal: "executed", result: { projection: [] } },
+    },
+    irreversible: true as const,
+    ts: at,
+  };
+}
+
 const bounded = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.timeout("2 seconds"));
 
 test("a stale action delivered DURING a turn closes via turn.consumed.stale at the live boundary; zero delivery", () =>
@@ -180,19 +196,12 @@ test("a stale action delivered DURING a turn closes via turn.consumed.stale at t
     Effect.gen(function* () {
       seedPolicy();
       const runtime = fixture();
+      const drained: string[][] = [];
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
-      const drained: string[][] = [];
-      const declare = (runner: SessionRunner) =>
-        withSessionServices(session({ id: "S", role: "resident", runner }, runtime), runtime);
-      const handle = yield* declare((input) =>
-        Effect.gen(function* () {
-          yield* Deferred.succeed(entered, undefined);
-          yield* Deferred.await(release);
-          const batch = yield* input.boundary("after_tools");
-          drained.push(batch.messages.map((message) => message.text));
-          return { kind: "result", text: "done" };
-        }),
+      const handle = yield* withSessionServices(
+        session({ id: "S", role: "resident", runner: staleBoundaryRunner(entered, release, drained) }, runtime),
+        runtime,
       );
       const kernel = isolatedLedger().kernel;
       // An EXECUTED compaction before the turn: the head every later cursor
@@ -212,21 +221,7 @@ test("a stale action delivered DURING a turn closes via turn.consumed.stale at t
               fence,
               now: 29,
               expectedRevision: current.revision,
-              actions: [
-                {
-                  id: "compaction-1",
-                  parentId: kernel.latestAction("S")?.id ?? null,
-                  sessionId: "S",
-                  kind: "compaction",
-                  intent: { encodingVersion: 1, value: { reason: "threshold" } },
-                  effect: {
-                    encodingVersion: 1,
-                    value: { phase: "result", terminal: "executed", result: { projection: [] } },
-                  },
-                  irreversible: true,
-                  ts: 29,
-                },
-              ],
+              actions: [executedCompaction("S", kernel.latestAction("S")?.id ?? null, 29)],
               state: current.state,
             }),
           ),
@@ -298,6 +293,19 @@ import { settleChild } from "../src/bundles/delegation-policy";
 const cluster = clusterTempDir("stale-entity-deliver-");
 afterAll(() => rmSync(cluster.dir, { recursive: true, force: true }));
 
+function materializeEntitySession(kernel: SessionKernel, sessionId: string, at: number) {
+  return kernel.materialize({
+    id: sessionId,
+    parentId: null,
+    role: "resident",
+    tools: [],
+    system: { preset: "", blocks: [] },
+    policyGeneration: 1,
+    actionId: `${sessionId}:materialize`,
+    at,
+  });
+}
+
 test("H-3(a): a stale late-hook action through the REAL entity deliver door closes via turn.consumed.stale at the run boundary", async () => {
   const sessionId = "stale-entity";
   const file = sessionFileFor(cluster.sessionsDir, sessionId);
@@ -311,16 +319,7 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
       const store = openSessionStore(file, { now });
       const kernel = FenceStore.createSessionKernel(store, catalog);
       seedPolicy([], catalog.policies);
-      yield* kernel.materialize({
-        id: sessionId,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${sessionId}:materialize`,
-        at: now(),
-      });
+      yield* materializeEntitySession(kernel, sessionId, now());
       catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: now() });
       // Rotate THROUGH the catalog so the entity's own activation rotation
       // (file fence CAS accepts only strictly newer) still wins later.
@@ -332,21 +331,7 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
         fence,
         now: now(),
         expectedRevision: kernel.row(sessionId).revision,
-        actions: [
-          {
-            id: "compaction-1",
-            parentId: kernel.latestAction(sessionId)?.id ?? null,
-            sessionId,
-            kind: "compaction",
-            intent: { encodingVersion: 1, value: { reason: "threshold" } },
-            effect: {
-              encodingVersion: 1,
-              value: { phase: "result", terminal: "executed", result: { projection: [] } },
-            },
-            irreversible: true,
-            ts: now(),
-          },
-        ],
+        actions: [executedCompaction(sessionId, kernel.latestAction(sessionId)?.id ?? null, now())],
         state: kernel.row(sessionId).state,
       });
       expect(kernel.compactionHead(sessionId)).toBeGreaterThan(1);
@@ -362,12 +347,12 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
   const resolveOnTerminal = () => {
     const db = new Database(file, { readonly: true });
     try {
-      const row = db
-        .query(
+      const committed = db
+        .query<{ id: string }, []>(
           "SELECT id FROM action WHERE kind = 'turn' AND json_extract(intent, '$.phase') = 'terminal' LIMIT 1",
         )
         .get();
-      if (row !== null) terminal.resolve();
+      if (committed !== null) terminal.resolve();
     } finally {
       db.close();
     }
@@ -393,7 +378,7 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
         return new Proxy(store, {
           get: (target, prop) => {
             if (prop === "sessions") return sessions;
-            const value = Reflect.get(target, prop, target);
+            const value: typeof store[keyof typeof store] = Reflect.get(target, prop, target);
             return typeof value === "function" ? value.bind(target) : value;
           },
         });
@@ -409,14 +394,7 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
       const scope = yield* Effect.scope;
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
-      const runner: SessionRunner = (input) =>
-        Effect.gen(function* () {
-          yield* Deferred.succeed(entered, undefined);
-          yield* Deferred.await(release);
-          const batch = yield* input.boundary("after_tools");
-          drained.push(batch.messages.map((message) => message.text));
-          return { kind: "result", text: "done" };
-        });
+      const runner = staleBoundaryRunner(entered, release, drained);
       // A read-plane kernel per session over the SAME files the entity owns:
       // services (policy compiler, generation capture) read through it; every
       // turn COMMIT rides the activation's own kernel and fence.
@@ -477,16 +455,13 @@ test("H-3(a): a stale late-hook action through the REAL entity deliver door clos
         "SELECT id, kind, intent FROM action ORDER BY ordinal ASC",
       )
       .all();
-    const deliveries = actions.filter(
-      (action) => (JSON.parse(action.intent) as { deliveryId?: string }).deliveryId === "stale-action",
-    );
-    expect(deliveries).toEqual([]);
+    expect(actions.some((action) =>
+      (JSON.parse(action.intent) as { deliveryId?: string }).deliveryId === "stale-action",
+    )).toBe(false);
     // ...it closed durably via the turn chain's consumedStale list...
-    const closures = actions
-      .filter((action) => action.kind === "turn")
-      .map((action) => (JSON.parse(action.intent) as { consumedStale?: string[] }).consumedStale)
-      .filter((value) => value !== undefined);
-    expect(closures).toContainEqual(["stale-action"]);
+    expect(actions.filter((action) => action.kind === "turn").map((action) =>
+      (JSON.parse(action.intent) as { consumedStale?: string[] }).consumedStale,
+    )).toContainEqual(["stale-action"]);
   } finally {
     db.close();
   }
