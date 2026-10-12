@@ -3,6 +3,10 @@ import { SessionTransition } from "@openomni/protocol";
 import { CauseText } from "../thrown";
 import type { ProcessSessionRequest } from "../process-entry";
 
+// Promise band (#1423): the `Bun.spawn` stdin/stdout byte streams force this transport onto
+// Promises; Effect takes over only inside the injected `answer` call, so no session state
+// or request resolution logic belongs here.
+
 /** The parent-side child-transport contract broke: an impostor answer or an abnormal exit. */
 class ProcessSessionError extends Error {
   constructor(message: string) {
