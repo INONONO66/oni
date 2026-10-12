@@ -14,6 +14,10 @@ import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../c
  * fully unwound — grant, route, and webhook — never left half-wired.
  */
 
+// Promise band (#1423): the channels driver `surface.start/stop` Promise contract forces
+// this supervisor onto Promises, `.then(() => undefined, ThrownError.parse)` is the typed
+// re-throw at that boundary (not a swallow), and Effect takes over inside `deps.desired`.
+
 /** One row the current declarations say should be running. */
 export interface DesiredChannelRow {
   readonly instanceId: string;
