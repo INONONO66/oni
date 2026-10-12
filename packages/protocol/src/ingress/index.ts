@@ -9,6 +9,7 @@ import {
 import { SessionTransition } from "../ledger/session-transition.js";
 import * as RouteRecord from "./route-record.js";
 import { Input as InputSchema } from "./input.js";
+import * as AutomationSchemas from "./automation.js";
 
 /**
  * #500 A6: every production-written actor key is declared (`runId` and
@@ -106,6 +107,17 @@ const MetaSchemaImpl = z
 export namespace Ingress {
   export const Input = InputSchema;
   export type Input = z.infer<typeof Input>;
+
+  export const WindowSeconds = AutomationSchemas.WindowSeconds;
+  export type WindowSeconds = z.infer<typeof WindowSeconds>;
+  export const Trigger = AutomationSchemas.Trigger;
+  export type Trigger = z.infer<typeof Trigger>;
+  export const Conditions = AutomationSchemas.Conditions;
+  export type Conditions = z.infer<typeof Conditions>;
+  export const Automation = AutomationSchemas.Automation;
+  export type Automation = z.infer<typeof Automation>;
+  export const TriggerContext = AutomationSchemas.TriggerContext;
+  export type TriggerContext = z.infer<typeof TriggerContext>;
 
   export const ActorSchema = ActorSchemaImpl;
   export type Actor = z.infer<typeof ActorSchema>;
