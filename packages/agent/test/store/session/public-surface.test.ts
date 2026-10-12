@@ -68,6 +68,7 @@ test("L0Write commits a fenced action chained from the genesis hash", () => {
         ],
         state: "idle",
       },
+      { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP },
       (error) => {
         throw error;
       },

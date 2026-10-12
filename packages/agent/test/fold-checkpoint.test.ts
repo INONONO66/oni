@@ -3,7 +3,14 @@ import { runAgentSync } from "./helpers/executor";
 import { expect, spyOn, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { sessionTree } from "./helpers/session-tree";
-import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, type LedgerAction, PlainValueSchema } from "@openomni/protocol";
+import {
+  canonicalDigest,
+  type CheckpointPolicy,
+  FoldCheckpoint,
+  type LedgerAction,
+  type PlainObject,
+  PlainValueSchema,
+} from "@openomni/protocol";
 import { createRunState } from "../src/core/turn";
 import { evaluateBudget } from "../src/core/budget";
 import { testBudget } from "./helpers/approval-policy";
@@ -120,11 +127,20 @@ function chargedTurnRows(sessionId: string, turnId: string): LedgerAction.Append
     id: string,
     kind: LedgerAction.Kind,
     parentId: string,
-    intent: Record<string, unknown>,
-    effect: Record<string, unknown>,
+    intent: PlainObject,
+    effect: PlainObject,
     ts: number,
   ): LedgerAction.Append =>
-    LedgerActionAppend({ id, sessionId, parentId, kind, ts, irreversible: true, intent: { encodingVersion: 1, value: intent }, effect: { encodingVersion: 1, value: effect } });
+    LedgerActionAppend({
+      id,
+      sessionId,
+      parentId,
+      kind,
+      ts,
+      irreversible: true,
+      intent: { encodingVersion: 1, value: intent },
+      effect: { encodingVersion: 1, value: effect },
+    });
   const llm = `${sessionId}:llm`;
   const tool = `${sessionId}:tool`;
   return [

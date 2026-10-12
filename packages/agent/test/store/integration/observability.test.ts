@@ -2,11 +2,13 @@ import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
 import { describe, expect, test } from "bun:test";
 import { LedgerAction, LedgerSession, type ObservationSink } from "@openomni/protocol";
-import { createActions } from "../../../src/core/store/session-file";
+import { createActions, L0Write } from "../../../src/core/store/session-file";
 import type { ObservationPublishFailure } from "../../../src/core/store/storage/sqlite-l0-observation";
 import { createSessions } from "../../../src/core/store/storage/sqlite-l0-sessions";
 import { runLedgerSync } from "../helpers/effect";
 import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
+
+const limits = { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP };
 
 const encoded = (value: string) => ({ encodingVersion: 1 as const, value: { value } });
 
@@ -83,6 +85,7 @@ describe("ledger-first observations", () => {
       (operation) => throwingDb.transaction(operation).immediate(),
       throwing,
       (failure) => routedFailures.push(failure),
+      limits,
     );
     const noopFailures: ObservationPublishFailure[] = [];
     const noopActions = createActions(
@@ -90,6 +93,7 @@ describe("ledger-first observations", () => {
       (operation) => noopDb.transaction(operation).immediate(),
       { publish: () => undefined },
       (failure) => noopFailures.push(failure),
+      limits,
     );
     const { adapter: throwingSessions } = observedL0Adapters(throwingDb);
     const { adapter: noopSessions } = observedL0Adapters(noopDb);
@@ -132,8 +136,8 @@ describe("ledger-first observations", () => {
       };
       using db = openLedgerDatabase();
       const transaction = <T,>(operation: () => T): T => db.transaction(operation).immediate();
-      const actions = createActions(db, transaction, throwing, port);
-      const sessions = createSessions(db, transaction, throwing, port);
+      const actions = createActions(db, transaction, throwing, port, limits);
+      const sessions = createSessions(db, transaction, throwing, port, limits);
 
       const materialized = runLedgerSync(
         sessions.materialize({

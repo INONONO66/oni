@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import { Journal, LedgerAction, type LedgerSession } from "@openomni/protocol";
-import { computeActionHash, GENESIS_PREV_HASH, storedActionRow } from "../action-hash.js";
+import { actionPayloadBytes, computeActionHash, GENESIS_PREV_HASH, storedActionRow } from "../action-hash.js";
 import { SessionSqlRow, decodeSession } from "./sqlite-l0-rows";
 import { CorruptRecord, SchemaRefused } from "../errors";
 import type { RefuseWrite } from "./write-effect";
@@ -43,21 +43,42 @@ export function selectSession(db: Database, id: string): LedgerSession.Row | und
   return row === undefined ? undefined : decodeSession(row);
 }
 
+/** Append-boundary limits of one session file, injected at open. */
+export interface AppendLimits {
+  /** Serialized payload bytes (`actionPayloadBytes`) one row may carry, checkpoint rows included. */
+  readonly rowByteCap: number;
+}
+
+/** Default row payload cap: 1 MiB. */
+export const DEFAULT_ROW_BYTE_CAP = 1024 * 1024;
+
 /**
  * Fail-closed write (#1252): every journal row body must satisfy its kind's
- * declared schema before anything touches the chain. `fold.checkpoint` is the
- * store-internal accelerator outside the declaration table and is exempt.
+ * declared schema and the row byte cap before anything touches the chain.
+ * `fold.checkpoint` is outside the declaration table (schema-exempt) but
+ * never outside the byte cap.
  */
-function refuseSchemaMismatch(action: LedgerAction.Append, refuse: RefuseWrite | undefined): void {
+function refuseRow(
+  action: LedgerAction.Append,
+  limits: AppendLimits,
+  refuse: RefuseWrite | undefined,
+): void {
   const declaration = Journal.declarationFor(action.kind);
-  if (declaration === undefined) return;
-  const body = declaration.schema.safeParse({ intent: action.intent, effect: action.effect });
-  if (body.success) return;
+  if (declaration !== undefined) {
+    const body = declaration.schema.safeParse({ intent: action.intent, effect: action.effect });
+    if (!body.success) {
+      throwRefusal(action, body.error.issues[0]?.message ?? "schema mismatch", refuse);
+    }
+  }
+  if (actionPayloadBytes(action) > limits.rowByteCap) throwRefusal(action, "row_bytes", refuse);
+}
+
+function throwRefusal(action: LedgerAction.Append, reason: string, refuse: RefuseWrite | undefined): never {
   const error = new SchemaRefused({
     sessionId: action.sessionId,
     actionId: action.id,
     kind: action.kind,
-    reason: body.error.issues[0]?.message ?? "schema mismatch",
+    reason,
   });
   if (refuse !== undefined) refuse(error);
   throw error;
@@ -131,15 +152,16 @@ export function appendAction(
   db: Database,
   action: LedgerAction.Append,
   expectedRevision: number,
+  limits: AppendLimits,
   refuse?: RefuseWrite,
 ): LedgerAction.Receipt | undefined {
   // #1252 fail-closed order (review r1 H2): the schema refusal runs BEFORE
   // the existence/parent checks, exactly as pre-#1314 — a duplicate-id (or
   // foreign-parent) action that is ALSO schema-mismatched throws the typed
   // `SchemaRefused`, never a silent `undefined`.
-  refuseSchemaMismatch(action, refuse);
+  refuseRow(action, limits, refuse);
   if (!validActionBatch(db, [action], action.sessionId)) return undefined;
-  return appendValidatedAction(db, action, expectedRevision, refuse);
+  return appendValidatedAction(db, action, expectedRevision, limits, refuse);
 }
 
 /**
@@ -151,9 +173,10 @@ function appendValidatedAction(
   db: Database,
   action: LedgerAction.Append,
   expectedRevision: number,
+  limits: AppendLimits,
   refuse?: RefuseWrite,
 ): LedgerAction.Receipt | undefined {
-  refuseSchemaMismatch(action, refuse);
+  refuseRow(action, limits, refuse);
   const revision = expectedRevision + 1;
   const updated = db
     .query(
@@ -210,6 +233,7 @@ function appendValidatedAction(
 export function commitSession(
   db: Database,
   request: LedgerSession.Commit,
+  limits: AppendLimits,
   refuse: RefuseWrite,
 ): LedgerSession.CommitResult | undefined {
   const current = selectSession(db, request.sessionId);
@@ -224,7 +248,7 @@ export function commitSession(
   let revision = current.revision;
   for (const action of request.actions) {
     // `validActionBatch` above already ran the existence and parent checks.
-    const receipt = appendValidatedAction(db, action, revision, refuse);
+    const receipt = appendValidatedAction(db, action, revision, limits, refuse);
     if (receipt === undefined) return refusedSessionCommit("revision", current);
     receipts.push(receipt);
     revision = receipt.revision;

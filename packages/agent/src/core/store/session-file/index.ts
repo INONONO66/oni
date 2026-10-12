@@ -29,7 +29,14 @@ import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import type { SessionWriteAdapter } from "../services";
 import { createSqliteDecisionFacts } from "../decision.js";
 import { ActionSqlRow, ActionSqlRowSafeIntegers, decodeAction } from "../storage/sqlite-l0-rows.js";
-import { appendAction, commitSession, insertSession, selectSession } from "../storage/sqlite-l0-write.js";
+import {
+  type AppendLimits,
+  appendAction,
+  commitSession,
+  DEFAULT_ROW_BYTE_CAP,
+  insertSession,
+  selectSession,
+} from "../storage/sqlite-l0-write.js";
 import { createSessions, materializeSession } from "../storage/sqlite-l0-sessions.js";
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
@@ -486,12 +493,13 @@ export function createActions(
   transaction: <T>(operation: () => T) => T,
   observationSink: ObservationSink,
   onObservationFailure: ObservationFailurePort,
+  limits: AppendLimits,
 ): ProtocolStorage.ActionSubAdapter {
   return {
     ...createActionReads(db, observationSink),
     append(input, expectedRevision) {
       const parsed = LedgerAction.Append.parse(input);
-      const receipt = transaction(() => appendAction(db, parsed, expectedRevision));
+      const receipt = transaction(() => appendAction(db, parsed, expectedRevision, limits));
       if (receipt !== undefined) reportCommitted(db, observationSink, onObservationFailure, receipt);
       return receipt;
     },
@@ -956,16 +964,19 @@ export class SessionStore extends StoreHandle {
   /** #1305: content-addressed tool output bytes of this session file. */
   readonly toolOutputs: ToolOutputsAdapter;
   private readonly onObservationFailure: ObservationFailurePort;
+  private readonly limits: AppendLimits;
   constructor(
     db: Database,
     observationSink: ObservationSink,
     now: () => number,
     onObservationFailure: ObservationFailurePort,
+    limits: AppendLimits,
   ) {
     super(db, observationSink, now);
     this.onObservationFailure = onObservationFailure;
-    this.sessions = createSessions(db, this.transaction, observationSink, onObservationFailure);
-    this.actions = createActions(db, this.transaction, observationSink, onObservationFailure);
+    this.limits = limits;
+    this.sessions = createSessions(db, this.transaction, observationSink, onObservationFailure, limits);
+    this.actions = createActions(db, this.transaction, observationSink, onObservationFailure, limits);
     this.decisionFacts = createSqliteDecisionFacts(db);
     const armed = createArmedAlarmPorts(db);
     this.armedAlarms = () => armed.armedAlarms();
@@ -983,12 +994,18 @@ export class SessionStore extends StoreHandle {
   fork(input: SessionForkWrite): Effect.Effect<SessionForkReceipt, LedgerError> {
     return writeEffect("session.fork", (refuse: RefuseWrite) =>
       this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
-        const created = materializeSession(this.db, materialize, refuse);
+        const created = materializeSession(this.db, materialize, this.limits, refuse);
         if (!created.created)
           return refuse(new MaterializeRefused({ sessionId: materialize.row.id, reason: "state" }));
         let receipt = created.receipt;
         for (const copy of input.copies) {
-          const appended = appendAction(this.db, LedgerAction.Append.parse(copy), receipt.revision, refuse);
+          const appended = appendAction(
+            this.db,
+            LedgerAction.Append.parse(copy),
+            receipt.revision,
+            this.limits,
+            refuse,
+          );
           if (appended === undefined)
             return refuse(new CorruptRecord({ operation: "session.fork", id: copy.id }));
           receipt = appended;
@@ -1008,7 +1025,7 @@ export class SessionStore extends StoreHandle {
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
       const created = this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
-        const result = materializeSession(this.db, materialize, refuse);
+        const result = materializeSession(this.db, materialize, this.limits, refuse);
         return result.created
           ? result
           : refuse(new CreateRefused({ sessionId: materialize.row.id, reason: "duplicate" }));
@@ -1102,6 +1119,8 @@ interface OpenSessionStoreOptions {
   readonly now: () => number;
   readonly observationSink?: ObservationSink;
   readonly onObservationFailure?: ObservationFailurePort;
+  /** Row payload cap at the append boundary; defaults to `DEFAULT_ROW_BYTE_CAP`. */
+  readonly rowByteCap?: number;
 }
 
 export function openSessionStore(path: string, options: OpenSessionStoreOptions): SessionStore {
@@ -1110,6 +1129,7 @@ export function openSessionStore(path: string, options: OpenSessionStoreOptions)
     options.observationSink ?? SILENT_OBSERVATION_SINK,
     options.now,
     options.onObservationFailure ?? DROP_OBSERVATION_FAILURES,
+    { rowByteCap: options.rowByteCap ?? DEFAULT_ROW_BYTE_CAP },
   );
 }
 
@@ -1120,5 +1140,6 @@ export const L0Write = {
   insertSession,
   selectSession,
   GENESIS_PREV_HASH,
+  DEFAULT_ROW_BYTE_CAP,
   computeActionHash,
 } as const;

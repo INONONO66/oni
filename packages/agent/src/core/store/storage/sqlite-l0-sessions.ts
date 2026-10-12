@@ -10,6 +10,7 @@ import {
 import type { SessionWriteAdapter } from "../services";
 import { type SessionSqlRow, decodeSession } from "./sqlite-l0-rows.js";
 import {
+  type AppendLimits,
   sessionSelect,
   insertSession,
   selectSession,
@@ -22,6 +23,7 @@ import { writeEffect, type RefuseWrite } from "./write-effect";
 export function materializeSession(
   db: Database,
   parsed: LedgerSession.Materialize,
+  limits: AppendLimits,
   refuse: RefuseWrite,
 ): LedgerSession.MaterializeResult {
   if (
@@ -37,7 +39,7 @@ export function materializeSession(
       return refuse(new MaterializeRefused({ sessionId: parsed.row.id, reason: "state" }));
     return { created: false, row: existing };
   }
-  const receipt = appendAction(db, parsed.initialAction, 0, refuse);
+  const receipt = appendAction(db, parsed.initialAction, 0, limits, refuse);
   if (receipt === undefined)
     return refuse(new MaterializeRefused({ sessionId: parsed.row.id, reason: "configuration" }));
   const row = selectSession(db, parsed.row.id);
@@ -87,6 +89,7 @@ export function createSessions(
   transaction: <T>(operation: () => T) => T,
   observationSink: ObservationSink,
   onObservationFailure: ObservationFailurePort,
+  limits: AppendLimits,
 ): SessionWriteAdapter {
   return {
     create: (row) =>
@@ -96,7 +99,7 @@ export function createSessions(
     materialize: (input) =>
       writeEffect("session.materialize", (refuse) => {
         const result = transaction(() =>
-          materializeSession(db, LedgerSession.Materialize.parse(input), refuse),
+          materializeSession(db, LedgerSession.Materialize.parse(input), limits, refuse),
         );
         if (result.created)
           reportCommitted(db, observationSink, onObservationFailure, result.receipt);
@@ -120,7 +123,7 @@ export function createSessions(
       writeEffect("session.commit", (refuse) => {
         const outcome = transaction(() => {
           const request = LedgerSession.Commit.parse(input);
-          const result = commitSession(db, request, refuse);
+          const result = commitSession(db, request, limits, refuse);
           if (result === undefined)
             return refuse(new SessionNotFound({ sessionId: request.sessionId }));
           if (!result.ok)

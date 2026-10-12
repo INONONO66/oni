@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { L0Observation, type ObservationSink, type Storage } from "@openomni/protocol";
 import { bootstrapStoreDatabase } from "../../../src/core/store/session-file";
 import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
-import { createActions } from "../../../src/core/store/session-file";
+import { createActions, L0Write } from "../../../src/core/store/session-file";
 import type { ObservationPublishFailure } from "../../../src/core/store/storage/sqlite-l0-observation";
 import { createSessions } from "../../../src/core/store/storage/sqlite-l0-sessions";
 import type { SessionWriteAdapter } from "../../../src/core/store/services";
@@ -35,6 +35,7 @@ export function observedL0Adapters(db: Database): {
     failures.push(failure);
   };
   const transaction = <T>(operation: () => T): T => db.transaction(operation).immediate();
+  const limits = { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP };
   const sink: ObservationSink = {
     publish(event, payload) {
       if (event.name === L0Observation.ActionCommittedEvent.name)
@@ -43,8 +44,8 @@ export function observedL0Adapters(db: Database): {
   };
   return {
     adapter: {
-      sessions: createSessions(db, transaction, sink, report),
-      actions: createActions(db, transaction, sink, report),
+      sessions: createSessions(db, transaction, sink, report, limits),
+      actions: createActions(db, transaction, sink, report, limits),
     },
     observations,
     failures,
