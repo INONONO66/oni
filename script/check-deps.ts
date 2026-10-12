@@ -1004,10 +1004,23 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
 
 // #1343: app-owned direct ledger and entity/SQLite assembly references are
 // pinned at today's call sites. The import perimeter above is independent.
+export class AppResponsibilityBaselineRefused extends Error {
+  readonly code = "baseline_invalid";
+  constructor(reason: "missing" | "malformed") {
+    super(`BASELINE_REFUSED: app-agent-responsibility ${reason}`);
+  }
+}
+
 export function loadAppResponsibilityPins(root = "."): ReadonlyMap<string, number> {
   const path = join(root, "script/conformance/app-agent-responsibility.json");
-  const value = z.object({ files: z.record(z.string(), z.number().int().nonnegative().finite()) }).strict()
-    .parse(JSON.parse(readFileSync(path, "utf8")));
+  let text: string;
+  try { text = readFileSync(path, "utf8"); }
+  catch { throw new AppResponsibilityBaselineRefused("missing"); }
+  let value: { files: Record<string, number> };
+  try {
+    value = z.object({ files: z.record(z.string(), z.number().int().nonnegative().finite()) }).strict()
+      .parse(JSON.parse(text));
+  } catch { throw new AppResponsibilityBaselineRefused("malformed"); }
   return new Map(Object.entries(value.files));
 }
 

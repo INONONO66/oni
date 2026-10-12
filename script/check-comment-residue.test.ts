@@ -1,12 +1,28 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { baselineFor, classifyResidue, residueViolations, trackedAgentFiles, updateResidueBaseline } from "./check-comment-residue";
+import { baselineFor, classifyResidue, loadResidueBaseline, parseResidueBaseline, ResidueBaselineRefused, residueViolations, trackedAgentFiles, updateResidueBaseline } from "./check-comment-residue";
 
 const a = "packages/agent/src/core/a.ts";
 const b = "packages/agent/src/core/b.ts";
 const original = { [a]: "// see #1234\n// ─── migrated ───\nexport const a = 1;\n", [b]: "export const b = 2;\n" };
 const pin = baselineFor(original);
+
+test("missing and malformed comment baselines refuse with typed exact diagnostics", () => {
+  expect(() => parseResidueBaseline({ ...pin, commentLines: Number.NaN })).toThrow(/^BASELINE_REFUSED: comment-residue malformed$/);
+  expect(() => parseResidueBaseline({ files: pin.files, commentLines: pin.commentLines, nonblankLines: pin.nonblankLines })).toThrow(/^BASELINE_REFUSED: comment-residue malformed$/);
+  expect(() => parseResidueBaseline({ files: pin.files, commentLines: pin.commentLines, nonblankLines: pin.nonblankLines })).toThrow(/^BASELINE_REFUSED: comment-residue malformed$/);
+  expect(() => residueViolations(original, { ...pin, longJsdoc: Number.NaN })).toThrow(ResidueBaselineRefused);
+  expect(() => parseResidueBaseline({ ...pin, nonblankLines: 0 })).toThrow(/^BASELINE_REFUSED: comment-residue malformed$/);
+  const dir = mkdtempSync(join(tmpdir(), "residue-baseline-"));
+  try {
+    const path = join(dir, "pins.json");
+    expect(() => loadResidueBaseline(path)).toThrow(/^BASELINE_REFUSED: comment-residue missing$/);
+    writeFileSync(path, "{broken");
+    expect(() => loadResidueBaseline(path)).toThrow(/^BASELINE_REFUSED: comment-residue malformed$/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("the committed pin set covers every tracked production file, including src roots", () => {
   const committed = JSON.parse(readFileSync(join(import.meta.dir, "conformance/comment-residue-pins.json"), "utf8")) as ReturnType<typeof baselineFor>;

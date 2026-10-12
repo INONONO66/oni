@@ -13,9 +13,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AGENT_PLUGINS,
+  AppResponsibilityBaselineRefused,
   agentBandViolations,
   appsAgentInternalViolations,
   appAgentResponsibilityCount,
+  loadAppResponsibilityPins,
   validateAppAgentResponsibilities,
   validateAgentBands,
 } from "./check-deps";
@@ -169,6 +171,18 @@ test("#1276 check b legal edges: core/api.ts, protocol and plugin-internal impor
 });
 
 // ─── check (c): apps -> agent internals banned ───
+
+test("#1343: app baseline missing or malformed refuses with typed diagnostics", () => {
+  const root = mkdtempSync(join(tmpdir(), "app-baseline-"));
+  try {
+    expect(() => loadAppResponsibilityPins(root)).toThrow(/^BASELINE_REFUSED: app-agent-responsibility missing$/);
+    const path = join(root, "script/conformance/app-agent-responsibility.json");
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, '{"files":{"apps/openomni/src/index.ts":-1}}');
+    expect(() => loadAppResponsibilityPins(root)).toThrow(AppResponsibilityBaselineRefused);
+    expect(() => loadAppResponsibilityPins(root)).toThrow(/^BASELINE_REFUSED: app-agent-responsibility malformed$/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("#1343: code references count; comment, string and template prose do not", () => {
   expect(appAgentResponsibilityCount(`// kernel.commit and SingleRunner.layer

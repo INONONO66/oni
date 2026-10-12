@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
+import { z } from "zod";
 
 // JSDoc length spans the /** opener through the */ closer, inclusive.
 // A block exceeds six lines when that inclusive span is greater than six.
@@ -23,6 +24,35 @@ export interface ResidueActual extends ResiduePin {
   commentLines: number;
   nonblankLines: number;
   longJsdoc: number;
+}
+
+const nonnegative = z.number().int().nonnegative().finite();
+const ResidueBaselineSchema = z.object({
+  files: z.record(z.string(), z.object({ issues: nonnegative, dividers: nonnegative }).strict()),
+  commentLines: nonnegative,
+  nonblankLines: z.number().int().positive().finite(),
+  longJsdoc: nonnegative,
+}).strict();
+
+export class ResidueBaselineRefused extends Error {
+  readonly code = "baseline_invalid";
+  constructor(reason: "missing" | "malformed") {
+    super(`BASELINE_REFUSED: comment-residue ${reason}`);
+  }
+}
+
+export function parseResidueBaseline(value: object): ResidueBaseline {
+  const parsed = ResidueBaselineSchema.safeParse(value);
+  if (!parsed.success) throw new ResidueBaselineRefused("malformed");
+  return parsed.data;
+}
+
+export function loadResidueBaseline(path = PIN_PATH): ResidueBaseline {
+  let text: string;
+  try { text = readFileSync(path, "utf8"); }
+  catch { throw new ResidueBaselineRefused("missing"); }
+  try { return parseResidueBaseline(JSON.parse(text)); }
+  catch { throw new ResidueBaselineRefused("malformed"); }
 }
 
 // These exact, navigational section markers are structural, rather than
@@ -118,11 +148,12 @@ export function measureResidue(files: Readonly<Record<string, string>>): { files
 
 /** Exact per-file pins: both growth and unrecorded cleanup fail closed. */
 export function residueViolations(files: Readonly<Record<string, string>>, baseline: ResidueBaseline): string[] {
+  const validated = parseResidueBaseline(baseline);
   const actual = measureResidue(files);
   const violations: string[] = [];
   for (const path of Object.keys(actual.files).sort()) {
     const count = actual.files[path];
-    const pin = baseline.files[path];
+    const pin = validated.files[path];
     if (!pin) {
       violations.push(`${path}: unpinned source file`);
       continue;
@@ -132,14 +163,14 @@ export function residueViolations(files: Readonly<Record<string, string>>, basel
       if (count[key] !== pin[key]) violations.push(`${path}: ${key} actual ${count[key]}, pin ${pin[key]} (${count[key] > pin[key] ? "growth" : "stale pin"})`);
     }
   }
-  for (const path of Object.keys(baseline.files).sort()) {
+  for (const path of Object.keys(validated.files).sort()) {
     if (!(path in actual.files)) violations.push(`${path}: pin has no source file`);
   }
   // Cross-multiply to avoid a rounded percentage admitting growth.
-  if (actual.commentLines * baseline.nonblankLines > baseline.commentLines * actual.nonblankLines) {
-    violations.push(`comment ratio actual ${actual.commentLines}/${actual.nonblankLines}, ceiling ${baseline.commentLines}/${baseline.nonblankLines}`);
+  if (actual.commentLines * validated.nonblankLines > validated.commentLines * actual.nonblankLines) {
+    violations.push(`comment ratio actual ${actual.commentLines}/${actual.nonblankLines}, ceiling ${validated.commentLines}/${validated.nonblankLines}`);
   }
-  if (actual.longJsdoc > baseline.longJsdoc) violations.push(`long JSDoc blocks actual ${actual.longJsdoc}, ceiling ${baseline.longJsdoc}`);
+  if (actual.longJsdoc > validated.longJsdoc) violations.push(`long JSDoc blocks actual ${actual.longJsdoc}, ceiling ${validated.longJsdoc}`);
   return violations;
 }
 
@@ -161,24 +192,25 @@ export function baselineFor(files: Readonly<Record<string, string>>): ResidueBas
 
 /** Regenerate only after cleanup; an accidental increase cannot be blessed. */
 export function updateResidueBaseline(files: Readonly<Record<string, string>>, previous: ResidueBaseline): ResidueBaseline {
+  const oldBaseline = parseResidueBaseline(previous);
   const next = baselineFor(files);
   for (const [path, count] of Object.entries(next.files)) {
-    const old = previous.files[path] ?? { issues: 0, dividers: 0 };
+    const old = oldBaseline.files[path] ?? { issues: 0, dividers: 0 };
     for (const key of ["issues", "dividers"] as const) {
       if (count[key] > old[key]) throw new Error(`UPDATE_REFUSED: ${path} ${key} ${count[key]} > ${old[key]}`);
     }
   }
-  if (next.commentLines > previous.commentLines ||
-      next.commentLines * previous.nonblankLines > previous.commentLines * next.nonblankLines) {
-    throw new Error(`UPDATE_REFUSED: comment ratio ${next.commentLines}/${next.nonblankLines} exceeds ${previous.commentLines}/${previous.nonblankLines}`);
+  if (next.commentLines > oldBaseline.commentLines ||
+      next.commentLines * oldBaseline.nonblankLines > oldBaseline.commentLines * next.nonblankLines) {
+    throw new Error(`UPDATE_REFUSED: comment ratio ${next.commentLines}/${next.nonblankLines} exceeds ${oldBaseline.commentLines}/${oldBaseline.nonblankLines}`);
   }
-  if (next.longJsdoc > previous.longJsdoc) throw new Error(`UPDATE_REFUSED: long JSDoc ${next.longJsdoc} > ${previous.longJsdoc}`);
+  if (next.longJsdoc > oldBaseline.longJsdoc) throw new Error(`UPDATE_REFUSED: long JSDoc ${next.longJsdoc} > ${oldBaseline.longJsdoc}`);
   return next;
 }
 
 if (import.meta.main) {
   const files = trackedAgentFiles();
-  const previous = JSON.parse(readFileSync(PIN_PATH, "utf8")) as ResidueBaseline;
+  const previous = loadResidueBaseline();
   if (process.argv.slice(2).includes("--update")) {
     const baseline = updateResidueBaseline(files, previous);
     writeFileSync(PIN_PATH, `${JSON.stringify(baseline, null, 2)}\n`);
