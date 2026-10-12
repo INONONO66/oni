@@ -49,7 +49,7 @@ export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, t
 
 // ─── journal/store surface (formerly the Journal namespace, #1276) ───
 export {
-  openCatalogStore, CATALOG_SCHEMA, bootstrapStoreDatabase, openSessionStore,
+  CATALOG_SCHEMA, bootstrapStoreDatabase,
   readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION,
   createDecisionFactPort, SessionHandleStore,
   CommitRefused, CorruptRecord, requireSubAdapter, withStoreTimestamps,

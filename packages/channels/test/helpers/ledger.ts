@@ -1,8 +1,7 @@
 import { Core } from "@openomni/agent";
-const openCatalogStore = Core.openCatalogStore;
-const openSessionStore = Core.openSessionStore;
 type LedgerError = Core.LedgerError;
 import { Effect } from "effect";
+import { basename, dirname } from "node:path";
 import type { Delivery, LedgerAction, Storage as ProtocolStorage } from "@openomni/protocol";
 import { createChannelStores, type ChannelStores } from "../../src/router/stores";
 import { openChannelStore, type ChannelStore } from "../../src/store/sqlite/index.js";
@@ -16,16 +15,18 @@ import { runEffect } from "./effect";
  * and chains are reachable from `ledger().kernel`.
  */
 export interface TestLedger {
-  readonly catalog: ReturnType<typeof openCatalogStore>;
+  readonly catalog: Core.LedgerPlane["catalog"];
   /** Channels-owned adapters (#1317) attached to the catalog's database handle. */
   readonly channel: ChannelStore;
-  readonly sessions: ReturnType<typeof openSessionStore>;
+  readonly sessions: ReturnType<Core.LedgerPlane["sessionStore"]>;
   readonly kernel: Core.SessionHandleStore.SessionKernel;
   readonly stores: ChannelStores;
   /** Swaps only the decision-fact seam, live, for routers already built over this plane. */
   readonly setDecisionFacts: (
     facts: ProtocolStorage.DecisionFactSubAdapter | undefined,
   ) => void;
+  /** Closes the shared session store and the catalog. */
+  readonly close: () => void;
 }
 
 export interface TestLedgerPaths {
@@ -34,10 +35,17 @@ export interface TestLedgerPaths {
 }
 
 function createTestLedger(paths?: TestLedgerPaths): TestLedger {
-  const catalog = openCatalogStore(paths?.catalog ?? ":memory:", { now: () => 1 });
+  // One shared session store under one key: the host plane maps `dir` + key
+  // back to exactly `paths.sessions` (or one in-memory store).
+  const key = paths === undefined ? "channels-fixture" : basename(paths.sessions, ".sqlite");
+  const plane = Core.openLedgerPlane({
+    now: () => 1,
+    ...(paths === undefined ? {} : { catalog: { path: paths.catalog }, sessions: { dir: dirname(paths.sessions) } }),
+  });
+  const catalog = plane.catalog;
   const channel = openChannelStore(catalog.database, () => 1);
-  const sessions = openSessionStore(paths?.sessions ?? ":memory:", { now: () => 1 });
-  const kernel = Core.SessionHandleStore.createSessionKernel(sessions, catalog);
+  const sessions = plane.sessionStore(key);
+  const kernel = plane.openKernel(key);
   const seam: { facts: ProtocolStorage.DecisionFactSubAdapter | undefined } = {
     facts: sessions.decisionFacts,
   };
@@ -63,6 +71,7 @@ function createTestLedger(paths?: TestLedgerPaths): TestLedger {
     setDecisionFacts: (facts) => {
       seam.facts = facts;
     },
+    close: () => plane.close(),
   };
 }
 
@@ -74,8 +83,7 @@ export function ledger(): TestLedger {
 }
 
 export function resetLedger(paths?: TestLedgerPaths): TestLedger {
-  current.plane.sessions.close();
-  current.plane.catalog.close();
+  current.plane.close();
   current.plane = createTestLedger(paths);
   return current.plane;
 }
