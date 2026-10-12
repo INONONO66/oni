@@ -4,6 +4,7 @@ import type { PolicyEvaluationInput } from "@openomni/agent";
 import type {
   BusEvent,
   Gateway,
+  Ingress,
   Delivery,
   LedgerAction,
   PlainValue,
@@ -56,19 +57,13 @@ type RequestOpenInput = Pick<
 
 interface MessagingGrantSources {
   readonly grants: () => readonly Gateway.SenderTargetGrant[];
-  /** Absence disables egress budgeting; an empty source instead applies the fail-closed default. */
   readonly budgets?: () => readonly Gateway.SocialBudget[];
 }
 
 export interface GatewayRouterPorts {
-  /**
-   * The composition-bound store plane (W5.2 F1). Absent, the router keeps
-   * every store's fail-closed unconfigured posture.
-   */
   readonly stores?: import("./stores.js").ChannelStores;
-  /** The app edge executes this synchronous ledger unit without an asynchronous escape. */
   readonly transaction: <A>(operation: Effect.Effect<A, ChannelError>) => Effect.Effect<A, ChannelError>;
-  /** Authenticate explicit Owner evidence; never infer it from driver trust fields. */
+  readonly judge?: (question: string, event: Ingress.Input) => Effect.Effect<"yes" | "no" | "unknown", ChannelError>;
   readonly authenticateAnswer?: (
     sender: Gateway.IngestSender & { kind: "external" },
     credential: string,
@@ -86,7 +81,6 @@ export interface GatewayRouterPorts {
     observation: Gateway.MessageObservation,
   ) => void;
   readonly delivery: { readonly commit: (input: Delivery.Commit) => Effect.Effect<Delivery.Row, ChannelError> };
-  /** L1 supplies authenticated facts; the gateway never reads session state. */
   readonly prepare: (
     sender: Gateway.IngestSender,
     message: Gateway.SendMessage,
@@ -99,9 +93,7 @@ export interface GatewayRouterPorts {
     body: (intent: LedgerAction.Receipt) => Effect.Effect<PlainValue, ChannelError>,
   ) => Effect.Effect<MessageExecutionResult, ChannelError>;
   readonly committed?: (row: Delivery.Row) => void;
-  /** Injected wall clock; the router never reads ambient time. */
   readonly now: () => number;
-  /** Injected id minter; the router never reads ambient entropy. */
   readonly id: () => string;
   readonly messaging?: MessagingGrantSources & {
     readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
