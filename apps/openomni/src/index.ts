@@ -30,8 +30,7 @@ type SessionHandle = Core.SessionHandle;
 type SessionRuntime = Core.SessionRuntime;
 const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
-const CommitRefused = Core.CommitRefused;
-import { canonicalJson, SessionGeneration, SessionTransition, type LedgerAction, type PlainValue } from "@openomni/protocol";
+import { canonicalJson, SessionGeneration, SessionTransition, type PlainValue } from "@openomni/protocol";
 import {
   type ChannelDeliveryRoute,
   type GatewayRouter,
@@ -81,7 +80,7 @@ import {
 import { createCompletionPort } from "./composition/completion";
 import { processEntryPath } from "./process-entry-path";
 import { createProcessSessionTransport } from "./composition/process-session";
-import { createMessageDeliveryCommit, prepareMessage } from "./composition/message-session";
+import { commitDeliverPayload, createMessageDeliveryCommit, prepareMessage } from "./composition/message-session";
 import { dispatchOutboundMessage } from "./composition/terminal-message";
 import {
   DELEGATION_DEADLINE,
@@ -437,7 +436,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
       listSessions: plane.listSessions,
       dispatchOutbound: dispatchOutboundMessage(
         (...args) => messages.ingest(...args),
-        services.now,
         plane.openKernel,
       ),
       requestDomainRevisions: domainRevisions,
@@ -801,6 +799,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const processSessions = createProcessSessionTransport({
       answer: (answer) =>
         runAppEffect(runtime, requests.answer({ ...answer, receivedAt: services.now() })),
+      // #1346: a process child's deliveries are admitted here, through the
+      // destination's Session entity; the child never writes another chain.
+      deliver: (input) => runAppEffect(runtime, commitProcessDelivery(input.commit, input.deliver)),
       command: [process.execPath, processEntryPath(import.meta.url)],
       child: {
         ...resolveClusterStorage(config),
@@ -838,11 +839,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
       if (sessionRunner(id) !== "process") return Promise.resolve();
       return processSessions.wake(id).catch((error: Error) => incident("process session wake failed", error));
     };
-    const commitDelivery = createMessageDeliveryCommit({
-      plane,
-      client: entityClient,
-      clock: services.now,
-    });
+    const deliveryDeps = { plane, client: entityClient, clock: services.now };
+    const commitDelivery = createMessageDeliveryCommit(deliveryDeps);
+    const commitProcessDelivery = commitDeliverPayload(deliveryDeps);
     // Deadline-carrying requests arm one persisted DeliverAt alarm occurrence
     // on the owning session; the chain fold decides applied-versus-stale at
     // delivery (#1253).
@@ -893,7 +892,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
             commit: (input) =>
               commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
           },
-          prepare: prepareMessage(plane, resident.materialize),
+          prepare: prepareMessage(plane, resident.genesis),
           requests: requestsWithDeadlines,
           stores: createChannelStores(channelStoreSource(plane, services.now)),
           authenticateAnswer: (_sender, credential, requestId) =>
@@ -1104,10 +1103,12 @@ export async function startOpenOmni(options: StartOptions = {}) {
     );
     /**
      * The live-turn facade (replaces the deleted registry handle): approvals
-     * and interrupts reach the turn running inside the entity's delivering
-     * RPC through the composition's live plane; configuration commits ride
-     * the activation's borrowed authority. Only live turns have a handle -
-     * a hibernated entity session answers through the entity client instead.
+     * reach the turn running inside the entity's delivering RPC through the
+     * composition's live plane and interrupts ride the entity's `Deliver`
+     * door (#1346); only the `tools.add` configure commit still rides the
+     * activation's borrowed authority (the one allow-listed app commit). Only
+     * live turns have a handle - a hibernated entity session answers through
+     * the entity client instead.
      */
     const borrowedAuthority = (id: string) => {
       const kernel = plane.openKernel(id);
@@ -1157,40 +1158,27 @@ export async function startOpenOmni(options: StartOptions = {}) {
             if (entry === undefined) return;
             // The durable interrupt row first (cancellation is chain evidence),
             // then the turn's own boundary drain consumes it and aborts the wave.
-            const attempt = () =>
-              Effect.suspend(() => {
-                const { kernel, row, owner, fence } = borrowedAuthority(id);
-                // #1252: an interrupt admission is a control `signal` row built
-                // by the core received-message constructor, like every other
-                // control admission.
-                const received: LedgerAction.Append = Core.receivedMessageAction({
-                  id: services.entropy.id(),
-                  sessionId: id,
-                  kind: "interrupt",
-                  content: "",
-                  origin: { encodingVersion: 1, value: { kind: "session", id } },
-                  parentActionId: kernel.latestAction(id)?.id ?? null,
-                  at: services.now(),
-                });
-                return kernel.commit({
-                  sessionId: id,
-                  owner,
-                  fence,
-                  now: services.now(),
-                  expectedRevision: row.revision,
-                  actions: [received],
-                  state: row.state === "running" ? "interrupted" : row.state,
-                });
-              });
-            yield* attempt().pipe(
-              Effect.catchIf(
-                (error) => error instanceof CommitRefused && error.reason === "revision",
-                () => attempt(),
-              ),
-              Effect.mapError(
-                foreignFailure((fields) => new AgentFailure(fields), "session.interrupt"),
-              ),
-            );
+            // #1346: the row lands through the session's one `Deliver` door as
+            // a control `signal`; the entity's single writer owns the revision
+            // CAS, so the app neither borrows the fence nor retries a commit.
+            yield* entityClient(id)
+              .Deliver({
+                kind: "signal",
+                body: JSON.stringify({ content: "", control: "interrupt" }),
+                source: JSON.stringify({ kind: "session", id }),
+                idempotencyKey: services.entropy.id(),
+              })
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new AgentFailure({
+                      operation: "session.interrupt",
+                      cause: error._tag === "DeliverRefused" || error._tag === "AdmissionFailure"
+                        ? `${error._tag}:${error.code}`
+                        : String(error),
+                    }),
+                ),
+              );
             yield* entry.boundary("before_llm");
           }),
         tools: {

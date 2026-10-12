@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { SessionTransition } from "@openomni/protocol";
+import { Delivery, SessionTransition } from "@openomni/protocol";
 import { CauseText } from "../thrown";
-import type { ProcessSessionRequest } from "../process-entry";
+import type { ProcessDelivery, ProcessSessionRequest } from "../process-entry";
 
 // Promise band (#1423): the `Bun.spawn` stdin/stdout byte streams force this transport onto
 // Promises; Effect takes over only inside the injected `answer` call, so no session state
@@ -16,6 +16,10 @@ class ProcessSessionError extends Error {
 }
 
 const Doorbell = z.object({ sessionIds: z.array(z.string().min(1)) }).strict();
+/** The entity `Deliver` payload the child mapped (apps/openomni/src/composition/message-session.ts). */
+const DeliverPayload = z
+  .object({ kind: z.string(), body: z.string(), source: z.string(), idempotencyKey: z.string().min(1) })
+  .strict();
 const ProcessOutput = z.union([
   Doorbell,
   z
@@ -24,13 +28,29 @@ const ProcessOutput = z.union([
       answer: SessionTransition.Answer,
     })
     .strict(),
+  // #1346: a child's delivery is admitted by the parent's Session entity;
+  // the child never writes another session's chain.
+  z
+    .object({
+      kind: z.literal("request_deliver"),
+      commit: Delivery.Commit,
+      deliver: DeliverPayload,
+    })
+    .strict(),
 ]);
-export const ProcessReplyReceipt = z.discriminatedUnion("ok", [
+export const ProcessReplyReceipt = z.union([
   z
     .object({
       ok: z.literal(true),
       inputId: z.string().min(1),
       resolution: SessionTransition.Resolution,
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(true),
+      inputId: z.string().min(1),
+      row: Delivery.Row,
     })
     .strict(),
   z.object({ ok: z.literal(false), inputId: z.string().min(1), error: z.string() }).strict(),
@@ -42,12 +62,24 @@ export function createProcessSessionTransport(options: {
   readonly child: Omit<ProcessSessionRequest, "sessionId">;
   readonly committed: (sessionIds: readonly string[]) => void;
   readonly answer: (answer: SessionTransition.Answer) => Promise<SessionTransition.Resolution>;
+  readonly deliver: (input: ProcessDelivery) => Promise<Delivery.Row>;
 }) {
   const children = new Map<string, { close: () => void; done: Promise<void> }>();
   async function receive(line: string, sessionId: string, write: (value: string) => void) {
     const output = ProcessOutput.parse(JSON.parse(line));
     if ("sessionIds" in output) {
       options.committed(output.sessionIds);
+      return;
+    }
+    if (output.kind === "request_deliver") {
+      const { commit, deliver } = output;
+      if (commit.sender?.sessionId !== sessionId)
+        throw new ProcessSessionError("process delivery sender does not match its authenticated child");
+      const receipt: z.infer<typeof ProcessReplyReceipt> = await options.deliver({ commit, deliver }).then(
+        (row) => ({ ok: true as const, inputId: commit.id, row }),
+        CauseText.transform((error) => ({ ok: false as const, inputId: commit.id, error })).parse,
+      );
+      write(`${JSON.stringify(receipt)}\n`);
       return;
     }
     const answer = output.answer;

@@ -6,7 +6,6 @@ import { Bundle, Core } from "@openomni/agent";
 type ExecutionApprovalRequest = Core.ExecutionApprovalRequest;
 import { Bus, newTraceId } from "./helpers/bus";
 import { Effect } from "effect";
-const CommitRefused = Core.CommitRefused;
 import { type Alarm, canonicalDigest, L0Observation, Operational, type PlainObject } from "@openomni/protocol";
 import type { AppSessionHandle } from "../src";
 import {
@@ -14,6 +13,7 @@ import {
   requestToolStep,
 } from "./helpers/assistant-message";
 import { adoptTestFence, planeOf } from "./helpers/ledger";
+import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
 import { testMachinesPlane } from "./helpers/self-machine";
 import { bounded } from "./helpers/protected-dispatch";
@@ -48,65 +48,60 @@ async function restartApp(config: ReturnType<typeof suite.config>) {
   return planeOf(app.runtime);
 }
 
-test.each(["revision", "fence"] as const)(
-  "facade interrupt handles a %s commit refusal",
-  async (reason) => {
-    const entered = Promise.withResolvers<string>();
-    const release = Promise.withResolvers<void>();
-    const app = await suite.boot({
-      config: suite.config(`index-interrupt-${reason}-`, { wsToken: "interrupt-token" }),
-      llm: {
-        resolveModel: fakeProviderModel,
-        run: (input) => Effect.gen(function* () {
-          entered.resolve(input.trace.sessionId);
-          yield* Effect.promise(() => release.promise);
-          return { type: "stop" as const };
-        }),
-      },
-    });
-    const plane = await planeOf(app.runtime);
-    const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "interrupt-token"]);
-    socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "interrupt this turn" }));
-    const sessionId = await bounded(entered.promise);
-    const handle = app.sessions.get(sessionId);
-    if (handle === undefined) throw new Error("live turn missing");
-    const original = plane.openKernel;
-    let commits = 0;
-    const spy = spyOn(plane, "openKernel").mockImplementation((id) => {
-      const kernel = original(id);
-      if (id !== sessionId) return kernel;
-      const commit: typeof kernel.commit = (input) => {
-        const effect = input.actions[0]?.effect.value;
-        if (
-          effect === null || typeof effect !== "object" ||
-          Array.isArray(effect) || effect.deliveryKind !== "interrupt"
-        ) return kernel.commit(input);
-        commits += 1;
-        if (commits > 1) return kernel.commit(input);
-        const row = kernel.row(id);
-        return Effect.fail(new CommitRefused({
-          sessionId: id, reason,
-          expectedRevision: input.expectedRevision, currentRevision: row.revision + 1,
-          fence: input.fence, currentFence: row.fence,
-        }));
-      };
-      return { ...kernel, commit };
-    });
-    try {
-      if (reason === "revision") {
-        await bounded(runEffect(handle.interrupt()));
-        expect(commits).toBe(2);
-      } else {
-        const failure = await bounded(runEffect(Effect.flip(handle.interrupt())));
-        expect(failure).toMatchObject({ _tag: "AgentFailure", operation: "session.interrupt" });
-        expect(commits).toBe(1);
-      }
-    } finally {
-      spy.mockRestore();
-      release.resolve();
-    }
-  },
-);
+test("facade interrupt rides the entity Deliver signal, never an app-side commit", async () => {
+  const entered = Promise.withResolvers<string>();
+  const release = Promise.withResolvers<void>();
+  const app = await suite.boot({
+    config: suite.config("index-interrupt-", { wsToken: "interrupt-token" }),
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input) => Effect.gen(function* () {
+        entered.resolve(input.trace.sessionId);
+        yield* Effect.promise(() => release.promise);
+        return { type: "stop" as const };
+      }),
+    },
+  });
+  const plane = await planeOf(app.runtime);
+  const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "interrupt-token"]);
+  socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "interrupt this turn" }));
+  const sessionId = await bounded(entered.promise);
+  const handle = app.sessions.get(sessionId);
+  if (handle === undefined) throw new Error("live turn missing");
+  // #1346: the app plane is read-only for the interrupt - the row lands
+  // through the session entity's `Deliver` door, whose single writer owns
+  // the revision CAS the deleted app retry used to duplicate.
+  const original = plane.openKernel;
+  let appCommits = 0;
+  const spy = spyOn(plane, "openKernel").mockImplementation((id) => {
+    const kernel = original(id);
+    if (id !== sessionId) return kernel;
+    const commit: typeof kernel.commit = (input) => {
+      appCommits += 1;
+      return kernel.commit(input);
+    };
+    return { ...kernel, commit };
+  });
+  try {
+    const interrupted = runEffect(handle.interrupt());
+    release.resolve();
+    await bounded(interrupted);
+    expect(appCommits).toBe(0);
+    const signals = sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter(
+      (action) => action.kind === "signal",
+    );
+    // One received interrupt row from the session itself, consumed by the
+    // turn's own `before_llm` boundary drain.
+    expect(signals.map((action) => action.effect.value)).toEqual([
+      { deliveryKind: "interrupt", content: "" },
+      expect.objectContaining({ phase: "delivery", kind: "interrupt", boundary: "before_llm", deliveryId: signals[0]?.id }),
+    ]);
+    expect(signals[0]?.intent.value).toEqual({ kind: "session", id: sessionId });
+  } finally {
+    spy.mockRestore();
+    release.resolve();
+  }
+});
 
 test("live approval readiness notifies the facade and arms its deadline", async () => {
   const modelEntered = Promise.withResolvers<string>();

@@ -15,13 +15,13 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { sessionFilePath } from "../src/composition/cluster-runtime";
 import { receivedMessages } from "./helpers/received-messages";
-import { planeOf } from "./helpers/ledger";
-import { PROCESS_SESSION_NO_REQUEST_EXIT, runProcessEntry, serveProcessSession, type ProcessSessionRequest } from "../src/process-entry";
+import { localDelivery, planeOf } from "./helpers/ledger";
+import { PROCESS_SESSION_NO_REQUEST_EXIT, type ProcessReplies, runProcessEntry, serveProcessSession, type ProcessSessionRequest } from "../src/process-entry";
 import { bounded } from "./helpers/protected-dispatch";
 import { runEffect } from "./helpers/effect";
 import { z } from "zod";
 import { messageFixture } from "./helpers/message-fixture";
-import { Gateway, type LedgerAction, SessionTransition } from "@openomni/protocol";
+import { Delivery, Gateway, type LedgerAction, SessionTransition } from "@openomni/protocol";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { messageStart, messageEnd, sseResponse } from "./helpers/anthropic-sse";
@@ -33,6 +33,17 @@ type ProcessPlane = {
   sessionsDir: string;
   runtime: ReturnType<typeof gatewayRuntime>;
 };
+
+/**
+ * The parent-side reply door a served child forwards its deliveries to
+ * (#1346): the child maps each commit to its `Deliver` payload and never
+ * writes another chain; the fixture parent lands the row directly.
+ */
+function parentReplies(fixture: ReturnType<typeof messageFixture>): ProcessReplies {
+  return {
+    deliver: ({ commit }) => runEffect(localDelivery(fixture.plane, "process-parent", () => 100)(commit)),
+  };
+}
 
 /** Per-fixture catalog/sessions paths plus a gateway runtime rooted in the fixture directory. */
 function processPlane(fixture: { directory: string }): ProcessPlane {
@@ -205,9 +216,23 @@ test("process entry logs committed sessions and disposes its runtime", async () 
   });
   const answerRequested = Promise.withResolvers<SessionTransition.Answer>();
   const answerFrame = z.object({ kind: z.literal("request_answer"), answer: SessionTransition.Answer });
+  // #1346: the child's deliveries arrive as `request_deliver` frames; the
+  // parent lands each row and acks with the pending row receipt.
+  const deliverFrame = z.object({ kind: z.literal("request_deliver"), commit: Delivery.Commit }).loose();
+  const delivered: string[] = [];
+  const parent = parentReplies(fixture);
   const log = mock((line: string) => {
-    const frame = answerFrame.safeParse(JSON.parse(line));
+    const parsed: unknown = JSON.parse(line);
+    const frame = answerFrame.safeParse(parsed);
     if (frame.success) answerRequested.resolve(frame.data.answer);
+    const delivery = deliverFrame.safeParse(parsed);
+    if (!delivery.success) return;
+    const { commit } = delivery.data;
+    delivered.push(commit.sessionId);
+    void parent.deliver({ commit, deliver: { kind: "", body: "", source: "", idempotencyKey: commit.id } }).then(
+      (row) => stdin.write(`${JSON.stringify({ ok: true, inputId: commit.id, row })}\n`),
+      (error: Error) => stdin.write(`${JSON.stringify({ ok: false, inputId: commit.id, error: error.message })}\n`),
+    );
   });
   const exit = mock((code: number): never => {
     throw new Error(`unexpected process exit: ${code}`);
@@ -228,6 +253,8 @@ test("process entry logs committed sessions and disposes its runtime", async () 
     expect(createRuntime).toHaveBeenCalledTimes(1);
     expect(requests).toBe(2);
     expect(log).toHaveBeenCalledWith(JSON.stringify({ sessionIds: ["sender"] }));
+    // The tool send crossed the parent door; the settlement rides the answer frame.
+    expect(delivered).toEqual(["sender"]);
     expect(exit).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(stdin.isPaused()).toBe(true);
@@ -261,7 +288,7 @@ test("process session drain stops without invoking a model when the session is i
         () => {
           throw new Error("idle drain must not commit a message");
         },
-        undefined,
+        parentReplies(fixture),
         runtime,
       ),
     );
@@ -321,7 +348,7 @@ test("process session drain consumes resume backlog through the entity fold", as
         () => {
           throw new Error("an entity consume fold must not ring the delivery doorbell");
         },
-        undefined,
+        parentReplies(fixture),
         runtime,
       ),
     );
@@ -401,7 +428,7 @@ test("process session drain recovers an open turn through the default admission 
         () => {
           throw new Error("recovery must not commit a child message");
         },
-        undefined,
+        parentReplies(fixture),
         runtime,
       ),
     );
@@ -444,7 +471,7 @@ test.each([
     await acquireAppResource(runtime, serveProcessSession(
       processRequest(child.id, plane, provider),
       (ids) => notified.push(...ids),
-      undefined,
+      parentReplies(fixture),
       runtime,
     ));
     expect(requests).toBe(toolSend ? 2 : 1);
@@ -552,7 +579,7 @@ test.each([
       serveProcessSession(
         processRequest(child.id, plane, provider),
         () => undefined,
-        undefined,
+        parentReplies(fixture),
         runtime,
       ),
     );

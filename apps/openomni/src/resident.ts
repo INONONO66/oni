@@ -170,7 +170,13 @@ export function createResident(options: ResidentOptions) {
   return {
     runnerFor,
     definitions,
-    materialize(id: string, parentId: string | null, role: LedgerSession.Role, runner: string) {
+    /**
+     * The genesis description one declared session is created from (#1346):
+     * the composed generation, preset and runner the core's one creation
+     * door (`Core.createSession`) writes. A description only - it never
+     * touches a store.
+     */
+    genesis(id: string, parentId: string | null, role: LedgerSession.Role, runner: string) {
       if (!["resident", "child", "native", "process"].includes(runner)) {
         throw new AppInvariantError(`runner is not registered: ${runner}`);
       }

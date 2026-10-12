@@ -45,7 +45,7 @@ test("component failure observation preserves an unprintable rejection", async (
   }
 });
 
-test("resident materialization refuses unregistered runners before storage", () => {
+test("resident genesis refuses unregistered runners before storage", () => {
   const plane = testPlane();
   const resident = createResident({
     model: { provider: "fixture", id: "fixture" },
@@ -59,5 +59,5 @@ test("resident materialization refuses unregistered runners before storage", () 
     },
     policyGeneration: () => 1,
   });
-  expect(() => resident.materialize("invalid", null, "resident", "missing")).toThrow();
+  expect(() => resident.genesis("invalid", null, "resident", "missing")).toThrow();
 });

@@ -40,7 +40,7 @@ function testResident(run: ResidentRun) {
       now: Date.now,
       id: testIds("gateway-contract"),
       delivery: { commit: (input) => localDelivery(resident.plane, "gateway-contract", Date.now)(input).pipe(Effect.mapError(decodeChannelFailure("delivery.commit"))) },
-      prepare: prepareMessage(resident.plane, resident.materialize),
+      prepare: prepareMessage(resident.plane, resident.genesis),
       ...(yield* residentGatewayPorts(resident.plane, Date.now)),
     }, undefined);
   }).pipe(Effect.provide(resident.services)));
