@@ -20,12 +20,13 @@ export const outboundMessage = Context.Reference<OutboundContext | undefined>("@
 /** The gateway admits recorded bytes; the receiver, not this source, owns its delivery queue. */
 export function dispatchOutboundMessage(
   ingest: GatewayRouter["ingest"],
-  clock: () => number,
   openKernel: (sessionId: string) => SessionKernel,
 ): NonNullable<SessionRuntime["dispatchOutbound"]> {
   return (input) => Effect.gen(function* () {
-    const { message, authority } = input;
+    const { message, ledger } = input;
     const source = openKernel(message.sourceSessionId);
+    // #1346: the source turn's own fenced ledger records the outbound
+    // admission; this dispatcher copies no authority and sees no revision.
     const executor = yield* createExecutor({
       approvalPolicy: APPROVAL_POLICY,
       identity: {
@@ -33,18 +34,7 @@ export function dispatchOutboundMessage(
         role: source.row(message.sourceSessionId).role,
         parentActionId: `${message.sourceActionId}:outbound`,
       },
-      ledger: {
-        commit: (action) => Effect.gen(function* () {
-          const row = source.row(message.sourceSessionId);
-          const result = yield* source.commit({
-            sessionId: message.sourceSessionId, ...authority, now: clock(),
-            expectedRevision: row.revision, actions: [action], state: row.state,
-          });
-          const receipt = result.receipts[0];
-          if (receipt === undefined) return yield* Effect.die(new Error("outbound policy receipt missing"));
-          return receipt;
-        }),
-      },
+      ledger,
     });
     const context: OutboundContext = { input, executor };
     return yield* Effect.gen(function* () {

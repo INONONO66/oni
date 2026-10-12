@@ -30,7 +30,7 @@ export {
 } from "./tool";
 
 export {
-  adoptSessionAuthority, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,
+  adoptedExecutionLedger, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,
   type GenerationBundle, type SessionHandle, type SessionRunner, type SessionRuntime,
   type SessionCreateOptions, type SessionRunnerInput, type SessionRunnerResult,
   type SessionEntityPorts, type SessionEntityTurnInput,

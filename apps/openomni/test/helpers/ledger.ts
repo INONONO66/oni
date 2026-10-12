@@ -1,15 +1,15 @@
 import { Core, Testing } from "@openomni/agent";
-const adoptSessionAuthority = Core.adoptSessionAuthority;
 const decideSessionAdmission = Core.decideSessionAdmission;
 const Entropy = Core.Entropy;
 const AgentFailure = Core.AgentFailure;
+type AgentFailure = Core.AgentFailure;
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
 type SessionEntryServices = Core.SessionEntryServices;
 type SessionError = Core.SessionError;
 type SessionRuntime = Core.SessionRuntime;
 type LedgerError = Core.LedgerError;
-import type { ObservationSink as ObservationSinkPort, SessionTurn } from "@openomni/protocol";
+import type { Delivery, ObservationSink as ObservationSinkPort, SessionTurn } from "@openomni/protocol";
 import { Clock, Context, Effect, type Scope } from "effect";
 import {
   AppLedger,
@@ -19,7 +19,7 @@ import {
   withChannelStores,
 } from "../../src/composition/cluster-runtime";
 import { ComposedGeneration } from "../../src/composition/composed";
-import { localDeliveryCommit } from "../../src/process-entry";
+import { materializeDeliveryTarget, pendingDeliveryRow } from "../../src/composition/message-session";
 import type { AppRuntime } from "../../src/runtime";
 import { runRuntimeEffect } from "./effect";
 import { testClock } from "./test-entropy";
@@ -62,25 +62,70 @@ export function planeOf(runtime: AppRuntime): Promise<AppLedgerPlane> {
   return runRuntimeEffect(runtime, Effect.map(AppLedger, (plane) => plane));
 }
 
-/** Strictly-newer fence adoption on a fixture kernel (the entity's own CAS). */
+/**
+ * Strictly-newer fence adoption on a fixture kernel (the entity's own CAS),
+ * re-read and re-decided after a lost single-increment race. Test-only: the
+ * app composes no fence of its own (#1346).
+ */
 export function adoptTestFence(
   kernel: SessionKernel,
   sessionId: string,
   owner: string,
 ): Effect.Effect<number, LedgerError> {
-  return adoptSessionAuthority(kernel, sessionId, owner);
+  const attempt: Effect.Effect<number, LedgerError> = Effect.suspend(() => {
+    const current = kernel.row(sessionId);
+    if (current.fenceOwner === owner) return Effect.succeed(current.fence);
+    return kernel
+      .adoptFence({ sessionId, owner, fence: current.fence + 1 })
+      .pipe(
+        Effect.map((receipt) => receipt.fence),
+        Effect.catchTag("FenceRefused", () => attempt),
+      );
+  });
+  return attempt;
 }
 
 /**
- * A cluster-free delivery commit for fixtures: the process child's own local
- * delivery (src/process-entry.ts), bound to a fixture plane and owner.
+ * A cluster-free delivery commit for fixtures that never boot an entity: the
+ * received row lands directly on the destination chain (a running destination
+ * lends its live fence, an idle one is taken over), idempotent on the row id.
+ * The product path is the entity's `Deliver` RPC; this stays test-only.
  */
 export function localDelivery(
   plane: AppLedgerPlane,
   owner = "test-delivery",
   clock: () => number = () => Date.now(),
 ) {
-  return localDeliveryCommit(plane, owner, clock);
+  return (input: Delivery.Commit): Effect.Effect<Delivery.Row, AgentFailure> =>
+    Effect.gen(function* () {
+      yield* materializeDeliveryTarget(plane, input, clock);
+      const kernel = plane.openKernel(input.sessionId);
+      const existing = kernel.actionById(input.id);
+      if (existing !== undefined) return pendingDeliveryRow(input, existing.ordinal);
+      const refuse = (error: { readonly _tag: string }) =>
+        new AgentFailure({ operation: "message.commit", cause: error._tag });
+      const live = kernel.row(input.sessionId);
+      const authority =
+        live.state === "running" && live.fenceOwner !== null
+          ? { owner: live.fenceOwner, fence: live.fence }
+          : { owner, fence: yield* adoptTestFence(kernel, input.sessionId, owner).pipe(Effect.mapError(refuse)) };
+      const row = kernel.row(input.sessionId);
+      const committed = yield* kernel
+        .commit({
+          sessionId: input.sessionId,
+          owner: authority.owner,
+          fence: authority.fence,
+          now: clock(),
+          expectedRevision: row.revision,
+          actions: [Core.receivedMessageAction({ ...input, at: input.createdAt })],
+          state: row.state,
+        })
+        .pipe(Effect.mapError(refuse));
+      const receipt = committed.receipts[0];
+      if (receipt === undefined)
+        return yield* new AgentFailure({ operation: "message.commit", cause: "no receipt" });
+      return pendingDeliveryRow(input, receipt.action.ordinal);
+    });
 }
 
 export type ResolvedTestRuntime = Core.ResolvedSessionRuntime;
