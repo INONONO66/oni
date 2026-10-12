@@ -276,17 +276,20 @@ test("assertion receipt parsing separates matcher failures from crashes and othe
 	expect(failedAssertions("")).toEqual([]);
 });
 
-test("a helper-file expect failure credits the JUnit testcase file", () => {
-  const stderr = [
-    "src/assertion.fixture.ts:",
-    "error: expect(received).toBe(expected)",
-    "(fail) behavior [1ms]",
-  ].join("\n");
-  const xml = '<testsuites><testsuite><testcase file="src/a.test.ts" name="behavior" line="9" assertions="1"><failure type="AssertionError" message="expect(received).toBe(expected)" /></testcase></testsuite></testsuites>';
-  expect(failedAssertions(stderr)).toEqual(["src/assertion.fixture.ts\0behavior"]);
-  expect(assertionIdentities(xml, stderr)).toEqual([
-    JSON.stringify({ file: "src/a.test.ts", name: "behavior", line: "9" }),
-  ]);
+test("nested bun test stderr credits the parent JUnit testcase", () => {
+	const stderr = [
+		"src/a.test.ts:",
+		"src/assertion.fixture.ts:",
+		"error: expect(received).toBe(expected)",
+		"(fail) nested [1ms]",
+		"error: expect(received).toBe(expected)",
+		"(fail) behavior [1ms]",
+	].join("\n");
+	const xml = '<testsuites><testsuite><testcase file="src/a.test.ts" name="behavior" line="9" assertions="1"><failure type="AssertionError" message="expect(received).toBe(expected)" /></testcase></testsuite></testsuites>';
+	expect(failedAssertions(stderr)).toEqual(["src/assertion.fixture.ts\0nested", "src/assertion.fixture.ts\0behavior"]);
+	expect(assertionIdentities(xml, stderr)).toEqual([
+		JSON.stringify({ file: "src/a.test.ts", name: "behavior", line: "9" }),
+	]);
 });
 
 test("fixture-file assertion credit rejects ambiguous names and non-assertion failures", () => {
@@ -848,17 +851,17 @@ test("execution snapshots retain isolated workspace dependencies and built expor
 	expect(readFileSync(join(input.root, "vendor/dep/dist/index.js"), "utf8")).toBe("export const value = 7;");
 }, 90000);
 
-test("assertions thrown in a fixture file credit their owning testcase", async () => {
-  const input = await fixture(
-    "export const run = () => true;",
-    'const { verify } = await import("./assertion.fixture"); verify(run());',
-    {
-      "src/assertion.fixture.ts":
-        'import { expect } from "bun:test"; export function verify(value: boolean) { expect(value).toBe(true); }',
-    },
-  );
-  const result = await invoke(input, "fixture-assertion-credit", select("boolean-literal"));
-  assertBehavioralKill(result);
+test("nested bun test fixture assertion credits its parent testcase", async () => {
+	const input = await fixture(
+		"export const run = () => true;",
+		'const child = Bun.spawn([process.execPath, "test", "./src/assertion.fixture.ts"], { cwd: new URL("..", import.meta.url).pathname, stdout: "ignore", stderr: "inherit" }); expect(await child.exited).toBe(0);',
+		{
+			"src/assertion.fixture.ts":
+				'import { expect, test } from "bun:test"; import { run } from "./a"; test("nested", () => { expect(run()).toBe(true); });',
+		},
+	);
+	const result = await invoke(input, "fixture-assertion-credit", select("boolean-literal"));
+	assertBehavioralKill(result);
 }, 90000);
 
 test("review R2: negated assertion is a behavioral kill", async () => {
