@@ -1,6 +1,5 @@
 import { Clock, Effect, Cause, Exit, Option } from "effect";
-import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty } from "./failure";
-import { thrownAsError } from "./store/storage/sqlite-l0-observation";
+import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty, thrownAsError } from "./failure";
 import type { ChatAgentConfig } from "./types";
 import type { RunState, TurnArtifacts } from "./turn";
 import { recordToolCall } from "./budget";

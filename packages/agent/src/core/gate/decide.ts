@@ -1,8 +1,7 @@
 import type { LedgerError } from "../store/errors";
 import { Effect, Scope, Context, Deferred, Exit, Cause, Option, Clock, Fiber } from "effect";
 import * as Failure from "../failure";
-import { renderBodyCause } from "../failure";
-import { thrownAsError } from "../store/storage/sqlite-l0-observation";
+import { renderBodyCause, thrownAsError } from "../failure";
 import { type ExecutionError, GenerationUnavailable, InvocationClosed, CommitFailed, ExecutionApprovalError, PolicyDenied, AgentFailure, Interrupted, OutcomeUnknown } from "../failure";
 import { type BusEvent, GateDecision, LedgerAction, type LedgerSession, type ObservationSink as ObservationPort, type PlainValue, type SessionTransition, Tool, type PlainObject, L0Observation, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory, listenForAbort } from "@openomni/protocol";
 import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "./compile";

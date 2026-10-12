@@ -33,7 +33,8 @@ import { appendAction, commitSession, insertSession, selectSession } from "../st
 import { createSessions, materializeSession } from "../storage/sqlite-l0-sessions.js";
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
-import { reportCommitted, thrownAsError, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
+import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
+import { thrownAsError } from "../../failure";
 
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";

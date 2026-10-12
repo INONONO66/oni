@@ -23,6 +23,21 @@ export function renderBodyCause(cause: string | Error): string {
   return cause instanceof Error ? `${cause.name}: ${cause.message}` : cause;
 }
 
+/**
+ * A thrown value as an Error: an Error is kept as-is, anything else is wrapped
+ * with its own `String()` conversion as the message. Both `instanceof` (a
+ * revoked Proxy) and `String()` may throw again; the fallback names only the
+ * value's `typeof`, so no user-controlled code runs after this point (the
+ * post-commit observation path is the origin of that guarantee).
+ */
+export function thrownAsError<T>(cause: T): Error {
+  try {
+    return cause instanceof Error ? cause : new Error(String(cause));
+  } catch {
+    return new Error(`sink threw an unrepresentable ${typeof cause}`);
+  }
+}
+
 export class PolicyDenied extends Data.TaggedError("PolicyDenied")<{
   readonly phase: "pre" | "post";
   readonly ruleIds: readonly string[];
