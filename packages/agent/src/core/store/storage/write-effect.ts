@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { thrownAsError } from "../../failure";
 import { AgentFailure, type LedgerError } from "../errors";
 
 export type RefuseWrite = (error: LedgerError) => never;
@@ -16,7 +17,8 @@ export function writeEffect<A>(
           refusal = error;
           throw error;
         }),
-      catch: String,
+      // A foreign throw (SQLite itself) rides structured; the refusal wins when one was raised.
+      catch: thrownAsError,
     }).pipe(Effect.mapError((cause) => refusal ?? new AgentFailure({ operation, cause })));
   });
 }
