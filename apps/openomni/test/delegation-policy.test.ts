@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import type { Core } from "@openomni/agent";
 import { Gateway, Delivery, type LedgerAction, LedgerSession } from "@openomni/protocol";
 import {
+  ADMISSION_DEPTH_MAX,
   catalogDelegationReads,
   DEFAULT_DELEGATION_CAPS,
   DELEGATION_DEADLINE,
@@ -28,6 +29,10 @@ import {
 import { runEffect } from "./helpers/effect";
 
 const NEW_SESSION = { to: { kind: "new_session", role: "child" }, message: "go" };
+
+test("#1422 the gateway admission depth cap is the guard's maxDepth", () => {
+  expect(ADMISSION_DEPTH_MAX).toBe(DEFAULT_DELEGATION_CAPS.maxDepth);
+});
 const service = () => {
   throw new Error("guards consult no services");
 };
