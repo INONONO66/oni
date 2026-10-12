@@ -958,10 +958,8 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * One atomic creation write (#1346): the genesis configure row and the
-   * catalog index land together. A duplicate on either plane is the typed
-   * `CreateRefused{duplicate}` with zero new facts; any fault before the
-   * session file commits rolls the catalog row back with it.
+   * One atomic creation write: genesis configure row and catalog index land
+   * together; a duplicate on either plane refuses typed with zero new facts.
    */
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
@@ -978,9 +976,8 @@ export class SessionStore extends StoreHandle {
 
   /**
    * The catalog's write lock encloses the session-file transaction: the index
-   * row is inserted first (a lost race refuses before any session write), and
-   * a thrown session write unwinds both — the catalog never commits an index
-   * for a genesis that did not land.
+   * row inserts first (a lost race refuses before any session write) and a
+   * thrown session write unwinds both.
    */
   private indexed<T>(
     index: SessionIndexUnit,
@@ -998,11 +995,7 @@ export class SessionStore extends StoreHandle {
   }
 }
 
-/**
- * The catalog side of one session creation (#1346): its write unit and index
- * insert. `CatalogStore` satisfies this structurally; the session file never
- * imports the catalog.
- */
+/** The catalog side of one creation: its write unit and index insert (`CatalogStore`, structurally). */
 export interface SessionIndexUnit {
   readonly transaction: <T>(operation: () => T) => T;
   readonly indexSession: (input: {
@@ -1014,7 +1007,7 @@ export interface SessionIndexUnit {
   readonly now: () => number;
 }
 
-/** The atomic genesis-plus-index write `createSession` hands the store (#1346). */
+/** The atomic genesis-plus-index write `createSession` hands the store. */
 export interface SessionCreateWrite {
   readonly materialize: LedgerSession.Materialize;
   readonly index: SessionIndexUnit;
@@ -1028,7 +1021,7 @@ export interface SessionCreateReceipt {
 /** The atomic child write `Session.fork` hands the child store (#1257). */
 interface SessionForkWrite {
   readonly materialize: LedgerSession.Materialize;
-  /** The catalog unit the child's index row lands in, enclosing the child write (#1346). */
+  /** The catalog unit the child's index row lands in, enclosing the child write. */
   readonly index: SessionIndexUnit;
   /** Eligible pre-anchor parent rows, already remapped for the child chain. */
   readonly copies: readonly LedgerAction.Append[];

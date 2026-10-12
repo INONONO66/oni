@@ -85,7 +85,7 @@ export interface ForkPorts {
   readonly parentSchemaVersion: number;
   /** Opens the child session store; called only after every parent-side check passed. */
   readonly openChild: () => SessionStore;
-  /** The catalog write unit the child's index lands in — core-owned, enclosing the child write (#1346). */
+  /** The catalog write unit the child's index lands in, enclosing the child write. */
   readonly catalog: SessionIndexUnit;
 }
 

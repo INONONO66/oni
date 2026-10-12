@@ -1066,10 +1066,10 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
  * Retiring a call site lowers its pin in the same PR.
  */
 const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
-  ["apps/openomni/src/composition/ingress-executor.ts", 2],
-  ["apps/openomni/src/composition/message-session.ts", 1],
-  ["apps/openomni/src/index.ts", 2],
-  ["apps/openomni/src/process-entry.ts", 1],
+  // #1346: ingress-executor, message-session and process-entry retired their
+  // last direct tokens (now Core.createSession / the Session entity RPCs);
+  // index.ts keeps the one deferred `tools.add` configure commit.
+  ["apps/openomni/src/index.ts", 1],
 ]);
 
 /** The two entity-assembly identifiers counted wherever they appear, import specifiers included. */
@@ -1167,6 +1167,123 @@ export async function validateAppsAgentTokens(
     }
   } else {
     warn(`NOTICE [check-deps] token pin slack not judged: ${root} is not a git checkout`);
+  }
+  return violations;
+}
+
+/** #1346: the session-store write members no app call may name, on any receiver. */
+const APPS_SESSION_WRITE_MEMBERS: ReadonlySet<string> = new Set([
+  "commit",
+  "materialize",
+  "indexSession",
+  "adoptFence",
+]);
+
+interface AppsSessionWriteSite {
+  readonly file: string;
+  /** 1-based line of the member name, where `rg -n` reports it. */
+  readonly line: number;
+  readonly receiver: string;
+  readonly member: string;
+}
+
+/**
+ * #1346: the ONE app-side session-store write that survives the cutover, by
+ * exact source line — the deferred `tools.add` `session.configure` commit
+ * (its input contract is parent-owned; it is not converted into a signal).
+ * Moving the line re-pins it here; a second write anywhere fails.
+ */
+const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
+  { file: "apps/openomni/src/index.ts", line: 1218, receiver: "kernel", member: "commit" },
+];
+
+/** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
+const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [
+  { file: "apps/openomni/src/provisioning/contacts.ts", receiver: "port", member: "materialize" },
+];
+
+/**
+ * Every direct call of a session-store write member in one app source, by AST
+ * walk: `kernel.commit(...)`, `source.commit(...)`, `plane.catalog.indexSession(...)`
+ * and their line-wrapped forms all count (the receiver is the member chain's
+ * final name); comments, strings and template text never do.
+ */
+export function appsSessionWriteSites(source: string, filePath: string): AppsSessionWriteSite[] {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const sites: AppsSessionWriteSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.name) &&
+      APPS_SESSION_WRITE_MEMBERS.has(node.expression.name.text)
+    ) {
+      const name = node.expression.name;
+      sites.push({
+        file: filePath,
+        line: sourceFile.getLineAndCharacterOfPosition(name.getStart(sourceFile)).line + 1,
+        receiver: receiverName(node.expression.expression) ?? "<expression>",
+        member: name.text,
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return sites;
+}
+
+/**
+ * #1346 ban: app sources create sessions through `Core.createSession` and
+ * write through the Session entity's four RPCs; a direct session-store write
+ * call outside the exact allow-list fails, and a stale allow-list line (the
+ * pinned call moved or disappeared) fails inside a git checkout.
+ */
+export async function validateAppsSessionWrites(
+  root = ".",
+  warn: (notice: string) => void = console.warn,
+): Promise<string[]> {
+  const violations: string[] = [];
+  const used = new Set<AppsSessionWriteSite>();
+  for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
+    for (const site of appsSessionWriteSites(source, filePath)) {
+      if (
+        APPS_SESSION_WRITE_EXCLUSIONS.some(
+          (entry) => entry.file === site.file && entry.receiver === site.receiver && entry.member === site.member,
+        )
+      )
+        continue;
+      const allowed = APPS_SESSION_WRITE_ALLOW_LIST.find(
+        (entry) =>
+          entry.file === site.file &&
+          entry.line === site.line &&
+          entry.receiver === site.receiver &&
+          entry.member === site.member,
+      );
+      if (allowed !== undefined) {
+        used.add(allowed);
+        continue;
+      }
+      violations.push(
+        `VIOLATION: ${site.file}:${site.line} calls ${site.receiver}.${site.member}( — #1346: session writes ride Core.createSession or the Session entity RPCs; only the allow-listed tools.add configure commit may commit directly`,
+      );
+    }
+  }
+  if (isGitCheckout(root)) {
+    for (const entry of APPS_SESSION_WRITE_ALLOW_LIST) {
+      if (!used.has(entry)) {
+        violations.push(
+          `VIOLATION: ${entry.file}:${entry.line} no longer calls ${entry.receiver}.${entry.member}( — #1346: the allow-listed configure commit moved or disappeared; re-pin the exact line or drop the entry`,
+        );
+      }
+    }
+  } else {
+    warn(`NOTICE [check-deps] session-write allow-list presence not judged: ${root} is not a git checkout`);
   }
   return violations;
 }
@@ -1775,6 +1892,7 @@ export async function main(): Promise<void> {
   const agentIndexPerimeterViolationList = await validateAgentIndexPerimeter();
   const appsAgentBarrelViolationList = await validateAppsAgentBarrel();
   const appsAgentTokenViolationList = await validateAppsAgentTokens();
+  const appsSessionWriteViolationList = await validateAppsSessionWrites();
   const bundleViolations = await checkBundleImports();
   const deepImportViolations = await validateDeepImports();
   const deepRelativeImportViolations = await validateDeepRelativeImports();
@@ -1788,6 +1906,7 @@ export async function main(): Promise<void> {
     ...agentIndexPerimeterViolationList,
     ...appsAgentBarrelViolationList,
     ...appsAgentTokenViolationList,
+    ...appsSessionWriteViolationList,
     ...bundleViolations.map(
       (finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}`,
     ),

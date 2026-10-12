@@ -27,7 +27,7 @@ import { AppInvariantError } from "./invariant";
 import { AppScope, SessionEntityBinding, type AppRuntime } from "./runtime";
 import { type Delivery, Model, type SessionTransition } from "@openomni/protocol";
 import { z } from "zod";
-import { AppLedger, type AppLedgerPlane } from "./composition/cluster-runtime";
+import { AppLedger } from "./composition/cluster-runtime";
 import { ComposedGeneration } from "./composition/composed";
 import { createCompletionPort } from "./composition/completion";
 import { configureAuthority } from "./composition/generation-layers";

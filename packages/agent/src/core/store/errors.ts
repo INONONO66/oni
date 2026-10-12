@@ -16,7 +16,7 @@ export class MaterializeRefused extends Data.TaggedError("MaterializeRefused")<{
   readonly reason: "input" | "configuration" | "state";
 }> {}
 
-/** #1346: one creation refused — the id is already durable on either plane, or the write unit failed. */
+/** One creation refused: the id is already durable on either plane, or the write unit failed. */
 export class CreateRefused extends Data.TaggedError("CreateRefused")<{
   readonly sessionId: string;
   readonly reason: "duplicate" | "write";

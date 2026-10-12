@@ -203,7 +203,7 @@ test("entity delivery refuses bytes that do not match the outbound letter", asyn
           parentActionId: null,
         }).pipe(
           Effect.provideService(outboundMessage, {
-            input: { message, authority: { owner: "runner", fence: 1 } },
+            input: { message, ledger: { commit: () => Effect.die(new Error("unused source ledger")) } },
             executor,
           }),
         ),

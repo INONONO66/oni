@@ -55,6 +55,7 @@ const store = {
   AgentFailure: agentFailure,
   SessionNotFound: new Store.SessionNotFound({ sessionId: "session" }),
   MaterializeRefused: new Store.MaterializeRefused({ sessionId: "session", reason: "input" }),
+  CreateRefused: new Store.CreateRefused({ sessionId: "session", reason: "duplicate" }),
   FenceRefused: new Store.FenceRefused({ sessionId: "session", reason: "held", holder: "holder", fence: 1, expiresAt: 1 }),
   CommitRefused: new Store.CommitRefused({ sessionId: "session", reason: "fence", fence: 1, currentFence: 2, expectedRevision: 0, currentRevision: 1 }),
   PolicyGenerationRefused: new Store.PolicyGenerationRefused({ generation: 1, reason: "conflict" }),

@@ -1,8 +1,6 @@
 /**
- * The one session creation door (#1346): genesis configure row and catalog
- * index commit together, through the store's enclosed write unit. Callers
- * supply identity and the composed genesis; the kernel's fence rules and the
- * existing materialization seed stay the authority over what is written.
+ * The one session creation door: genesis configure row and catalog index
+ * commit together through the store's enclosed write unit.
  */
 import { Effect } from "effect";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
@@ -26,11 +24,7 @@ export interface SessionReceipt {
   readonly genesis: LedgerAction.Receipt;
 }
 
-/**
- * Creates one session: the genesis row and its catalog index land in one
- * enclosed write, so a fault before commit leaves neither side discoverable.
- * A duplicate id on either plane refuses typed without rewriting genesis.
- */
+/** A fault before commit leaves neither side discoverable; a duplicate id refuses typed. */
 export function createSession(
   plane: Pick<LedgerPlane, "catalog" | "sessionStore">,
   input: CreateSessionInput,

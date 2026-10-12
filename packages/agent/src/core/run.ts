@@ -127,10 +127,8 @@ export interface SessionRuntime {
    */
   readonly compaction?: CompactionSeamService;
   /**
-   * Dispatches only an already committed source obligation through gateway
-   * admission. `ledger` is the source turn's own fenced commit door (#1346):
-   * the composition records its outbound admission through it and never
-   * copies the turn's authority.
+   * Dispatches an already committed source obligation through gateway
+   * admission; `ledger` is the source turn's own fenced commit door.
    */
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
@@ -446,11 +444,7 @@ export interface SessionControllerState {
   activeApprovals: ExecutionApprovals | undefined;
 }
 
-/**
- * One fenced commit door (#1346): each action lands at the row's current
- * revision under the given authority, as the executor's ledger. The caller
- * never sees the fence or the revision.
- */
+/** One fenced commit door: each action lands at the row's current revision under the given authority. */
 function fencedExecutionLedger(
   kernel: SessionKernel,
   sessionId: string,
@@ -474,11 +468,7 @@ function fencedExecutionLedger(
   };
 }
 
-/**
- * The execution ledger of a session with no live turn (#1346): adopts the
- * fence for `owner` and commits through `fencedExecutionLedger`. The external
- * perimeter records its decisions here; it owns neither fence nor revision.
- */
+/** The execution ledger of a session with no live turn: adopts the fence for `owner`, then commits fenced. */
 export function adoptedExecutionLedger(
   kernel: SessionKernel,
   sessionId: string,

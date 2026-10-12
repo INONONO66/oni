@@ -6,7 +6,7 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { Core, Inspect } from "@openomni/agent";
+import { type Core, Inspect } from "@openomni/agent";
 import { createSessionKernel } from "../../../packages/agent/src/core/store/fence";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
