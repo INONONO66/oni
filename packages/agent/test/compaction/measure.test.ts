@@ -14,7 +14,6 @@ function step(input: number, read: number, write: number): Message.StepFinishPar
     messageID: "measure-message",
     type: "step-finish",
     reason: "stop",
-    cost: 0,
     tokens: { input, output: 1, reasoning: 0, cache: { read, write } },
   };
 }

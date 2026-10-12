@@ -231,9 +231,8 @@ describe("Processor accounting", () => {
   test.each([
     { id: "claude-opus-4-5", providerID: "anthropic", name: "Claude Opus" },
     { id: "gpt-4o", providerID: "openai", name: "GPT" },
-  ])("keeps cost at zero and accounts SDK usage for $providerID", async (model) => {
+  ])("accounts SDK usage for $providerID", async (model) => {
     const processor = await account(model, [{ inputTokens: 10000, outputTokens: 5000 }]);
-    expect(processor.message.cost).toBe(0);
     expect(processor.message.providerID).toBe("anthropic");
     expect(processor.message.modelID).toBe("claude-3-5-sonnet");
     expect(processor.message.tokens.input).toBe(10000);
@@ -265,7 +264,6 @@ describe("Processor accounting", () => {
         { inputTokens: 2000, outputTokens: 800 },
       ],
     );
-    expect(processor.message.cost).toBe(0);
     expect(processor.message.tokens.input).toBe(3000);
     expect(processor.message.tokens.output).toBe(1300);
   });

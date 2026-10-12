@@ -27,7 +27,6 @@ describe("assistantMessage", () => {
         providerID: "provider-id",
         agent: "resident",
         path: { cwd: "", root: "" },
-        cost: 0,
         tokens: { input: 4, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
       },
       parts: [
@@ -44,7 +43,6 @@ describe("assistantMessage", () => {
           messageID: "message-id",
           type: "step-finish",
           reason: "stop",
-          cost: 0,
           tokens: { input: 4, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
         },
       ],

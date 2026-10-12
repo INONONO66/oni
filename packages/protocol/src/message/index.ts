@@ -54,7 +54,6 @@ export namespace Message {
   export const StepFinishPart = PartBase.extend({
     type: z.literal("step-finish"),
     reason: z.string(),
-    cost: z.number(),
     tokens: z.object({
       input: Token.Count,
       output: Token.Count,
@@ -124,7 +123,6 @@ export namespace Message {
       cwd: z.string(),
       root: z.string(),
     }),
-    cost: z.number(),
     tokens: z.object({
       input: Token.Count,
       output: Token.Count,

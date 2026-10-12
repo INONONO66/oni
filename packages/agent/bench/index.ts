@@ -113,7 +113,6 @@ function buildMessages(count: number): Message.WithParts[] {
         providerID: "bench",
         agent: "bench-agent",
         path: { cwd: "/tmp/openomni", root: "/tmp/openomni" },
-        cost: 0,
         tokens: {
           input: 320,
           output: 180,

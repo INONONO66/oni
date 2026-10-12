@@ -193,7 +193,6 @@ async function runMessageSerialization(): Promise<void> {
     providerID: "bench",
     agent: "bench-agent",
     path: { cwd: "/tmp/openomni", root: "/tmp/openomni" },
-    cost: 0.00042,
     tokens: { input: 512, output: 128, reasoning: 64, cache: { read: 32, write: 16 } },
     finish: "stop",
   };

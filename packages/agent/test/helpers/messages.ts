@@ -16,7 +16,7 @@ export function assistantTextSnapshot(text: string, input: number, output: numbe
 
 export function stepFinish(id: string, reason: string, input = 0, output = 0): Message.StepFinishPart {
   return {
-    id: `${id}-step`, sessionID: "session", messageID: id, type: "step-finish", reason, cost: 0,
+    id: `${id}-step`, sessionID: "session", messageID: id, type: "step-finish", reason,
     tokens: { input, output, reasoning: 0, cache: { read: 0, write: 0 } },
   };
 }
@@ -51,7 +51,6 @@ export function textMessage(
           modelID: "m",
           providerID: "p",
           path: { cwd: "/", root: "/" },
-          cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         };
   return {
@@ -103,7 +102,6 @@ export function assistantWithParts(
       providerID: "provider",
       agent: "test",
       path: { cwd: "/", root: "/" },
-      cost: 0,
       tokens: {
         input: inputTokens,
         output: outputTokens,

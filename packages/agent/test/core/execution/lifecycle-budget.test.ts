@@ -93,7 +93,6 @@ describe("run budget terminal facts", () => {
                       messageID: message.info.id,
                       type: "step-finish",
                       reason: "tool-calls",
-                      cost: 0,
                       tokens: {
                         input: 0,
                         output: 0,

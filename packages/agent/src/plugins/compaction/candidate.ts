@@ -68,7 +68,7 @@ function canonicalPartContent(part: Message.Part) {
   }
   if (part.type === "step-start") return { type: part.type };
   if (part.type === "step-finish") {
-    return { type: part.type, reason: part.reason, cost: part.cost, tokens: part.tokens };
+    return { type: part.type, reason: part.reason, tokens: part.tokens };
   }
   const state =
     part.state.status === "completed" ? { ...part.state, output: "[tool output]" } : part.state;
