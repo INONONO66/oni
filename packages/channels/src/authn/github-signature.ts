@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
-export async function verifyGitHubSignature(
-  payload: string,
+export async function verifyHmacSignature(
+  payload: Uint8Array,
   signature: string,
   secret: string,
 ): Promise<boolean> {
@@ -13,12 +13,18 @@ export async function verifyGitHubSignature(
     false,
     ["sign"],
   );
-
-  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  const sig = await crypto.subtle.sign("HMAC", key, payload);
   const digest = `sha256=${Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")}`;
-
   if (signature.length !== digest.length) return false;
   return timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+}
+
+export function verifyGitHubSignature(
+  payload: string,
+  signature: string,
+  secret: string,
+): Promise<boolean> {
+  return verifyHmacSignature(new TextEncoder().encode(payload), signature, secret);
 }
