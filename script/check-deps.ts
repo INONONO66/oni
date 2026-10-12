@@ -1002,19 +1002,14 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
   return violations;
 }
 
-// ─── #1343: apps-to-agent direct responsibility token ratchet ──────────────
-
 /**
- * #1343 direct agent-core responsibility tokens: ledger mutation and
- * entity/SQLite assembly names an app file may reference only up to its pin.
- * The deep-import boundary above stays independent; this rule counts the
- * tokens themselves so barrel-legal call sites are still retired shrink-only.
- */
-/**
- * #1343 baseline pins measured at d9800ad74 with the AST-walk counter below
- * (code references only). TIGHT: growth fails, slack fails, a
- * new app file starts at zero. Retiring a call site lowers its pin in the
- * same PR; #1344 drives these toward zero.
+ * Direct agent-core responsibility tokens (ledger mutation and entity/SQLite
+ * assembly names) an app file may reference only up to its pin. The
+ * deep-import boundary above stays independent; this rule counts the tokens
+ * themselves so barrel-legal call sites are still retired shrink-only. Pins
+ * measured at d9800ad74 with the AST-walk counter below (code references
+ * only). TIGHT: growth fails, slack fails, a new app file starts at zero.
+ * Retiring a call site lowers its pin in the same PR.
  */
 const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
   ["apps/openomni/src/composition/cluster-runtime.ts", 5],
@@ -1040,11 +1035,19 @@ const APPS_AGENT_KERNEL_MEMBERS: ReadonlySet<string> = new Set([
 /**
  * Counts code references only, by AST walk (`ts.createSourceFile`, ScriptKind
  * from the extension): `kernel.commit|materialize|indexSession` and
- * `SqliteClient.layer`/`SingleRunner.layer` as property accesses off the bare
- * identifier, plus every `createSessionEntityLayer`/`createSessionEntityRunTurn`
- * identifier occurrence. Comments, strings, template text, regex literals and
+ * `SqliteClient.layer`/`SingleRunner.layer` as property accesses whose
+ * receiver is the bare identifier or any member chain ending in it
+ * (`input.kernel.commit`, `Sql.SqliteClient.layer`), plus every
+ * `createSessionEntityLayer`/`createSessionEntityRunTurn` identifier occurrence. Comments, strings, template text, regex literals and
  * JSX text never count and never desync the counter.
  */
+/** The receiver's final name: `kernel` for both `kernel.x` and `input.kernel.x`; undefined for calls and other expressions. */
+function receiverName(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) return expression.name.text;
+  return undefined;
+}
+
 export function appsAgentTokenCount(source: string, filePath: string): number {
   const sourceFile = ts.createSourceFile(
     filePath,
@@ -1055,15 +1058,14 @@ export function appsAgentTokenCount(source: string, filePath: string): number {
   );
   let count = 0;
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      ts.isIdentifier(node.name) &&
-      ((node.expression.text === "kernel" && APPS_AGENT_KERNEL_MEMBERS.has(node.name.text)) ||
-        ((node.expression.text === "SqliteClient" || node.expression.text === "SingleRunner") &&
-          node.name.text === "layer"))
-    ) {
-      count += 1;
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) {
+      const receiver = receiverName(node.expression);
+      if (
+        (receiver === "kernel" && APPS_AGENT_KERNEL_MEMBERS.has(node.name.text)) ||
+        ((receiver === "SqliteClient" || receiver === "SingleRunner") && node.name.text === "layer")
+      ) {
+        count += 1;
+      }
     }
     if (ts.isIdentifier(node) && APPS_AGENT_ENTITY_IDENTIFIERS.has(node.text)) count += 1;
     ts.forEachChild(node, visit);
