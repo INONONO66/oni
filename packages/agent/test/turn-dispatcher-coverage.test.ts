@@ -96,17 +96,29 @@ describe("createTurnDispatcher", () => {
   });
 });
 
-describe("wave tracking", () => {
-  it("hands every model wave to trackWave as a settlement promise", async () => {
-    const tracked: Promise<void>[] = [];
-    const dispatcher = runAgentSync(createDispatcher({ executor: passThrough, trackWave: (wave) => tracked.push(wave) }).pipe(Effect.provide(catalogLayer([tool("ok", async () => "fine"), tool("boom", async () => Promise.reject(new Error("x")))]))));
+describe("wave settlement", () => {
+  // #1344: no injection option — settlement is observable through the real
+  // dispatch path: executeWave resolves only after every body settled.
+  it("executeWave resolves only after every model wave body settles", async () => {
+    let settledBodies = 0;
+    const dispatcher = runAgentSync(createDispatcher({ executor: passThrough }).pipe(Effect.provide(catalogLayer([
+      tool("ok", async () => {
+        await Promise.resolve();
+        settledBodies += 1;
+        return "fine";
+      }),
+      tool("boom", async () => {
+        settledBodies += 1;
+        return Promise.reject(new Error("x"));
+      }),
+    ]))));
 
     const results = await isolated(dispatcher.executeWave([call("ok"), call("boom")], context));
     await isolated(dispatcher.execute(call("ok"), context));
     await isolated(dispatcher.executeCell(call("ok"), context));
 
     expect(results.map((result) => result.isError)).toEqual([undefined, true]);
-    expect(tracked).toHaveLength(0);
+    expect(settledBodies).toBe(4);
   });
 });
 

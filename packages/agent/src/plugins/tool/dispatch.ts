@@ -359,7 +359,6 @@ interface TurnDispatchInput {
   readonly systemHash?: string;
   readonly ledger: ExecutionLedger;
   readonly retainEffect?: (effect: Promise<void>) => void;
-  readonly trackWave?: (wave: Promise<void>) => void;
   readonly bindApprovals?: (approvals: ExecutionApprovals) => void;
 }
 
@@ -481,7 +480,6 @@ export function createTurnDispatcher(
   const dispatcher = buildDispatcher(pinnedDefinitions, {
     executor,
     retainEffect: input.retainEffect,
-    trackWave: input.trackWave,
     ...(toolOutput === undefined ? {} : { toolOutput }),
   }, () => frame);
   const frame: InvocationFrame = { executor, cell: dispatcher, policy, generation };

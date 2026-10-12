@@ -22,13 +22,6 @@ import type * as SessionHandleStore from "../store/fence";
 import { executionPoint } from "../points";
 
 // ─── from executor-contract.ts (#1247) ───
-interface ExecutionKindRegistration {
-  readonly kind: string;
-  readonly effect: PlainValue;
-  readonly reversible: boolean;
-  readonly inputSchema: PlainValue;
-}
-
 export interface ExecutionLedger {
   commit(action: LedgerAction.Append): Effect.Effect<LedgerAction.Receipt, LedgerError>;
   /** #1305: resolved per-generation tool output budget; absent falls back to the core default. */
@@ -264,7 +257,6 @@ export interface ExecutorOptions {
   readonly approvalPolicy: ApprovalPolicy;
   readonly ledger: ExecutionLedger;
   readonly identity: ExecutionIdentity;
-  readonly extensionKinds?: readonly ExecutionKindRegistration[];
   readonly authorizeApproval?: (
     credential: string,
     request: ExecutionApprovalRequest,
@@ -1232,7 +1224,6 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   const record = createExecutionRecord(options);
   const { approvals, awaitApproval } = createExecutionApprovals(options);
   const recovery = createExecutionRecovery(options, record);
-  const kinds = new Set([...CORE_KINDS, ...(options.extensionKinds ?? []).map((item) => item.kind)]);
   const turnId = options.identity.turnId ?? options.identity.parentActionId;
   /** #1305: tool rows commit a bounded projection; every other kind commits verbatim. */
   const projectValue = (kind: LedgerAction.Kind, value: PlainValue): PlainValue => {
@@ -1322,7 +1313,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     if (items.length === 1 && item !== undefined) {
       return Effect.suspend<Stage<R>[], ExecutionError, never>(() => {
         const request = { ...item.request, intent: structuredClone(item.request.intent) };
-        if (!kinds.has(request.kind))
+        if (!CORE_KINDS.has(request.kind))
           return Effect.fail(new AgentFailure({ operation: "executor.admit", cause: `unregistered_execution_kind:${request.kind}` }));
         const kind = request.kind as LedgerAction.Kind;
         return admit(request).pipe(Effect.flatMap((pre) => {
@@ -1335,7 +1326,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
       const staged: Omit<Stage<R>, "intent">[] = [];
       for (const item of items) {
         const request = { ...item.request, intent: structuredClone(item.request.intent) };
-        if (!kinds.has(request.kind))
+        if (!CORE_KINDS.has(request.kind))
           return yield* new AgentFailure({ operation: "executor.admit", cause: `unregistered_execution_kind:${request.kind}` });
         const kind = request.kind as LedgerAction.Kind;
         const pre = yield* admit(request);

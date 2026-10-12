@@ -63,7 +63,6 @@ export interface SessionRunnerInput {
   readonly actionId: string;
   readonly ledger: ExecutionLedger;
   readonly retainEffect?: (effect: Promise<void>) => void;
-  readonly trackWave?: (wave: Promise<void>) => void;
   readonly bindApprovals?: (approvals: ExecutionApprovals) => void;
   readonly stopEvidence: ChatAgentConfig["stopEvidence"];
   readonly resultId: string;

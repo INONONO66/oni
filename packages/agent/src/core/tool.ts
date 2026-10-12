@@ -302,7 +302,6 @@ export interface DispatcherOptions {
   readonly executor: Executor;
   readonly timeoutMs?: number;
   readonly retainEffect?: (effect: Promise<void>) => void;
-  readonly trackWave?: (wave: Promise<void>) => void;
   /**
    * #1305: budget + store for bounded model-facing output projection. A
    * dispatcher composed without it (the render-free cell door, bare test
