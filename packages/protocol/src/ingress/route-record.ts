@@ -73,13 +73,16 @@ export function routeNotDeliveredFact(
 // Replay equivalence gate (#510 review fix F2): an existing fact means this
 // inbound was ALREADY decided. The recorded decision and the fresh one must
 // agree on every execution- and authority-shaping field — stage, outcome,
-// target, sessionId, actorId, trustTier, and
-// inboundTreatment — before the redelivery may proceed. Fields like
-// traceId/time/reason/factsUsed are delivery-local and deliberately excluded.
+// target, sessionId, actorId, trustTier, inboundTreatment, and for ledger rows
+// the automation verdict and its author (decision, by) — before the redelivery
+// may proceed. Fields like traceId/time/reason/factsUsed are delivery-local and
+// deliberately excluded.
 export function routeDecisionsEquivalent(
   recorded: RoutingDecisionPayload,
   fresh: RoutingDecisionPayload,
 ): boolean {
+  const [recordedDecision, recordedBy] = ledgerVerdict(recorded);
+  const [freshDecision, freshBy] = ledgerVerdict(fresh);
   return (
     recorded.stage === fresh.stage &&
     recorded.outcome === fresh.outcome &&
@@ -87,6 +90,14 @@ export function routeDecisionsEquivalent(
     recorded.sessionId === fresh.sessionId &&
     recorded.actorId === fresh.actorId &&
     recorded.trustTier === fresh.trustTier &&
-    recorded.inboundTreatment === fresh.inboundTreatment
+    recorded.inboundTreatment === fresh.inboundTreatment &&
+    recordedDecision === freshDecision &&
+    recordedBy === freshBy
   );
+}
+
+function ledgerVerdict(
+  decision: RoutingDecisionPayload,
+): readonly [string | undefined, string | undefined] {
+  return "decision" in decision ? [decision.decision, decision.by] : [undefined, undefined];
 }

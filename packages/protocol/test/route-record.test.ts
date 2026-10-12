@@ -90,4 +90,25 @@ describe("Ingress.routeDecisionsEquivalent", () => {
   ])("divergent %s → not equivalent (redelivery fails closed)", (_f, over) => {
     expect(Ingress.routeDecisionsEquivalent(decision(), decision(over))).toBe(false);
   });
+
+  const ledger = (over: Partial<RoutingDecisionPayload> = {}): RoutingDecisionPayload =>
+    decision({
+      stage: "automation",
+      outcome: "record",
+      decision: "filtered",
+      by: "rule/bot-author",
+      factsDigest: "digest-1",
+      ...over,
+    } as Partial<RoutingDecisionPayload>);
+
+  test("ledger rows: same verdict and author → equivalent", () => {
+    expect(Ingress.routeDecisionsEquivalent(ledger(), ledger({ traceId: "b", reason: "y" }))).toBe(true);
+  });
+
+  test.each([
+    ["decision", { decision: "matched" as const }],
+    ["by", { by: "automation/alerts" }],
+  ])("ledger rows: divergent %s → not equivalent", (_f, over) => {
+    expect(Ingress.routeDecisionsEquivalent(ledger(), ledger(over as Partial<RoutingDecisionPayload>))).toBe(false);
+  });
 });
