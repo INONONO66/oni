@@ -16,6 +16,12 @@ function captureOutput(): { output: string[]; restore: () => void } {
 	console.log = (value: string) => { output.push(value); };
 	return { output, restore: () => { console.log = log; } };
 }
+function captureError(): { output: string[]; restore: () => void } {
+	const output: string[] = [];
+	const error: (value: string) => void = console.error;
+	console.error = (value: string) => { output.push(value); };
+	return { output, restore: () => { console.error = error; } };
+}
 
 test("switch case reach instrumentation inserts a probe after the label", () => {
 	const source = "switch (value) { case 1: return true; default: return false; }";
@@ -1365,6 +1371,45 @@ test("a candidate whose worst-case run cannot finish inside the budget is not di
 	expect(result.selected.length).toBeGreaterThan(0);
 	expect(result.selected.every((row) => row.outcome === "uncompleted")).toBe(true);
 }, 90000);
+
+test("in-process shard executes candidates when their reserve fits the budget", async () => {
+	const input = await fixture("export const run = () => true;", "expect(run()).toBe(true);");
+	const progress = join(input.root, "shard-progress.jsonl");
+	const report = await runMain(input, process.env.D945_PYTHON ?? "python3", [
+		"--shard", "0", "--shard-count", "1", "--progress", progress,
+	], 0);
+	const shard = record(report.shard);
+	expect(shard.budgetExhausted).toBe(false);
+	expect(shard.executed).toBe(1);
+	expect(shard.recorded).toBe(1);
+	expect(report.cleanupVerified).toBe(true);
+}, 120000);
+
+test("in-process shard budget defers multiple candidates with one diagnostic", async () => {
+	const input = await fixture("export const run = () => true && false;", "expect(run()).toBe(false);");
+	const progress = join(input.root, "shard-progress.jsonl");
+	const stderr = captureError();
+	try {
+		const report = await runMain(input, process.env.D945_PYTHON ?? "python3", [
+			"--shard", "0", "--shard-count", "1", "--progress", progress,
+			"--budget", "600000", "--suite-timeout", "3600000",
+		]);
+		const shard = record(report.shard);
+		expect(shard.budgetExhausted).toBe(true);
+		expect(Number(shard.sliceSize)).toBeGreaterThanOrEqual(2);
+		expect(shard.recorded).toBe(0);
+		expect(shard.executed).toBe(0);
+		expect(shard.sliceComplete).toBe(false);
+		expect(stderr.output.filter((line) => line.includes("[mutation] shard 0/1 deferring "))).toHaveLength(1);
+		expect(stderr.output).toContain(`[mutation] shard 0/1 deferred ${shard.sliceSize} of ${shard.sliceSize} pending candidates to the next run`);
+		const progressRows = readFileSync(progress, "utf8").trim().split("\n").map((line) => record(decode(line)));
+		expect(progressRows[0]?.type).toBe("shard-progress");
+		expect(progressRows.at(-1)?.type).toBe("proof");
+		expect(progressRows.filter((row) => row.type === "result")).toHaveLength(0);
+	} finally {
+		stderr.restore();
+	}
+}, 120000);
 
 test("work budget cannot silently turn an unfinished full run into a selected pass", async () => {
 	// Two production candidates (both boolean literals) so a budget of one leaves work behind.
