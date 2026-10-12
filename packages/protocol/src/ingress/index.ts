@@ -8,6 +8,7 @@ import {
 } from "../event/ingress.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 import * as RouteRecord from "./route-record.js";
+import { Input as InputSchema } from "./input.js";
 
 /**
  * #500 A6: every production-written actor key is declared (`runId` and
@@ -77,8 +78,8 @@ const SenderMetaSchema = z
 
 /**
  * batch ② commit 2 (#500 A6 pattern): the production-written meta keys read
- * for AUTHORIZATION (inboundTreatment, channelGrant*, correlation) and for the
- * projection/audit path (surfaceKey, kind, sender, threadId, replyToId,
+ * for AUTHORIZATION (inboundTreatment, channelGrant*, correlation) and for
+ * the projection/audit path (surfaceKey, kind, sender, threadId, replyToId,
  * agentName) are declared as typed optional fields instead of
  * riding the untyped `.catchall(z.unknown())`. The catchall is RETAINED for
  * the external DirectEventSchema.parse boundary: a channel driver may attach
@@ -103,6 +104,9 @@ const MetaSchemaImpl = z
   .catchall(z.unknown());
 
 export namespace Ingress {
+  export const Input = InputSchema;
+  export type Input = z.infer<typeof Input>;
+
   export const ActorSchema = ActorSchemaImpl;
   export type Actor = z.infer<typeof ActorSchema>;
 
