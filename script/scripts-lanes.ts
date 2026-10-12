@@ -31,7 +31,6 @@ export const scriptsLanes = {
     "bundle-type-contract.test.ts",
     "census-consumer-contract.test.ts",
     "check-comment-residue.test.ts",
-    "check-comment-residue.test.ts",
     "check-deps.test.ts",
     "check-deps-agent-bands.test.ts",
     "check-quality-python.test.ts",
@@ -84,7 +83,6 @@ export const scriptToolingPartitions = {
   ],
   "scripts-tooling-2": [
     "bundle-type-contract.test.ts",
-    "check-comment-residue.test.ts",
     "check-comment-residue.test.ts",
     "generate-models-snapshot.test.ts",
     "run-quality-mutations-compiler.test.ts",
