@@ -1014,7 +1014,7 @@ const APP_AGENT_RESPONSIBILITY_PINS: ReadonlyMap<string, number> = new Map([
 /** Count code references, excluding trivia and literal text. */
 export function appAgentResponsibilityCount(source: string): number {
   const sourceFile = ts.createSourceFile("app.ts", source, ts.ScriptTarget.Latest, true);
-  const masked = [...source];
+  const masked = source.split("");
   const hide = (start: number, end: number): void => {
     for (let i = start; i < end; i++) {
       if (masked[i] !== "\n") masked[i] = " ";

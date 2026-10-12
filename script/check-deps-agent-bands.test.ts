@@ -33,6 +33,7 @@ test("#1276 check a: a core file importing plugins/ fails", () => {
 
 test("#1343: a code reference after a template substitution remains visible", () => {
   expect(appAgentResponsibilityCount(`const message = \`value \${identifier}\`;\nkernel.commit({});\n`)).toBe(1);
+  expect(appAgentResponsibilityCount('const icon = "😀";\n// kernel.commit\nkernel.commit({});\n')).toBe(1);
 });
 
 test("#1276 check a: a core file importing model/, inspect/ or testing/ fails", () => {
