@@ -16,6 +16,13 @@ const NotConnected = z.object({
   code: z.enum(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ConnectionRefused"]),
 });
 
+/** Physical evidence that the platform never received the message, so a resend is safe. */
+export function isNotSent(error: Error, isRejected: (error: Error) => boolean): boolean {
+  return (
+    error instanceof DeliveryNotSent || isRejected(error) || NotConnected.safeParse(error).success
+  );
+}
+
 /** Proven sends are safe to forget once the platform has the message; uncertain keys never expire. */
 const SENT_RETENTION = 4096;
 
@@ -113,12 +120,7 @@ export function deliverKeyed(
         });
         return { value: "unknown" };
       }
-      if (
-        error instanceof DeliveryNotSent ||
-        isRejected(error) ||
-        NotConnected.safeParse(error).success
-      )
-        return { value: "not_sent" };
+      if (isNotSent(error, isRejected)) return { value: "not_sent" };
       return unknownNotice(traceId, String(error));
     }
   };
