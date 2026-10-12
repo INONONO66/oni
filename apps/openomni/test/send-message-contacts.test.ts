@@ -11,6 +11,7 @@ import { Bundle, Core } from "@openomni/agent";
 import type { Gateway } from "@openomni/protocol";
 import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
+import { alarmDefinition } from "./helpers/alarm-definition";
 import {
   channelConnector,
   cliConnector,
@@ -176,15 +177,12 @@ test("a new child with a deadline arms delegation.deadline for the created child
 });
 
 test("composing the action capability off cascades delegation-policy off and drops the action input", async () => {
-  const alarm = await runEffect(
-    Bundle.alarmCapability({
-      bundles: [],
-      compose: Core.composeAlarmPurposes,
-      arm: () => () => Effect.die(new Error("unused arm")),
-      watch: { install: () => Effect.void },
-    }),
-  );
-  const manifest = appManifest({ alarm: alarm.definition, wake: { close: () => undefined }, alarms: () => undefined, off: ["action"] });
+  const manifest = appManifest({
+    alarm: await alarmDefinition(),
+    wake: { close: () => undefined },
+    alarms: () => undefined,
+    off: ["action"],
+  });
   const generation = await runEffect(Bundle.compose(manifest));
   expect(generation.disabled).toContainEqual({ name: "delegation-policy", because: "action" });
   expect(generation.inputs).not.toContain("action");

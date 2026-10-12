@@ -24,11 +24,12 @@ import { sessionTree } from "../../../packages/agent/test/store/helpers/session-
 import { Effect } from "effect";
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
-import { L0Observation } from "@openomni/protocol";
-import { Bus, newTraceId } from "./helpers/bus";
+import { newTraceId } from "./helpers/bus";
 import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
 import { runAppEffect } from "../src/gateway";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
+import { untilCommitted } from "./helpers/committed-state";
+import { openResidentRequest } from "./helpers/open-resident-request";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
 import { nextFrame } from "./helpers/ws";
@@ -36,23 +37,6 @@ import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 
 const suite = residentSuite();
 const TOKEN = "bundle-test";
-
-/** Awaits a committed-state predicate: subscribe first, then re-check, never sleep. */
-async function untilCommitted(check: () => boolean, label: string, timeoutMs = 20_000) {
-  if (check()) return;
-  const settled = Promise.withResolvers<void>();
-  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, () => {
-    if (check()) settled.resolve();
-  });
-  const timer = setTimeout(() => settled.reject(new Error(label)), timeoutMs);
-  try {
-    if (check()) return;
-    await settled.promise;
-  } finally {
-    clearTimeout(timer);
-    unsubscribe();
-  }
-}
 
 /** The `alarm{fired}` rows of one chain, in journal order. */
 function firedOutcomes(plane: AppLedgerPlane, sessionId: string, alarmId: string) {
@@ -215,14 +199,7 @@ test("bundle_disable mid-turn: the running turn keeps its captured generation; t
   const plane = await planeOf(app.runtime);
   ws.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "disable the monitor bundle" }));
   // Owner consent: the composed consent row suspends the wave on an open request.
-  const openRequest = () => {
-    const sessionId = residentSessionId(plane);
-    if (sessionId === undefined) return undefined;
-    return plane
-      .openKernel(sessionId)
-      .requestRows(sessionId)
-      .find((request) => request.state === "open");
-  };
+  const openRequest = () => openResidentRequest(plane, residentSessionId(plane));
   await untilCommitted(() => openRequest() !== undefined, "bundle_disable consent never opened");
   const request = openRequest();
   if (request === undefined) throw new Error("missing consent request");

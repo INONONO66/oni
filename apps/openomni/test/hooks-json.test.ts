@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Bundle, Core, Model } from "@openomni/agent";
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation, type LedgerAction } from "@openomni/protocol";
 type RunInput = Model.RunInput;
 type Sink = Model.Sink;
 import { Clock, Context, Effect, Layer } from "effect";
@@ -17,9 +17,10 @@ import { composedHolderOf, alarmPortsSlot } from "../src/composition/composed";
 import { createWatchPlane } from "../src/composition/watch-plane";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
 import { appManifest } from "../src/manifest";
+import { alarmDefinition } from "./helpers/alarm-definition";
 import { gateRowPolicySeeds } from "../src/policy-seed";
 import { AppInvariantError } from "../src/invariant";
-import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
+import { assistantMessage, requestToolStep, type AssistantMessageOptions } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
@@ -27,12 +28,14 @@ import { Bus } from "./helpers/bus";
 import { testToolsBundle } from "./helpers/app-fixture";
 import { nextFrame } from "./helpers/ws";
 import { z } from "zod";
-import { executionReads } from "../../../packages/agent/test/helpers/execution-reads";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
-import { testExecutor, runAgentSync } from "../../../packages/agent/test/helpers/executor";
+import { executionReads } from "../../../packages/agent/test/helpers/execution-reads";
+import { runAgentSync, testExecutor } from "../../../packages/agent/test/helpers/executor";
 import { catalogLayer } from "../../../packages/agent/test/helpers/service-layers";
-import { runEffect, testClockRuntime } from "./helpers/effect";
+import { testClockRuntime } from "./helpers/effect";
 import { eventSignal } from "./helpers/event-signal";
+import { untilCommitted } from "./helpers/committed-state";
+import { openResidentRequest } from "./helpers/open-resident-request";
 import { testEntropy } from "./helpers/test-entropy";
 
 /**
@@ -44,16 +47,102 @@ import { testEntropy } from "./helpers/test-entropy";
 
 const suite = residentSuite();
 
-async function alarmDefinition(): Promise<Bundle.CapabilityDefinition<"alarm">> {
-  const capability = await runEffect(
-    Bundle.alarmCapability({
-      bundles: [],
-      compose: Core.composeAlarmPurposes,
-      arm: () => () => Effect.die(new Error("unused arm")),
-      watch: { install: () => Effect.void },
+function expectRefusal(thunk: () => void, code: string) {
+  expect(thunk).toThrow(AppInvariantError);
+  expect(thunk).toThrow(expect.objectContaining({ code }));
+}
+
+type JournalActionRow = {
+  readonly kind: LedgerAction.Kind;
+  readonly intent: string;
+};
+
+const decisionSchema = z.object({
+  verdict: z.string(),
+  gate: z.object({
+    verdict: z.string().optional(),
+    output: z.object({ command: z.string().optional() }).optional(),
+    consulted: z.array(z.object({
+      ref: z.string(),
+      payload: z.object({ verdict: z.string().optional(), reason: z.string().optional() }).optional(),
+    })),
+  }).optional(),
+});
+
+function decodeJournalJson<T extends z.ZodType>(serialized: string, schema: T): z.output<T> {
+  return schema.parse(JSON.parse(serialized));
+}
+
+function expectedCommandRow<On extends "tool.pre", Action extends "gate" | "rewrite", How extends object>(id: string, on: On, action: Action, how: How, order: number) {
+  return { id, on, when: {}, do: action, how, order };
+}
+
+function decisionRows(database: Database, point: string) {
+  return database.query<{ intent: string }, [string]>(
+    "SELECT intent FROM action WHERE kind = 'policy.decision' AND json_extract(intent, '$.hook') = ? ORDER BY ordinal ASC",
+  ).all(point).map((row) => decodeJournalJson(row.intent, decisionSchema));
+}
+
+function sessionDecisions(config: ReturnType<typeof suite.config>, sessionId: string, point: string) {
+  if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
+  const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
+  try { return decisionRows(database, point); }
+  finally { database.close(); }
+}
+
+function pendingToolMessage(input: RunInput, id: string, callID: string, tool: string, command: string) {
+  return assistantMessage(input, {
+    id, createdAt: Date.now(), reason: "tool-calls",
+    parts: [{
+      id: `${id}-tool`, sessionID: input.trace.sessionId, messageID: id,
+      type: "tool", callID, tool, state: { status: "pending", input: { command } },
+    }],
+  });
+}
+
+function responseLlm(
+  options: (input: RunInput) => AssistantMessageOptions,
+  before?: (input: RunInput) => void,
+) {
+  return {
+    resolveModel: fakeProviderModel,
+    run: (input: RunInput, sink: Sink) => Effect.sync(() => {
+      before?.(input);
+      sink.onMessage(assistantMessage(input, options(input)));
+      return { type: "stop" as const };
     }),
-  );
-  return capability.definition;
+  };
+}
+
+function committedDecision(
+  plane: Awaited<ReturnType<typeof planeOf>>,
+  label: string,
+  field: "verdict" | "hook",
+  expected: string,
+) {
+  const signal = eventSignal<{ sessionId: string; id: string }>(label, 15_000);
+  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
+    if (event.kind !== "policy.decision") return;
+    const node = plane.openKernel(event.sessionId).actionById(event.id);
+    const intent = z.object({ verdict: z.string().optional(), hook: z.string().optional() }).safeParse(node?.intent.value);
+    if (intent.success && intent.data[field] === expected)
+      signal.resolve({ sessionId: event.sessionId, id: event.id });
+  });
+  return { signal, unsubscribe };
+}
+
+async function bootOwner(options: Parameters<typeof suite.boot>[0]) {
+  const app = await suite.boot(options);
+  const { plane, ws } = await ownerConnection(app);
+  return { app, plane, ws };
+}
+
+async function ownerConnection(app: Awaited<ReturnType<typeof suite.boot>>, token?: string) {
+  const plane = await planeOf(app.runtime);
+  const ws = token === undefined
+    ? await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, [])
+    : await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", token]);
+  return { plane, ws };
 }
 
 function composed(input?: {
@@ -87,17 +176,10 @@ test("the four mapped events compile to rows on their points over hook/process",
   });
   const hooksRows = generation.rows.filter((row) => row.id.startsWith("hooks-json/"));
   expect(hooksRows).toEqual([
-    {
-      id: "hooks-json/tool.pre#1",
-      on: "tool.pre",
-      when: {},
-      do: "gate",
-      how: {
-        ref: Bundle.HOOK_PROCESS_REF,
-        params: { event: "PreToolUse", command: ["./guard.sh"], timeoutMs: 1_000 },
-      },
-      order: 500,
-    },
+    expectedCommandRow("hooks-json/tool.pre#1", "tool.pre", "gate", {
+      ref: Bundle.HOOK_PROCESS_REF,
+      params: { event: "PreToolUse", command: ["./guard.sh"], timeoutMs: 1_000 },
+    }, 500),
     {
       id: "hooks-json/tool.pre#2",
       on: "tool.pre",
@@ -163,18 +245,11 @@ test("H-2: a command entry with do:rewrite compiles the consulted rewrite row an
   });
   const hooksRows = generation.rows.filter((row) => row.id.startsWith("hooks-json/"));
   expect(hooksRows).toEqual([
-    {
-      id: "hooks-json/tool.pre#1",
-      on: "tool.pre",
-      when: {},
-      do: "rewrite",
-      how: {
-        ref: Bundle.HOOK_PROCESS_REF,
-        fields: ["command"],
-        params: { event: "PreToolUse", command: ["./mask.sh"], timeoutMs: 1_000, fields: ["command"] },
-      },
-      order: 500,
-    },
+    expectedCommandRow("hooks-json/tool.pre#1", "tool.pre", "rewrite", {
+      ref: Bundle.HOOK_PROCESS_REF,
+      fields: ["command"],
+      params: { event: "PreToolUse", command: ["./mask.sh"], timeoutMs: 1_000, fields: ["command"] },
+    }, 500),
     {
       id: "hooks-json/prompt.pre#1",
       on: "prompt.pre",
@@ -210,15 +285,20 @@ test("H-2: a command entry with do:rewrite compiles the consulted rewrite row an
     },
   ]);
   // Misdeclared command rewrites refuse typed at bundle compile, fail-closed.
-  expect(
-    refusalOf(() => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite" }] })).code,
-  ).toBe("missing_rewrite_fields");
-  expect(
-    refusalOf(() => hooksJsonBundle({ SessionStart: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite", fields: ["body"] }] })).code,
-  ).toBe("session_start_rewrite");
-  expect(
-    refusalOf(() => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, fields: ["command"] }] })).code,
-  ).toBe("invalid_config");
+  expectRefusal(
+    () => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite" }] }),
+    "missing_rewrite_fields",
+  );
+  expectRefusal(
+    () => hooksJsonBundle({
+      SessionStart: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite", fields: ["body"] }],
+    }),
+    "session_start_rewrite",
+  );
+  expectRefusal(
+    () => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, fields: ["command"] }] }),
+    "invalid_config",
+  );
 });
 
 test("no hooks config composes the bundle with zero rows and the action input admitted", async () => {
@@ -229,39 +309,28 @@ test("no hooks config composes the bundle with zero rows and the action input ad
   expect(Object.keys(generation.kinds)).toEqual(["action"]);
 });
 
-/** Runs the refusing thunk and returns the TYPED refusal (#1256 r3 M-4). */
-function refusalOf(run: () => void): AppInvariantError {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(AppInvariantError);
-    return error as AppInvariantError;
-  }
-  throw new Error("expected an AppInvariantError refusal");
-}
-
 test("readHooksJson refuses an unmapped event, non-JSON bytes and an unreadable path, each typed", () => {
   const dir = suite.tempDir("hooks-json-read-");
   const unmapped = join(dir, "unmapped.json");
   writeFileSync(unmapped, JSON.stringify({ Notification: [{ command: ["./x"] }] }));
-  // M-4: the failure class and its machine-consumed code, plus the offending
-  // datum (the event name) — never a prose-only match.
-  const unmappedRefusal = refusalOf(() => readHooksJson(unmapped));
-  expect(unmappedRefusal.code).toBe("unmapped_event");
-  expect(unmappedRefusal.message).toContain("Notification");
+  // M-4: each source is a typed refusal, rather than a prose-only failure.
+  expectRefusal(() => readHooksJson(unmapped), "unmapped_event");
+  expect(() => readHooksJson(unmapped)).toThrow(/Notification/);
   const invalid = join(dir, "invalid.json");
   writeFileSync(invalid, "not json");
-  expect(refusalOf(() => readHooksJson(invalid)).code).toBe("not_json");
-  expect(refusalOf(() => readHooksJson(join(dir, "absent.json"))).code).toBe("unreadable_path");
+  expectRefusal(() => readHooksJson(invalid), "not_json");
+  expectRefusal(() => readHooksJson(join(dir, "absent.json")), "unreadable_path");
   const badShape = join(dir, "bad-shape.json");
   writeFileSync(badShape, JSON.stringify({ PreToolUse: [{ command: [] }] }));
-  expect(refusalOf(() => readHooksJson(badShape)).code).toBe("invalid_config");
+  expectRefusal(() => readHooksJson(badShape), "invalid_config");
   // A guard entry on a tool event without declared fields, and any guard on
   // the no-rewrite SessionStart point, each refuse typed at bundle compile.
-  expect(refusalOf(() => hooksJsonBundle({ PreToolUse: [{ guard: "secrets-guard" }] })).code).toBe(
+  expectRefusal(
+    () => hooksJsonBundle({ PreToolUse: [{ guard: "secrets-guard" }] }),
     "missing_rewrite_fields",
   );
-  expect(refusalOf(() => hooksJsonBundle({ SessionStart: [{ guard: "secrets-guard" }] })).code).toBe(
+  expectRefusal(
+    () => hooksJsonBundle({ SessionStart: [{ guard: "secrets-guard" }] }),
     "session_start_rewrite",
   );
   // The default call bound applies when the file omits timeoutMs.
@@ -305,19 +374,12 @@ test("off cascades: action roots hook and hooks-json off; hook roots hooks-json 
 });
 
 test("without the hook capability the bundle refuses at compose as seam_missing", () => {
-  expect(() =>
-    Bundle.composeSync(
-      Bundle.Manifest.define({ capabilities: [], bundles: [hooksJsonBundle()], off: [] }),
-    ),
-  ).toThrow(Bundle.ComposeRefused);
-  try {
+  const compose = () =>
     Bundle.composeSync(
       Bundle.Manifest.define({ capabilities: [], bundles: [hooksJsonBundle()], off: [] }),
     );
-  } catch (error) {
-    expect(error).toBeInstanceOf(Bundle.ComposeRefused);
-    if (error instanceof Bundle.ComposeRefused) expect(error.code).toBe("seam_missing");
-  }
+  expect(compose).toThrow(Bundle.ComposeRefused);
+  expect(compose).toThrow(expect.objectContaining({ code: "seam_missing" }));
 });
 
 test("a guard rewrite row seeds the live transform; a command gate row seeds the consult verdict (H-1)", async () => {
@@ -405,16 +467,10 @@ test("a hooks file with an unmapped event refuses the boot before any listener e
   const config = suite.config("hooks-json-refuse-state-", { hooksPath });
   // M-4: the TYPED refusal object crosses the boot boundary — class, code and
   // the offending event name, not a prose match.
-  const refusal = await suite
-    .boot({ config, llm: { resolveModel: fakeProviderModel } })
-    .then(
-      () => undefined,
-      (error) => (error instanceof Error ? error : new Error(String(error))),
-    );
-  expect(refusal).toBeInstanceOf(AppInvariantError);
-  if (!(refusal instanceof AppInvariantError)) throw new Error("expected AppInvariantError");
-  expect(refusal.code).toBe("unmapped_event");
-  expect(refusal.message).toContain("Stop");
+  const boot = suite.boot({ config, llm: { resolveModel: fakeProviderModel } });
+  await expect(boot).rejects.toBeInstanceOf(AppInvariantError);
+  await expect(boot).rejects.toThrow(expect.objectContaining({ code: "unmapped_event" }));
+  await expect(boot).rejects.toThrow(/Stop/);
 });
 
 /**
@@ -466,8 +522,7 @@ async function offCascadeConfigureRows(prefix: string) {
     ),
   });
   const app = await suite.boot({ config, runtime });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
+  const { plane, ws } = await ownerConnection(app);
   const reply1 = nextResidentTurn(plane);
   ws.send(JSON.stringify({ type: "message", eventId: "hooks-on-turn", text: "warm" }));
   expect(await reply1).toMatchObject({ text: "ready 1" });
@@ -516,8 +571,12 @@ test("capability-removed one-turn gate: the cascade is journaled in session.conf
   await suite.cleanup();
   const second = await offCascadeConfigureRows("hooks-json-off-b-");
   // The compose adoption row records the cascade with its root `because`.
+  const composeIntent = z.object({
+    operation: z.string().optional(),
+    disabled: z.array(z.object({ name: z.string(), because: z.string() })).optional(),
+  });
   const compose = first
-    .map((row) => JSON.parse(row.intent) as { operation?: string; disabled?: { name: string; because: string }[] })
+    .map((row) => decodeJournalJson(row.intent, composeIntent))
     .find((intent) => intent.operation === "compose");
   expect(compose?.disabled).toEqual([
     { name: "hook", because: "hook" },
@@ -548,46 +607,33 @@ for await (const chunk of Bun.stdin.stream()) {
 }
 `;
 
-test("H-1/M-2 e2e: a UserPromptSubmit command hook gates the REAL prompt path and journals durable policy.decision rows", async () => {
-  const dir = suite.tempDir("hooks-json-e2e-");
-  const script = join(dir, "prompt-hook.js");
-  writeFileSync(script, PROMPT_HOOK_SCRIPT);
+function commandHookConfig(
+  directoryPrefix: string,
+  statePrefix: string,
+  scriptName: string,
+  body: string,
+  event: "UserPromptSubmit" | "SessionStart" = "UserPromptSubmit",
+  args: string[] = [],
+) {
+  const dir = suite.tempDir(directoryPrefix);
+  const script = join(dir, scriptName);
+  writeFileSync(script, body);
   const hooksPath = join(dir, "hooks.json");
-  writeFileSync(
-    hooksPath,
-    JSON.stringify({
-      UserPromptSubmit: [{ command: [process.execPath, script], timeoutMs: 30_000 }],
-    }),
-  );
-  const config = suite.config("hooks-json-e2e-state-", { hooksPath });
+  writeFileSync(hooksPath, JSON.stringify({ [event]: [{ command: [process.execPath, script, ...args], timeoutMs: 30_000 }] }));
+  return suite.config(statePrefix, { hooksPath });
+}
+
+test("H-1/M-2 e2e: a UserPromptSubmit command hook gates the REAL prompt path and journals durable policy.decision rows", async () => {
+  const config = commandHookConfig("hooks-json-e2e-", "hooks-json-e2e-state-", "prompt-hook.js", PROMPT_HOOK_SCRIPT);
   let calls = 0;
-  const app = await suite.boot({
+  const { plane, ws } = await bootOwner({
     config,
-    llm: {
-      resolveModel: fakeProviderModel,
-      run: (input: RunInput, sink: Sink) =>
-        Effect.sync(() => {
-          calls += 1;
-          sink.onMessage(
-            assistantMessage(input, { id: `hook-e2e-${calls}`, text: `ok ${calls}`, createdAt: Date.now() }),
-          );
-          return { type: "stop" as const };
-        }),
-    },
+    llm: responseLlm(() => ({ id: `hook-e2e-${calls}`, text: `ok ${calls}`, createdAt: Date.now() }), () => { calls += 1; }),
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
 
   // Subscribe to the exact committed fact BEFORE sending: the denied prompt's
   // durable policy.decision row (fail-closed consult verdict folded to deny).
-  const denied = eventSignal<{ sessionId: string; id: string }>("denied policy.decision", 15_000);
-  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
-    if (event.kind !== "policy.decision") return;
-    const node = plane.openKernel(event.sessionId).actionById(event.id);
-    const intent = node?.intent.value;
-    if (intent !== null && typeof intent === "object" && !Array.isArray(intent) && intent?.verdict === "deny")
-      denied.resolve({ sessionId: event.sessionId, id: event.id });
-  });
+  const { signal: denied, unsubscribe } = committedDecision(plane, "denied policy.decision", "verdict", "deny");
   try {
     ws.send(JSON.stringify({ type: "message", eventId: "hook-deny", text: "read the forbidden file" }));
     const denial = await denied.promise;
@@ -603,29 +649,15 @@ test("H-1/M-2 e2e: a UserPromptSubmit command hook gates the REAL prompt path an
     if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
     const database = new Database(join(config.sessionsDir, `${denial.sessionId}.sqlite`), { readonly: true });
     try {
-      const decisions = database
-        .query<{ intent: string }, []>(
-          "SELECT intent FROM action WHERE kind = 'policy.decision' AND json_extract(intent, '$.hook') = 'prompt.pre' ORDER BY ordinal ASC",
-        )
-        .all()
-        .map((row) => JSON.parse(row.intent) as {
-          verdict: string;
-          gate?: { verdict: string; consulted: { ref: string; payload: { verdict?: string; reason?: string } }[] };
-        });
+      const decisions = decisionRows(database, "prompt.pre");
       expect(decisions.map((decision) => decision.verdict)).toEqual(["deny", "allow"]);
       const denyGate = decisions[0]?.gate;
-      expect(denyGate?.consulted).toEqual([
-        expect.objectContaining({
-          ref: Bundle.HOOK_PROCESS_REF,
-          payload: expect.objectContaining({ verdict: "deny", reason: "hook_refused" }),
-        }),
+      expect(denyGate?.consulted.map(({ ref, payload }) => [ref, payload?.verdict, payload?.reason])).toEqual([
+        [Bundle.HOOK_PROCESS_REF, "deny", "hook_refused"],
       ]);
       const allowGate = decisions[1]?.gate;
-      expect(allowGate?.consulted).toEqual([
-        expect.objectContaining({
-          ref: Bundle.HOOK_PROCESS_REF,
-          payload: expect.objectContaining({ verdict: "allow" }),
-        }),
+      expect(allowGate?.consulted.map(({ ref, payload }) => [ref, payload?.verdict])).toEqual([
+        [Bundle.HOOK_PROCESS_REF, "allow"],
       ]);
     } finally {
       database.close();
@@ -636,17 +668,7 @@ test("H-1/M-2 e2e: a UserPromptSubmit command hook gates the REAL prompt path an
 });
 
 test("C-1: a SessionStart hook denying tools.add fails the facade configure op fail-closed", async () => {
-  const dir = suite.tempDir("hooks-json-configure-");
-  const script = join(dir, "configure-hook.js");
-  writeFileSync(script, PROMPT_HOOK_SCRIPT);
-  const hooksPath = join(dir, "hooks.json");
-  writeFileSync(
-    hooksPath,
-    JSON.stringify({
-      SessionStart: [{ command: [process.execPath, script, "tools.add"], timeoutMs: 30_000 }],
-    }),
-  );
-  const config = suite.config("hooks-json-configure-state-", { hooksPath });
+  const config = commandHookConfig("hooks-json-configure-", "hooks-json-configure-state-", "configure-hook.js", PROMPT_HOOK_SCRIPT, "SessionStart", ["tools.add"]);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const app = await suite.boot({
@@ -666,8 +688,7 @@ test("C-1: a SessionStart hook denying tools.add fails the facade configure op f
         }),
     },
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
+  const { plane, ws } = await ownerConnection(app);
   const reply = nextResidentTurn(plane);
   ws.send(JSON.stringify({ type: "message", eventId: "cfg-1", text: "hello" }));
   await entered.promise;
@@ -701,22 +722,10 @@ test("H-3 e2e: a UserPromptSubmit secrets-guard rewrite of body reaches the mode
   writeFileSync(hooksPath, JSON.stringify({ UserPromptSubmit: [{ guard: "secrets-guard" }] }));
   const config = suite.config("hooks-json-rewrite-state-", { hooksPath });
   const seen: string[] = [];
-  const app = await suite.boot({
+  const { plane, ws } = await bootOwner({
     config,
-    llm: {
-      resolveModel: fakeProviderModel,
-      run: (input: RunInput, sink: Sink) =>
-        Effect.sync(() => {
-          seen.push(JSON.stringify(input));
-          sink.onMessage(
-            assistantMessage(input, { id: "rw-1", text: "done", createdAt: Date.now() }),
-          );
-          return { type: "stop" as const };
-        }),
-    },
+    llm: responseLlm(() => ({ id: "rw-1", text: "done", createdAt: Date.now() }), (input) => { seen.push(JSON.stringify(input)); }),
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
   const reply = nextResidentTurn(plane);
   const secret = "use sk-abcdef123456789 to call the api";
   ws.send(JSON.stringify({ type: "message", eventId: "rw-turn", text: secret }));
@@ -747,43 +756,14 @@ for await (const chunk of Bun.stdin.stream()) {
 `;
 
 test("H-3 e2e: a hook response incompatible with its row folds to deny with one recorded fact", async () => {
-  const dir = suite.tempDir("hooks-json-incompatible-");
-  const script = join(dir, "rewrite-hook.js");
-  writeFileSync(script, REWRITE_RESPONSE_SCRIPT);
-  const hooksPath = join(dir, "hooks.json");
-  writeFileSync(
-    hooksPath,
-    JSON.stringify({
-      UserPromptSubmit: [{ command: [process.execPath, script], timeoutMs: 30_000 }],
-    }),
-  );
-  const config = suite.config("hooks-json-incompatible-state-", { hooksPath });
+  const config = commandHookConfig("hooks-json-incompatible-", "hooks-json-incompatible-state-", "rewrite-hook.js", REWRITE_RESPONSE_SCRIPT);
   let calls = 0;
-  const app = await suite.boot({
+  const { plane, ws } = await bootOwner({
     config,
-    llm: {
-      resolveModel: fakeProviderModel,
-      run: (input: RunInput, sink: Sink) =>
-        Effect.sync(() => {
-          calls += 1;
-          sink.onMessage(
-            assistantMessage(input, { id: "inc-1", text: "never", createdAt: Date.now() }),
-          );
-          return { type: "stop" as const };
-        }),
-    },
+    llm: responseLlm(() => ({ id: "inc-1", text: "never", createdAt: Date.now() }), () => { calls += 1; }),
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
   // Subscribe to the committed denial BEFORE sending (no timing luck).
-  const denied = eventSignal<{ sessionId: string; id: string }>("incompatible denial", 15_000);
-  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
-    if (event.kind !== "policy.decision") return;
-    const node = plane.openKernel(event.sessionId).actionById(event.id);
-    const intent = node?.intent.value;
-    if (intent !== null && typeof intent === "object" && !Array.isArray(intent) && intent?.verdict === "deny")
-      denied.resolve({ sessionId: event.sessionId, id: event.id });
-  });
+  const { signal: denied, unsubscribe } = committedDecision(plane, "incompatible denial", "verdict", "deny");
   try {
     ws.send(JSON.stringify({ type: "message", eventId: "inc-turn", text: "hello" }));
     const denial = await denied.promise;
@@ -791,15 +771,15 @@ test("H-3 e2e: a hook response incompatible with its row folds to deny with one 
     const decision = z
       .object({
         verdict: z.literal("deny"),
-        gate: z.looseObject({
-          facts: z.array(z.looseObject({ code: z.string() })),
-          consulted: z.array(z.looseObject({ ref: z.string() })),
+        gate: z.object({
+          facts: z.array(z.object({ code: z.string() })),
+          consulted: z.array(z.object({ ref: z.string() })),
         }),
       })
       .parse(node?.intent.value);
     // The rewrite-shaped answer on a gate row is incompatible: ONE recorded
     // fact, folded to deny — never "missing verdict => allow".
-    const effect = z.looseObject({ reason: z.string() }).parse(node?.effect.value);
+    const effect = z.object({ reason: z.string() }).parse(node?.effect.value);
     expect(effect.reason).toBe("incompatible_response");
     expect(decision.gate.facts.map((fact) => fact.code)).toEqual(["incompatible_response"]);
     expect(decision.gate.consulted.map((entry) => entry.ref)).toEqual([Bundle.HOOK_PROCESS_REF]);
@@ -815,9 +795,12 @@ test("H-3 e2e: a PreToolUse secrets-guard rewrite of bash.command reaches the ex
     hooks: { PreToolUse: [{ guard: "secrets-guard", fields: ["command"] }] },
   });
   const guardHandler = generation.handlers.get(SECRETS_GUARD_REF);
-  if (guardHandler === undefined || !("apply" in guardHandler) || typeof guardHandler.apply !== "function")
+  if (guardHandler === undefined)
     throw new Error("composed secrets-guard transformer missing");
-  const apply = guardHandler.apply as Core.NamedTransformer["apply"];
+  const transformer = guardHandler as Core.NamedTransformer;
+  if (typeof transformer.apply !== "function")
+    throw new Error("composed secrets-guard transformer missing");
+  const apply = transformer.apply;
   const registry: Core.HandlerTable = {
     ...Core.KERNEL_POLICY_REGISTRY,
     transformers: [
@@ -832,12 +815,6 @@ test("H-3 e2e: a PreToolUse secrets-guard rewrite of bash.command reaches the ex
   await isolated(Effect.gen(function* () {
     const id = "hooks-json-bash-rewrite";
     const kernel = isolatedLedger().kernel;
-    const materialized = yield* kernel.materialize({
-      id, parentId: null, role: "resident", tools: [], system: { preset: "", blocks: [] },
-      policyGeneration: 1, actionId: `${id}:configure`, at: 100,
-    });
-    const lease = yield* kernel.adoptFence({ sessionId: id, owner: id, fence: materialized.row.fence + 1 });
-    let sequence = 0;
     const executed: string[] = [];
     const definition = Core.defineTool({
       name: "bash", description: "Run a command", category: "query",
@@ -846,27 +823,52 @@ test("H-3 e2e: a PreToolUse secrets-guard rewrite of bash.command reaches the ex
       execute: async ({ command }) => { executed.push(command); return command; },
       render: (_input, output) => output,
     });
+    const materialized = yield* kernel.materialize({
+      actionId: `${id}:configure`,
+      at: 100,
+      system: { blocks: [], preset: "" },
+      policyGeneration: 1,
+      parentId: null,
+      role: "resident",
+      tools: [],
+      id,
+    });
+    const lease = yield* kernel.adoptFence({
+      sessionId: id,
+      owner: id,
+      fence: materialized.row.fence + 1,
+    });
+    let sequence = 0;
     const executor = testExecutor({
-      identity: { sessionId: id, role: "resident", parentActionId: `${id}:configure` },
-      clock: () => 100, entropy: () => `${id}:${++sequence}`, observations: { publish: () => undefined }, random: () => 0,
       policy: Core.compilePolicySnapshot({
-        registry, generation: 1,
+        registry,
+        generation: 1,
         rows: [
           ...Core.SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })),
           ...seeds.map((seed) => ({ ...seed, generation: 1 })),
         ],
       }),
+      identity: { parentActionId: `${id}:configure`, role: "resident", sessionId: id },
+      random: () => 0,
+      observations: { publish: () => undefined },
+      entropy: () => `${id}:${++sequence}`,
+      clock: () => 100,
       ledger: {
         ...executionReads(kernel, id),
-        commit: (action) => kernel.commit({
-          sessionId: id, owner: id, fence: lease.fence, now: 100,
-          expectedRevision: kernel.row(id).revision,
-          actions: [action], state: "running",
-        }).pipe(Effect.map((result) => {
-          const receipt = result.receipts[0];
-          if (receipt === undefined) throw new Error("missing receipt");
-          return receipt;
-        })),
+        commit: (action) =>
+          kernel.commit({
+            state: "running",
+            actions: [action],
+            now: 100,
+            expectedRevision: kernel.row(id).revision,
+            fence: lease.fence,
+            owner: id,
+            sessionId: id,
+          }).pipe(Effect.map(({ receipts }) => {
+            const receipt = receipts[0];
+            if (receipt === undefined) throw new Error("missing receipt");
+            return receipt;
+          })),
       },
     });
     const dispatcher = runAgentSync(
@@ -928,7 +930,7 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
   const barrier = Bun.serve({
     port: 0,
     fetch: async (request) => {
-      heldRequest.resolve((await request.json()) as { pid: number; id: string });
+      heldRequest.resolve(z.object({ pid: z.number(), id: z.string() }).parse(await request.json()));
       return new Response("ok");
     },
   });
@@ -966,29 +968,30 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
     hookClock,
     llm: {
       resolveModel: (model) =>
-        fakeProviderModel(model).pipe(
-          Effect.map((resolved) => ({ ...resolved, limit: { context: constrained ? 700 : 100_000 } })),
-        ),
+        Effect.map(fakeProviderModel(model), (resolved) => ({
+          limit: { context: constrained ? 700 : 100_000 },
+          ...resolved,
+        })),
       run: (input: RunInput, sink: Sink) =>
         Effect.sync(() => {
           calls += 1;
           if (constrained) constrainedCalls += 1;
+          const reply: AssistantMessageOptions = {
+            call: calls,
+            reason: constrained && constrainedCalls === 1 ? "tool-calls" : "stop",
+            text: `pong ${calls} ${"filler ".repeat(30)}`,
+            tokens: constrained
+              ? { cache: { read: 0, write: 0 }, reasoning: 0, output: 1, input: 650 }
+              : undefined,
+          };
           sink.onMessage(
-            assistantMessage(input, {
-              call: calls,
-              reason: constrained && constrainedCalls === 1 ? "tool-calls" : "stop",
-              text: `pong ${calls} ${"filler ".repeat(30)}`,
-              tokens: constrained
-                ? { input: 650, output: 1, reasoning: 0, cache: { read: 0, write: 0 } }
-                : undefined,
-            }),
+            assistantMessage(input, reply),
           );
           return { type: "stop" as const };
         }),
     },
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
+  const { plane, ws } = await ownerConnection(app);
   // Subscribe BEFORE acting: the late reply must surface as a committed row
   // sourced hook.late — the one `deliver` door, never this turn's decision.
   const lateRow = eventSignal<{ sessionId: string; id: string }>("hook.late action row", 15_000);
@@ -1042,7 +1045,7 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
     expect(rendered).toContain('\\"type\\":\\"gate\\"');
     // The committed intent carries the CALL-time cursor — captured at turn 1,
     // strictly BEHIND the executed compaction head.
-    const intentAfter = (node?.intent.value as { after?: number } | null)?.after;
+    const intentAfter = z.object({ after: z.number().optional() }).parse(node?.intent.value).after;
     if (typeof intentAfter !== "number") throw new Error("late row intent missing its after cursor");
     expect(intentAfter).toBeLessThan(head);
     // The next boundary closes it STALE: a consumedStale fact on the turn
@@ -1053,28 +1056,26 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
     ws.send(JSON.stringify({ type: "message", eventId: "late-close", text: "after the flush" }));
     await closing;
     if (config.sessionsDir === undefined) throw new Error("fixture config missing sessionsDir");
-    const db = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
+    const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
     try {
-      const actions = db
-        .query<{ kind: string; intent: string }, []>("SELECT kind, intent FROM action ORDER BY ordinal ASC")
-        .all();
-      const deliveries = actions.filter(
-        (action) => (JSON.parse(action.intent) as { deliveryId?: string }).deliveryId === row.id,
-      );
-      expect(deliveries).toEqual([]);
-      const closures = actions
-        .filter((action) => action.kind === "turn")
-        .map((action) => (JSON.parse(action.intent) as { consumedStale?: string[] }).consumedStale)
-        .filter((value) => value !== undefined);
-      expect(closures.some((list) => list?.includes(row.id))).toBe(true);
+      const actions = database.query<JournalActionRow, []>(
+        "SELECT kind, intent FROM action ORDER BY ordinal ASC",
+      ).all();
+      const delivered = z.object({ deliveryId: z.string().optional() });
+      const terminal = z.object({ consumedStale: z.array(z.string()).optional() });
+      expect(actions.filter(({ intent }) => decodeJournalJson(intent, delivered).deliveryId === row.id)).toEqual([]);
+      expect(actions
+        .filter(({ kind }) => kind === "turn")
+        .some(({ intent }) => decodeJournalJson(intent, terminal).consumedStale?.includes(row.id)))
+        .toBe(true);
     } finally {
-      db.close();
+      database.close();
     }
     expect(kernel().pendingMessages(sessionId)).toEqual([]);
   } finally {
     unsubscribe();
   }
-});
+}, 30_000);
 
 /** Logs its PID at startup, then answers allow to every request. */
 const PID_LOG_SCRIPT = `
@@ -1096,15 +1097,7 @@ for await (const chunk of Bun.stdin.stream()) {
 `;
 
 test("H-1 e2e: a steering prompt denied mid-turn is refused at the RUN boundary and journals the deny", async () => {
-  const dir = suite.tempDir("hooks-json-boundary-");
-  const script = join(dir, "prompt-hook.js");
-  writeFileSync(script, PROMPT_HOOK_SCRIPT);
-  const hooksPath = join(dir, "hooks.json");
-  writeFileSync(
-    hooksPath,
-    JSON.stringify({ UserPromptSubmit: [{ command: [process.execPath, script], timeoutMs: 30_000 }] }),
-  );
-  const config = suite.config("hooks-json-boundary-state-", { hooksPath });
+  const config = commandHookConfig("hooks-json-boundary-", "hooks-json-boundary-state-", "prompt-hook.js", PROMPT_HOOK_SCRIPT);
   let calls = 0;
   let residentSessionId: string | undefined;
   let steer: (sessionId: string) => Promise<{ readonly seq: number; readonly existed: boolean }> = () =>
@@ -1123,25 +1116,7 @@ test("H-1 e2e: a steering prompt denied mid-turn is refused at the RUN boundary 
             // before this model step returns, so the after_tools boundary of
             // THIS turn must drain it through the run's own policy port.
             await steer(input.trace.sessionId);
-            const id = "boundary-step-1";
-            sink.onMessage(
-              assistantMessage(input, {
-                id,
-                createdAt: Date.now(),
-                reason: "tool-calls",
-                parts: [
-                  {
-                    id: `${id}-tool`,
-                    sessionID: input.trace.sessionId,
-                    messageID: id,
-                    type: "tool" as const,
-                    callID: "boundary-call-1",
-                    tool: "bash",
-                    state: { status: "pending" as const, input: { command: "echo boundary" } },
-                  },
-                ],
-              }),
-            );
+            sink.onMessage(pendingToolMessage(input, "boundary-step-1", "boundary-call-1", "bash", "echo boundary"));
             return { type: "stop" as const };
           }
           sink.onMessage(
@@ -1179,27 +1154,11 @@ test("H-1 e2e: a steering prompt denied mid-turn is refused at the RUN boundary 
   if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
   const sessionId = residentSessionId;
   if (sessionId === undefined) throw new Error("the model step never ran");
-  const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
-  try {
-    const decisions = database
-      .query<{ intent: string }, []>(
-        "SELECT intent FROM action WHERE kind = 'policy.decision' AND json_extract(intent, '$.hook') = 'prompt.pre' ORDER BY ordinal ASC",
-      )
-      .all()
-      .map((row) => JSON.parse(row.intent) as {
-        verdict: string;
-        gate?: { consulted: { ref: string; payload: { verdict?: string; reason?: string } }[] };
-      });
-    const deny = decisions.find((decision) => decision.verdict === "deny");
-    expect(deny?.gate?.consulted).toEqual([
-      expect.objectContaining({
-        ref: Bundle.HOOK_PROCESS_REF,
-        payload: expect.objectContaining({ verdict: "deny", reason: "hook_refused" }),
-      }),
-    ]);
-  } finally {
-    database.close();
-  }
+  const decisions = sessionDecisions(config, sessionId, "prompt.pre");
+  const deny = decisions.find((decision) => decision.verdict === "deny");
+  expect(deny?.gate?.consulted.map(({ ref, payload }) => [ref, payload?.verdict, payload?.reason])).toEqual([
+    [Bundle.HOOK_PROCESS_REF, "deny", "hook_refused"],
+  ]);
 });
 
 test("M-2 e2e: two rows with the same command and different timeouts spawn ONE PID in the real boot; teardown kills it", async () => {
@@ -1220,29 +1179,11 @@ test("M-2 e2e: two rows with the same command and different timeouts spawn ONE P
     }),
   );
   const config = suite.config("hooks-json-pid-state-", { hooksPath });
-  const app = await suite.boot({
+  const { plane, ws } = await bootOwner({
     config,
-    llm: {
-      resolveModel: fakeProviderModel,
-      run: (input: RunInput, sink: Sink) =>
-        Effect.sync(() => {
-          sink.onMessage(
-            assistantMessage(input, { id: "pid-1", text: "pong", createdAt: Date.now() }),
-          );
-          return { type: "stop" as const };
-        }),
-    },
+    llm: responseLlm(() => ({ id: "pid-1", text: "pong", createdAt: Date.now() })),
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
-  const decided = eventSignal<{ sessionId: string; id: string }>("pid-count decision", 15_000);
-  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
-    if (event.kind !== "policy.decision") return;
-    const node = plane.openKernel(event.sessionId).actionById(event.id);
-    const intent = node?.intent.value;
-    if (intent !== null && typeof intent === "object" && !Array.isArray(intent) && intent?.hook === "prompt.pre")
-      decided.resolve({ sessionId: event.sessionId, id: event.id });
-  });
+  const { signal: decided, unsubscribe } = committedDecision(plane, "pid-count decision", "hook", "prompt.pre");
   try {
     const reply = nextResidentTurn(plane);
     ws.send(JSON.stringify({ type: "message", eventId: "pid-turn", text: "ping" }));
@@ -1251,7 +1192,7 @@ test("M-2 e2e: two rows with the same command and different timeouts spawn ONE P
     // BOTH rows consulted on the one prompt decision...
     const node = plane.openKernel(decision.sessionId).actionById(decision.id);
     const parsed = z
-      .looseObject({ gate: z.looseObject({ consulted: z.array(z.looseObject({ ref: z.string() })) }) })
+      .object({ gate: z.object({ consulted: z.array(z.object({ ref: z.string() })) }) })
       .parse(node?.intent.value);
     expect(parsed.gate.consulted.map((entry) => entry.ref)).toEqual([
       Bundle.HOOK_PROCESS_REF,
@@ -1339,28 +1280,7 @@ test("H-2 e2e: an external PreToolUse rewrite reaches the REAL dispatched execut
           calls += 1;
           residentSessionId = input.trace.sessionId;
           if (calls === 1) {
-            const id = "rewrite-step-1";
-            sink.onMessage(
-              assistantMessage(input, {
-                id,
-                createdAt: Date.now(),
-                reason: "tool-calls",
-                parts: [
-                  {
-                    id: `${id}-tool`,
-                    sessionID: input.trace.sessionId,
-                    messageID: id,
-                    type: "tool" as const,
-                    callID: "rewrite-call-1",
-                    tool: "maskable",
-                    state: {
-                      status: "pending" as const,
-                      input: { command: "curl -H 'x-key: sk-abcdef123456789' https://api" },
-                    },
-                  },
-                ],
-              }),
-            );
+            sink.onMessage(pendingToolMessage(input, "rewrite-step-1", "rewrite-call-1", "maskable", "curl -H 'x-key: sk-abcdef123456789' https://api"));
             return { type: "stop" as const };
           }
           sink.onMessage(
@@ -1370,8 +1290,7 @@ test("H-2 e2e: an external PreToolUse rewrite reaches the REAL dispatched execut
         }),
     },
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, []);
+  const { plane, ws } = await ownerConnection(app);
   const terminal = nextResidentTurn(plane, 15_000);
   ws.send(JSON.stringify({ type: "message", eventId: "rewrite-open", text: "run the curl" }));
   expect(await terminal).toMatchObject({ text: "rewritten done" });
@@ -1383,34 +1302,14 @@ test("H-2 e2e: an external PreToolUse rewrite reaches the REAL dispatched execut
   if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
   const sessionId = residentSessionId;
   if (sessionId === undefined) throw new Error("the model step never ran");
-  const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
-  try {
-    const decisions = database
-      .query<{ intent: string }, []>(
-        "SELECT intent FROM action WHERE kind = 'policy.decision' AND json_extract(intent, '$.hook') = 'tool.pre' ORDER BY ordinal ASC",
-      )
-      .all()
-      .map(
-        (row) =>
-          JSON.parse(row.intent) as {
-            verdict: string;
-            gate?: {
-              verdict: string;
-              output?: { command?: string };
-              consulted: { ref: string; payload: { output?: string } }[];
-            };
-          },
-      );
-    expect(decisions).toHaveLength(1);
-    expect(decisions[0]?.verdict).toBe("allow");
-    expect(decisions[0]?.gate?.verdict).toBe("allow");
-    expect(decisions[0]?.gate?.output?.command).toBe("echo rewritten-by-hook");
-    expect(decisions[0]?.gate?.consulted).toEqual([
-      expect.objectContaining({ ref: Bundle.HOOK_PROCESS_REF }),
-    ]);
-  } finally {
-    database.close();
-  }
+  const decisions = sessionDecisions(config, sessionId, "tool.pre");
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]?.verdict).toBe("allow");
+  expect(decisions[0]?.gate?.verdict).toBe("allow");
+  expect(decisions[0]?.gate?.output?.command).toBe("echo rewritten-by-hook");
+  expect(decisions[0]?.gate?.consulted).toEqual([
+    expect.objectContaining({ ref: Bundle.HOOK_PROCESS_REF }),
+  ]);
 }, 30_000);
 
 // ─── H-3(b) e2e: manifest rotation while a captured old turn is live ────────
@@ -1433,23 +1332,6 @@ for await (const chunk of Bun.stdin.stream()) {
   }
 }
 `;
-
-/** Awaits a committed-state predicate: subscribe first, then re-check, never sleep. */
-async function untilCommitted(check: () => boolean, label: string, timeoutMs = 20_000) {
-  if (check()) return;
-  const settled = Promise.withResolvers<void>();
-  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, () => {
-    if (check()) settled.resolve();
-  });
-  const timer = setTimeout(() => settled.reject(new Error(label)), timeoutMs);
-  try {
-    if (check()) return;
-    await settled.promise;
-  } finally {
-    clearTimeout(timer);
-    unsubscribe();
-  }
-}
 
 test("H-3(b) e2e: a real generation rotation mid-turn — the old turn keeps its captured hook PID, the next turn uses the new one, the old PID is reclaimed", async () => {
   const dir = suite.tempDir("hooks-json-rotate-");
@@ -1533,8 +1415,7 @@ test("H-3(b) e2e: a real generation rotation mid-turn — the old turn keeps its
         }),
     },
   });
-  const plane = await planeOf(app.runtime);
-  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", TOKEN]);
+  const { plane, ws } = await ownerConnection(app, TOKEN);
   const residentId = () => plane.listSessions().find((row) => row.id !== "gateway-ingress")?.id;
   const lastTerminal = (sessionId: string) =>
     plane.openKernel(sessionId).getSnapshot(sessionId).turns.at(-1)?.terminal?.kind;
@@ -1544,10 +1425,7 @@ test("H-3(b) e2e: a real generation rotation mid-turn — the old turn keeps its
   const openRequest = () => {
     const sessionId = residentId();
     if (sessionId === undefined) return undefined;
-    return plane
-      .openKernel(sessionId)
-      .requestRows(sessionId)
-      .find((request) => request.state === "open");
+    return openResidentRequest(plane, sessionId);
   };
   await untilCommitted(() => openRequest() !== undefined, "bundle_disable consent never opened");
   const sessionId = residentId();
