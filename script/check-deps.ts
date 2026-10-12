@@ -1012,8 +1012,8 @@ export function loadAppResponsibilityPins(root = "."): ReadonlyMap<string, numbe
 }
 
 /** Count code references, excluding trivia and literal text. */
-export function appAgentResponsibilityCount(source: string): number {
-  const sourceFile = ts.createSourceFile("app.ts", source, ts.ScriptTarget.Latest, true);
+export function appAgentResponsibilityCount(source: string, path = "app.ts"): number {
+  const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   let count = 0;
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) &&
@@ -1039,8 +1039,8 @@ export async function validateAppAgentResponsibilities(
   pins: ReadonlyMap<string, number> = loadAppResponsibilityPins(root),
 ): Promise<string[]> {
   const counts = new Map<string, number>();
-  for await (const { filePath, source } of scanRepositorySources("apps/openomni/src/**/*.ts", root)) {
-    counts.set(filePath, appAgentResponsibilityCount(source));
+  for await (const { filePath, source } of scanRepositorySources("apps/openomni/src/**/*.{ts,tsx}", root)) {
+    counts.set(filePath, appAgentResponsibilityCount(source, filePath));
   }
   const violations: string[] = [];
   for (const path of new Set([...counts.keys(), ...pins.keys()])) {

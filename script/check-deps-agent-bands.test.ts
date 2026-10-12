@@ -185,10 +185,14 @@ test("#1343: new app file starts at zero; pinned call site removal is stale", as
     writeFileSync(path, "export const clean = true;\n");
     const added = join(root, "apps/openomni/src/added.ts");
     writeFileSync(added, "kernel.indexSession();\n");
+    writeFileSync(join(root, "apps/openomni/src/added.tsx"), "export const view = <div>{kernel.commit({})}</div>;\n");
+    writeFileSync(join(root, "apps/openomni/src/ignored.test.tsx"), "kernel.commit({});\n");
     const found = await validateAppAgentResponsibilities(root, new Map([
       ["apps/openomni/src/composition/cluster-runtime.ts", 5],
     ]));
     expect(found).toContain("VIOLATION: apps/openomni/src/added.ts direct agent responsibility actual 1, pin 0 (growth)");
+    expect(found).toContain("VIOLATION: apps/openomni/src/added.tsx direct agent responsibility actual 1, pin 0 (growth)");
+    expect(found.some((entry) => entry.includes("ignored.test.tsx"))).toBe(false);
     expect(found).toContain("VIOLATION: apps/openomni/src/composition/cluster-runtime.ts direct agent responsibility actual 0, pin 5 (stale pin)");
   } finally {
     rmSync(root, { recursive: true, force: true });
