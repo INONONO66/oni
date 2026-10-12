@@ -7,7 +7,9 @@ stamp. No PR edits a line another PR wrote, so stamps never conflict.
   an issue uses `pr<number>-<slug>.md`.
 - Content: one line, the same stamp format the ledger used — issue (and epic),
   branch, date, base SHA, PR, then what landed and where its receipt lives.
-- Newest first: `git log --diff-filter=A --format=%h -- docs/agents-stamps/`.
+- Newest first: `git log --diff-filter=A --name-only --format= -- 'docs/agents-stamps/*-*.md'`
+  lists the stamp files in the order they landed.
+- Two PRs for one issue use different slugs.
 
 `docs/agents-stamps.md` is the frozen ledger of every stamp before #1433. It
 takes no new lines.
