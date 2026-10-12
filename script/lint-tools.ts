@@ -663,16 +663,6 @@ function checkToolSchemaSnapshot(): Violation[] {
 // self-test — every check must flag a known-bad fixture (discrimination bench)
 // ---------------------------------------------------------------------------
 
-// Self-test fixture: a camelCase name, no description, and eight public fields (one over budget).
-const badTool: ToolSurface = {
-  name: "DoThingNowFastPlease",
-  description: "",
-  inputSchema: {
-    type: "object",
-    properties: { a: {}, b: {}, c: {}, d: {}, e: {}, f: {}, g: {}, h: {} },
-  },
-};
-
 export interface SelfTestChecks {
   readonly exemplar: AnyToolDefinition | undefined;
   readonly unmappedNamespaces: typeof unmappedNamespaces;
@@ -684,155 +674,126 @@ export interface SelfTestChecks {
   readonly diffToolSchemaSnapshots: typeof diffToolSchemaSnapshots;
 }
 
-function definitionSelfTest(failures: string[], checks: SelfTestChecks): void {
+export const defaultChecks: SelfTestChecks = {
+  exemplar: definitions[0], unmappedNamespaces, lintToolSurface, namingOffenders,
+  definitionInvariantViolations, topLevelFieldCount, diffSnapshots, diffToolSchemaSnapshots,
+};
+
+type SelfTestRow = readonly [ok: boolean, message: string];
+
+function definitionSelfTest(checks: SelfTestChecks): SelfTestRow[] {
   const exemplar = checks.exemplar;
-  if (exemplar === undefined) failures.push("definition invariant self-test has no exemplar");
-  if (exemplar === undefined) return;
-  const unsafeQuery = {
-    ...exemplar,
-    name: "unsafe_query",
-    category: "query",
-  } as AnyToolDefinition;
-  const earnedFlagged = checks.definitionInvariantViolations(
-    [],
-    [{ definition: unsafeQuery, filePath: "apps/openomni/src/tools/query/unsafe.ts" }],
-  ).some(({ check }) => check === "earned-check");
-  if (!earnedFlagged) failures.push("earned-check did not flag an uncatalogued definition");
+  if (!exemplar) return [[false, "definition invariant self-test has no exemplar"]];
+  const unsafeQuery = { ...exemplar, name: "unsafe_query", category: "query" } as AnyToolDefinition;
   const fileNameChecks = [
     ["send_message", "apps/openomni/src/tools/send-message.ts", 0],
     ["send_message", "apps/openomni/src/tools/send_message.ts", 1],
     ["read", "apps/openomni/src/tools/files/read.ts", 0],
     ["read", "apps/openomni/src/tools/files/read-file.ts", 1],
   ] as const;
-  for (const [name, filePath, expected] of fileNameChecks) {
-    const definition = { ...exemplar, name } as AnyToolDefinition;
-    const flagged = checks.definitionInvariantViolations([definition], [{ definition, filePath }]).filter(
-      ({ message }) => message.startsWith("[tool-file-name]"),
-    ).length;
-    if (flagged !== expected) failures.push(`tool-file-name misjudged ${filePath} for ${name}`);
-  }
   const invalidDefinition = { ...exemplar, name: "", description: "" } as AnyToolDefinition;
   const invalidMessages = checks.definitionInvariantViolations(
-    [invalidDefinition],
-    [{ definition: invalidDefinition, filePath: "apps/openomni/src/tools/.ts" }],
+    [invalidDefinition], [{ definition: invalidDefinition, filePath: "apps/openomni/src/tools/.ts" }],
   ).map(({ message }) => message);
-  if (!invalidMessages.some((message) => message.startsWith("[tool-name]")) || !invalidMessages.some((message) => message.startsWith("[tool-description]"))) failures.push("definition invariants missed empty name or description");
   const unknownCategory: AnyToolDefinition = { ...exemplar };
   Object.defineProperty(unknownCategory, "category", { value: "unregistered" });
-  if (!checks.definitionInvariantViolations([unknownCategory], [{ definition: unknownCategory, filePath: `apps/openomni/src/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }]).some(({ message }) => message.startsWith("[tool-category]"))) failures.push("definition invariants missed an unregistered tool category");
+  return [
+    [checks.definitionInvariantViolations([], [{ definition: unsafeQuery, filePath: "apps/openomni/src/tools/query/unsafe.ts" }])
+      .some(({ check }) => check === "earned-check"), "earned-check did not flag an uncatalogued definition"],
+    ...fileNameChecks.map(([name, filePath, expected]): SelfTestRow => {
+      const definition = { ...exemplar, name } as AnyToolDefinition;
+      const flagged = checks.definitionInvariantViolations([definition], [{ definition, filePath }])
+        .filter(({ message }) => message.startsWith("[tool-file-name]")).length;
+      return [flagged === expected, `tool-file-name misjudged ${filePath} for ${name}`];
+    }),
+    [invalidMessages.some((message) => message.startsWith("[tool-name]")) &&
+      invalidMessages.some((message) => message.startsWith("[tool-description]")),
+    "definition invariants missed empty name or description"],
+    [checks.definitionInvariantViolations([unknownCategory], [{ definition: unknownCategory,
+      filePath: `apps/openomni/src/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }])
+      .some(({ message }) => message.startsWith("[tool-category]")),
+    "definition invariants missed an unregistered tool category"],
+  ];
 }
 
-export function selfTest(overrides: Partial<SelfTestChecks> = {}): void {
-  const checks: SelfTestChecks = {
-    exemplar: definitions[0],
-    unmappedNamespaces,
-    lintToolSurface,
-    namingOffenders,
-    definitionInvariantViolations,
-    topLevelFieldCount,
-    diffSnapshots,
-    diffToolSchemaSnapshots,
-    ...overrides,
-  };
-  const failures: string[] = [];
-
-  const nouns = extractTierNouns(
-    "**Tier 1 (philosophy):** Actor, Ledger.\n**Tier 2 (specification):** Wait.",
-  );
-  if (checks.unmappedNamespaces(["actor", "totally-new-thing"], nouns).join() !== "totally-new-thing") {
-    failures.push("vocab-ratchet did not flag an unmapped namespace");
-  }
-  if (checks.unmappedNamespaces(["wait"], nouns).length !== 0) {
-    failures.push("vocab-ratchet flagged a mapped namespace (wait→Wait)");
-  }
-
-  if (checks.lintToolSurface(badTool).length !== 3) {
-    failures.push("tool-lint did not flag name/description/field-count on a known-bad tool");
-  }
-  if (
-    checks.lintToolSurface({
-      name: "read",
-      description: "ok",
-      inputSchema: { type: "object", properties: { path: {} } },
-    }).length !== 0
-  ) {
-    failures.push("tool-lint flagged a known-good tool");
-  }
-
-  if (checks.namingOffenders("x.ts", "export const FooTaskEnvelope = 1;").length === 0) {
-    failures.push("naming lint did not flag a banned noun");
-  }
-  if (checks.namingOffenders("x.ts", "export const WaitSchema = 1;").length !== 0) {
-    failures.push("naming lint flagged a clean identifier");
-  }
-
-  definitionSelfTest(failures, checks);
-
+export function selfTestFailures(checks: SelfTestChecks = defaultChecks): string[] {
+  const nouns = extractTierNouns("**Tier 1 (philosophy):** Actor, Ledger.\n**Tier 2 (specification):** Wait.");
+  const rows: SelfTestRow[] = [
+    [checks.unmappedNamespaces(["actor", "totally-new-thing"], nouns).join() === "totally-new-thing",
+      "vocab-ratchet did not flag an unmapped namespace"],
+    [checks.unmappedNamespaces(["wait"], nouns).length === 0,
+      "vocab-ratchet flagged a mapped namespace (wait→Wait)"],
+    [checks.lintToolSurface({ name: "DoThingNowFastPlease", description: "", inputSchema: {
+      type: "object", properties: { a: {}, b: {}, c: {}, d: {}, e: {}, f: {}, g: {}, h: {} },
+    } }).length === 3, "tool-lint did not flag name/description/field-count on a known-bad tool"],
+    [checks.lintToolSurface({ name: "read", description: "ok", inputSchema: {
+      type: "object", properties: { path: {} },
+    } }).length === 0, "tool-lint flagged a known-good tool"],
+    [checks.namingOffenders("x.ts", "export const FooTaskEnvelope = 1;").length > 0,
+      "naming lint did not flag a banned noun"],
+    [checks.namingOffenders("x.ts", "export const WaitSchema = 1;").length === 0,
+      "naming lint flagged a clean identifier"],
+    ...definitionSelfTest(checks),
+  ];
   const composedSchema: PlainObject = {
     $defs: { common: { type: "object", properties: { a: {}, b: {}, c: {} } } },
-    allOf: [
-      { $ref: "#/$defs/common" },
-      {
-        anyOf: [
-          { type: "object", properties: { d: {}, e: {} } },
-          { type: "object", properties: { d: {}, e: {}, f: {} } },
-        ],
-      },
-    ],
+    allOf: [{ $ref: "#/$defs/common" }, { anyOf: [
+      { type: "object", properties: { d: {}, e: {} } },
+      { type: "object", properties: { d: {}, e: {}, f: {} } },
+    ] }],
   };
-  if (checks.topLevelFieldCount(composedSchema) !== 6) {
-    failures.push("tool field budget walker did not follow allOf/anyOf/$ref");
-  }
   const recursiveSchema: PlainObject = {
-    $defs: {
-      "common/fields": {
-        properties: { h: {} },
-        $ref: "#/$defs/common~1fields",
-      },
-    },
+    $defs: { "common/fields": { properties: { h: {} }, $ref: "#/$defs/common~1fields" } },
     properties: { a: {}, b: {}, c: {}, d: {}, e: {}, f: {}, g: {} },
     $ref: "#/$defs/common~1fields",
   };
-  if (checks.lintToolSurface({ name: "read", description: "ok", inputSchema: recursiveSchema }).map((failure) => failure.rule).join() !== "tool-max-fields") failures.push("tool field budget walker lost escaped recursive reference fields");
-
   const snapshotViolations = checks.diffSnapshots(
-    { "Tool.Call": ["id", "input", "tool"] },
-    { "Tool.Call": ["id", "payload", "tool"] },
+    { "Tool.Call": ["id", "input", "tool"] }, { "Tool.Call": ["id", "payload", "tool"] },
   );
-  if (snapshotViolations.length !== 1 || !snapshotViolations[0]?.message.includes("input")) {
-    failures.push("schema-snapshot did not flag a field rename");
-  }
-  if (checks.diffSnapshots({ "Tool.Call": ["id"] }, {}).map((violation) => violation.subject).join() !== "Tool.Call") failures.push("schema-snapshot did not flag a removed type");
-  if (checks.diffSnapshots({ "Tool.Call": ["id"] }, { "Tool.Call": ["id", "extra"] }).length !== 0) {
-    failures.push("schema-snapshot flagged an additive change");
-  }
-  if (checks.diffToolSchemaSnapshots([{ name: "a" }], [{ name: "b" }]).length !== 1) {
-    failures.push("tool-schema snapshot did not flag a derived spec change");
-  }
-  if (checks.diffToolSchemaSnapshots([{ name: "a" }], [{ name: "a" }]).length !== 0) {
-    failures.push("tool-schema snapshot flagged identical derived specs");
-  }
+  rows.push(
+    [checks.topLevelFieldCount(composedSchema) === 6,
+      "tool field budget walker did not follow allOf/anyOf/$ref"],
+    [checks.lintToolSurface({ name: "read", description: "ok", inputSchema: recursiveSchema })
+      .map((failure) => failure.rule).join() === "tool-max-fields",
+    "tool field budget walker lost escaped recursive reference fields"],
+    [snapshotViolations.length === 1 && !!snapshotViolations[0]?.message.includes("input"),
+      "schema-snapshot did not flag a field rename"],
+    [checks.diffSnapshots({ "Tool.Call": ["id"] }, {}).map((violation) => violation.subject).join() === "Tool.Call",
+      "schema-snapshot did not flag a removed type"],
+    [checks.diffSnapshots({ "Tool.Call": ["id"] }, { "Tool.Call": ["id", "extra"] }).length === 0,
+      "schema-snapshot flagged an additive change"],
+    [checks.diffToolSchemaSnapshots([{ name: "a" }], [{ name: "b" }]).length === 1,
+      "tool-schema snapshot did not flag a derived spec change"],
+    [checks.diffToolSchemaSnapshots([{ name: "a" }], [{ name: "a" }]).length === 0,
+      "tool-schema snapshot flagged identical derived specs"],
+  );
+  return rows.filter(([ok]) => !ok).map(([, message]) => message);
+}
 
+export function selfTest(): void {
+  const failures = selfTestFailures();
   if (failures.length > 0) {
-    for (const failure of failures) {
-      process.stderr.write(`SELF-TEST FAIL: ${failure}\n`);
-    }
+    for (const failure of failures) process.stderr.write(`SELF-TEST FAIL: ${failure}\n`);
     process.exit(1);
   }
-  process.stdout.write(
-    "OK: lint-tools self-test — all checks discriminate on known-bad fixtures\n",
-  );
+  process.stdout.write("OK: lint-tools self-test — all checks discriminate on known-bad fixtures\n");
 }
 
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
+export function reportViolations(violations: readonly Violation[]): never {
+  for (const violation of violations) {
+    process.stderr.write(`VIOLATION [${violation.check}] ${violation.subject} — ${violation.message}\n`);
+  }
+  process.exit(1);
+}
+
 export async function main(
   argv: readonly string[] = process.argv.slice(2),
   hooks: {
     readonly writeSnapshot?: (path: string, contents: string) => void;
-    readonly violations?: readonly Violation[];
   } = {},
 ): Promise<void> {
   const args = new Set(argv);
@@ -858,7 +819,7 @@ export async function main(
     tools: z.object({ exceptions: z.record(z.string(), z.array(z.string())) }).optional(),
     naming: z.object({ grandfathered: z.array(z.string()) }),
   }).parse(decodeJson(readFileSync(BASELINE_PATH, "utf8")));
-  const violations = hooks.violations ?? [
+  const violations = [
     ...(await checkVocabRatchet(baseline)),
     ...(await checkToolLint(baseline)),
     ...(await checkNaming(baseline)),
@@ -867,19 +828,10 @@ export async function main(
     ...checkToolSchemaSnapshot(),
   ];
 
-  if (violations.length === 0) {
-    process.stdout.write(
-      "OK: conformance lint — vocab ratchet, definition invariants, tool lint, naming, earned, protocol schema snapshot, derived tool snapshot\n",
-    );
-    return;
-  }
-
-  for (const violation of violations) {
-    process.stderr.write(
-      `VIOLATION [${violation.check}] ${violation.subject} — ${violation.message}\n`,
-    );
-  }
-  process.exit(1);
+  if (violations.length > 0) reportViolations(violations);
+  process.stdout.write(
+    "OK: conformance lint — vocab ratchet, definition invariants, tool lint, naming, earned, protocol schema snapshot, derived tool snapshot\n",
+  );
 }
 
 if (import.meta.main) await runScriptMain(() => main());
