@@ -107,7 +107,7 @@ test("the parent's pre-anchor alarm fires exactly once and the forked child regi
           parent: kernel,
           parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION,
           openChild: () => child,
-          indexSession: (input) => void catalog.indexSession(input),
+          catalog,
         },
         {
           from: PARENT_ID,

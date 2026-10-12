@@ -126,7 +126,7 @@ test("a pre-fork key re-admits AND completes a real child turn; msg-1:delivery b
           parent: kernel,
           parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION,
           openChild: () => child,
-          indexSession: (index) => void catalog.indexSession(index),
+          catalog,
         },
         {
           from: PARENT_ID,

@@ -16,6 +16,17 @@ export class MaterializeRefused extends Data.TaggedError("MaterializeRefused")<{
   readonly reason: "input" | "configuration" | "state";
 }> {}
 
+/** #1346: one creation refused — the id is already durable on either plane, or the write unit failed. */
+export class CreateRefused extends Data.TaggedError("CreateRefused")<{
+  readonly sessionId: string;
+  readonly reason: "duplicate" | "write";
+  readonly cause?: unknown;
+}> {
+  override get message(): string {
+    return `session creation refused (${this.reason}): ${this.sessionId}`;
+  }
+}
+
 export class FenceRefused extends Data.TaggedError("FenceRefused")<{
   readonly sessionId: string;
   readonly reason: "held" | "stale";
@@ -111,6 +122,7 @@ export class CatalogVersionRefused extends Data.TaggedError("CatalogVersionRefus
 export type LedgerError =
   | SessionNotFound
   | MaterializeRefused
+  | CreateRefused
   | FenceRefused
   | CommitRefused
   | PolicyGenerationRefused

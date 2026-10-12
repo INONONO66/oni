@@ -46,6 +46,7 @@ export { SessionEntity, SessionEntityContext, type SessionKernel } from "./entit
 export { Ledger, OpenRefused, openLedger, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./host";
 export { makeObservationBus, observationBusLayer, scopeObservation } from "./bus";
 export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./fork";
+export { createSession, CreateRefused, type CreateSessionInput, type SessionReceipt } from "./create";
 
 // ─── journal/store surface (formerly the Journal namespace, #1276) ───
 export {
