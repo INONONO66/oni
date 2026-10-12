@@ -67,6 +67,8 @@ const IngressFacts = z
   .object({
     eventId: Id,
     surface: Id,
+    event: z.enum(["message", "reaction", "mention"]).optional(),
+    author: z.object({ externalId: Id, isBot: z.boolean() }).strict().optional(),
     workspaceId: Id.optional(),
     channelId: Id,
     addressees: z.array(z.object({ externalId: Id }).strict()),
