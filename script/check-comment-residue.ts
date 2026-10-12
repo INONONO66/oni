@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import ts from "typescript";
 import { runScriptMain } from "./main-runner";
 
 const ROOT = join(import.meta.dir, "..");
@@ -7,10 +8,10 @@ const AGENT_SRC_GLOB = "packages/agent/src/**/*.ts";
 /**
  * #1343 comment-residue gate for packages/agent production sources: per-file,
  * shrink-only pins for issue-number comment lines and `// ───` dividers, plus
- * package-wide ceilings for the comment ratio and over-six-line JSDoc blocks.
- * Every pin is tight (pin === HEAD actual): growth fails AND slack fails, so
- * cleanup (#1344) lowers the matching pin in the same PR. `--measure` prints
- * the current tree as a pin table for exactly that purpose.
+ * a package-wide comment-ratio CEILING and a tight JSDoc>6 pin. Per-file pins
+ * are tight (pin === HEAD actual): growth fails AND slack fails, so cleanup
+ * (#1344) lowers the matching pin in the same PR. `--measure` prints the
+ * current tree as a pin table for exactly that purpose.
  */
 export interface FileResidue {
   readonly issueLines: number;
@@ -23,90 +24,98 @@ export interface FileResidue {
 export interface ResiduePins {
   /** file -> [issue-number comment lines, divider lines], sorted, explicit zeroes. */
   readonly files: ReadonlyMap<string, readonly [number, number]>;
-  /** Package comment-to-nonblank ratio ceiling in basis points (floor). */
+  /**
+   * Package comment-to-nonblank ratio CEILING in basis points: only growth
+   * fails. Slack passes, because adding plain code lowers the ratio and must
+   * not fail the gate; #1344 lowers the ceiling deliberately.
+   */
   readonly ratioBasisPoints: number;
-  /** Package count of JSDoc blocks spanning more than six lines. */
+  /**
+   * Package count of JSDoc blocks spanning more than six lines. TIGHT pin:
+   * growth AND slack fail, because this count only moves when a JSDoc block
+   * is edited, never when plain code is added.
+   */
   readonly jsdocOverSix: number;
   /** Exact structural-header exemptions: the marker line is not a divider hit. */
   readonly structuralHeaders: readonly { readonly file: string; readonly marker: string }[];
 }
 
+/** Hard budget for structural-header exemptions, enforced by the gate itself. */
+const STRUCTURAL_HEADER_BUDGET = 10;
+
 const ISSUE_TOKEN = /#\d{3,4}/;
 const DIVIDER = /^\/\/ ───/;
+const WHITESPACE = /\s/;
 
 /**
- * Deterministic line classifier: a line counts as a comment line only when it
- * is comment-only: slash-slash lines, and every line of a block comment with
- * no code before the opener or after the closer. Trailing comments on code
- * lines are code.
+ * Comment lines come from TypeScript comment-trivia ranges, not line-prefix
+ * heuristics: the file is parsed with `ts.createSourceFile` (so template
+ * literals and regexes lex correctly) and every token's leading and trailing
+ * trivia yield its `SingleLineCommentTrivia`/`MultiLineCommentTrivia` ranges. A nonblank
+ * line is a comment line only when every one of its non-whitespace characters
+ * sits inside comment trivia: trailing comments on code lines are code, the
+ * continuation lines of a block opened after code are comments, and
+ * template-literal text that looks like `//` is code. The JSDoc>6 count
+ * derives from MultiLineCommentTrivia ranges whose text starts with `/**` and
+ * spans more than six physical lines.
  */
 export function classifyResidue(
   source: string,
   exemptMarkers: ReadonlySet<string> = new Set(),
 ): FileResidue {
-  const tally = {
-    issueLines: 0,
-    dividerLines: 0,
-    commentLines: 0,
-    nonblankLines: 0,
-    jsdocOverSix: 0,
-  };
-  const block = { open: false, jsdoc: false, start: 0 };
-  for (const [index, raw] of source.split("\n").entries()) {
-    const trimmed = raw.trim();
-    if (trimmed.length > 0) tally.nonblankLines += 1;
-    const comment = block.open
-      ? blockContinuation(trimmed, index, block, tally)
-      : lineStart(raw, trimmed, index, block, tally, exemptMarkers);
-    if (comment) {
-      tally.commentLines += 1;
-      if (ISSUE_TOKEN.test(trimmed)) tally.issueLines += 1;
+  const sourceFile = ts.createSourceFile(
+    "residue.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const commentMask = new Uint8Array(source.length);
+  let jsdocOverSix = 0;
+  const seen = new Set<number>();
+  const markComments = (node: ts.Node): void => {
+    if (node.getChildCount(sourceFile) > 0) {
+      for (const child of node.getChildren(sourceFile)) markComments(child);
+      return;
     }
+    const fullStart = node.getFullStart();
+    for (const range of [
+      ...(ts.getTrailingCommentRanges(source, fullStart) ?? []),
+      ...(ts.getLeadingCommentRanges(source, fullStart) ?? []),
+    ]) {
+      if (seen.has(range.pos)) continue;
+      seen.add(range.pos);
+      commentMask.fill(1, range.pos, range.end);
+      if (range.kind === ts.SyntaxKind.MultiLineCommentTrivia && source.startsWith("/**", range.pos)) {
+        const span = source.slice(range.pos, range.end).split("\n").length;
+        if (span > 6) jsdocOverSix += 1;
+      }
+    }
+  };
+  markComments(sourceFile);
+  const tally = { issueLines: 0, dividerLines: 0, commentLines: 0, nonblankLines: 0, jsdocOverSix };
+  let offset = 0;
+  for (const raw of source.split("\n")) {
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) {
+      tally.nonblankLines += 1;
+      let commentOnly = true;
+      for (let column = 0; column < raw.length; column += 1) {
+        if (!WHITESPACE.test(raw[column] as string) && commentMask[offset + column] === 0) {
+          commentOnly = false;
+          break;
+        }
+      }
+      if (commentOnly) {
+        tally.commentLines += 1;
+        if (ISSUE_TOKEN.test(trimmed)) tally.issueLines += 1;
+        if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) tally.dividerLines += 1;
+      }
+    }
+    offset += raw.length + 1;
   }
   return tally;
 }
-
-type BlockState = { open: boolean; jsdoc: boolean; start: number };
-type Tally = { jsdocOverSix: number; dividerLines: number };
-
-/** Inside a block comment: the line is a comment unless code follows the closer. */
-function blockContinuation(
-  trimmed: string,
-  index: number,
-  block: BlockState,
-  tally: Tally,
-): boolean {
-  const close = trimmed.indexOf("*/");
-  if (close === -1) return true;
-  if (block.jsdoc && index - block.start + 1 > 6) tally.jsdocOverSix += 1;
-  block.open = false;
-  return trimmed.slice(close + 2).trim().length === 0;
-}
-
-/** Outside a block comment: slash-slash lines and block openers are comments. */
-function lineStart(
-  raw: string,
-  trimmed: string,
-  index: number,
-  block: BlockState,
-  tally: Tally,
-  exemptMarkers: ReadonlySet<string>,
-): boolean {
-  if (trimmed.startsWith("//")) {
-    if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) tally.dividerLines += 1;
-    return true;
-  }
-  if (!trimmed.startsWith("/*")) return false;
-  block.jsdoc = trimmed.startsWith("/**");
-  block.start = index;
-  const close = trimmed.indexOf("*/", 2);
-  if (close === -1) {
-    block.open = true;
-    return true;
-  }
-  return trimmed.slice(close + 2).trim().length === 0;
-}
-
 async function scanAgentSources(
   root: string,
   pins: ResiduePins,
@@ -127,6 +136,28 @@ async function scanAgentSources(
     results.set(filePath, classifyResidue(source, markersByFile.get(filePath)));
   }
   return results;
+}
+
+/** The one aggregation fold shared by the gate and `--measure`. */
+function aggregateResidue(actuals: Map<string, FileResidue>): {
+  readonly entries: readonly (readonly [string, FileResidue])[];
+  readonly commentLines: number;
+  readonly nonblankLines: number;
+  readonly ratioBasisPoints: number;
+  readonly jsdocOverSix: number;
+} {
+  const entries = [...actuals.entries()].sort();
+  let commentLines = 0;
+  let nonblankLines = 0;
+  let jsdocOverSix = 0;
+  for (const [, residue] of entries) {
+    commentLines += residue.commentLines;
+    nonblankLines += residue.nonblankLines;
+    jsdocOverSix += residue.jsdocOverSix;
+  }
+  const ratioBasisPoints =
+    nonblankLines === 0 ? 0 : Math.floor((commentLines / nonblankLines) * 10_000);
+  return { entries, commentLines, nonblankLines, ratioBasisPoints, jsdocOverSix };
 }
 
 function compareCategory(
@@ -153,14 +184,13 @@ export async function checkCommentResidue(
   pins: ResiduePins = RESIDUE_PINS,
 ): Promise<string[]> {
   const violations: string[] = [];
-  const actuals = await scanAgentSources(root, pins);
-  let commentLines = 0;
-  let nonblankLines = 0;
-  let jsdocOverSix = 0;
-  for (const [file, residue] of [...actuals.entries()].sort()) {
-    commentLines += residue.commentLines;
-    nonblankLines += residue.nonblankLines;
-    jsdocOverSix += residue.jsdocOverSix;
+  if (pins.structuralHeaders.length > STRUCTURAL_HEADER_BUDGET) {
+    violations.push(
+      `VIOLATION [comment-residue] structural-header exemptions ${pins.structuralHeaders.length} > budget ${STRUCTURAL_HEADER_BUDGET}: retire exemptions instead of adding them`,
+    );
+  }
+  const totals = aggregateResidue(await scanAgentSources(root, pins));
+  for (const [file, residue] of totals.entries) {
     const pinned = pins.files.get(file);
     if (pinned === undefined) {
       violations.push(
@@ -172,59 +202,45 @@ export async function checkCommentResidue(
     compareCategory(file, "divider lines", residue.dividerLines, pinned[1], violations);
   }
   for (const [file] of [...pins.files.entries()].sort()) {
-    if (!actuals.has(file)) {
+    if (!totals.entries.some(([actualFile]) => actualFile === file)) {
       violations.push(
         `VIOLATION [comment-residue] ${file} is pinned but absent: remove the stale pin`,
       );
     }
   }
-  const ratioBasisPoints =
-    nonblankLines === 0 ? 0 : Math.floor((commentLines / nonblankLines) * 10_000);
-  if (ratioBasisPoints > pins.ratioBasisPoints) {
+  if (totals.ratioBasisPoints > pins.ratioBasisPoints) {
     violations.push(
-      `VIOLATION [comment-residue] package comment ratio ${ratioBasisPoints}bp > ceiling ${pins.ratioBasisPoints}bp — shrink only, never grow`,
-    );
-  } else if (ratioBasisPoints < pins.ratioBasisPoints) {
-    violations.push(
-      `VIOLATION [comment-residue] comment-ratio ceiling exceeds actual (${pins.ratioBasisPoints}bp > ${ratioBasisPoints}bp): lower the ceiling`,
+      `VIOLATION [comment-residue] package comment ratio ${totals.ratioBasisPoints}bp > ceiling ${pins.ratioBasisPoints}bp — shrink only, never grow`,
     );
   }
-  if (jsdocOverSix > pins.jsdocOverSix) {
+  if (totals.jsdocOverSix > pins.jsdocOverSix) {
     violations.push(
-      `VIOLATION [comment-residue] JSDoc blocks over six lines ${jsdocOverSix} > ceiling ${pins.jsdocOverSix} — shrink only, never grow`,
+      `VIOLATION [comment-residue] JSDoc blocks over six lines ${totals.jsdocOverSix} > ceiling ${pins.jsdocOverSix} — shrink only, never grow`,
     );
-  } else if (jsdocOverSix < pins.jsdocOverSix) {
+  } else if (totals.jsdocOverSix < pins.jsdocOverSix) {
     violations.push(
-      `VIOLATION [comment-residue] JSDoc ceiling exceeds actual (${pins.jsdocOverSix} > ${jsdocOverSix}): lower the ceiling`,
+      `VIOLATION [comment-residue] JSDoc ceiling exceeds actual (${pins.jsdocOverSix} > ${totals.jsdocOverSix}): lower the ceiling`,
     );
   }
   return violations;
 }
 
-async function measure(root: string): Promise<string> {
-  const actuals = await scanAgentSources(root, RESIDUE_PINS);
-  let commentLines = 0;
-  let nonblankLines = 0;
-  let jsdocOverSix = 0;
-  const rows: string[] = [];
-  for (const [file, residue] of [...actuals.entries()].sort()) {
-    commentLines += residue.commentLines;
-    nonblankLines += residue.nonblankLines;
-    jsdocOverSix += residue.jsdocOverSix;
-    rows.push(`  ["${file}", [${residue.issueLines}, ${residue.dividerLines}]],`);
-  }
-  const ratio = nonblankLines === 0 ? 0 : Math.floor((commentLines / nonblankLines) * 10_000);
+async function measure(root: string, pins: ResiduePins): Promise<string> {
+  const totals = aggregateResidue(await scanAgentSources(root, pins));
+  const rows = totals.entries.map(
+    ([file, residue]) => `  ["${file}", [${residue.issueLines}, ${residue.dividerLines}]],`,
+  );
   return [
     ...rows,
-    `// ratioBasisPoints: ${ratio} (${commentLines}/${nonblankLines}), jsdocOverSix: ${jsdocOverSix}`,
+    `// ratioBasisPoints: ${totals.ratioBasisPoints} (${totals.commentLines}/${totals.nonblankLines}), jsdocOverSix: ${totals.jsdocOverSix}`,
   ].join("\n");
 }
 
 /**
- * Structural-header allow-list (<=10 exact entries, documented). An entry
- * exempts exactly one marker line from the divider count in exactly one file;
- * it never exempts issue-number residue — the `#1305` token on the exempted
- * line below still counts against the file's issue-line pin.
+ * Structural-header allow-list (<=10 exact entries, budget enforced by the
+ * gate). An entry exempts exactly one marker line from the divider count in
+ * exactly one file; it never exempts issue-number residue — the `#1305` token
+ * on the exempted line below still counts against the file's issue-line pin.
  */
 const STRUCTURAL_HEADERS: readonly { readonly file: string; readonly marker: string }[] = [
   {
@@ -368,25 +384,38 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
 
 export const RESIDUE_PINS: ResiduePins = {
   files: RESIDUE_FILE_PINS,
-  ratioBasisPoints: 1_425, // 3485 comment / 24454 nonblank lines at d9800ad74
-  jsdocOverSix: 126, // JSDoc blocks spanning >6 lines at d9800ad74
+  ratioBasisPoints: 1_425, // CEILING: 3485 comment / 24454 nonblank lines at d9800ad74
+  // TIGHT: JSDoc blocks spanning >6 physical lines at d9800ad74. The issue's
+  // 97 is not reproducible under any line-span definition; ceiling = measured
+  // 126 under "spans > 6 physical lines".
+  jsdocOverSix: 126,
   structuralHeaders: STRUCTURAL_HEADERS,
 };
 
-async function main(): Promise<void> {
-  if (Bun.argv.includes("--measure")) {
-    process.stdout.write(`${await measure(ROOT)}\n`);
+export async function main(
+  argv: readonly string[] = Bun.argv,
+  root: string = ROOT,
+  io: {
+    readonly stdout: (text: string) => void;
+    readonly stderr: (text: string) => void;
+  } = {
+    stdout: (text) => process.stdout.write(text),
+    stderr: (text) => process.stderr.write(text),
+  },
+): Promise<void> {
+  if (argv.includes("--measure")) {
+    io.stdout(`${await measure(root, RESIDUE_PINS)}\n`);
     return;
   }
-  const violations = await checkCommentResidue();
+  const violations = await checkCommentResidue(root);
   for (const violation of violations) {
-    process.stderr.write(`${violation}\n`);
+    io.stderr(`${violation}\n`);
   }
   if (violations.length > 0) {
     process.exitCode = 1;
     return;
   }
-  process.stdout.write(
+  io.stdout(
     `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp, JSDoc>6 ceiling ${RESIDUE_PINS.jsdocOverSix}\n`,
   );
 }

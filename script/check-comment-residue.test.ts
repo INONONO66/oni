@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   checkCommentResidue,
   classifyResidue,
+  main,
   RESIDUE_PINS,
   type ResiduePins,
 } from "./check-comment-residue";
@@ -68,6 +69,23 @@ test("#1343 classifier: comment-only issue lines, dividers, and JSDoc >6 lines a
   expect(residue.dividerLines).toBe(1);
   expect(residue.jsdocOverSix).toBe(1);
   expect(residue.commentLines).toBe(9);
+});
+
+test("#1343 classifier: a block opened after code counts its continuation lines; template text is code", () => {
+  const residue = classifyResidue(
+    [
+      "const x = 1; /* opener after code",
+      " #1234 inside the block is a comment line",
+      " */ const y = 2;",
+      "const t = `",
+      "// #5678 template text, not a comment",
+      "`;",
+    ].join("\n"),
+  );
+  expect(residue.commentLines).toBe(1);
+  expect(residue.issueLines).toBe(1);
+  expect(residue.dividerLines).toBe(0);
+  expect(residue.nonblankLines).toBe(6);
 });
 
 // ─── growth, slack, unpinned, stale ───
@@ -146,7 +164,7 @@ test("#1343: extending a JSDoc past the ceiling fails even with unchanged issue 
   }
 });
 
-test("#1343: comment-ratio growth fails; a stale ceiling also fails", async () => {
+test("#1343: comment-ratio growth fails; added plain code lowers the ratio and passes (ceiling, not pin)", async () => {
   // 1 comment line / 2 nonblank lines = 5000bp.
   const root = scratchTree({ "core/a.ts": "// prose comment\nexport const a = 1;\n" });
   try {
@@ -157,12 +175,41 @@ test("#1343: comment-ratio growth fails; a stale ceiling also fails", async () =
     expect(grown).toEqual([
       "VIOLATION [comment-residue] package comment ratio 5000bp > ceiling 4999bp — shrink only, never grow",
     ]);
+    // Slack under the ceiling is legal: an agent feature PR adds code freely.
+    expect(
+      await checkCommentResidue(root, pinsOf({ "core/a.ts": [0, 0] }, { ratioBasisPoints: 5_001 })),
+    ).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343: adding plain code lines to a pinned tree passes under an unchanged ratio ceiling", async () => {
+  // Baseline 1/2 = 5000bp pinned as the ceiling; three added code lines drop
+  // the ratio to 1/5 = 2000bp and the gate stays green.
+  const root = scratchTree({
+    "core/a.ts":
+      "// prose comment\nexport const a = 1;\nexport const b = 2;\nexport const c = 3;\nexport const d = 4;\n",
+  });
+  try {
+    expect(
+      await checkCommentResidue(root, pinsOf({ "core/a.ts": [0, 0] }, { ratioBasisPoints: 5_000 })),
+    ).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343: the JSDoc>6 count is a tight pin — a ceiling above the actual fails closed", async () => {
+  const jsdoc = ["/**", ...Array.from({ length: 6 }, (_, i) => ` * line ${i}`), " */"].join("\n");
+  const root = scratchTree({ "core/a.ts": `${jsdoc}\nexport const a = 1;\n` });
+  try {
     const stale = await checkCommentResidue(
       root,
-      pinsOf({ "core/a.ts": [0, 0] }, { ratioBasisPoints: 5_001 }),
+      pinsOf({ "core/a.ts": [0, 0] }, { ratioBasisPoints: 8_889, jsdocOverSix: 2 }),
     );
     expect(stale).toEqual([
-      "VIOLATION [comment-residue] comment-ratio ceiling exceeds actual (5001bp > 5000bp): lower the ceiling",
+      "VIOLATION [comment-residue] JSDoc ceiling exceeds actual (2 > 1): lower the ceiling",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -206,7 +253,75 @@ test("#1343: an exact exempted marker skips the divider count; a neighboring mar
 
 // ─── the shipped baseline: real pins pass on the real tree ───
 
-test("#1343: the pinned baseline passes and stays within the documented exemption budget", async () => {
-  expect(await checkCommentResidue()).toEqual([]);
-  expect(RESIDUE_PINS.structuralHeaders.length).toBeLessThanOrEqual(10);
+test("#1343: an over-budget structural-header allow-list is itself a violation", async () => {
+  const root = scratchTree({ "core/a.ts": "export const a = 1;\n" });
+  const headers = Array.from({ length: 11 }, (_, i) => ({
+    file: "packages/agent/src/core/a.ts",
+    marker: `// ─── header ${i} ───`,
+  }));
+  try {
+    const violations = await checkCommentResidue(
+      root,
+      pinsOf({ "core/a.ts": [0, 0] }, { structuralHeaders: headers }),
+    );
+    expect(violations).toEqual([
+      "VIOLATION [comment-residue] structural-header exemptions 11 > budget 10: retire exemptions instead of adding them",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ─── main: --measure, OK, and violation branches, in process ───
+
+function captureIo(): { out: string[]; err: string[]; io: { stdout: (t: string) => void; stderr: (t: string) => void } } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return { out, err, io: { stdout: (t) => out.push(t), stderr: (t) => err.push(t) } };
+}
+
+test("#1343 main --measure: prints the pin table and the ceiling line for the given root", async () => {
+  const root = scratchTree({ "core/a.ts": "// #1234 residue\nexport const a = 1;\n" });
+  const { out, err, io } = captureIo();
+  try {
+    await main(["--measure"], root, io);
+    expect(err).toEqual([]);
+    expect(out.join("")).toBe(
+      '  ["packages/agent/src/core/a.ts", [1, 0]],\n// ratioBasisPoints: 5000 (1/2), jsdocOverSix: 0\n',
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343 main: violations print to stderr and set the exit code", async () => {
+  const root = scratchTree({ "core/unpinned.ts": "// #1234 residue\nexport const a = 1;\n" });
+  const { out, err, io } = captureIo();
+  const previousExitCode = process.exitCode;
+  try {
+    await main([], root, io);
+    expect(process.exitCode).toBe(1);
+    expect(out).toEqual([]);
+    expect(err.join("")).toContain(
+      "VIOLATION [comment-residue] packages/agent/src/core/unpinned.ts is not pinned",
+    );
+  } finally {
+    process.exitCode = previousExitCode;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343 main: the pinned baseline passes through the OK branch", async () => {
+  const { out, err, io } = captureIo();
+  const previousExitCode = process.exitCode;
+  try {
+    await main([], join(import.meta.dir, ".."), io);
+    expect(process.exitCode).toBe(previousExitCode);
+    expect(err).toEqual([]);
+    expect(out.join("")).toBe(
+      `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp, JSDoc>6 ceiling ${RESIDUE_PINS.jsdocOverSix}\n`,
+    );
+  } finally {
+    process.exitCode = previousExitCode;
+  }
 });
