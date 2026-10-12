@@ -1,4 +1,5 @@
 import { expect, mock, spyOn, test } from "bun:test";
+import { runIsolated } from "./helpers/isolated-entry";
 
 /**
  * #1312: an invalid `OPENOMNI_WS_PORT` is a typed configuration error, and the
@@ -8,6 +9,11 @@ import { expect, mock, spyOn, test } from "bun:test";
  * pinned here against the bootstrap path itself.
  */
 test("an invalid OPENOMNI_WS_PORT quits before any window opens and names the variable", async () => {
+  if (process.env.OPENOMNI_CONFIG_ERROR_CHILD !== "1") {
+    await runIsolated(import.meta.path, { OPENOMNI_CONFIG_ERROR_CHILD: "1" });
+    return;
+  }
+
   let constructed = 0;
   let readied = 0;
   let quits = 0;
@@ -36,14 +42,15 @@ test("an invalid OPENOMNI_WS_PORT quits before any window opens and names the va
     },
     ipcMain: { handle: () => undefined, on: () => undefined },
     nativeTheme: { shouldUseDarkColors: true },
-    Menu: { buildFromTemplate: (template: object[]) => template, setApplicationMenu: () => undefined },
+    Menu: {
+      buildFromTemplate: (template: object[]) => template,
+      setApplicationMenu: () => undefined,
+    },
   }));
   process.env.OPENOMNI_WS_PORT = "abc";
   delete process.env.OPENOMNI_WS_URL;
   try {
-    // Entry modules are cached across test files; the query forces a fresh evaluation.
-    const ownInstance: string = "../src/main/index?config-error";
-    await import(ownInstance);
+    await import("../src/main/index");
     expect(constructed).toBe(0);
     expect(readied).toBe(0);
     expect(quits).toBe(1);
@@ -59,4 +66,4 @@ test("an invalid OPENOMNI_WS_PORT quits before any window opens and names the va
     else process.env.OPENOMNI_WS_URL = previousUrl;
     mock.restore();
   }
-});
+}, 15_000);
