@@ -66,7 +66,7 @@ describe("GatewayRouter kernel routing", () => {
       spy.mockRestore();
     }
   });
-  test("reads blacklist and channel facts once", async () => {
+  test("reads blacklist and channel facts for routing and the granted-direct record", async () => {
     registerOwnerDm();
     createMappedOwnerSession();
     const blacklist = spyOn(ledger().stores.blacklist, "list");
@@ -74,7 +74,8 @@ describe("GatewayRouter kernel routing", () => {
     try {
       await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
       expect(blacklist).toHaveBeenCalledTimes(1);
-      expect(channels).toHaveBeenCalledTimes(1);
+      // The granted-direct migration reads the grant in addition to route admission.
+      expect(channels).toHaveBeenCalledTimes(2);
     } finally {
       blacklist.mockRestore();
       channels.mockRestore();

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { Ingress } from "@openomni/protocol";
 import { judgeAndMatch } from "../src/automation/judge.js";
 import { match } from "../src/automation/matcher.js";
+import { runEffect } from "./helpers/effect.js";
 
 const input = Ingress.Input.parse({
   eventId: "one", surface: "telegram", event: "message", channelId: "room",
@@ -45,7 +46,7 @@ describe("automation matcher", () => {
 
   test("only structurally eligible records invoke the Effect judge", async () => {
     const questions: string[] = [];
-    const result = await Effect.runPromise(judgeAndMatch([
+    const result = await runEffect(judgeAndMatch([
       { ...record, id: "other", conditions: { contains: ["missing"] }, runWhen: "No" },
       { ...record, runWhen: "Urgent?" },
     ], input, { now: 0 }, (question) => {

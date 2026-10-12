@@ -20,7 +20,7 @@ interface MessageContext {
   sender: Gateway.IngestSender;
   send: Gateway.SendMessage;
   prepared: Effect.Success<ReturnType<GatewayRouterPorts["prepare"]>>;
-  external: ReturnType<typeof externalMessage> | undefined;
+  external: Effect.Success<ReturnType<typeof externalMessage>> | undefined;
   ports: GatewayRouterPorts;
   messaging: ReturnType<typeof createExistingAgentMessaging> | undefined;
   messageId: string;

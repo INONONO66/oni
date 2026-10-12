@@ -47,7 +47,7 @@ describe("automation store", () => {
   test("migrates a granted surface to one prompt record without duplicates", () => {
     const { db, store } = fixture();
     const grant = { surfaceKey: "telegram:dm:user", surface: "telegram", channelId: "dm:user",
-      userId: "user", sessionId: "resident" };
+      users: ["user"], sessionId: "resident" };
     const first = store.migrateGrantedDirect(grant);
     expect(first).toMatchObject({ kind: "prompt", enabled: true, target: "session:resident",
       conditions: { channels: ["dm:user"], users: ["user"], includeBots: false } });

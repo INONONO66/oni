@@ -24,7 +24,8 @@ describe("automation grouping", () => {
     expect(advanceGroups([record], third.pending, 9999).decisions).toHaveLength(0);
     const closed = advanceGroups([record], third.pending, 10000);
     expect(closed.decisions).toHaveLength(1);
-    const result = closed.decisions[0]!;
+    const result = closed.decisions[0];
+    if (result === undefined) throw new Error("expected one closed decision");
     expect(result.route?.kind).toBe("action");
     if (result.route?.kind === "action") expect(result.route.body.event.messages).toHaveLength(3);
     expect(result.rows.filter((row) => row.stage === "automation" && row.decision === "grouped")).toHaveLength(2);
@@ -36,5 +37,20 @@ describe("automation grouping", () => {
     const closed = advanceGroups([{ ...record, enabled: false }], opened.pending, 10000);
     expect(closed.decisions[0]?.route).toBeUndefined();
     expect(closed.decisions[0]?.rows[0]).toMatchObject({ decision: "filtered", reason: "disabled" });
+  });
+
+  test("capacity closes at 64 without dropping the 65th member", () => {
+    let pending = match([record], input, { now: 0 }).pending;
+    for (let n = 2; n < 64; n++) {
+      pending = match([record], { ...input, eventId: String(n) }, { now: 0, pending }).pending;
+    }
+    const full = match([record], { ...input, eventId: "64" }, { now: 0, pending });
+    expect(full.route?.kind).toBe("action");
+    if (full.route?.kind === "action") expect(full.route.body.event.messages).toHaveLength(64);
+    expect(full.rows).toHaveLength(64);
+    expect(full.pending).toHaveLength(0);
+    const next = match([record], { ...input, eventId: "65" }, { now: 0, pending: full.pending });
+    expect(next.pending[0]?.inputs).toHaveLength(1);
+    expect(advanceGroups([record], next.pending, 10000).decisions[0]?.rows).toHaveLength(1);
   });
 });

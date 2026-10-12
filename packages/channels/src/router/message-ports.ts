@@ -2,13 +2,7 @@ import type { Effect } from "effect";
 import type { ChannelError } from "../errors";
 import type { PolicyEvaluationInput } from "@openomni/agent";
 import type {
-  BusEvent,
-  Gateway,
-  Ingress,
-  Delivery,
-  LedgerAction,
-  PlainValue,
-  SessionTransition,
+  BusEvent, Gateway, Ingress, Delivery, LedgerAction, PlainValue, SessionTransition,
 } from "@openomni/protocol";
 import type { KernelDeliveryReceipt } from "../support/deliver";
 
@@ -61,13 +55,12 @@ interface MessagingGrantSources {
 }
 
 export interface GatewayRouterPorts {
-  readonly stores?: import("./stores.js").ChannelStores;
+  /** Every gateway reads records through the same required perimeter store. */
+  readonly stores: import("./stores.js").ChannelStores;
   readonly transaction: <A>(operation: Effect.Effect<A, ChannelError>) => Effect.Effect<A, ChannelError>;
   readonly judge?: (question: string, event: Ingress.Input) => Effect.Effect<"yes" | "no" | "unknown", ChannelError>;
   readonly authenticateAnswer?: (
-    sender: Gateway.IngestSender & { kind: "external" },
-    credential: string,
-    requestId: string,
+    sender: Gateway.IngestSender & { kind: "external" }, credential: string, requestId: string,
   ) => Effect.Effect<SessionTransition.Principal, ChannelError>;
   readonly requests: {
     list(): readonly SessionTransition.Request[];
@@ -76,20 +69,13 @@ export interface GatewayRouterPorts {
     receipt(input: SessionTransition.DeliveryReceipt): Effect.Effect<SessionTransition.Request, ChannelError>;
   };
   readonly sink: BusEvent.Sink["publish"];
-  readonly observe?: (
-    sender: Gateway.IngestSender,
-    observation: Gateway.MessageObservation,
-  ) => void;
+  readonly observe?: (sender: Gateway.IngestSender, observation: Gateway.MessageObservation) => void;
   readonly delivery: { readonly commit: (input: Delivery.Commit) => Effect.Effect<Delivery.Row, ChannelError> };
   readonly prepare: (
-    sender: Gateway.IngestSender,
-    message: Gateway.SendMessage,
-    target: string,
-    messageId: string,
+    sender: Gateway.IngestSender, message: Gateway.SendMessage, target: string, messageId: string,
   ) => Effect.Effect<PreparedMessage, ChannelError>;
   readonly run: (
-    sender: Gateway.IngestSender,
-    request: MessageExecution,
+    sender: Gateway.IngestSender, request: MessageExecution,
     body: (intent: LedgerAction.Receipt) => Effect.Effect<PlainValue, ChannelError>,
   ) => Effect.Effect<MessageExecutionResult, ChannelError>;
   readonly committed?: (row: Delivery.Row) => void;

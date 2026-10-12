@@ -68,7 +68,7 @@ export function createAutomationStore(source: { readonly automation?: Automation
       readonly surfaceKey: string;
       readonly surface: string;
       readonly channelId: string;
-      readonly userId: string;
+      readonly users?: readonly string[];
       readonly sessionId: string;
     }): Ingress.Automation {
       const id = `granted-direct:${input.surfaceKey}`;
@@ -78,7 +78,8 @@ export function createAutomationStore(source: { readonly automation?: Automation
           { type: "message", surface: input.surface, event: "message" },
           { type: "message", surface: input.surface, event: "mention" },
         ],
-        conditions: { channels: [input.channelId], users: [input.userId], includeBots: false },
+        conditions: { channels: [input.channelId],
+          ...(input.users === undefined ? {} : { users: [...input.users] }), includeBots: false },
         target: `session:${input.sessionId}`, kind: "prompt",
       });
       const previous = adapter().get(id);

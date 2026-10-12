@@ -1,12 +1,19 @@
 import { createHash } from "node:crypto";
 import { Ingress } from "@openomni/protocol";
 
+interface Verdict {
+  readonly verdict: "yes" | "no" | "unknown";
+  readonly reason: string;
+}
+
 export interface PendingGroup {
   readonly automationId: string;
   readonly key: string;
   readonly openedAt: number;
+  readonly windowSeconds: Ingress.WindowSeconds;
   readonly trigger: Ingress.Trigger;
   readonly inputs: readonly Ingress.Input[];
+  readonly runWhen?: Verdict;
 }
 
 type Route =
@@ -26,10 +33,7 @@ export interface MatchPorts {
   readonly pending?: readonly PendingGroup[];
   readonly seen?: boolean;
   readonly matchedToday?: (id: string) => number;
-  readonly judge?: (question: string, input: Ingress.Input) => {
-    readonly verdict: "yes" | "no" | "unknown";
-    readonly reason: string;
-  };
+  readonly judge?: (question: string, input: Ingress.Input) => Verdict;
 }
 
 function triggerMatches(trigger: Ingress.Trigger, input: Ingress.Input): boolean {
@@ -64,6 +68,28 @@ function conditionMatches(conditions: Ingress.Conditions, input: Ingress.Input):
   return { matched: true, factsUsed, reason: "matched" };
 }
 
+type Candidate =
+  | { readonly kind: "skip" }
+  | { readonly kind: "filtered"; readonly reason: string; readonly factsUsed: string[];
+      readonly runWhen?: Verdict }
+  | { readonly kind: "match"; readonly trigger: Ingress.Trigger;
+      readonly factsUsed: string[]; readonly runWhen?: Verdict };
+
+function candidate(record: Ingress.Automation, input: Ingress.Input, judge?: MatchPorts["judge"]): Candidate {
+  if (!record.enabled) return { kind: "skip" };
+  const trigger = record.triggers.find((item) => triggerMatches(item, input));
+  if (trigger === undefined) return { kind: "skip" };
+  const structural = conditionMatches(record.conditions ?? {}, input);
+  if (!structural.matched) return { kind: "filtered", reason: structural.reason, factsUsed: structural.factsUsed };
+  const verdict = record.runWhen === undefined ? undefined : judge?.(record.runWhen, input);
+  if (record.runWhen !== undefined && verdict?.verdict !== "yes") {
+    return { kind: "filtered", reason: "runWhen", factsUsed: [...structural.factsUsed, "runWhen"],
+      runWhen: verdict ?? { verdict: "unknown", reason: "judge_unavailable" } };
+  }
+  return { kind: "match", trigger, factsUsed: structural.factsUsed,
+    ...(verdict === undefined ? {} : { runWhen: verdict }) };
+}
+
 function groupKey(by: "thread" | "channel" | "author", input: Ingress.Input): string {
   switch (by) {
     case "thread": return input.threadId ?? input.channelId ?? input.surface;
@@ -73,14 +99,14 @@ function groupKey(by: "thread" | "channel" | "author", input: Ingress.Input): st
 }
 
 function context(record: Ingress.Automation, trigger: Ingress.Trigger, inputs: readonly Ingress.Input[],
-  runWhen?: { readonly verdict: "yes" | "no" | "unknown"; readonly reason: string }): Ingress.TriggerContext {
-  const latest = inputs[inputs.length - 1]!;
+  runWhen?: Verdict): Ingress.TriggerContext {
+  const latest = inputs.at(-1);
   return Ingress.TriggerContext.parse({
     automationId: record.id, trigger,
     matched: { conditions: record.conditions ?? {}, ...(runWhen === undefined ? {} : { runWhen }) },
     event: {
-      surface: latest.surface, channelId: latest.channelId, threadId: latest.threadId,
-      author: latest.author,
+      surface: latest?.surface, channelId: latest?.channelId, threadId: latest?.threadId,
+      author: latest?.author,
       messages: inputs.map((entry) => ({ eventId: entry.eventId, body: entry.body, receivedAt: entry.receivedAt })),
     },
   });
@@ -88,7 +114,7 @@ function context(record: Ingress.Automation, trigger: Ingress.Trigger, inputs: r
 
 function ledger(input: Ingress.Input, now: number, id: string,
   decision: "matched" | "filtered" | "refused" | "deduped" | "grouped" | "superseded",
-  reason: string, factsUsed: string[], runWhen?: { readonly verdict: "yes" | "no" | "unknown"; readonly reason: string }): Ingress.RoutingDecisionPayload {
+  reason: string, factsUsed: string[], runWhen?: Verdict): Ingress.RoutingDecisionPayload {
   return Ingress.Events.RoutingDecision.schema.parse({
     traceId: input.eventId, time: now, inboundId: input.eventId, surface: input.surface,
     mode: "direct", stage: "automation", outcome: "record", decision, by: `automation/${id}`,
@@ -97,68 +123,75 @@ function ledger(input: Ingress.Input, now: number, id: string,
   });
 }
 
+function collectGroup(record: Ingress.Automation, trigger: Ingress.Trigger, input: Ingress.Input,
+  at: number, pending: PendingGroup[], factsUsed: string[], verdict?: Verdict): {
+  readonly inputs: readonly Ingress.Input[];
+  readonly held: boolean;
+  readonly rows: readonly Ingress.RoutingDecisionPayload[];
+} {
+  const grouping = record.grouping;
+  if (grouping === undefined || grouping.windowSeconds === 0)
+    return { inputs: [input], held: false, rows: [] };
+  const key = groupKey(grouping.by, input);
+  const index = pending.findIndex((item) => item.automationId === record.id && item.key === key);
+  const previous = index < 0 ? undefined : pending[index];
+  if (index >= 0) pending.splice(index, 1);
+  const inputs = [...(previous?.inputs ?? []), input];
+  if ((previous === undefined || at - previous.openedAt < grouping.windowSeconds * 1000) &&
+      inputs.length < 64) {
+    pending.push({ automationId: record.id, key, openedAt: previous?.openedAt ?? at,
+      windowSeconds: grouping.windowSeconds, trigger, inputs,
+      ...(verdict === undefined ? {} : { runWhen: verdict }) });
+    return { inputs, held: true, rows: [] };
+  }
+  return { inputs, held: false,
+    rows: inputs.slice(0, -1).map((member) =>
+      ledger(member, at, record.id, "grouped", `firing:${input.eventId}`, factsUsed)) };
+}
+
+function limitReached(record: Ingress.Automation, ports: MatchPorts): boolean {
+  return record.limits !== undefined &&
+    (ports.matchedToday?.(record.id) ?? 0) >= record.limits.maxRunsPerDay;
+}
+
 /** All time and history are values supplied by the caller; no store or clock is read here. */
 export function match(records: readonly Ingress.Automation[], input: Ingress.Input, ports: MatchPorts): MatchDecision {
   const rows: Ingress.RoutingDecisionPayload[] = [];
   const pending = [...(ports.pending ?? [])];
-  const row = (id: string, decision: "matched" | "filtered" | "refused" | "deduped" | "grouped" | "superseded",
-    reason: string, factsUsed: string[], runWhen?: { readonly verdict: "yes" | "no" | "unknown"; readonly reason: string }) => {
-    rows.push(ledger(input, ports.now, id, decision, reason, factsUsed, runWhen));
-  };
   if (ports.seen) {
-    row("ingress", "deduped", "event_id", ["eventId"]);
+    rows.push(ledger(input, ports.now, "ingress", "deduped", "event_id", ["eventId"]));
     return { rows, pending };
   }
-  let route: Route | undefined;
-  const converse = ports.conversation;
-  if (converse !== undefined) route = { kind: "prompt", target: converse, origin: input };
+  let route: Route | undefined = ports.conversation === undefined ? undefined
+    : { kind: "prompt", target: ports.conversation, origin: input };
   for (const record of records) {
-    if (!record.enabled) continue;
-    const trigger = record.triggers.find((candidate) => triggerMatches(candidate, input));
-    if (trigger === undefined) continue;
-    const structural = conditionMatches(record.conditions ?? {}, input);
-    if (!structural.matched) {
-      row(record.id, "filtered", structural.reason, structural.factsUsed);
-      continue;
-    }
-    const verdict = record.runWhen === undefined ? undefined : ports.judge?.(record.runWhen, input);
-    if (record.runWhen !== undefined && (verdict === undefined || verdict.verdict !== "yes")) {
-      const result = verdict ?? { verdict: "unknown" as const, reason: "judge_unavailable" };
-      row(record.id, "filtered", "runWhen", [...structural.factsUsed, "runWhen"], result);
-      continue;
-    }
-    if (converse !== undefined) {
-      row(record.id, "superseded", "conversation", structural.factsUsed, verdict);
+    const result = candidate(record, input, ports.judge);
+    if (result.kind === "skip") continue;
+    if (result.kind === "filtered") {
+      rows.push(ledger(input, ports.now, record.id, "filtered", result.reason,
+        result.factsUsed, result.runWhen));
       continue;
     }
     if (route !== undefined) {
-      row(record.id, "superseded", "earlier_match", structural.factsUsed, verdict);
+      rows.push(ledger(input, ports.now, record.id, "superseded",
+        ports.conversation === undefined ? "earlier_match" : "conversation",
+        result.factsUsed, result.runWhen));
       continue;
     }
-    if (record.limits !== undefined && (ports.matchedToday?.(record.id) ?? 0) >= record.limits.maxRunsPerDay) {
-      row(record.id, "refused", "limit", [...structural.factsUsed, "limits.maxRunsPerDay"], verdict);
+    if (limitReached(record, ports)) {
+      rows.push(ledger(input, ports.now, record.id, "refused", "limit",
+        [...result.factsUsed, "limits.maxRunsPerDay"], result.runWhen));
       continue;
     }
-    const grouping = record.grouping;
-    let inputs: readonly Ingress.Input[] = [input];
-    if (grouping !== undefined && grouping.windowSeconds > 0) {
-      const key = groupKey(grouping.by, input);
-      const index = pending.findIndex((item) => item.automationId === record.id && item.key === key);
-      const previous = index < 0 ? undefined : pending.splice(index, 1)[0]!;
-      inputs = [...(previous?.inputs ?? []), input].slice(-64);
-      if (previous === undefined || ports.now - previous.openedAt < grouping.windowSeconds * 1000) {
-        pending.push({ automationId: record.id, key, openedAt: previous?.openedAt ?? ports.now, trigger, inputs });
-        continue;
-      }
-      for (const member of inputs.slice(0, -1)) {
-        rows.push(ledger(member, ports.now, record.id, "grouped", `firing:${input.eventId}`, structural.factsUsed));
-      }
-    }
+    const group = collectGroup(record, result.trigger, input, ports.now, pending,
+      result.factsUsed, result.runWhen);
+    rows.push(...group.rows);
+    if (group.held) break;
     route = record.kind === "prompt"
       ? { kind: "prompt", target: record.target, origin: input }
       : { kind: "action", target: record.target, source: "ingress", handlerRef: `automation/${record.id}`,
-          body: context(record, trigger, inputs, verdict) };
-    row(record.id, "matched", "matched", structural.factsUsed, verdict);
+          body: context(record, result.trigger, group.inputs, result.runWhen) };
+    rows.push(ledger(input, ports.now, record.id, "matched", "matched", result.factsUsed, result.runWhen));
   }
   return { ...(route === undefined ? {} : { route }), rows, pending };
 }
@@ -170,24 +203,25 @@ export function advanceGroups(records: readonly Ingress.Automation[], pending: r
   const decisions: MatchDecision[] = [];
   const remaining: PendingGroup[] = [];
   for (const group of pending) {
-    const record = records.find((candidate) => candidate.id === group.automationId);
-    if (record?.grouping === undefined || now - group.openedAt < record.grouping.windowSeconds * 1000) {
+    if (now - group.openedAt < group.windowSeconds * 1000) {
       remaining.push(group);
       continue;
     }
-    const latest = group.inputs[group.inputs.length - 1]!;
+    const record = records.find((item) => item.id === group.automationId);
+    const latest = group.inputs.at(-1);
+    if (latest === undefined) continue;
+    const active = record?.enabled === true;
     const rows = group.inputs.slice(0, -1).map((member) =>
-      ledger(member, now, record.id, record.enabled ? "grouped" : "filtered",
-        record.enabled ? `firing:${latest.eventId}` : "disabled", ["grouping"]));
-    if (record.enabled) rows.push(ledger(latest, now, record.id, "matched", "matched", ["grouping"]));
-    else rows.push(ledger(latest, now, record.id, "filtered", "disabled", ["grouping"]));
-    decisions.push({
-      ...(record.enabled ? { route: record.kind === "prompt"
-        ? { kind: "prompt" as const, target: record.target, origin: latest }
-        : { kind: "action" as const, target: record.target, source: "ingress" as const,
-            handlerRef: `automation/${record.id}`, body: context(record, group.trigger, group.inputs) } } : {}),
-      rows, pending: [],
-    });
+      ledger(member, now, group.automationId, active ? "grouped" : "filtered",
+        active ? `firing:${latest.eventId}` : "disabled", ["grouping"], group.runWhen));
+    rows.push(ledger(latest, now, group.automationId, active ? "matched" : "filtered",
+      active ? "matched" : "disabled", ["grouping"], group.runWhen));
+    const route: Route | undefined = record?.enabled !== true ? undefined
+      : record.kind === "prompt"
+        ? { kind: "prompt", target: record.target, origin: latest }
+        : { kind: "action", target: record.target, source: "ingress",
+            handlerRef: `automation/${record.id}`, body: context(record, group.trigger, group.inputs, group.runWhen) };
+    decisions.push({ ...(route === undefined ? {} : { route }), rows, pending: [] });
   }
   return { decisions, pending: remaining };
 }

@@ -3,6 +3,7 @@ import { Ingress } from "@openomni/protocol";
 import { ledger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { inboundIdOf } from "../src/router/inbound-id";
+import { matchPerimeterRules } from "../src/automation/rules";
 import {
   commits,
   makeRouter,
@@ -13,6 +14,17 @@ import {
 } from "./router/_router-fixture";
 
 beforeEach(resetRouterState);
+
+test("webhook bot authors are eligible while reactions remain filtered", () => {
+  const webhook = Ingress.Input.parse({
+    eventId: "webhook:event", surface: "webhook", event: "webhook",
+    channelId: "hook", author: { externalId: "automation", isBot: true },
+    dm: false, mentionsBot: false, body: "payload", receivedAt: 0,
+  });
+  expect(matchPerimeterRules(webhook, 0)).toBeUndefined();
+  expect(matchPerimeterRules({ ...webhook, event: "reaction" }, 0))
+    .toMatchObject({ reason: "reaction_unrouted" });
+});
 
 for (const [event, reason, used] of [
   ["message", "bot_author", "author.isBot"],

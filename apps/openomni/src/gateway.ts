@@ -597,6 +597,7 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
   return {
     now,
     actorRegistry: plane.channel.actorRegistry,
+    automation: plane.channel.automation,
     blacklist: plane.channel.blacklist,
     channelGrant: plane.channel.channelGrant,
     replyGrant: plane.channel.replyGrant,
