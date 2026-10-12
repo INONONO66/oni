@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-PR stamp ledger: `docs/agents-stamps.md` (one line per merged PR, newest first; the stamp block that used to open this file).
-New PR stamps are prepended there, never here; keep that stamp current when editing (doc-state sync law).
+PR stamps: each merged PR adds ONE new file `docs/agents-stamps/<issue>-<slug>.md` holding its one-line stamp (format in `docs/agents-stamps/README.md`); never edit a shared line — `docs/agents-stamps.md` is the frozen pre-#1433 ledger and this file never carries stamps.
+Keep that stamp current when editing (doc-state sync law).
 
 ## OVERVIEW
 
