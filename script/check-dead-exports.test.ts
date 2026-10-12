@@ -13,6 +13,7 @@ import {
   readBaseline,
   runKnip,
   runProductionKnip,
+  selfTest,
 } from "./check-dead-exports";
 
 const ROOT = join(import.meta.dir, "..");
@@ -344,5 +345,34 @@ test("the shipped baseline parses and compares clean against itself", () => {
     });
   } finally {
     process.chdir(cwd);
+  }
+});
+
+test("self-test rejects broken knip report checks", () => {
+  const errors: string[] = [];
+  const stderr = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errors.push(String(chunk));
+    return true;
+  });
+  let comparisons = 0;
+  try {
+    expect(selfTest(
+      () => [],
+      () => {
+        comparisons += 1;
+        return comparisons === 1
+          ? { newIssues: [], resolved: [] }
+          : { newIssues: ["unexpected"], resolved: [] };
+      },
+    )).toBe(1);
+    expect(comparisons).toBe(3);
+    expect(errors).toEqual([
+      "SELF-TEST FAIL: normalizer produced unexpected keys: \n",
+      "SELF-TEST FAIL: a new dead export beyond the baseline was not flagged\n",
+      "SELF-TEST FAIL: an unchanged report was flagged\n",
+      "SELF-TEST FAIL: a resolved baseline entry failed the check (shrink must be --update-only)\n",
+    ]);
+  } finally {
+    stderr.mockRestore();
   }
 });
