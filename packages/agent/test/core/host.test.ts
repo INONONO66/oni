@@ -369,6 +369,11 @@ test("opening failures are typed OpenRefused and release what was already acquir
   );
   expect(catalogRefusal).toBeInstanceOf(OpenRefused);
   expect(catalogRefusal.code).toBe("catalog");
+  expect(catalogRefusal.path).toBe(join(blocked, "catalog.sqlite"));
+  expect(catalogRefusal.message).toBe(
+    `ledger open refused (catalog): ${join(blocked, "catalog.sqlite")}`,
+  );
+  expect(catalogRefusal.cause).toBeInstanceOf(Error);
 
   const { catalogPath } = home("sessions-refused");
   const sessionsRefusal = await runAgent(
@@ -387,6 +392,9 @@ test("opening failures are typed OpenRefused and release what was already acquir
   );
   expect(sessionsRefusal).toBeInstanceOf(OpenRefused);
   expect(sessionsRefusal.code).toBe("sessions");
+  expect(sessionsRefusal.path).toBe(blocked);
+  expect(sessionsRefusal.message).toBe(`ledger open refused (sessions): ${blocked}`);
+  expect(sessionsRefusal.cause).toBeInstanceOf(Error);
   expect(existsSync(catalogPath)).toBe(true);
   expect(sessionFileClosed(catalogPath)).toBe(true);
 });

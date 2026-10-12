@@ -65,15 +65,17 @@ export class OpenRefused extends Data.TaggedError("OpenRefused")<{
   readonly code: "catalog" | "sessions";
   readonly path: string;
   readonly cause: Error;
-}> {
-  /** A store-opening throw as the typed refusal: the cause rides as an Error. */
-  static fromThrown<E>(code: OpenRefused["code"], path: string, cause: E): OpenRefused {
-    return new OpenRefused({ code, path, cause: thrownAsError(cause) });
-  }
+  readonly message: string;
+}> {}
 
-  override get message(): string {
-    return `ledger open refused (${this.code}): ${this.path}`;
-  }
+/** A store-opening throw as the typed refusal: the cause rides as an Error. */
+function refused<E>(code: OpenRefused["code"], path: string, cause: E): OpenRefused {
+  return new OpenRefused({
+    code,
+    path,
+    cause: thrownAsError(cause),
+    message: `ledger open refused (${code}): ${path}`,
+  });
 }
 
 export interface LedgerConfig extends LedgerStoreConfig {
@@ -107,7 +109,7 @@ export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
       ...(config.observationSink === undefined ? {} : { observationSink: config.observationSink }),
     });
   } catch (cause) {
-    throw OpenRefused.fromThrown("catalog", catalogPath, cause);
+    throw refused("catalog", catalogPath, cause);
   }
   const sessionsDir = config.sessions?.dir;
   if (sessionsDir !== undefined) {
@@ -115,7 +117,7 @@ export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
       mkdirSync(sessionsDir, { recursive: true });
     } catch (cause) {
       catalog.close();
-      throw OpenRefused.fromThrown("sessions", sessionsDir, cause);
+      throw refused("sessions", sessionsDir, cause);
     }
   }
   return planeOver(catalog, sessionsDir, config);
