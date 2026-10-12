@@ -1,6 +1,6 @@
 # PR stamp ledger
 
-This file is the PR stamp ledger: one stamp line per merged PR, newest first, moved here verbatim from the top of the root `AGENTS.md` (which every openomni session loads into its system prompt on every turn). The rule is unchanged: every PR prepends its one-line stamp at the top of the Stamps section below, in the same PR as the change, and keeps that stamp current when editing (doc-state sync law). Stamps are historical receipts and are never edited after the fact.
+This file is the PR stamp ledger: one stamp line per merged PR, newest first, moved here verbatim from the top of the root `AGENTS.md` (which every openomni session loads into its system prompt on every turn). Since #1433 this file is FROZEN: new stamps go into one file per PR under `docs/agents-stamps/<issue>-<slug>.md` (see `docs/agents-stamps/README.md`), so concurrent PRs never edit the same line. PRs opened before #1433 may still land their prepend in the Stamps section below; nothing else is added here. Stamps are historical receipts and are never edited after the fact.
 
 ## Stamps
 
