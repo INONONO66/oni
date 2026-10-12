@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MenuItemConstructorOptions } from "electron";
-import { BOUNDS_WRITE_DELAY_MS, parseWindowBounds } from "../src/main/window-bounds";
+import { BOUNDS_WRITE_DELAY_MS, parseWindowBounds, WINDOW_MIN } from "../src/main/window-bounds";
 import type { GatewayEndpoint } from "../src/preload/api";
 import {
   CLOSE_WINDOW_CHANNEL,
@@ -13,12 +13,31 @@ import {
   type ShellCommand,
 } from "../src/preload/api";
 
+import { runIsolated } from "./helpers/isolated-entry";
 import { flatten } from "./helpers/menu";
 
-test.each([
-  false,
-  true,
-])("main window lifecycle, owner routing and persistence (development=%s)", async (development) => {
+const childCase = process.env.OPENOMNI_MAIN_LIFECYCLE_CHILD;
+const cases = childCase === undefined ? [false, true] : [childCase === "true"];
+const environment = [
+  "ELECTRON_RENDERER_URL",
+  "OPENOMNI_WS_URL",
+  "OPENOMNI_WS_PORT",
+  "OPENOMNI_WS_TOKEN",
+] as const;
+
+function applyEnvironment(entries: readonly (readonly [string, string | undefined])[]): void {
+  for (const [key, value] of entries) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
+test.each(cases)("main window lifecycle (development=%s)", async (development) => {
+  if (childCase === undefined) {
+    await runIsolated(import.meta.path, { OPENOMNI_MAIN_LIFECYCLE_CHILD: String(development) });
+    return;
+  }
+
   const directory = mkdtempSync(join(tmpdir(), "openomni-tabs-main-"));
   const file = join(directory, "window-bounds.json");
   const ready = Promise.withResolvers<void>();
@@ -35,7 +54,7 @@ test.each([
   let quits = 0;
   let shown = 0;
   let debugOpened = 0;
-  const previousUrl = process.env.ELECTRON_RENDERER_URL;
+  const previousEnv = environment.map((key) => [key, process.env[key]] as const);
   const platform = Object.getOwnPropertyDescriptor(process, "platform");
   const log = spyOn(console, "log").mockImplementation(() => undefined);
   const error = spyOn(console, "error").mockImplementation(() => undefined);
@@ -64,7 +83,15 @@ test.each([
         width: number;
         height: number;
         show: boolean;
-        webPreferences: { backgroundThrottling: boolean };
+        backgroundColor: string;
+        titleBarStyle: string;
+        webPreferences: {
+          preload: string;
+          contextIsolation: boolean;
+          sandbox: boolean;
+          nodeIntegration: boolean;
+          backgroundThrottling: boolean;
+        };
       },
     ) {
       super();
@@ -80,12 +107,12 @@ test.each([
       shown += 1;
     };
     loadFile = (path: string) => {
-      loaded.push(path);
+      loaded.push(`file:${path}`);
       ready.resolve();
       return Promise.resolve();
     };
     loadURL = (url: string) => {
-      loaded.push(url);
+      loaded.push(`url:${url}`);
       ready.resolve();
       return Promise.resolve();
     };
@@ -125,34 +152,53 @@ test.each([
       },
     },
   }));
-  if (development) process.env.ELECTRON_RENDERER_URL = "http://localhost:5173";
-  else delete process.env.ELECTRON_RENDERER_URL;
+  const configured: Partial<Record<(typeof environment)[number], string>> = development
+    ? {
+        ELECTRON_RENDERER_URL: "http://localhost:5173",
+        OPENOMNI_WS_PORT: "4321",
+        OPENOMNI_WS_TOKEN: "pinned",
+      }
+    : {};
+  applyEnvironment(environment.map((key) => [key, configured[key]] as const));
   Object.defineProperty(process, "platform", {
     value: development ? "linux" : "darwin",
     configurable: true,
   });
   try {
-    // Entry modules are cached across test files; each double needs its own evaluation.
-    const ownInstance: string = `../src/main/index?main-lifecycle-${development}`;
-    const moduleLoaded: Promise<void> = import(ownInstance).then(() => undefined);
-    await moduleLoaded;
+    await import("../src/main/index");
     await ready.promise;
+    expect(handlers.get(GATEWAY_CHANNEL)?.()).toEqual(
+      development
+        ? { url: "ws://127.0.0.1:4321/ws", token: "pinned" }
+        : { url: "ws://127.0.0.1:3000/ws" },
+    );
     expect(windows).toHaveLength(1);
     const first = windows[0];
     if (!first) throw new Error("Missing window");
     expect(first.options).toMatchObject({
       width: 1280,
       height: 800,
+      minWidth: WINDOW_MIN.width,
+      minHeight: WINDOW_MIN.height,
+      trafficLightPosition: { x: 17, y: 14 },
       show: false,
-      webPreferences: { backgroundThrottling: false },
+      backgroundColor: development ? "#EFEFF0" : "#0A0A0C",
+      titleBarStyle: "hiddenInset",
+      webPreferences: {
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+      },
     });
+    expect(first.options.webPreferences.preload.endsWith("/preload/index.cjs")).toBe(true);
     expect(switches).toEqual(development ? [["remote-debugging-port", "9333"]] : []);
     expect(debugOpened).toBe(development ? 1 : 0);
-    expect(
+    expect(loaded).toEqual([
       development
-        ? loaded[0] === process.env.ELECTRON_RENDERER_URL
-        : loaded[0]?.endsWith("/renderer/index.html"),
-    ).toBe(true);
+        ? "url:http://localhost:5173"
+        : expect.stringMatching(/^file:.*\/renderer\/index\.html$/),
+    ]);
     first.emit("ready-to-show");
     expect(shown).toBe(1);
     expect(throttle).toEqual([true]);
@@ -241,10 +287,9 @@ test.each([
     jest.useRealTimers();
     log.mockRestore();
     error.mockRestore();
-    if (previousUrl === undefined) delete process.env.ELECTRON_RENDERER_URL;
-    else process.env.ELECTRON_RENDERER_URL = previousUrl;
+    applyEnvironment(previousEnv);
     if (platform) Object.defineProperty(process, "platform", platform);
     mock.restore();
     rmSync(directory, { recursive: true, force: true });
   }
-});
+}, 15_000);
