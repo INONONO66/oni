@@ -14,9 +14,8 @@ import { createRawSlots } from "../core/gate/decide";
 import { commitFoldBatch } from "../core/commit";
 import type { SessionController, SessionControllerLifecycle, ResolvedSessionRuntime, SessionRunner, SessionRunnerResult, SessionHandle, } from "../core/run";
 import type { SessionControllerState } from "../core/run";
-import type { SessionKernel } from "../core/entity";
+import { retryRevision, type SessionKernel } from "../core/entity";
 
-const SEAL_RESCAN_BUDGET = 8;
 /** Shutdown grace for settling raw slots; an explicit controller-owned default. */
 const DEFAULT_CLOSE_GRACE_MS = 30_000;
 
@@ -264,10 +263,11 @@ export function createController(
 
     // The revision is read before the scan so any executor terminal that lands after
     // the read refuses this commit's CAS; the fresh rescan then sees that terminal.
-    // Each rescan needs a foreign commit under a closed session, so the retry budget
-    // bounds shutdown against a writer that never stops; exhaustion surfaces the refusal.
-    function sealUnknown(rescans = SEAL_RESCAN_BUDGET): Effect.Effect<void, SessionError> {
-      return Effect.gen(function* () {
+    // Each rescan needs a foreign commit under a closed session, so the entity's
+    // bounded `retryRevision` caps shutdown against a writer that never stops;
+    // exhaustion surfaces the typed `AdmissionFailure{code: revision}`.
+    function sealUnknown(): Effect.Effect<void, SessionError> {
+      return retryRevision(() => Effect.gen(function* () {
         const current = kernel.row(sessionId);
         const openTurns = [...openSessionTurns(kernel, sessionId)];
         const unresolved = shutdownOperations(kernel, sessionId);
@@ -286,12 +286,9 @@ export function createController(
         yield* commitFoldBatch(kernel, {
           sessionId, owner, fence: state.fence, now: clock(), expectedRevision: current.revision,
           actions: pending, state: "interrupted",
-        }, runtime.compaction).pipe(Effect.catchIf(
-          (error) => rescans > 0 && error._tag === "CommitRefused" && error.reason === "revision",
-          () => sealUnknown(rescans - 1),
-        ));
+        }, runtime.compaction);
         state.terminalFrozen = true;
-      });
+      }));
     }
     return { handle, owner, reconcile };
   });

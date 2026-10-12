@@ -1,6 +1,7 @@
 import { Data, Cause, Option } from "effect";
 import type { StopVerdict } from "./turn";
 import type { LedgerError } from "./store/errors";
+import type { AdmissionFailure } from "./messages";
 import type { LlmRunFailure } from "../model";
 import type { LedgerSession } from "@openomni/protocol";
 
@@ -166,7 +167,7 @@ export type ExecutionError =
   | ExecutionApprovalError
   | AgentStopError;
 
-export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError;
+export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError | AdmissionFailure;
 
 // ─── from failure.ts (#1247) ───
 /** The typed error a Cause carries, else `synthesize` applied to the pretty-printed Cause (defects and interrupts). */
