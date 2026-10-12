@@ -25,7 +25,10 @@ async function snapshot(): Promise<Catalog> {
 }
 function catalogError(source: "cache" | "remote" | "cache_write", path: string) {
   return <E>(cause: E) => new ModelCatalogError({
-    source, path, cause,
+    source, path,
+    // A thrown non-Error rides as an Error over its own `String()` text (the
+    // model band has no core edge for `thrownAsError`).
+    cause: cause instanceof Error ? cause : new Error(String(cause)),
     message: cause instanceof Error ? cause.message : `${source} model catalog source failed`,
   });
 }

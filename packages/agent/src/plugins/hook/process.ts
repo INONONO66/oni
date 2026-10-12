@@ -1,5 +1,5 @@
 import { Deferred, Effect, Schema, type Scope } from "effect";
-import { readPlainJson } from "../../core/api";
+import { readPlainJson, thrownAsError } from "../../core/api";
 import { z } from "zod";
 import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 
@@ -90,7 +90,7 @@ export class HookSpawnError extends Schema.TaggedError<HookSpawnError>(
   "@openomni/agent/plugins/hook/HookSpawnError",
 )("HookSpawnError", {
   command: Schema.Array(Schema.String),
-  cause: Schema.Unknown,
+  cause: Schema.ErrorInstance(),
 }) {}
 
 /** A late line is always a DECODED result; failures settle calls, they are never late. */
@@ -187,7 +187,7 @@ export function acquireHookProcess(
   return Effect.gen(function* () {
     const child = yield* Effect.try({
       try: () => spawn(config.command),
-      catch: (cause) => new HookSpawnError({ command: config.command, cause }),
+      catch: (cause) => new HookSpawnError({ command: config.command, cause: thrownAsError(cause) }),
     });
 
     const pending = new Map<string, Pending>();

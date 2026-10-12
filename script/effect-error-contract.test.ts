@@ -118,7 +118,7 @@ interface PackageEntry {
   readonly path: string;
   readonly module: Readonly<Record<string, object>>;
   readonly union: string;
-  /** The package-owned carrier for a Cause without a typed error: `{ operation, cause: string }`. */
+  /** The package-owned carrier for a Cause without a typed error: `{ operation, cause: string | Error }`. */
   readonly carrier: Failure["_tag"];
   /** Where the fixture imports the carrier class from (the ipc/codemode planes do not re-export it). */
   readonly carrierPath: string;

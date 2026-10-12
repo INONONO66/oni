@@ -5,9 +5,10 @@ export { AgentFailure };
 import { Data } from "effect";
 
 // Field shapes are compile-time only (#1259 idx 90): plain types, no
-// module-load zod schemas — nothing here ever parses.
-type Diagnostic = { readonly operation: string; readonly cause: unknown };
-type MessageFields = { readonly message: string; readonly cause?: unknown };
+// module-load zod schemas — nothing here ever parses. A cause is always
+// structured (#1344): a string verbatim or the Error itself, never a bare throw.
+type Diagnostic = { readonly operation: string; readonly cause: string | Error };
+type MessageFields = { readonly message: string; readonly cause?: string | Error };
 type ProviderIdentity = {
   readonly provider?: string;
   readonly model?: string;
@@ -31,7 +32,8 @@ type UsageFields = {
 };
 type RunFields = ProviderIdentity & {
   readonly message: string;
-  readonly cause?: unknown;
+  /** The SDK error when the attempt failed at the provider, else the typed failure's own cause or the failure itself. */
+  readonly cause?: APICallError | Error | string;
   readonly retryAfterMs?: number;
   readonly usage: UsageFields;
   readonly aborted: boolean;
