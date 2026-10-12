@@ -102,11 +102,6 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
 
     const messages: OpenOmniUIMessage[] = [
       {
-        id: "epoch",
-        role: "assistant",
-        parts: [{ type: "data-epoch", data: { label: "checkpoint" } }],
-      },
-      {
         id: "answer",
         role: "assistant",
         metadata: { startedAt: 0, elapsedMs: 2000 },
@@ -156,7 +151,6 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
         />,
       ),
     );
-    expect(host.querySelector("[data-epoch-rule]")).not.toBeNull();
     expect(host.querySelector('[data-tool-row="running"]')).not.toBeNull();
     expect(host.querySelector('[data-tool-row="approval"]')).not.toBeNull();
     expect(host.querySelector('[data-tool-row="denied"]')).not.toBeNull();

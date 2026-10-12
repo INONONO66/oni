@@ -14,8 +14,4 @@ type OpenOmniTools = {
   };
 };
 
-type OpenOmniDataParts = {
-  epoch: { readonly label: string };
-};
-
-export type OpenOmniUIMessage = UIMessage<TurnMetadata, OpenOmniDataParts, OpenOmniTools>;
+export type OpenOmniUIMessage = UIMessage<TurnMetadata, never, OpenOmniTools>;
