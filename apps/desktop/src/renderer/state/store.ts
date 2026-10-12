@@ -171,13 +171,14 @@ export function closeTab(id: string): void {
     return {
       ...state,
       tabs: state.tabs.filter((candidate) => candidate.id !== id),
-      activeTabId:
-        state.activeTabId === id
-          ? (state.tabs[index + 1]?.id ?? state.tabs[index - 1]?.id ?? null)
-          : state.activeTabId,
+      activeTabId: state.activeTabId === id ? closeSuccessor(state.tabs, index) : state.activeTabId,
       closedTabs: [...state.closedTabs, { tab, index }].slice(-20),
     };
   });
+}
+
+function closeSuccessor(tabs: readonly Tab[], index: number): string | null {
+  return tabs[index + 1]?.id ?? tabs[index - 1]?.id ?? null;
 }
 
 export function reopenClosedTab(): void {
@@ -226,14 +227,18 @@ export function navigate(
       const match = matchingTab(state, place, target);
       if (match) return activated(state, match.id);
     }
-    if (!target) return appendTab(state, place, id);
-    if (samePlace(target.place, place)) return activated(state, target.id);
-    const kept = target.history.entries.slice(0, target.history.cursor + 1);
-    return replaceTab(state, {
-      ...target,
-      place,
-      history: { entries: [...kept, place], cursor: kept.length },
-    });
+    return navigateTarget(state, target, place, id);
+  });
+}
+
+function navigateTarget(state: ClientState, target: Tab | null, place: Place, id: string): ClientState {
+  if (!target) return appendTab(state, place, id);
+  if (samePlace(target.place, place)) return activated(state, target.id);
+  const kept = target.history.entries.slice(0, target.history.cursor + 1);
+  return replaceTab(state, {
+    ...target,
+    place,
+    history: { entries: [...kept, place], cursor: kept.length },
   });
 }
 
