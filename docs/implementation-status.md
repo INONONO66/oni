@@ -1,5 +1,27 @@
 # Implementation Status
 
+## #1423 the app's Promise band is a declared three-module band (lane D, umbrella #1421)
+
+On `app/1423-promise-band` (2026-10-12, base `c85607df7`, PR #1430).
+
+The three `apps/openomni` modules forced onto Promises or callbacks by an
+external runtime API are declared as one band; each carries a head comment
+naming the forcing API, the single Effect entry call, and what must never be
+added there. Comment-only; zero behavior change; no lint or script added.
+
+| module | forcing API | Effect entry call | verdict |
+| --- | --- | --- | --- |
+| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll, `setInterval` reconcile cadence | injected `WatchSenders.deliver` (bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
+| `composition/process-session.ts` | `Bun.spawn` stdin/stdout byte streams (`ReadableStream` reader, `child.exited`) | injected `answer` (`runAppEffect(runtime, requests.answer(...))`) | keep |
+| `provisioning/supervisor.ts` | channels driver `surface.start` Promise contract (`stop` is synchronous; channels is the #1248 Promise band with its own injected `EffectRunner`) | the driver runner (`ChannelRuntimeDeps.run` = `runAppEffect`) that `deps.desired()` passes into each built surface; `.then(() => undefined, ThrownError.parse)` narrows the rejection to a typed Error that `mountRow` re-throws and `startRow` records as breaker status, never a swallow | keep |
+
+Considered and excluded: `composition/alarm-plane.ts`, `composition/process-replies.ts`,
+`composition/cluster-crypto.ts`, `gateway.ts` and the other `composition/*` layers use
+`async`/`.then` only at the `runAppEffect` edge or inside Effect programs; `cli/*` is
+the process-entry band that never touches session state; `tools/*` bodies are
+Effect-free by the boundary law (`script/check-effect-boundaries.ts`) and speak the
+machines IPC Promise API, which is the declared machines boundary.
+
 ## #1314 benchmarks measure the consolidated bus and store paths (epic #1303, rung 16)
 
 On `stab/16-measure-bus-consolidations` (2026-10-08, base `4b36d0f73`, PR #1335).
