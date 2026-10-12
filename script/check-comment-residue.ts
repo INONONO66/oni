@@ -51,7 +51,8 @@ export function classifyResidue(path: string, text: string): ResidueActual {
   const issues = new Set<number>();
   const dividers = new Set<number>();
   let longJsdoc = 0;
-  for (const { kind, pos: start, end } of commentRanges(path, text)) {
+  const ranges = commentRanges(path, text);
+  for (const { kind, pos: start, end } of ranges) {
     const multi = kind === ts.SyntaxKind.MultiLineCommentTrivia;
     const first = text.slice(0, start).split("\n").length - 1;
     const last = text.slice(0, end - 1).split("\n").length - 1;
@@ -68,24 +69,28 @@ export function classifyResidue(path: string, text: string): ResidueActual {
   return {
     issues: issues.size,
     dividers: dividers.size,
-    commentLines: countCommentLines(lines),
+    commentLines: commentOnlyRows(text, ranges).size,
     nonblankLines: lines.filter((line) => line.trim() !== "").length,
     longJsdoc,
   };
 }
 
-// The ratio's historical definition includes every nonblank line inside a
-// block comment, from the opening /* through its closing */ line.
-function countCommentLines(lines: readonly string[]): number {
-  let inside = false;
-  let count = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("/*")) inside = true;
-    if (trimmed && (inside || trimmed.startsWith("//"))) count++;
-    if (inside && trimmed.includes("*/")) inside = false;
+// A ratio line is nonblank and consists entirely of syntax comments and
+// whitespace; mixed executable/comment lines remain executable lines.
+function commentOnlyRows(text: string, ranges: readonly ts.CommentRange[]): ReadonlySet<number> {
+  const code = text.split("");
+  const touched = new Set<number>();
+  for (const range of ranges) {
+    const first = text.slice(0, range.pos).split("\n").length - 1;
+    const last = text.slice(0, range.end - 1).split("\n").length - 1;
+    for (let row = first; row <= last; row++) touched.add(row);
+    for (let position = range.pos; position < range.end; position++) {
+      if (code[position] !== "\n") code[position] = " ";
+    }
   }
-  return count;
+  const remaining = code.join("").split(/\r?\n/);
+  const lines = text.split(/\r?\n/);
+  return new Set([...touched].filter((row) => lines[row]?.trim() !== "" && remaining[row]?.trim() === ""));
 }
 
 function commentRanges(path: string, text: string): readonly ts.CommentRange[] {
