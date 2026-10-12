@@ -11,6 +11,7 @@ import {
   createSessionEntityRunTurn,
   SessionEntityContext,
 } from "./entity";
+import { thrownAsError } from "./failure";
 import type { ResolvedSessionRuntime, SessionEntityPorts, SessionRunner } from "./run";
 import { type CatalogStore, openCatalogStore } from "./store/catalog";
 import * as SessionHandleStore from "./store/fence";
@@ -66,8 +67,13 @@ export class Ledger extends Context.Service<Ledger, LedgerPlane>()("@openomni/ag
 export class OpenRefused extends Data.TaggedError("OpenRefused")<{
   readonly code: "catalog" | "sessions";
   readonly path: string;
-  readonly cause: unknown;
+  readonly cause: Error;
 }> {
+  /** A store-opening throw as the typed refusal: the cause rides as an Error. */
+  static fromThrown<E>(code: OpenRefused["code"], path: string, cause: E): OpenRefused {
+    return new OpenRefused({ code, path, cause: thrownAsError(cause) });
+  }
+
   override get message(): string {
     return `ledger open refused (${this.code}): ${this.path}`;
   }
@@ -179,7 +185,7 @@ function ledgerLayer(config: LedgerConfig): Layer.Layer<Ledger, OpenRefused> {
                 ? {}
                 : { observationSink: config.observationSink }),
             }),
-          catch: (cause) => new OpenRefused({ code: "catalog", path: catalogPath, cause }),
+          catch: (cause) => OpenRefused.fromThrown("catalog", catalogPath, cause),
         }),
         (opened) => Effect.sync(() => opened.close()),
       );
@@ -187,7 +193,7 @@ function ledgerLayer(config: LedgerConfig): Layer.Layer<Ledger, OpenRefused> {
       if (sessionsDir !== undefined) {
         yield* Effect.try({
           try: () => mkdirSync(sessionsDir, { recursive: true }),
-          catch: (cause) => new OpenRefused({ code: "sessions", path: sessionsDir, cause }),
+          catch: (cause) => OpenRefused.fromThrown("sessions", sessionsDir, cause),
         });
       }
       const plane = planeOver(catalog, sessionsDir, config);
