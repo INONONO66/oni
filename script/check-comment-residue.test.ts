@@ -251,8 +251,6 @@ test("#1343: an exact exempted marker skips the divider count; a neighboring mar
   }
 });
 
-// ─── the shipped baseline: real pins pass on the real tree ───
-
 test("#1343: an over-budget structural-header allow-list is itself a violation", async () => {
   const root = scratchTree({ "core/a.ts": "export const a = 1;\n" });
   const headers = Array.from({ length: 11 }, (_, i) => ({
@@ -319,7 +317,7 @@ test("#1343 main: the pinned baseline passes through the OK branch", async () =>
     expect(process.exitCode).toBe(previousExitCode);
     expect(err).toEqual([]);
     expect(out.join("")).toBe(
-      `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp, JSDoc>6 ceiling ${RESIDUE_PINS.jsdocOverSix}\n`,
+      `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight)\n`,
     );
   } finally {
     process.exitCode = previousExitCode;

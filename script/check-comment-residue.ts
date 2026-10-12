@@ -428,7 +428,7 @@ export async function main(
     return;
   }
   io.stdout(
-    `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp, JSDoc>6 ceiling ${RESIDUE_PINS.jsdocOverSix}\n`,
+    `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight)\n`,
   );
 }
 
