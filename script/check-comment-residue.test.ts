@@ -114,5 +114,5 @@ test("long JSDoc blocks cannot grow above their baseline ceiling", () => {
 
 test("comment ratio cannot grow above its measured ceiling", () => {
   const found = residueViolations({ ...original, [b]: "// one\n// two\nexport const b = 2;\n" }, pin);
-  expect(found.some((message) => message.startsWith("comment ratio actual "))).toBe(true);
+  expect(found).toEqual(["comment ratio actual 4/6, ceiling 2/4"]);
 });
