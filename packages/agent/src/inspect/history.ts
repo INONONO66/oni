@@ -396,7 +396,6 @@ function terminalAssistant(
       modelID: "",
       providerID: "",
       path: { cwd: "", root: "" },
-      cost: 0,
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     },
     text,

@@ -101,7 +101,6 @@ describe("Message.StepFinishPart", () => {
       ...base,
       type: "step-finish",
       reason: "end_turn",
-      cost: 0.05,
       tokens: { input: 100, output: 50, reasoning: 7, cache: { read: 90, write: 3 } },
     });
     expect(part.tokens).toEqual({
@@ -118,7 +117,6 @@ describe("Message.StepFinishPart", () => {
       ...base,
       type: "step-finish",
       reason: "end_turn",
-      cost: 0.05,
       tokens: { input: 100, output: 50 },
     });
     expect(legacy.tokens).toEqual({
@@ -129,15 +127,15 @@ describe("Message.StepFinishPart", () => {
     });
   });
 
-  test("rejects missing cost", () => {
-    expect(() =>
-      Message.StepFinishPart.parse({
-        ...base,
-        type: "step-finish",
-        reason: "end_turn",
-        tokens: { input: 100, output: 50 },
-      }),
-    ).toThrow(ZodError);
+  test("accepts step finish without cost and reads historical cost", () => {
+    const part = {
+      ...base,
+      type: "step-finish",
+      reason: "end_turn",
+      tokens: { input: 100, output: 50 },
+    };
+    expect(Message.Part.parse(part)).toMatchObject(part);
+    expect(Message.Part.parse({ ...part, cost: 0 })).toMatchObject(part);
   });
 
   test("rejects missing tokens", () => {
@@ -146,7 +144,6 @@ describe("Message.StepFinishPart", () => {
         ...base,
         type: "step-finish",
         reason: "end_turn",
-        cost: 0.05,
       }),
     ).toThrow(ZodError);
   });
@@ -157,7 +154,6 @@ describe("Message.StepFinishPart", () => {
         ...base,
         type: "step-finish",
         reason: "end_turn",
-        cost: 0.05,
         tokens: { input: -1, output: 50 },
       }),
     ).toThrow(ZodError);
@@ -167,7 +163,6 @@ describe("Message.StepFinishPart", () => {
         ...base,
         type: "step-finish",
         reason: "end_turn",
-        cost: 0.05,
         tokens: { input: 100, output: 50, cache: { read: 1.5, write: 0 } },
       }),
     ).toThrow(ZodError);
@@ -312,7 +307,6 @@ describe("Message.AssistantMessage", () => {
     providerID: "anthropic",
     agent: "build",
     path: { cwd: "/home", root: "/" },
-    cost: 0.01,
     tokens: {
       input: 500,
       output: 200,
@@ -326,10 +320,13 @@ describe("Message.AssistantMessage", () => {
 
     expect(msg.role).toBe("assistant");
     expect(msg.parentID).toBe("msg-0");
-    expect(msg.cost).toBe(0.01);
     expect(msg.tokens.cache.read).toBe(100);
     expect(msg.time.completed).toBeUndefined();
     expect(msg.finish).toBeUndefined();
+  });
+
+  test("reads a historical assistant message with cost", () => {
+    expect(Message.AssistantMessage.parse({ ...validAssistant, cost: 0 })).toEqual(validAssistant);
   });
 
   test("rejects missing parentID", () => {

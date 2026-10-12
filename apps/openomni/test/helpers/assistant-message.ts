@@ -45,7 +45,6 @@ export function assistantMessage(
       providerID: input.model.providerID,
       agent: "resident",
       path: { cwd: "", root: "" },
-      cost: 0,
       tokens,
     },
     parts: [
@@ -56,7 +55,6 @@ export function assistantMessage(
         messageID: id,
         type: "step-finish",
         reason: options.reason ?? "stop",
-        cost: 0,
         tokens,
       },
     ],

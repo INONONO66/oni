@@ -216,7 +216,6 @@ export function run(
     providerID: model.providerID,
     agent: "default",
     path: { cwd: process.cwd(), root: process.cwd() },
-    cost: 0,
     tokens: {
       input: 0,
       output: 0,

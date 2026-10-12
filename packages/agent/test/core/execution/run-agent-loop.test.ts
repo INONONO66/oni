@@ -185,7 +185,6 @@ function compactionProbeStep(
     messageID: message.info.id,
     type: "step-finish",
     reason: "stop",
-    cost: 0,
     tokens: message.info.tokens,
   });
   if (probe.calls === 3) probe.afterConcurrent = structuredClone([...request.messages, message]);

@@ -17,7 +17,6 @@ function buildAssistantInfo(): Message.AssistantMessage {
     providerID: "provider-1",
     agent: "agent-1",
     path: { cwd: "/work", root: "/work" },
-    cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
   };
 }

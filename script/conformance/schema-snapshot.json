@@ -708,7 +708,6 @@
   "Machine.ToolCallResult#failed": ["error", "status"],
   "Message.AssistantMessage": [
     "agent",
-    "cost",
     "finish",
     "id",
     "modelID",
@@ -722,7 +721,6 @@
   ],
   "Message.Info#assistant": [
     "agent",
-    "cost",
     "finish",
     "id",
     "modelID",
@@ -756,7 +754,6 @@
     "type"
   ],
   "Message.Part#step-finish": [
-    "cost",
     "id",
     "messageID",
     "reason",
@@ -794,7 +791,6 @@
     "type"
   ],
   "Message.StepFinishPart": [
-    "cost",
     "id",
     "messageID",
     "reason",
