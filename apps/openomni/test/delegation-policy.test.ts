@@ -139,6 +139,36 @@ test("catalog reads: depth walks parent links, activeChildren counts live rows, 
   expect(catalog.activeChildren("ghost")).toBeUndefined();
 });
 
+test("spawn_depth refuses the first spawn beyond the catalog parent-chain cap", () => {
+  const rows = [
+    { id: "root", parentId: null },
+    { id: "child", parentId: "root" },
+    { id: "grandchild", parentId: "child" },
+    { id: "great-grandchild", parentId: "grandchild" },
+  ];
+  const guard = spawnDepthGuard(catalogDelegationReads(() => rows));
+  const decide = (sessionId: string) =>
+    guard.decide({
+      value: NEW_SESSION,
+      params: { limit: DEFAULT_DELEGATION_CAPS.maxDepth },
+      when: { op: "send_message", sessionId },
+      service,
+    });
+  for (const sessionId of ["root", "child", "grandchild"]) {
+    expect(decide(sessionId).verdict).toBe("allow");
+  }
+  const denied = decide("great-grandchild");
+  expect(denied.verdict).toBe("deny");
+  if (denied.payload === null || typeof denied.payload !== "object" || Array.isArray(denied.payload))
+    throw new Error("spawn depth refusal payload missing");
+  expect(DelegationRefusal.parse(JSON.parse(String(denied.payload.reason)))).toEqual({
+    code: "delegation_refused",
+    cap: "spawn_depth",
+    limit: DEFAULT_DELEGATION_CAPS.maxDepth,
+    observed: DEFAULT_DELEGATION_CAPS.maxDepth,
+  });
+});
+
 test("a finished child frees a spawn_children slot; a liveness read failure counts the child", () => {
   const rows = [
     { id: "parent", parentId: null },

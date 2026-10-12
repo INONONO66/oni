@@ -311,9 +311,9 @@ for (const check of ["parent", "fanout", "depth", "deadline"] as const) {
         content: "NO",
       };
     } else if (check === "depth") {
-      for (let i = 0; i < 4; i++)
+      for (let i = 0; i < 3; i++)
         materialize(f.plane, `ancestor-${i}`, i === 0 ? null : `ancestor-${i - 1}`);
-      db.query("UPDATE session SET parent_id = ? WHERE id = ?").run("ancestor-3", f.sessionId);
+      db.query("UPDATE session SET parent_id = ? WHERE id = ?").run("ancestor-2", f.sessionId);
       send = {
         to: { kind: "new_session", role: "child", runner: "native", parent: "me" },
         type: "message",
