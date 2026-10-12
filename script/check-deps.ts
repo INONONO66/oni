@@ -804,7 +804,7 @@ function pluginImportViolation(filePath: string, targetRest: string): string | u
   if (target in AGENT_BANDS) {
     return `plugins/${ownPlugin}/ may not import ${target}/`;
   }
-  return undefined;
+  return `plugins/${ownPlugin}/ may import only its own plugin and core/api.ts (got ${targetRest})`;
 }
 
 /** The band verdict for one relative import, or undefined when it is legal. */

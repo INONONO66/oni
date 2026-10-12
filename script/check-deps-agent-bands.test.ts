@@ -75,10 +75,26 @@ test("#1276 check b: a plugin importing any core path other than core/api.ts fai
 test("#1276 check b: a plugin importing model/, inspect/ or testing/ fails", () => {
   const found = agentBandViolations(
     "packages/agent/src/plugins/compaction/successor.ts",
-    'import { fold } from "../../inspect/history";\nimport { m } from "../../model/errors";',
+    'import { fold } from "../../inspect/history";\nimport { m } from "../../model/errors";\nimport { t } from "../../testing/fixtures";',
   );
-  expect(found).toHaveLength(2);
+  expect(found).toHaveLength(3);
   expect(found[0]).toContain("plugins/compaction/ may not import inspect/");
+  expect(found[2]).toBe(
+    "VIOLATION: packages/agent/src/plugins/compaction/successor.ts:3 imports ../../testing/fixtures — #1247 bands: plugins/compaction/ may not import testing/",
+  );
+});
+
+test("a plugin cannot import the root bundle assembly with or without extension", () => {
+  for (const spec of ["../../bundle", "../../bundle.ts"]) {
+    expect(
+      agentBandViolations(
+        "packages/agent/src/plugins/alarm/index.ts",
+        `import { compose } from "${spec}";`,
+      ),
+    ).toEqual([
+      `VIOLATION: packages/agent/src/plugins/alarm/index.ts:1 imports ${spec} — #1247 bands: plugins/alarm/ may import only its own plugin and core/api.ts (got ${spec === "../../bundle" ? "bundle" : "bundle.ts"})`,
+    ]);
+  }
 });
 
 test("#1276 check b: a plugin importing the package root barrel fails (review r2 probe)", () => {
@@ -185,7 +201,6 @@ test("#1276 check c legal edges: the barrel and app-internal imports pass; non-a
   ).toEqual([]);
 });
 
-
 // ─── the real scanner: regrowth in a clean file and slack both fail ───
 
 function scratchAgentTree(files: Record<string, string>): string {
@@ -200,8 +215,7 @@ function scratchAgentTree(files: Record<string, string>): string {
 
 test("#1276 (r3): a forbidden import in a formerly-pinned, now-clean file fails the scan", async () => {
   const root = scratchAgentTree({
-    "core/store/errors.ts":
-      'import { name } from "../../plugins/alarm";\nexport const e = name;\n',
+    "core/store/errors.ts": 'import { name } from "../../plugins/alarm";\nexport const e = name;\n',
   });
   try {
     const violations = await validateAgentBands(root);
