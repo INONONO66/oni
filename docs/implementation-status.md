@@ -2,7 +2,7 @@
 
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
 
-Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. Session files seeded before this change keep their old depth rows; the shared value applies to generations seeded from now on. The tests assert the admission constant equals the caps' `maxDepth`.
+Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. The depth row lives in the catalog policy plane, where `seedKernelPolicyRows` (`apps/openomni/src/policy-seed.ts`) lets every stored row overwrite the default by id, so a catalog seeded before this change keeps admitting at its stored `max: 4`; only catalogs without the row (fresh installs) receive the shared value. Migrating stored rows is a follow-up on #1422. The tests assert the admission constant equals the caps' `maxDepth`.
 
 ## #1424 desktop journal-kind audit (lane D, umbrella #1421)
 
