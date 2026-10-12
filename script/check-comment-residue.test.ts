@@ -304,7 +304,8 @@ test("#1343 main: violations print to stderr and set the exit code", async () =>
       "VIOLATION [comment-residue] packages/agent/src/core/unpinned.ts is not pinned",
     );
   } finally {
-    process.exitCode = previousExitCode;
+    // Bun keeps a code assigned `undefined`, so restore 0 or the runner exits 1.
+    process.exitCode = previousExitCode ?? 0;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -320,6 +321,6 @@ test("#1343 main: the pinned baseline passes through the OK branch", async () =>
       `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight)\n`,
     );
   } finally {
-    process.exitCode = previousExitCode;
+    process.exitCode = previousExitCode ?? 0;
   }
 });
