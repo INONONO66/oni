@@ -7,6 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Core, Inspect } from "@openomni/agent";
+import { createSessionKernel } from "../../../packages/agent/src/core/store/fence";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
 import { SessionRead } from "@openomni/protocol";
@@ -26,7 +27,7 @@ afterAll(() => {
 async function seedKernel(): Promise<Core.SessionHandleStore.SessionKernel> {
   const catalog = openCatalogStore(catalogFile, { now: () => 1 });
   const store = openSessionStore(file, { now: () => 1 });
-  const kernel = Core.SessionHandleStore.createSessionKernel(store, catalog);
+  const kernel = createSessionKernel(store, catalog);
   await runEffect(
     kernel.materialize({
       id: sessionId,

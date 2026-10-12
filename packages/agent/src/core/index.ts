@@ -38,7 +38,7 @@ export {
   composedManifest, type ComposedManifest,
 } from "./run";
 export { decideSessionAdmission } from "./admission";
-export { requestAuthorityKernel, commitSessionRequest } from "./request";
+export { requestAuthorityKernel } from "./request";
 export { createSessionRequests, decideRequestTransition, requestBindingDigest } from "./request";
 export { receivedMessageAction, staleActionBacklog } from "./commit";
 export { armAction, firedAction, alarmDisposition, composeAlarmPurposes, AlarmComposeError, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./alarm";

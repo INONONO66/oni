@@ -451,7 +451,7 @@ export interface SessionControllerState {
  * revision under the given authority, as the executor's ledger. The caller
  * never sees the fence or the revision.
  */
-export function fencedExecutionLedger(
+function fencedExecutionLedger(
   kernel: SessionKernel,
   sessionId: string,
   owner: string,

@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Bundle, Core } from "@openomni/agent";
+import { createSessionKernel } from "../../../packages/agent/src/core/store/fence";
 const createTurnDispatcher = Bundle.createTurnDispatcher;
 import type { AnyToolDefinition, LedgerAction } from "@openomni/protocol";
 import { requestLedger, crashAfterRequestOpen, type RequestLedger } from "../../../packages/agent/test/helpers/effect-g1";
@@ -258,7 +259,7 @@ for (const operation of [PROMOTE, MERGE]) {
         const session = openSessionStore(dbPath, { now: testClock() });
         const catalog = openCatalogStore(catalogPath, { now: testClock() });
         return {
-          kernel: Core.SessionHandleStore.createSessionKernel(session, catalog),
+          kernel: createSessionKernel(session, catalog),
           close: () => {
             session.close();
             catalog.close();

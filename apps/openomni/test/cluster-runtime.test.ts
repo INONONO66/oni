@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { Core } from "@openomni/agent";
+import { createSessionKernel } from "../../../packages/agent/src/core/store/fence";
 const SessionEntity = Core.SessionEntity;
 type SessionEntityPorts = Core.SessionEntityPorts;
 type SessionEntityTurnInput = Core.SessionEntityTurnInput;
@@ -236,7 +237,7 @@ test("without an injected port a publish failure on a file-mode handle is an inc
   const store = plane.handles.openSession("ported-session");
   try {
     materializeSession(
-      Core.SessionHandleStore.createSessionKernel(store, plane.catalog),
+      createSessionKernel(store, plane.catalog),
       "ported-session",
     );
     expect(store.sessions.get("ported-session")?.id).toBe("ported-session");
