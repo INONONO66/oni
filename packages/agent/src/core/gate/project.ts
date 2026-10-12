@@ -48,15 +48,22 @@ function transformFields(config: PlainValue | undefined): string[] {
   return [...new Set(segments)];
 }
 
+function rewriteDoHow(verdict: { readonly ref: string; readonly config?: PlainValue }): Pick<GateRow, "do" | "how"> {
+  return {
+    do: "rewrite",
+    how: {
+      ref: verdict.ref,
+      fields: transformFields(verdict.config),
+      ...(verdict.config === undefined ? {} : { params: verdict.config }),
+    },
+  };
+}
+
 function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
   switch (row.verdict.type) {
     case "consult":
-      // A consulted guard: the named service decides, never a constant
-      // verdict; `observe: true` projects the audit-only row (#1256 — a
-      // PostToolUse hook annotates, it cannot retroactively block) and
-      // `rewrite: true` (#1256 r4 H-2) projects the consulted rewrite whose
-      // declared fields ride `config.fields` — admission refuses an empty or
-      // out-of-registry field list fail-closed.
+      // A consulted guard (#1256): the named service decides; `observe: true`
+      // projects audit-only, `rewrite: true` the consulted rewrite (fields fail-closed).
       if (row.verdict.rewrite === true) {
         if (row.verdict.observe === true)
           throw new GateComposeError({
@@ -64,14 +71,7 @@ function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
             point: `${row.kind}.${row.phase}`,
             ref: row.verdict.ref,
           });
-        return {
-          do: "rewrite",
-          how: {
-            ref: row.verdict.ref,
-            fields: transformFields(row.verdict.config),
-            ...(row.verdict.config === undefined ? {} : { params: row.verdict.config }),
-          },
-        };
+        return rewriteDoHow(row.verdict);
       }
       return {
         do: row.verdict.observe === true ? "observe" : "gate",
@@ -81,14 +81,7 @@ function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
         },
       };
     case "transform":
-      return {
-        do: "rewrite",
-        how: {
-          ref: row.verdict.ref,
-          fields: transformFields(row.verdict.config),
-          ...(row.verdict.config === undefined ? {} : { params: row.verdict.config }),
-        },
-      };
+      return rewriteDoHow(row.verdict);
     case "obligation":
       return {
         do: "gate",

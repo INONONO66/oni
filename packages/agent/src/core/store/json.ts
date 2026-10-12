@@ -22,13 +22,13 @@ export function readPlainJson(text: string): PlainValue | undefined {
   }
 }
 
-export const SqliteCount = z
-  .union([z.number().int(), z.bigint()])
-  .transform(Number)
-  .pipe(z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER));
+const sqliteNumeric = <Check extends z.ZodType<number, number>>(member: z.ZodType<number>, check: Check) =>
+  z.union([member, z.bigint()]).transform(Number).pipe(check);
+
+export const SqliteCount = sqliteNumeric(
+  z.number().int(),
+  z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+);
 
 // Wall-clock instants mirror protocol EpochMs: finite, non-negative, fractional allowed.
-export const SqliteEpochMs = z
-  .union([z.number(), z.bigint()])
-  .transform(Number)
-  .pipe(z.number().finite().nonnegative());
+export const SqliteEpochMs = sqliteNumeric(z.number(), z.number().finite().nonnegative());

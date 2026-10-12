@@ -8,7 +8,7 @@ import type { CompactionOptions } from "./compact";
 // #1307: the candidate shape is a seam type (the kernel passes it through
 // dispatch); the core owns it and this module re-exports the old name.
 export type { CompactionCandidate } from "../../core/api";
-import type { CompactionCandidate, CompactionSessionConfig, CompactionSessionPort } from "../../core/api";
+import type { CompactionCandidate, CompactionPrepareArgs, CompactionSessionConfig, CompactionSessionPort } from "../../core/api";
 
 const MAX_PREPARE_FAILURES = 2;
 
@@ -30,13 +30,8 @@ export class CompactionSession implements CompactionSessionPort {
     Deferred.doneUnsafe(this.#entered, Exit.void);
   }
 
-  prepare(
-    messages: readonly Message.WithParts[],
-    contextTokens: number,
-    prepareTokens: number,
-    contextWindowTokens: number,
-    onFailure?: (error: Error, failureStreak: number) => void,
-  ): Effect.Effect<void, never, Scope.Scope> {
+  prepare(...args: CompactionPrepareArgs): Effect.Effect<void, never, Scope.Scope> {
+    const [messages, contextTokens, prepareTokens, contextWindowTokens, onFailure] = args;
     return Effect.suspend(() => {
       if (this.#failureStreak >= MAX_PREPARE_FAILURES) return Effect.void;
       if (this.#candidate !== undefined && !isWarmCandidateValid(this.#candidate, messages))

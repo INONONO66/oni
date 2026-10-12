@@ -8,9 +8,7 @@ export const ESTIMATED_CHARS_PER_TOKEN = 4;
 const BASE64_RUN_RE = /[A-Za-z0-9+/=_-]{512,}/g;
 
 export function messageContentChars(message: Message.WithParts): number {
-  // All content weighs against the budget (review #721 M4): a user-role
-  // message bulked by a tool output must not ride through a 10-char budget
-  // as if free.
+  // All content weighs against the budget (review #721 M4), including tool-bulked user messages.
   let chars = 0;
   for (const part of message.parts) {
     if (part.type === "text") chars += part.text.length;
@@ -39,16 +37,20 @@ function weightedTextChars(text: string): number {
   return weighted;
 }
 
-export function estimateMessagesTokens(messages: readonly Message.WithParts[]): number {
+function weightedMessageChars(message: Message.WithParts): number {
   let weightedChars = 0;
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type === "text") weightedChars += weightedTextChars(part.text);
-      else if (part.type === "tool" && part.state.status === "completed") {
-        weightedChars += weightedTextChars(part.state.output);
-      }
+  for (const part of message.parts) {
+    if (part.type === "text") weightedChars += weightedTextChars(part.text);
+    else if (part.type === "tool" && part.state.status === "completed") {
+      weightedChars += weightedTextChars(part.state.output);
     }
   }
+  return weightedChars;
+}
+
+export function estimateMessagesTokens(messages: readonly Message.WithParts[]): number {
+  let weightedChars = 0;
+  for (const message of messages) weightedChars += weightedMessageChars(message);
   return Math.ceil(weightedChars / ESTIMATED_CHARS_PER_TOKEN);
 }
 
@@ -82,20 +84,8 @@ export function prepareSummarizerInput(
     });
     return changed ? { ...message, parts } : message;
   });
-  // #1314: linear prefix drop. Per-message weighted chars are computed once;
-  // the running suffix total is summed in chars and rounded once per probe —
-  // exactly what `estimateMessagesTokens` does on the same suffix — so the
-  // result is byte-identical to the former quadratic `slice(first)` re-scan.
-  const weights = elided.map((message) => {
-    let weightedChars = 0;
-    for (const part of message.parts) {
-      if (part.type === "text") weightedChars += weightedTextChars(part.text);
-      else if (part.type === "tool" && part.state.status === "completed") {
-        weightedChars += weightedTextChars(part.state.output);
-      }
-    }
-    return weightedChars;
-  });
+  // #1314: linear prefix drop — per-message weights summed once, byte-identical to the quadratic re-scan.
+  const weights = elided.map(weightedMessageChars);
   let suffixChars = 0;
   for (const weight of weights) suffixChars += weight;
   let first = 0;

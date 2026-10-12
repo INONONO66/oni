@@ -56,10 +56,7 @@ interface SessionKernelContext {
   readonly markArmed?: (sessionId: string, armed: boolean) => void;
 }
 
-interface MaterializeInput {
-  readonly id: string;
-  readonly parentId: string | null;
-  readonly role: LedgerSession.Role;
+interface GenerationSeed {
   readonly tools: readonly SessionGeneration.Tool[];
   readonly bundles?: readonly string[];
   readonly system: {
@@ -67,8 +64,14 @@ interface MaterializeInput {
     readonly blocks: readonly SessionGeneration.SystemBlock[];
   };
   readonly policyGeneration: number;
-  /** The composed manifest's `Generation.hash` this session adopts at creation (#1255). */
+  /** The composed manifest's `Generation.hash` this generation adopts (#1255). */
   readonly manifestHash?: string;
+}
+
+interface MaterializeInput extends GenerationSeed {
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly role: LedgerSession.Role;
   /** Generation settings pinned at genesis (#1253/#1257): widths and fork copy cap. */
   readonly settings?: ConsumptionSettings;
   readonly actionId: string;
@@ -381,42 +384,41 @@ function inputMessagesIn(context: SessionKernelContext, sessionId: string): Deli
   return requiredActionsIn(context)
     .inputMessages(sessionId)
     .map((action, index) => {
-      const effect = ReceivedEffect.parse(action.effect.value);
-      return Delivery.Row.parse({
-        id: action.id,
-        sessionId: action.sessionId,
-        kind: effect.deliveryKind,
-        content: effect.content,
-        origin: action.intent,
-        ...(effect.delivery === undefined ? {} : { delivery: effect.delivery }),
+      return openDeliveryRow(action, index, {
         status: pending.has(action.id) ? "pending" : "consumed",
-        consumedBy: null,
-        consumedAt: null,
-        createdAt: action.ts,
-        ordinal: index + 1,
       });
     });
+}
+
+function openDeliveryRow(
+  action: LedgerAction.Node,
+  index: number,
+  extra: { readonly status: "pending" | "consumed"; readonly after?: number },
+): Delivery.Row {
+  const effect = ReceivedEffect.parse(action.effect.value);
+  return Delivery.Row.parse({
+    id: action.id,
+    sessionId: action.sessionId,
+    kind: effect.deliveryKind,
+    content: effect.content,
+    origin: action.intent,
+    ...(effect.delivery === undefined ? {} : { delivery: effect.delivery }),
+    ...extra,
+    consumedBy: null,
+    consumedAt: null,
+    createdAt: action.ts,
+    ordinal: index + 1,
+  });
 }
 
 function pendingMessagesIn(context: SessionKernelContext, sessionId: string): Delivery.Row[] {
   return requiredActionsIn(context)
     .pendingMessages(sessionId)
     .map((action, index) => {
-      const effect = ReceivedEffect.parse(action.effect.value);
       const after = afterCursorOf(action.intent.value);
-      return Delivery.Row.parse({
-        id: action.id,
-        sessionId: action.sessionId,
-        kind: effect.deliveryKind,
-        content: effect.content,
-        origin: action.intent,
-        ...(effect.delivery === undefined ? {} : { delivery: effect.delivery }),
-        ...(after === undefined ? {} : { after }),
+      return openDeliveryRow(action, index, {
         status: "pending",
-        consumedBy: null,
-        consumedAt: null,
-        createdAt: action.ts,
-        ordinal: index + 1,
+        ...(after === undefined ? {} : { after }),
       });
     });
 }
@@ -457,18 +459,9 @@ export function generationByNumber(
   return undefined;
 }
 
-export function generationSnapshot(input: {
+export function generationSnapshot(input: GenerationSeed & {
   readonly generation: number;
   readonly revertTo: number;
-  readonly tools: readonly SessionGeneration.Tool[];
-  readonly bundles?: readonly string[];
-  readonly system: {
-    readonly preset: string;
-    readonly blocks: readonly SessionGeneration.SystemBlock[];
-  };
-  readonly policyGeneration: number;
-  /** The composed manifest's `Generation.hash` this snapshot adopts (#1255). */
-  readonly manifestHash?: string;
 }): SessionGeneration.Snapshot {
   assertUniqueTools(input.tools);
   assertUniqueBlocks(input.system.blocks);

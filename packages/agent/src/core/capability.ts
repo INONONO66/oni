@@ -97,13 +97,25 @@ export interface CapabilityStep {
   ) => Effect.Effect<Tool.Result, CapabilityHookError>;
 }
 
+interface CapabilityHooks {
+  readonly onInput?: (
+    core: CapabilityCore,
+    row: CapabilityInputRow,
+  ) => Effect.Effect<void, CapabilityHookError>;
+  readonly onWake?: (
+    core: CapabilityCore,
+    fired: AlarmFired,
+  ) => Effect.Effect<void, CapabilityHookError>;
+  readonly step?: CapabilityStep;
+}
+
 export interface CapabilityInput<
   Name extends string = string,
   Seam extends SeamTag = SeamTag,
   Verbs = object,
   Purpose = object,
   Handler = object,
-> {
+> extends CapabilityHooks {
   readonly name: Name;
   /** Other capabilities' seam NAMES — resolution is by name, never by import. */
   readonly requires: readonly string[];
@@ -119,15 +131,6 @@ export interface CapabilityInput<
   readonly verbs: Verbs;
   /** The Context tag others receive when they require this capability. */
   readonly seam: Seam;
-  readonly onInput?: (
-    core: CapabilityCore,
-    row: CapabilityInputRow,
-  ) => Effect.Effect<void, CapabilityHookError>;
-  readonly onWake?: (
-    core: CapabilityCore,
-    fired: AlarmFired,
-  ) => Effect.Effect<void, CapabilityHookError>;
-  readonly step?: CapabilityStep;
   /** Model tools are bundle-owned; a capability declaring them refuses at define time. */
   readonly tools?: never;
 }
@@ -138,7 +141,7 @@ export interface CapabilityDefinition<
   Verbs = object,
   Purpose = object,
   Handler = object,
-> {
+> extends CapabilityHooks {
   readonly contract: "capability";
   readonly name: Name;
   readonly requires: readonly string[];
@@ -149,15 +152,6 @@ export interface CapabilityDefinition<
   readonly handlers: Readonly<Record<string, Handler>>;
   readonly verbs: Verbs;
   readonly seam: Seam;
-  readonly onInput?: (
-    core: CapabilityCore,
-    row: CapabilityInputRow,
-  ) => Effect.Effect<void, CapabilityHookError>;
-  readonly onWake?: (
-    core: CapabilityCore,
-    fired: AlarmFired,
-  ) => Effect.Effect<void, CapabilityHookError>;
-  readonly step?: CapabilityStep;
 }
 
 const NAME_SHAPE = /^[a-z][a-z0-9-]*$/;

@@ -8,6 +8,7 @@ import { AgentFailure, type SessionError } from "./failure";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
 import type { SessionKernel } from "./entity";
 import { turnIntentAction, turnResumeAction, deliveryActions, generationForOpen } from "./commit";
+import type { SessionTurnPorts } from "./admission";
 import { hydrateSessionHistory } from "../inspect/history";
 
 type RecoveryError = SessionError;
@@ -25,21 +26,7 @@ export function createSessionRecovery(
   runtime: ResolvedSessionRuntime,
   clock: () => number,
   entropy: () => string,
-  ports: {
-    readonly awaitRetainedRunner: () => Effect.Effect<void, RecoveryError>;
-    readonly runTurn: (input: {
-      readonly turnId: string;
-      readonly resultId: string;
-      readonly parentActionId: string;
-      readonly boundaryActionId: string | null;
-      readonly resumeCount: number;
-      readonly generation: SessionGeneration.Snapshot;
-      readonly resume: boolean;
-    }) => Effect.Effect<SessionRunnerResult, RecoveryError>;
-    readonly seal: (
-      open: SessionHandleStore.OpenTurn,
-      result: SessionRunnerResult,
-    ) => Effect.Effect<void, RecoveryError>;
+  ports: SessionTurnPorts<RecoveryError> & {
     readonly commitSession: (input: {
       readonly expectedRevision: number;
       readonly actions: readonly LedgerAction.Append[];
