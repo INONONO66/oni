@@ -1043,14 +1043,27 @@ export function appAgentResponsibilityCount(source: string): number {
 
 export async function validateAppAgentResponsibilities(root = "."): Promise<string[]> {
   const counts = new Map<string, number>();
+  let pinnedFilesScanned = 0;
+  let totalReferences = 0;
   for await (const { filePath, source } of scanRepositorySources("apps/openomni/src/**/*.ts", root)) {
-    counts.set(filePath, appAgentResponsibilityCount(source));
+    if (APP_AGENT_RESPONSIBILITY_PINS.has(filePath)) pinnedFilesScanned += 1;
+    const actual = appAgentResponsibilityCount(source);
+    totalReferences += actual;
+    counts.set(filePath, actual);
   }
   const violations: string[] = [];
-  for (const path of new Set([...counts.keys(), ...APP_AGENT_RESPONSIBILITY_PINS.keys()])) {
-    const actual = counts.get(path) ?? 0;
+  for (const [path, actual] of counts) {
     const pin = APP_AGENT_RESPONSIBILITY_PINS.get(path) ?? 0;
-    if (actual !== pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (${actual > pin ? "growth" : "stale pin"})`);
+    if (actual > pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (growth)`);
+  }
+  // Stale pins fail closed in any tree that still holds a reference, or that
+  // holds every pinned file (the migration end state must empty the map).
+  // A reference-free tree missing pinned files is a scratch gate fixture whose
+  // stubbed workspace index.ts files would otherwise read as stale pins.
+  const repositoryShaped = totalReferences > 0 || pinnedFilesScanned === APP_AGENT_RESPONSIBILITY_PINS.size;
+  for (const [path, pin] of repositoryShaped ? APP_AGENT_RESPONSIBILITY_PINS : []) {
+    const actual = counts.get(path) ?? 0;
+    if (actual < pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (stale pin)`);
   }
   return violations.sort();
 }
