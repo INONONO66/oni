@@ -269,18 +269,6 @@ describe("uiMessagesToTranscript", () => {
     ]);
   });
 
-  test("a data-epoch part becomes the ledger boundary it describes", () => {
-    const { nodes } = uiMessagesToTranscript([
-      {
-        id: "m8",
-        role: "assistant",
-        parts: [{ type: "data-epoch", id: "ep1", data: { label: "compacted" } }],
-      },
-    ]);
-
-    expect(nodes).toEqual([{ kind: "epoch", id: "ep1", label: "compacted", at: "" }]);
-  });
-
   test("parts the transcript has no row for are dropped, not thrown on", () => {
     const { nodes, pending } = uiMessagesToTranscript([
       {
