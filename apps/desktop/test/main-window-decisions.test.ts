@@ -17,7 +17,8 @@ test("window decisions preserve the pinned gateway, chrome, security, and render
   const previousPort = process.env.OPENOMNI_WS_PORT;
   delete process.env.OPENOMNI_WS_PORT;
   try {
-    const { rendererTarget, windowOptions } = await import("../src/main/index?window-decisions");
+    const instance: string = "../src/main/index?window-decisions";
+    const { rendererTarget, windowOptions } = (await import(instance)) as typeof import("../src/main/index");
     const config = resolveDesktopConfig({
       OPENOMNI_WS_PORT: "4321",
       OPENOMNI_WS_TOKEN: "pinned",
