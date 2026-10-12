@@ -994,10 +994,63 @@ export function appsAgentInternalViolations(filePath: string, source: string): s
   return violations;
 }
 
+/** #1345: the ledger constructors the core host (`Core.openLedger`) replaced; apps never name them. */
+const APPS_RETIRED_LEDGER_CONSTRUCTORS: ReadonlySet<string> = new Set([
+  "openCatalogStore",
+  "openSessionStore",
+  "createSessionEntityLayer",
+  "createSessionEntityRunTurn",
+]);
+
+/** #1345: the runner and SQLite host packages the core host owns; apps never import them. */
+const APPS_RETIRED_HOST_IMPORTS: readonly string[] = ["effect/cluster", "@effect/sql-sqlite-bun"];
+
+/**
+ * #1345 ban: an app file naming a retired ledger constructor (any code
+ * identifier, so a barrel member access counts like an import) or importing
+ * the cluster/SQLite host packages fails. Comments and strings never count.
+ */
+export function appsRetiredHostViolations(filePath: string, source: string): string[] {
+  if (!filePath.startsWith("apps/")) return [];
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const violations: string[] = [];
+  const at = (node: ts.Node) => sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && APPS_RETIRED_LEDGER_CONSTRUCTORS.has(node.text)) {
+      violations.push(
+        `VIOLATION: ${filePath}:${at(node)} names ${node.text} — #1345: apps open the ledger through Core.openLedger only`,
+      );
+    }
+    const specifier =
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier)
+        ? node.moduleSpecifier.text
+        : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+            node.arguments[0] !== undefined && ts.isStringLiteral(node.arguments[0])
+          ? node.arguments[0].text
+          : undefined;
+    if (specifier !== undefined && APPS_RETIRED_HOST_IMPORTS.some((banned) => specifier === banned || specifier.startsWith(`${banned}/`))) {
+      violations.push(
+        `VIOLATION: ${filePath}:${at(node)} imports ${specifier} — #1345: the core host owns the runner and SQLite client`,
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return violations;
+}
+
 export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
   const violations: string[] = [];
   for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
     violations.push(...appsAgentInternalViolations(filePath, source));
+    violations.push(...appsRetiredHostViolations(filePath, source));
   }
   return violations;
 }

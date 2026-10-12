@@ -5,11 +5,13 @@ import { dirname, join } from "node:path";
 import {
   agentBandViolations,
   agentIndexPerimeterViolations,
+  appsRetiredHostViolations,
   checkBundleImports,
   checkDocFreshness,
   main,
   validateAgentBands,
   validateAgentIndexPerimeter,
+  validateAppsAgentBarrel,
 } from "./check-deps";
 import { checkPython } from "./check-quality-python";
 import { TOPOLOGY } from "./topology";
@@ -744,4 +746,49 @@ test("#1255: every retired surface greps to zero in the live repository", async 
   }
   const expected = Object.fromEntries(Object.keys(RETIRED_SURFACES).map((surface) => [surface, []]));
   expect(hits).toEqual(expected);
+});
+
+test("#1345 ban: a seeded app use of a retired ledger constructor or host import is rejected", async () => {
+  const root = mkdtempSync(join(tmpdir(), "check-deps-1345-"));
+  try {
+    const seeded = join(root, "apps/openomni/src/composition/seeded.ts");
+    mkdirSync(dirname(seeded), { recursive: true });
+    writeFileSync(
+      seeded,
+      [
+        'import { Core } from "@openomni/agent";',
+        'import { SingleRunner } from "effect/cluster";',
+        "const catalog = Core.openCatalogStore(\":memory:\", { now: () => 1 });",
+        "export { catalog, SingleRunner };",
+      ].join("\n"),
+    );
+    // A test file under apps/ is outside the scan, like every dependency rule.
+    writeFileSync(join(root, "apps/openomni/src/composition/seeded.test.ts"), "Core.openSessionStore;\n");
+    expect(await validateAppsAgentBarrel(root)).toEqual([
+      "VIOLATION: apps/openomni/src/composition/seeded.ts:2 imports effect/cluster — #1345: the core host owns the runner and SQLite client",
+      "VIOLATION: apps/openomni/src/composition/seeded.ts:3 names openCatalogStore — #1345: apps open the ledger through Core.openLedger only",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1345 ban: every retired name and import form fails; comments, strings and other packages pass", () => {
+  const source = [
+    "// openCatalogStore is mentioned in prose only",
+    'const text = "createSessionEntityLayer";',
+    "const { openSessionStore } = Core;",
+    "type Run = typeof Core.createSessionEntityRunTurn;",
+    "Core.createSessionEntityLayer(drain);",
+    'export * from "@effect/sql-sqlite-bun";',
+    'const lazy = import("effect/cluster/SingleRunner");',
+  ].join("\n");
+  expect(appsRetiredHostViolations("apps/openomni/src/x.ts", source).map((line) => line.split(" — ")[0])).toEqual([
+    "VIOLATION: apps/openomni/src/x.ts:3 names openSessionStore",
+    "VIOLATION: apps/openomni/src/x.ts:4 names createSessionEntityRunTurn",
+    "VIOLATION: apps/openomni/src/x.ts:5 names createSessionEntityLayer",
+    "VIOLATION: apps/openomni/src/x.ts:6 imports @effect/sql-sqlite-bun",
+    "VIOLATION: apps/openomni/src/x.ts:7 imports effect/cluster/SingleRunner",
+  ]);
+  expect(appsRetiredHostViolations("packages/agent/src/core/host.ts", source)).toEqual([]);
 });
