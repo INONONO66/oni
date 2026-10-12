@@ -6,7 +6,7 @@ import ts from "typescript";
 import { SELECTION_SUITE_TIMEOUT_MS, verifyMutantMemoryCap, type TestRuntime, boundedArgv, classifyCandidate, copyExecution, removeExecution, decode, describeRedBaseline, execute, executionTreeHash, instrument, main, mutationSource, probeText, pythonWorker, sha256, type TestSelectionReceipt } from "./run-quality-mutations";
 import { mutationFixture, mutationEvidence, replaceArguments, reportResults } from "./quality-mutation-fixture";
 import { buildInventory, readContract } from "./quality-inventory";
-import { analyze, enumerate, programs, diagnostics, failedAssertions } from "./run-quality-mutations";
+import { analyze, enumerate, programs, diagnostics, failedAssertions, assertionIdentities } from "./run-quality-mutations";
 import { tmpdir } from "node:os";
 import { MutationCompilerWorker } from "./quality-mutation-compiler";
 
@@ -15,6 +15,12 @@ function captureOutput(): { output: string[]; restore: () => void } {
 	const log: (value: string) => void = console.log;
 	console.log = (value: string) => { output.push(value); };
 	return { output, restore: () => { console.log = log; } };
+}
+function captureError(): { output: string[]; restore: () => void } {
+	const output: string[] = [];
+	const error: (value: string) => void = console.error;
+	console.error = (value: string) => { output.push(value); };
+	return { output, restore: () => { console.error = error; } };
 }
 
 test("switch case reach instrumentation inserts a probe after the label", () => {
@@ -274,6 +280,33 @@ test("assertion receipt parsing separates matcher failures from crashes and othe
 		"src/a.test.ts\0matcher", "src/a.test.ts\0settlement", "src/b.test.ts\0second-file",
 	]);
 	expect(failedAssertions("")).toEqual([]);
+});
+
+test("nested bun test stderr credits the parent JUnit testcase", () => {
+	const stderr = [
+		"src/a.test.ts:",
+		"src/assertion.fixture.ts:",
+		"error: expect(received).toBe(expected)",
+		"(fail) nested [1ms]",
+		"error: expect(received).toBe(expected)",
+		"(fail) behavior [1ms]",
+	].join("\n");
+	const xml = '<testsuites><testsuite><testcase file="src/a.test.ts" name="behavior" line="9" assertions="1"><failure type="AssertionError" message="expect(received).toBe(expected)" /></testcase></testsuite></testsuites>';
+	expect(failedAssertions(stderr)).toEqual(["src/assertion.fixture.ts\0nested", "src/assertion.fixture.ts\0behavior"]);
+	expect(assertionIdentities(xml, stderr)).toEqual([
+		JSON.stringify({ file: "src/a.test.ts", name: "behavior", line: "9" }),
+	]);
+});
+
+test("fixture-file assertion credit rejects ambiguous names and non-assertion failures", () => {
+  const stderr = "src/assertion.fixture.ts:\nerror: expect(received).toBe(expected)\n(fail) behavior [1ms]";
+  const testcase = '<testcase file="src/a.test.ts" name="behavior" line="9" assertions="1"><failure type="AssertionError" /></testcase>';
+  const another = testcase.replace('file="src/a.test.ts"', 'file="src/b.test.ts"');
+  expect(assertionIdentities(`<testsuites><testsuite>${testcase}${another}</testsuite></testsuites>`, stderr)).toEqual([]);
+  expect(assertionIdentities(`<testsuites><testsuite>${testcase}</testsuite></testsuites>`,
+    "src/assertion.fixture.ts:\nTypeError: broken\n(fail) behavior [1ms]",
+  )).toEqual([]);
+  expect(assertionIdentities(`<testsuites><testsuite>${testcase.replace("AssertionError", "ZodError")}</testsuite></testsuites>`, stderr)).toEqual([]);
 });
 
 test("mutation helpers cover execution tree recursion and virtual source traversal", () => {
@@ -824,6 +857,19 @@ test("execution snapshots retain isolated workspace dependencies and built expor
 	expect(readFileSync(join(input.root, "vendor/dep/dist/index.js"), "utf8")).toBe("export const value = 7;");
 }, 90000);
 
+test("nested bun test fixture assertion credits its parent testcase", async () => {
+	const input = await fixture(
+		"export const run = () => true;",
+		'const child = Bun.spawn([process.execPath, "test", "./src/assertion.fixture.ts"], { cwd: new URL("..", import.meta.url).pathname, stdout: "ignore", stderr: "inherit" }); expect(await child.exited).toBe(0);',
+		{
+			"src/assertion.fixture.ts":
+				'import { expect, test } from "bun:test"; import { run } from "./a"; test("nested", () => { expect(run()).toBe(true); });',
+		},
+	);
+	const result = await invoke(input, "fixture-assertion-credit", select("boolean-literal"));
+	assertBehavioralKill(result);
+}, 90000);
+
 test("review R2: negated assertion is a behavioral kill", async () => {
 	const input = await fixture("export const run = () => true;", "expect(run()).not.toBe(false);");
 	const result = await invoke(input, "review-negated", select("boolean-literal"));
@@ -1325,6 +1371,45 @@ test("a candidate whose worst-case run cannot finish inside the budget is not di
 	expect(result.selected.length).toBeGreaterThan(0);
 	expect(result.selected.every((row) => row.outcome === "uncompleted")).toBe(true);
 }, 90000);
+
+test("in-process shard executes candidates when their reserve fits the budget", async () => {
+	const input = await fixture("export const run = () => true;", "expect(run()).toBe(true);");
+	const progress = join(input.root, "shard-progress.jsonl");
+	const report = await runMain(input, process.env.D945_PYTHON ?? "python3", [
+		"--shard", "0", "--shard-count", "1", "--progress", progress,
+	], 0);
+	const shard = record(report.shard);
+	expect(shard.budgetExhausted).toBe(false);
+	expect(shard.executed).toBe(1);
+	expect(shard.recorded).toBe(1);
+	expect(report.cleanupVerified).toBe(true);
+}, 120000);
+
+test("in-process shard budget defers multiple candidates with one diagnostic", async () => {
+	const input = await fixture("export const run = () => true && false;", "expect(run()).toBe(false);");
+	const progress = join(input.root, "shard-progress.jsonl");
+	const stderr = captureError();
+	try {
+		const report = await runMain(input, process.env.D945_PYTHON ?? "python3", [
+			"--shard", "0", "--shard-count", "1", "--progress", progress,
+			"--budget", "600000", "--suite-timeout", "3600000",
+		]);
+		const shard = record(report.shard);
+		expect(shard.budgetExhausted).toBe(true);
+		expect(Number(shard.sliceSize)).toBeGreaterThanOrEqual(2);
+		expect(shard.recorded).toBe(0);
+		expect(shard.executed).toBe(0);
+		expect(shard.sliceComplete).toBe(false);
+		expect(stderr.output.filter((line) => line.includes("[mutation] shard 0/1 deferring "))).toHaveLength(1);
+		expect(stderr.output).toContain(`[mutation] shard 0/1 deferred ${shard.sliceSize} of ${shard.sliceSize} pending candidates to the next run`);
+		const progressRows = readFileSync(progress, "utf8").trim().split("\n").map((line) => record(decode(line)));
+		expect(progressRows[0]?.type).toBe("shard-progress");
+		expect(progressRows.at(-1)?.type).toBe("proof");
+		expect(progressRows.filter((row) => row.type === "result")).toHaveLength(0);
+	} finally {
+		stderr.restore();
+	}
+}, 120000);
 
 test("work budget cannot silently turn an unfinished full run into a selected pass", async () => {
 	// Two production candidates (both boolean literals) so a budget of one leaves work behind.

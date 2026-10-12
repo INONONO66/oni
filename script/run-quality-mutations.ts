@@ -1202,7 +1202,18 @@ export function failedAssertions(stderr: string): string[] {
 	}
 	return failedNames;
 }
-function assertionIdentities(xml: string, stderr: string): string[] {
+function claimAssertionFailure(failed: string[], file: string, name: string, uniqueCase: boolean): boolean {
+	let index = failed.indexOf(`${file}\0${name}`);
+	if (index < 0 && uniqueCase) {
+		const suffix = `\0${name}`;
+		const candidates = failed.flatMap((value, position) => value.endsWith(suffix) ? [position] : []);
+		if (candidates.length === 1) index = candidates[0] ?? -1;
+	}
+	if (index < 0) return false;
+	failed.splice(index, 1);
+	return true;
+}
+export function assertionIdentities(xml: string, stderr: string): string[] {
 	const failedNames = failedAssertions(stderr);
 	const assertionCases = [
 		...xml.matchAll(/<testcase\b([^>]+)(?<!\/)>([\s\S]*?)<\/testcase>/g),
@@ -1225,10 +1236,13 @@ function assertionIdentities(xml: string, stderr: string): string[] {
 		const file = attribute(attributes, "file").replace(/^\.\//, "");
 		const name = attribute(attributes, "name");
 		const group = attribute(attributes, "classname");
-		const key = `${file}\0${group ? `${group} > ` : ""}${name}`;
-		const index = failedNames.indexOf(key);
-		if (index < 0) return [];
-		failedNames.splice(index, 1);
+		const qualifiedName = group ? `${group} > ${name}` : name;
+		const uniqueCase = assertionCases.filter((candidate) => {
+			const fields = candidate[1] ?? "";
+			const owner = attribute(fields, "classname");
+			return (owner ? `${owner} > ${attribute(fields, "name")}` : attribute(fields, "name")) === qualifiedName;
+		}).length === 1;
+		if (!claimAssertionFailure(failedNames, file, qualifiedName, uniqueCase)) return [];
 		return [JSON.stringify({ file, name, line: attribute(attributes, "line") })];
 	});
 	return assertions;
@@ -2203,6 +2217,19 @@ function proofCheckpoint(context: ExecutionContext, progress: ShardProgress, res
 		results,
 	}));
 }
+function deferCandidate(
+	context: ExecutionContext,
+	candidate: Candidate,
+	reached: string[],
+	shard: NonNullable<Options["shard"]>,
+	alreadyDeferred: boolean,
+): boolean {
+	if (budgetAllows(context, candidate, reached)) return false;
+	const reserve = candidateReserve(context, candidate, reached);
+	if (!alreadyDeferred)
+		console.error(`[mutation] shard ${shard.index}/${shard.count} deferring ${candidate.path}:${candidate.startOffset} ${candidate.operator}: reserve ${reserve} ms does not fit the remaining budget after ${Date.now() - context.started} ms of ${context.options.budget} ms${reserve > context.options.budget ? " (the reserve alone exceeds the whole budget)" : ""}`);
+	return true;
+}
 async function executeShardSelection(
 	context: ExecutionContext,
 	pending: Candidate[],
@@ -2219,15 +2246,8 @@ async function executeShardSelection(
 		if (errors.length) break;
 		if (!pendingIds.has(candidate.id)) continue;
 		const reached = reachMap.get(candidate.id)?.tests ?? tests;
-		if (!budgetAllows(context, candidate, reached)) {
-			// Deferred to the next run; a cheaper candidate later in the slice may
-			// still fit, so the loop continues instead of stopping here. The first
-			// deferral names elapsed, budget and reserve, and says when the reserve
-			// alone exceeds the budget: such a candidate is deferred by every run,
-			// so the shard cannot complete until the budget is raised.
-			const reserve = candidateReserve(context, candidate, reached);
-			if (!budgetExhausted)
-				console.error(`[mutation] shard ${shard.index}/${shard.count} deferring ${candidate.path}:${candidate.startOffset} ${candidate.operator}: reserve ${reserve} ms does not fit the remaining budget after ${Date.now() - context.started} ms of ${options.budget} ms${reserve > options.budget ? " (the reserve alone exceeds the whole budget)" : ""}`);
+		// Keep scanning after a deferral: a cheaper candidate may still fit.
+		if (deferCandidate(context, candidate, reached, shard, budgetExhausted)) {
 			budgetExhausted = true;
 			deferred++;
 			continue;
