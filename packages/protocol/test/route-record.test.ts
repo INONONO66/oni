@@ -91,15 +91,23 @@ describe("Ingress.routeDecisionsEquivalent", () => {
     expect(Ingress.routeDecisionsEquivalent(decision(), decision(over))).toBe(false);
   });
 
-  const ledger = (over: Partial<RoutingDecisionPayload> = {}): RoutingDecisionPayload =>
-    decision({
+  // Parsed through the schema so a ledger field rename fails here instead of hiding behind a cast.
+  const ledger = (over: object = {}): RoutingDecisionPayload =>
+    Ingress.Events.RoutingDecision.schema.parse({
+      traceId: "t-1",
+      time: 1,
+      inboundId: "in-1",
+      surface: "telegram",
+      mode: "direct",
       stage: "automation",
       outcome: "record",
       decision: "filtered",
       by: "rule/bot-author",
       factsDigest: "digest-1",
+      reason: "ok",
+      factsUsed: [],
       ...over,
-    } as Partial<RoutingDecisionPayload>);
+    });
 
   test("ledger rows: same verdict and author → equivalent", () => {
     expect(Ingress.routeDecisionsEquivalent(ledger(), ledger({ traceId: "b", reason: "y" }))).toBe(true);
@@ -109,6 +117,6 @@ describe("Ingress.routeDecisionsEquivalent", () => {
     ["decision", { decision: "matched" as const }],
     ["by", { by: "automation/alerts" }],
   ])("ledger rows: divergent %s → not equivalent", (_f, over) => {
-    expect(Ingress.routeDecisionsEquivalent(ledger(), ledger(over as Partial<RoutingDecisionPayload>))).toBe(false);
+    expect(Ingress.routeDecisionsEquivalent(ledger(), ledger(over))).toBe(false);
   });
 });
