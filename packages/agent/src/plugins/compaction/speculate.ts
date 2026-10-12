@@ -1,5 +1,4 @@
-import type { Message } from "@openomni/protocol";
-import { Deferred, Effect, Exit, Fiber, type Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber } from "effect";
 import { isWarmCandidateValid, latestCompactionAnchorId, planAnchoredCut } from "./candidate";
 import { prepareSummarizerInput } from "./estimate";
 import { withSummarizerDeadline } from "./summary";
@@ -8,7 +7,7 @@ import type { CompactionOptions } from "./compact";
 // #1307: the candidate shape is a seam type (the kernel passes it through
 // dispatch); the core owns it and this module re-exports the old name.
 export type { CompactionCandidate } from "../../core/api";
-import type { CompactionCandidate, CompactionPrepareArgs, CompactionSessionConfig, CompactionSessionPort } from "../../core/api";
+import type { CompactionCandidate, CompactionSessionConfig, CompactionSessionPort } from "../../core/api";
 
 const MAX_PREPARE_FAILURES = 2;
 
@@ -30,8 +29,7 @@ export class CompactionSession implements CompactionSessionPort {
     Deferred.doneUnsafe(this.#entered, Exit.void);
   }
 
-  prepare(...args: CompactionPrepareArgs): Effect.Effect<void, never, Scope.Scope> {
-    const [messages, contextTokens, prepareTokens, contextWindowTokens, onFailure] = args;
+  prepare: CompactionSessionPort["prepare"] = (messages, contextTokens, prepareTokens, contextWindowTokens, onFailure) => {
     return Effect.suspend(() => {
       if (this.#failureStreak >= MAX_PREPARE_FAILURES) return Effect.void;
       if (this.#candidate !== undefined && !isWarmCandidateValid(this.#candidate, messages))
@@ -81,7 +79,7 @@ export class CompactionSession implements CompactionSessionPort {
         this.#preparation = fiber;
       })), Effect.asVoid);
     });
-  }
+  };
 
   candidate(): CompactionCandidate | undefined { return this.#candidate; }
   inFlight(): boolean { return this.#inFlight; }

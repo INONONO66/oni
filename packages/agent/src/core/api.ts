@@ -51,7 +51,7 @@ export {
   CompactionSeam,
   type CompactionCandidate, type CompactionExecutionInput, type CompactionExecutionOutcome,
   type CompactionGeometry, type CompactionGeometryInput, type CompactionOptions,
-  type CompactionPrepareArgs, type CompactionRestoreInput, type CompactionRestorePlan, type CompactionSeamService,
+  type CompactionRestoreInput, type CompactionRestorePlan, type CompactionSeamService,
   type CompactionSessionConfig, type CompactionSessionPort, type CompactionYield,
   type ResolvedCompactionOptions, type SummarizationBudget, type ToolOutputElision,
 } from "./compaction-ports";

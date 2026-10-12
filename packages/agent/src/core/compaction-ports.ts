@@ -111,17 +111,15 @@ export interface CompactionCandidate {
   readonly anchorBody: string;
 }
 
-export type CompactionPrepareArgs = [
-  messages: readonly Message.WithParts[],
-  contextTokens: number,
-  prepareTokens: number,
-  contextWindowTokens: number,
-  onFailure?: (error: Error, failureStreak: number) => void,
-];
-
 /** The speculative-session face the run loop holds; the plugin owns the class. */
 export interface CompactionSessionPort {
-  prepare(...args: CompactionPrepareArgs): Effect.Effect<void, never, Scope.Scope>;
+  prepare(
+    messages: readonly Message.WithParts[],
+    contextTokens: number,
+    prepareTokens: number,
+    contextWindowTokens: number,
+    onFailure?: (error: Error, failureStreak: number) => void,
+  ): Effect.Effect<void, never, Scope.Scope>;
   candidate(): CompactionCandidate | undefined;
   inFlight(): boolean;
   consume(): void;
