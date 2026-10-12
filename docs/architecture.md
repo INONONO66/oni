@@ -6,7 +6,7 @@ This document maps [Core Model](core-model.md) onto the post-#792 codebase. [Imp
 
 External traffic and session tools enter the same `gateway.ingest(sender, envelope)` operation. Drivers supply raw facts; the gateway resolves perimeter identity, Wait correlation and surface routing. The injected L2 executor applies compiled message pre/post policy. Session delivery calls only the session entity's `deliver` RPC; actor delivery uses the retained channel send kernel.
 
-`send_message` returns a handle without waiting for a child. New-session configuration and first delivery are atomic. Resident and child sessions share the same session-owned runner; an OS process carries the session id and committed-delivery notifications, not a separate completion authority. Observations follow durable action commits and do not authorize delivery.
+`send_message` returns a handle without waiting for a child. New-session configuration is materialized idempotently before the first `deliver`; a retried send re-delivers under the same idempotency key. Resident and child sessions share the same session-owned runner; an OS process carries the session id and committed-delivery notifications, not a separate completion authority. Observations follow durable action commits and do not authorize delivery.
 
 ## Store
 
@@ -14,7 +14,7 @@ External traffic and session tools enter the same `gateway.ingest(sender, envelo
 
 `bus.publish` remains observation, not authorization or persistence. L0 action append commits before its injected observation sink is called. Record-before-act paths must commit through a durable store or append surface before the external action. The session entity's outside surface is exactly four RPCs, `deliver | resolve | alarm | read`; `read` serves the nine read models (`history | decisions | requests | alarms | generations | tree | metrics | control | outbound`) without waking a runner, and inputs are consumed at loop boundaries only.
 
-The `alarm` journal kind has one core writer (`packages/agent/src/core/alarm.ts`); the removable `plugins/alarm` capability owns the purpose registry, wake dispatch and the watch verbs. The app composition band owns only the native OS handles (PTY, fs watcher) and resends a native hit through the entity's `alarm` RPC. There is no second watch store or runner. Shipped state is recorded in [Implementation Status](implementation-status.md).
+The `alarm` journal kind has one core writer (`packages/agent/src/core/alarm.ts`); the removable `plugins/alarm` capability owns the purpose registry, wake dispatch and the watch verbs. The app's `composition/watch-sources.ts` owns the native OS handles (PTY, fs watcher) and resends a native hit through the entity's `alarm` RPC; the app never commits an arm row itself. There is no second watch store or runner.
 
 ## Policy
 
@@ -89,7 +89,7 @@ The gateway never reads transcript content. The app does not re-derive platform 
 
 ## Session and Completion Contracts
 
-A child session created by `send_message` is a normal catalog row with its parent session in `parentId`; there is no separate ownership layer above sessions. A turn records its intent and pre-minted result ID before runner entry, then seals exactly one `result | interrupted | error` terminal under the current activation fence. A child's terminal settlement reaches the parent through the parent's `deliver` RPC. What is wired is recorded in [Implementation Status](implementation-status.md).
+A child session created by `send_message` is a normal catalog row with its parent session in `parentId`; there is no separate ownership layer above sessions. A turn records its intent and pre-minted result ID before runner entry, then seals exactly one `result | interrupted | error` terminal under the current activation fence. A child settles toward its parent at most once, on a `result | error` seal, with one bounded `Gateway.DelegationResult` outbound row committed in the seal batch; the gateway admits it through the parent's `deliver` RPC as a `followUp` input.
 
 ## Historical Reconciliation
 
@@ -97,9 +97,9 @@ The repository previously split product behavior across a reusable-looking produ
 
 Historical design decisions still explain the surviving extractions:
 
-- Policy evaluation lives in `packages/policy` as the row compiler; `@openomni/agent` owns the single executor that applies pre/post verdicts.
-- Bus moved to `packages/agent/src/observation` as volatile observation; reverse persistence was removed. L0 observation sink contracts live in protocol.
-- IPC became the standalone `packages/ipc` transport.
+- Policy evaluation was extracted, then folded into `packages/agent/src/core/gate/` (#1246); `@openomni/agent` owns the single executor that applies pre/post verdicts.
+- The bus became volatile observation in `packages/agent` (`src/core/bus.ts`); reverse persistence was removed. L0 observation sink contracts live in protocol.
+- IPC became a standalone transport, now `packages/machines/src/ipc/`.
 - Channel drivers and perimeter judgment consolidated in `packages/channels`.
 - Machine execution became the lateral `packages/machines` band.
 - Product composition converged in `apps/openomni`.
@@ -112,5 +112,5 @@ Projection/export #766, old dispatch/evidence/effect services, local worker supe
 - Decisions are pure functions; effects are injected drivers.
 - Durable writes fail closed and occur before external action.
 - Package imports use public barrels, never source deep imports.
-- Resident, Worker, Governor, Jester, and Voice are roles, not packages.
+- Resident, child, Governor, Jester, and Voice are roles, not packages.
 - New abstractions require a second consumer.
