@@ -75,10 +75,20 @@ test("#1276 check b: a plugin importing any core path other than core/api.ts fai
 test("#1276 check b: a plugin importing model/, inspect/ or testing/ fails", () => {
   const found = agentBandViolations(
     "packages/agent/src/plugins/compaction/successor.ts",
-    'import { fold } from "../../inspect/history";\nimport { m } from "../../model/errors";',
+    'import { fold } from "../../inspect/history";\nimport { m } from "../../model/errors";\nimport { t } from "../../testing/fixtures";',
   );
-  expect(found).toHaveLength(2);
+  expect(found).toHaveLength(3);
   expect(found[0]).toContain("plugins/compaction/ may not import inspect/");
+  expect(found[2]).toBe(
+    "VIOLATION: packages/agent/src/plugins/compaction/successor.ts:3 imports ../../testing/fixtures — #1247 bands: plugins/compaction/ may not import testing/",
+  );
+});
+
+test("an unclassified sibling path does not trigger a named-band violation", () => {
+  expect(agentBandViolations(
+    "packages/agent/src/plugins/alarm/index.ts",
+    'import { extension } from "../../extensions/extension";',
+  )).toEqual([]);
 });
 
 test("#1276 check b: a plugin importing the package root barrel fails (review r2 probe)", () => {
