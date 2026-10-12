@@ -3,13 +3,13 @@ import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { ManagedRuntime } from "effect";
 import { clusterMessages } from "../../../packages/agent/test/helpers/cluster-runtime";
 import { gatewayRuntime } from "../src/gateway";
 import { runProcessEntry } from "../src/process-entry";
-import { AppLive, type AppRuntimeOptions } from "../src/runtime";
+import type { AppRuntimeOptions } from "../src/runtime";
 import { composedHolder } from "./helpers/bundle-fixture";
 import { Bus } from "./helpers/bus";
+import { appRuntime } from "./helpers/effect";
 import { planeOf } from "./helpers/ledger";
 import { messageFixture } from "./helpers/message-fixture";
 import { bounded } from "./helpers/protected-dispatch";
@@ -39,9 +39,7 @@ test("the process child isolates its runner tables in :memory: while the ledger 
   const fixture = messageFixture("resident");
   const catalogPath = join(fixture.directory, "catalog.sqlite");
   const sessionsDir = join(fixture.directory, "sessions");
-  const parent = ManagedRuntime.make(
-    AppLive({ composed: composedHolder(), observations: Bus, catalogPath, sessionsDir }),
-  );
+  const parent = appRuntime({ composed: composedHolder(), observations: Bus, catalogPath, sessionsDir });
   const stdin = new PassThrough();
   const requested: AppRuntimeOptions[] = [];
   const log = mock((_line: string): void => undefined);
