@@ -34,10 +34,7 @@ export interface LedgerStoreConfig {
   readonly now: () => number;
   /** Catalog SQLite file; absent = an in-memory catalog. */
   readonly catalog?: { readonly path?: string };
-  /**
-   * Directory of per-session ledger files. Absent, session stores are
-   * memoized in-memory handles shared between the plane and the entity.
-   */
+  /** Per-session ledger file directory; absent = memoized in-memory stores shared with the entity. */
   readonly sessions?: { readonly dir?: string };
   readonly observationSink?: ObservationSink;
   /** Where a post-commit observation publish failure is reported; absent drops it. */
@@ -163,9 +160,8 @@ function planeOver(
     catalogDatabase: catalog.database,
     handles: {
       catalog,
-      // File mode: fresh handles the entity closes on passivation. In-memory:
-      // the plane's memoized store, whose lifetime stays with the plane so a
-      // passivated activation's successor continues the same chain (#1345).
+      // File mode: a fresh handle the entity closes on passivation. In-memory:
+      // the plane's memoized store, retained so a successor continues the chain.
       openSession: (sessionId) =>
         sessionsDir === undefined
           ? retained(opened(sessionId).store)
