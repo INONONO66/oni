@@ -16,6 +16,12 @@ test("the committed pin set covers every tracked production file, including src 
   expect(Object.keys(committed.files).sort()).toEqual(paths.sort());
 });
 
+test("comments in empty function bodies are discovered even with no semantic child", () => {
+  const path = "packages/agent/src/core/empty.ts";
+  expect(classifyResidue(path, "function noop() {\n// #9999\n// ─── migrated\n}")).toMatchObject({ issues: 1, dividers: 1 });
+  expect(classifyResidue(path, "function noop() {\n/**\n * one\n * two\n * three\n * four\n * five\n */\n}").longJsdoc).toBe(1);
+});
+
 test("the exact baseline passes", () => {
   expect(residueViolations(original, pin)).toEqual([]);
 });

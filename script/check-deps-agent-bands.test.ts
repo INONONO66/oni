@@ -31,6 +31,10 @@ test("#1276 check a: a core file importing plugins/ fails", () => {
   expect(found[0]).toContain("core/ may not import plugins/");
 });
 
+test("#1343: tokens inside empty block and array comments are not references", () => {
+  expect(appAgentResponsibilityCount("function noop() { /* kernel.commit */ }\nconst values = [ /* kernel.commit */ ];")).toBe(0);
+});
+
 test("#1343: a code reference after a template substitution remains visible", () => {
   expect(appAgentResponsibilityCount(`const message = \`value \${identifier}\`;\nkernel.commit({});\n`)).toBe(1);
   expect(appAgentResponsibilityCount('const icon = "😀";\n// kernel.commit\nkernel.commit({});\n')).toBe(1);

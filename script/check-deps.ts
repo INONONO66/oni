@@ -1034,7 +1034,7 @@ export function appAgentResponsibilityCount(source: string): number {
         node.kind === ts.SyntaxKind.RegularExpressionLiteral) {
       hide(node.getStart(sourceFile), node.end);
     }
-    ts.forEachChild(node, visit);
+    for (const child of node.getChildren(sourceFile)) visit(child);
   };
   visit(sourceFile);
   const code = masked.join("");

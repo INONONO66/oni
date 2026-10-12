@@ -97,7 +97,7 @@ function commentRanges(path: string, text: string): readonly ts.CommentRange[] {
         ranges.set(range.pos, range);
       }
     }
-    ts.forEachChild(node, visit);
+    for (const child of node.getChildren(source)) visit(child);
   };
   visit(source);
   return [...ranges.values()].sort((a, b) => a.pos - b.pos);
