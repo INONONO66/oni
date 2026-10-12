@@ -1,22 +1,10 @@
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
-import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
 import { createMonitorTool } from "../src/bundles/monitor";
 import { ToolCapabilitySeam } from "../src/bundles/seams";
+import { alarmDefinition } from "./helpers/alarm-definition";
 import { runEffect } from "./helpers/effect";
-
-async function alarmDefinition(): Promise<Bundle.CapabilityDefinition<"alarm">> {
-  const capability = await runEffect(
-    Bundle.alarmCapability({
-      bundles: [],
-      compose: Core.composeAlarmPurposes,
-      arm: () => () => Effect.die(new Error("unused arm")),
-      watch: { install: () => Effect.void },
-    }),
-  );
-  return capability.definition;
-}
 
 test("the manifest is THE product list: tool/action/hook/compaction/alarm capabilities, six bundles, empty off by default", async () => {
   const manifest = appManifest({

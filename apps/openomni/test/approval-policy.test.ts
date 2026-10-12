@@ -1,21 +1,10 @@
 import { expect, test } from "bun:test";
-import { Bundle, Core } from "@openomni/agent";
+import { Bundle } from "@openomni/agent";
 import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
+import { alarmDefinition } from "./helpers/alarm-definition";
 import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
 import { runEffect } from "./helpers/effect";
-
-async function alarmDefinition(): Promise<Bundle.CapabilityDefinition<"alarm">> {
-  const capability = await runEffect(
-    Bundle.alarmCapability({
-      bundles: [],
-      compose: Core.composeAlarmPurposes,
-      arm: () => () => Effect.die(new Error("unused arm")),
-      watch: { install: () => Effect.void },
-    }),
-  );
-  return capability.definition;
-}
 
 test("the approval-policy bundle ships the product literals the core no longer owns (#1309)", () => {
   expect(APPROVAL_POLICY).toEqual({
