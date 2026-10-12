@@ -1,5 +1,21 @@
 # Implementation Status
 
+## #1344 unified parallel core implementations (epic #1356, rung 2)
+
+On `epic1356/1344-parallel-impls` (2026-10-12, synthetic base = #1343 head, PR #1408).
+
+Five parallel implementations inside `packages/agent` collapsed to one owner each, with no journal byte or public-behavior change:
+
+- Revision CAS: `core/entity.ts` `retryRevision` is the only bounded retry (three conflicting attempts, then the typed `AdmissionFailure{code: revision}`); `testing/controller.ts` calls it through the internal core import, and `AdmissionFailure` is a member of `SessionError` (pinned by `script/effect-error-contract.test.ts`).
+- JSON: `core/store/json.ts` owns `parsePlainJson` (throwing — malformed text is `SchemaRefused{reason: "json"}`, schema failures stay typed) and `readPlainJson` (the degraded companion used by session-file and alarm-watch reads); `rg -n 'JSON\.parse' packages/agent/src` = 2 (the decoder and `core/gate/decide.ts` `clonePlainValue`, which must copy, not alias).
+- Causes: `rg -n 'String\((cause|error|err|e)\)' packages/agent/src` = 1 (`thrownAsError` in `core/store/storage/sqlite-l0-observation.ts`); every other failure carries a structured cause through `Failure.fromCause`, and AI SDK failures still wrap `APICallError` inside `APIError`.
+- Test-only options: `trackWave` and `extensionKinds` are gone from `core/tool.ts`, `core/run.ts`, `plugins/tool/dispatch.ts` and `core/gate/decide.ts` (0 hits in src and test); `turn-dispatcher-coverage.test.ts` and `execution-verdicts-model.test.ts` observe real wave settlement and registered execution kinds.
+- Clones: jscpd over `packages/agent/src` at the 50-token threshold reports 0 clones (ten production pairs consolidated at their existing owners: shared turn ports, capability hooks, prepare-args tuple, `decisionOf`, `rewriteDoHow`, `unknownRef`, `GenerationSeed`, `openDeliveryRow`, `weightedMessageChars`, `sqliteNumeric`); dead-export ratchet unchanged.
+- Cost: the always-zero required `cost` field is deleted from `Message.StepFinishPart` and `Message.AssistantMessage` (`packages/protocol/src/message/index.ts`), the step-finish stream producer, agent projections, fixtures and `script/conformance/schema-snapshot.json`; parts persisted with `cost: 0` still parse (field stripped, `packages/protocol/test/message.test.ts`). No rate table and no new journal row.
+- Residue: the #1343 comment-ratio ceiling lowers 1425→1424bp in the same PR; `Bun.spawn|node:child_process` under `core/` stays 0.
+
+Verification: per-file suites protocol 538/0, agent (model, compaction, execution) 669/0, app 8/0, `script/effect-error-contract.test.ts` 8/0; `check-types`, `lint`, `lint:tools`, `check-deps`, `check-dead-exports`, `check-comment-residue` all OK.
+
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
 
 Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. The depth row lives in the catalog policy plane, where `seedKernelPolicyRows` (`apps/openomni/src/policy-seed.ts`) lets every stored row overwrite the default by id, so a catalog seeded before this change keeps admitting at its stored `max: 4`; only catalogs without the row (fresh installs) receive the shared value. Migrating stored rows is a follow-up on #1422. The tests assert the admission constant equals the caps' `maxDepth`.
