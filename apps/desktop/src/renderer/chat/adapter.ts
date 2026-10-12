@@ -77,19 +77,6 @@ function appendAssistant(
       const { node, approval } = toolNode(part);
       nodes.push(node);
       if (approval !== undefined) pending.push(approval);
-      continue;
-    }
-
-    if (part.type === "data-epoch") {
-      flush();
-      nodes.push({
-        kind: "epoch",
-        id: part.id ?? `${message.id}.${at}`,
-        label: part.data.label,
-        // The ledger event carries no clock of its own. An empty string prints
-        // nothing rather than inventing a time the boundary did not have.
-        at: "",
-      });
     }
 
     // step-start, reasoning, sources, files: real parts of the message with no
