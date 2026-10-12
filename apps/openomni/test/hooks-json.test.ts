@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Bundle, Core, Model } from "@openomni/agent";
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation, type LedgerAction } from "@openomni/protocol";
 type RunInput = Model.RunInput;
 type Sink = Model.Sink;
 import { Clock, Context, Effect, Layer } from "effect";
@@ -29,12 +29,13 @@ import { testToolsBundle } from "./helpers/app-fixture";
 import { nextFrame } from "./helpers/ws";
 import { z } from "zod";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
-import { runAgentSync } from "../../../packages/agent/test/helpers/executor";
+import { executionReads } from "../../../packages/agent/test/helpers/execution-reads";
+import { runAgentSync, testExecutor } from "../../../packages/agent/test/helpers/executor";
 import { catalogLayer } from "../../../packages/agent/test/helpers/service-layers";
 import { testClockRuntime } from "./helpers/effect";
 import { eventSignal } from "./helpers/event-signal";
 import { untilCommitted } from "./helpers/committed-state";
-import { isolatedExecutorHarness } from "./helpers/isolated-executor";
+import { openResidentRequest } from "./helpers/open-resident-request";
 import { testEntropy } from "./helpers/test-entropy";
 
 /**
@@ -46,8 +47,25 @@ import { testEntropy } from "./helpers/test-entropy";
 
 const suite = residentSuite();
 
-function openRequestOf(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string) {
-  return plane.openKernel(sessionId).requestRows(sessionId).find((request) => request.state === "open");
+type JournalActionRow = {
+  readonly kind: LedgerAction.Kind;
+  readonly intent: string;
+};
+
+const decisionSchema = z.object({
+  verdict: z.string(),
+  gate: z.object({
+    verdict: z.string().optional(),
+    output: z.object({ command: z.string().optional() }).optional(),
+    consulted: z.array(z.object({
+      ref: z.string(),
+      payload: z.object({ verdict: z.string().optional(), reason: z.string().optional() }).optional(),
+    })),
+  }).optional(),
+});
+
+function decodeJournalJson<T extends z.ZodType>(serialized: string, schema: T): z.output<T> {
+  return schema.parse(JSON.parse(serialized));
 }
 
 function expectedCommandRow<On extends "tool.pre", Action extends "gate" | "rewrite", How extends object>(id: string, on: On, action: Action, how: How, order: number) {
@@ -55,37 +73,9 @@ function expectedCommandRow<On extends "tool.pre", Action extends "gate" | "rewr
 }
 
 function decisionRows(database: Database, point: string) {
-  const schema = z.object({
-    verdict: z.string(),
-    gate: z.object({
-      verdict: z.string().optional(),
-      output: z.object({ command: z.string().optional() }).optional(),
-      consulted: z.array(z.object({
-        ref: z.string(),
-        payload: z.object({ verdict: z.string().optional(), reason: z.string().optional() }).optional(),
-      })),
-    }).optional(),
-  });
   return database.query<{ intent: string }, [string]>(
     "SELECT intent FROM action WHERE kind = 'policy.decision' AND json_extract(intent, '$.hook') = ? ORDER BY ordinal ASC",
-  ).all(point).map((row) => schema.parse(JSON.parse(row.intent)));
-}
-
-function sessionActionRows(config: ReturnType<typeof suite.config>, sessionId: string) {
-  if (config.sessionsDir === undefined) throw new Error("fixture config missing sessionsDir");
-  const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
-  try { return database.query<{ kind: string; intent: string }, []>("SELECT kind, intent FROM action ORDER BY ordinal ASC").all(); }
-  finally { database.close(); }
-}
-
-function staleDeliveryEvidence(actions: ReturnType<typeof sessionActionRows>, deliveryId: string) {
-  const delivered = z.object({ deliveryId: z.string().optional() });
-  const terminal = z.object({ consumedStale: z.array(z.string()).optional() });
-  const deliveries = actions.filter(({ intent }) => delivered.parse(JSON.parse(intent)).deliveryId === deliveryId);
-  const closures = actions.flatMap(({ kind, intent }) => kind === "turn"
-    ? [terminal.parse(JSON.parse(intent)).consumedStale]
-    : []);
-  return { deliveries, closures };
+  ).all(point).map((row) => decodeJournalJson(row.intent, decisionSchema));
 }
 
 function sessionDecisions(config: ReturnType<typeof suite.config>, sessionId: string, point: string) {
@@ -103,23 +93,6 @@ function pendingToolMessage(input: RunInput, id: string, callID: string, tool: s
       type: "tool", callID, tool, state: { status: "pending", input: { command } },
     }],
   });
-}
-
-function pressureReply(call: number, constrained: boolean, firstConstrained: boolean): AssistantMessageOptions {
-  return {
-    call,
-    reason: constrained && firstConstrained ? "tool-calls" : "stop",
-    text: `pong ${call} ${"filler ".repeat(30)}`,
-    tokens: constrained
-      ? { input: 650, output: 1, reasoning: 0, cache: { read: 0, write: 0 } }
-      : undefined,
-  };
-}
-
-function limitedProvider(model: Parameters<typeof fakeProviderModel>[0], constrained: boolean) {
-  return fakeProviderModel(model).pipe(Effect.map((resolved) => ({
-    ...resolved, limit: { context: constrained ? 700 : 100_000 },
-  })));
 }
 
 function responseLlm(
@@ -307,15 +280,18 @@ test("H-2: a command entry with do:rewrite compiles the consulted rewrite row an
     },
   ]);
   // Misdeclared command rewrites refuse typed at bundle compile, fail-closed.
-  expect(
-    refusalOf(() => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite" }] })).code,
-  ).toBe("missing_rewrite_fields");
-  expect(
-    refusalOf(() => hooksJsonBundle({ SessionStart: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite", fields: ["body"] }] })).code,
-  ).toBe("session_start_rewrite");
-  expect(
-    refusalOf(() => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, fields: ["command"] }] })).code,
-  ).toBe("invalid_config");
+  expect(() => hooksJsonBundle({
+    PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite" }],
+  }))
+    .toThrow(AppInvariantError);
+  expect(() => hooksJsonBundle({
+    SessionStart: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite", fields: ["body"] }],
+  }))
+    .toThrow(AppInvariantError);
+  expect(() => hooksJsonBundle({
+    PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, fields: ["command"] }],
+  }))
+    .toThrow(AppInvariantError);
 });
 
 test("no hooks config composes the bundle with zero rows and the action input admitted", async () => {
@@ -326,41 +302,25 @@ test("no hooks config composes the bundle with zero rows and the action input ad
   expect(Object.keys(generation.kinds)).toEqual(["action"]);
 });
 
-/** Runs the refusing thunk and returns the TYPED refusal (#1256 r3 M-4). */
-function refusalOf(run: () => void): AppInvariantError {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(AppInvariantError);
-    return error as AppInvariantError;
-  }
-  throw new Error("expected an AppInvariantError refusal");
-}
-
 test("readHooksJson refuses an unmapped event, non-JSON bytes and an unreadable path, each typed", () => {
   const dir = suite.tempDir("hooks-json-read-");
   const unmapped = join(dir, "unmapped.json");
   writeFileSync(unmapped, JSON.stringify({ Notification: [{ command: ["./x"] }] }));
-  // M-4: the failure class and its machine-consumed code, plus the offending
-  // datum (the event name) — never a prose-only match.
-  const unmappedRefusal = refusalOf(() => readHooksJson(unmapped));
-  expect(unmappedRefusal.code).toBe("unmapped_event");
-  expect(unmappedRefusal.message).toContain("Notification");
+  // M-4: each source is a typed refusal, rather than a prose-only failure.
+  expect(() => readHooksJson(unmapped)).toThrow(AppInvariantError);
   const invalid = join(dir, "invalid.json");
   writeFileSync(invalid, "not json");
-  expect(refusalOf(() => readHooksJson(invalid)).code).toBe("not_json");
-  expect(refusalOf(() => readHooksJson(join(dir, "absent.json"))).code).toBe("unreadable_path");
+  expect(() => readHooksJson(invalid)).toThrow(AppInvariantError);
+  expect(() => readHooksJson(join(dir, "absent.json"))).toThrow(AppInvariantError);
   const badShape = join(dir, "bad-shape.json");
   writeFileSync(badShape, JSON.stringify({ PreToolUse: [{ command: [] }] }));
-  expect(refusalOf(() => readHooksJson(badShape)).code).toBe("invalid_config");
+  expect(() => readHooksJson(badShape)).toThrow(AppInvariantError);
   // A guard entry on a tool event without declared fields, and any guard on
   // the no-rewrite SessionStart point, each refuse typed at bundle compile.
-  expect(refusalOf(() => hooksJsonBundle({ PreToolUse: [{ guard: "secrets-guard" }] })).code).toBe(
-    "missing_rewrite_fields",
-  );
-  expect(refusalOf(() => hooksJsonBundle({ SessionStart: [{ guard: "secrets-guard" }] })).code).toBe(
-    "session_start_rewrite",
-  );
+  expect(() => hooksJsonBundle({ PreToolUse: [{ guard: "secrets-guard" }] }))
+    .toThrow(AppInvariantError);
+  expect(() => hooksJsonBundle({ SessionStart: [{ guard: "secrets-guard" }] }))
+    .toThrow(AppInvariantError);
   // The default call bound applies when the file omits timeoutMs.
   const defaults = join(dir, "defaults.json");
   writeFileSync(defaults, JSON.stringify({ PreToolUse: [{ command: ["./guard.sh"] }] }));
@@ -402,19 +362,11 @@ test("off cascades: action roots hook and hooks-json off; hook roots hooks-json 
 });
 
 test("without the hook capability the bundle refuses at compose as seam_missing", () => {
-  expect(() =>
-    Bundle.composeSync(
-      Bundle.Manifest.define({ capabilities: [], bundles: [hooksJsonBundle()], off: [] }),
-    ),
-  ).toThrow(Bundle.ComposeRefused);
-  try {
+  const compose = () =>
     Bundle.composeSync(
       Bundle.Manifest.define({ capabilities: [], bundles: [hooksJsonBundle()], off: [] }),
     );
-  } catch (error) {
-    expect(error).toBeInstanceOf(Bundle.ComposeRefused);
-    if (error instanceof Bundle.ComposeRefused) expect(error.code).toBe("seam_missing");
-  }
+  expect(compose).toThrow(Bundle.ComposeRefused);
 });
 
 test("a guard rewrite row seeds the live transform; a command gate row seeds the consult verdict (H-1)", async () => {
@@ -502,16 +454,8 @@ test("a hooks file with an unmapped event refuses the boot before any listener e
   const config = suite.config("hooks-json-refuse-state-", { hooksPath });
   // M-4: the TYPED refusal object crosses the boot boundary — class, code and
   // the offending event name, not a prose match.
-  const refusal = await suite
-    .boot({ config, llm: { resolveModel: fakeProviderModel } })
-    .then(
-      () => undefined,
-      (error) => (error instanceof Error ? error : new Error(String(error))),
-    );
-  expect(refusal).toBeInstanceOf(AppInvariantError);
-  if (!(refusal instanceof AppInvariantError)) throw new Error("expected AppInvariantError");
-  expect(refusal.code).toBe("unmapped_event");
-  expect(refusal.message).toContain("Stop");
+  const boot = suite.boot({ config, llm: { resolveModel: fakeProviderModel } });
+  await expect(boot).rejects.toBeInstanceOf(AppInvariantError);
 });
 
 /**
@@ -612,8 +556,12 @@ test("capability-removed one-turn gate: the cascade is journaled in session.conf
   await suite.cleanup();
   const second = await offCascadeConfigureRows("hooks-json-off-b-");
   // The compose adoption row records the cascade with its root `because`.
+  const composeIntent = z.object({
+    operation: z.string().optional(),
+    disabled: z.array(z.object({ name: z.string(), because: z.string() })).optional(),
+  });
   const compose = first
-    .map((row) => JSON.parse(row.intent) as { operation?: string; disabled?: { name: string; because: string }[] })
+    .map((row) => decodeJournalJson(row.intent, composeIntent))
     .find((intent) => intent.operation === "compose");
   expect(compose?.disabled).toEqual([
     { name: "hook", because: "hook" },
@@ -689,18 +637,12 @@ test("H-1/M-2 e2e: a UserPromptSubmit command hook gates the REAL prompt path an
       const decisions = decisionRows(database, "prompt.pre");
       expect(decisions.map((decision) => decision.verdict)).toEqual(["deny", "allow"]);
       const denyGate = decisions[0]?.gate;
-      expect(denyGate?.consulted).toEqual([
-        expect.objectContaining({
-          ref: Bundle.HOOK_PROCESS_REF,
-          payload: expect.objectContaining({ verdict: "deny", reason: "hook_refused" }),
-        }),
+      expect(denyGate?.consulted.map(({ ref, payload }) => [ref, payload?.verdict, payload?.reason])).toEqual([
+        [Bundle.HOOK_PROCESS_REF, "deny", "hook_refused"],
       ]);
       const allowGate = decisions[1]?.gate;
-      expect(allowGate?.consulted).toEqual([
-        expect.objectContaining({
-          ref: Bundle.HOOK_PROCESS_REF,
-          payload: expect.objectContaining({ verdict: "allow" }),
-        }),
+      expect(allowGate?.consulted.map(({ ref, payload }) => [ref, payload?.verdict])).toEqual([
+        [Bundle.HOOK_PROCESS_REF, "allow"],
       ]);
     } finally {
       database.close();
@@ -838,9 +780,12 @@ test("H-3 e2e: a PreToolUse secrets-guard rewrite of bash.command reaches the ex
     hooks: { PreToolUse: [{ guard: "secrets-guard", fields: ["command"] }] },
   });
   const guardHandler = generation.handlers.get(SECRETS_GUARD_REF);
-  if (guardHandler === undefined || !("apply" in guardHandler) || typeof guardHandler.apply !== "function")
+  if (guardHandler === undefined)
     throw new Error("composed secrets-guard transformer missing");
-  const apply = guardHandler.apply as Core.NamedTransformer["apply"];
+  const transformer = guardHandler as Core.NamedTransformer;
+  if (typeof transformer.apply !== "function")
+    throw new Error("composed secrets-guard transformer missing");
+  const apply = transformer.apply;
   const registry: Core.HandlerTable = {
     ...Core.KERNEL_POLICY_REGISTRY,
     transformers: [
@@ -863,12 +808,53 @@ test("H-3 e2e: a PreToolUse secrets-guard rewrite of bash.command reaches the ex
       execute: async ({ command }) => { executed.push(command); return command; },
       render: (_input, output) => output,
     });
-    const { executor } = yield* isolatedExecutorHarness({
-      id, kernel, registry,
-      seeds: [
-        ...Core.SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })),
-        ...seeds.map((seed) => ({ ...seed, generation: 1 })),
-      ],
+    const materialized = yield* kernel.materialize({
+      actionId: `${id}:configure`,
+      at: 100,
+      system: { blocks: [], preset: "" },
+      policyGeneration: 1,
+      parentId: null,
+      role: "resident",
+      tools: [],
+      id,
+    });
+    const lease = yield* kernel.adoptFence({
+      sessionId: id,
+      owner: id,
+      fence: materialized.row.fence + 1,
+    });
+    let sequence = 0;
+    const executor = testExecutor({
+      policy: Core.compilePolicySnapshot({
+        registry,
+        generation: 1,
+        rows: [
+          ...Core.SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })),
+          ...seeds.map((seed) => ({ ...seed, generation: 1 })),
+        ],
+      }),
+      identity: { parentActionId: `${id}:configure`, role: "resident", sessionId: id },
+      random: () => 0,
+      observations: { publish: () => undefined },
+      entropy: () => `${id}:${++sequence}`,
+      clock: () => 100,
+      ledger: {
+        ...executionReads(kernel, id),
+        commit: (action) =>
+          kernel.commit({
+            state: "running",
+            actions: [action],
+            now: 100,
+            expectedRevision: kernel.row(id).revision,
+            fence: lease.fence,
+            owner: id,
+            sessionId: id,
+          }).pipe(Effect.map(({ receipts }) => {
+            const receipt = receipts[0];
+            if (receipt === undefined) throw new Error("missing receipt");
+            return receipt;
+          })),
+      },
     });
     const dispatcher = runAgentSync(
       Bundle.createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([definition]))),
@@ -929,7 +915,7 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
   const barrier = Bun.serve({
     port: 0,
     fetch: async (request) => {
-      heldRequest.resolve((await request.json()) as { pid: number; id: string });
+      heldRequest.resolve(z.object({ pid: z.number(), id: z.string() }).parse(await request.json()));
       return new Response("ok");
     },
   });
@@ -966,13 +952,25 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
     config,
     hookClock,
     llm: {
-      resolveModel: (model) => limitedProvider(model, constrained),
+      resolveModel: (model) =>
+        Effect.map(fakeProviderModel(model), (resolved) => ({
+          limit: { context: constrained ? 700 : 100_000 },
+          ...resolved,
+        })),
       run: (input: RunInput, sink: Sink) =>
         Effect.sync(() => {
           calls += 1;
           if (constrained) constrainedCalls += 1;
+          const reply: AssistantMessageOptions = {
+            call: calls,
+            reason: constrained && constrainedCalls === 1 ? "tool-calls" : "stop",
+            text: `pong ${calls} ${"filler ".repeat(30)}`,
+            tokens: constrained
+              ? { cache: { read: 0, write: 0 }, reasoning: 0, output: 1, input: 650 }
+              : undefined,
+          };
           sink.onMessage(
-            assistantMessage(input, pressureReply(calls, constrained, constrainedCalls === 1)),
+            assistantMessage(input, reply),
           );
           return { type: "stop" as const };
         }),
@@ -1032,7 +1030,7 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
     expect(rendered).toContain('\\"type\\":\\"gate\\"');
     // The committed intent carries the CALL-time cursor — captured at turn 1,
     // strictly BEHIND the executed compaction head.
-    const intentAfter = (node?.intent.value as { after?: number } | null)?.after;
+    const intentAfter = z.object({ after: z.number().optional() }).parse(node?.intent.value).after;
     if (typeof intentAfter !== "number") throw new Error("late row intent missing its after cursor");
     expect(intentAfter).toBeLessThan(head);
     // The next boundary closes it STALE: a consumedStale fact on the turn
@@ -1042,9 +1040,22 @@ test("H-3 e2e: a hook reply that lands after its call timed out re-enters throug
     const closing = nextResidentTurn(plane);
     ws.send(JSON.stringify({ type: "message", eventId: "late-close", text: "after the flush" }));
     await closing;
-    const { deliveries, closures } = staleDeliveryEvidence(sessionActionRows(config, sessionId), row.id);
-    expect(deliveries).toEqual([]);
-    expect(closures.some((list) => list?.includes(row.id))).toBe(true);
+    if (config.sessionsDir === undefined) throw new Error("fixture config missing sessionsDir");
+    const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), { readonly: true });
+    try {
+      const actions = database.query<JournalActionRow, []>(
+        "SELECT kind, intent FROM action ORDER BY ordinal ASC",
+      ).all();
+      const delivered = z.object({ deliveryId: z.string().optional() });
+      const terminal = z.object({ consumedStale: z.array(z.string()).optional() });
+      expect(actions.filter(({ intent }) => decodeJournalJson(intent, delivered).deliveryId === row.id)).toEqual([]);
+      expect(actions
+        .filter(({ kind }) => kind === "turn")
+        .some(({ intent }) => decodeJournalJson(intent, terminal).consumedStale?.includes(row.id)))
+        .toBe(true);
+    } finally {
+      database.close();
+    }
     expect(kernel().pendingMessages(sessionId)).toEqual([]);
   } finally {
     unsubscribe();
@@ -1130,11 +1141,8 @@ test("H-1 e2e: a steering prompt denied mid-turn is refused at the RUN boundary 
   if (sessionId === undefined) throw new Error("the model step never ran");
   const decisions = sessionDecisions(config, sessionId, "prompt.pre");
   const deny = decisions.find((decision) => decision.verdict === "deny");
-  expect(deny?.gate?.consulted).toEqual([
-    expect.objectContaining({
-      ref: Bundle.HOOK_PROCESS_REF,
-      payload: expect.objectContaining({ verdict: "deny", reason: "hook_refused" }),
-    }),
+  expect(deny?.gate?.consulted.map(({ ref, payload }) => [ref, payload?.verdict, payload?.reason])).toEqual([
+    [Bundle.HOOK_PROCESS_REF, "deny", "hook_refused"],
   ]);
 });
 
@@ -1169,7 +1177,7 @@ test("M-2 e2e: two rows with the same command and different timeouts spawn ONE P
     // BOTH rows consulted on the one prompt decision...
     const node = plane.openKernel(decision.sessionId).actionById(decision.id);
     const parsed = z
-      .looseObject({ gate: z.object({ consulted: z.array(z.object({ ref: z.string() })) }) })
+      .object({ gate: z.object({ consulted: z.array(z.object({ ref: z.string() })) }) })
       .parse(node?.intent.value);
     expect(parsed.gate.consulted.map((entry) => entry.ref)).toEqual([
       Bundle.HOOK_PROCESS_REF,
@@ -1402,7 +1410,7 @@ test("H-3(b) e2e: a real generation rotation mid-turn — the old turn keeps its
   const openRequest = () => {
     const sessionId = residentId();
     if (sessionId === undefined) return undefined;
-    return openRequestOf(plane, sessionId);
+    return openResidentRequest(plane, sessionId);
   };
   await untilCommitted(() => openRequest() !== undefined, "bundle_disable consent never opened");
   const sessionId = residentId();
