@@ -167,6 +167,8 @@ export interface AlarmSweepConfig {
 export interface AlarmDrainConfig {
   readonly alarmsBeforePrompt: number;
   readonly maxArmed: number;
+  /** Delivery attempts per occurrence; the one reaching it folds `fired{exhausted}` unexecuted. */
+  readonly maxStrikes: number;
   readonly idleMs: number;
   readonly sweep: AlarmSweepConfig;
 }

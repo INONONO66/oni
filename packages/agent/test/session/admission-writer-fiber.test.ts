@@ -182,6 +182,7 @@ function makeWriterWorld(
       drain: {
         alarmsBeforePrompt: options?.alarmsBeforePrompt ?? 4,
         maxArmed: 64,
+        maxStrikes: 3,
         idleMs: 60_000,
         sweep: { full: false, idleDays: 7 },
       },

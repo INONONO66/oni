@@ -241,12 +241,14 @@ const DEFAULT_ALARM_SWEEP = { full: false, idleDays: 7 } as const;
  * entity idle budget. Typed in core (`Core.AlarmDrainConfig`); the VALUES live
  * here, at the composition root, and nowhere else.
  */
-const DEFAULT_ALARM_DRAIN = { alarmsBeforePrompt: 4, maxArmed: 64 } as const;
+const DEFAULT_ALARM_DRAIN = { alarmsBeforePrompt: 4, maxArmed: 64, maxStrikes: 3 } as const;
 
 /** Core-shaped drain config (structurally `Core.AlarmDrainConfig`). */
 export interface AlarmDrainSettings {
   readonly alarmsBeforePrompt: number;
   readonly maxArmed: number;
+  /** Delivery attempts one occurrence may consume before it folds `fired{exhausted}` (#1347). */
+  readonly maxStrikes: number;
   readonly idleMs: number;
   readonly sweep: { readonly full: boolean; readonly idleDays: number };
 }
@@ -308,6 +310,7 @@ export function resolveAlarmDrain(
   return {
     alarmsBeforePrompt: DEFAULT_ALARM_DRAIN.alarmsBeforePrompt,
     maxArmed: DEFAULT_ALARM_DRAIN.maxArmed,
+    maxStrikes: DEFAULT_ALARM_DRAIN.maxStrikes,
     idleMs: config.entityIdleMs ?? DEFAULT_ENTITY_IDLE_MS,
     sweep: resolveAlarmSweep(config),
   };

@@ -38,6 +38,7 @@ interface SessionKernelStores {
   readonly armed?: {
     armedAlarms(): readonly ArmedAlarmRow[];
     armedCount(): number;
+    strikeArmedAlarm(occurrenceId: string): number | undefined;
   };
   /** #1305: content-addressed tool output bytes of the session file. */
   readonly toolOutputs: ToolOutputsAdapter;
@@ -1004,6 +1005,9 @@ function makeSessionKernel(context: SessionKernelContext) {
     /** #1254 S3: armed occurrences restored from the session file's durable index. */
     armedAlarms: (): readonly ArmedAlarmRow[] => requiredArmedIn(context).armedAlarms(),
     armedCount: (): number => requiredArmedIn(context).armedCount(),
+    /** One consumed delivery attempt; undefined once the row is retired. */
+    strikeArmedAlarm: (occurrenceId: string): number | undefined =>
+      requiredArmedIn(context).strikeArmedAlarm(occurrenceId),
     /** #1305: content-addressed tool output bytes — dedupe lives in the store's digest key. */
     putToolOutput: (write: ToolOutputWrite): void => context.stores().toolOutputs.put(write),
     toolOutput: (outputId: string): ToolOutputRow | undefined =>
@@ -1034,7 +1038,11 @@ export function createSessionKernel(session: SessionStore, catalog: CatalogStore
       sessions: session.sessions,
       actions: session.actions,
       policies: catalog.policies,
-      armed: { armedAlarms: session.armedAlarms, armedCount: session.armedCount },
+      armed: {
+        armedAlarms: session.armedAlarms,
+        armedCount: session.armedCount,
+        strikeArmedAlarm: session.strikeArmedAlarm,
+      },
       toolOutputs: session.toolOutputs,
     }),
     childSessionsPage: (parentId, afterId, limit) =>

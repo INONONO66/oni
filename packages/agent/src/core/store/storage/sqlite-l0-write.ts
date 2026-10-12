@@ -110,7 +110,7 @@ function applyArmedAlarmDelta(db: Database, delta: ArmedAlarmDelta): void {
       db.query(
         `INSERT INTO armed_alarms (alarm_id, occurrence_id, fire_at) VALUES (?, ?, ?)
          ON CONFLICT(alarm_id) DO UPDATE SET occurrence_id = excluded.occurrence_id,
-           fire_at = excluded.fire_at`,
+           fire_at = excluded.fire_at, strikes = 0`,
       ).run(delta.alarmId, delta.occurrenceId, delta.fireAt);
       return;
     case "retire":

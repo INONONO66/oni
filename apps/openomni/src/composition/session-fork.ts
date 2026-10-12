@@ -35,13 +35,14 @@ export function createSessionForkExecutor(
       detail,
     });
     return Effect.suspend(() => {
-      // Fail-closed legacy handling (#1257): the read-only `PRAGMA
-      // user_version` probe runs before `openKernel` can open-for-write or
-      // stamp the parent file, so a legacy parent stays byte-identical.
+      // Fail-closed legacy handling (#1257): an older STAMPED parent upgrades
+      // through the guarded path first (#1347); the read-only `PRAGMA
+      // user_version` probe then runs before `openKernel` can open-for-write
+      // or stamp the file, so an unstamped legacy parent stays byte-identical.
       const parentSchemaVersion =
         options.sessionsDir === undefined
           ? Core.SESSION_FILE_SCHEMA_VERSION
-          : Core.readSessionFileSchemaVersion(
+          : Core.upgradeSessionFileSchema(
               sessionFilePath(options.sessionsDir, request.sessionId),
             );
       if (parentSchemaVersion !== Core.SESSION_FILE_SCHEMA_VERSION)

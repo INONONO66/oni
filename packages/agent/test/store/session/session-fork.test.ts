@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { PlainValueSchema, SessionGeneration, type LedgerAction } from "@openomn
 import { useMemoryStores, testNow } from "../helpers/storage";
 import { CHILD, PARENT, forkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
-import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
+import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore, upgradeSessionFileSchema } from "../../../src/core/store/session-file";
 import { receivedMessageAction } from "../../../src/core/commit";
 import { forkSession, isForkBoundary } from "../../../src/core/fork";
 import { createAssistantMessage } from "../../../src/core/message-factory";
@@ -317,6 +317,65 @@ describe("Session.fork", () => {
       // And no child was materialized anywhere.
       expect(child().sessions.get(CHILD)).toBeUndefined();
       expect(stores.catalog.sessionIndex(CHILD)).toBeUndefined();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("#1347 a real version-1 parent file upgrades to v2 before the fork's read-only probe", () => {
+    const parent = fixture.buildParent();
+    const directory = mkdtempSync(join(tmpdir(), "fork-v1-"));
+    try {
+      // A REAL v1 session file: this build's DDL minus `strikes`, stamped 1,
+      // with one armed occurrence waiting in the index.
+      const v1Path = join(directory, "v1-parent.sqlite");
+      const v1 = new Database(v1Path);
+      v1.run("CREATE TABLE armed_alarms (alarm_id TEXT PRIMARY KEY, occurrence_id TEXT NOT NULL UNIQUE, fire_at INTEGER NOT NULL)");
+      v1.run("INSERT INTO armed_alarms VALUES ('alarm-1', 'occ-1', 500)");
+      v1.run("PRAGMA user_version = 1");
+      v1.close();
+      expect(readSessionFileSchemaVersion(v1Path)).toBe(1);
+
+      // The guarded upgrade adds the column inside the stamping transaction;
+      // the probe then sees the current marker and the fork admits the parent.
+      const probed = upgradeSessionFileSchema(v1Path);
+      expect(probed).toBe(SESSION_FILE_SCHEMA_VERSION);
+      expect(readSessionFileSchemaVersion(v1Path)).toBe(2);
+      const upgraded = new Database(v1Path, { readonly: true });
+      const Column = z.object({ name: z.string() });
+      expect(Column.array().parse(upgraded.query("PRAGMA table_info(armed_alarms)").all()).map((c) => c.name)).toEqual(["alarm_id", "occurrence_id", "fire_at", "strikes"]);
+      expect(upgraded.query("SELECT strikes FROM armed_alarms WHERE occurrence_id = 'occ-1'").get()).toEqual({ strikes: 0 });
+      upgraded.close();
+      expect(Result.getOrThrowWith(fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: probed }), (error) => error).forkedFrom.copied).toBe(4);
+
+      // Idempotent: a second pass is a pure read-only probe.
+      expect(upgradeSessionFileSchema(v1Path)).toBe(SESSION_FILE_SCHEMA_VERSION);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("#1347 a newer-version session file opens read-only and is never downgraded", () => {
+    const directory = mkdtempSync(join(tmpdir(), "fork-newer-"));
+    try {
+      const newerPath = join(directory, "newer.sqlite");
+      const newer = new Database(newerPath);
+      newer.run("CREATE TABLE future_rows (id TEXT PRIMARY KEY)");
+      newer.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION + 1}`);
+      newer.close();
+      const sha256 = () => createHash("sha256").update(readFileSync(newerPath)).digest("hex");
+      const before = sha256();
+
+      // Neither the upgrade helper nor a full open touches a newer file; the
+      // open yields a query-only store (no DDL, no stamp) and the fork refuses.
+      expect(upgradeSessionFileSchema(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
+      const store = openSessionStore(newerPath, { now: testNow });
+      expect(store.armedCount).toThrow(/no such table: armed_alarms/);
+      store.close();
+      expect(readSessionFileSchemaVersion(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
+      expect(sha256()).toBe(before);
+      const parent = fixture.buildParent();
+      expect(fixture.refusalOf(fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION + 1 })).reason).toBe("schema_version");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

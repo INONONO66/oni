@@ -636,6 +636,12 @@ function alarmOccurrence(
       yield* appendFiredAlarm(handle, occurrence, "stale");
       return { outcome: "stale" as const };
     }
+    // Strike first (own transaction, no journal row); at `maxStrikes` settle unexecuted.
+    const strikes = handle.kernel.strikeArmedAlarm(occurrence.occurrenceId);
+    if (strikes !== undefined && strikes >= handle.drain.maxStrikes) {
+      yield* appendFiredAlarm(handle, occurrence, "exhausted");
+      return { outcome: "delivered" as const };
+    }
     if (isReservedAlarmPurpose(occurrence.purpose)) {
       if (occurrence.purpose === "deadline") yield* expireDeadline(handle, occurrence);
       yield* appendFiredAlarm(handle, occurrence, "delivered");
