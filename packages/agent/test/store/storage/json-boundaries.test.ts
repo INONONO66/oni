@@ -3,9 +3,12 @@ import { Effect, Result } from "effect";
 import { runLedgerSync } from "../helpers/effect";
 import { expect, test } from "bun:test";
 import { parsePlainJson, readPlainJson } from "../../../src/core/store/json";
-import { clonePlainValue } from "../../../src/core/gate/decide";
+import { testExecutor } from "../../helpers/executor";
+import { allowAllPolicy } from "../../helpers/compiled-policy";
+import { requestLedger } from "../../helpers/effect-g1";
+import { isolated, isolatedLedger } from "../../helpers/isolated";
 import { SchemaRefused } from "../../../src/core/store/errors";
-import { LedgerSession } from "@openomni/protocol";
+import { LedgerSession, PlainObjectSchema } from "@openomni/protocol";
 import { createSqliteDecisionFacts } from "../../../src/core/store/decision";
 import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
 
@@ -95,12 +98,28 @@ test("readPlainJson degrades malformed and schema-invalid payloads to undefined"
   expect(readPlainJson('"ok"')).toBe("ok");
 });
 
-// #1344: clonePlainValue stays a JSON round-trip because callers need an
-// independent copy — mutating the admitted copy must not touch the original.
-test("clonePlainValue copies do not alias the original plain value", () => {
-  const original = { nested: { items: [1, 2] } };
-  const copy = clonePlainValue(original) as { nested: { items: number[] } };
-  copy.nested.items.push(3);
-  expect(original.nested.items).toEqual([1, 2]);
-  expect(copy.nested.items).toEqual([1, 2, 3]);
-});
+// #1344 r1 M5: a body result crosses the durable boundary as an independent
+// copy — mutating the body's own object after `run` resolves changes neither
+// the outcome handed back nor the committed result row.
+test("a tool result committed by the executor does not alias the body's returned object", () =>
+  isolated(Effect.gen(function* () {
+    const { ledger, identity, clock, entropy } = yield* requestLedger({ id: "alias-session" });
+    const executor = testExecutor({
+      ledger, identity, clock, entropy, random: () => 0,
+      policy: allowAllPolicy,
+      observations: { publish: () => undefined },
+    });
+    const returned = { nested: { items: [1, 2] } };
+    const outcome = yield* executor.run(
+      { kind: "tool", op: "alias", intent: {}, effect: { category: "query" } },
+      () => Effect.succeed(returned),
+    );
+    if (outcome.terminal !== "executed") throw new Error(`expected executed, got ${outcome.terminal}`);
+    returned.nested.items.push(3);
+    expect(outcome.value).toEqual({ nested: { items: [1, 2] } });
+    const page = isolatedLedger().kernel.historyPage("alias-session", { afterRevision: 0, limit: 256 });
+    const rows = page.actions.filter((action) =>
+      action.kind === "tool" && PlainObjectSchema.parse(action.effect.value).phase === "result");
+    expect(rows).toHaveLength(1);
+    expect(PlainObjectSchema.parse(rows[0]?.effect.value).result).toEqual({ nested: { items: [1, 2] } });
+  })));
