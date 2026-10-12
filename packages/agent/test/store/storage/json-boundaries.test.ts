@@ -2,6 +2,9 @@ import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
 import { runLedgerSync } from "../helpers/effect";
 import { expect, test } from "bun:test";
+import { parsePlainJson, readPlainJson } from "../../../src/core/store/json";
+import { clonePlainValue } from "../../../src/core/gate/decide";
+import { SchemaRefused } from "../../../src/core/store/errors";
 import { LedgerSession } from "@openomni/protocol";
 import { createSqliteDecisionFacts } from "../../../src/core/store/decision";
 import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
@@ -66,4 +69,38 @@ test("action reads validate scalar driver columns and JSON before replay", () =>
   expect(() => sessionTree("s", store.actions)).toThrow();
   db.run("UPDATE action SET intent = '{}'");
   expect(sessionTree("s", store.actions)).toHaveLength(1);
+});
+
+// #1344: one throwing decoder owns strict JSON reads — malformed text is the
+// typed `SchemaRefused{reason: json}`, while syntactically valid JSON that
+// violates the plain-value schema keeps its typed schema rejection.
+test("parsePlainJson separates malformed JSON from schema-invalid JSON", () => {
+  expect(() => parsePlainJson("{")).toThrow(
+    expect.objectContaining({ _tag: "SchemaRefused", reason: "json" }),
+  );
+  // "1e999" is valid JSON syntax decoding to Infinity: the plain-value schema
+  // refuses it with its own typed error, never the malformed-json refusal.
+  let schemaRejection: unknown;
+  try { parsePlainJson("1e999"); } catch (cause) { schemaRejection = cause; }
+  expect(schemaRejection).toBeDefined();
+  expect(schemaRejection instanceof SchemaRefused).toBe(false);
+  expect(parsePlainJson('{"a":[1,null]}')).toEqual({ a: [1, null] });
+});
+
+// #1344: the degraded companion never throws — corrupt payload text reads as
+// `undefined` so callers keep their existing corrupt-row/watch fallbacks.
+test("readPlainJson degrades malformed and schema-invalid payloads to undefined", () => {
+  expect(readPlainJson("{")).toBeUndefined();
+  expect(readPlainJson("1e999")).toBeUndefined();
+  expect(readPlainJson('"ok"')).toBe("ok");
+});
+
+// #1344: clonePlainValue stays a JSON round-trip because callers need an
+// independent copy — mutating the admitted copy must not touch the original.
+test("clonePlainValue copies do not alias the original plain value", () => {
+  const original = { nested: { items: [1, 2] } };
+  const copy = clonePlainValue(original) as { nested: { items: number[] } };
+  copy.nested.items.push(3);
+  expect(original.nested.items).toEqual([1, 2]);
+  expect(copy.nested.items).toEqual([1, 2, 3]);
 });

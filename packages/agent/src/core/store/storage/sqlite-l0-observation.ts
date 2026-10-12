@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
-import { parseStoredJson } from "../json";
+import { parsePlainJson } from "../json";
 import type { Database } from "bun:sqlite";
 import { Gateway, Delivery, type LedgerAction, PlainValueSchema, SessionTransition, L0Observation, type ObservationSink, } from "@openomni/protocol";
 
@@ -126,7 +126,7 @@ function requestMessageIdentity(
       operation: "observation.replySource",
       message: "committed reply source is missing",
     });
-  const intent = PlainValueSchema.parse(parseStoredJson(source.intent));
+  const intent = PlainValueSchema.parse(parsePlainJson(source.intent));
   const value =
     intent !== null && typeof intent === "object" && !Array.isArray(intent)
       ? intent.value

@@ -1709,7 +1709,7 @@ function assertFresh(request: ExecutionRequest, captured: ReturnType<SessionHand
     throw new ExecutionApprovalError({ code: "stale_approval" });
 }
 /** Body results cross the durable boundary as canonical JSON: non-finite numbers become null. */
-function clonePlainValue(value: PlainValue): PlainValue {
+export function clonePlainValue(value: PlainValue): PlainValue {
   return JSON.parse(JSON.stringify(value)) as PlainValue;
 }
 

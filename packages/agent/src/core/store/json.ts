@@ -1,8 +1,25 @@
-import { PlainValueSchema } from "@openomni/protocol";
+import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
+import { SchemaRefused } from "./errors";
 
-export function parseStoredJson(text: string) {
-  return PlainValueSchema.parse(JSON.parse(text));
+/** Throwing decode: malformed text is `SchemaRefused{reason: json}`; a non-plain value keeps its schema rejection. */
+export function parsePlainJson(text: string): PlainValue {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(text);
+  } catch {
+    throw new SchemaRefused({ sessionId: "", actionId: "", kind: "json", reason: "json" });
+  }
+  return PlainValueSchema.parse(decoded);
+}
+
+/** Degraded decode: corrupt rows and malformed payloads read as `undefined`, never a throw. */
+export function readPlainJson(text: string): PlainValue | undefined {
+  try {
+    return parsePlainJson(text);
+  } catch {
+    return undefined;
+  }
 }
 
 export const SqliteCount = z

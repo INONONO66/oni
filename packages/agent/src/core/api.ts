@@ -7,6 +7,7 @@ export {
   type ExecutionError, pretty,
 } from "./failure";
 export type { SessionKernel } from "./entity";
+export { parsePlainJson, readPlainJson } from "./store/json";
 export { Entropy } from "./ports";
 export { RunEvents } from "./run-events";
 // #1254 alarm seam: exactly what an alarm capability needs; frozen at S1 —

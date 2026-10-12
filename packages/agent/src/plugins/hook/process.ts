@@ -1,4 +1,5 @@
 import { Deferred, Effect, Schema, type Scope } from "effect";
+import { readPlainJson } from "../../core/api";
 import { z } from "zod";
 import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 
@@ -150,12 +151,10 @@ interface Pending {
 }
 
 function decodeLine(line: string): z.infer<typeof HookResponseLine> | undefined {
-  try {
-    const parsed = HookResponseLine.safeParse(JSON.parse(line));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
+  const decoded = readPlainJson(line);
+  if (decoded === undefined) return undefined;
+  const parsed = HookResponseLine.safeParse(decoded);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function outcomeOf(result: z.infer<typeof HookResult>): HookLateOutcome {

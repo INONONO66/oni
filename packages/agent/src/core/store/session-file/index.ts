@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { parsePlainJson } from "../json";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -543,7 +544,7 @@ export function createActions(
       if (row === null) return undefined;
       const parsed = z
         .object({ matchedRuleIds: z.array(z.string()) })
-        .safeParse(JSON.parse(row.intent));
+        .safeParse(parsePlainJson(row.intent));
       if (!parsed.success)
         throw new LedgerInvariant({
           operation: "policy.decision",
@@ -675,7 +676,7 @@ function createArmedAlarmReads(db: Database): {
           .all(),
       );
       return rows.map((row): ArmedAlarmRow => {
-        const intent = ArmIntentView.parse(JSON.parse(row.intent));
+        const intent = ArmIntentView.parse(parsePlainJson(row.intent));
         return {
           alarmId: row.alarm_id,
           occurrenceId: row.occurrence_id,
