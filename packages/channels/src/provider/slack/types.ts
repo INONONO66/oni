@@ -7,17 +7,28 @@ import { z } from "zod";
  */
 const SlackMessageEventSchema = z.object({
   type: z.string(),
-  /** Present on edits, joins, bot posts, etc. — the driver only handles plain user messages. */
+  // Present on edits, joins, bot posts, etc.; bot_message and message_changed
+  // are handled explicitly, other subtypes are dropped for no author/text.
   subtype: z.string().optional(),
-  channel: z.string(),
+  channel: z.string().optional(),
   /** `im` marks a DM; everything else keys as a channel. */
   channel_type: z.string().optional(),
   user: z.string().optional(),
   /** Set when a bot (including this one) authored the message. */
   bot_id: z.string().optional(),
   text: z.string().optional(),
-  ts: z.string(),
+  ts: z.string().optional(),
   thread_ts: z.string().optional(),
+  reaction: z.string().optional(),
+  item: z.object({ channel: z.string(), ts: z.string() }).optional(),
+  /** Present on `message_changed`: the edited message's own user and text, not the envelope's. */
+  message: z
+    .object({
+      user: z.string().optional(),
+      text: z.string().optional(),
+      bot_id: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type SlackMessageEvent = z.infer<typeof SlackMessageEventSchema>;

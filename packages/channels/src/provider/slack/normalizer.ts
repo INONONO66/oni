@@ -12,31 +12,57 @@ export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent> {
   constructor(private readonly ctx: SlackNormalizerContext) {}
 
   normalize(event: SlackMessageEvent): Channel.InboundMessage | null {
-    // Bots (including this one) and subtyped frames (edits, joins, bot posts)
-    // are not user messages.
-    if (event.bot_id !== undefined || event.subtype !== undefined) return null;
-    if (event.user === undefined || event.user === this.ctx.botUserId) return null;
-    if (!event.text) return null;
+    const reaction = event.type === "reaction_added";
+    // `message_changed` carries its author and text on the nested edited
+    // message, not on the envelope itself.
+    const changed = event.subtype === "message_changed" ? event.message : undefined;
+    // A bot_message frame (CI bots, incoming webhooks) has no `user`, only
+    // `bot_id`; the author is still identifiable, just not a human account.
+    const authorId = event.user ?? changed?.user ?? event.bot_id;
+    // Our own echo is not an outside event.
+    if (authorId === this.ctx.botUserId) return null;
+    // A frame with no identifiable author at all is not an outside message.
+    if (authorId === undefined) return null;
+    const text = reaction ? event.reaction : (changed?.text ?? event.text);
+    // A frame without renderable content is not an outside message.
+    if (!text) return null;
 
     const isDM = event.channel_type === "im";
-    const mentions = [...event.text.matchAll(/<@([^>]+)>/g)].flatMap((match) =>
-      match[1] === undefined ? [] : [match[1]],
-    );
-
+    const mentions = reaction
+      ? []
+      : [...text.matchAll(/<@([^>]+)>/g)].flatMap((match) =>
+          match[1] === undefined ? [] : [match[1]],
+        );
+    const channel = reaction ? event.item?.channel : event.channel;
+    const messageId = reaction ? event.item?.ts : event.ts;
+    // A reaction without its target is not an outside event we can address.
+    if (channel === undefined || messageId === undefined) return null;
     return {
-      sender: { kind: "external", surface: "slack", externalId: `${this.ctx.team}:${event.user}` },
+      sender: { kind: "external", surface: "slack", externalId: `${this.ctx.team}:${authorId}` },
       facts: {
-        eventId: event.ts,
+        eventId: reaction ? `${messageId}:${text}:${authorId}` : messageId,
+        event: reaction
+          ? "reaction"
+          : mentions.includes(this.ctx.botUserId)
+            ? "mention"
+            : "message",
+        // `bot_id` present (even on a frame without `user`) is the platform fact for isBot.
+        author: {
+          externalId: `${this.ctx.team}:${authorId}`,
+          isBot: (event.bot_id ?? changed?.bot_id) != null,
+        },
         surface: "slack",
         workspaceId: this.ctx.team,
-        channelId: event.channel,
+        channelId: channel,
         addressees: [...new Set(mentions)].map((id) => ({ externalId: `${this.ctx.team}:${id}` })),
         dm: isDM,
         ...(event.thread_ts !== undefined
           ? { reply: { chain: [event.thread_ts], threadId: event.thread_ts } }
           : {}),
+        // Subtypes including bot_message, message_changed and channel_join remain raw facts;
+        // bot_message author falls back to bot_id, message_changed to message.user above.
         payload: event,
-        render: event.text,
+        render: text,
       },
     };
   }

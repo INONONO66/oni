@@ -125,7 +125,8 @@ export class SlackAdapter implements Channel.Surface {
 
   private handleEnvelope(envelope: SocketEnvelope, traceId: string): void {
     const event = envelope.payload?.event;
-    if (event === undefined || event.type !== "message") return;
+    if (event === undefined || (event.type !== "message" && event.type !== "reaction_added"))
+      return;
     this.handleMessageEvent(event, traceId);
   }
 
@@ -135,7 +136,10 @@ export class SlackAdapter implements Channel.Surface {
     if (!(normalizer && botUserId)) return;
     void handoffInbound({
       dedupe: this.dedupe,
-      key: `${event.channel}:${event.ts}`,
+      key:
+        event.type === "reaction_added"
+          ? `${event.item?.channel}:${event.item?.ts}:${event.reaction}:${event.user}`
+          : `${event.channel}:${event.ts}`,
       traceId,
       now: this.options.now,
       publish: this.publish,
