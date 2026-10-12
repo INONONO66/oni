@@ -1,16 +1,16 @@
 import { expect, mock, spyOn, test } from "bun:test";
+import { runIsolated } from "./helpers/isolated-entry";
 
-/** An invalid port refuses boot before creating a window. */
+/**
+ * #1312: an invalid `OPENOMNI_WS_PORT` is a typed configuration error, and the
+ * main process REFUSES on it — no window opens on a guessed port 3000. The
+ * manual check in the issue ("run the desktop with OPENOMNI_WS_PORT=abc; the
+ * window does not open and main prints the error naming the variable") is
+ * pinned here against the bootstrap path itself.
+ */
 test("an invalid OPENOMNI_WS_PORT quits before any window opens and names the variable", async () => {
   if (process.env.OPENOMNI_CONFIG_ERROR_CHILD !== "1") {
-    const proc = Bun.spawn([process.execPath, "test", import.meta.path], {
-      env: { ...process.env, OPENOMNI_CONFIG_ERROR_CHILD: "1" },
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    const exit = await proc.exited;
-    if (exit !== 0) throw new Error(await new Response(proc.stderr).text());
-    expect(exit).toBe(0);
+    await runIsolated(import.meta.path, { OPENOMNI_CONFIG_ERROR_CHILD: "1" });
     return;
   }
 

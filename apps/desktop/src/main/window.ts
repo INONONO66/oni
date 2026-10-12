@@ -1,3 +1,4 @@
+import type { BrowserWindowConstructorOptions } from "electron";
 import { type parseWindowBounds, WINDOW_MIN } from "./window-bounds";
 
 const BACKGROUND = { dark: "#0A0A0C", light: "#EFEFF0" } as const;
@@ -34,7 +35,7 @@ export function windowOptions(
       // shown so a backgrounded window stops burning frames.
       backgroundThrottling: false,
     },
-  };
+  } satisfies BrowserWindowConstructorOptions;
 }
 
 /** Select the boot-time renderer location without reading a mutable environment. */

@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MenuItemConstructorOptions } from "electron";
-import { BOUNDS_WRITE_DELAY_MS, parseWindowBounds } from "../src/main/window-bounds";
+import { BOUNDS_WRITE_DELAY_MS, parseWindowBounds, WINDOW_MIN } from "../src/main/window-bounds";
 import type { GatewayEndpoint } from "../src/preload/api";
 import {
   CLOSE_WINDOW_CHANNEL,
@@ -13,21 +13,28 @@ import {
   type ShellCommand,
 } from "../src/preload/api";
 
+import { runIsolated } from "./helpers/isolated-entry";
 import { flatten } from "./helpers/menu";
 
 const childCase = process.env.OPENOMNI_MAIN_LIFECYCLE_CHILD;
 const cases = childCase === undefined ? [false, true] : [childCase === "true"];
+const environment = [
+  "ELECTRON_RENDERER_URL",
+  "OPENOMNI_WS_URL",
+  "OPENOMNI_WS_PORT",
+  "OPENOMNI_WS_TOKEN",
+] as const;
+
+function applyEnvironment(entries: readonly (readonly [string, string | undefined])[]): void {
+  for (const [key, value] of entries) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 test.each(cases)("main window lifecycle (development=%s)", async (development) => {
   if (childCase === undefined) {
-    const proc = Bun.spawn([process.execPath, "test", import.meta.path], {
-      env: { ...process.env, OPENOMNI_MAIN_LIFECYCLE_CHILD: String(development) },
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    const exit = await proc.exited;
-    if (exit !== 0) throw new Error(await new Response(proc.stderr).text());
-    expect(exit).toBe(0);
+    await runIsolated(import.meta.path, { OPENOMNI_MAIN_LIFECYCLE_CHILD: String(development) });
     return;
   }
 
@@ -47,12 +54,6 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
   let quits = 0;
   let shown = 0;
   let debugOpened = 0;
-  const environment = [
-    "ELECTRON_RENDERER_URL",
-    "OPENOMNI_WS_URL",
-    "OPENOMNI_WS_PORT",
-    "OPENOMNI_WS_TOKEN",
-  ] as const;
   const previousEnv = environment.map((key) => [key, process.env[key]] as const);
   const platform = Object.getOwnPropertyDescriptor(process, "platform");
   const log = spyOn(console, "log").mockImplementation(() => undefined);
@@ -151,16 +152,14 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
       },
     },
   }));
-  delete process.env.OPENOMNI_WS_URL;
-  if (development) {
-    process.env.ELECTRON_RENDERER_URL = "http://localhost:5173";
-    process.env.OPENOMNI_WS_PORT = "4321";
-    process.env.OPENOMNI_WS_TOKEN = "pinned";
-  } else {
-    delete process.env.ELECTRON_RENDERER_URL;
-    delete process.env.OPENOMNI_WS_PORT;
-    delete process.env.OPENOMNI_WS_TOKEN;
-  }
+  const configured: Partial<Record<(typeof environment)[number], string>> = development
+    ? {
+        ELECTRON_RENDERER_URL: "http://localhost:5173",
+        OPENOMNI_WS_PORT: "4321",
+        OPENOMNI_WS_TOKEN: "pinned",
+      }
+    : {};
+  applyEnvironment(environment.map((key) => [key, configured[key]] as const));
   Object.defineProperty(process, "platform", {
     value: development ? "linux" : "darwin",
     configurable: true,
@@ -179,6 +178,9 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
     expect(first.options).toMatchObject({
       width: 1280,
       height: 800,
+      minWidth: WINDOW_MIN.width,
+      minHeight: WINDOW_MIN.height,
+      trafficLightPosition: { x: 17, y: 14 },
       show: false,
       backgroundColor: development ? "#EFEFF0" : "#0A0A0C",
       titleBarStyle: "hiddenInset",
@@ -192,9 +194,11 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
     expect(first.options.webPreferences.preload.endsWith("/preload/index.cjs")).toBe(true);
     expect(switches).toEqual(development ? [["remote-debugging-port", "9333"]] : []);
     expect(debugOpened).toBe(development ? 1 : 0);
-    if (development) expect(loaded).toEqual(["url:http://localhost:5173"]);
-    else expect(loaded[0]?.startsWith("file:")).toBe(true);
-    if (!development) expect(loaded[0]?.endsWith("/renderer/index.html")).toBe(true);
+    expect(loaded).toEqual([
+      development
+        ? "url:http://localhost:5173"
+        : expect.stringMatching(/^file:.*\/renderer\/index\.html$/),
+    ]);
     first.emit("ready-to-show");
     expect(shown).toBe(1);
     expect(throttle).toEqual([true]);
@@ -266,6 +270,8 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
     const second = windows[1];
     if (!second) throw new Error("Missing second window");
     expect(second.options).toMatchObject(first.bounds);
+    // Renderer-requested close resolves the window from the sender; unknown and
+    // destroyed senders are ignored rather than closing some other window.
     const closeWindow = listeners.get(CLOSE_WINDOW_CHANNEL);
     if (!closeWindow) throw new Error("Missing close-window listener");
     closeWindow({ sender: first.webContents });
@@ -281,10 +287,7 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
     jest.useRealTimers();
     log.mockRestore();
     error.mockRestore();
-    for (const [key, value] of previousEnv) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
+    applyEnvironment(previousEnv);
     if (platform) Object.defineProperty(process, "platform", platform);
     mock.restore();
     rmSync(directory, { recursive: true, force: true });
