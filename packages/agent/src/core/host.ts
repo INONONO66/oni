@@ -95,14 +95,32 @@ export interface LedgerConfig extends LedgerStoreConfig {
 /** Services the host contributes beyond `Ledger` (entity client access). */
 export type ClusterServices = Layer.Success<ReturnType<typeof SingleRunner.layer>>;
 
-/** The plane synchronously, without the host; the caller owns `close`. Exported only as `Testing.openLedgerPlane` (hermetic fixtures). */
+/**
+ * The one store opener: the catalog first, then the sessions directory, so a
+ * sessions refusal releases the catalog it just opened. Throws `OpenRefused`.
+ * The caller owns `close`; `ledgerLayer` is the scoped caller and
+ * `Testing.openLedgerPlane` the only other one (hermetic fixtures).
+ */
 export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
+  const catalogPath = config.catalog?.path ?? ":memory:";
+  let catalog: CatalogStore;
+  try {
+    catalog = openCatalogStore(catalogPath, {
+      now: config.now,
+      ...(config.observationSink === undefined ? {} : { observationSink: config.observationSink }),
+    });
+  } catch (cause) {
+    throw OpenRefused.fromThrown("catalog", catalogPath, cause);
+  }
   const sessionsDir = config.sessions?.dir;
-  if (sessionsDir !== undefined) mkdirSync(sessionsDir, { recursive: true });
-  const catalog = openCatalogStore(config.catalog?.path ?? ":memory:", {
-    now: config.now,
-    ...(config.observationSink === undefined ? {} : { observationSink: config.observationSink }),
-  });
+  if (sessionsDir !== undefined) {
+    try {
+      mkdirSync(sessionsDir, { recursive: true });
+    } catch (cause) {
+      catalog.close();
+      throw OpenRefused.fromThrown("sessions", sessionsDir, cause);
+    }
+  }
   return planeOver(catalog, sessionsDir, config);
 }
 
@@ -170,36 +188,24 @@ function planeOver(
   };
 }
 
-/** The store plane under a Scope: the catalog is acquired first so a later refusal releases it. */
-function ledgerLayer(config: LedgerConfig): Layer.Layer<Ledger, OpenRefused> {
-  const catalogPath = config.catalog?.path ?? ":memory:";
+/**
+ * The store plane under a Scope: `openLedgerPlane` is the one opener and the
+ * plane's `close` the one release, so the catalog closes exactly once. A
+ * typed refusal fails the layer; any other throw is a defect of the opener.
+ */
+function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused> {
   return Layer.effect(
     Ledger,
-    Effect.gen(function* () {
-      const catalog = yield* Effect.acquireRelease(
-        Effect.try({
-          try: () =>
-            openCatalogStore(catalogPath, {
-              now: config.now,
-              ...(config.observationSink === undefined
-                ? {}
-                : { observationSink: config.observationSink }),
-            }),
-          catch: (cause) => OpenRefused.fromThrown("catalog", catalogPath, cause),
-        }),
-        (opened) => Effect.sync(() => opened.close()),
-      );
-      const sessionsDir = config.sessions?.dir;
-      if (sessionsDir !== undefined) {
-        yield* Effect.try({
-          try: () => mkdirSync(sessionsDir, { recursive: true }),
-          catch: (cause) => OpenRefused.fromThrown("sessions", sessionsDir, cause),
-        });
-      }
-      const plane = planeOver(catalog, sessionsDir, config);
-      yield* Effect.addFinalizer(() => Effect.sync(() => plane.close()));
-      return plane;
-    }),
+    Effect.acquireRelease(
+      Effect.suspend(() => {
+        try {
+          return Effect.succeed(openLedgerPlane(config));
+        } catch (cause) {
+          return cause instanceof OpenRefused ? Effect.fail(cause) : Effect.die(cause);
+        }
+      }),
+      (plane) => Effect.sync(() => plane.close()),
+    ),
   );
 }
 
