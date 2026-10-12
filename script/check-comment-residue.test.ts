@@ -16,6 +16,10 @@ test("the committed pin set covers every tracked production file, including src 
   expect(Object.keys(committed.files).sort()).toEqual(paths.sort());
 });
 
+test("adjacent block and line comments form one comment-only issue line", () => {
+  expect(classifyResidue(a, "/* #9999 */ // explanation\nconst x = 1;")).toMatchObject({ issues: 1, commentLines: 1 });
+});
+
 test("ratio counts syntax comments, not template prose or mixed executable lines", () => {
   expect(classifyResidue(a, "export const x = 1; /*\n * explanation\n */\n").commentLines).toBe(2);
   expect(classifyResidue(a, "export const s = `\n// text\n`;\n").commentLines).toBe(0);

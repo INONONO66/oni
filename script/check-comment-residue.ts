@@ -31,15 +31,6 @@ const STRUCTURAL_HEADERS: Readonly<Record<string, readonly string[]>> = {
   "packages/agent/src/inspect/index.ts": ["// ─── #1305: stored tool output read-back ───"],
 };
 
-/** The comment portion of a line, only if no code precedes or follows it. */
-function commentOnlySegment(text: string, line: string, row: number, first: number, last: number, start: number, end: number, multi: boolean): string | undefined {
-  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  const column = start - lineStart;
-  if (row === first && line.slice(0, column).trim() !== "") return undefined;
-  if (row === last && multi && line.slice(end - (text.lastIndexOf("\n", end - 1) + 1)).trim() !== "") return undefined;
-  return row === first ? line.slice(column) : line;
-}
-
 /** Count syntax-level comments, never issue numbers inside strings or code. */
 function countedDivider(path: string, line: string, row: number, first: number): boolean {
   return row === first && /^\/\/ ───/.test(line.trimStart()) &&
@@ -52,16 +43,18 @@ export function classifyResidue(path: string, text: string): ResidueActual {
   const dividers = new Set<number>();
   let longJsdoc = 0;
   const ranges = commentRanges(path, text);
-  for (const { kind, pos: start, end } of ranges) {
-    const multi = kind === ts.SyntaxKind.MultiLineCommentTrivia;
+  const commentRows = commentOnlyRows(text, ranges);
+  const starts = [0, ...[...text.matchAll(/\n/g)].map((match) => match.index + 1)];
+  for (const { pos: start, end } of ranges) {
     const first = text.slice(0, start).split("\n").length - 1;
     const last = text.slice(0, end - 1).split("\n").length - 1;
     if (text.slice(start, end).startsWith("/**") && last - first + 1 > 6) longJsdoc++;
     for (let row = first; row <= last; row++) {
       const line = lines[row] ?? "";
 
-      const segment = commentOnlySegment(text, line, row, first, last, start, end, multi);
-      if (segment === undefined) continue;
+      if (!commentRows.has(row)) continue;
+      const lineStart = starts[row] ?? 0;
+      const segment = text.slice(Math.max(start, lineStart), Math.min(end, lineStart + line.length));
       if (/#\d{3,4}(?!\d)/.test(segment)) issues.add(row);
       if (countedDivider(path, line, row, first)) dividers.add(row);
     }
@@ -69,7 +62,7 @@ export function classifyResidue(path: string, text: string): ResidueActual {
   return {
     issues: issues.size,
     dividers: dividers.size,
-    commentLines: commentOnlyRows(text, ranges).size,
+    commentLines: commentRows.size,
     nonblankLines: lines.filter((line) => line.trim() !== "").length,
     longJsdoc,
   };
