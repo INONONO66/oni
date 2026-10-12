@@ -1,4 +1,4 @@
-import { Core } from "@openomni/agent";
+import { Core, Testing } from "@openomni/agent";
 type LedgerError = Core.LedgerError;
 import { Effect } from "effect";
 import { basename, dirname } from "node:path";
@@ -38,7 +38,7 @@ function createTestLedger(paths?: TestLedgerPaths): TestLedger {
   // One shared session store under one key: the host plane maps `dir` + key
   // back to exactly `paths.sessions` (or one in-memory store).
   const key = paths === undefined ? "channels-fixture" : basename(paths.sessions, ".sqlite");
-  const plane = Core.openLedgerPlane({
+  const plane = Testing.openLedgerPlane({
     now: () => 1,
     ...(paths === undefined ? {} : { catalog: { path: paths.catalog }, sessions: { dir: dirname(paths.sessions) } }),
   });

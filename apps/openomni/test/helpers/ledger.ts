@@ -1,4 +1,4 @@
-import { Core } from "@openomni/agent";
+import { Core, Testing } from "@openomni/agent";
 const adoptSessionAuthority = Core.adoptSessionAuthority;
 const decideSessionAdmission = Core.decideSessionAdmission;
 const Entropy = Core.Entropy;
@@ -41,7 +41,7 @@ export interface AppLedgerOptions {
  */
 export function createAppLedger(options: AppLedgerOptions): AppLedgerPlane {
   return withChannelStores(
-    Core.openLedgerPlane({
+    Testing.openLedgerPlane({
       now: options.now,
       ...(options.catalogPath === undefined ? {} : { catalog: { path: options.catalogPath } }),
       ...(options.sessionsDir === undefined ? {} : { sessions: { dir: options.sessionsDir } }),

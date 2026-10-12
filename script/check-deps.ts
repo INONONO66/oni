@@ -994,10 +994,11 @@ export function appsAgentInternalViolations(filePath: string, source: string): s
   return violations;
 }
 
-/** #1345: the ledger constructors the core host (`Core.openLedger`) replaced; apps never name them. */
+/** #1345: the ledger constructors the core host (`Core.openLedger`) replaced, plus the Testing-only plane; apps never name them. */
 const APPS_RETIRED_LEDGER_CONSTRUCTORS: ReadonlySet<string> = new Set([
   "openCatalogStore",
   "openSessionStore",
+  "openLedgerPlane",
   "createSessionEntityLayer",
   "createSessionEntityRunTurn",
 ]);

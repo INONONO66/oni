@@ -780,6 +780,7 @@ test("#1345 ban: every retired name and import form fails; comments, strings and
     "const { openSessionStore } = Core;",
     "type Run = typeof Core.createSessionEntityRunTurn;",
     "Core.createSessionEntityLayer(drain);",
+    "const plane = Testing.openLedgerPlane({ now: () => 1 });",
     'export * from "@effect/sql-sqlite-bun";',
     'const lazy = import("effect/cluster/SingleRunner");',
   ].join("\n");
@@ -787,8 +788,9 @@ test("#1345 ban: every retired name and import form fails; comments, strings and
     "VIOLATION: apps/openomni/src/x.ts:3 names openSessionStore",
     "VIOLATION: apps/openomni/src/x.ts:4 names createSessionEntityRunTurn",
     "VIOLATION: apps/openomni/src/x.ts:5 names createSessionEntityLayer",
-    "VIOLATION: apps/openomni/src/x.ts:6 imports @effect/sql-sqlite-bun",
-    "VIOLATION: apps/openomni/src/x.ts:7 imports effect/cluster/SingleRunner",
+    "VIOLATION: apps/openomni/src/x.ts:6 names openLedgerPlane",
+    "VIOLATION: apps/openomni/src/x.ts:7 imports @effect/sql-sqlite-bun",
+    "VIOLATION: apps/openomni/src/x.ts:8 imports effect/cluster/SingleRunner",
   ]);
   expect(appsRetiredHostViolations("packages/agent/src/core/host.ts", source)).toEqual([]);
 });

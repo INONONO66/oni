@@ -95,7 +95,7 @@ export interface LedgerConfig extends LedgerStoreConfig {
 /** Services the host contributes beyond `Ledger` (entity client access). */
 export type ClusterServices = Layer.Success<ReturnType<typeof SingleRunner.layer>>;
 
-/** The plane synchronously, without the host; the caller owns `close` (hermetic fixtures). */
+/** The plane synchronously, without the host; the caller owns `close`. Exported only as `Testing.openLedgerPlane` (hermetic fixtures). */
 export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
   const sessionsDir = config.sessions?.dir;
   if (sessionsDir !== undefined) mkdirSync(sessionsDir, { recursive: true });

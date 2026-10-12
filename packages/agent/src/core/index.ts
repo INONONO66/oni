@@ -43,7 +43,7 @@ export { createSessionRequests, decideRequestTransition, requestBindingDigest } 
 export { receivedMessageAction, staleActionBacklog } from "./commit";
 export { armAction, firedAction, alarmDisposition, composeAlarmPurposes, AlarmComposeError, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./alarm";
 export { SessionEntity, SessionEntityContext, type SessionKernel } from "./entity";
-export { Ledger, OpenRefused, openLedger, openLedgerPlane, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./host";
+export { Ledger, OpenRefused, openLedger, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./host";
 export { makeObservationBus, observationBusLayer, scopeObservation } from "./bus";
 export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./fork";
 
