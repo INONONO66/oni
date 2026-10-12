@@ -264,7 +264,10 @@ export function readBaseline(): DeadExportBaseline {
 // self-test — synthetic reports only; never invokes knip or reads the baseline
 // ---------------------------------------------------------------------------
 
-function selfTest(): number {
+export function selfTest(
+  normalize: typeof normalizeKnipIssues = normalizeKnipIssues,
+  compare: typeof compareDeadExports = compareDeadExports,
+): number {
   const failures: string[] = [];
 
   const fixtureReport: KnipReport = {
@@ -281,7 +284,7 @@ function selfTest(): number {
       },
     ],
   };
-  const fixtureKeys = normalizeKnipIssues(fixtureReport);
+  const fixtureKeys = normalize(fixtureReport);
   const expectedKeys = [
     "enumMembers packages/fixture/src/index.ts Mode.LEGACY",
     "exports packages/fixture/src/index.ts unusedFn",
@@ -292,7 +295,7 @@ function selfTest(): number {
     failures.push(`normalizer produced unexpected keys: ${fixtureKeys.join(" | ")}`);
   }
 
-  const withNewIssue = normalizeKnipIssues({
+  const withNewIssue = normalize({
     issues: [
       ...fixtureReport.issues,
       {
@@ -301,17 +304,17 @@ function selfTest(): number {
       },
     ],
   });
-  const regression = compareDeadExports(fixtureKeys, withNewIssue);
+  const regression = compare(fixtureKeys, withNewIssue);
   if (regression.newIssues.length !== 1 || !regression.newIssues[0]?.includes("newDeadExport")) {
     failures.push("a new dead export beyond the baseline was not flagged");
   }
 
-  const identical = compareDeadExports(fixtureKeys, fixtureKeys);
+  const identical = compare(fixtureKeys, fixtureKeys);
   if (identical.newIssues.length !== 0) {
     failures.push("an unchanged report was flagged");
   }
 
-  const improved = compareDeadExports(fixtureKeys, fixtureKeys.slice(1));
+  const improved = compare(fixtureKeys, fixtureKeys.slice(1));
   if (improved.newIssues.length !== 0 || improved.resolved.length !== 1) {
     failures.push("a resolved baseline entry failed the check (shrink must be --update-only)");
   }
