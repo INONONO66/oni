@@ -1291,7 +1291,8 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     if (original === undefined) return decide(request, "pre", request.intent);
     return Effect.try({
       try: () => recoverAdmission(options, request, original),
-      catch: (cause) => cause instanceof ExecutionApprovalError ? cause : new AgentFailure({ operation: "executor.recover_admission", cause: thrownAsError(cause) }),
+      catch: (cause) => cause instanceof ExecutionApprovalError ? cause
+        : new AgentFailure({ operation: "executor.recover_admission", cause: cause instanceof Error ? cause : thrownAsError(cause).message }),
     });
   }
 

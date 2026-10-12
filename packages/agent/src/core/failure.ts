@@ -18,9 +18,15 @@ export class AgentStopError extends Data.TaggedError("AgentStopError")<{
 
 export class ContextAdmissionError extends Data.TaggedError("ContextAdmissionError")<Record<never, never>> {}
 
-/** Journal- and model-facing text of a structured cause: an Error renders as `name: message`, a string verbatim. */
+/**
+ * Journal- and model-facing text of a structured cause: a string verbatim, an
+ * Error exactly as `String(error)` renders it (`name: message`; the name alone
+ * for an empty message, the message alone for an empty name).
+ */
 export function renderBodyCause(cause: string | Error): string {
-  return cause instanceof Error ? `${cause.name}: ${cause.message}` : cause;
+  if (typeof cause === "string") return cause;
+  if (cause.message === "") return cause.name;
+  return cause.name === "" ? cause.message : `${cause.name}: ${cause.message}`;
 }
 
 /**

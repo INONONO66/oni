@@ -212,6 +212,39 @@ describe("tool body outcomes", () => {
     expect(result).toMatchObject({ isError: true, errorKind: "invalid_output" });
   });
 
+  // #1344 r1 M1: a body that throws a non-Error, or an Error with an empty
+  // message, keeps the pre-#1344 `String(thrown)` bytes on BOTH the committed
+  // result-row evidence and the model-facing error text. The structured-cause
+  // path must not re-render them (`Error: 42`, `Error: ` were the regressions).
+  it("renders non-Error and empty-message throws byte-identically to String(thrown)", async () => {
+    const recording = recordingExecutor();
+    const dispatcher = runAgentSync(createDispatcher({ executor: recording.executor }).pipe(Effect.provide(catalogLayer([
+      tool("throws-number", async () => { throw 42; }),
+      tool("throws-object", async () => { throw { a: 1 }; }),
+      tool("throws-null", async () => { throw null; }),
+      tool("throws-empty-error", async () => { throw new Error(""); }),
+    ]))));
+    const expected: Record<string, string> = {
+      "throws-number": "42",
+      "throws-object": "[object Object]",
+      "throws-null": "null",
+      "throws-empty-error": "Error",
+    };
+    const names = Object.keys(expected);
+
+    const results = await isolated(dispatcher.executeWave(names.map(call), context));
+
+    expect(Object.fromEntries(results.map((result) => [result.toolName, result.content]))).toEqual(expected);
+    expect(results.every((result) => result.isError === true && result.errorKind === "execution_failed")).toBe(true);
+    const evidenceByTool = Object.fromEntries(recording.committed
+      .filter((action) => action.kind === "tool")
+      .map((action) => action.effect.value)
+      .flatMap((effect) => typeof effect === "object" && effect !== null && !Array.isArray(effect) && effect.phase === "result" ? [effect.evidence] : [])
+      .flatMap((evidence) => typeof evidence === "object" && evidence !== null && !Array.isArray(evidence) && Array.isArray(evidence.failures) ? evidence.failures : [])
+      .flatMap((failure) => typeof failure === "object" && failure !== null && !Array.isArray(failure) && failure.tag === "ToolBodyFailed" ? [[failure.tool, failure.cause]] : []));
+    expect(evidenceByTool).toEqual(expected);
+  });
+
   it("propagates an executor failure to the caller", async () => {
     const failure = new AgentFailure({ operation: "test", cause: "ledger unavailable" });
     const failing: Executor = {
