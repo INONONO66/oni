@@ -1708,9 +1708,9 @@ function assertFresh(request: ExecutionRequest, captured: ReturnType<SessionHand
       canonicalDigest({ ...request.domainRevisions() }) !== canonicalDigest(captured.domainRevisions))
     throw new ExecutionApprovalError({ code: "stale_approval" });
 }
-/** Body results cross the durable boundary as canonical JSON: non-finite numbers become null. */
+/** Body results cross the durable boundary as independent plain values. */
 function clonePlainValue(value: PlainValue): PlainValue {
-  return JSON.parse(JSON.stringify(value)) as PlainValue;
+  return structuredClone(value);
 }
 
 export function immutableInput(value: PlainValue): PlainValue {

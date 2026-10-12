@@ -33,6 +33,7 @@ import { createSessions, materializeSession } from "../storage/sqlite-l0-session
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
 import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
+import { parsePlainJson } from "../json.js";
 
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
@@ -541,16 +542,18 @@ export function createActions(
             .get(sessionId, inputHash),
         );
       if (row === null) return undefined;
-      const parsed = z
-        .object({ matchedRuleIds: z.array(z.string()) })
-        .safeParse(JSON.parse(row.intent));
-      if (!parsed.success)
+      let matchedRuleIds: string[];
+      try {
+        matchedRuleIds = z.object({ matchedRuleIds: z.array(z.string()) })
+          .parse(parsePlainJson(row.intent)).matchedRuleIds;
+      } catch (cause) {
         throw new LedgerInvariant({
           operation: "policy.decision",
           message: "invalid message decision rule identity",
-          cause: parsed.error,
+          cause: cause instanceof Error ? cause : undefined,
         });
-      return parsed.data.matchedRuleIds;
+      }
+      return matchedRuleIds;
     },
     messageActionByPlatformId(sessionId, messageId) {
       const row = ActionSqlRow.nullable().parse(
@@ -675,7 +678,7 @@ function createArmedAlarmReads(db: Database): {
           .all(),
       );
       return rows.map((row): ArmedAlarmRow => {
-        const intent = ArmIntentView.parse(JSON.parse(row.intent));
+        const intent = ArmIntentView.parse(parsePlainJson(row.intent));
         return {
           alarmId: row.alarm_id,
           occurrenceId: row.occurrence_id,
