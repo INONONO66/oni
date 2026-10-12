@@ -86,6 +86,8 @@ test("only the exact structural header is exempt; its issue number remains", () 
   const result = classifyResidue(path, "// ─── #1305: stored tool output read-back ───\n// ─── #1306: neighbouring header ───\n");
   expect(result).toMatchObject({ issues: 2, dividers: 1 });
   expect(classifyResidue(b, "// ─── #1305: stored tool output read-back ───\n").dividers).toBe(1);
+  expect(classifyResidue(path, " // ─── #1305: stored tool output read-back ───\n").dividers).toBe(1);
+  expect(classifyResidue(path, "// ─── #1305: stored tool output read-back ─── \n").dividers).toBe(1);
 });
 
 test("issue numbers in code, strings and inline comments are not comment-only hits", () => {

@@ -64,7 +64,7 @@ const STRUCTURAL_HEADERS: Readonly<Record<string, readonly string[]>> = {
 /** Count syntax-level comments, never issue numbers inside strings or code. */
 function countedDivider(path: string, line: string, row: number, first: number): boolean {
   return row === first && /^\/\/ ───/.test(line.trimStart()) &&
-    !STRUCTURAL_HEADERS[path]?.includes(line.trim());
+    !STRUCTURAL_HEADERS[path]?.includes(line);
 }
 
 export function classifyResidue(path: string, text: string): ResidueActual {
