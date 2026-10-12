@@ -270,6 +270,22 @@ await kernel.commit({ body: \`\${kernel.materialize(id)}\` });
   ).toBe(3);
 });
 
+test("#1343: a member-chain receiver counts the same as the bare identifier", () => {
+  expect(
+    appsAgentTokenCount(
+      [
+        "runtime.kernel.commit(x);",
+        "this.kernel.materialize(x);",
+        "opened(id).kernel.indexSession(x);",
+        "Sql.SqliteClient.layer({});",
+        "cluster.SingleRunner.layer({});",
+        "input.kernel.row(x);",
+      ].join("\n"),
+      "apps/openomni/src/chain.ts",
+    ),
+  ).toBe(5);
+});
+
 test("#1343: regex literals never desync the counter — references after them still count", () => {
   expect(
     appsAgentTokenCount("const r = /'/; kernel.commit(x);\n", "apps/openomni/src/regex.ts"),
@@ -312,7 +328,7 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
 });
 
 test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
-  // process-entry.ts is pinned at 4; a checkout where it is clean must fail,
+  // process-entry.ts is pinned at 5; a checkout where it is clean must fail,
   // and so must a pinned file deleted from the checkout (cluster-runtime.ts).
   const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" }, "dir");
   try {
