@@ -4,14 +4,8 @@ import { BrowserWindow, Menu, app, ipcMain, nativeTheme } from "electron";
 import { CLOSE_WINDOW_CHANNEL, GATEWAY_CHANNEL } from "../preload/api";
 import { type DesktopConfig, resolveDesktopConfig } from "./config";
 import { buildMenuTemplate, createShellCommandSender } from "./menu";
-import {
-  BOUNDS_WRITE_DELAY_MS,
-  parseWindowBounds,
-  serializeWindowBounds,
-  WINDOW_MIN,
-} from "./window-bounds";
-
-const BACKGROUND = { dark: "#0A0A0C", light: "#EFEFF0" } as const;
+import { rendererTarget, windowOptions } from "./window";
+import { BOUNDS_WRITE_DELAY_MS, parseWindowBounds, serializeWindowBounds } from "./window-bounds";
 
 const boundsFile = () => join(app.getPath("userData"), "window-bounds.json");
 
@@ -68,33 +62,13 @@ function createWindow(
   onFocus: (windowId: number) => void,
   onClosed: (windowId: number) => void,
 ): void {
-  const window = new BrowserWindow({
-    ...readBounds(),
-    minWidth: WINDOW_MIN.width,
-    minHeight: WINDOW_MIN.height,
-    show: false,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? BACKGROUND.dark : BACKGROUND.light,
-    // Custom chrome: the native title bar is hidden and the traffic lights sit
-    // in the 42px tab strip (`--shell-top` / `--spacing-shell-strip` in
-    // @openomni/ui), which drags the window via `-webkit-app-region` (see
-    // `drag-region` / `no-drag`). `y` is the TOP of the lights, so centring
-    // them on the strip's midline is y = (strip - lights) / 2 = (42 - 14) / 2
-    // = 14: the lights measure 14pt tall on this macOS (screen-captured, Darwin
-    // 25; the classic 12pt would give 15), and the strip's 28px controls sit at
-    // top 7, so both centre on 21. `x: 17` + the 52px cluster + 12 = the
-    // strip's 81px traffic safe zone.
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 17, y: 14 },
-    webPreferences: {
-      preload: join(import.meta.dirname, "../preload/index.cjs"),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      // Off until first paint so a hidden window still renders; back on once
-      // shown so a backgrounded window stops burning frames.
-      backgroundThrottling: false,
-    },
-  });
+  const window = new BrowserWindow(
+    windowOptions(
+      readBounds(),
+      nativeTheme.shouldUseDarkColors,
+      join(import.meta.dirname, "../preload/index.cjs"),
+    ),
+  );
   const windowId = window.id;
   windows.set(windowId, window);
   const rememberFocus = () => onFocus(windowId);
@@ -112,12 +86,14 @@ function createWindow(
   // The config is the boot-time resolution (#1245): a window opened an hour
   // later must not connect somewhere else because a variable changed under
   // the process.
-  const devUrl = config.rendererDevUrl;
-  const target = devUrl ?? join(import.meta.dirname, "../renderer/index.html");
-  if (devUrl !== undefined) {
-    attachRendererDebugging(window);
-  }
-  void (devUrl !== undefined ? window.loadURL(target) : window.loadFile(target));
+  const destination = rendererTarget(
+    config.rendererDevUrl,
+    join(import.meta.dirname, "../renderer/index.html"),
+  );
+  if (destination.kind === "url") attachRendererDebugging(window);
+  void (destination.kind === "url"
+    ? window.loadURL(destination.target)
+    : window.loadFile(destination.target));
 }
 
 /**
@@ -181,6 +157,5 @@ function bootstrap(host: { readonly env: Parameters<typeof resolveDesktopConfig>
     if (process.platform !== "darwin") app.quit();
   });
 }
-
 
 bootstrap(process);
