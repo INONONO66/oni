@@ -2,7 +2,7 @@
 
 ## #1344 unified parallel core implementations (epic #1356, rung 2)
 
-On `epic1356/1344-parallel-impls` (2026-10-12, base `b42812575`, PR #1408).
+On `epic1356/1344-parallel-impls` (2026-10-12, base `d5058b4b3`, PR #1408).
 
 Five parallel implementations inside `packages/agent` collapsed to one owner each. Journal-visible text changes are confined to failure rendering and each is pinned by a test (review r1 M1/M2/L1/L4): tool and gate evidence carries `thrownAsError(cause).message` instead of `String(cause)` and `renderBodyCause` renders an empty-message Error as its name; `parsePlainJson` refuses `SchemaRefused{reason: "json", detail: <SyntaxError.message>}` instead of fabricating a row; `LlmRunFailure` evidence sets `providerErrorName` only for provider SDK errors (transport throws stay `null`); `model/run.ts` renders an empty-message error as its `_tag`. No journal kind, schema or row shape changes:
 
@@ -14,7 +14,7 @@ Five parallel implementations inside `packages/agent` collapsed to one owner eac
 - Cost: the always-zero required `cost` field is deleted from `Message.StepFinishPart` and `Message.AssistantMessage` (`packages/protocol/src/message/index.ts`), the step-finish stream producer, agent projections, fixtures and `script/conformance/schema-snapshot.json`; parts persisted with `cost: 0` still parse (field stripped, `packages/protocol/test/message.test.ts`). No rate table and no new journal row.
 - Residue: the #1343 comment-ratio ceiling lowers 1425→1424bp in the same PR; `Bun.spawn|node:child_process` under `core/` stays 0.
 
-Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `b42812575` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1344-r1.log`): build, check-types, lint, lint:tools, check-topology, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types, verify-tsconfig-inheritance, lint:docs, check-quality-python, the eight workspace test lanes, the three script lanes and patch coverage all exit 0; jscpd `packages/agent/src` 9 → 0; `check-comment-residue` OK at 1424bp. Review r1 (`review-1344-r1.md`, H0 M6 L6) fixed in full; r2 (`review-1344-r2.md`, H0 M1 L5) confirmed them and found one new Medium — a second `thrownAsError` copy in `model/model/loader.ts` — fixed by the lead before merge (loader on `core/failure`'s `thrownAsError`/`renderBodyCause`).
+Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `d5058b4b3` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1344-r1.log`): build, check-types, lint, lint:tools, check-topology, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types, verify-tsconfig-inheritance, lint:docs, check-quality-python, the eight workspace test lanes, the three script lanes and patch coverage all exit 0; jscpd `packages/agent/src` 9 → 0; `check-comment-residue` OK at 1424bp. Review r1 (`review-1344-r1.md`, H0 M6 L6) fixed in full; r2 (`review-1344-r2.md`, H0 M1 L5) confirmed them and found one new Medium — a second `thrownAsError` copy in `model/model/loader.ts` — fixed by the lead before merge (loader on `core/failure`'s `thrownAsError`/`renderBodyCause`).
 
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
 
