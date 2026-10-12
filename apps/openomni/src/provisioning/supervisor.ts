@@ -15,8 +15,8 @@ import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../c
  */
 
 // Promise band (#1423): the channels driver `surface.start` Promise contract forces this file
-// onto Promises; `.then(() => undefined, ThrownError.parse)` narrows rejections to a typed Error
-// mountRow re-throws and startRow records as breaker status; Effect resumes in the driver runner.
+// onto Promises; `.then(() => undefined, ThrownError.parse)` narrows rejections to a typed Error.
+// Effect takes over in the driver runner; no durable write or alarm-chain decision belongs here.
 
 /** One row the current declarations say should be running. */
 export interface DesiredChannelRow {

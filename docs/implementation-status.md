@@ -2,11 +2,11 @@
 
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
 
-Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. Tests prove the single cap.
+Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. Session files seeded before this change keep their old depth rows; the shared value applies to generations seeded from now on. The tests assert the admission constant equals the caps' `maxDepth`.
 
 ## #1424 desktop journal-kind audit (lane D, umbrella #1421)
 
-Merged `e86ae5eb0` (PR #1431). The 12-kind coverage table lives on issue #1424; the unreachable desktop `data-epoch` path is deleted; kinds whose wire row carries no payload render as marker rows, and the kinds whose rendering is a product decision are listed on the issue with a recommendation and left unrendered.
+Merged `e86ae5eb0` (PR #1431). The 12-kind coverage table and the confirmed audit live on issue #1424 (https://github.com/INONONO66/openomni/issues/1424#issuecomment-6128854787); the unreachable desktop `data-epoch` path is deleted and no renderer was added: every kind arrives as a payload-free page row, the live message frame carries no revision, and pages are not joined to chat messages, so no per-kind marker can be placed today. Which kinds to render, and how, stays a product decision listed on the issue with a recommendation.
 
 ## #1423 the app's Promise band is a declared three-module band (lane D, umbrella #1421)
 
