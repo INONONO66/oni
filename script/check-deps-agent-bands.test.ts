@@ -15,6 +15,8 @@ import {
   AGENT_PLUGINS,
   agentBandViolations,
   appsAgentInternalViolations,
+  appAgentResponsibilityCount,
+  validateAppAgentResponsibilities,
   validateAgentBands,
 } from "./check-deps";
 
@@ -150,6 +152,29 @@ test("#1276 check b legal edges: core/api.ts, protocol and plugin-internal impor
 });
 
 // ─── check (c): apps -> agent internals banned ───
+
+test("#1343: code references count; comment, string and template prose do not", () => {
+  expect(appAgentResponsibilityCount(`// kernel.commit and SingleRunner.layer
+    const prose = "createSessionEntityLayer kernel.materialize";
+    const more = \`SqliteClient.layer\`;
+    kernel.commit({}); createSessionEntityLayer(config);`)).toBe(2);
+});
+
+test("#1343: new app file starts at zero; pinned call site removal is stale", async () => {
+  const root = mkdtempSync(join(tmpdir(), "app-responsibility-"));
+  try {
+    const path = join(root, "apps/openomni/src/composition/cluster-runtime.ts");
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, "export const clean = true;\n");
+    const added = join(root, "apps/openomni/src/added.ts");
+    writeFileSync(added, "kernel.indexSession();\n");
+    const found = await validateAppAgentResponsibilities(root);
+    expect(found).toContain("VIOLATION: apps/openomni/src/added.ts direct agent responsibility actual 1, pin 0 (growth)");
+    expect(found).toContain("VIOLATION: apps/openomni/src/composition/cluster-runtime.ts direct agent responsibility actual 0, pin 4 (stale pin)");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("#1276 check c: an app file deep-importing @openomni/agent fails", () => {
   const found = appsAgentInternalViolations(

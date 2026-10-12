@@ -1,0 +1,177 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import ts from "typescript";
+
+// JSDoc length spans the /** opener through the */ closer, inclusive.
+// A block exceeds six lines when that inclusive span is greater than six.
+
+const ROOT = join(import.meta.dir, "..");
+const PIN_PATH = join(import.meta.dir, "conformance/comment-residue-pins.json");
+
+export interface ResiduePin {
+  issues: number;
+  dividers: number;
+}
+export interface ResidueBaseline {
+  files: Record<string, ResiduePin>;
+  commentLines: number;
+  nonblankLines: number;
+  longJsdoc: number;
+}
+export interface ResidueActual extends ResiduePin {
+  commentLines: number;
+  nonblankLines: number;
+  longJsdoc: number;
+}
+
+// These exact, navigational section markers are structural, rather than
+// migration dividers. Only the divider count is exempt: #1305 still counts.
+const STRUCTURAL_HEADERS: Readonly<Record<string, readonly string[]>> = {
+  "packages/agent/src/inspect/index.ts": ["// ─── #1305: stored tool output read-back ───"],
+};
+
+/** The comment portion of a line, only if no code precedes or follows it. */
+function commentOnlySegment(text: string, line: string, row: number, first: number, last: number, start: number, end: number, multi: boolean): string | undefined {
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  const column = start - lineStart;
+  if (row === first && line.slice(0, column).trim() !== "") return undefined;
+  if (row === last && multi && line.slice(end - (text.lastIndexOf("\n", end - 1) + 1)).trim() !== "") return undefined;
+  return row === first ? line.slice(column) : line;
+}
+
+/** Count syntax-level comments, never issue numbers inside strings or code. */
+function countedDivider(path: string, line: string, row: number, first: number): boolean {
+  return row === first && /^\/\/ ───/.test(line.trimStart()) &&
+    !STRUCTURAL_HEADERS[path]?.includes(line.trim());
+}
+
+export function classifyResidue(path: string, text: string): ResidueActual {
+  const lines = text.split(/\r?\n/);
+  const issues = new Set<number>();
+  const dividers = new Set<number>();
+  let longJsdoc = 0;
+  for (const { kind, pos: start, end } of commentRanges(path, text)) {
+    const multi = kind === ts.SyntaxKind.MultiLineCommentTrivia;
+    const first = text.slice(0, start).split("\n").length - 1;
+    const last = text.slice(0, end - 1).split("\n").length - 1;
+    if (text.slice(start, end).startsWith("/**") && last - first + 1 > 6) longJsdoc++;
+    for (let row = first; row <= last; row++) {
+      const line = lines[row] ?? "";
+
+      const segment = commentOnlySegment(text, line, row, first, last, start, end, multi);
+      if (segment === undefined) continue;
+      if (/#\d{3,4}(?!\d)/.test(segment)) issues.add(row);
+      if (countedDivider(path, line, row, first)) dividers.add(row);
+    }
+  }
+  return {
+    issues: issues.size,
+    dividers: dividers.size,
+    commentLines: countCommentLines(lines),
+    nonblankLines: lines.filter((line) => line.trim() !== "").length,
+    longJsdoc,
+  };
+}
+
+// The ratio's historical definition includes every nonblank line inside a
+// block comment, from the opening /* through its closing */ line.
+function countCommentLines(lines: readonly string[]): number {
+  let inside = false;
+  let count = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("/*")) inside = true;
+    if (trimmed && (inside || trimmed.startsWith("//"))) count++;
+    if (inside && trimmed.includes("*/")) inside = false;
+  }
+  return count;
+}
+
+function commentRanges(path: string, text: string): readonly ts.CommentRange[] {
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const ranges = new Map<number, ts.CommentRange>();
+  const visit = (node: ts.Node): void => {
+    for (const position of [node.pos, node.end]) {
+      for (const range of [...(ts.getLeadingCommentRanges(text, position) ?? []), ...(ts.getTrailingCommentRanges(text, position) ?? [])]) {
+        ranges.set(range.pos, range);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return [...ranges.values()].sort((a, b) => a.pos - b.pos);
+}
+
+export function measureResidue(files: Readonly<Record<string, string>>): { files: Record<string, ResidueActual>; commentLines: number; nonblankLines: number; longJsdoc: number } {
+  const actual: Record<string, ResidueActual> = {};
+  let commentLines = 0;
+  let nonblankLines = 0;
+  let longJsdoc = 0;
+  for (const path of Object.keys(files).sort()) {
+    const result = classifyResidue(path, files[path] ?? "");
+    actual[path] = result;
+    commentLines += result.commentLines;
+    nonblankLines += result.nonblankLines;
+    longJsdoc += result.longJsdoc;
+  }
+  return { files: actual, commentLines, nonblankLines, longJsdoc };
+}
+
+/** Exact per-file pins: both growth and unrecorded cleanup fail closed. */
+export function residueViolations(files: Readonly<Record<string, string>>, baseline: ResidueBaseline): string[] {
+  const actual = measureResidue(files);
+  const violations: string[] = [];
+  for (const path of Object.keys(actual.files).sort()) {
+    const count = actual.files[path];
+    const pin = baseline.files[path];
+    if (!pin) {
+      violations.push(`${path}: unpinned source file`);
+      continue;
+    }
+    if (!count) continue;
+    for (const key of ["issues", "dividers"] as const) {
+      if (count[key] !== pin[key]) violations.push(`${path}: ${key} actual ${count[key]}, pin ${pin[key]} (${count[key] > pin[key] ? "growth" : "stale pin"})`);
+    }
+  }
+  for (const path of Object.keys(baseline.files).sort()) {
+    if (!(path in actual.files)) violations.push(`${path}: pin has no source file`);
+  }
+  // Cross-multiply to avoid a rounded percentage admitting growth.
+  if (actual.commentLines * baseline.nonblankLines > baseline.commentLines * actual.nonblankLines) {
+    violations.push(`comment ratio actual ${actual.commentLines}/${actual.nonblankLines}, ceiling ${baseline.commentLines}/${baseline.nonblankLines}`);
+  }
+  if (actual.longJsdoc > baseline.longJsdoc) violations.push(`long JSDoc blocks actual ${actual.longJsdoc}, ceiling ${baseline.longJsdoc}`);
+  return violations;
+}
+
+export function trackedAgentFiles(root = ROOT): Record<string, string> {
+  const paths = execFileSync("git", ["ls-files", "-z", "--", "packages/agent/src"], { cwd: root })
+    .toString().split("\0").filter((path) => path.endsWith(".ts") && !/\.(?:test|spec)\.ts$/.test(path) && !/\/(?:test|tests|__tests__)\//.test(path));
+  return Object.fromEntries(paths.sort().map((path) => [path, readFileSync(join(root, path), "utf8")]));
+}
+
+export function baselineFor(files: Readonly<Record<string, string>>): ResidueBaseline {
+  const actual = measureResidue(files);
+  return {
+    files: Object.fromEntries(Object.entries(actual.files).map(([path, count]) => [path, { issues: count.issues, dividers: count.dividers }])),
+    commentLines: actual.commentLines,
+    nonblankLines: actual.nonblankLines,
+    longJsdoc: actual.longJsdoc,
+  };
+}
+
+if (import.meta.main) {
+  const files = trackedAgentFiles();
+  if (process.argv.slice(2).includes("--update")) {
+    const baseline = baselineFor(files);
+    writeFileSync(PIN_PATH, `${JSON.stringify(baseline, null, 2)}\n`);
+    console.log(`Updated ${PIN_PATH}: ${Object.keys(baseline.files).length} files`);
+  } else {
+    const baseline = JSON.parse(readFileSync(PIN_PATH, "utf8")) as ResidueBaseline;
+    const violations = residueViolations(files, baseline);
+    for (const violation of violations) console.error(`VIOLATION: ${violation}`);
+    if (violations.length > 0) process.exitCode = 1;
+    else console.log(`OK: comment residue pinned in ${Object.keys(baseline.files).length} files; ratio ${baseline.commentLines}/${baseline.nonblankLines}; long JSDoc ${baseline.longJsdoc}`);
+  }
+}

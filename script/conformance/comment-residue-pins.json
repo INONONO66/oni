@@ -1,0 +1,503 @@
+{
+  "files": {
+    "packages/agent/src/bundle.ts": {
+      "issues": 6,
+      "dividers": 0
+    },
+    "packages/agent/src/core/admission.ts": {
+      "issues": 10,
+      "dividers": 0
+    },
+    "packages/agent/src/core/alarm-ports.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/core/alarm.ts": {
+      "issues": 16,
+      "dividers": 1
+    },
+    "packages/agent/src/core/api.ts": {
+      "issues": 7,
+      "dividers": 0
+    },
+    "packages/agent/src/core/approval-policy.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/budget.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/bus.ts": {
+      "issues": 8,
+      "dividers": 0
+    },
+    "packages/agent/src/core/capability.ts": {
+      "issues": 6,
+      "dividers": 0
+    },
+    "packages/agent/src/core/commit.ts": {
+      "issues": 16,
+      "dividers": 2
+    },
+    "packages/agent/src/core/compaction-ports.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/core/compaction.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/compose.ts": {
+      "issues": 10,
+      "dividers": 0
+    },
+    "packages/agent/src/core/entity.ts": {
+      "issues": 37,
+      "dividers": 3
+    },
+    "packages/agent/src/core/failure.ts": {
+      "issues": 4,
+      "dividers": 2
+    },
+    "packages/agent/src/core/fork.ts": {
+      "issues": 9,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/admit.ts": {
+      "issues": 3,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/compile.ts": {
+      "issues": 5,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/compose.ts": {
+      "issues": 7,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/decide.ts": {
+      "issues": 25,
+      "dividers": 10
+    },
+    "packages/agent/src/core/gate/evaluate.ts": {
+      "issues": 6,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/fold.ts": {
+      "issues": 7,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/match.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/migrate.ts": {
+      "issues": 4,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/project.ts": {
+      "issues": 4,
+      "dividers": 1
+    },
+    "packages/agent/src/core/gate/registry.ts": {
+      "issues": 4,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/row-parse.ts": {
+      "issues": 4,
+      "dividers": 0
+    },
+    "packages/agent/src/core/gate/rows.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/index.ts": {
+      "issues": 3,
+      "dividers": 1
+    },
+    "packages/agent/src/core/message-factory.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/messages.ts": {
+      "issues": 11,
+      "dividers": 1
+    },
+    "packages/agent/src/core/metrics.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/points.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/core/ports.ts": {
+      "issues": 5,
+      "dividers": 4
+    },
+    "packages/agent/src/core/read.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/reason-codes.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/recovery.ts": {
+      "issues": 3,
+      "dividers": 0
+    },
+    "packages/agent/src/core/request-binding.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/request.ts": {
+      "issues": 4,
+      "dividers": 2
+    },
+    "packages/agent/src/core/retry.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/run-events.ts": {
+      "issues": 4,
+      "dividers": 1
+    },
+    "packages/agent/src/core/run.ts": {
+      "issues": 40,
+      "dividers": 9
+    },
+    "packages/agent/src/core/stop.ts": {
+      "issues": 1,
+      "dividers": 1
+    },
+    "packages/agent/src/core/store/action-hash.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/catalog.ts": {
+      "issues": 15,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/decision.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/errors.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/fence.ts": {
+      "issues": 18,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/index.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/json.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/services.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/session-file/index.ts": {
+      "issues": 20,
+      "dividers": 2
+    },
+    "packages/agent/src/core/store/storage/sqlite-l0-observation.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/storage/sqlite-l0-policies.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/storage/sqlite-l0-rows.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/storage/sqlite-l0-sessions.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/storage/sqlite-l0-write.ts": {
+      "issues": 8,
+      "dividers": 1
+    },
+    "packages/agent/src/core/store/storage/timestamped-store.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/store/storage/write-effect.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/core/tool-output.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/core/tool.ts": {
+      "issues": 7,
+      "dividers": 4
+    },
+    "packages/agent/src/core/turn.ts": {
+      "issues": 17,
+      "dividers": 5
+    },
+    "packages/agent/src/core/types.ts": {
+      "issues": 10,
+      "dividers": 0
+    },
+    "packages/agent/src/index.ts": {
+      "issues": 1,
+      "dividers": 1
+    },
+    "packages/agent/src/inspect/history.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/inspect/index.ts": {
+      "issues": 5,
+      "dividers": 0
+    },
+    "packages/agent/src/inspect/tree.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/model/auth/index.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/auth/storage.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/model/error.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/errors.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/model/index.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/layers.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/message/index.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/model/index.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/model/loader.ts": {
+      "issues": 4,
+      "dividers": 0
+    },
+    "packages/agent/src/model/model/schema.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/model/select.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/processor/event-schema.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/processor/index.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/model/processor/normalize.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/processor/stream-events.ts": {
+      "issues": 9,
+      "dividers": 0
+    },
+    "packages/agent/src/model/processor/tool-events.ts": {
+      "issues": 3,
+      "dividers": 0
+    },
+    "packages/agent/src/model/provider/identity.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/provider/index.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/model/provider/proxy-models.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/provider/sdk.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/provider/stream.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/provider/transform.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/retry/delay.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/retry/index.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/retry/telemetry.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/run.ts": {
+      "issues": 6,
+      "dividers": 0
+    },
+    "packages/agent/src/model/services.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/model/sink.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/model/token/index.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/model/token/schema.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/action/index.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/alarm/index.ts": {
+      "issues": 5,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/alarm/watch.ts": {
+      "issues": 8,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/candidate.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/compact.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/contract.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/cut.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/durable.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/estimate.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/execute-cut.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/geometry.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/index.ts": {
+      "issues": 2,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/measure.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/reduce.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/restore.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/speculate.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/successor.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/compaction/summary.ts": {
+      "issues": 7,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/hook/consultant.ts": {
+      "issues": 4,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/hook/index.ts": {
+      "issues": 3,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/hook/process.ts": {
+      "issues": 11,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/tool/dispatch.ts": {
+      "issues": 4,
+      "dividers": 0
+    },
+    "packages/agent/src/plugins/tool/index.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/testing/commit.ts": {
+      "issues": 0,
+      "dividers": 0
+    },
+    "packages/agent/src/testing/controller.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/testing/index.ts": {
+      "issues": 1,
+      "dividers": 0
+    },
+    "packages/agent/src/testing/registry.ts": {
+      "issues": 2,
+      "dividers": 1
+    }
+  },
+  "commentLines": 3485,
+  "nonblankLines": 24454,
+  "longJsdoc": 126
+}

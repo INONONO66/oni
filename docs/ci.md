@@ -69,6 +69,13 @@ baselines). A PR is admitted by:
   must be covered by the PR's own lcov evidence.
 - **Dependency Review** (PR-only, on dependency-affecting plans).
 
+The Dependency Rules job also runs `script/check-comment-residue.ts`: its
+tracked agent production files have exact per-file issue-comment and divider
+pins. Both growth and stale pins fail closed, alongside package comment-ratio
+and long-JSDoc ceilings. `script/check-deps.ts` separately pins direct
+app-to-agent responsibility references per file; newly added references and
+stale pins fail, while comments and strings do not count.
+
 Deep audits are scheduled, not per-PR. The weekly Quality Audit records debt
 and maintains issues; the separate mutation campaign runs daily and on dispatch.
 Neither workflow is a required check.

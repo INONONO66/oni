@@ -1002,6 +1002,48 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
   return violations;
 }
 
+// #1343: app-owned direct ledger and entity/SQLite assembly references are
+// pinned at today's call sites. The import perimeter above is independent.
+const APP_AGENT_RESPONSIBILITY_PINS: ReadonlyMap<string, number> = new Map([
+  ["apps/openomni/src/composition/cluster-runtime.ts", 4],
+  ["apps/openomni/src/composition/ingress-executor.ts", 2],
+  ["apps/openomni/src/index.ts", 2],
+  ["apps/openomni/src/process-entry.ts", 2],
+]);
+
+/** Count code references, excluding trivia and literal text. */
+export function appAgentResponsibilityCount(source: string): number {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, source);
+  const masked = [...source];
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token !== ts.SyntaxKind.SingleLineCommentTrivia &&
+        token !== ts.SyntaxKind.MultiLineCommentTrivia &&
+        token !== ts.SyntaxKind.StringLiteral &&
+        token !== ts.SyntaxKind.NoSubstitutionTemplateLiteral &&
+        token !== ts.SyntaxKind.RegularExpressionLiteral &&
+        token !== ts.SyntaxKind.TemplateHead &&
+        token !== ts.SyntaxKind.TemplateMiddle &&
+        token !== ts.SyntaxKind.TemplateTail) continue;
+    for (let i = scanner.getTokenPos(); i < scanner.getTextPos(); i++) masked[i] = " ";
+  }
+  const code = masked.join("");
+  return [...code.matchAll(/\b(?:kernel\.(?:commit|materialize|indexSession)|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient\.layer|SingleRunner\.layer)\b/g)].length;
+}
+
+export async function validateAppAgentResponsibilities(root = "."): Promise<string[]> {
+  const counts = new Map<string, number>();
+  for await (const { filePath, source } of scanRepositorySources("apps/openomni/src/**/*.ts", root)) {
+    counts.set(filePath, appAgentResponsibilityCount(source));
+  }
+  const violations: string[] = [];
+  for (const path of new Set([...counts.keys(), ...APP_AGENT_RESPONSIBILITY_PINS.keys()])) {
+    const actual = counts.get(path) ?? 0;
+    const pin = APP_AGENT_RESPONSIBILITY_PINS.get(path) ?? 0;
+    if (actual !== pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (${actual > pin ? "growth" : "stale pin"})`);
+  }
+  return violations.sort();
+}
+
 /**
  * #1247 S8 perimeter pin: `packages/agent/src/index.ts` exports exactly
  * the five namespaces plus at most these six named exports consumed by
@@ -1605,6 +1647,7 @@ export async function main(): Promise<void> {
   const agentBandViolationList = await validateAgentBands();
   const agentIndexPerimeterViolationList = await validateAgentIndexPerimeter();
   const appsAgentBarrelViolationList = await validateAppsAgentBarrel();
+  const appAgentResponsibilityViolations = await validateAppAgentResponsibilities();
   const bundleViolations = await checkBundleImports();
   const deepImportViolations = await validateDeepImports();
   const deepRelativeImportViolations = await validateDeepRelativeImports();
@@ -1617,6 +1660,7 @@ export async function main(): Promise<void> {
     ...agentBandViolationList,
     ...agentIndexPerimeterViolationList,
     ...appsAgentBarrelViolationList,
+    ...appAgentResponsibilityViolations,
     ...bundleViolations.map(
       (finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}`,
     ),
