@@ -233,7 +233,7 @@ export function checkpointPolicy(kernel: SessionKernel, sessionId: string): Chec
 const RESTORE_PAGE_ROWS = 256;
 
 /** What one restore read after its checkpoint. */
-export interface RestoreTelemetry {
+interface RestoreTelemetry {
   readonly rows: number;
   readonly bytes: number;
   readonly pages: number;
