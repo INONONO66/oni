@@ -250,13 +250,15 @@ test("#1343: a core token in a comment, string, or template text is prose, not a
         "// kernel.commit in a comment",
         "/* createSessionEntityLayer in a block */",
         'const s = "SqliteClient.layer in a string";',
-        "const t = `SingleRunner.layer in template text ${1}`;",
+        `const t = \`SingleRunner.layer in template text \${1}\`;`,
       ].join("\n"),
     ),
   ).toBe(0);
   expect(
     appsAgentTokenCount(
-      "const run = Core.createSessionEntityRunTurn;\nawait kernel.commit({ body: `${kernel.materialize(id)}` });\n",
+      `const run = Core.createSessionEntityRunTurn;
+await kernel.commit({ body: \`\${kernel.materialize(id)}\` });
+`,
     ),
   ).toBe(3);
 });
