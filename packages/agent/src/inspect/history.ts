@@ -34,8 +34,9 @@ export function foldHistoryState(
           parents: [],
           compatibility: [],
           successorActionId: null,
+          budgetState: null,
         }
-      : structuredClone(seed);
+      : { budgetState: null, ...structuredClone(seed) };
   const parents = new Map<string, string | null>(state.parents);
   const messageTurns = new Map<string, string | null>(state.messageTurns);
   for (const action of actions) {
@@ -58,6 +59,7 @@ function applyHistoryAction(
   action: LedgerAction.Node,
 ) {
   if (action.kind === "fold.checkpoint") return;
+  chargeBudget(state, action);
   const turnId = parents.get(action.parentId ?? "");
   if (object(action.intent.value).phase === "intent") parents.set(action.id, action.parentId);
   if (opensTurn(action)) state.canonicalTurn = false;
@@ -90,6 +92,55 @@ function applyHistoryAction(
   if (terminalTurn !== undefined) parents.delete(terminalTurn);
   if (object(action.effect.value).phase === "result" && action.parentId !== null)
     parents.delete(action.parentId);
+}
+
+/**
+ * Budget counters charged as the loop does: a turn per logical `llm` intent, tokens
+ * per attempt result, a call plus un-charged wall slice per settled tool.
+ */
+function chargeBudget(state: FoldCheckpoint.State, action: LedgerAction.Node): void {
+  const intent = object(action.intent.value);
+  if (action.kind === "turn" && intent.phase === "intent") {
+    state.budgetState = {
+      startTime: action.ts, chargedAt: action.ts, turns: 0, toolCalls: 0, toolRuntimeMs: 0,
+      totalInputTokens: 0, totalOutputTokens: 0, toolsThrough: action.ts, openTools: [],
+    };
+    return;
+  }
+  const budget = state.budgetState;
+  if (budget === null || budget === undefined) return;
+  budget.chargedAt = Math.max(budget.chargedAt, action.ts);
+  if (action.kind === "llm") chargeModel(budget, action, intent);
+  if (action.kind === "tool") chargeTool(budget, action, intent);
+  if (SessionHandleStore.turnTerminal(action) !== undefined) state.budgetState = null;
+}
+
+function chargeModel(budget: FoldCheckpoint.BudgetState, action: LedgerAction.Node, intent: PlainObject): void {
+  if (intent.phase === "intent" && typeof intent.attempt !== "number") budget.turns += 1;
+  if (intent.phase !== "result") return;
+  const effect = object(action.effect.value);
+  if (effect.usageProvenance !== "reported" && effect.usageProvenance !== "estimated") return;
+  const usage = object(object(effect.evidence).usage);
+  budget.totalInputTokens += count(usage.inputTokens);
+  budget.totalOutputTokens += count(usage.outputTokens);
+}
+
+function chargeTool(budget: FoldCheckpoint.BudgetState, action: LedgerAction.Node, intent: PlainObject): void {
+  if (intent.phase === "intent") {
+    budget.openTools.push([action.id, action.ts]);
+    return;
+  }
+  if (intent.phase !== "result") return;
+  const index = budget.openTools.findIndex(([id]) => id === action.parentId);
+  if (index === -1) return;
+  const [[, startedAt]] = budget.openTools.splice(index, 1) as [[string, number]];
+  budget.toolCalls += 1;
+  budget.toolRuntimeMs += Math.max(0, action.ts - Math.max(startedAt, budget.toolsThrough));
+  budget.toolsThrough = Math.max(budget.toolsThrough, action.ts);
+}
+
+function count(value: PlainValue | undefined): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 function applyTerminal(state: FoldCheckpoint.State, action: LedgerAction.Node) {
@@ -167,21 +218,21 @@ function checkpointSeed(sessionId: string, checkpoint: LedgerAction.Node) {
   return parsed.data.result;
 }
 
-/** Core default (#1347): applies when no `session.configure{settings.checkpoint}` row pins one. */
+/** Core default: applies when no `session.configure{settings.checkpoint}` row pins one. */
 export const DEFAULT_CHECKPOINT_POLICY: CheckpointPolicy = {
   everyActions: 256,
   maxTailBytes: 4 * 1024 * 1024,
 };
 
-/** The checkpoint policy folded from the latest configure settings (#1347), never a literal. */
+/** The checkpoint policy folded from the latest configure settings, never a literal. */
 export function checkpointPolicy(kernel: SessionKernel, sessionId: string): CheckpointPolicy {
   return kernel.latestSettings(sessionId)?.checkpoint ?? DEFAULT_CHECKPOINT_POLICY;
 }
 
-/** The suffix page size (#1347): the existing `historyPage` default, not a policy value. */
+/** The suffix page size: the existing `historyPage` default, not a policy value. */
 const RESTORE_PAGE_ROWS = 256;
 
-/** What one restore read after its checkpoint: rows and serialized bytes counted per page, pages, elapsed. */
+/** What one restore read after its checkpoint. */
 export interface RestoreTelemetry {
   readonly rows: number;
   readonly bytes: number;
@@ -189,12 +240,12 @@ export interface RestoreTelemetry {
   readonly ms: number;
 }
 
-/** Injected monotonic clock for `RestoreTelemetry.ms`; tests pin it. */
+/** Injected clock for `RestoreTelemetry.ms`. */
 export interface RestoreOptions {
   readonly now?: () => number;
 }
 
-/** The restore tail exceeded `maxTailBytes` (#1347): no partial state, the work done rides along. */
+/** The restore tail exceeded `maxTailBytes`: no partial state, the work done rides along. */
 export const RestoreRefused = NamedError.create(
   "RestoreRefused",
   z
@@ -276,10 +327,8 @@ export function refreshSessionHistory(
 }
 
 /**
- * Folds the suffix after `afterRevision` one page at a time. Each page's
- * serialized bytes are counted BEFORE it is folded: the first page that
- * carries the cumulative total past `maxTailBytes` refuses typed with the
- * work done so far, and nothing folded is returned.
+ * Folds the suffix page by page; each page's bytes count BEFORE folding, and the
+ * page that carries the total past `maxTailBytes` refuses with nothing folded.
  */
 function readHistorySuffix(
   kernel: SessionKernel,

@@ -1275,6 +1275,8 @@ export function createSessionChatRunner(options: SessionChatRunnerOptions): Sess
     const operation = runAgent({
       messages,
       history: refreshed.history,
+      // A resumed turn keeps its charged work.
+      budgetState: refreshed.state.budgetState,
       traceContext: prepared.traceContext,
     }, {
       ...prepared.config,

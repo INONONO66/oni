@@ -3,7 +3,11 @@ import { runAgentSync } from "./helpers/executor";
 import { expect, spyOn, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { sessionTree } from "./helpers/session-tree";
-import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, PlainValueSchema } from "@openomni/protocol";
+import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, type LedgerAction, PlainValueSchema } from "@openomni/protocol";
+import { createRunState } from "../src/core/turn";
+import { evaluateBudget } from "../src/core/budget";
+import { testBudget } from "./helpers/approval-policy";
+import { runInput } from "./helpers/run-input";
 import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused } from "../src/inspect/history";
 import { actionPayloadBytes } from "../src/core/store/action-hash";
 import { deliveryActions } from "../src/core/commit";
@@ -109,6 +113,58 @@ function steppingClock(step: number) {
     return at;
   };
 }
+
+/** The executor's row shapes for one charged model step and one tool, stamped by the kernel clock (#1347). */
+function chargedTurnRows(sessionId: string, turnId: string): LedgerAction.Append[] {
+  const row = (
+    id: string,
+    kind: LedgerAction.Kind,
+    parentId: string,
+    intent: Record<string, unknown>,
+    effect: Record<string, unknown>,
+    ts: number,
+  ): LedgerAction.Append =>
+    LedgerActionAppend({ id, sessionId, parentId, kind, ts, irreversible: true, intent: { encodingVersion: 1, value: intent }, effect: { encodingVersion: 1, value: effect } });
+  const llm = `${sessionId}:llm`;
+  const tool = `${sessionId}:tool`;
+  return [
+    row(llm, "llm", turnId, { phase: "intent", op: "chat", value: {} }, { phase: "pending" }, 110),
+    row(`${llm}:1`, "llm", llm, { phase: "intent", op: "chat", value: {}, attempt: 1, maxAttempts: 3, retryReason: null, effectHash: "h", routeChange: null }, { phase: "pending" }, 111),
+    row(`${llm}:1:result`, "llm", `${llm}:1`, { phase: "result", op: "chat" }, { phase: "result", terminal: "executed", effect: {}, usageProvenance: "reported", evidence: { usage: { inputTokens: 40, outputTokens: 7 } } }, 150),
+    row(`${llm}:result`, "llm", llm, { phase: "result", op: "chat" }, { phase: "result", terminal: "executed", effect: {} }, 151),
+    row(tool, "tool", turnId, { phase: "intent", op: "echo", value: { text: "x" } }, { phase: "pending" }, 160),
+    row(`${tool}:result`, "tool", tool, { phase: "result", op: "echo" }, { phase: "result", terminal: "executed", result: "x", resultHash: canonicalDigest("x") }, 190),
+  ];
+}
+
+const LedgerActionAppend = (append: LedgerAction.Append): LedgerAction.Append => append;
+
+test("#1347 a reactivated turn resumes its checkpointed budget counters instead of resetting them", () => isolatedRun((ledger) => {
+  const recording = requestLedger();
+  const id = recording.identity.sessionId;
+  const kernel = ledger.kernel;
+  // Checkpoint every 4 rows so the charged step lands in a checkpoint AND a suffix.
+  pinCheckpointPolicy(recording, kernel, { everyActions: 4, maxTailBytes: 4 * 1024 * 1024 });
+  expect(recording.commitBatch(chargedTurnRows(id, recording.identity.turnId)).ok).toBe(true);
+  expect(kernel.latestFoldCheckpoint(id).checkpoint).toBeDefined();
+  const restored = expectReplay(id);
+  const expected: FoldCheckpoint.BudgetState = {
+    startTime: 100, chargedAt: 190, turns: 1, toolCalls: 1, toolRuntimeMs: 30,
+    totalInputTokens: 40, totalOutputTokens: 7, toolsThrough: 190, openTools: [],
+  };
+  expect(restored.state.budgetState).toEqual(expected);
+  const checkpoint = kernel.latestFoldCheckpoint(id).checkpoint;
+  expect(FoldCheckpoint.Effect.parse(checkpoint?.effect.value).result.state.budgetState).toMatchObject({ turns: 1, totalInputTokens: 40 });
+  // The resumed run charges the restored counters on its own clock: 90 ms already elapsed, one turn, one call.
+  let time = 5_000;
+  const state = createRunState({ ...runInput([{ role: "user", content: "hi" }]), budgetState: restored.state.budgetState }, { now: () => time, id: () => "m" });
+  expect(state.budgetState).toEqual({ startTime: 5_000 - 90, turns: 1, toolCalls: 1, toolRuntimeMs: 30, totalInputTokens: 40, totalOutputTokens: 7 });
+  expect(evaluateBudget(state.budgetState, () => time, testBudget({ maxTurns: 1 }))).toMatchObject({ status: "exceeded", exceededLimit: "turns" });
+  time += 10;
+  expect(evaluateBudget(state.budgetState, () => time, testBudget({ maxWallTimeMs: 100 }))).toMatchObject({ status: "exceeded", elapsedMs: 100, exceededLimit: "wall time" });
+  // A fresh run (no restored counters) still starts from zero.
+  expect(createRunState(runInput([{ role: "user", content: "hi" }]), { now: () => time, id: () => "m" }).budgetState).toEqual({ startTime: time, turns: 0, toolCalls: 0, toolRuntimeMs: 0, totalInputTokens: 0, totalOutputTokens: 0 });
+}));
 
 test("#1347 checkpoint cadence folds `everyActions` from the configured policy, not a literal", () => isolatedRun((ledger) => {
   const recording = requestLedger();

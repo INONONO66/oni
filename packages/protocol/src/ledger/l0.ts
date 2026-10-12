@@ -92,6 +92,28 @@ export namespace LedgerAction {
 }
 
 export namespace FoldCheckpoint {
+  const Count = z.number().int().nonnegative();
+  /**
+   * #1347: the open turn's charged budget counters, folded from the turn's
+   * own rows (llm intents and attempt usage, tool intent/result pairs) so a
+   * reactivated turn resumes them. `chargedAt` is the last charged row's
+   * clock; `toolsThrough`/`openTools` carry the tool wall-time union across a
+   * checkpoint taken mid-wave.
+   */
+  export const BudgetState = z
+    .object({
+      startTime: EpochMs,
+      chargedAt: EpochMs,
+      turns: Count,
+      toolCalls: Count,
+      toolRuntimeMs: Count,
+      totalInputTokens: Count,
+      totalOutputTokens: Count,
+      toolsThrough: EpochMs,
+      openTools: z.array(z.tuple([Identifier, EpochMs])),
+    })
+    .strict();
+  export type BudgetState = z.infer<typeof BudgetState>;
   export const State = z
     .object({
       messages: z.array(ModelMessage.WithParts),
@@ -104,6 +126,8 @@ export namespace FoldCheckpoint {
           .strict(),
       ),
       successorActionId: NullableIdentifier,
+      /** Absent on rows checkpointed before #1347; null between turns. */
+      budgetState: BudgetState.nullable().optional(),
     })
     .strict();
   export type State = z.infer<typeof State>;

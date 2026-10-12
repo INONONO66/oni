@@ -277,7 +277,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/budget.ts", [1, 0]],
   ["packages/agent/src/core/bus.ts", [8, 0]],
   ["packages/agent/src/core/capability.ts", [6, 0]],
-  ["packages/agent/src/core/commit.ts", [16, 2]],
+  ["packages/agent/src/core/commit.ts", [15, 2]],
   ["packages/agent/src/core/compaction-ports.ts", [2, 0]],
   ["packages/agent/src/core/compaction.ts", [1, 0]],
   ["packages/agent/src/core/compose.ts", [10, 0]],

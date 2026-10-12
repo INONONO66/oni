@@ -1,4 +1,4 @@
-import type { BusEvent } from "@openomni/protocol";
+import type { BusEvent, FoldCheckpoint } from "@openomni/protocol";
 import { Actor, Operational } from "@openomni/protocol";
 import type { AgentBudget, ResolvedAgentBudget } from "./types";
 
@@ -19,6 +19,21 @@ export function createBudgetState(now: () => number): BudgetState {
     toolRuntimeMs: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+  };
+}
+
+/**
+ * A reactivated turn resumes its checkpointed counters; the charged wall slice
+ * is rebased onto the run's clock so downtime between activations is free.
+ */
+export function restoreBudgetState(checkpointed: FoldCheckpoint.BudgetState, now: () => number): BudgetState {
+  return {
+    startTime: now() - (checkpointed.chargedAt - checkpointed.startTime),
+    turns: checkpointed.turns,
+    toolCalls: checkpointed.toolCalls,
+    toolRuntimeMs: checkpointed.toolRuntimeMs,
+    totalInputTokens: checkpointed.totalInputTokens,
+    totalOutputTokens: checkpointed.totalOutputTokens,
   };
 }
 

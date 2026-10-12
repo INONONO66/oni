@@ -6,7 +6,7 @@ export { stopState } from "./stop";
 export type { StopObservation, StopVerdict } from "./stop";
 export { RunEvents } from "./run-events";
 import { accumulateUsage, type RunInput, type Sink, type LlmError, Llm, Retry as LlmRetry, LlmRunFailure, observeRetry, selectModel } from "../model";
-import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, type BudgetState, effectiveMaxToolCalls, publishBudgetTelemetry, evaluateBudget } from "./budget";
+import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, restoreBudgetState, type BudgetState, effectiveMaxToolCalls, publishBudgetTelemetry, evaluateBudget } from "./budget";
 import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "./failure";
 import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfig, ObservedChatAgentConfig } from "./types";
 import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "./message-factory";
@@ -206,7 +206,10 @@ export function createRunState(
     stop: stopState(),
     modelFailureReasons: [],
     modelChainStart: 0,
-    budgetState: createBudgetState(source.now),
+    budgetState:
+      input.budgetState === undefined || input.budgetState === null
+        ? createBudgetState(source.now)
+        : restoreBudgetState(input.budgetState, source.now),
     messages:
       input.history === undefined
         ? toMessagesWithParts(input.messages, sessionId, source)

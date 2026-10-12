@@ -846,11 +846,8 @@ function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
 }
 
 /**
- * Activation restore (#1347): fold the suffix after the latest checkpoint
- * under the session's `maxTailBytes` once, and log what it cost. This is the
- * telemetry's only consumer — no read model, journal row or bus event grows.
- * A budget refusal leaves the activation degraded (every turn restore refuses
- * typed the same way); the line still reports the work done before refusal.
+ * Fold the suffix after the latest checkpoint under `maxTailBytes` once and
+ * log the cost: the telemetry's only consumer. A refusal still logs the work done.
  */
 function logRestoredHistory(handle: ActivationHandle): Effect.Effect<void> {
   const { kernel, authority, env } = handle;

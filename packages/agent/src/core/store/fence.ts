@@ -262,14 +262,10 @@ function latestGenerationForIn(
   }
 }
 
-/** `session.configure.settings` carrier (#1253); any configure row may pin the settings. */
+/** `session.configure.settings` carrier; any configure row may pin the settings. */
 const ConfigureSettingsIntent = z.object({ settings: ConsumptionSettings });
 
-/**
- * The latest `session.configure` row carrying parseable `intent.settings`,
- * read newest-first over the configure index (#1347): the commit path reads
- * the checkpoint policy on every batch, so this never pages whole history.
- */
+/** Latest configure row with parseable `intent.settings`, newest-first over the index (read per batch). */
 function latestSettingsIn(
   context: SessionKernelContext,
   sessionId: string,
