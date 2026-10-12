@@ -1,4 +1,5 @@
 import { Gateway, type PolicyRow } from "@openomni/protocol";
+import { ADMISSION_DEPTH_MAX } from "./bundles/delegation-policy";
 
 const external = Gateway.RuleTableA.shape.check.options.map((check) =>
   Gateway.RuleTableA.parse({
@@ -34,7 +35,8 @@ const internal = (["resident", "child"] as const).flatMap((senderRole) => [
     sender: "session",
     senderRole,
     targetKind: "new_session",
-    check: { kind: "depth", max: 4 },
+    // Gateway ingest can create a child without passing through tool.pre.
+    check: { kind: "depth", max: ADMISSION_DEPTH_MAX },
     effect: "deny",
   }),
   Gateway.RuleTableB.parse({
