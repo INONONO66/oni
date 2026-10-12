@@ -23,8 +23,10 @@ import { ToolCapabilitySeam } from "../seams";
 
 /** The default caps; the rows carry them as `how.params`, so policy data stays in rows. */
 export const DEFAULT_DELEGATION_CAPS = Object.freeze({ maxDepth: 3, maxActiveChildren: 4 });
-// The guard counts root = 0 and denies at >= maxDepth; admission counts root = 1
-// and denies above its inclusive max, so both use the same number.
+/**
+ * The guard counts root = 0 and denies at >= maxDepth; admission counts root = 1
+ * and denies above its inclusive max, so both use the same number.
+ */
 export const ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth;
 
 /** Catalog reads the guards consult per decision; `undefined` denies (fail closed). */

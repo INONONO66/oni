@@ -10,6 +10,7 @@ import { canonicalDigest, Gateway } from "@openomni/protocol";
 import { messageFixture } from "./helpers/message-fixture";
 import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { messageMaterialization, prepareMessage } from "../src/composition/message-session";
+import { ADMISSION_DEPTH_MAX } from "../src/bundles/delegation-policy";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
 
 import { storageDirectories } from "./helpers/storage-directories";
@@ -311,9 +312,12 @@ for (const check of ["parent", "fanout", "depth", "deadline"] as const) {
         content: "NO",
       };
     } else if (check === "depth") {
-      for (let i = 0; i < 3; i++)
+      for (let i = 0; i < ADMISSION_DEPTH_MAX; i++)
         materialize(f.plane, `ancestor-${i}`, i === 0 ? null : `ancestor-${i - 1}`);
-      db.query("UPDATE session SET parent_id = ? WHERE id = ?").run("ancestor-2", f.sessionId);
+      db.query("UPDATE session SET parent_id = ? WHERE id = ?").run(
+        `ancestor-${ADMISSION_DEPTH_MAX - 1}`,
+        f.sessionId,
+      );
       send = {
         to: { kind: "new_session", role: "child", runner: "native", parent: "me" },
         type: "message",
@@ -393,6 +397,24 @@ for (const check of ["parent", "fanout", "depth", "deadline"] as const) {
     expect(result.content).toContain(`message.resident.${check}`);
   });
 }
+
+test("real compiled B depth admits a sender one level inside the shared cap", async () => {
+  const f = messageFixture();
+  directories.push(f.directory);
+  using db = new Database(sessionDb(f, f.sessionId));
+  for (let i = 0; i < ADMISSION_DEPTH_MAX - 1; i++)
+    materialize(f.plane, `ancestor-${i}`, i === 0 ? null : `ancestor-${i - 1}`);
+  db.query("UPDATE session SET parent_id = ? WHERE id = ?").run(
+    `ancestor-${ADMISSION_DEPTH_MAX - 2}`,
+    f.sessionId,
+  );
+  const result = await f.send({
+    to: { kind: "new_session", role: "child", runner: "native", parent: "me" },
+    type: "message",
+    content: "OK",
+  });
+  expect(result.content).not.toContain("message.resident.depth");
+});
 
 test("real compiled B child cannot interrupt its parent", async () => {
   const f = messageFixture("child");
