@@ -3,7 +3,6 @@ import { Effect, Result } from "effect";
 import ts from "typescript";
 import { runSyncEffect } from "../apps/openomni/test/helpers/effect";
 import * as Agent from "../packages/agent/src/core/failure";
-import * as AgentMessages from "../packages/agent/src/core/messages";
 import * as Model from "../packages/agent/src/model/errors";
 import * as Store from "../packages/agent/src/core/store/errors";
 import { sdkError } from "../packages/agent/test/model/helpers/retry";
@@ -86,7 +85,7 @@ const agent = {
   ExecutionApprovalError: new Agent.ExecutionApprovalError({ code: "stale_approval" }),
   AgentStopError: new Agent.AgentStopError({ reason: "budget" }),
   // #1344: the controller's bounded revision retry surfaces this typed failure.
-  AdmissionFailure: new AgentMessages.AdmissionFailure({ code: "revision" }),
+  AdmissionFailure: new Agent.AdmissionFailure({ code: "revision" }),
 } satisfies { [K in Agent.SessionError["_tag"]]: Extract<Agent.SessionError, { _tag: K }> };
 const channels = {
   ChannelsFailure: new Channels.ChannelsFailure(diagnostic),

@@ -5,8 +5,7 @@ export { AgentFailure };
 import { Data } from "effect";
 
 // Field shapes are compile-time only (#1259 idx 90): plain types, no
-// module-load zod schemas — nothing here ever parses. A cause is always
-// structured (#1344): a string verbatim or the Error itself, never a bare throw.
+// module-load zod schemas — nothing here ever parses. A cause is a string verbatim or the Error itself.
 type Diagnostic = { readonly operation: string; readonly cause: string | Error };
 type MessageFields = { readonly message: string; readonly cause?: string | Error };
 type ProviderIdentity = {

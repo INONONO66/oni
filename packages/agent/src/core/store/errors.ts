@@ -50,10 +50,8 @@ export class PolicyGenerationRefused extends Data.TaggedError("PolicyGenerationR
  * kind's declared schema refuses the whole commit; nothing partial lands.
  */
 /**
- * Two producers, one tag: a fail-closed append names the refused row (its
- * identity plus the first schema issue), while the throwing JSON decoder
- * (`parsePlainJson`, #1344) has no row to name and carries the parser's own
- * diagnostic as `detail` under `reason: "json"` — never a fabricated identity.
+ * Two producers, one tag: a fail-closed append names the refused row and its first schema issue; the throwing
+ * JSON decoder (`parsePlainJson`) has no row and carries the parser's diagnostic as `detail` under `reason: "json"`.
  */
 export class SchemaRefused extends Data.TaggedError("SchemaRefused")<{
   readonly sessionId?: string;

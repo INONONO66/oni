@@ -2,10 +2,7 @@ import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
 import { SchemaRefused } from "./errors";
 
-/**
- * Throwing decode: malformed text is `SchemaRefused{reason: json}` carrying the
- * parser's diagnostic as `detail`; a non-plain value keeps its schema rejection.
- */
+/** Throwing decode: malformed text is `SchemaRefused{reason: json}` with the parser's diagnostic as `detail`. */
 export function parsePlainJson(text: string): PlainValue {
   try {
     return PlainValueSchema.parse(JSON.parse(text));

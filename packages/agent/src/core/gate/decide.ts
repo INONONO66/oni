@@ -307,8 +307,7 @@ export class GenerationRawSlots extends Context.Service<
 export function failureEvidence(error: ExecutionError): PlainObject {
   switch (error._tag) {
     case "LlmRunFailure": {
-      // Only the provider SDK error names itself here; a transport or typed
-      // failure keeps `null` and renders as `name: message` (#1344 r1 L1).
+      // Only the provider SDK error names itself; a transport or typed failure keeps `null`.
       const apiError = coerceApiError(error.cause);
       return {
         tag: error._tag,

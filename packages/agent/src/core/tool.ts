@@ -228,8 +228,7 @@ export function executeToolBody<In extends z.ZodType, Out extends z.ZodType>(
         (cause: CaughtValue) => {
           settle("failed");
           // An explicit ToolRefused keeps its model-facing classification; every other
-          // foreign rejection is a typed body failure the executor records as evidence:
-          // an Error rides structured, anything else keeps its own `String()` rendering.
+          // foreign rejection is a typed body failure recorded as evidence (an Error rides structured).
           resume(isToolRefusal(cause)
             ? Effect.succeed<ToolBodyOutcome>({ status: "error", message: cause.message, errorKind: "precondition_failed" })
             : Effect.fail(new ToolBodyFailed({ tool: definition.name, cause: cause instanceof Error ? cause : thrownAsError(cause).message })));
