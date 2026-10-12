@@ -2,12 +2,12 @@ import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
 import { runLedgerSync } from "../helpers/effect";
 import { expect, test } from "bun:test";
+import { z } from "zod";
 import { parsePlainJson, readPlainJson } from "../../../src/core/store/json";
 import { testExecutor } from "../../helpers/executor";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { requestLedger } from "../../helpers/effect-g1";
 import { isolated, isolatedLedger } from "../../helpers/isolated";
-import { SchemaRefused } from "../../../src/core/store/errors";
 import { LedgerSession, PlainObjectSchema } from "@openomni/protocol";
 import { createSqliteDecisionFacts } from "../../../src/core/store/decision";
 import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
@@ -83,10 +83,7 @@ test("parsePlainJson separates malformed JSON from schema-invalid JSON", () => {
   );
   // "1e999" is valid JSON syntax decoding to Infinity: the plain-value schema
   // refuses it with its own typed error, never the malformed-json refusal.
-  let schemaRejection: unknown;
-  try { parsePlainJson("1e999"); } catch (cause) { schemaRejection = cause; }
-  expect(schemaRejection).toBeDefined();
-  expect(schemaRejection instanceof SchemaRefused).toBe(false);
+  expect(() => parsePlainJson("1e999")).toThrow(z.ZodError);
   expect(parsePlainJson('{"a":[1,null]}')).toEqual({ a: [1, null] });
 });
 
