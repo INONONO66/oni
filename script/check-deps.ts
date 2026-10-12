@@ -2,7 +2,7 @@
 // imports only the workspaces the table allows, nothing undeclared. Distinct
 // from inventory wiring, import cycles and dead exports.
 import { Glob } from "bun";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
@@ -1068,9 +1068,7 @@ export function appsAgentTokenCount(source: string): number {
 
 export async function validateAppsAgentTokens(root = "."): Promise<string[]> {
   const counts = new Map<string, number>();
-  let pinnedFilesScanned = 0;
   for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
-    if (APPS_AGENT_TOKEN_RATCHET.has(filePath)) pinnedFilesScanned += 1;
     const count = appsAgentTokenCount(source);
     if (count > 0) counts.set(filePath, count);
   }
@@ -1083,11 +1081,15 @@ export async function validateAppsAgentTokens(root = "."): Promise<string[]> {
       );
     }
   }
-  // Slack fails closed, scoped like the band ratchet: scratch fixture trees
-  // hold no pinned file; the repository always does.
-  for (const [filePath, allowed] of pinnedFilesScanned === 0
-    ? []
-    : [...APPS_AGENT_TOKEN_RATCHET.entries()].sort()) {
+  // Slack fails closed against a checkout only: the pins are measured at a
+  // commit, and a worktree carries a `.git` file, a clone a `.git` directory.
+  // The scratch gate fixtures are plain directories that stub every workspace
+  // entry (`apps/openomni/src/index.ts` included) at zero tokens, so presence
+  // of a pinned path cannot scope this rule the way the band ratchet's does.
+  // A pinned file deleted from the checkout still fails here (actual 0 < pin).
+  for (const [filePath, allowed] of existsSync(join(root, ".git"))
+    ? [...APPS_AGENT_TOKEN_RATCHET.entries()].sort()
+    : []) {
     const actual = counts.get(filePath) ?? 0;
     if (actual < allowed) {
       violations.push(

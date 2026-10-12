@@ -233,8 +233,9 @@ test("#1276 (r3): a pin above the actual count fails closed", async () => {
 
 // ─── #1343: apps-to-agent direct responsibility token ratchet ───
 
-function scratchAppsTree(files: Record<string, string>): string {
+function scratchAppsTree(files: Record<string, string>, checkout = false): string {
   const root = mkdtempSync(join(tmpdir(), "tokens-"));
+  if (checkout) mkdirSync(join(root, ".git"));
   for (const [file, source] of Object.entries(files)) {
     const path = join(root, "apps/openomni/src", file);
     mkdirSync(join(path, ".."), { recursive: true });
@@ -278,13 +279,31 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
 });
 
 test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
-  // process-entry.ts is pinned at 4; a scratch tree where it is clean must fail.
-  const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" });
+  // process-entry.ts is pinned at 4; a checkout where it is clean must fail,
+  // and so must a pinned file deleted from the checkout (cluster-runtime.ts).
+  const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" }, true);
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
       "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (4 > 0): lower the pin",
     );
+    expect(violations).toContain(
+      "VIOLATION: apps/openomni/src/composition/cluster-runtime.ts token pin exceeds actual (5 > 0): lower the pin",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343: a scratch tree that is not a checkout may stub a pinned path at zero", async () => {
+  // The gate-discovery fixture stubs every workspace entry, index.ts included,
+  // in a plain directory: growth still fails there, slack is not judged.
+  const root = scratchAppsTree({
+    "index.ts": "export {};\n",
+    "view.tsx": 'import "@openomni/protocol";\n',
+  });
+  try {
+    expect(await validateAppsAgentTokens(root)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
