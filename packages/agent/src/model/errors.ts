@@ -1,5 +1,5 @@
 import type { APICallError } from "ai";
-import { AgentFailure } from "../core/failure";
+import { AgentFailure, renderBodyCause, thrownAsError } from "../core/failure";
 
 export { AgentFailure };
 import { Data } from "effect";
@@ -52,7 +52,13 @@ export class ProxyModelsError extends Data.TaggedError("ProxyModelsError")<Messa
 /** A model-catalog source failed (#1312): cache read/parse, remote fetch/parse, or cache write. */
 export class ModelCatalogError extends Data.TaggedError("ModelCatalogError")<
   MessageFields & { readonly source: "cache" | "remote" | "cache_write"; readonly path: string }
-> {}
+> {
+  /** A catalog source throw as the typed refusal: the cause rides structured, the message is its rendered text. */
+  static fromThrown<E>(source: ModelCatalogError["source"], path: string, cause: E): ModelCatalogError {
+    const error = thrownAsError(cause);
+    return new ModelCatalogError({ source, path, cause: error, message: renderBodyCause(error) });
+  }
+}
 type BoundaryFields = Diagnostic & {
   readonly message: string;
   readonly aborted?: boolean;
