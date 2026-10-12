@@ -53,7 +53,7 @@ Relates to #
 - [ ] No `as any`, `@ts-ignore`, or `@ts-expect-error` added
 - [ ] **Reconcile-first**: issue/audit claims re-verified on current `main`; deltas recorded above
 - [ ] **Doc-state sync**: `docs/implementation-status.md` + phase issue updated in this PR
-- [ ] AGENTS.md updated if public API or architecture changed
+- [ ] AGENTS.md updated if public API or architecture changed; this PR's stamp line prepended to `docs/agents-stamps.md`
 - [ ] **Independent adversarial review** run by a separate agent/session; verdict linked or pasted in a comment (author's green run alone is not evidence — see AGENTS.md § Execution Discipline)
 
 ## Review verdict
