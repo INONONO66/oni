@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,10 +16,13 @@ import {
   diffSnapshots,
   diffToolSchemaSnapshots,
   lintToolSurface,
+  namingViolations,
+  recordToolLocation,
   main as lintToolsMain,
   selfTest,
   type Baseline,
   type LocatedDefinition,
+  type ToolSurface,
 } from "./lint-tools";
 
 function definition(
@@ -121,6 +124,20 @@ describe("tool surface lint (#949 sealed catalog grammar)", () => {
     expect(lintToolSurface({ name: "grep", description: "x", inputSchema })).toEqual([]);
   });
 
+  test("a reference to a scalar or array does not contribute object fields", () => {
+    for (const target of ["scalar", ["array"]]) {
+      expect(lintToolSurface({
+        name: "grep",
+        description: "ok",
+        inputSchema: {
+          $defs: { target },
+          properties: { a: {}, b: {}, c: {}, d: {}, e: {}, f: {}, g: {} },
+          $ref: "#/$defs/target",
+        },
+      })).toEqual([]);
+    }
+  });
+
   test("local references count decoded property names toward the budget", () => {
     const inputSchema: PlainValue = {
       $defs: { "common/fields": { properties: { h: {} } } },
@@ -154,7 +171,7 @@ describe("deleted surface census", () => {
 
     await writeFile(join(fixture, "index.ts"), "export {};\n");
     expect(normalizeKnipIssues(await runKnip(fixture, false, true))).toEqual([]);
-  });
+  }, 30_000);
 });
 
 describe("lint-tools definition invariants", () => {
@@ -278,4 +295,161 @@ test("the self-test discriminates on its known-bad fixtures in-process", () => {
   // selfTest exits the process on a failed discrimination, so returning at all
   // is the assertion; the spawned --self-test lane checks the same behavior.
   expect(selfTest()).toBeUndefined();
+});
+
+test("a definition cannot claim two distinct source files", () => {
+  const item = definition("read");
+  const locations = new Map<AnyToolDefinition, string>();
+  recordToolLocation(locations, item, "tools/read.ts");
+  recordToolLocation(locations, item, "tools/read.ts");
+  expect(locations.get(item)).toBe("tools/read.ts");
+  expect(() => recordToolLocation(locations, item, "bundles/read/index.ts")).toThrow(
+    "tool read has ambiguous source: tools/read.ts, bundles/read/index.ts",
+  );
+  expect(locations.get(item)).toBe("tools/read.ts");
+});
+
+test("naming lint reports only new banned identifiers in a source fixture", () => {
+  expect(namingViolations(
+    "packages/protocol/src/fixture.ts",
+    "export const OldTask = 1; export class NewEnvelope {} export const CleanSchema = 1;",
+    new Set(["packages/protocol/src/fixture.ts:OldTask"]),
+  )).toEqual([{
+    check: "naming",
+    subject: "packages/protocol/src/fixture.ts:NewEnvelope",
+    message: "new protocol identifier uses a banned noun (runtime/task/envelope) or a *Module wrapper name (#465 naming rules)",
+  }]);
+});
+
+test("tool lint reports unexcepted fixture defects and honors a named exception", async () => {
+  const baseline: Baseline = {
+    vocab: { unmappedNamespaces: [] },
+    naming: { grandfathered: [] },
+    tools: { exceptions: { badName: ["tool-name"] } },
+  };
+  const surfaces: readonly ToolSurface[] = [
+    { name: "badName", description: " ", inputSchema: { properties: {} } },
+    {
+      name: "otherBadName",
+      description: "ok",
+      inputSchema: {
+        properties: { a: {}, b: {}, c: {}, d: {}, e: {}, f: {}, g: {}, h: {} },
+      },
+    },
+  ];
+
+  expect(await checkToolLint(baseline, surfaces)).toEqual([
+    {
+      check: "tool-lint",
+      subject: "badName",
+      message: "[tool-description] description is required",
+    },
+    {
+      check: "tool-lint",
+      subject: "otherBadName",
+      message: "[tool-name] name must be snake_case (dot namespacing allowed), ≤3 segments",
+    },
+    {
+      check: "tool-lint",
+      subject: "otherBadName",
+      message: "[tool-max-fields] public input schema exceeds 7 top-level fields",
+    },
+  ]);
+});
+
+test("update mode builds both snapshots without writing conformance baselines", async () => {
+  const writes: { path: string; contents: string }[] = [];
+  const output = await captureOutput(() => lintToolsMain(["--update"], {
+    writeSnapshot: (path, contents) => { writes.push({ path, contents }); },
+  }));
+  expect(writes.map(({ path }) => path.replaceAll("\\", "/").split("/").at(-1))).toEqual([
+    "schema-snapshot.json", "tool-schema-snapshot.json",
+  ]);
+  const schema = JSON.parse(writes[0]?.contents ?? "null");
+  const tools = JSON.parse(writes[1]?.contents ?? "null");
+  expect(Object.keys(schema).length).toBeGreaterThan(0);
+  expect(tools.length).toBeGreaterThan(0);
+  expect(output).toBe(
+    `OK: snapshots regenerated (${Object.keys(schema).length} protocol types, ${tools.length} derived tool specs) — these diffs are the review surface\n`,
+  );
+});
+
+test("main reports the exact violating check and exits 1", async () => {
+  const errors: string[] = [];
+  const stderr = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errors.push(String(chunk));
+    return true;
+  });
+  const exit = spyOn(process, "exit").mockImplementation((code) => {
+    throw new Error(`exit ${code}`);
+  });
+  try {
+    await expect(lintToolsMain([], {
+      violations: [{ check: "naming", subject: "fixture.ts:BadTask", message: "banned noun" }],
+    })).rejects.toThrow("exit 1");
+    expect(errors).toEqual(["VIOLATION [naming] fixture.ts:BadTask — banned noun\n"]);
+  } finally {
+    exit.mockRestore();
+    stderr.mockRestore();
+  }
+});
+
+test("self-test CLI mode returns its discrimination verdict", async () => {
+  expect(await captureOutput(() => lintToolsMain(["--self-test"]))).toBe(
+    "OK: lint-tools self-test — all checks discriminate on known-bad fixtures\n",
+  );
+});
+
+test("self-test rejects mutant check implementations with exit 1", () => {
+  const errors: string[] = [];
+  const stderr = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errors.push(String(chunk));
+    return true;
+  });
+  const exit = spyOn(process, "exit").mockImplementation((code) => {
+    throw new Error(`exit ${code}`);
+  });
+  try {
+    expect(() => selfTest({ exemplar: undefined })).toThrow("exit 1");
+    expect(errors).toEqual([
+      "SELF-TEST FAIL: definition invariant self-test has no exemplar\n",
+    ]);
+    errors.length = 0;
+
+    expect(() => selfTest({
+      unmappedNamespaces: (names) => names.includes("wait") ? ["wait"] : [],
+      lintToolSurface: (tool) => JSON.stringify(tool.inputSchema).includes('"path"')
+        ? [{ rule: "tool-name", message: "mutant" }] : [],
+      namingOffenders: (_path, source) => source.includes("WaitSchema") ? ["x"] : [],
+      definitionInvariantViolations: () => [],
+      topLevelFieldCount: () => 0,
+      diffSnapshots: (_previous, current) => JSON.stringify(current).includes('"extra"')
+        ? [{ check: "schema-snapshot", subject: "Tool.Call", message: "mutant" }] : [],
+      diffToolSchemaSnapshots: (_previous, current) => current[0]?.name === "a"
+        ? [{ check: "tool-schema-snapshot", subject: "catalogDefinitions", message: "mutant" }] : [],
+    })).toThrow("exit 1");
+    expect(errors).toEqual([
+      "SELF-TEST FAIL: vocab-ratchet did not flag an unmapped namespace\n",
+      "SELF-TEST FAIL: vocab-ratchet flagged a mapped namespace (wait→Wait)\n",
+      "SELF-TEST FAIL: tool-lint did not flag name/description/field-count on a known-bad tool\n",
+      "SELF-TEST FAIL: tool-lint flagged a known-good tool\n",
+      "SELF-TEST FAIL: naming lint did not flag a banned noun\n",
+      "SELF-TEST FAIL: naming lint flagged a clean identifier\n",
+      "SELF-TEST FAIL: earned-check did not flag an uncatalogued definition\n",
+      "SELF-TEST FAIL: tool-file-name misjudged apps/openomni/src/tools/send_message.ts for send_message\n",
+      "SELF-TEST FAIL: tool-file-name misjudged apps/openomni/src/tools/files/read-file.ts for read\n",
+      "SELF-TEST FAIL: definition invariants missed empty name or description\n",
+      "SELF-TEST FAIL: definition invariants missed an unregistered tool category\n",
+      "SELF-TEST FAIL: tool field budget walker did not follow allOf/anyOf/$ref\n",
+      "SELF-TEST FAIL: tool field budget walker lost escaped recursive reference fields\n",
+      "SELF-TEST FAIL: schema-snapshot did not flag a field rename\n",
+      "SELF-TEST FAIL: schema-snapshot did not flag a removed type\n",
+      "SELF-TEST FAIL: schema-snapshot flagged an additive change\n",
+      "SELF-TEST FAIL: tool-schema snapshot did not flag a derived spec change\n",
+      "SELF-TEST FAIL: tool-schema snapshot flagged identical derived specs\n",
+    ]);
+  } finally {
+    exit.mockRestore();
+    stderr.mockRestore();
+  }
 });

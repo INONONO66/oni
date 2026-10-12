@@ -296,8 +296,10 @@ function collectToolSurfaces(): ToolSurface[] {
   }));
 }
 
-export async function checkToolLint(baseline: Baseline): Promise<Violation[]> {
-  const surfaces = collectToolSurfaces();
+export async function checkToolLint(
+  baseline: Baseline,
+  surfaces: readonly ToolSurface[] = collectToolSurfaces(),
+): Promise<Violation[]> {
   const violations: Violation[] = [];
 
   for (const surface of surfaces) {
@@ -327,25 +329,29 @@ export function namingOffenders(filePath: string, source: string): string[] {
   return Array.from(offenders);
 }
 
+export function namingViolations(
+  filePath: string,
+  source: string,
+  grandfathered: ReadonlySet<string>,
+): Violation[] {
+  return namingOffenders(filePath, source)
+    .filter((offender) => !grandfathered.has(offender))
+    .map((offender) => ({
+      check: "naming",
+      subject: offender,
+      message:
+        "new protocol identifier uses a banned noun (runtime/task/envelope) or a *Module wrapper name (#465 naming rules)",
+    }));
+}
+
 export async function checkNaming(baseline: Baseline): Promise<Violation[]> {
   const grandfathered = new Set(baseline.naming.grandfathered);
   const violations: Violation[] = [];
   const glob = new Bun.Glob(`${PROTOCOL_SRC}/**/*.ts`);
   for await (const filePath of glob.scan({ cwd: ROOT, onlyFiles: true })) {
-    if (TEST_SUFFIXES.some((suffix) => filePath.endsWith(suffix))) {
-      continue;
-    }
+    if (TEST_SUFFIXES.some((suffix) => filePath.endsWith(suffix))) continue;
     const source = await Bun.file(join(ROOT, filePath)).text();
-    for (const offender of namingOffenders(filePath, source)) {
-      if (!grandfathered.has(offender)) {
-        violations.push({
-          check: "naming",
-          subject: offender,
-          message:
-            "new protocol identifier uses a banned noun (runtime/task/envelope) or a *Module wrapper name (#465 naming rules)",
-        });
-      }
-    }
+    violations.push(...namingViolations(filePath, source, grandfathered));
   }
   return violations;
 }
@@ -373,6 +379,18 @@ export interface LocatedDefinition {
   readonly filePath: string;
 }
 
+export function recordToolLocation(
+  located: Map<AnyToolDefinition, string>,
+  definition: AnyToolDefinition,
+  filePath: string,
+): void {
+  const previous = located.get(definition);
+  if (previous !== undefined && previous !== filePath) {
+    throw new Error(`tool ${definition.name} has ambiguous source: ${previous}, ${filePath}`);
+  }
+  located.set(definition, filePath);
+}
+
 async function locateExportedDefinitions(
   definitions: readonly AnyToolDefinition[],
 ): Promise<LocatedDefinition[]> {
@@ -398,11 +416,7 @@ async function locateExportedDefinitions(
       const escaped = definition.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const declaration = new RegExp(`(?:name\\s*:|=)\\s*["']${escaped}["']`);
       if (!declaration.test(source)) continue;
-      const previous = located.get(definition);
-      if (previous !== undefined && previous !== filePath) {
-        throw new Error(`tool ${definition.name} has ambiguous source: ${previous}, ${filePath}`);
-      }
-      located.set(definition, filePath);
+      recordToolLocation(located, definition, filePath);
     }
   }
   return Array.from(located, ([definition, filePath]) => ({ definition, filePath }));
@@ -659,8 +673,19 @@ const badTool: ToolSurface = {
   },
 };
 
-function definitionSelfTest(failures: string[]): void {
-  const exemplar = definitions[0];
+export interface SelfTestChecks {
+  readonly exemplar: AnyToolDefinition | undefined;
+  readonly unmappedNamespaces: typeof unmappedNamespaces;
+  readonly lintToolSurface: typeof lintToolSurface;
+  readonly namingOffenders: typeof namingOffenders;
+  readonly definitionInvariantViolations: typeof definitionInvariantViolations;
+  readonly topLevelFieldCount: typeof topLevelFieldCount;
+  readonly diffSnapshots: typeof diffSnapshots;
+  readonly diffToolSchemaSnapshots: typeof diffToolSchemaSnapshots;
+}
+
+function definitionSelfTest(failures: string[], checks: SelfTestChecks): void {
+  const exemplar = checks.exemplar;
   if (exemplar === undefined) failures.push("definition invariant self-test has no exemplar");
   if (exemplar === undefined) return;
   const unsafeQuery = {
@@ -668,7 +693,7 @@ function definitionSelfTest(failures: string[]): void {
     name: "unsafe_query",
     category: "query",
   } as AnyToolDefinition;
-  const earnedFlagged = definitionInvariantViolations(
+  const earnedFlagged = checks.definitionInvariantViolations(
     [],
     [{ definition: unsafeQuery, filePath: "apps/openomni/src/tools/query/unsafe.ts" }],
   ).some(({ check }) => check === "earned-check");
@@ -681,40 +706,51 @@ function definitionSelfTest(failures: string[]): void {
   ] as const;
   for (const [name, filePath, expected] of fileNameChecks) {
     const definition = { ...exemplar, name } as AnyToolDefinition;
-    const flagged = definitionInvariantViolations([definition], [{ definition, filePath }]).filter(
+    const flagged = checks.definitionInvariantViolations([definition], [{ definition, filePath }]).filter(
       ({ message }) => message.startsWith("[tool-file-name]"),
     ).length;
     if (flagged !== expected) failures.push(`tool-file-name misjudged ${filePath} for ${name}`);
   }
   const invalidDefinition = { ...exemplar, name: "", description: "" } as AnyToolDefinition;
-  const invalidMessages = definitionInvariantViolations(
+  const invalidMessages = checks.definitionInvariantViolations(
     [invalidDefinition],
     [{ definition: invalidDefinition, filePath: "apps/openomni/src/tools/.ts" }],
   ).map(({ message }) => message);
   if (!invalidMessages.some((message) => message.startsWith("[tool-name]")) || !invalidMessages.some((message) => message.startsWith("[tool-description]"))) failures.push("definition invariants missed empty name or description");
   const unknownCategory: AnyToolDefinition = { ...exemplar };
   Object.defineProperty(unknownCategory, "category", { value: "unregistered" });
-  if (!definitionInvariantViolations([unknownCategory], [{ definition: unknownCategory, filePath: `apps/openomni/src/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }]).some(({ message }) => message.startsWith("[tool-category]"))) failures.push("definition invariants missed an unregistered tool category");
+  if (!checks.definitionInvariantViolations([unknownCategory], [{ definition: unknownCategory, filePath: `apps/openomni/src/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }]).some(({ message }) => message.startsWith("[tool-category]"))) failures.push("definition invariants missed an unregistered tool category");
 }
 
-export function selfTest(): void {
+export function selfTest(overrides: Partial<SelfTestChecks> = {}): void {
+  const checks: SelfTestChecks = {
+    exemplar: definitions[0],
+    unmappedNamespaces,
+    lintToolSurface,
+    namingOffenders,
+    definitionInvariantViolations,
+    topLevelFieldCount,
+    diffSnapshots,
+    diffToolSchemaSnapshots,
+    ...overrides,
+  };
   const failures: string[] = [];
 
   const nouns = extractTierNouns(
     "**Tier 1 (philosophy):** Actor, Ledger.\n**Tier 2 (specification):** Wait.",
   );
-  if (unmappedNamespaces(["actor", "totally-new-thing"], nouns).join() !== "totally-new-thing") {
+  if (checks.unmappedNamespaces(["actor", "totally-new-thing"], nouns).join() !== "totally-new-thing") {
     failures.push("vocab-ratchet did not flag an unmapped namespace");
   }
-  if (unmappedNamespaces(["wait"], nouns).length !== 0) {
+  if (checks.unmappedNamespaces(["wait"], nouns).length !== 0) {
     failures.push("vocab-ratchet flagged a mapped namespace (wait→Wait)");
   }
 
-  if (lintToolSurface(badTool).length !== 3) {
+  if (checks.lintToolSurface(badTool).length !== 3) {
     failures.push("tool-lint did not flag name/description/field-count on a known-bad tool");
   }
   if (
-    lintToolSurface({
+    checks.lintToolSurface({
       name: "read",
       description: "ok",
       inputSchema: { type: "object", properties: { path: {} } },
@@ -723,14 +759,14 @@ export function selfTest(): void {
     failures.push("tool-lint flagged a known-good tool");
   }
 
-  if (namingOffenders("x.ts", "export const FooTaskEnvelope = 1;").length === 0) {
+  if (checks.namingOffenders("x.ts", "export const FooTaskEnvelope = 1;").length === 0) {
     failures.push("naming lint did not flag a banned noun");
   }
-  if (namingOffenders("x.ts", "export const WaitSchema = 1;").length !== 0) {
+  if (checks.namingOffenders("x.ts", "export const WaitSchema = 1;").length !== 0) {
     failures.push("naming lint flagged a clean identifier");
   }
 
-  definitionSelfTest(failures);
+  definitionSelfTest(failures, checks);
 
   const composedSchema: PlainObject = {
     $defs: { common: { type: "object", properties: { a: {}, b: {}, c: {} } } },
@@ -744,7 +780,7 @@ export function selfTest(): void {
       },
     ],
   };
-  if (topLevelFieldCount(composedSchema) !== 6) {
+  if (checks.topLevelFieldCount(composedSchema) !== 6) {
     failures.push("tool field budget walker did not follow allOf/anyOf/$ref");
   }
   const recursiveSchema: PlainObject = {
@@ -757,23 +793,23 @@ export function selfTest(): void {
     properties: { a: {}, b: {}, c: {}, d: {}, e: {}, f: {}, g: {} },
     $ref: "#/$defs/common~1fields",
   };
-  if (lintToolSurface({ name: "read", description: "ok", inputSchema: recursiveSchema }).map((failure) => failure.rule).join() !== "tool-max-fields") failures.push("tool field budget walker lost escaped recursive reference fields");
+  if (checks.lintToolSurface({ name: "read", description: "ok", inputSchema: recursiveSchema }).map((failure) => failure.rule).join() !== "tool-max-fields") failures.push("tool field budget walker lost escaped recursive reference fields");
 
-  const snapshotViolations = diffSnapshots(
+  const snapshotViolations = checks.diffSnapshots(
     { "Tool.Call": ["id", "input", "tool"] },
     { "Tool.Call": ["id", "payload", "tool"] },
   );
   if (snapshotViolations.length !== 1 || !snapshotViolations[0]?.message.includes("input")) {
     failures.push("schema-snapshot did not flag a field rename");
   }
-  if (diffSnapshots({ "Tool.Call": ["id"] }, {}).map((violation) => violation.subject).join() !== "Tool.Call") failures.push("schema-snapshot did not flag a removed type");
-  if (diffSnapshots({ "Tool.Call": ["id"] }, { "Tool.Call": ["id", "extra"] }).length !== 0) {
+  if (checks.diffSnapshots({ "Tool.Call": ["id"] }, {}).map((violation) => violation.subject).join() !== "Tool.Call") failures.push("schema-snapshot did not flag a removed type");
+  if (checks.diffSnapshots({ "Tool.Call": ["id"] }, { "Tool.Call": ["id", "extra"] }).length !== 0) {
     failures.push("schema-snapshot flagged an additive change");
   }
-  if (diffToolSchemaSnapshots([{ name: "a" }], [{ name: "b" }]).length !== 1) {
+  if (checks.diffToolSchemaSnapshots([{ name: "a" }], [{ name: "b" }]).length !== 1) {
     failures.push("tool-schema snapshot did not flag a derived spec change");
   }
-  if (diffToolSchemaSnapshots([{ name: "a" }], [{ name: "a" }]).length !== 0) {
+  if (checks.diffToolSchemaSnapshots([{ name: "a" }], [{ name: "a" }]).length !== 0) {
     failures.push("tool-schema snapshot flagged identical derived specs");
   }
 
@@ -792,7 +828,13 @@ export function selfTest(): void {
 // main
 // ---------------------------------------------------------------------------
 
-export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
+export async function main(
+  argv: readonly string[] = process.argv.slice(2),
+  hooks: {
+    readonly writeSnapshot?: (path: string, contents: string) => void;
+    readonly violations?: readonly Violation[];
+  } = {},
+): Promise<void> {
   const args = new Set(argv);
 
   if (args.has("--self-test")) {
@@ -803,8 +845,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   if (args.has("--update")) {
     const snapshot = await buildSchemaSnapshot();
     const toolSnapshot = buildToolSchemaSnapshot();
-    writeFileSync(SNAPSHOT_PATH, `${JSON.stringify(snapshot, null, 2)}\n`);
-    writeFileSync(TOOL_SNAPSHOT_PATH, `${JSON.stringify(toolSnapshot, null, 2)}\n`);
+    (hooks.writeSnapshot ?? writeFileSync)(SNAPSHOT_PATH, `${JSON.stringify(snapshot, null, 2)}\n`);
+    (hooks.writeSnapshot ?? writeFileSync)(TOOL_SNAPSHOT_PATH, `${JSON.stringify(toolSnapshot, null, 2)}\n`);
     process.stdout.write(
       `OK: snapshots regenerated (${Object.keys(snapshot).length} protocol types, ${toolSnapshot.length} derived tool specs) — these diffs are the review surface\n`,
     );
@@ -816,7 +858,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     tools: z.object({ exceptions: z.record(z.string(), z.array(z.string())) }).optional(),
     naming: z.object({ grandfathered: z.array(z.string()) }),
   }).parse(decodeJson(readFileSync(BASELINE_PATH, "utf8")));
-  const violations = [
+  const violations = hooks.violations ?? [
     ...(await checkVocabRatchet(baseline)),
     ...(await checkToolLint(baseline)),
     ...(await checkNaming(baseline)),
