@@ -13,14 +13,18 @@ import {
 } from "../../errors";
 import { DiscordGateway } from "./gateway";
 import { DiscordNormalizer } from "./normalizer";
-import { type DiscordMessage, DiscordMessageSchema } from "./types";
+import {
+  type DiscordMessage,
+  type DiscordReaction,
+  DiscordMessageSchema,
+  DiscordReactionSchema,
+} from "./types";
 import type { EffectRunner, PublishPort } from "../../types";
 import { sendText } from "../../support/send-text";
 import { DISCORD_RENDER } from "./format";
 
 export class DiscordAdapter implements Channel.Surface {
   readonly id = "discord";
-
   private readonly client: DiscordClient;
   private readonly gateway: DiscordGateway;
   private readonly dedupe: Dedupe;
@@ -46,7 +50,7 @@ export class DiscordAdapter implements Channel.Surface {
       () => this.client.fetchGatewayUrl(),
       {
         onReady: ({ botId, botUsername }) => {
-          this.normalizer = new DiscordNormalizer();
+          this.normalizer = new DiscordNormalizer(botId);
           this.publish(Operational.Events.Info, {
             // Origin: a gateway READY is a distinct occurrence (initial connect
             // AND every re-identify) — deliberately its own trace, not the boot's.
@@ -58,14 +62,17 @@ export class DiscordAdapter implements Channel.Surface {
           });
         },
         onDispatch: (event, data, traceId) => {
-          if (event !== "MESSAGE_CREATE") return;
-          const message = DiscordMessageSchema.safeParse(data);
+          if (event !== "MESSAGE_CREATE" && event !== "MESSAGE_REACTION_ADD") return;
+          const message =
+            event === "MESSAGE_CREATE"
+              ? DiscordMessageSchema.safeParse(data)
+              : DiscordReactionSchema.safeParse(data);
           if (!message.success) {
             this.publish(Operational.Events.Warn, {
               traceId,
               time: this.options.now(),
               component: "server",
-              msg: "discord MESSAGE_CREATE payload malformed; dropped",
+              msg: `discord ${event} payload malformed; dropped`,
             });
             return;
           }
@@ -125,12 +132,15 @@ export class DiscordAdapter implements Channel.Surface {
     );
   }
 
-  private handleMessageCreate(message: DiscordMessage, traceId: string): void {
+  private handleMessageCreate(message: DiscordMessage | DiscordReaction, traceId: string): void {
     const normalizer = this.normalizer;
     if (!normalizer) return;
     void handoffInbound({
       dedupe: this.dedupe,
-      key: message.id,
+      key:
+        "message_id" in message
+          ? `${message.message_id}:${message.emoji.name}:${message.user_id}`
+          : message.id,
       traceId,
       now: this.options.now,
       publish: this.publish,
@@ -155,7 +165,6 @@ export class DiscordAdapter implements Channel.Surface {
       msg: "discord message received",
       context: { channelId },
     });
-
     await requireHandler(this.handler, "discord")(inbound);
   }
 }

@@ -14,13 +14,11 @@ import {
 const RetryAfterSchema = z.object({
   parameters: z.object({ retry_after: z.number().optional() }).optional(),
 });
-
 const EnvelopeSchema = z.object({
   ok: z.boolean(),
   description: z.string().optional(),
   result: z.json().optional(),
 });
-
 /** `sendMessage` result — Telegram sends a numeric id; absence means no id to report. */
 const SentMessageSchema = z.object({
   message_id: z.union([z.number(), z.string()]).optional(),
@@ -101,7 +99,7 @@ export class TelegramClient implements ChannelClient {
       "getUpdates",
       traceId,
       z.array(TelegramUpdateSchema),
-      { offset, timeout: 30, allowed_updates: ["message"] },
+      { offset, timeout: 30, allowed_updates: ["message", "message_reaction"] },
       signal,
     );
   }

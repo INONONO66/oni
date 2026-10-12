@@ -45,9 +45,20 @@ const TelegramMessageSchema: z.ZodType<TelegramMessage> = z.lazy(() =>
   }),
 );
 
+const TelegramReactionSchema = z.object({
+  chat: TelegramChatSchema,
+  message_id: z.number(),
+  user: TelegramUserSchema.optional(),
+  actor_chat: TelegramChatSchema.optional(),
+  date: z.number(),
+  new_reaction: z.array(z.object({ type: z.string(), emoji: z.string().optional() })),
+});
+export type TelegramReaction = z.infer<typeof TelegramReactionSchema>;
+
 export const TelegramUpdateSchema = z.object({
   update_id: z.number(),
   message: TelegramMessageSchema.optional(),
+  message_reaction: TelegramReactionSchema.optional(),
 });
 
 export type TelegramUser = z.infer<typeof TelegramUserSchema>;

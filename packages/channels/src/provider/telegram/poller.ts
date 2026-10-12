@@ -5,10 +5,10 @@ import { reconnectSchedule } from "../../support/schedule";
 import { ThrownError } from "../../support/thrown";
 import type { EffectRunner, PublishPort } from "../../types";
 import type { TelegramClient } from "./client";
-import type { TelegramMessage } from "./types";
+import type { TelegramMessage, TelegramReaction } from "./types";
 
 interface PollerCallbacks {
-  onMessage: (message: TelegramMessage) => void | Promise<void>;
+  onMessage: (message: TelegramMessage | TelegramReaction) => void | Promise<void>;
 }
 
 /**
@@ -93,9 +93,8 @@ export class TelegramPoller {
       // arrives after stop()/interruption finds its own signal aborted.
       for (const update of updates) {
         if (controller.signal.aborted) return;
-        if (update.message?.text) {
-          await this.callbacks.onMessage(update.message);
-        }
+        if (update.message?.text) await this.callbacks.onMessage(update.message);
+        if (update.message_reaction) await this.callbacks.onMessage(update.message_reaction);
         if (controller.signal.aborted) return;
         this.offset = update.update_id + 1;
       }
