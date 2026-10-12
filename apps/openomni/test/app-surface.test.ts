@@ -24,8 +24,29 @@ import { waveTool } from "./helpers/session-wave";
 import { testToolsBundle } from "./helpers/app-fixture";
 import { nextFrame } from "./helpers/ws";
 import { approvalPolicy } from "./helpers/approval-policy";
+import { materializeResident } from "./helpers/resident-materialize";
 
 const suite = residentSuite();
+
+function fifoWakeWriter(fifo: string) {
+  const writer = Bun.spawn(["/bin/sh", "-c", `printf 'WAKE\\n' > '${fifo}'`]);
+  suite.defer(async () => {
+    if (writer.exitCode === null) writer.kill();
+    await writer.exited;
+  });
+}
+
+function expectTimeoutCompanion(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string, occurrenceId: string) {
+  const chain = foldAlarmChains(plane.openKernel(sessionId), sessionId).get(`${sessionId}-watch:timeout`);
+  if (chain === undefined) throw new Error("timeout chain lost");
+  expect(chain.latest.occurrenceId).toBe(occurrenceId);
+  expect(chain.latest.at).toBe(4_102_444_800_000);
+}
+
+async function restartApp(config: ReturnType<typeof suite.config>) {
+  const app = await suite.boot({ config: { ...config, machines: testMachinesPlane() }, llm: stopLlm });
+  return planeOf(app.runtime);
+}
 
 test.each(["revision", "fence"] as const)(
   "facade interrupt handles a %s commit refusal",
@@ -197,19 +218,7 @@ test("a stale owner answer with no live turn rides the entity Resolve and is rej
   });
   const plane = await planeOf(app.runtime);
   const sessionId = "stale-resolve-target";
-  await runEffect(
-    plane.openKernel(sessionId).materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: 1,
-      actionId: `${sessionId}:materialize`,
-      at: 1,
-    }),
-  );
-  plane.catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
+  await materializeResident(plane, sessionId, 1);
   const parsedInput = { slot: "ghost" };
   const request = {
     requestId: "ghost-request",
@@ -486,19 +495,7 @@ test("boot rescan wakes armed idle sessions and skips ghost catalog rows and nat
   const plane1 = await planeOf(app1.runtime);
   const sessionId = "rescan-seed";
   const kernel = plane1.openKernel(sessionId);
-  await runEffect(
-    kernel.materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: kernel.currentPolicyGeneration(),
-      actionId: `${sessionId}:materialize`,
-      at: 1,
-    }),
-  );
-  plane1.catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
+  await materializeResident(plane1, sessionId, kernel.currentPolicyGeneration());
   const fence = await runEffect(adoptTestFence(kernel, sessionId, "rescan-seeder"));
   // One scheduled chain with an unregistered purpose (folds to fired{stale})
   // and one native monitor.hit chain (never resent by the boot rescan).
@@ -565,19 +562,7 @@ test("boot rescan wakes armed idle sessions and skips ghost catalog rows and nat
 /** An idle-armed seed session: one scheduled `note.due` chain, fence rotated once. */
 async function seedArmedSession(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string) {
   const kernel = plane.openKernel(sessionId);
-  await runEffect(
-    kernel.materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: kernel.currentPolicyGeneration(),
-      actionId: `${sessionId}:materialize`,
-      at: 1,
-    }),
-  );
-  plane.catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
+  await materializeResident(plane, sessionId, kernel.currentPolicyGeneration());
   const fence = await runEffect(adoptTestFence(kernel, sessionId, "fault-seeder"));
   const due = Core.armAction({
     parentId: `${sessionId}:materialize`,
@@ -623,19 +608,7 @@ async function seedNativeSession(
   payload: PlainObject,
 ) {
   const kernel = plane.openKernel(sessionId);
-  await runEffect(
-    kernel.materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: kernel.currentPolicyGeneration(),
-      actionId: `${sessionId}:materialize`,
-      at: 1,
-    }),
-  );
-  plane.catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
+  await materializeResident(plane, sessionId, kernel.currentPolicyGeneration());
   const fence = await runEffect(adoptTestFence(kernel, sessionId, "native-seeder"));
   const hit = Core.armAction({
     parentId: `${sessionId}:materialize`,
@@ -702,15 +675,10 @@ test("an activation's armed monitor.hit resend reinstalls the native source acro
     }
   });
   suite.defer(unsubscribe);
-  const app2 = await suite.boot({ config: { ...config, machines: testMachinesPlane() }, llm: stopLlm });
-  const plane2 = await planeOf(app2.runtime);
+  const plane2 = await restartApp(config);
   // The writer's open blocks until the reinstalled source's `cat` attaches to
   // the fifo — the rendezvous IS the install proof, no readiness polling.
-  const writer = Bun.spawn(["/bin/sh", "-c", `printf 'WAKE\\n' > '${fifo}'`]);
-  suite.defer(async () => {
-    if (writer.exitCode === null) writer.kill();
-    await writer.exited;
-  });
+  fifoWakeWriter(fifo);
   await bounded(woke.promise);
   const kernel2 = plane2.openKernel(sessionId);
   // The hit delivered under the seeded occurrence and prompted its content.
@@ -719,11 +687,7 @@ test("an activation's armed monitor.hit resend reinstalls the native source acro
   if (prompt?.kind !== "prompt") throw new Error("missing wake prompt");
   // The companion timeout chain was scheduled, not retired: still armed on
   // the original occurrence, untouched by the hit path.
-  const chains = foldAlarmChains(kernel2, sessionId);
-  const timeoutChain = chains.get(`${sessionId}-watch:timeout`);
-  if (timeoutChain === undefined) throw new Error("timeout chain lost");
-  expect(timeoutChain.latest.occurrenceId).toBe(timeout.occurrenceId);
-  expect(timeoutChain.latest.at).toBe(4_102_444_800_000);
+  expectTimeoutCompanion(plane2, sessionId, timeout.occurrenceId);
 });
 
 test.each<[string, PlainObject]>([
@@ -750,8 +714,7 @@ test.each<[string, PlainObject]>([
     if (event.sessionId === sessionId && event.kind === "alarm") retired.resolve();
   });
   suite.defer(unsubscribe);
-  const app2 = await suite.boot({ config: { ...config, machines: testMachinesPlane() }, llm: stopLlm });
-  const plane2 = await planeOf(app2.runtime);
+  const plane2 = await restartApp(config);
   await bounded(retired.promise);
   const kernel2 = plane2.openKernel(sessionId);
   const chains = foldAlarmChains(kernel2, sessionId);
@@ -766,10 +729,7 @@ test.each<[string, PlainObject]>([
   expect(kernel2.actionById(`${hit.occurrenceId}:delivered`)).toBeUndefined();
   expect(kernel2.actionById(`${hit.occurrenceId}:stale`)).toBeUndefined();
   // The scheduled timeout companion is untouched and still armed.
-  const timeoutChain = chains.get(`${sessionId}-watch:timeout`);
-  if (timeoutChain === undefined) throw new Error("timeout chain lost");
-  expect(timeoutChain.latest.occurrenceId).toBe(timeout.occurrenceId);
-  expect(timeoutChain.latest.at).toBe(4_102_444_800_000);
+  expectTimeoutCompanion(plane2, sessionId, timeout.occurrenceId);
 });
 
 test("refused alarm sends (sqlite trigger fault) fail one session's rescan and another's activation resend without touching their armed rows", async () => {
@@ -808,7 +768,7 @@ test("refused alarm sends (sqlite trigger fault) fail one session's rescan and a
   // production log sentence — rewording the log must not break this test.
   const INJECTED_RESEND = "injected resend refusal";
   const original = console.log.bind(console);
-  const logs = spyOn(console, "log").mockImplementation((...args: Parameters<typeof console.log>) => {
+  const logs = spyOn(console, "log").mockImplementation((...args: string[]) => {
     const line = args.map(String).join(" ");
     if (line.includes(INJECTED_RESEND)) resendLogged.resolve();
     else original(...args);
@@ -818,8 +778,7 @@ test("refused alarm sends (sqlite trigger fault) fail one session's rescan and a
     if (event.sessionId === "fault-ok" && event.kind === "alarm") okStale.resolve();
   });
   suite.defer(unsubscribe);
-  const app2 = await suite.boot({ config: { ...config, machines: testMachinesPlane() }, llm: stopLlm });
-  const plane2 = await planeOf(app2.runtime);
+  const plane2 = await restartApp(config);
   await bounded(Promise.all([okStale.promise, rescanLogged.promise, resendLogged.promise]));
 
   // The healthy session folded its due chain stale as usual.
@@ -838,7 +797,7 @@ test("refused alarm sends (sqlite trigger fault) fail one session's rescan and a
   expect(resendKernel.actionById(`${resendDue.occurrenceId}:delivered`)).toBeUndefined();
   // Secondary: each injected fault surfaced exactly one failure report.
   expect(rescanFailures).toHaveLength(1);
-  const logLines = logs.mock.calls.map((call) => call.map(String).join(" "));
+  const logLines = logs.mock.calls.map((call: string[]) => call.join(" "));
   expect(logLines.filter((line) => line.includes(INJECTED_RESEND))).toHaveLength(1);
 });
 
@@ -849,19 +808,7 @@ test("activation resend persists every armed envelope at the insert, never await
   const plane1 = await planeOf(app1.runtime);
   const sessionId = "future-resend";
   const kernel = plane1.openKernel(sessionId);
-  await runEffect(
-    kernel.materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: kernel.currentPolicyGeneration(),
-      actionId: `${sessionId}:materialize`,
-      at: 1,
-    }),
-  );
-  plane1.catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
+  await materializeResident(plane1, sessionId, kernel.currentPolicyGeneration());
   const fence = await runEffect(adoptTestFence(kernel, sessionId, "future-seeder"));
   // Two far-future chains that no reply will settle today, followed in fire
   // order by an uninstallable monitor.hit chain whose refused send is the
@@ -920,8 +867,7 @@ test("activation resend persists every armed envelope at the insert, never await
     if (event.sessionId === sessionId && event.kind === "alarm") walked.resolve();
   });
   suite.defer(unsubscribe);
-  const app2 = await suite.boot({ config: { ...config, machines: testMachinesPlane() }, llm: stopLlm });
-  const plane2 = await planeOf(app2.runtime);
+  const plane2 = await restartApp(config);
   // The refused watch sorts LAST in the armed index: the only alarm commit a
   // reboot can produce here is its send_refused retire (#1254 H2), appended
   // by the walk itself strictly after both future inserts were issued.
