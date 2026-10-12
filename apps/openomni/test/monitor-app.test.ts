@@ -1,6 +1,6 @@
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { Effect } from "effect";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import type { Model } from "@openomni/agent";
 import { Bus, newTraceId } from "./helpers/bus";
@@ -324,7 +324,9 @@ test("channel stores ride the host's catalog handle and the bound entity ports s
   }
   expect(calls).toBe(1);
 
+  const closes = spyOn(plane.catalog, "close");
   await app.stop();
+  expect(closes).toHaveBeenCalledTimes(1);
   expect(Bun.file(`${catalogPath}-wal`).size).toBe(0);
   expect(() => plane.catalogDatabase.query("SELECT 1").get()).toThrow();
 });

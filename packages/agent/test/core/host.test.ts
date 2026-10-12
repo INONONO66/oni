@@ -1,8 +1,8 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Crypto, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
+import { Context, Crypto, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
 import { SessionEntity } from "../../src/core/entity";
 import { Ledger, type LedgerConfig, OpenRefused, openLedger } from "../../src/core/host";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
@@ -130,6 +130,32 @@ test("file mode: one scope opens catalog, runner storage and entity; the deliver
   await runAgent(Scope.close(scope, Exit.void));
   expect(sessionFileClosed(catalogPath)).toBe(true);
   expect(sessionFileClosed(file)).toBe(true);
+});
+
+test("file mode: closing the scope releases the catalog exactly once (#1345 M1)", async () => {
+  const { catalogPath, sessionsDir } = home("release-once");
+  const sessionId = "release-once-session";
+  const layer = openLedger(
+    config({
+      catalog: { path: catalogPath },
+      sessions: { dir: sessionsDir },
+      cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
+    }),
+  ).pipe(Layer.provide(bunCrypto));
+  const scope = await runAgent(Scope.make());
+  const context = await runAgent(Layer.buildWithScope(layer, scope));
+  const catalog = Context.get(context, Ledger).catalog;
+  const closes = spyOn(catalog, "close");
+  await runAgent(
+    Effect.gen(function* () {
+      yield* materialize(sessionId);
+      yield* deliverPrompt(sessionId, "m1");
+    }).pipe(Effect.provide(context)),
+  );
+  expect(closes).toHaveBeenCalledTimes(0);
+  await runAgent(Scope.close(scope, Exit.void));
+  expect(closes).toHaveBeenCalledTimes(1);
+  expect(sessionFileClosed(catalogPath)).toBe(true);
 });
 
 test("memory mode: the entity and the plane share one in-memory store per session", async () => {
