@@ -4,14 +4,8 @@ import { BrowserWindow, Menu, app, ipcMain, nativeTheme } from "electron";
 import { CLOSE_WINDOW_CHANNEL, GATEWAY_CHANNEL } from "../preload/api";
 import { type DesktopConfig, resolveDesktopConfig } from "./config";
 import { buildMenuTemplate, createShellCommandSender } from "./menu";
-import {
-  BOUNDS_WRITE_DELAY_MS,
-  parseWindowBounds,
-  serializeWindowBounds,
-  WINDOW_MIN,
-} from "./window-bounds";
-
-const BACKGROUND = { dark: "#0A0A0C", light: "#EFEFF0" } as const;
+import { rendererTarget, windowOptions } from "./window";
+import { BOUNDS_WRITE_DELAY_MS, parseWindowBounds, serializeWindowBounds } from "./window-bounds";
 
 const boundsFile = () => join(app.getPath("userData"), "window-bounds.json");
 
@@ -62,35 +56,6 @@ function attachRendererDebugging(window: BrowserWindow): void {
   });
 }
 
-/** Pure options: the window keeps the same security and first-paint defaults. */
-export function windowOptions(bounds: ReturnType<typeof parseWindowBounds>, dark: boolean, preload: string) {
-  return {
-    ...bounds,
-    minWidth: WINDOW_MIN.width,
-    minHeight: WINDOW_MIN.height,
-    show: false,
-    backgroundColor: dark ? BACKGROUND.dark : BACKGROUND.light,
-    // The lights' top is 14pt; their centre aligns with the 42px strip's
-    // midline. x=17 leaves the 81px traffic-safe zone.
-    titleBarStyle: "hiddenInset" as const,
-    trafficLightPosition: { x: 17, y: 14 },
-    webPreferences: {
-      preload,
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
-  };
-}
-
-/** Select the boot-time renderer location without reading a mutable environment. */
-export function rendererTarget(devUrl: string | undefined, file: string) {
-  return devUrl === undefined
-    ? { kind: "file" as const, target: file }
-    : { kind: "url" as const, target: devUrl };
-}
-
 function createWindow(
   config: DesktopConfig,
   windows: Map<number, BrowserWindow>,
@@ -98,7 +63,11 @@ function createWindow(
   onClosed: (windowId: number) => void,
 ): void {
   const window = new BrowserWindow(
-    windowOptions(readBounds(), nativeTheme.shouldUseDarkColors, join(import.meta.dirname, "../preload/index.cjs")),
+    windowOptions(
+      readBounds(),
+      nativeTheme.shouldUseDarkColors,
+      join(import.meta.dirname, "../preload/index.cjs"),
+    ),
   );
   const windowId = window.id;
   windows.set(windowId, window);
@@ -117,9 +86,14 @@ function createWindow(
   // The config is the boot-time resolution (#1245): a window opened an hour
   // later must not connect somewhere else because a variable changed under
   // the process.
-  const destination = rendererTarget(config.rendererDevUrl, join(import.meta.dirname, "../renderer/index.html"));
+  const destination = rendererTarget(
+    config.rendererDevUrl,
+    join(import.meta.dirname, "../renderer/index.html"),
+  );
   if (destination.kind === "url") attachRendererDebugging(window);
-  void (destination.kind === "url" ? window.loadURL(destination.target) : window.loadFile(destination.target));
+  void (destination.kind === "url"
+    ? window.loadURL(destination.target)
+    : window.loadFile(destination.target));
 }
 
 /**
