@@ -233,13 +233,16 @@ export function openLedger(
   }).pipe(Layer.provide(SqliteClient.layer({ filename: config.cluster.storagePath })), Layer.orDie);
   const env = Layer.effect(
     SessionEntityContext,
-    Effect.map(Ledger, (plane) => ({
-      owner: config.owner,
-      clock: config.now,
-      catalog: plane.catalog,
-      openSession: plane.handles.openSession,
-      ports: config.ports,
-    })),
+    Effect.gen(function* () {
+      const plane = yield* Ledger;
+      return {
+        owner: config.owner,
+        clock: config.now,
+        catalog: plane.catalog,
+        openSession: plane.handles.openSession,
+        ports: config.ports,
+      };
+    }),
   );
   return createSessionEntityLayer(config.drain).pipe(
     Layer.provide(env),
