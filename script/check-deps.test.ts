@@ -32,7 +32,11 @@ function fixture(files: Readonly<Record<string, string>>, directory = tmpdir()):
       JSON.stringify({ name: workspace.packageName }),
     ]),
   );
-  for (const [path, source] of Object.entries({ ...manifests, ...files })) {
+  for (const [path, source] of Object.entries({
+    ...manifests,
+    "script/conformance/app-agent-responsibility.json": JSON.stringify({ files: {} }),
+    ...files,
+  })) {
     const target = join(root, path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, source);
