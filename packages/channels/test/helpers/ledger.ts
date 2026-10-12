@@ -1,4 +1,4 @@
-import { Core, Testing } from "@openomni/agent";
+import { type Core, Testing } from "@openomni/agent";
 type LedgerError = Core.LedgerError;
 import { Effect } from "effect";
 import { basename, dirname } from "node:path";
