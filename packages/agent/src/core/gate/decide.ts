@@ -14,7 +14,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { onAbort, type CapturedGeneration, BOUNDED_CONCURRENCY, Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports";
 import { createApprovalRequest } from "../request-binding";
 import type { ApprovalPolicy } from "../approval-policy";
-import { Retry } from "../../model";
+import { Retry, coerceApiError } from "../../model";
 import { attachFailureFacts } from "../retry";
 import { judgeStop, type StopState, type StopObservation, type StopMetric } from "../stop";
 import type * as SessionHandleStore from "../store/fence";
@@ -306,18 +306,22 @@ export class GenerationRawSlots extends Context.Service<
 // ─── from executor-outcome.ts (#1247) ───
 export function failureEvidence(error: ExecutionError): PlainObject {
   switch (error._tag) {
-    case "LlmRunFailure":
+    case "LlmRunFailure": {
+      // Only the provider SDK error names itself here; a transport or typed
+      // failure keeps `null` and renders as `name: message` (#1344 r1 L1).
+      const apiError = coerceApiError(error.cause);
       return {
         tag: error._tag,
         message: error.message,
-        providerErrorName: error.cause instanceof Error ? error.cause.name : null,
+        providerErrorName: apiError?.name ?? null,
         retryAfterMs: error.retryAfterMs ?? null,
         usage: error.usage,
         aborted: error.aborted,
         contextOverflow: error.contextOverflow,
         visibleOutput: error.visibleOutput,
-        cause: error.cause instanceof Error ? error.cause.message : typeof error.cause === "string" ? error.cause : null,
+        cause: apiError !== undefined ? apiError.message : error.cause === undefined ? null : renderBodyCause(error.cause),
       };
+    }
     case "PolicyDenied":
       return { tag: error._tag, phase: error.phase, ruleIds: [...error.ruleIds] };
     case "ToolBodyFailed":

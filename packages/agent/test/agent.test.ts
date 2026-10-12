@@ -3,7 +3,8 @@ import { Effect } from "effect";
 import { isolated } from "./helpers/isolated";
 import { createTestAgent, failure } from "./helpers/effect-g3";
 import { describe, expect, it, mock, spyOn, test } from "bun:test";
-import { Auth } from "../src/model";
+import { Auth, LlmRunFailure } from "../src/model";
+import { sdkError } from "./model/helpers/retry";
 import type { Tool } from "@openomni/protocol";
 import { createAssistantMessage } from "../src/core/message-factory";
 import { RunEvents } from "../src/core/turn";
@@ -41,6 +42,29 @@ test("agent foundation tags and failure evidence are runtime contracts", () => {
   expect(failureEvidence(new ExecutionApprovalError({ code: "stale_approval" }))).toEqual({ tag: "ExecutionApprovalError", code: "stale_approval" });
   expect(failureEvidence(new OutcomeUnknown({ reason: "lost" }))).toEqual({ tag: "OutcomeUnknown", reason: "lost" });
   expect(failureEvidence(new Interrupted())).toEqual({ tag: "Interrupted" });
+});
+
+/**
+ * #1344 r1 L1: `providerErrorName` names only the provider SDK error. A
+ * transport Error (the structured `TransportFailure.cause`) and a bare string
+ * keep `null` and render exactly as the base journal did (`name: message`).
+ */
+test("LlmRunFailure evidence names a provider error and nothing else", () => {
+  const attempt = { message: "attempt failed", usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, aborted: false, contextOverflow: false, visibleOutput: false };
+  const common = { tag: "LlmRunFailure", message: "attempt failed", retryAfterMs: null, usage: attempt.usage, aborted: false, contextOverflow: false, visibleOutput: false };
+
+  const transport = new TypeError("fetch failed");
+  expect(failureEvidence(new LlmRunFailure({ ...attempt, cause: transport })))
+    .toEqual({ ...common, providerErrorName: null, cause: "TypeError: fetch failed" });
+
+  const provider = sdkError({ message: "overloaded", statusCode: 529, isRetryable: true });
+  expect(failureEvidence(new LlmRunFailure({ ...attempt, cause: provider })))
+    .toEqual({ ...common, providerErrorName: provider.name, cause: "overloaded" });
+  expect(provider.name).not.toBe("TypeError");
+
+  expect(failureEvidence(new LlmRunFailure({ ...attempt, cause: "stream closed" })))
+    .toEqual({ ...common, providerErrorName: null, cause: "stream closed" });
+  expect(failureEvidence(new LlmRunFailure(attempt))).toEqual({ ...common, providerErrorName: null, cause: null });
 });
 
 describe("ChatAgent public run contract", () => {

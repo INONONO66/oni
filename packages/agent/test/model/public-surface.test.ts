@@ -73,6 +73,7 @@ describe("model barrel public surface", () => {
       "Retry",
       "TransportFailure",
       "accumulateUsage",
+      "coerceApiError",
       "observeRetry",
       "run",
       "selectModel",
