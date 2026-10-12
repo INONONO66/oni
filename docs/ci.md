@@ -63,6 +63,16 @@ baselines). A PR is admitted by:
   `check-dead-exports.ts`, `check-import-cycles.ts`,
   `check-journal-writers.ts` (one writer module per journal kind, #1252) and
   `verify-tsconfig-inheritance.ts`.
+  Two shrink-only ratchets fail closed on growth AND on slack (a pin above the
+  actual count must be lowered in the same PR): `check-comment-residue.ts`
+  pins per-file issue-number comment lines and `// ───` dividers across
+  `packages/agent/src`, with package ceilings for the comment-to-nonblank
+  ratio and over-six-line JSDoc blocks and an exact, documented
+  structural-header allow-list (#1343); `check-deps.ts` additionally pins
+  per-file direct agent-core responsibility tokens (`kernel.commit`,
+  `createSessionEntityLayer`, `SqliteClient.layer`, ...) referenced from
+  `apps/openomni/src` code — comments and strings never count, and a new app
+  file starts at zero (#1343).
 - **Tests**: selected workspace lanes and, for tooling/full plans, the two
   scripts-tooling shards; `scripts-contracts` always runs.
 - **Patch Coverage** (`patch-coverage`, PR-only): every changed executable line
@@ -303,6 +313,7 @@ b run script/ci-plan.ts --full > ci-plan.json
 b run lint
 b run script/check-topology.ts
 b run script/check-deps.ts
+b run script/check-comment-residue.ts
 b run script/check-import-cycles.ts
 b run script/check-dead-exports.ts
 b run script/verify-tsconfig-inheritance.ts
