@@ -36,7 +36,7 @@ import {
   ProviderRequest,
   trackedWaveTools,
   waveTool,
-  interruptSecondModel,
+  interruptDuringSecondModel,
 } from "./helpers/session-wave";
 import { approvalPolicy } from "./helpers/approval-policy";
 
@@ -195,6 +195,8 @@ async function waveApp(
   definitions: readonly AnyToolDefinition[],
   names: readonly string[],
   sessionRuntime?: NonNullable<Parameters<typeof suite.boot>[0]>["sessionRuntime"],
+  /** Parks the provider's n-th response until the promise settles (exact-state gating). */
+  hold?: (request: number) => Promise<void>,
 ) {
   const received: z.infer<typeof ProviderRequest>[] = [];
   const calls = names.map((name) => ({ id: `call-${name}`, name, input: { slot: name } }));
@@ -203,6 +205,7 @@ async function waveApp(
     port: 0,
     async fetch(request) {
       received.push(ProviderRequest.parse(JSON.parse(await request.text())));
+      await hold?.(received.length);
       return providerResponse(received.length === 1 ? calls : []);
     },
   });
@@ -605,6 +608,8 @@ for (const door of ["captured-cell", "captured-wave"] as const) {
     const invoke = (executor: ReturnType<typeof currentExecutor>): Promise<string | InvocationClosed> =>
       attemptInvoke(executor).catch((error: Error) =>
         error instanceof InvocationClosed ? error : error.name);
+    let handle: AppSessionHandle | undefined;
+    const interrupt = interruptDuringSecondModel(() => handle);
     const { app, socket, received, cleanup } = await waveApp(
       [
         waveTool("A", async () => "A", true),
@@ -621,8 +626,9 @@ for (const door of ["captured-cell", "captured-wave"] as const) {
         }),
       ],
       ["A", "outer"],
+      undefined,
+      interrupt.hold,
     );
-    let handle: AppSessionHandle | undefined;
     try {
       socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run nested effect" }));
       const executor = await bounded(captured.promise);
@@ -635,16 +641,10 @@ for (const door of ["captured-cell", "captured-wave"] as const) {
       void invoke(executor).then(wrapperSettled.resolve, wrapperSettled.reject);
       await bounded(entered.promise);
       // When: interrupt returns and the parent unwinds while the raw effect is gated.
-      {
-        // Finish the top-level body first, so it cannot mask missing captured retention.
-        const interrupted = interruptSecondModel(
-          suite,
-          () => received.length,
-          () => handle,
-        );
-        outerDone.resolve();
-        await bounded(interrupted);
-      }
+      // Finish the top-level body first, so it cannot mask missing captured
+      // retention; the interrupt lands while the second model call is parked.
+      outerDone.resolve();
+      await bounded(interrupt.interrupted);
       await bounded(parentSettled.promise);
       expect(await bounded(wrapperSettled.promise)).toMatchObject({ _tag: "InvocationClosed", reason: "settled" });
       expect(existsSync(marker)).toBe(false);
@@ -748,6 +748,8 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
           ? runEffect(dispatcher.executeCell(call, context)).then((result) => [result])
           : runEffect(dispatcher.executeWave([call], context));
       };
+      let handle: AppSessionHandle | undefined;
+      const interrupt = interruptDuringSecondModel(() => handle);
       const { app, socket, received, sessionDbPath, cleanup } = await waveApp(
         [
           waveTool("A", async () => "A", true),
@@ -759,8 +761,9 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
           }),
         ],
         ["A", "outer"],
+        undefined,
+        interrupt.hold,
       );
-      let handle: AppSessionHandle | undefined;
       try {
         socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run timed nested effect" }));
         const executor = await bounded(captured.promise);
@@ -768,11 +771,6 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
         sessionId = row.id;
         handle = app.sessions.get(sessionId);
         if (handle === undefined) throw new Error("missing SDK handle");
-        const interrupted = interruptSecondModel(
-          suite,
-          () => received.length,
-          () => handle,
-        );
         if (current) outerGate.resolve();
         else {
           expect(() => currentExecutor()).toThrow("executor context is required");
@@ -782,7 +780,7 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
         await bounded(timedOut.promise);
         expect((await bounded(wrapper.promise)).map((result) => result.isError)).toEqual([true]);
         outerGate.resolve();
-        await bounded(interrupted);
+        await bounded(interrupt.interrupted);
         expect(existsSync(marker)).toBe(false);
         expect(toolResults(sessionId).map((result) => [result.callId, result.terminal])).toEqual([
           ["timed-inner", "outcome_unknown"],

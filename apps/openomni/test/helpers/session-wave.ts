@@ -3,16 +3,14 @@ import { Effect, type Result } from "effect";
 import { Core } from "@openomni/agent";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
-import { Bus } from "./bus";
 import type { AppSessionHandle } from "../../src";
-import { LlmCall, type AnyToolDefinition, type LedgerAction } from "@openomni/protocol";
+import type { AnyToolDefinition, LedgerAction } from "@openomni/protocol";
 type AdoptReceipt = Core.AdoptReceipt;
 type LedgerError = Core.LedgerError;
 import { z } from "zod";
 import { eventSignal } from "./event-signal";
 import { runEffect, runSyncResult } from "./effect";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
-import type { ResidentSuite } from "./resident-suite";
 
 export function waveTool(
   name: string,
@@ -67,20 +65,30 @@ export function bounded<T>(promise: Promise<T>): Promise<T> {
   return signal.promise;
 }
 
-export function interruptSecondModel(
-  suite: Pick<ResidentSuite, "defer">,
-  requestCount: () => number,
-  currentHandle: () => AppSessionHandle | undefined,
-): Promise<void> {
+/**
+ * Interrupt the live turn while its SECOND model call is parked at the fake
+ * provider (#1346): the facade's interrupt rides the entity's asynchronous
+ * `Deliver` door, so the provider holds its response until the interrupt has
+ * landed and the turn's own boundary drain consumed it. Exact-state gating,
+ * never a timing sleep.
+ */
+export function interruptDuringSecondModel(currentHandle: () => AppSessionHandle | undefined): {
+  readonly interrupted: Promise<void>;
+  readonly hold: (request: number) => Promise<void>;
+} {
   const interrupted = Promise.withResolvers<void>();
-  suite.defer(
-    Bus.subscribe(LlmCall.Events.Completed, () => {
+  return {
+    interrupted: interrupted.promise,
+    hold: async (request) => {
+      if (request !== 2) return;
       const handle = currentHandle();
-      if (requestCount() !== 2 || handle === undefined) return;
-      void runEffect(handle.interrupt()).then(interrupted.resolve, interrupted.reject);
-    }),
-  );
-  return interrupted.promise;
+      if (handle === undefined) {
+        interrupted.reject(new Error("missing live SDK handle"));
+        return;
+      }
+      await runEffect(handle.interrupt()).then(interrupted.resolve, interrupted.reject);
+    },
+  };
 }
 
 /**
