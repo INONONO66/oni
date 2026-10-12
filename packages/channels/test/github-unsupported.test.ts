@@ -21,14 +21,14 @@ function observedGitHub() {
 }
 
 for (const [event, action, reason] of [
-  ["pull_request", "opened", "unsupported_event"],
+  ["pull_request", "opened", "invalid_payload"],
   ["pull_request_review", "submitted", "unsupported_event"],
   ["issues", "closed", "unsupported_action"],
   ["issue_comment", "edited", "unsupported_action"],
   ["issues", "opened", "invalid_payload"],
   ["ping", undefined, "unsupported_event"],
 ] as const) {
-  test(`GitHub ${event}.${action} is an explicit observed refusal, not an inbound message`, async () => {
+  test(`GitHub ${event}.${action} malformed or unsupported payload is observed without ingress`, async () => {
     const { adapter, observations } = observedGitHub();
     let ingested = 0;
     adapter.onMessage(async () => {
