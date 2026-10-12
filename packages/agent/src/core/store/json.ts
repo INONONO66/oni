@@ -2,15 +2,17 @@ import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
 import { SchemaRefused } from "./errors";
 
-/** Throwing decode: malformed text is `SchemaRefused{reason: json}`; a non-plain value keeps its schema rejection. */
+/**
+ * Throwing decode: malformed text is `SchemaRefused{reason: json}` carrying the
+ * parser's diagnostic as `detail`; a non-plain value keeps its schema rejection.
+ */
 export function parsePlainJson(text: string): PlainValue {
-  let decoded: unknown;
   try {
-    decoded = JSON.parse(text);
-  } catch {
-    throw new SchemaRefused({ sessionId: "", actionId: "", kind: "json", reason: "json" });
+    return PlainValueSchema.parse(JSON.parse(text));
+  } catch (cause) {
+    if (cause instanceof SyntaxError) throw new SchemaRefused({ reason: "json", detail: cause.message });
+    throw cause;
   }
-  return PlainValueSchema.parse(decoded);
 }
 
 /** Degraded decode: corrupt rows and malformed payloads read as `undefined`, never a throw. */
