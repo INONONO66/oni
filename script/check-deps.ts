@@ -2,7 +2,7 @@
 // imports only the workspaces the table allows, nothing undeclared. Distinct
 // from inventory wiring, import cycles and dead exports.
 import { Glob } from "bun";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
@@ -1003,6 +1003,122 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
 }
 
 /**
+ * Direct agent-core responsibility tokens (ledger mutation and entity/SQLite
+ * assembly names) an app file may reference only up to its pin. The
+ * deep-import boundary above stays independent; this rule counts the tokens
+ * themselves so barrel-legal call sites are still retired shrink-only. Pins
+ * measured at d9800ad74 with the AST-walk counter below (code references
+ * only). TIGHT: growth fails, slack fails, a new app file starts at zero.
+ * Retiring a call site lowers its pin in the same PR.
+ */
+const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
+  ["apps/openomni/src/composition/cluster-runtime.ts", 5],
+  ["apps/openomni/src/composition/ingress-executor.ts", 2],
+  ["apps/openomni/src/composition/message-session.ts", 1],
+  ["apps/openomni/src/index.ts", 6],
+  ["apps/openomni/src/process-entry.ts", 5],
+]);
+
+/** The two entity-assembly identifiers counted wherever they appear, import specifiers included. */
+const APPS_AGENT_ENTITY_IDENTIFIERS: ReadonlySet<string> = new Set([
+  "createSessionEntityLayer",
+  "createSessionEntityRunTurn",
+]);
+
+/** Members of `kernel.` that are direct ledger-mutation responsibility tokens. */
+const APPS_AGENT_KERNEL_MEMBERS: ReadonlySet<string> = new Set([
+  "commit",
+  "materialize",
+  "indexSession",
+]);
+
+/**
+ * Counts code references only, by AST walk (`ts.createSourceFile`, ScriptKind
+ * from the extension): `kernel.commit|materialize|indexSession` and
+ * `SqliteClient.layer`/`SingleRunner.layer` as property accesses whose
+ * receiver is the bare identifier or any member chain ending in it
+ * (`input.kernel.commit`, `Sql.SqliteClient.layer`), plus every
+ * `createSessionEntityLayer`/`createSessionEntityRunTurn` identifier occurrence. Comments, strings, template text, regex literals and
+ * JSX text never count and never desync the counter.
+ */
+/** The receiver's final name: `kernel` for both `kernel.x` and `input.kernel.x`; undefined for calls and other expressions. */
+function receiverName(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) return expression.name.text;
+  return undefined;
+}
+
+export function appsAgentTokenCount(source: string, filePath: string): number {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) {
+      const receiver = receiverName(node.expression);
+      if (
+        (receiver === "kernel" && APPS_AGENT_KERNEL_MEMBERS.has(node.name.text)) ||
+        ((receiver === "SqliteClient" || receiver === "SingleRunner") && node.name.text === "layer")
+      ) {
+        count += 1;
+      }
+    }
+    if (ts.isIdentifier(node) && APPS_AGENT_ENTITY_IDENTIFIERS.has(node.text)) count += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return count;
+}
+
+/** A root is a git checkout when `<root>/.git` exists: a directory in a clone, a file in a worktree. */
+function isGitCheckout(root: string): boolean {
+  return existsSync(join(root, ".git"));
+}
+
+export async function validateAppsAgentTokens(
+  root = ".",
+  warn: (notice: string) => void = console.warn,
+): Promise<string[]> {
+  const counts = new Map<string, number>();
+  for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
+    const count = appsAgentTokenCount(source, filePath);
+    if (count > 0) counts.set(filePath, count);
+  }
+  const violations: string[] = [];
+  for (const [filePath, count] of [...counts.entries()].sort()) {
+    const allowed = APPS_AGENT_TOKEN_RATCHET.get(filePath) ?? 0;
+    if (count > allowed) {
+      violations.push(
+        `VIOLATION: ${filePath} references ${count} direct agent-core tokens over the #1343 ratchet of ${allowed} — shrink only, never grow`,
+      );
+    }
+  }
+  // Slack fails closed against a checkout only: the pins are measured at a
+  // commit. The scratch gate fixtures are plain directories that stub every
+  // workspace entry (`apps/openomni/src/index.ts` included) at zero tokens,
+  // so presence of a pinned path cannot scope this rule. CI (actions/checkout)
+  // and every local gate run inside a checkout; outside one the skip is loud.
+  // A pinned file deleted from the checkout still fails here (actual 0 < pin).
+  if (isGitCheckout(root)) {
+    for (const [filePath, allowed] of [...APPS_AGENT_TOKEN_RATCHET.entries()].sort()) {
+      const actual = counts.get(filePath) ?? 0;
+      if (actual < allowed) {
+        violations.push(
+          `VIOLATION: ${filePath} token pin exceeds actual (${allowed} > ${actual}): lower the pin`,
+        );
+      }
+    }
+  } else {
+    warn(`NOTICE [check-deps] token pin slack not judged: ${root} is not a git checkout`);
+  }
+  return violations;
+}
+
+/**
  * #1247 S8 perimeter pin: `packages/agent/src/index.ts` exports exactly
  * the five namespaces plus at most these six named exports consumed by
  * `packages/channels` (legal channels -> agent band edges). Shrink-only:
@@ -1605,6 +1721,7 @@ export async function main(): Promise<void> {
   const agentBandViolationList = await validateAgentBands();
   const agentIndexPerimeterViolationList = await validateAgentIndexPerimeter();
   const appsAgentBarrelViolationList = await validateAppsAgentBarrel();
+  const appsAgentTokenViolationList = await validateAppsAgentTokens();
   const bundleViolations = await checkBundleImports();
   const deepImportViolations = await validateDeepImports();
   const deepRelativeImportViolations = await validateDeepRelativeImports();
@@ -1617,6 +1734,7 @@ export async function main(): Promise<void> {
     ...agentBandViolationList,
     ...agentIndexPerimeterViolationList,
     ...appsAgentBarrelViolationList,
+    ...appsAgentTokenViolationList,
     ...bundleViolations.map(
       (finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}`,
     ),
