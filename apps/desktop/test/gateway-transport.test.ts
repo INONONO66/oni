@@ -598,7 +598,7 @@ describe("createGatewayChatTransport", () => {
     const readFrame = z.object({ type: z.string().optional() }).loose();
     const sessionPage = (kind: "session_snapshot" | "session_page", revision: number) => ({
       type: kind, sessionId: "durable", state: "idle", phase: "completed",
-      phaseSince: 100, epoch: 1, afterRevision: revision - 1, headRevision: revision,
+      phaseSince: 100, epoch: revision - 1, afterRevision: revision - 1, headRevision: revision,
       nextRevision: null,
       actions: [{ revision, actionId: `action-${revision}`, kind: "turn", at: 100 }],
       usage: [], toolWallMs: 0,
@@ -634,7 +634,8 @@ describe("createGatewayChatTransport", () => {
     });
     servers.push(server);
     const transport = createGatewayChatTransport({ id: testId, url: `ws://127.0.0.1:${server.port}` });
-    const stop = transport.subscribeSession(() => undefined);
+    const epochs: number[] = [];
+    const stop = transport.subscribeSession((page) => epochs.push(page.epoch));
 
     const first = await collect(await send(transport, [userMessage("one")]));
     expect(
@@ -644,6 +645,7 @@ describe("createGatewayChatTransport", () => {
 
     const second = await collect(await send(transport, [userMessage("two")]));
     stop();
+    expect(epochs).toEqual([1, 2]);
     expect(second.map((chunk) => chunk.type)).toEqual([
       "start",
       "text-start",
