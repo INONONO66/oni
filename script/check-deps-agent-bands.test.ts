@@ -31,6 +31,14 @@ test("#1276 check a: a core file importing plugins/ fails", () => {
   expect(found[0]).toContain("core/ may not import plugins/");
 });
 
+test("#1343: property references use syntax identity across formatting", () => {
+  for (const code of ["kernel.commit({})", "kernel . commit({})", "kernel\n.commit({})", "kernel/*x*/.commit({})", "kernel?.commit({})", "(kernel).commit({})"]) {
+    expect(appAgentResponsibilityCount(code)).toBe(1);
+  }
+  expect(appAgentResponsibilityCount("const écreateSessionEntityLayer = 0;")).toBe(0);
+  expect(appAgentResponsibilityCount("#!/bin/sh createSessionEntityLayer\nexport const ready = true;")).toBe(0);
+});
+
 test("#1343: tokens inside empty block and array comments are not references", () => {
   expect(appAgentResponsibilityCount("function noop() { /* kernel.commit */ }\nconst values = [ /* kernel.commit */ ];")).toBe(0);
 });

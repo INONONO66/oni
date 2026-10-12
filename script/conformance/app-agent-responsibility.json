@@ -2,7 +2,8 @@
   "files": {
     "apps/openomni/src/composition/cluster-runtime.ts": 5,
     "apps/openomni/src/composition/ingress-executor.ts": 2,
-    "apps/openomni/src/index.ts": 5,
-    "apps/openomni/src/process-entry.ts": 4
+    "apps/openomni/src/composition/message-session.ts": 1,
+    "apps/openomni/src/index.ts": 6,
+    "apps/openomni/src/process-entry.ts": 5
   }
 }

@@ -1014,31 +1014,24 @@ export function loadAppResponsibilityPins(root = "."): ReadonlyMap<string, numbe
 /** Count code references, excluding trivia and literal text. */
 export function appAgentResponsibilityCount(source: string): number {
   const sourceFile = ts.createSourceFile("app.ts", source, ts.ScriptTarget.Latest, true);
-  const masked = source.split("");
-  const hide = (start: number, end: number): void => {
-    for (let i = start; i < end; i++) {
-      if (masked[i] !== "\n") masked[i] = " ";
-    }
-  };
+  let count = 0;
   const visit = (node: ts.Node): void => {
-    for (const position of [node.pos, node.end]) {
-      for (const range of [...(ts.getLeadingCommentRanges(source, position) ?? []), ...(ts.getTrailingCommentRanges(source, position) ?? [])]) {
-        hide(range.pos, range.end);
-      }
+    if (ts.isIdentifier(node) &&
+        (node.text === "createSessionEntityLayer" || node.text === "createSessionEntityRunTurn")) {
+      count++;
     }
-    if (node.kind === ts.SyntaxKind.StringLiteral ||
-        node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
-        node.kind === ts.SyntaxKind.TemplateHead ||
-        node.kind === ts.SyntaxKind.TemplateMiddle ||
-        node.kind === ts.SyntaxKind.TemplateTail ||
-        node.kind === ts.SyntaxKind.RegularExpressionLiteral) {
-      hide(node.getStart(sourceFile), node.end);
+    if (ts.isPropertyAccessExpression(node)) {
+      let object: ts.Expression = node.expression;
+      while (ts.isParenthesizedExpression(object)) object = object.expression;
+      if (ts.isIdentifier(object) && (
+        (object.text === "kernel" && ["commit", "materialize", "indexSession"].includes(node.name.text)) ||
+        ((object.text === "SqliteClient" || object.text === "SingleRunner") && node.name.text === "layer")
+      )) count++;
     }
-    for (const child of node.getChildren(sourceFile)) visit(child);
+    ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  const code = masked.join("");
-  return [...code.matchAll(/\b(?:kernel\.(?:commit|materialize|indexSession)|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient\.layer|SingleRunner\.layer)\b/g)].length;
+  return count;
 }
 
 export async function validateAppAgentResponsibilities(
