@@ -98,27 +98,57 @@ describe("createTurnDispatcher", () => {
 
 describe("wave settlement", () => {
   // #1344: no injection option — settlement is observable through the real
-  // dispatch path: executeWave resolves only after every body settled.
+  // dispatch path. `boom` rejects at once; `ok` parks on a gate the test opens
+  // only on a later macrotask, after every microtask an early-resolving wave
+  // could have queued has drained. The settlement log therefore places the
+  // wave after BOTH bodies only if executeWave actually waited for them.
   it("executeWave resolves only after every model wave body settles", async () => {
-    let settledBodies = 0;
+    const log: string[] = [];
+    let settledWaveBodies = 0;
+    let settledSingleBodies = 0;
+    const gate = Promise.withResolvers<void>();
+    const okParked = Promise.withResolvers<void>();
+    const boomRejected = Promise.withResolvers<void>();
     const dispatcher = runAgentSync(createDispatcher({ executor: passThrough }).pipe(Effect.provide(catalogLayer([
       tool("ok", async () => {
-        await Promise.resolve();
-        settledBodies += 1;
+        okParked.resolve();
+        await gate.promise;
+        settledWaveBodies += 1;
+        log.push("ok settled");
         return "fine";
       }),
       tool("boom", async () => {
-        settledBodies += 1;
-        return Promise.reject(new Error("x"));
+        settledWaveBodies += 1;
+        log.push("boom settled");
+        boomRejected.resolve();
+        throw new Error("x");
+      }),
+      tool("single", async () => {
+        settledSingleBodies += 1;
+        return "fine";
       }),
     ]))));
 
-    const results = await isolated(dispatcher.executeWave([call("ok"), call("boom")], context));
-    await isolated(dispatcher.execute(call("ok"), context));
-    await isolated(dispatcher.executeCell(call("ok"), context));
+    const wave = isolated(dispatcher.executeWave([call("ok"), call("boom")], context)).then((results) => {
+      log.push("wave resolved");
+      return results;
+    });
+    await Promise.all([okParked.promise, boomRejected.promise]);
+    expect(log).toEqual(["boom settled"]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    gate.resolve();
+    const results = await wave;
 
+    expect(settledWaveBodies).toBe(2);
+    expect(log).toEqual(["boom settled", "ok settled", "wave resolved"]);
     expect(results.map((result) => result.isError)).toEqual([undefined, true]);
-    expect(settledBodies).toBe(4);
+
+    // The single-call doors settle their own body, counted apart from the wave.
+    await isolated(dispatcher.execute(call("single"), context));
+    expect(settledSingleBodies).toBe(1);
+    await isolated(dispatcher.executeCell(call("single"), context));
+    expect(settledSingleBodies).toBe(2);
+    expect(settledWaveBodies).toBe(2);
   });
 });
 
@@ -219,9 +249,13 @@ describe("tool body outcomes", () => {
   it("renders non-Error and empty-message throws byte-identically to String(thrown)", async () => {
     const recording = recordingExecutor();
     const dispatcher = runAgentSync(createDispatcher({ executor: recording.executor }).pipe(Effect.provide(catalogLayer([
+      // biome-ignore lint/style/useThrowOnlyError: a tool body is a foreign port; the non-Error throw is the case under test
       tool("throws-number", async () => { throw 42; }),
+      // biome-ignore lint/style/useThrowOnlyError: same — the `[object Object]` rendering is the pinned byte
       tool("throws-object", async () => { throw { a: 1 }; }),
+      // biome-ignore lint/style/useThrowOnlyError: same — `null` must render as "null"
       tool("throws-null", async () => { throw null; }),
+      // biome-ignore lint/suspicious/useErrorMessage: an empty message must render as the bare name, as String(error) does
       tool("throws-empty-error", async () => { throw new Error(""); }),
     ]))));
     const expected: Record<string, string> = {
