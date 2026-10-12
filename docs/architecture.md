@@ -4,21 +4,17 @@ This document maps [Core Model](core-model.md) onto the post-#792 codebase. [Imp
 
 ## Communication
 
-External traffic and session tools enter the same `gateway.ingest(sender, envelope)` operation. Drivers supply raw facts; the gateway resolves perimeter identity, Wait correlation and surface routing. The injected L2 executor applies compiled message pre/post policy. Session delivery calls only the injected L1 `Inbox.Port.commit`; actor delivery uses the retained channel send kernel.
+External traffic and session tools enter the same `gateway.ingest(sender, envelope)` operation. Drivers supply raw facts; the gateway resolves perimeter identity, Wait correlation and surface routing. The injected L2 executor applies compiled message pre/post policy. Session delivery calls only the session entity's `deliver` RPC; actor delivery uses the retained channel send kernel.
 
-`send_message` returns a handle without waiting for a child. New-session configuration and first inbox are atomic. Resident and worker roles share the same session-owned runner; an OS process carries the session id and committed-inbox notifications, not a separate completion authority. Observations follow durable action commits and do not authorize delivery.
+`send_message` returns a handle without waiting for a child. New-session configuration and first delivery are atomic. Resident and child sessions share the same session-owned runner; an OS process carries the session id and committed-delivery notifications, not a separate completion authority. Observations follow durable action commits and do not authorize delivery.
 
-## Ledger
+## Store
 
-`packages/ledger` owns the one durable database and typed store surfaces. It stores facts but does not decide product meaning. A session's row, action tree, inbox, revision, lease fence, and generation pointers are durable; its live runner/controller is disposable `packages/agent` runtime state. Perimeter stores are consumed by the channels router, while the app composes messaging and session consumers. Cross-domain coupling happens through protocol IDs, not direct store reach-through.
+`packages/agent/src/core/store/` owns the durable facts: one catalog plus one SQLite file per session, behind typed store surfaces. It stores facts but does not decide product meaning. A session's catalog row, action tree, delivered inputs, revision, activation fence, and generation pointers are durable; its live runner is disposable `packages/agent` runtime state. Perimeter stores (`packages/channels/src/store/`) are consumed by the channels router, while the app composes messaging and session consumers. Cross-domain coupling happens through protocol IDs, not direct store reach-through.
 
-`bus.publish` remains observation, not authorization or persistence. L0 action append commits before its injected observation sink is called. Record-before-act paths must commit through a durable store or append surface before the external action. `session.get()` reads authoritative state without waking a runner; `session.watch()` is at-most-once notification, and a revision gap requires a fresh `get()`.
+`bus.publish` remains observation, not authorization or persistence. L0 action append commits before its injected observation sink is called. Record-before-act paths must commit through a durable store or append surface before the external action. The session entity's outside surface is exactly four RPCs, `deliver | resolve | alarm | read`; `read` serves the nine read models (`history | decisions | requests | alarms | generations | tree | metrics | control | outbound`) without waking a runner, and inputs are consumed at loop boundaries only.
 
-The alarm evaluator belongs to the app composition band, outside session
-residency. PTY and path observations feed the existing ledger alarm transaction;
-only its committed inbox row wakes the existing agent session controller.
-There is no second watch store or runner. Stage-1 status and remaining deadline
-consumer work are recorded in [Implementation Status](implementation-status.md).
+The `alarm` journal kind has one core writer (`packages/agent/src/core/alarm.ts`); the removable `plugins/alarm` capability owns the purpose registry, wake dispatch and the watch verbs. The app composition band owns only the native OS handles (PTY, fs watcher) and resends a native hit through the entity's `alarm` RPC. There is no second watch store or runner. Shipped state is recorded in [Implementation Status](implementation-status.md).
 
 ## Policy
 
@@ -60,12 +56,12 @@ A machine is WHERE execution happens, never WHO is delegated to. `packages/machi
 
 Messages address WHO: an existing session, a new parent-linked child session, or a registered external actor. Native and process are session runner choices, not parallel message lifecycles. A send returns a handle; there is no synchronous child-join tool.
 
-The removed local worker manager is not part of the final topology. Process session execution enters `apps/openomni/src/process-entry.ts`. Native Resident and worker execution is assembled once behind `@openomni/agent` session handles; app adapters provide role-specific tools, system text, and runner configuration.
+The removed local worker manager is not part of the final topology. Process session execution enters `apps/openomni/src/process-entry.ts`. Native Resident and child-session execution is assembled once behind `@openomni/agent` session handles; app adapters provide role-specific tools, system text, and runner configuration.
 
 Band rules:
 
 1. `machines` depends only on protocol and IPC; `codemode` depends on protocol and the machines port, never the reverse.
-2. `channels` driver code depends only on protocol; its judgment sub-band may additionally consume policy and perimeter ledger surfaces.
+2. `channels` driver code depends only on protocol; its judgment sub-band may additionally consume policy and perimeter store surfaces.
 3. Registration happens in `apps/openomni`.
 4. Drivers expose effects behind interfaces and never decide product admission.
 
@@ -82,18 +78,18 @@ Band rules:
 
 `apps/openomni` owns:
 
-- Resident and worker role configuration;
+- Resident and child-session configuration;
 - message policy rows, authenticated session projections and runner selection;
 - tool definitions and placement consumption;
 - channel registration and injected gateway ports.
 
-`packages/agent` owns generic session mechanics over ledger-owned durable facts: `SessionHandleStore` coordination, lease acquisition/heartbeat, durable inbox drain, turn envelopes, generation pinning, crash resume, and registry eviction on hibernation. Product-specific session identity, routing, role configuration, lifecycle policy, and ref-counted executable bindings remain in the app. The app never calls `ChatAgent.create` or rebuilds persisted history at a delivery boundary.
+`packages/agent` owns generic session mechanics over its own store facts: `SessionHandleStore` coordination, the activation fence rotated per entity activation, loop-boundary input consumption, turn envelopes, generation pinning, and crash resume. Product-specific session identity, routing, role configuration, lifecycle policy, and ref-counted executable bindings remain in the app. The app never rebuilds persisted history at a delivery boundary.
 
 The gateway never reads transcript content. The app does not re-derive platform identity or bypass perimeter decisions.
 
 ## Session and Completion Contracts
 
-A native worker is represented by a normal session row with role `worker` and its parent Resident/worker session in `parentId`; there is no WorkItem/Attempt ownership layer. A turn records its intent and pre-minted result ID before runner entry, then seals exactly one `result | interrupted | error` terminal under the current fence. Child terminal mail is an atomic parent-inbox delivery. Gateway admission of that terminal path and live alarm integration remain verification items in Implementation Status.
+A child session created by `send_message` is a normal catalog row with its parent session in `parentId`; there is no separate ownership layer above sessions. A turn records its intent and pre-minted result ID before runner entry, then seals exactly one `result | interrupted | error` terminal under the current activation fence. A child's terminal settlement reaches the parent through the parent's `deliver` RPC. What is wired is recorded in [Implementation Status](implementation-status.md).
 
 ## Historical Reconciliation
 
