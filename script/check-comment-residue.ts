@@ -296,6 +296,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/gate/registry.ts", [4, 0]],
   ["packages/agent/src/core/gate/row-parse.ts", [4, 0]],
   ["packages/agent/src/core/gate/rows.ts", [1, 0]],
+  ["packages/agent/src/core/host.ts", [0, 0]],
   ["packages/agent/src/core/index.ts", [3, 1]],
   ["packages/agent/src/core/message-factory.ts", [0, 0]],
   ["packages/agent/src/core/messages.ts", [11, 1]],
