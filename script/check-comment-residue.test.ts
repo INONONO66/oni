@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { baselineFor, classifyResidue, residueViolations, trackedAgentFiles } from "./check-comment-residue";
+import { baselineFor, classifyResidue, residueViolations, trackedAgentFiles, updateResidueBaseline } from "./check-comment-residue";
 
 const a = "packages/agent/src/core/a.ts";
 const b = "packages/agent/src/core/b.ts";
@@ -14,6 +14,17 @@ test("the committed pin set covers every tracked production file, including src 
   expect(paths).toContain("packages/agent/src/index.ts");
   expect(paths).toContain("packages/agent/src/bundle.ts");
   expect(Object.keys(committed.files).sort()).toEqual(paths.sort());
+});
+
+test("update is shrink-only, including new files and package ceilings", () => {
+  expect(() => updateResidueBaseline({ ...original, [a]: `${original[a]}// #9999\n` }, pin)).toThrow(`${a} issues 2 > 1`);
+  expect(() => updateResidueBaseline({ ...original, "packages/agent/src/new.ts": "// #9999\n" }, pin)).toThrow("packages/agent/src/new.ts issues 1 > 0");
+  expect(() => updateResidueBaseline({ ...original, [b]: "// prose\nexport const b = 2;\n" }, pin)).toThrow("UPDATE_REFUSED: comment ratio");
+  expect(() => updateResidueBaseline({ ...original, [b]: "/**\n * one\n * two\n * three\n * four\n * five\n */\nexport const b = 2;\n" }, { ...pin, commentLines: 10, nonblankLines: 10 })).toThrow("UPDATE_REFUSED: long JSDoc 1 > 0");
+  const clean = { [a]: "export const a = 1;\n", [b]: "export const b = 2;\n", "packages/agent/src/new.ts": "export const c = 3;\n" };
+  expect(updateResidueBaseline(clean, pin).files[a]).toEqual({ issues: 0, dividers: 0 });
+  expect(updateResidueBaseline(clean, pin).files["packages/agent/src/new.ts"]).toEqual({ issues: 0, dividers: 0 });
+  expect(Object.keys(updateResidueBaseline({ [b]: original[b] }, pin).files)).toEqual([b]);
 });
 
 test("adjacent block and line comments form one comment-only issue line", () => {

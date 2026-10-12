@@ -159,14 +159,32 @@ export function baselineFor(files: Readonly<Record<string, string>>): ResidueBas
   };
 }
 
+/** Regenerate only after cleanup; an accidental increase cannot be blessed. */
+export function updateResidueBaseline(files: Readonly<Record<string, string>>, previous: ResidueBaseline): ResidueBaseline {
+  const next = baselineFor(files);
+  for (const [path, count] of Object.entries(next.files)) {
+    const old = previous.files[path] ?? { issues: 0, dividers: 0 };
+    for (const key of ["issues", "dividers"] as const) {
+      if (count[key] > old[key]) throw new Error(`UPDATE_REFUSED: ${path} ${key} ${count[key]} > ${old[key]}`);
+    }
+  }
+  if (next.commentLines > previous.commentLines ||
+      next.commentLines * previous.nonblankLines > previous.commentLines * next.nonblankLines) {
+    throw new Error(`UPDATE_REFUSED: comment ratio ${next.commentLines}/${next.nonblankLines} exceeds ${previous.commentLines}/${previous.nonblankLines}`);
+  }
+  if (next.longJsdoc > previous.longJsdoc) throw new Error(`UPDATE_REFUSED: long JSDoc ${next.longJsdoc} > ${previous.longJsdoc}`);
+  return next;
+}
+
 if (import.meta.main) {
   const files = trackedAgentFiles();
+  const previous = JSON.parse(readFileSync(PIN_PATH, "utf8")) as ResidueBaseline;
   if (process.argv.slice(2).includes("--update")) {
-    const baseline = baselineFor(files);
+    const baseline = updateResidueBaseline(files, previous);
     writeFileSync(PIN_PATH, `${JSON.stringify(baseline, null, 2)}\n`);
     console.log(`Updated ${PIN_PATH}: ${Object.keys(baseline.files).length} files`);
   } else {
-    const baseline = JSON.parse(readFileSync(PIN_PATH, "utf8")) as ResidueBaseline;
+    const baseline = previous;
     const violations = residueViolations(files, baseline);
     for (const violation of violations) console.error(`VIOLATION: ${violation}`);
     if (violations.length > 0) process.exitCode = 1;
