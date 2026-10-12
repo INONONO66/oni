@@ -1,6 +1,13 @@
 import { z } from "zod";
+import { EpochMs } from "../time.js";
+import { Author } from "./input.js";
 
 const Id = z.string().min(1);
+
+export const RunWhen = z
+  .object({ verdict: z.enum(["yes", "no", "unknown"]), reason: z.string() })
+  .strict();
+export type RunWhen = z.infer<typeof RunWhen>;
 const SessionRef = z.string().regex(/^session:.+/);
 
 export const WindowSeconds = z.union([
@@ -67,10 +74,7 @@ export const TriggerContext = z
     matched: z
       .object({
         conditions: Conditions,
-        runWhen: z
-          .object({ verdict: z.enum(["yes", "no", "unknown"]), reason: z.string() })
-          .strict()
-          .optional(),
+        runWhen: RunWhen.optional(),
       })
       .strict(),
     event: z
@@ -78,11 +82,11 @@ export const TriggerContext = z
         surface: Id,
         channelId: Id.optional(),
         threadId: Id.optional(),
-        author: z.object({ externalId: Id, isBot: z.boolean() }).strict(),
+        author: Author,
         messages: z
           .array(
             z
-              .object({ eventId: Id, body: z.string(), receivedAt: z.number() })
+              .object({ eventId: Id, body: z.string(), receivedAt: EpochMs })
               .strict(),
           )
           .min(1)

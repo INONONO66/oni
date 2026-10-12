@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Actor } from "../actor/index.js";
 import { BusEvent } from "../bus/index.js";
+import { RunWhen } from "../ingress/automation.js";
 import { PlainObjectSchema } from "../json.js";
 import { EpochMs } from "../time.js";
 
@@ -27,10 +28,9 @@ const LedgerDecisionBase = RoutingDecisionBase.extend({
   outcome: z.literal("record"),
   by: z.string().regex(/^(automation|rule|blacklist)\/.+/),
   factsDigest: z.string().min(1),
-  runWhen: z
-    .object({ verdict: z.enum(["yes", "no", "unknown"]), reason: z.string() })
-    .strict()
-    .optional(),
+  // The session the matched action landed in; `new` targets resolve to a minted id before the row is written.
+  target: z.string().regex(/^session:.+/).optional(),
+  runWhen: RunWhen.optional(),
   actionSeq: z.number().int().nonnegative().optional(),
 });
 
