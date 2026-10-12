@@ -31,6 +31,10 @@ test("#1276 check a: a core file importing plugins/ fails", () => {
   expect(found[0]).toContain("core/ may not import plugins/");
 });
 
+test("#1343: a code reference after a template substitution remains visible", () => {
+  expect(appAgentResponsibilityCount(`const message = \`value \${identifier}\`;\nkernel.commit({});\n`)).toBe(1);
+});
+
 test("#1276 check a: a core file importing model/, inspect/ or testing/ fails", () => {
   const found = agentBandViolations(
     "packages/agent/src/core/evil.ts",
@@ -170,7 +174,7 @@ test("#1343: new app file starts at zero; pinned call site removal is stale", as
     writeFileSync(added, "kernel.indexSession();\n");
     const found = await validateAppAgentResponsibilities(root);
     expect(found).toContain("VIOLATION: apps/openomni/src/added.ts direct agent responsibility actual 1, pin 0 (growth)");
-    expect(found).toContain("VIOLATION: apps/openomni/src/composition/cluster-runtime.ts direct agent responsibility actual 0, pin 4 (stale pin)");
+    expect(found).toContain("VIOLATION: apps/openomni/src/composition/cluster-runtime.ts direct agent responsibility actual 0, pin 5 (stale pin)");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

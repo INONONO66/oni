@@ -1005,27 +1005,38 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
 // #1343: app-owned direct ledger and entity/SQLite assembly references are
 // pinned at today's call sites. The import perimeter above is independent.
 const APP_AGENT_RESPONSIBILITY_PINS: ReadonlyMap<string, number> = new Map([
-  ["apps/openomni/src/composition/cluster-runtime.ts", 4],
+  ["apps/openomni/src/composition/cluster-runtime.ts", 5],
   ["apps/openomni/src/composition/ingress-executor.ts", 2],
-  ["apps/openomni/src/index.ts", 2],
-  ["apps/openomni/src/process-entry.ts", 2],
+  ["apps/openomni/src/index.ts", 5],
+  ["apps/openomni/src/process-entry.ts", 4],
 ]);
 
 /** Count code references, excluding trivia and literal text. */
 export function appAgentResponsibilityCount(source: string): number {
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, source);
+  const sourceFile = ts.createSourceFile("app.ts", source, ts.ScriptTarget.Latest, true);
   const masked = [...source];
-  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
-    if (token !== ts.SyntaxKind.SingleLineCommentTrivia &&
-        token !== ts.SyntaxKind.MultiLineCommentTrivia &&
-        token !== ts.SyntaxKind.StringLiteral &&
-        token !== ts.SyntaxKind.NoSubstitutionTemplateLiteral &&
-        token !== ts.SyntaxKind.RegularExpressionLiteral &&
-        token !== ts.SyntaxKind.TemplateHead &&
-        token !== ts.SyntaxKind.TemplateMiddle &&
-        token !== ts.SyntaxKind.TemplateTail) continue;
-    for (let i = scanner.getTokenPos(); i < scanner.getTextPos(); i++) masked[i] = " ";
-  }
+  const hide = (start: number, end: number): void => {
+    for (let i = start; i < end; i++) {
+      if (masked[i] !== "\n") masked[i] = " ";
+    }
+  };
+  const visit = (node: ts.Node): void => {
+    for (const position of [node.pos, node.end]) {
+      for (const range of [...(ts.getLeadingCommentRanges(source, position) ?? []), ...(ts.getTrailingCommentRanges(source, position) ?? [])]) {
+        hide(range.pos, range.end);
+      }
+    }
+    if (node.kind === ts.SyntaxKind.StringLiteral ||
+        node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+        node.kind === ts.SyntaxKind.TemplateHead ||
+        node.kind === ts.SyntaxKind.TemplateMiddle ||
+        node.kind === ts.SyntaxKind.TemplateTail ||
+        node.kind === ts.SyntaxKind.RegularExpressionLiteral) {
+      hide(node.getStart(sourceFile), node.end);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   const code = masked.join("");
   return [...code.matchAll(/\b(?:kernel\.(?:commit|materialize|indexSession)|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient\.layer|SingleRunner\.layer)\b/g)].length;
 }
