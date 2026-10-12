@@ -47,6 +47,6 @@ test("persisted routing rows still upcast historical fields", () => {
     pendingInteractionId: "retired",
   };
   const { runId, pendingInteractionId, ...upcast } = legacy;
-  expect(JSON.stringify(Ingress.recordedRoutingDecision(legacy))).toBe(JSON.stringify(upcast));
+  expect(Object.entries(Ingress.recordedRoutingDecision(legacy) ?? {}).sort()).toEqual(Object.entries(upcast).sort());
   expect(schema.safeParse(upcast).success).toBe(false);
 });

@@ -82,7 +82,7 @@ const context: Ingress.TriggerContext = {
 test("round-trips an unknown judge verdict and bounds grouped messages", () => {
   expect(Ingress.TriggerContext.parse(context)).toEqual(context);
   expect(Ingress.TriggerContext.safeParse({ ...context, event: { ...context.event, messages: [] } }).success).toBe(false);
-  expect(Ingress.TriggerContext.safeParse({ ...context, event: { ...context.event, messages: Array(65).fill(context.event.messages[0]) } }).success).toBe(false);
+  expect(Ingress.TriggerContext.safeParse({ ...context, event: { ...context.event, messages: Array.from({ length: 65 }, () => context.event.messages[0]) } }).success).toBe(false);
   expect(Ingress.TriggerContext.safeParse({ ...context, event: { ...context.event, raw: "payload" } }).success).toBe(false);
   expect(Ingress.TriggerContext.safeParse({ ...context, matched: { ...context.matched, runWhen: { verdict: "maybe", reason: "x" } } }).success).toBe(false);
 });
