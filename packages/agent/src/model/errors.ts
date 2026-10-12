@@ -1,13 +1,13 @@
 import type { APICallError } from "ai";
-import { AgentFailure } from "../core/failure";
+import { AgentFailure, renderBodyCause, thrownAsError } from "../core/failure";
 
 export { AgentFailure };
 import { Data } from "effect";
 
 // Field shapes are compile-time only (#1259 idx 90): plain types, no
-// module-load zod schemas — nothing here ever parses.
-type Diagnostic = { readonly operation: string; readonly cause: string };
-type MessageFields = { readonly message: string; readonly cause?: string };
+// module-load zod schemas — nothing here ever parses. A cause is a string verbatim or the Error itself.
+type Diagnostic = { readonly operation: string; readonly cause: string | Error };
+type MessageFields = { readonly message: string; readonly cause?: string | Error };
 type ProviderIdentity = {
   readonly provider?: string;
   readonly model?: string;
@@ -31,7 +31,8 @@ type UsageFields = {
 };
 type RunFields = ProviderIdentity & {
   readonly message: string;
-  readonly cause?: APICallError | string;
+  /** The SDK error when the attempt failed at the provider, else the typed failure's own cause or the failure itself. */
+  readonly cause?: APICallError | Error | string;
   readonly retryAfterMs?: number;
   readonly usage: UsageFields;
   readonly aborted: boolean;
@@ -51,7 +52,13 @@ export class ProxyModelsError extends Data.TaggedError("ProxyModelsError")<Messa
 /** A model-catalog source failed (#1312): cache read/parse, remote fetch/parse, or cache write. */
 export class ModelCatalogError extends Data.TaggedError("ModelCatalogError")<
   MessageFields & { readonly source: "cache" | "remote" | "cache_write"; readonly path: string }
-> {}
+> {
+  /** A catalog source throw as the typed refusal: the cause rides structured, the message is its rendered text. */
+  static fromThrown<E>(source: ModelCatalogError["source"], path: string, cause: E): ModelCatalogError {
+    const error = thrownAsError(cause);
+    return new ModelCatalogError({ source, path, cause: error, message: renderBodyCause(error) });
+  }
+}
 type BoundaryFields = Diagnostic & {
   readonly message: string;
   readonly aborted?: boolean;

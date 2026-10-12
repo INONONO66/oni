@@ -2,6 +2,7 @@
 import * as SessionHandleStore from "./store/fence";
 import { computeActionHash, storedActionRow } from "./store/action-hash";
 import { CommitRefused, FenceRefused, SessionNotFound, type LedgerError } from "./store/errors";
+import { parsePlainJson } from "./store/json";
 import { canonicalJson, Delivery, PlainObjectSchema, PlainValueSchema, SessionTransition, type LedgerAction } from "@openomni/protocol";
 import { z } from "zod";
 import { Cause, Context, Effect, Exit, Option, Queue, Schema, type Scope, Semaphore } from "effect";
@@ -124,7 +125,7 @@ function adoptFence(kernel: SessionKernel, authority: SessionEntityAuthority): E
  * (#1254 S4): bounded to three attempts, then the typed
  * `AdmissionFailure{code: revision}` — never an unbounded in-process spin.
  */
-function retryRevision<A, E>(attempt: () => Effect.Effect<A, E>): Effect.Effect<A, E | AdmissionFailure> {
+export function retryRevision<A, E>(attempt: () => Effect.Effect<A, E>): Effect.Effect<A, E | AdmissionFailure> {
   const refused = (error: E): error is E & CommitRefused =>
     error instanceof CommitRefused && error.reason === "revision";
   return Effect.suspend(attempt).pipe(
@@ -153,7 +154,7 @@ function receivedActionFor(
   delivery?: "steer" | "followUp",
   after?: number,
 ): LedgerAction.Append {
-  const source = PlainValueSchema.parse(JSON.parse(message.origin));
+  const source = parsePlainJson(message.origin);
   const origin =
     after === undefined || source === null || typeof source !== "object" || Array.isArray(source)
       ? source
@@ -480,7 +481,7 @@ function deliverCandidate(
     sessionId: authority.sessionId,
     kind: deliveryKind,
     content: body.content,
-    origin: { encodingVersion: 1, value: PlainValueSchema.parse(JSON.parse(payload.source)) },
+    origin: { encodingVersion: 1, value: parsePlainJson(payload.source) },
     ...(body.delivery === undefined ? {} : { delivery: body.delivery }),
     ...(body.after === undefined ? {} : { after: body.after }),
     status: "pending",
@@ -524,7 +525,7 @@ function deliver(
     // activation (pinned by rpc-surface "absent from both planes"). `closed`
     // stays a reserved refusal code for the wire contract.
     const row = kernel.row(authority.sessionId);
-    const body = decodeDeliverBody(JSON.parse(payload.body));
+    const body = decodeDeliverBody(parsePlainJson(payload.body));
     const deliveryKind: Delivery.Kind =
       payload.kind === "prompt"
         ? "prompt"
@@ -596,11 +597,11 @@ function resolveCommand(
     }
     const transition: SessionTransition.Payload =
       payload.outcome === "resolved"
-        ? SessionTransition.Payload.parse(JSON.parse(payload.payload))
+        ? SessionTransition.Payload.parse(parsePlainJson(payload.payload))
         : {
             kind: "request.cancel",
             requestId: payload.requestId,
-            principal: SessionTransition.Principal.parse(JSON.parse(payload.payload)),
+            principal: SessionTransition.Principal.parse(parsePlainJson(payload.payload)),
           };
     return yield* requestCommand(handle, payload.requestId, payload.inputId, transition);
   });
@@ -651,7 +652,7 @@ function expireDeadline(
   occurrence: AlarmOccurrence,
 ): Effect.Effect<void, AdmissionFailure> {
   return Effect.suspend(() => {
-    const body = decodeDeadlineBody(JSON.parse(occurrence.payload));
+    const body = decodeDeadlineBody(parsePlainJson(occurrence.payload));
     const request = handle.kernel.requestById(body.requestId);
     if (request === undefined || request.state !== "open") return Effect.void;
     return requestCommand(handle, body.requestId, `${body.requestId}:deadline`, {

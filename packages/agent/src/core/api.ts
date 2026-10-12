@@ -4,9 +4,10 @@
 export type { ExecutionRequest, Executor } from "./gate/decide";
 export {
   AgentFailure, AgentInvariantViolation, CompactionExecutionError, ContextRestoreError,
-  type ExecutionError, pretty,
+  type ExecutionError, pretty, renderBodyCause, thrownAsError,
 } from "./failure";
 export type { SessionKernel } from "./entity";
+export { parsePlainJson, readPlainJson } from "./store/json";
 export { Entropy } from "./ports";
 export { RunEvents } from "./run-events";
 // #1254 alarm seam: exactly what an alarm capability needs; frozen at S1 —

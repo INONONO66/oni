@@ -5,6 +5,7 @@ import { isolated } from "../../helpers/isolated";
 import { describe, expect, it, mock } from "bun:test";
 import { recordingLedger, runTestOperation, failure as effectFailure, foreign, } from "../../helpers/effect-g2";
 import { compilePolicySnapshot } from "../../../src/core/gate/compile";
+import { ToolBodyFailed } from "../../../src/core/failure";
 import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
 
 const kinds = ["prompt", "turn", "llm", "tool"] as const;
@@ -139,62 +140,37 @@ describe("the single L2 executor's four-kind verdict model", () => {
       ),
     ));
 
-  it("registers extension kinds as declarative data", () =>
+  it("admits exactly the registered core kinds — no extension injection seam", () =>
     isolated(
       Effect.scoped(
         Effect.gen(function* () {
-          const actions: LedgerAction.Append[] = [];
-          let revision = 0;
-          const executor = testExecutor({
-            policy: mandatoryOnlyPolicy(),
-            ledger: {
-              commit(action: import("@openomni/protocol").LedgerAction.Append) {
-                return Effect.sync(() => {
-                  actions.push(action);
-                  revision += 1;
-                  return {
-                    action: {
-                      ...action,
-                      ordinal: revision,
-                      prevHash: "fixture-prev",
-                      actionHash: "fixture-hash",
-                    },
-                    revision,
-                  };
-                });
-              },
-            },
-            observations: { publish: () => undefined },
-            identity: { sessionId: "session-1", role: "resident", parentActionId: null },
-            clock: () => 100,
-            entropy: () => `extension-${revision + 1}`,
-            random: () => 0,
-            extensionKinds: [
-              {
-                kind: "channel.send",
-                effect: { grade: "external" },
-                reversible: false,
-                inputSchema: { type: "object" },
-              },
-            ],
-          });
-
+          // #1344: the executor's kind table is the real registered set; a
+          // foreign kind is refused typed before policy or body, and there is
+          // no production option that widens the table for tests.
+          const { actions, executor } = harness([]);
           const body = okBody();
-          const result = yield* executor.run(
+
+          const refused = executor.run(
             { kind: "channel.send", op: "test", intent: {}, effect: {} },
             body,
           );
+          expect(yield* effectFailure(refused)).toMatchObject({
+            _tag: "AgentFailure",
+            operation: "executor.admit",
+            cause: "unregistered_execution_kind:channel.send",
+          });
 
-          // The declaration admits the kind, but there is no registered
-          // `channel.send.pre` point in the composed table, so the registry
-          // fails the execution closed — no bypass for extension kinds (#1251).
-          expect(result).toMatchObject({ terminal: "blocked_pre", reason: "unknown_point" });
-          expect(body).toHaveBeenCalledTimes(0);
-          const decisions = actions.filter(
-            (action: import("@openomni/protocol").LedgerAction.Append) =>
-              action.kind === "policy.decision",
+          const admitted = yield* executor.run(
+            { kind: "tool", op: "test", intent: { requested: true }, effect: { completed: false } },
+            body,
           );
-          expect(decisions).toHaveLength(1);
+          expect(admitted).toMatchObject({ terminal: "executed" });
+          expect(body).toHaveBeenCalledTimes(1);
+          // The admitted run records its real pre and post policy decisions;
+          // the refused kind recorded nothing.
+          expect(
+            actions.filter((action: import("@openomni/protocol").LedgerAction.Append) => action.kind === "policy.decision"),
+          ).toHaveLength(2);
         }),
       ),
     ));
@@ -328,6 +304,36 @@ describe("the single L2 executor's four-kind verdict model", () => {
             effect: { completed: false },
             evidence: {
               failures: [{ tag: "AgentFailure", operation: "test" }],
+              defects: [],
+              interrupted: false,
+            },
+          });
+        }),
+      ),
+    ));
+
+  // #1344: a structured Error cause on the typed body failure journals as the
+  // stable `name: message` text — the Error object never reaches the journal.
+  it("renders a structured Error body-failure cause as stable journal text", () =>
+    isolated(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { actions, executor } = harness([]);
+          const failure = new ToolBodyFailed({ tool: "test", cause: new RangeError("deep failure") });
+
+          const outcome = yield* effectFailure(
+            executor.run(
+              { kind: "tool", op: "test", intent: { requested: true }, effect: { completed: false } },
+              () => Effect.fail(failure),
+            ),
+          );
+          expect(outcome).toBe(failure);
+          const result = actions[2];
+          expect(result?.effect.value).toMatchObject({
+            phase: "result",
+            terminal: "executed",
+            evidence: {
+              failures: [{ tag: "ToolBodyFailed", tool: "test", cause: "RangeError: deep failure" }],
               defects: [],
               interrupted: false,
             },

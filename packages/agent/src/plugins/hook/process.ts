@@ -1,4 +1,5 @@
 import { Deferred, Effect, Schema, type Scope } from "effect";
+import { readPlainJson, thrownAsError } from "../../core/api";
 import { z } from "zod";
 import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 
@@ -89,7 +90,7 @@ export class HookSpawnError extends Schema.TaggedError<HookSpawnError>(
   "@openomni/agent/plugins/hook/HookSpawnError",
 )("HookSpawnError", {
   command: Schema.Array(Schema.String),
-  cause: Schema.String,
+  cause: Schema.ErrorInstance(),
 }) {}
 
 /** A late line is always a DECODED result; failures settle calls, they are never late. */
@@ -150,12 +151,10 @@ interface Pending {
 }
 
 function decodeLine(line: string): z.infer<typeof HookResponseLine> | undefined {
-  try {
-    const parsed = HookResponseLine.safeParse(JSON.parse(line));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
+  const decoded = readPlainJson(line);
+  if (decoded === undefined) return undefined;
+  const parsed = HookResponseLine.safeParse(decoded);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function outcomeOf(result: z.infer<typeof HookResult>): HookLateOutcome {
@@ -188,7 +187,7 @@ export function acquireHookProcess(
   return Effect.gen(function* () {
     const child = yield* Effect.try({
       try: () => spawn(config.command),
-      catch: (cause) => new HookSpawnError({ command: config.command, cause: String(cause) }),
+      catch: (cause) => new HookSpawnError({ command: config.command, cause: thrownAsError(cause) }),
     });
 
     const pending = new Map<string, Pending>();

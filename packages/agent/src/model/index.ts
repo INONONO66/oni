@@ -1,4 +1,5 @@
 export * from "./errors";
+export { coerceApiError } from "./error";
 export { Llm } from "./services";
 export { LlmLive } from "./layers";
 export { Auth } from "./auth";

@@ -180,7 +180,8 @@ describe("run", () => {
     expect(outcome.type).toBe("aborted");
     if (outcome.type !== "aborted") throw new Error("expected an aborted outcome");
     expect(outcome.error?.aborted).toBe(true);
-    expect(outcome.error?.cause).toContain(source.message);
+    // #1344: the abort source rides the failure structurally.
+    expect(outcome.error?.cause).toBe(source);
   });
 
   test("publishes LlmCall.Events.Failed on error so every Started call terminates", async () => {

@@ -1,5 +1,5 @@
 import { Clock, Effect, Cause, Exit, Option } from "effect";
-import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty } from "./failure";
+import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty, thrownAsError } from "./failure";
 import type { ChatAgentConfig } from "./types";
 import type { RunState, TurnArtifacts } from "./turn";
 import { recordToolCall } from "./budget";
@@ -228,10 +228,10 @@ export function executeToolBody<In extends z.ZodType, Out extends z.ZodType>(
         (cause: CaughtValue) => {
           settle("failed");
           // An explicit ToolRefused keeps its model-facing classification; every other
-          // foreign rejection is a typed body failure the executor records as evidence.
+          // foreign rejection is a typed body failure recorded as evidence (an Error rides structured).
           resume(isToolRefusal(cause)
             ? Effect.succeed<ToolBodyOutcome>({ status: "error", message: cause.message, errorKind: "precondition_failed" })
-            : Effect.fail(new ToolBodyFailed({ tool: definition.name, cause: String(cause) })));
+            : Effect.fail(new ToolBodyFailed({ tool: definition.name, cause: cause instanceof Error ? cause : thrownAsError(cause).message })));
         },
       );
       return Effect.sync(() => controller.abort());
@@ -301,7 +301,6 @@ export interface DispatcherOptions {
   readonly executor: Executor;
   readonly timeoutMs?: number;
   readonly retainEffect?: (effect: Promise<void>) => void;
-  readonly trackWave?: (wave: Promise<void>) => void;
   /**
    * #1305: budget + store for bounded model-facing output projection. A
    * dispatcher composed without it (the render-free cell door, bare test

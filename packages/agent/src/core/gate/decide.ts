@@ -1,6 +1,7 @@
 import type { LedgerError } from "../store/errors";
 import { Effect, Scope, Context, Deferred, Exit, Cause, Option, Clock, Fiber } from "effect";
 import * as Failure from "../failure";
+import { renderBodyCause, thrownAsError } from "../failure";
 import { type ExecutionError, GenerationUnavailable, InvocationClosed, CommitFailed, ExecutionApprovalError, PolicyDenied, AgentFailure, Interrupted, OutcomeUnknown } from "../failure";
 import { type BusEvent, GateDecision, LedgerAction, type LedgerSession, type ObservationSink as ObservationPort, type PlainValue, type SessionTransition, Tool, type PlainObject, L0Observation, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory, listenForAbort } from "@openomni/protocol";
 import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "./compile";
@@ -13,20 +14,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { onAbort, type CapturedGeneration, BOUNDED_CONCURRENCY, Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports";
 import { createApprovalRequest } from "../request-binding";
 import type { ApprovalPolicy } from "../approval-policy";
-import { Retry } from "../../model";
+import { Retry, coerceApiError } from "../../model";
 import { attachFailureFacts } from "../retry";
 import { judgeStop, type StopState, type StopObservation, type StopMetric } from "../stop";
 import type * as SessionHandleStore from "../store/fence";
 import { executionPoint } from "../points";
 
 // ─── from executor-contract.ts (#1247) ───
-interface ExecutionKindRegistration {
-  readonly kind: string;
-  readonly effect: PlainValue;
-  readonly reversible: boolean;
-  readonly inputSchema: PlainValue;
-}
-
 export interface ExecutionLedger {
   commit(action: LedgerAction.Append): Effect.Effect<LedgerAction.Receipt, LedgerError>;
   /** #1305: resolved per-generation tool output budget; absent falls back to the core default. */
@@ -262,7 +256,6 @@ export interface ExecutorOptions {
   readonly approvalPolicy: ApprovalPolicy;
   readonly ledger: ExecutionLedger;
   readonly identity: ExecutionIdentity;
-  readonly extensionKinds?: readonly ExecutionKindRegistration[];
   readonly authorizeApproval?: (
     credential: string,
     request: ExecutionApprovalRequest,
@@ -313,28 +306,31 @@ export class GenerationRawSlots extends Context.Service<
 // ─── from executor-outcome.ts (#1247) ───
 export function failureEvidence(error: ExecutionError): PlainObject {
   switch (error._tag) {
-    case "LlmRunFailure":
+    case "LlmRunFailure": {
+      // Only the provider SDK error names itself; a transport or typed failure keeps `null`.
+      const apiError = coerceApiError(error.cause);
       return {
         tag: error._tag,
         message: error.message,
-        providerErrorName: typeof error.cause === "object" ? error.cause.name : null,
+        providerErrorName: apiError?.name ?? null,
         retryAfterMs: error.retryAfterMs ?? null,
         usage: error.usage,
         aborted: error.aborted,
         contextOverflow: error.contextOverflow,
         visibleOutput: error.visibleOutput,
-        cause: typeof error.cause === "object" ? error.cause.message : error.cause ?? null,
+        cause: apiError !== undefined ? apiError.message : error.cause === undefined ? null : renderBodyCause(error.cause),
       };
+    }
     case "PolicyDenied":
       return { tag: error._tag, phase: error.phase, ruleIds: [...error.ruleIds] };
     case "ToolBodyFailed":
-      return { tag: error._tag, tool: error.tool, cause: error.cause };
+      return { tag: error._tag, tool: error.tool, cause: renderBodyCause(error.cause) };
     case "InvocationClosed":
       return { tag: error._tag, tool: error.tool, reason: error.reason };
     case "GenerationUnavailable":
       return { tag: error._tag, generation: error.generation };
     case "AgentFailure":
-      return { tag: error._tag, operation: error.operation, cause: error.cause };
+      return { tag: error._tag, operation: error.operation, cause: renderBodyCause(error.cause) };
     case "CompactionExecutionError":
       return { tag: error._tag, reason: error.reason };
     case "CommitFailed":
@@ -1230,7 +1226,6 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   const record = createExecutionRecord(options);
   const { approvals, awaitApproval } = createExecutionApprovals(options);
   const recovery = createExecutionRecovery(options, record);
-  const kinds = new Set([...CORE_KINDS, ...(options.extensionKinds ?? []).map((item) => item.kind)]);
   const turnId = options.identity.turnId ?? options.identity.parentActionId;
   /** #1305: tool rows commit a bounded projection; every other kind commits verbatim. */
   const projectValue = (kind: LedgerAction.Kind, value: PlainValue): PlainValue => {
@@ -1299,7 +1294,8 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     if (original === undefined) return decide(request, "pre", request.intent);
     return Effect.try({
       try: () => recoverAdmission(options, request, original),
-      catch: (cause) => cause instanceof ExecutionApprovalError ? cause : new AgentFailure({ operation: "executor.recover_admission", cause: String(cause) }),
+      catch: (cause) => cause instanceof ExecutionApprovalError ? cause
+        : new AgentFailure({ operation: "executor.recover_admission", cause: cause instanceof Error ? cause : thrownAsError(cause).message }),
     });
   }
 
@@ -1320,7 +1316,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     if (items.length === 1 && item !== undefined) {
       return Effect.suspend<Stage<R>[], ExecutionError, never>(() => {
         const request = { ...item.request, intent: structuredClone(item.request.intent) };
-        if (!kinds.has(request.kind))
+        if (!CORE_KINDS.has(request.kind))
           return Effect.fail(new AgentFailure({ operation: "executor.admit", cause: `unregistered_execution_kind:${request.kind}` }));
         const kind = request.kind as LedgerAction.Kind;
         return admit(request).pipe(Effect.flatMap((pre) => {
@@ -1333,7 +1329,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
       const staged: Omit<Stage<R>, "intent">[] = [];
       for (const item of items) {
         const request = { ...item.request, intent: structuredClone(item.request.intent) };
-        if (!kinds.has(request.kind))
+        if (!CORE_KINDS.has(request.kind))
           return yield* new AgentFailure({ operation: "executor.admit", cause: `unregistered_execution_kind:${request.kind}` });
         const kind = request.kind as LedgerAction.Kind;
         const pre = yield* admit(request);

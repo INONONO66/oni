@@ -292,7 +292,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/gate/fold.ts", [7, 0]],
   ["packages/agent/src/core/gate/match.ts", [0, 0]],
   ["packages/agent/src/core/gate/migrate.ts", [4, 0]],
-  ["packages/agent/src/core/gate/project.ts", [4, 1]],
+  ["packages/agent/src/core/gate/project.ts", [3, 1]],
   ["packages/agent/src/core/gate/registry.ts", [4, 0]],
   ["packages/agent/src/core/gate/row-parse.ts", [4, 0]],
   ["packages/agent/src/core/gate/rows.ts", [1, 0]],
@@ -315,7 +315,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/store/catalog.ts", [15, 0]],
   ["packages/agent/src/core/store/decision.ts", [0, 0]],
   ["packages/agent/src/core/store/errors.ts", [2, 0]],
-  ["packages/agent/src/core/store/fence.ts", [18, 0]],
+  ["packages/agent/src/core/store/fence.ts", [17, 0]],
   ["packages/agent/src/core/store/index.ts", [1, 0]],
   ["packages/agent/src/core/store/json.ts", [0, 0]],
   ["packages/agent/src/core/store/services.ts", [0, 0]],
@@ -396,7 +396,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
 
 export const RESIDUE_PINS: ResiduePins = {
   files: RESIDUE_FILE_PINS,
-  ratioBasisPoints: 1_425, // CEILING: 3485 comment / 24454 nonblank lines at d9800ad74
+  ratioBasisPoints: 1_424, // CEILING: re-measured after the #1344 cleanup (1425 = 3485/24454 at d9800ad74)
   // TIGHT: JSDoc blocks spanning >6 physical lines at d9800ad74. The issue's
   // 97 is not reproducible under any line-span definition; ceiling = measured
   // 126 under "spans > 6 physical lines".

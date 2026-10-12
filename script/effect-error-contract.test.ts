@@ -84,6 +84,8 @@ const agent = {
   BundleError: new Agent.BundleError({ code: "acquisition", bundle: "fixture", detail: "fixture" }),
   ExecutionApprovalError: new Agent.ExecutionApprovalError({ code: "stale_approval" }),
   AgentStopError: new Agent.AgentStopError({ reason: "budget" }),
+  // #1344: the controller's bounded revision retry surfaces this typed failure.
+  AdmissionFailure: new Agent.AdmissionFailure({ code: "revision" }),
 } satisfies { [K in Agent.SessionError["_tag"]]: Extract<Agent.SessionError, { _tag: K }> };
 const channels = {
   ChannelsFailure: new Channels.ChannelsFailure(diagnostic),
@@ -115,7 +117,7 @@ interface PackageEntry {
   readonly path: string;
   readonly module: Readonly<Record<string, object>>;
   readonly union: string;
-  /** The package-owned carrier for a Cause without a typed error: `{ operation, cause: string }`. */
+  /** The package-owned carrier for a Cause without a typed error: `{ operation, cause: string | Error }`. */
   readonly carrier: Failure["_tag"];
   /** Where the fixture imports the carrier class from (the ipc/codemode planes do not re-export it). */
   readonly carrierPath: string;
@@ -167,7 +169,7 @@ for (const entry of packages) {
   });
 }
 
-test("every package union has a compiling exhaustive tag switch and a string carrier cause", () => {
+test("every package union has a compiling exhaustive tag switch and a structured carrier cause", () => {
   const fixturePath = new URL("./effect-error-exhaustiveness.fixture.ts", import.meta.url).pathname;
   const fixture = packages.map((entry, index) => `
     import type { ${entry.union} as Union${index} } from "../packages/${entry.path}";
@@ -178,7 +180,7 @@ test("every package union has a compiling exhaustive tag switch and a string car
         default: { const absent: never = error; return absent; }
       }
     }
-    const cause${index} = (error: Carrier${index}): string => error.cause;
+    const cause${index} = (error: Carrier${index}): string | Error => error.cause;
   `).join("\n");
   const options: ts.CompilerOptions = { noEmit: true, strict: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, types: ["bun"] };
   const host = ts.createCompilerHost(options);

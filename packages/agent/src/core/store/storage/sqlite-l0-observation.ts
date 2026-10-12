@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
-import { parseStoredJson } from "../json";
+import { thrownAsError } from "../../failure";
+import { parsePlainJson } from "../json";
 import type { Database } from "bun:sqlite";
 import { Gateway, Delivery, type LedgerAction, PlainValueSchema, SessionTransition, L0Observation, type ObservationSink, } from "@openomni/protocol";
 
@@ -58,20 +59,6 @@ export function publishCommitted(
   }
 }
 
-/**
- * The thrown sink value as an Error. Both `instanceof` (a revoked Proxy) and
- * `String()` (the value's own conversion) may throw again; the fallback names
- * only its `typeof`, so no user-controlled code runs on the post-commit path
- * after this point.
- */
-function thrownAsError<T>(cause: T): Error {
-  try {
-    return cause instanceof Error ? cause : new Error(String(cause));
-  } catch {
-    return new Error(`sink threw an unrepresentable ${typeof cause}`);
-  }
-}
-
 function publishMessageTerminal(
   db: Database,
   sink: ObservationSink,
@@ -126,7 +113,7 @@ function requestMessageIdentity(
       operation: "observation.replySource",
       message: "committed reply source is missing",
     });
-  const intent = PlainValueSchema.parse(parseStoredJson(source.intent));
+  const intent = PlainValueSchema.parse(parsePlainJson(source.intent));
   const value =
     intent !== null && typeof intent === "object" && !Array.isArray(intent)
       ? intent.value

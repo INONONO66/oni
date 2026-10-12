@@ -7,7 +7,7 @@ export type { StopObservation, StopVerdict } from "./stop";
 export { RunEvents } from "./run-events";
 import { accumulateUsage, type RunInput, type Sink, type LlmError, Llm, Retry as LlmRetry, LlmRunFailure, observeRetry, selectModel } from "../model";
 import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, type BudgetState, effectiveMaxToolCalls, publishBudgetTelemetry, evaluateBudget } from "./budget";
-import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError } from "./failure";
+import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "./failure";
 import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfig, ObservedChatAgentConfig } from "./types";
 import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "./message-factory";
 import type { CompactionSessionPort, CompactionYield } from "./compaction-ports";
@@ -817,7 +817,7 @@ export function runAgent(
     const facts = failureFacts(error);
     const interrupted = Cause.hasInterrupts(cause) || error instanceof Interrupted ||
       (error instanceof LlmRunFailure && error.aborted);
-    emitRunFailed(config.events, base, String(error), {
+    emitRunFailed(config.events, base, error instanceof Error ? renderBodyCause(error) : thrownAsError(error).message, {
       reason: interrupted ? "aborted" : facts?.reason ?? "unclassified",
       attempt: facts?.attempt ?? state.attempt,
       maxAttempts: facts?.maxAttempts ?? LlmRetry.MAX_ATTEMPTS,

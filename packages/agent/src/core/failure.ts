@@ -1,6 +1,7 @@
 import { Data, Cause, Option } from "effect";
 import type { StopVerdict } from "./turn";
 import type { LedgerError } from "./store/errors";
+import { AdmissionFailure } from "./messages";
 import type { LlmRunFailure } from "../model";
 import type { LedgerSession } from "@openomni/protocol";
 
@@ -17,6 +18,22 @@ export class AgentStopError extends Data.TaggedError("AgentStopError")<{
 
 export class ContextAdmissionError extends Data.TaggedError("ContextAdmissionError")<Record<never, never>> {}
 
+/** Journal/model text of a structured cause: a string verbatim, an Error as `String(error)` renders it. */
+export function renderBodyCause(cause: string | Error): string {
+  if (typeof cause === "string") return cause;
+  if (cause.message === "") return cause.name;
+  return cause.name === "" ? cause.message : `${cause.name}: ${cause.message}`;
+}
+
+/** A thrown value as an Error (a non-Error wraps its own `String()` text); `instanceof`/`String()` may throw again (a revoked Proxy), so the fallback names only the `typeof` and runs no user code. */
+export function thrownAsError<T>(cause: T): Error {
+  try {
+    return cause instanceof Error ? cause : new Error(String(cause));
+  } catch {
+    return new Error(`sink threw an unrepresentable ${typeof cause}`);
+  }
+}
+
 export class PolicyDenied extends Data.TaggedError("PolicyDenied")<{
   readonly phase: "pre" | "post";
   readonly ruleIds: readonly string[];
@@ -24,7 +41,7 @@ export class PolicyDenied extends Data.TaggedError("PolicyDenied")<{
 
 export class ToolBodyFailed extends Data.TaggedError("ToolBodyFailed")<{
   readonly tool: string;
-  readonly cause: string;
+  readonly cause: string | Error;
 }> {}
 
 export class InvocationClosed extends Data.TaggedError("InvocationClosed")<{
@@ -49,9 +66,9 @@ export class OutcomeUnknown extends Data.TaggedError("OutcomeUnknown")<{
 /** Agent-owned failure for a Cause without a typed error; `Failure.of` synthesizes it. */
 export class AgentFailure extends Data.TaggedError("AgentFailure")<{
   readonly operation: string;
-  readonly cause: string;
+  readonly cause: string | Error;
 }> {
-  override get message(): string { return `${this.operation}: ${this.cause}`; }
+  override get message(): string { return `${this.operation}: ${renderBodyCause(this.cause)}`; }
 }
 
 /** A context-restore the admission plane refused: the caller-selected compaction target is unknown or was never executed. */
@@ -166,7 +183,8 @@ export type ExecutionError =
   | ExecutionApprovalError
   | AgentStopError;
 
-export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError;
+export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError | AdmissionFailure;
+export { AdmissionFailure };
 
 // ─── from failure.ts (#1247) ───
 /** The typed error a Cause carries, else `synthesize` applied to the pretty-printed Cause (defects and interrupts). */

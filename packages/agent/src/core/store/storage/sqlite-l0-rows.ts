@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
-import { parseStoredJson, SqliteCount, SqliteEpochMs } from "../json";
+import { parsePlainJson, SqliteCount, SqliteEpochMs } from "../json";
 import { foldDeliveryPayload, LedgerAction, LedgerSession, PolicyRow } from "@openomni/protocol";
 
 const actionRowSchema = LedgerAction.Node;
@@ -98,8 +98,8 @@ export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
     parentId: row.parent_id,
     sessionId: row.session_id,
     kind: row.kind,
-    intent: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parseStoredJson(row.intent)) },
-    effect: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parseStoredJson(row.effect)) },
+    intent: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parsePlainJson(row.intent)) },
+    effect: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parsePlainJson(row.effect)) },
     ts: row.ts,
     ordinal: row.ordinal,
     prevHash: row.prev_hash,
@@ -110,7 +110,7 @@ export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
       ? { ...common, irreversible: row.irreversible === 1 }
       : {
           ...common,
-          revert: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parseStoredJson(row.revert)) },
+          revert: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parsePlainJson(row.revert)) },
         },
   );
 }
@@ -120,8 +120,8 @@ export function decodePolicy(row: PolicySqlRow): PolicyRow.Row {
     name: row.name,
     kind: row.kind,
     phase: row.phase,
-    match: { encodingVersion: row.encoding_version, value: parseStoredJson(row.match) },
-    verdict: { encodingVersion: row.encoding_version, value: parseStoredJson(row.verdict) },
+    match: { encodingVersion: row.encoding_version, value: parsePlainJson(row.match) },
+    verdict: { encodingVersion: row.encoding_version, value: parsePlainJson(row.verdict) },
     priority: row.priority,
     generation: row.generation,
   });

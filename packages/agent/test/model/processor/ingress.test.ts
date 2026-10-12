@@ -55,7 +55,7 @@ describe("processor ingress", () => {
     expect(processor.message.finish).toBe("stop");
     expect(
       processorInfo(events).filter((event) => event.msg === "stream.close.failed"),
-    ).toMatchObject([{ context: { error: "Error: close fixture" } }]);
+    ).toMatchObject([{ context: { error: "close fixture" } }]);
   });
 
   test("aborts a text-only stream without waiting for tool settlement", async () => {

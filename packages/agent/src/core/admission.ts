@@ -82,6 +82,23 @@ function decideIdleDeliveries(pending: readonly Delivery.Row[]): AdmissionDecisi
   return { kind: "consume", items: firstInput > 0 ? pending.slice(0, firstInput) : pending };
 }
 
+export interface SessionTurnPorts<E> {
+  readonly awaitRetainedRunner: () => Effect.Effect<void, E>;
+  readonly runTurn: (input: {
+    readonly turnId: string;
+    readonly resultId: string;
+    readonly parentActionId: string;
+    readonly boundaryActionId: string | null;
+    readonly resumeCount: number;
+    readonly generation: SessionGeneration.Snapshot;
+    readonly resume: boolean;
+  }) => Effect.Effect<SessionRunnerResult, E>;
+  readonly seal: (
+    open: SessionHandleStore.OpenTurn,
+    result: SessionRunnerResult,
+  ) => Effect.Effect<void, E>;
+}
+
 export function createSessionAdmission(
   kernel: SessionKernel,
   sessionId: string,
@@ -90,22 +107,7 @@ export function createSessionAdmission(
   owner: string,
   clock: () => number,
   entropy: () => string,
-  ports: {
-    readonly awaitRetainedRunner: () => Effect.Effect<void, AdmissionError>;
-    readonly runTurn: (input: {
-      readonly turnId: string;
-      readonly resultId: string;
-      readonly parentActionId: string;
-      readonly boundaryActionId: string | null;
-      readonly resumeCount: number;
-      readonly generation: SessionGeneration.Snapshot;
-      readonly resume: boolean;
-    }) => Effect.Effect<SessionRunnerResult, AdmissionError>;
-    readonly seal: (
-      open: SessionHandleStore.OpenTurn,
-      result: SessionRunnerResult,
-    ) => Effect.Effect<void, AdmissionError>;
-  },
+  ports: SessionTurnPorts<AdmissionError>,
 ) {
   const { awaitRetainedRunner, runTurn, seal } = ports;
 

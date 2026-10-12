@@ -33,7 +33,6 @@ function assistantWithReasons(reasons: readonly string[], inputTokens = 900): Me
         messageID: "yield-assistant",
         type: "step-finish" as const,
         reason,
-        cost: 0,
         tokens: { input: inputTokens, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
       })),
     ],

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { Effect } from "effect";
+import { parseJson } from "@openomni/protocol";
 import { AuthInvalidFileError, AuthResolutionError, type LlmError } from "../errors";
 import { decodeLlmFailure } from "../error";
 
@@ -18,8 +19,9 @@ function readAuthFile(filepath: string): Record<string, Auth.Info> {
   if (!existsSync(filepath)) return {};
   const text = readFileSync(filepath, "utf8");
   const json = z.string().transform((input, ctx) => {
-    try { return z.json().parse(JSON.parse(input)); }
-    catch { ctx.addIssue({ code: "custom", message: "invalid auth JSON" }); return z.NEVER; }
+    const decoded = parseJson(z.json(), input);
+    if (decoded === undefined) { ctx.addIssue({ code: "custom", message: "invalid auth JSON" }); return z.NEVER; }
+    return decoded;
   }).safeParse(text);
   if (!json.success) throw new AuthInvalidFileError({
     message: `auth file is not valid JSON: ${filepath}`, path: filepath, cause: json.error.message,

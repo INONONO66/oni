@@ -342,10 +342,6 @@ function handleStepFinish(
       messageID: context.messageID,
       type: "step-finish",
       reason: finishReason,
-      // Not computed: the protocol part schema requires the field, but llm
-      // has no pricing source wired — an explicit 0 is the honest value, not
-      // a half-implemented estimate.
-      cost: 0,
       tokens: {
         input: usage.inputTokens,
         output: usage.outputTokens,

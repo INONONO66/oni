@@ -236,6 +236,17 @@ function immutableVerdict(verdict: RowVerdict): RowVerdict {
   return copy;
 }
 
+function unknownRef(row: PolicyRow.Row, generation: number, ref: string): PolicyCompileError {
+  return new PolicyCompileError({
+    code: "unknown_ref",
+    generation,
+    ruleName: row.name,
+    kind: row.kind,
+    phase: row.phase,
+    ref,
+  });
+}
+
 function resolveVerdict(
   verdict: RowVerdict,
   row: PolicyRow.Row,
@@ -246,43 +257,20 @@ function resolveVerdict(
     case "transform": {
       const transformer = registry.transformers.find(({ name }) => name === verdict.ref);
       if (transformer === undefined)
-        throw new PolicyCompileError({
-          code: "unknown_ref",
-          generation,
-          ruleName: row.name,
-          kind: row.kind,
-          phase: row.phase,
-          ref: verdict.ref,
-        });
+        throw unknownRef(row, generation, verdict.ref);
       return Object.freeze({ ...verdict, apply: transformer.apply });
     }
     case "obligation":
       if (!registry.obligations.some(({ name }) => name === verdict.ref))
-        throw new PolicyCompileError({
-          code: "unknown_ref",
-          generation,
-          ruleName: row.name,
-          kind: row.kind,
-          phase: row.phase,
-          ref: verdict.ref,
-        });
+        throw unknownRef(row, generation, verdict.ref);
       return Object.freeze(verdict);
     case "consult":
-      // One consulted-row vocabulary (#1256/#1258): the ref resolves to an
-      // async consultant or a sync guard; unregistered names refuse the
-      // generation.
+      // One consulted-row vocabulary (#1256/#1258): async consultant or sync guard; unregistered refuses.
       if (
         !(registry.consultants ?? []).some(({ name }) => name === verdict.ref) &&
         !(registry.guards ?? []).some(({ name }) => name === verdict.ref)
       )
-        throw new PolicyCompileError({
-          code: "unknown_ref",
-          generation,
-          ruleName: row.name,
-          kind: row.kind,
-          phase: row.phase,
-          ref: verdict.ref,
-        });
+        throw unknownRef(row, generation, verdict.ref);
       return Object.freeze(verdict);
     case "allow":
     case "deny":

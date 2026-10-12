@@ -96,17 +96,59 @@ describe("createTurnDispatcher", () => {
   });
 });
 
-describe("wave tracking", () => {
-  it("hands every model wave to trackWave as a settlement promise", async () => {
-    const tracked: Promise<void>[] = [];
-    const dispatcher = runAgentSync(createDispatcher({ executor: passThrough, trackWave: (wave) => tracked.push(wave) }).pipe(Effect.provide(catalogLayer([tool("ok", async () => "fine"), tool("boom", async () => Promise.reject(new Error("x")))]))));
+describe("wave settlement", () => {
+  // #1344: no injection option — settlement is observable through the real
+  // dispatch path. `boom` rejects at once; `ok` parks on a gate the test opens
+  // only on a later macrotask, after every microtask an early-resolving wave
+  // could have queued has drained. The settlement log therefore places the
+  // wave after BOTH bodies only if executeWave actually waited for them.
+  it("executeWave resolves only after every model wave body settles", async () => {
+    const log: string[] = [];
+    let settledWaveBodies = 0;
+    let settledSingleBodies = 0;
+    const gate = Promise.withResolvers<void>();
+    const okParked = Promise.withResolvers<void>();
+    const boomRejected = Promise.withResolvers<void>();
+    const dispatcher = runAgentSync(createDispatcher({ executor: passThrough }).pipe(Effect.provide(catalogLayer([
+      tool("ok", async () => {
+        okParked.resolve();
+        await gate.promise;
+        settledWaveBodies += 1;
+        log.push("ok settled");
+        return "fine";
+      }),
+      tool("boom", async () => {
+        settledWaveBodies += 1;
+        log.push("boom settled");
+        boomRejected.resolve();
+        throw new Error("x");
+      }),
+      tool("single", async () => {
+        settledSingleBodies += 1;
+        return "fine";
+      }),
+    ]))));
 
-    const results = await isolated(dispatcher.executeWave([call("ok"), call("boom")], context));
-    await isolated(dispatcher.execute(call("ok"), context));
-    await isolated(dispatcher.executeCell(call("ok"), context));
+    const wave = isolated(dispatcher.executeWave([call("ok"), call("boom")], context)).then((results) => {
+      log.push("wave resolved");
+      return results;
+    });
+    await Promise.all([okParked.promise, boomRejected.promise]);
+    expect(log).toEqual(["boom settled"]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    gate.resolve();
+    const results = await wave;
 
+    expect(settledWaveBodies).toBe(2);
+    expect(log).toEqual(["boom settled", "ok settled", "wave resolved"]);
     expect(results.map((result) => result.isError)).toEqual([undefined, true]);
-    expect(tracked).toHaveLength(0);
+
+    // The single-call doors settle their own body, counted apart from the wave.
+    await isolated(dispatcher.execute(call("single"), context));
+    expect(settledSingleBodies).toBe(1);
+    await isolated(dispatcher.executeCell(call("single"), context));
+    expect(settledSingleBodies).toBe(2);
+    expect(settledWaveBodies).toBe(2);
   });
 });
 
@@ -198,6 +240,43 @@ describe("tool body outcomes", () => {
     const result = await isolated(dispatcher.execute(call("bad-output"), context));
 
     expect(result).toMatchObject({ isError: true, errorKind: "invalid_output" });
+  });
+
+  // #1344 r1 M1: a body that throws a non-Error, or an Error with an empty
+  // message, keeps the pre-#1344 `String(thrown)` bytes on BOTH the committed
+  // result-row evidence and the model-facing error text. The structured-cause
+  // path must not re-render them (`Error: 42`, `Error: ` were the regressions).
+  it("renders non-Error and empty-message throws byte-identically to String(thrown)", async () => {
+    const recording = recordingExecutor();
+    const dispatcher = runAgentSync(createDispatcher({ executor: recording.executor }).pipe(Effect.provide(catalogLayer([
+      // biome-ignore lint/style/useThrowOnlyError: a tool body is a foreign port; the non-Error throw is the case under test
+      tool("throws-number", async () => { throw 42; }),
+      // biome-ignore lint/style/useThrowOnlyError: same — the `[object Object]` rendering is the pinned byte
+      tool("throws-object", async () => { throw { a: 1 }; }),
+      // biome-ignore lint/style/useThrowOnlyError: same — `null` must render as "null"
+      tool("throws-null", async () => { throw null; }),
+      // biome-ignore lint/suspicious/useErrorMessage: an empty message must render as the bare name, as String(error) does
+      tool("throws-empty-error", async () => { throw new Error(""); }),
+    ]))));
+    const expected: Record<string, string> = {
+      "throws-number": "42",
+      "throws-object": "[object Object]",
+      "throws-null": "null",
+      "throws-empty-error": "Error",
+    };
+    const names = Object.keys(expected);
+
+    const results = await isolated(dispatcher.executeWave(names.map(call), context));
+
+    expect(Object.fromEntries(results.map((result) => [result.toolName, result.content]))).toEqual(expected);
+    expect(results.every((result) => result.isError === true && result.errorKind === "execution_failed")).toBe(true);
+    const evidenceByTool = Object.fromEntries(recording.committed
+      .filter((action) => action.kind === "tool")
+      .map((action) => action.effect.value)
+      .flatMap((effect) => typeof effect === "object" && effect !== null && !Array.isArray(effect) && effect.phase === "result" ? [effect.evidence] : [])
+      .flatMap((evidence) => typeof evidence === "object" && evidence !== null && !Array.isArray(evidence) && Array.isArray(evidence.failures) ? evidence.failures : [])
+      .flatMap((failure) => typeof failure === "object" && failure !== null && !Array.isArray(failure) && failure.tag === "ToolBodyFailed" ? [[failure.tool, failure.cause]] : []));
+    expect(evidenceByTool).toEqual(expected);
   });
 
   it("propagates an executor failure to the caller", async () => {

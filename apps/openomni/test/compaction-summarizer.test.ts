@@ -36,7 +36,6 @@ function message(id: string, text: string): Message.WithParts {
       providerID: "fake",
       agent: "resident",
       path: { cwd: "", root: "" },
-      cost: 0,
       tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
       finish: "stop",
     },

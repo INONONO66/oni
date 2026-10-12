@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { parsePlainJson } from "../json";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -33,6 +34,7 @@ import { createSessions, materializeSession } from "../storage/sqlite-l0-session
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
 import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
+import { thrownAsError } from "../../failure";
 
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
@@ -163,9 +165,9 @@ type Reads = Pick<
  * that cannot even shape an opaque node is skipped; one bad row never blocks
  * session load.
  */
-function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, reason: string): void {
+function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, cause: Error): void {
   try {
-    sink.publish(Journal.CorruptEvent, { seq: row.ordinal, kind: row.kind, reason });
+    sink.publish(Journal.CorruptEvent, { seq: row.ordinal, kind: row.kind, reason: cause.message });
   } catch {
     // Post-read observation must never block the degraded read itself.
   }
@@ -178,7 +180,7 @@ function decodeActionDegraded(
   try {
     return decodeAction(row);
   } catch (cause) {
-    reportCorruptRow(row, sink, cause instanceof Error ? cause.message : String(cause));
+    reportCorruptRow(row, sink, thrownAsError(cause));
     try {
       return decodeAction({
         ...row,
@@ -207,7 +209,7 @@ function decodeOneDegraded(
   try {
     return decodeAction(row);
   } catch (cause) {
-    reportCorruptRow(row, sink, cause instanceof Error ? cause.message : String(cause));
+    reportCorruptRow(row, sink, thrownAsError(cause));
     return undefined;
   }
 }
@@ -217,7 +219,7 @@ function decodeRowsDegraded(values: ActionSqlRow[], sink: ObservationSink): Ledg
     try {
       return [decodeAction(row)];
     } catch (cause) {
-      reportCorruptRow(row, sink, cause instanceof Error ? cause.message : String(cause));
+      reportCorruptRow(row, sink, thrownAsError(cause));
       return [];
     }
   });
@@ -543,7 +545,7 @@ export function createActions(
       if (row === null) return undefined;
       const parsed = z
         .object({ matchedRuleIds: z.array(z.string()) })
-        .safeParse(JSON.parse(row.intent));
+        .safeParse(parsePlainJson(row.intent));
       if (!parsed.success)
         throw new LedgerInvariant({
           operation: "policy.decision",
@@ -675,7 +677,7 @@ function createArmedAlarmReads(db: Database): {
           .all(),
       );
       return rows.map((row): ArmedAlarmRow => {
-        const intent = ArmIntentView.parse(JSON.parse(row.intent));
+        const intent = ArmIntentView.parse(parsePlainJson(row.intent));
         return {
           alarmId: row.alarm_id,
           occurrenceId: row.occurrence_id,

@@ -216,7 +216,6 @@ export function run(
     providerID: model.providerID,
     agent: "default",
     path: { cwd: process.cwd(), root: process.cwd() },
-    cost: 0,
     tokens: {
       input: 0,
       output: 0,
@@ -320,7 +319,7 @@ export function run(
     const aborted = abortSignal.aborted || sourceFacts.aborted === true;
     const retryAfterMs = Retry.retryAfterMs(source, input.now);
     const failure = new LlmRunFailure({
-        message: err.message || String(err),
+        message: err.message === "" ? err._tag : err.message,
         provider, model: modelId,
         retryAfterMs,
         usage: attemptUsage(processor.usageTotals),
@@ -329,7 +328,7 @@ export function run(
         contextOverflow: sourceFacts.contextOverflow ?? Retry.isContextOverflow(err),
         visibleOutput: processor.visibleOutput,
         // The SDK error itself is the provider-fact carrier for classification.
-        cause: apiError ?? err.cause ?? String(err),
+        cause: apiError ?? err.cause ?? err,
     });
     if (err.stack !== undefined) failure.stack = err.stack;
 

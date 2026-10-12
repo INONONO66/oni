@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { DecisionFact, type Storage, type Storage as ProtocolStorage } from "@openomni/protocol";
 import { z } from "zod";
-import { parseStoredJson } from "./json";
+import { parsePlainJson } from "./json";
 
 
 /** Narrow first-writer-wins port on one store handle's transaction boundary. */
@@ -53,7 +53,7 @@ const Row = SqliteRow.transform((row: z.infer<typeof SqliteRow>) =>
   DecisionFact.Recorded.parse({
     key: row.key,
     type: row.type,
-    data: parseStoredJson(row.data),
+    data: parsePlainJson(row.data),
     rowHash: row.row_hash,
     timeCreated: row.time_created,
   }),

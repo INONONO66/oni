@@ -87,7 +87,11 @@ describe("canonical model and provider-bound credentials", () => {
       throw new Error("expected model resolution failure");
     }
     expect(failure.reason).toBe("proxy_listing_failed");
-    expect(failure.cause).toContain("connection refused");
+    // #1344: the nested listing failure stays structured on the cause chain.
+    expect(failure.cause).toMatchObject({
+      _tag: "ProxyModelsError",
+      message: expect.stringContaining("connection refused"),
+    });
   });
 
   test("cross-provider fallback reads its own credential, never the primary key", async () => {

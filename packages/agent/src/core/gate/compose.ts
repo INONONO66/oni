@@ -184,6 +184,18 @@ export function compileGateRows<Context = never>(
       return { decision: recorded, value: recorded.output, emissions: [], replayed: true };
     }
     const state = initialFoldState(input.value);
+    const decisionOf = (): GateDecision => ({
+      point,
+      verdict: state.verdict,
+      rowIds: state.rowIds,
+      obligations: state.obligations,
+      consulted: state.consulted,
+      annotations: state.annotations,
+      facts: state.facts,
+      output: state.value,
+      inputHash,
+      generation: options.generation,
+    });
     for (const entry of entries) {
       if (!matches(entry, input)) continue;
       // #1256 r5 H-1: an async consult row pauses the ordered fold HERE, so
@@ -191,18 +203,7 @@ export function compileGateRows<Context = never>(
       const awaited = awaitedConsultRef(entry, decideOptions.pendingAsync, decideOptions.prepared);
       if (awaited !== undefined) {
         return {
-          decision: {
-            point,
-            verdict: state.verdict,
-            rowIds: state.rowIds,
-            obligations: state.obligations,
-            consulted: state.consulted,
-            annotations: state.annotations,
-            facts: state.facts,
-            output: state.value,
-            inputHash,
-            generation: options.generation,
-          },
+          decision: decisionOf(),
           value: state.value,
           emissions: state.emissions,
           replayed: false,
@@ -216,19 +217,7 @@ export function compileGateRows<Context = never>(
       }
       applyRow(entry.row, entry.emit, state, inputHash, decideOptions.handlers, input.when, decideOptions.prepared);
     }
-    const decision: GateDecision = {
-      point,
-      verdict: state.verdict,
-      rowIds: state.rowIds,
-      obligations: state.obligations,
-      consulted: state.consulted,
-      annotations: state.annotations,
-      facts: state.facts,
-      output: state.value,
-      inputHash,
-      generation: options.generation,
-    };
-    return { decision, value: state.value, emissions: state.emissions, replayed: false };
+    return { decision: decisionOf(), value: state.value, emissions: state.emissions, replayed: false };
   }
 
   return {
