@@ -261,3 +261,70 @@ test("monitor cron create arms a grid chain and the turn suspends instead of blo
   expect(new Date(state.fireAt).getUTCMinutes() % 5).toBe(0);
   expect(state.fireAt).toBeGreaterThan(Date.now());
 }, 30_000);
+
+/**
+ * App wiring over the core host: the channel stores ride the catalog handle
+ * the host owns (one SQLite file, no second connection, no independent
+ * close), and the entity ports the composition root binds after the host
+ * mounts run a prompt. Stopping the app releases the catalog exactly once.
+ */
+test("channel stores ride the host's catalog handle and the bound entity ports stay live", async () => {
+  const config = suite.config("monitor-host-db-", { wsToken: "monitor-test", compactionSummarizer: false });
+  let calls = 0;
+  const app = await suite.boot({
+    config,
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input, sink) => Effect.sync(() => {
+        calls += 1;
+        sink.onMessage(assistantMessage(input, { text: "host bound" }));
+        return { type: "stop" as const };
+      }),
+    },
+  });
+  const plane = await planeOf(app.runtime);
+  const catalogPath = config.catalogPath;
+  if (catalogPath === undefined) throw new Error("the suite config names a catalog file");
+  expect(plane.catalogDatabase.filename).toBe(catalogPath);
+  const tables = plane.catalogDatabase
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session_index', 'cluster_messages', 'channel_instance') ORDER BY name",
+    )
+    .all()
+    .map((row) => row.name);
+  expect(tables).toEqual(["channel_instance", "cluster_messages", "session_index"]);
+  plane.stores.instances.put({
+    id: "channel:fixture:main",
+    provider: "telegram",
+    enabled: true,
+    settings: {},
+    credentialRef: "secret:fixture",
+    revision: 0,
+    createdBy: "owner",
+    updatedAt: 1,
+  });
+  expect(plane.catalogDatabase.query<{ id: string }, []>("SELECT id FROM channel_instance").all()).toEqual([
+    { id: "channel:fixture:main" },
+  ]);
+
+  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "monitor-test"]);
+  const settled = Promise.withResolvers<void>();
+  const unsubscribe = Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
+    if (event.kind !== "turn") return;
+    const snapshot = plane.openKernel(event.sessionId).getSnapshot(event.sessionId);
+    if (snapshot.turns.at(-1)?.terminal?.kind === "result") settled.resolve();
+  });
+  const guard = setTimeout(() => settled.reject(new Error("the bound entity ports never ran the prompt")), 10_000);
+  try {
+    ws.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "are the ports bound" }));
+    await settled.promise;
+  } finally {
+    clearTimeout(guard);
+    unsubscribe();
+  }
+  expect(calls).toBe(1);
+
+  await app.stop();
+  expect(Bun.file(`${catalogPath}-wal`).size).toBe(0);
+  expect(() => plane.catalogDatabase.query("SELECT 1").get()).toThrow();
+});

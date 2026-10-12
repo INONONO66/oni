@@ -342,16 +342,16 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
 });
 
 test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
-  // process-entry.ts is pinned at 5; a checkout where it is clean must fail,
-  // and so must a pinned file deleted from the checkout (cluster-runtime.ts).
+  // process-entry.ts is pinned at 1; a checkout where it is clean must fail,
+  // and so must a pinned file deleted from the checkout (ingress-executor.ts).
   const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" }, "dir");
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (5 > 0): lower the pin",
+      "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (1 > 0): lower the pin",
     );
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/composition/cluster-runtime.ts token pin exceeds actual (5 > 0): lower the pin",
+      "VIOLATION: apps/openomni/src/composition/ingress-executor.ts token pin exceeds actual (2 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -383,7 +383,7 @@ test("#1343: a worktree-style .git FILE scopes slack judging exactly like a .git
     const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
     expect(notices).toEqual([]);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (6 > 0): lower the pin",
+      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (2 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -391,16 +391,12 @@ test("#1343: a worktree-style .git FILE scopes slack judging exactly like a .git
 });
 
 test("#1343: an already-pinned file growing above its pin fails with the file and both numbers", async () => {
-  // index.ts is pinned at 6; a seventh direct token is growth, not slack.
+  // index.ts is pinned at 2; a third direct token is growth, not slack.
   const root = scratchAppsTree(
     {
       "index.ts": [
         "const run = createSessionEntityRunTurn;",
         "kernel.commit(a);",
-        "kernel.commit(b);",
-        "kernel.materialize(c);",
-        "kernel.indexSession(d);",
-        "SqliteClient.layer;",
         "SingleRunner.layer;",
       ].join("\n"),
     },
@@ -409,7 +405,7 @@ test("#1343: an already-pinned file growing above its pin fails with the file an
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/index.ts references 7 direct agent-core tokens over the #1343 ratchet of 6 — shrink only, never grow",
+      "VIOLATION: apps/openomni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 2 — shrink only, never grow",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

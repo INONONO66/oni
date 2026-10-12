@@ -21,7 +21,7 @@ import type { ObservationFailurePort } from "./store/storage/sqlite-l0-observati
 /** The cluster's entity reaper never scans more often than five seconds. */
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
-export type SessionKernel = SessionHandleStore.SessionKernel;
+type SessionKernel = SessionHandleStore.SessionKernel;
 
 /** Per-session ledger file path: the one place the layout is spelled. */
 export function sessionFilePath(sessionsDir: string, sessionId: string): string {
@@ -43,8 +43,8 @@ export interface LedgerStoreConfig {
   readonly onObservationFailure?: ObservationFailurePort;
 }
 
-/** The store plane: one catalog handle plus memoized per-session kernels. */
-export interface LedgerStores {
+/** The ledger plane: one catalog handle, memoized per-session kernels and the entity's turn port. */
+export interface LedgerPlane {
   readonly catalog: CatalogStore;
   /** The catalog's raw SQLite handle for stores that ride the same file. */
   readonly catalogDatabase: Database;
@@ -53,16 +53,12 @@ export interface LedgerStores {
   sessionStore(sessionId: string): SessionStore;
   /** Durable sessions this process can open: session files merged with opened handles. */
   listSessions(): LedgerSession.Row[];
-  close(): void;
-}
-
-/** The host-provided ledger: the store plane plus the entity's turn port over a runner. */
-export interface LedgerPlane extends LedgerStores {
   turnPort(
     runner: SessionRunner,
     runtime: ResolvedSessionRuntime,
     scope: Scope.Scope,
   ): SessionEntityPorts["runTurn"];
+  close(): void;
 }
 
 export class Ledger extends Context.Service<Ledger, LedgerPlane>()("@openomni/agent/core/Ledger") {}
@@ -93,22 +89,22 @@ export interface LedgerConfig extends LedgerStoreConfig {
 /** Services the host contributes beyond `Ledger` (entity client access). */
 export type ClusterServices = Layer.Success<ReturnType<typeof SingleRunner.layer>>;
 
-/** The store plane synchronously; the caller owns `close` (hermetic fixtures). */
-export function openLedgerStores(config: LedgerStoreConfig): LedgerStores {
+/** The plane synchronously, without the host; the caller owns `close` (hermetic fixtures). */
+export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
   const sessionsDir = config.sessions?.dir;
   if (sessionsDir !== undefined) mkdirSync(sessionsDir, { recursive: true });
   const catalog = openCatalogStore(config.catalog?.path ?? ":memory:", {
     now: config.now,
     ...(config.observationSink === undefined ? {} : { observationSink: config.observationSink }),
   });
-  return storesOver(catalog, sessionsDir, config);
+  return planeOver(catalog, sessionsDir, config);
 }
 
-function storesOver(
+function planeOver(
   catalog: CatalogStore,
   sessionsDir: string | undefined,
   config: LedgerStoreConfig,
-): LedgerStores {
+): LedgerPlane {
   const sessionOptions = {
     now: config.now,
     ...(config.observationSink === undefined ? {} : { observationSink: config.observationSink }),
@@ -159,6 +155,7 @@ function storesOver(
           return [];
         }
       }),
+    turnPort: createSessionEntityRunTurn,
     close: () => {
       for (const entry of memo.values()) entry.store.close();
       memo.clear();
@@ -193,9 +190,9 @@ function ledgerLayer(config: LedgerConfig): Layer.Layer<Ledger, OpenRefused> {
           catch: (cause) => new OpenRefused({ code: "sessions", path: sessionsDir, cause }),
         });
       }
-      const stores = storesOver(catalog, sessionsDir, config);
-      yield* Effect.addFinalizer(() => Effect.sync(() => stores.close()));
-      return { ...stores, turnPort: createSessionEntityRunTurn };
+      const plane = planeOver(catalog, sessionsDir, config);
+      yield* Effect.addFinalizer(() => Effect.sync(() => plane.close()));
+      return plane;
     }),
   );
 }

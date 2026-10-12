@@ -1,97 +1,33 @@
 import { AppInvariantError } from "../invariant";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Core } from "@openomni/agent";
 type SessionHandle = Core.SessionHandle;
 type SessionRunner = Core.SessionRunner;
-const SessionEntityContext = Core.SessionEntityContext;
-const createSessionEntityLayer = Core.createSessionEntityLayer;
 type SessionEntityPorts = Core.SessionEntityPorts;
-type AlarmDrainConfig = Core.AlarmDrainConfig;
-const openCatalogStore = Core.openCatalogStore;
-const openSessionStore = Core.openSessionStore;
-type LedgerHandles = Core.LedgerHandles;
-type ObservationFailurePort = Core.ObservationFailurePort;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
 import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore } from "@openomni/channels";
-import type { LedgerSession, ObservationSink } from "@openomni/protocol";
-import { Context, Deferred, Duration, Effect, Exit, Layer } from "effect";
-import { SingleRunner } from "effect/cluster";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { BunCrypto } from "./cluster-crypto";
-
-/** effect/cluster's entity reaper never scans more frequently than five seconds. */
-const ENTITY_REAPER_INTERVAL_MS = 5_000;
+import { Context, Deferred, Effect, Exit, Layer } from "effect";
 
 /**
- * Cluster plane composition (W5.2 #1197 plan §1): a single-node SingleRunner
- * host over the catalog file plus the Session entity wired to per-session
- * ledger files. The cluster is host + mailbox + clock only; durability is the
- * ledger's hash chain.
+ * Cluster plane composition (W5.2 #1197 plan §1): the core host (`Core.openLedger`)
+ * owns the catalog, the session files, the single-node runner and the Session
+ * entity under one Scope; the app projects its channel-facing stores over the
+ * same catalog handle. The cluster is host + mailbox + clock only; durability
+ * is the ledger's hash chain.
  */
-
-export interface ClusterHostOptions {
-  /** Sqlite file holding the `cluster_*` runner/message tables. */
-  readonly catalogPath: string;
-  /** `entityMaxIdleTime` in milliseconds (config `entityIdleMs`). */
-  readonly entityIdleMs: number;
-}
-
-/**
- * Single-node cluster host: SingleRunner with sql runner+message storage on
- * the catalog file and Bun webcrypto. ShardingConfig is pinned fully explicit
- * (review R2 / plan D9): ambient `SHARDING_*` env never configures this layer.
- */
-export function clusterHostLayer(options: ClusterHostOptions) {
-  return SingleRunner.layer({
-    runnerStorage: "sql",
-    shardingConfig: {
-      entityMaxIdleTime: Duration.millis(
-        Math.max(options.entityIdleMs, ENTITY_REAPER_INTERVAL_MS),
-      ),
-      entityMessagePollInterval: Duration.millis(100),
-      entityReplyPollInterval: Duration.millis(100),
-    },
-  }).pipe(
-    Layer.provide(SqliteClient.layer({ filename: options.catalogPath })),
-    Layer.provide(BunCrypto),
-  );
-}
 
 /** Services the cluster host contributes to the app runtime (entity client access). */
-export type ClusterServices = Layer.Success<ReturnType<typeof clusterHostLayer>>;
+export type ClusterServices = Core.ClusterServices;
 
-/** Per-session ledger file path — the one place the layout is spelled. */
-export function sessionFilePath(sessionsDir: string, sessionId: string): string {
-  return join(sessionsDir, `${sessionId}.sqlite`);
-}
+/** Per-session ledger file path — the one place the layout is spelled (core-owned). */
+export const sessionFilePath = Core.sessionFilePath;
 
-type CatalogHandle = LedgerHandles["catalog"];
-type SessionStoreHandle = ReturnType<LedgerHandles["openSession"]>;
-export type SessionKernel = ReturnType<typeof Core.SessionHandleStore.createSessionKernel>;
-
-export interface AppLedgerOptions {
-  /** Injected wall clock (#1245): the ledger plane never reads ambient time. */
-  readonly now: () => number;
-  /** Catalog SQLite file; absent = an in-memory catalog (hermetic tests). */
-  readonly catalogPath?: string;
-  /**
-   * Directory of per-session ledger files. Absent, session stores are
-   * memoized in-memory handles shared between the plane and the entity —
-   * hermetic, but a passivated in-memory activation loses its file, which is
-   * exactly what in-memory means.
-   */
-  readonly sessionsDir?: string;
-  readonly observationSink?: ObservationSink;
-  /** Where a post-commit observation publish failure is reported; absent = the app incident log. */
-  readonly onObservationFailure?: ObservationFailurePort;
-}
+export type SessionKernel = Core.SessionKernel;
 
 /**
  * A publish that failed after its write committed is an incident for the
  * composition root's log, never a write failure: the receipt already left.
  */
-function reportObservationPublishFailure(failure: ObservationPublishFailure): void {
+export function reportObservationPublishFailure(failure: ObservationPublishFailure): void {
   console.error(`ledger observation publish failed: ${failure.actionId}`, failure.cause);
 }
 
@@ -105,104 +41,32 @@ interface AppCatalogStores {
 }
 
 /**
- * The app's ledger plane (W5.2 F1): one catalog handle, memoized per-session
- * kernels for composition reads/commits, fresh per-activation store handles
- * for the entity, and the catalog-backed store plane. Built once at the
- * composition root and threaded explicitly — no module-level state.
+ * The app's ledger plane (W5.2 F1): the core-owned store plane plus the
+ * catalog-backed channel store plane. Built once at the composition root and
+ * threaded explicitly — no module-level state.
  */
-export interface AppLedgerPlane {
-  readonly catalog: CatalogHandle;
+export interface AppLedgerPlane extends Core.LedgerPlane {
   /** Channels-owned store plane (#1317) attached to the catalog's database handle. */
   readonly channel: ChannelStore;
-  /** `LedgerWrites` shape: the shared catalog plus the entity's session opener. */
-  readonly handles: LedgerHandles;
-  /** Memoized handle-scoped kernel for one session (plane-owned lifetime). */
-  openKernel(sessionId: string): SessionKernel;
-  /** The memoized session store backing `openKernel` (decision-fact adapter access). */
-  sessionStore(sessionId: string): SessionStoreHandle;
-  /** Durable sessions this process can open: session files merged with opened handles. */
-  listSessions(): LedgerSession.Row[];
   readonly stores: AppCatalogStores;
-  close(): void;
 }
 
-export function createAppLedger(options: AppLedgerOptions): AppLedgerPlane {
-  const sessionsDir = options.sessionsDir;
-  if (sessionsDir !== undefined) mkdirSync(sessionsDir, { recursive: true });
-  const catalog = openCatalogStore(options.catalogPath ?? ":memory:", {
-    now: options.now,
-    ...(options.observationSink === undefined ? {} : { observationSink: options.observationSink }),
-  });
-  // #1317: the channel-facing tables ride the same catalog file, but their
-  // schema and adapters are channels-owned — attached here, once per boot.
-  const channel = openChannelStore(catalog.database, options.now);
-  const onObservationFailure = options.onObservationFailure ?? reportObservationPublishFailure;
-  const memo = new Map<string, { store: SessionStoreHandle; kernel: SessionKernel }>();
-  function opened(sessionId: string) {
-    let entry = memo.get(sessionId);
-    if (entry === undefined) {
-      const store = openSessionStore(
-        sessionsDir === undefined ? ":memory:" : sessionFilePath(sessionsDir, sessionId),
-        {
-          now: options.now,
-          onObservationFailure,
-          ...(options.observationSink === undefined ? {} : { observationSink: options.observationSink }),
-        },
-      );
-      entry = { store, kernel: Core.SessionHandleStore.createSessionKernel(store, catalog) };
-      memo.set(sessionId, entry);
-    }
-    return entry;
-  }
-  function sessionIds(): string[] {
-    const ids = new Set(memo.keys());
-    if (sessionsDir !== undefined && existsSync(sessionsDir)) {
-      for (const file of readdirSync(sessionsDir)) {
-        if (file.endsWith(".sqlite")) ids.add(file.slice(0, -".sqlite".length));
-      }
-    }
-    return [...ids];
-  }
+/**
+ * #1317: the channel-facing tables ride the same catalog file, but their
+ * schema and adapters are channels-owned — attached here, once per plane,
+ * without adopting the ledger's lifecycle (closing the plane closes the file).
+ */
+export function withChannelStores(ledger: Core.LedgerPlane, now: () => number): AppLedgerPlane {
+  const channel = openChannelStore(ledger.catalogDatabase, now);
   return {
-    catalog,
+    ...ledger,
     channel,
-    handles: {
-      catalog,
-      // File mode: the entity owns fresh handles it may close on passivation.
-      // In-memory mode there is only one store per session — shared.
-      openSession: (sessionId) =>
-        sessionsDir === undefined
-          ? opened(sessionId).store
-          : openSessionStore(
-              sessionFilePath(sessionsDir, sessionId),
-              {
-                now: options.now,
-                onObservationFailure,
-                ...(options.observationSink === undefined ? {} : { observationSink: options.observationSink }),
-              },
-            ),
-    },
-    openKernel: (sessionId) => opened(sessionId).kernel,
-    sessionStore: (sessionId) => opened(sessionId).store,
-    listSessions: () =>
-      sessionIds().flatMap((id) => {
-        try {
-          return [opened(id).kernel.row(id)];
-        } catch {
-          return [];
-        }
-      }),
     stores: {
       actors: createActorRegistry(channel),
       persons: createPersonStore(channel),
       instances: createChannelInstanceStore(channel),
       secrets: createSecretStore(channel),
       channelGrants: createChannelGrantStore(channel),
-    },
-    close: () => {
-      for (const entry of memo.values()) entry.store.close();
-      memo.clear();
-      catalog.close();
     },
   };
 }
@@ -211,15 +75,9 @@ export class AppLedger extends Context.Service<AppLedger, AppLedgerPlane>()(
   "@openomni/openomni/AppLedger",
 ) {}
 
-/** Scoped plane layer: the composition root owns open and close. */
-export function appLedgerLayer(options: AppLedgerOptions): Layer.Layer<AppLedger> {
-  return Layer.effect(
-    AppLedger,
-    Effect.acquireRelease(
-      Effect.sync(() => createAppLedger(options)),
-      (plane) => Effect.sync(() => plane.close()),
-    ),
-  );
+/** The app plane over the host's ledger: the host owns open and close. */
+export function appLedgerLayer(now: () => number): Layer.Layer<AppLedger, never, Core.Ledger> {
+  return Layer.effect(AppLedger, Effect.map(Core.Ledger, (ledger) => withChannelStores(ledger, now)));
 }
 
 /**
@@ -343,37 +201,6 @@ export function rescanOccurrences(input: {
       fireAt: input.now,
     },
   }));
-}
-
-export interface SessionEntityRuntimeOptions {
-  /** Writer identity stamped into `lease_owner` (audit only; the fence authorizes). */
-  readonly owner: string;
-  readonly clock: () => number;
-  /** Turn execution + alarm ports; the turn port is composition-owned (plan §1). */
-  readonly ports: SessionEntityPorts;
-  /** D3 loop consumption values (#1254 S4), resolved by `resolveAlarmDrain`. */
-  readonly drain: AlarmDrainConfig;
-}
-
-/**
- * The Session entity over the app's ledger plane: activations open store
- * handles through the plane and rotate fences through its shared catalog.
- */
-export function sessionEntityLayer(options: SessionEntityRuntimeOptions) {
-  const env = Layer.effect(
-    SessionEntityContext,
-    Effect.gen(function* () {
-      const plane = yield* AppLedger;
-      return {
-        owner: options.owner,
-        clock: options.clock,
-        catalog: plane.catalog,
-        openSession: plane.handles.openSession,
-        ports: options.ports,
-      };
-    }),
-  );
-  return createSessionEntityLayer(options.drain).pipe(Layer.provide(env));
 }
 
 type SessionRunnerInput = Parameters<SessionRunner>[0];

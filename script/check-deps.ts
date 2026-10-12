@@ -1012,11 +1012,10 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
  * Retiring a call site lowers its pin in the same PR.
  */
 const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
-  ["apps/openomni/src/composition/cluster-runtime.ts", 5],
   ["apps/openomni/src/composition/ingress-executor.ts", 2],
   ["apps/openomni/src/composition/message-session.ts", 1],
-  ["apps/openomni/src/index.ts", 6],
-  ["apps/openomni/src/process-entry.ts", 5],
+  ["apps/openomni/src/index.ts", 2],
+  ["apps/openomni/src/process-entry.ts", 1],
 ]);
 
 /** The two entity-assembly identifiers counted wherever they appear, import specifiers included. */

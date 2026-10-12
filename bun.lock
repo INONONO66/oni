@@ -58,7 +58,6 @@
       "name": "@openomni/app",
       "version": "0.1.0",
       "dependencies": {
-        "@effect/sql-sqlite-bun": "4.0.0-rc.118",
         "@openomni/agent": "workspace:*",
         "@openomni/channels": "workspace:*",
         "@openomni/codemode": "workspace:*",

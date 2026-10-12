@@ -10,7 +10,7 @@ const eraseTool = Core.eraseTool;
 const session = Testing.session;
 type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./bus";
-import { createAppLedger } from "../../src/composition/cluster-runtime";
+import { createAppLedger } from "./ledger";
 import { Gateway, type LedgerSession, type Tool } from "@openomni/protocol";
 import { channelRequests, channelStoreSource, createResidentGateway, type OutboundMessaging } from "../../src/gateway";
 import { createChannelStores, decodeChannelFailure } from "@openomni/channels";

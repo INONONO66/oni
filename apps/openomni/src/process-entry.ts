@@ -5,7 +5,6 @@ const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
 const closeSessions = Core.closeSessions;
 const createSessionRequests = Core.createSessionRequests;
-const createSessionEntityRunTurn = Core.createSessionEntityRunTurn;
 const currentExecutor = Core.currentExecutor;
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
@@ -214,7 +213,7 @@ export function serveProcessSession(
   // wake the session entity once with the entity-internal `rescan`
   // occurrence. The entity owns fence rotation, consume folds and
   // passivation arming; this function declares nothing twice.
-  const resolved: Parameters<typeof createSessionEntityRunTurn>[1] = {
+  const resolved: Core.ResolvedSessionRuntime = {
     ...runtime,
     clock: now,
     entropy: entropy.id,
@@ -230,7 +229,7 @@ export function serveProcessSession(
   const runTurn: Core.SessionEntityPorts["runTurn"] = (input) =>
     Effect.suspend(() => {
       const before = input.kernel.row(input.authority.sessionId).revision;
-      return createSessionEntityRunTurn(
+      return plane.turnPort(
         resident.runnerFor(input.kernel.row(input.authority.sessionId)),
         resolved,
         scope,

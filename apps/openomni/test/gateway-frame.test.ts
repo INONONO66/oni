@@ -7,6 +7,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Core, Inspect } from "@openomni/agent";
+import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
+import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
 import { SessionRead } from "@openomni/protocol";
 import { readSessionCursor } from "../src/gateway";
 import { clusterTempDir } from "../../../packages/agent/test/helpers/cluster-runtime";
@@ -22,8 +24,8 @@ afterAll(() => {
 
 /** Materialize one session and commit an `llm` attempt intent/result pair. */
 async function seedKernel(): Promise<Core.SessionHandleStore.SessionKernel> {
-  const catalog = Core.openCatalogStore(catalogFile, { now: () => 1 });
-  const store = Core.openSessionStore(file, { now: () => 1 });
+  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
+  const store = openSessionStore(file, { now: () => 1 });
   const kernel = Core.SessionHandleStore.createSessionKernel(store, catalog);
   await runEffect(
     kernel.materialize({

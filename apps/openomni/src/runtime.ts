@@ -13,12 +13,12 @@ const LlmLive = Model.LlmLive;
 type Llm = Model.Llm;
 import { pid } from "node:process";
 import { type Clock, Context, Data, Effect, Layer, type ManagedRuntime, type Scope, flow } from "effect";
+import { BunCrypto } from "./composition/cluster-crypto";
 import {
   type AppLedger,
   appLedgerLayer,
-  clusterHostLayer,
   createSessionEntityPortsSlot,
-  sessionEntityLayer,
+  reportObservationPublishFailure,
   type ClusterServices,
 } from "./composition/cluster-runtime";
 import { resolveAlarmDrain } from "./config";
@@ -127,12 +127,7 @@ function wiredLayer(
   entropy: EntropySource,
   observations: Context.Service.Shape<typeof ObservationSink>,
 ) {
-  const plane = appLedgerLayer({
-    now,
-    ...(options.catalogPath === undefined ? {} : { catalogPath: options.catalogPath }),
-    ...(options.sessionsDir === undefined ? {} : { sessionsDir: options.sessionsDir }),
-    observationSink: observations,
-  });
+  const plane = appLedgerLayer(now);
   const process = AgentProcessLive(observations, entropy);
   const pointTable = Layer.succeed(AppPointTable, composedPointTable(options.capabilities));
   const consultClock =
@@ -144,10 +139,6 @@ function wiredLayer(
     options.clusterClock === "injected" && options.now !== undefined
       ? wallClockLayer(now)
       : Layer.empty;
-  const host = clusterHostLayer({
-    catalogPath: options.clusterStoragePath ?? options.catalogPath ?? ":memory:",
-    entityIdleMs: options.entityIdleMs ?? 60_000,
-  }).pipe(Layer.orDie, Layer.provide(hostClock));
   const seam =
     options.entity === undefined
       ? (() => {
@@ -161,24 +152,34 @@ function wiredLayer(
             throw new AppInvariantError("session entity ports were fixed at runtime construction");
           },
         };
-  const entity: Layer.Layer<never, never, ClusterServices | AppLedger> = sessionEntityLayer({
+  // The core host: catalog, session files, runner storage and the Session
+  // entity under the runtime's Scope. Product choices stay here: the clock,
+  // the drain defaults, the incident log and the Bun crypto.
+  const ledger: Layer.Layer<Core.Ledger | ClusterServices> = Core.openLedger({
+    now,
+    ...(options.catalogPath === undefined ? {} : { catalog: { path: options.catalogPath } }),
+    ...(options.sessionsDir === undefined ? {} : { sessions: { dir: options.sessionsDir } }),
+    observationSink: observations,
+    onObservationFailure: reportObservationPublishFailure,
     owner: seam.owner,
-    clock: now,
-    ports: seam.ports,
+    cluster: {
+      storagePath: options.clusterStoragePath ?? options.catalogPath ?? ":memory:",
+      entityIdleMs: options.entityIdleMs ?? 60_000,
+    },
     drain:
       options.alarmDrain ??
       resolveAlarmDrain(
         options.entityIdleMs === undefined ? {} : { entityIdleMs: options.entityIdleMs },
       ),
-  });
+    ports: seam.ports,
+  }).pipe(Layer.orDie, Layer.provide(hostClock), Layer.provide(BunCrypto));
   const binding = Layer.succeed(SessionEntityBinding, { bind: seam.bind });
   const app = Layer.mergeAll(
     Layer.effect(AppScope, Effect.scope).pipe(Layer.provideMerge(generations)),
     options.llm ?? LlmLive,
     binding,
     pointTable,
-    entity.pipe(Layer.provide(plane)),
-  ).pipe(Layer.provideMerge(host));
+  ).pipe(Layer.provideMerge(ledger));
   return options.now === undefined ? app : Layer.mergeAll(app, wallClockLayer(now));
 }
 

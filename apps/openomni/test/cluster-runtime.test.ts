@@ -10,16 +10,11 @@ const SessionEntity = Core.SessionEntity;
 type SessionEntityPorts = Core.SessionEntityPorts;
 type SessionEntityTurnInput = Core.SessionEntityTurnInput;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
-const openCatalogStore = Core.openCatalogStore;
-const openSessionStore = Core.openSessionStore;
 import type { Delivery, ObservationSink } from "@openomni/protocol";
 import { Effect, Fiber } from "effect";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
-import {
-  createAppLedger,
-  createSessionEntityPortsSlot,
-  sessionFilePath,
-} from "../src/composition/cluster-runtime";
+import { createSessionEntityPortsSlot } from "../src/composition/cluster-runtime";
+import { createAppLedger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { requestFixture } from "../../../packages/agent/test/store/helpers/request";
 import { materializeSession } from "../../../packages/agent/test/store/helpers/session";
@@ -52,10 +47,9 @@ async function provisionSession(
   sessionId: string,
 ): Promise<void> {
   const now = testClock();
-  const catalog = openCatalogStore(catalogPath, { now });
-  const store = openSessionStore(sessionFilePath(sessionsDir, sessionId), { now });
+  const plane = createAppLedger({ now, catalogPath, sessionsDir });
   try {
-    const kernel = Core.SessionHandleStore.createSessionKernel(store, catalog);
+    const kernel = plane.openKernel(sessionId);
     await runEffect(
       kernel.materialize({
         actionId: `${sessionId}:materialize`,
@@ -68,15 +62,14 @@ async function provisionSession(
         tools: [],
       }),
     );
-    catalog.indexSession({
+    plane.catalog.indexSession({
       id: sessionId,
       parentId: null,
       role: "resident",
       createdAt: now(),
     });
   } finally {
-    store.close();
-    catalog.close();
+    plane.close();
   }
 }
 
