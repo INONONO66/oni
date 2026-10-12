@@ -49,7 +49,7 @@ describe("provider conformance", () => {
       expect(provider.id).toBe(key as keyof typeof ChannelProviders);
   });
   test("every registry entry has a conformance case", () => {
-    const covered = cases.map((kase) => kase.provider.id);
+    const covered: string[] = cases.map((kase) => kase.provider.id);
     expect(covered.sort()).toEqual(Object.keys(ChannelProviders).sort());
   });
   for (const kase of cases) {
