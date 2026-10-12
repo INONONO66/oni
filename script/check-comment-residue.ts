@@ -44,46 +44,67 @@ export function classifyResidue(
   source: string,
   exemptMarkers: ReadonlySet<string> = new Set(),
 ): FileResidue {
-  let issueLines = 0;
-  let dividerLines = 0;
-  let commentLines = 0;
-  let nonblankLines = 0;
-  let jsdocOverSix = 0;
-  let inBlock = false;
-  let blockIsJsdoc = false;
-  let blockStart = 0;
-  const lines = source.split("\n");
-  for (const [index, raw] of lines.entries()) {
+  const tally = {
+    issueLines: 0,
+    dividerLines: 0,
+    commentLines: 0,
+    nonblankLines: 0,
+    jsdocOverSix: 0,
+  };
+  const block = { open: false, jsdoc: false, start: 0 };
+  for (const [index, raw] of source.split("\n").entries()) {
     const trimmed = raw.trim();
-    if (trimmed.length > 0) nonblankLines += 1;
-    let comment = false;
-    if (inBlock) {
-      const close = trimmed.indexOf("*/");
-      comment = close === -1 || trimmed.slice(close + 2).trim().length === 0;
-      if (close !== -1) {
-        if (blockIsJsdoc && index - blockStart + 1 > 6) jsdocOverSix += 1;
-        inBlock = false;
-      }
-    } else if (trimmed.startsWith("//")) {
-      comment = true;
-      if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) dividerLines += 1;
-    } else if (trimmed.startsWith("/*")) {
-      blockIsJsdoc = trimmed.startsWith("/**");
-      blockStart = index;
-      const close = trimmed.indexOf("*/", 2);
-      if (close === -1) {
-        inBlock = true;
-        comment = true;
-      } else {
-        comment = trimmed.slice(close + 2).trim().length === 0;
-      }
-    }
+    if (trimmed.length > 0) tally.nonblankLines += 1;
+    const comment = block.open
+      ? blockContinuation(trimmed, index, block, tally)
+      : lineStart(raw, trimmed, index, block, tally, exemptMarkers);
     if (comment) {
-      commentLines += 1;
-      if (ISSUE_TOKEN.test(trimmed)) issueLines += 1;
+      tally.commentLines += 1;
+      if (ISSUE_TOKEN.test(trimmed)) tally.issueLines += 1;
     }
   }
-  return { issueLines, dividerLines, commentLines, nonblankLines, jsdocOverSix };
+  return tally;
+}
+
+type BlockState = { open: boolean; jsdoc: boolean; start: number };
+type Tally = { jsdocOverSix: number; dividerLines: number };
+
+/** Inside a block comment: the line is a comment unless code follows the closer. */
+function blockContinuation(
+  trimmed: string,
+  index: number,
+  block: BlockState,
+  tally: Tally,
+): boolean {
+  const close = trimmed.indexOf("*/");
+  if (close === -1) return true;
+  if (block.jsdoc && index - block.start + 1 > 6) tally.jsdocOverSix += 1;
+  block.open = false;
+  return trimmed.slice(close + 2).trim().length === 0;
+}
+
+/** Outside a block comment: slash-slash lines and block openers are comments. */
+function lineStart(
+  raw: string,
+  trimmed: string,
+  index: number,
+  block: BlockState,
+  tally: Tally,
+  exemptMarkers: ReadonlySet<string>,
+): boolean {
+  if (trimmed.startsWith("//")) {
+    if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) tally.dividerLines += 1;
+    return true;
+  }
+  if (!trimmed.startsWith("/*")) return false;
+  block.jsdoc = trimmed.startsWith("/**");
+  block.start = index;
+  const close = trimmed.indexOf("*/", 2);
+  if (close === -1) {
+    block.open = true;
+    return true;
+  }
+  return trimmed.slice(close + 2).trim().length === 0;
 }
 
 async function scanAgentSources(
