@@ -19,6 +19,7 @@ function fixture(): string {
   roots.push(root);
   put(root, "package.json", JSON.stringify({ workspaces: ["packages/*", "apps/*"] }));
   mkdirSync(join(root, "script"));
+  put(root, "script/conformance/app-agent-responsibility.json", JSON.stringify({ files: {} }));
   symlinkSync(join(import.meta.dir, "../node_modules"), join(root, "node_modules"));
   for (const name of [
     "topology.ts",

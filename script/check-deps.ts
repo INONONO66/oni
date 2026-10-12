@@ -2,7 +2,7 @@
 // imports only the workspaces the table allows, nothing undeclared. Distinct
 // from inventory wiring, import cycles and dead exports.
 import { Glob } from "bun";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
@@ -1004,12 +1004,12 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
 
 // #1343: app-owned direct ledger and entity/SQLite assembly references are
 // pinned at today's call sites. The import perimeter above is independent.
-const APP_AGENT_RESPONSIBILITY_PINS: ReadonlyMap<string, number> = new Map([
-  ["apps/openomni/src/composition/cluster-runtime.ts", 5],
-  ["apps/openomni/src/composition/ingress-executor.ts", 2],
-  ["apps/openomni/src/index.ts", 5],
-  ["apps/openomni/src/process-entry.ts", 4],
-]);
+export function loadAppResponsibilityPins(root = "."): ReadonlyMap<string, number> {
+  const path = join(root, "script/conformance/app-agent-responsibility.json");
+  const value = z.object({ files: z.record(z.string(), z.number().int().nonnegative().finite()) }).strict()
+    .parse(JSON.parse(readFileSync(path, "utf8")));
+  return new Map(Object.entries(value.files));
+}
 
 /** Count code references, excluding trivia and literal text. */
 export function appAgentResponsibilityCount(source: string): number {
@@ -1041,29 +1041,19 @@ export function appAgentResponsibilityCount(source: string): number {
   return [...code.matchAll(/\b(?:kernel\.(?:commit|materialize|indexSession)|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient\.layer|SingleRunner\.layer)\b/g)].length;
 }
 
-export async function validateAppAgentResponsibilities(root = "."): Promise<string[]> {
+export async function validateAppAgentResponsibilities(
+  root = ".",
+  pins: ReadonlyMap<string, number> = loadAppResponsibilityPins(root),
+): Promise<string[]> {
   const counts = new Map<string, number>();
-  let pinnedFilesScanned = 0;
-  let totalReferences = 0;
   for await (const { filePath, source } of scanRepositorySources("apps/openomni/src/**/*.ts", root)) {
-    if (APP_AGENT_RESPONSIBILITY_PINS.has(filePath)) pinnedFilesScanned += 1;
-    const actual = appAgentResponsibilityCount(source);
-    totalReferences += actual;
-    counts.set(filePath, actual);
+    counts.set(filePath, appAgentResponsibilityCount(source));
   }
   const violations: string[] = [];
-  for (const [path, actual] of counts) {
-    const pin = APP_AGENT_RESPONSIBILITY_PINS.get(path) ?? 0;
-    if (actual > pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (growth)`);
-  }
-  // Stale pins fail closed in any tree that still holds a reference, or that
-  // holds every pinned file (the migration end state must empty the map).
-  // A reference-free tree missing pinned files is a scratch gate fixture whose
-  // stubbed workspace index.ts files would otherwise read as stale pins.
-  const repositoryShaped = totalReferences > 0 || pinnedFilesScanned === APP_AGENT_RESPONSIBILITY_PINS.size;
-  for (const [path, pin] of repositoryShaped ? APP_AGENT_RESPONSIBILITY_PINS : []) {
+  for (const path of new Set([...counts.keys(), ...pins.keys()])) {
     const actual = counts.get(path) ?? 0;
-    if (actual < pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (stale pin)`);
+    const pin = pins.get(path) ?? 0;
+    if (actual !== pin) violations.push(`VIOLATION: ${path} direct agent responsibility actual ${actual}, pin ${pin} (${actual > pin ? "growth" : "stale pin"})`);
   }
   return violations.sort();
 }
