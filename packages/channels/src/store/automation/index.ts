@@ -64,6 +64,30 @@ export function createAutomationStore(source: { readonly automation?: Automation
       adapter().set(approved);
       return approved;
     },
+    migrateGrantedDirect(input: {
+      readonly surfaceKey: string;
+      readonly surface: string;
+      readonly channelId: string;
+      readonly userId: string;
+      readonly sessionId: string;
+    }): Ingress.Automation {
+      const id = `granted-direct:${input.surfaceKey}`;
+      const record = Ingress.Automation.parse({
+        id, name: "Granted direct", enabled: true, createdBy: "owner",
+        triggers: [
+          { type: "message", surface: input.surface, event: "message" },
+          { type: "message", surface: input.surface, event: "mention" },
+        ],
+        conditions: { channels: [input.channelId], users: [input.userId], includeBots: false },
+        target: `session:${input.sessionId}`, kind: "prompt",
+      });
+      const previous = adapter().get(id);
+      if (previous?.record.target !== record.target || previous.record.enabled !== record.enabled ||
+          JSON.stringify(previous.record.conditions) !== JSON.stringify(record.conditions)) {
+        adapter().set({ record, approved: true });
+      }
+      return record;
+    },
     record: (decision: Ingress.RoutingDecisionPayload) => adapter().record(decision),
     decisions: (inboundId: string) => adapter().decisions(inboundId),
     matchedToday(id: string, at: number): number {

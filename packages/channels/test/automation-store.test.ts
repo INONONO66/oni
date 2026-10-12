@@ -43,4 +43,16 @@ describe("automation store", () => {
     expect(store.decisions("event-1")).toEqual([row]);
     db.close();
   });
+
+  test("migrates a granted surface to one prompt record without duplicates", () => {
+    const { db, store } = fixture();
+    const grant = { surfaceKey: "telegram:dm:user", surface: "telegram", channelId: "dm:user",
+      userId: "user", sessionId: "resident" };
+    const first = store.migrateGrantedDirect(grant);
+    expect(first).toMatchObject({ kind: "prompt", enabled: true, target: "session:resident",
+      conditions: { channels: ["dm:user"], users: ["user"], includeBots: false } });
+    expect(store.migrateGrantedDirect(grant)).toEqual(first);
+    expect(store.list()).toHaveLength(1);
+    db.close();
+  });
 });
