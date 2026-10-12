@@ -151,7 +151,7 @@ import {
   withSessionServices,
   type SessionFixture,
 } from "../../../packages/agent/test/helpers/session-services";
-import { staleBoundaryRunner } from "./helpers/stale-boundary-runner";
+import type { SessionRunner } from "../../../packages/agent/src/core/run";
 
 test("boundaryConsumption applies the stale split at every boundary", () => {
   const staleSteer = { ...row("a1", "action", 3), delivery: "steer" as const };
@@ -171,6 +171,21 @@ function fixture(): SessionFixture {
     processId: "sb",
     ...isolatedRuntime(),
   };
+}
+
+/** A held turn that records only messages delivered at its live boundary. */
+function staleBoundaryRunner(
+  entered: Deferred.Deferred<void>,
+  release: Deferred.Deferred<void>,
+  drained: string[][],
+): SessionRunner {
+  return (input) =>
+    Effect.gen(function* () {
+      yield* Deferred.succeed(entered, undefined);
+      yield* Deferred.await(release);
+      drained.push((yield* input.boundary("after_tools")).messages.map((message) => message.text));
+      return { kind: "result", text: "done" };
+    });
 }
 
 function executedCompaction(sessionId: string, parentId: string | null, at: number) {
