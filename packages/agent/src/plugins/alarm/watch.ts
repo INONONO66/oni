@@ -3,6 +3,7 @@ import { Alarm } from "@openomni/protocol";
 import { z } from "zod";
 import {
   AlarmWakeError,
+  parsePlainJson,
   type ArmRefused,
   type AlarmFired,
   type AlarmWakeContext,
@@ -104,7 +105,7 @@ function parsePayload<S extends z.ZodType>(
   fired: AlarmFired,
 ): Effect.Effect<z.infer<S>, AlarmWakeError> {
   return Effect.try({
-    try: () => schema.parse(JSON.parse(fired.payload)),
+    try: () => schema.parse(parsePlainJson(fired.payload)),
     catch: () => new AlarmWakeError({ purpose: fired.purpose, reason: "payload" }),
   });
 }

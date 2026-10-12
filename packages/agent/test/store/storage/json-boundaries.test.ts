@@ -4,7 +4,22 @@ import { runLedgerSync } from "../helpers/effect";
 import { expect, test } from "bun:test";
 import { LedgerSession } from "@openomni/protocol";
 import { createSqliteDecisionFacts } from "../../../src/core/store/decision";
+import { SchemaRefused } from "../../../src/core/store/errors";
+import { parsePlainJson } from "../../../src/core/store/json";
 import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
+
+test("plain JSON syntax refuses with a typed json reason; schema failures remain distinct", () => {
+  expect(() => parsePlainJson("{")).toThrow(expect.objectContaining({ _tag: "SchemaRefused", reason: "json" }));
+  try {
+    parsePlainJson("{");
+  } catch (error) {
+    expect(error).toBeInstanceOf(SchemaRefused);
+    expect(error).not.toBeInstanceOf(SyntaxError);
+  }
+  expect(() => parsePlainJson("1e999")).toThrow();
+  expect(() => parsePlainJson("1e999")).not.toThrow(SchemaRefused);
+  expect(parsePlainJson('{"valid":[1,null]}')).toEqual({ valid: [1, null] });
+});
 
 test("raw recorded facts reject malformed JSON and non-finite JSON numbers", () => {
   using db = openLedgerDatabase();

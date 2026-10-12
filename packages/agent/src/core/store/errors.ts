@@ -48,15 +48,18 @@ export class PolicyGenerationRefused extends Data.TaggedError("PolicyGenerationR
 /**
  * Fail-closed journal write (#1252): a row body that does not satisfy its
  * kind's declared schema refuses the whole commit; nothing partial lands.
+ * JSON syntax refusal has no journal identity until a caller supplies one.
  */
 export class SchemaRefused extends Data.TaggedError("SchemaRefused")<{
-  readonly sessionId: string;
-  readonly actionId: string;
-  readonly kind: string;
+  readonly sessionId?: string;
+  readonly actionId?: string;
+  readonly kind?: string;
   readonly reason: string;
 }> {
   override get message(): string {
-    return `journal append refused: ${this.kind} row ${this.actionId} violates its declared schema (${this.reason})`;
+    return this.kind === undefined || this.actionId === undefined
+      ? `JSON decode refused (${this.reason})`
+      : `journal append refused: ${this.kind} row ${this.actionId} violates its declared schema (${this.reason})`;
   }
 }
 

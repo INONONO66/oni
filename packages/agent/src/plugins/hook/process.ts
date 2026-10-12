@@ -1,6 +1,7 @@
 import { Deferred, Effect, Schema, type Scope } from "effect";
 import { z } from "zod";
 import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
+import { parsePlainJson } from "../../core/api";
 
 /**
  * The hook capability's scoped process service (#1256): one external hook
@@ -151,7 +152,7 @@ interface Pending {
 
 function decodeLine(line: string): z.infer<typeof HookResponseLine> | undefined {
   try {
-    const parsed = HookResponseLine.safeParse(JSON.parse(line));
+    const parsed = HookResponseLine.safeParse(parsePlainJson(line));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;

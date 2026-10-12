@@ -5,6 +5,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync 
 import { Effect } from "effect";
 import { AuthInvalidFileError, AuthResolutionError, type LlmError } from "../errors";
 import { decodeLlmFailure } from "../error";
+import { parsePlainJson } from "../../core/store/json";
 
 const Info = z.discriminatedUnion("type", [
   z.object({ type: z.literal("api"), key: z.string() }),
@@ -18,7 +19,7 @@ function readAuthFile(filepath: string): Record<string, Auth.Info> {
   if (!existsSync(filepath)) return {};
   const text = readFileSync(filepath, "utf8");
   const json = z.string().transform((input, ctx) => {
-    try { return z.json().parse(JSON.parse(input)); }
+    try { return z.json().parse(parsePlainJson(input)); }
     catch { ctx.addIssue({ code: "custom", message: "invalid auth JSON" }); return z.NEVER; }
   }).safeParse(text);
   if (!json.success) throw new AuthInvalidFileError({
