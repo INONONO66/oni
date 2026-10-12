@@ -47,6 +47,11 @@ import { testEntropy } from "./helpers/test-entropy";
 
 const suite = residentSuite();
 
+function expectRefusal(thunk: () => void, code: string) {
+  expect(thunk).toThrow(AppInvariantError);
+  expect(thunk).toThrow(expect.objectContaining({ code }));
+}
+
 type JournalActionRow = {
   readonly kind: LedgerAction.Kind;
   readonly intent: string;
@@ -280,18 +285,20 @@ test("H-2: a command entry with do:rewrite compiles the consulted rewrite row an
     },
   ]);
   // Misdeclared command rewrites refuse typed at bundle compile, fail-closed.
-  expect(() => hooksJsonBundle({
-    PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite" }],
-  }))
-    .toThrow(AppInvariantError);
-  expect(() => hooksJsonBundle({
-    SessionStart: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite", fields: ["body"] }],
-  }))
-    .toThrow(AppInvariantError);
-  expect(() => hooksJsonBundle({
-    PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, fields: ["command"] }],
-  }))
-    .toThrow(AppInvariantError);
+  expectRefusal(
+    () => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite" }] }),
+    "missing_rewrite_fields",
+  );
+  expectRefusal(
+    () => hooksJsonBundle({
+      SessionStart: [{ command: ["./x"], timeoutMs: 1_000, do: "rewrite", fields: ["body"] }],
+    }),
+    "session_start_rewrite",
+  );
+  expectRefusal(
+    () => hooksJsonBundle({ PreToolUse: [{ command: ["./x"], timeoutMs: 1_000, fields: ["command"] }] }),
+    "invalid_config",
+  );
 });
 
 test("no hooks config composes the bundle with zero rows and the action input admitted", async () => {
@@ -307,20 +314,25 @@ test("readHooksJson refuses an unmapped event, non-JSON bytes and an unreadable 
   const unmapped = join(dir, "unmapped.json");
   writeFileSync(unmapped, JSON.stringify({ Notification: [{ command: ["./x"] }] }));
   // M-4: each source is a typed refusal, rather than a prose-only failure.
-  expect(() => readHooksJson(unmapped)).toThrow(AppInvariantError);
+  expectRefusal(() => readHooksJson(unmapped), "unmapped_event");
+  expect(() => readHooksJson(unmapped)).toThrow(/Notification/);
   const invalid = join(dir, "invalid.json");
   writeFileSync(invalid, "not json");
-  expect(() => readHooksJson(invalid)).toThrow(AppInvariantError);
-  expect(() => readHooksJson(join(dir, "absent.json"))).toThrow(AppInvariantError);
+  expectRefusal(() => readHooksJson(invalid), "not_json");
+  expectRefusal(() => readHooksJson(join(dir, "absent.json")), "unreadable_path");
   const badShape = join(dir, "bad-shape.json");
   writeFileSync(badShape, JSON.stringify({ PreToolUse: [{ command: [] }] }));
-  expect(() => readHooksJson(badShape)).toThrow(AppInvariantError);
+  expectRefusal(() => readHooksJson(badShape), "invalid_config");
   // A guard entry on a tool event without declared fields, and any guard on
   // the no-rewrite SessionStart point, each refuse typed at bundle compile.
-  expect(() => hooksJsonBundle({ PreToolUse: [{ guard: "secrets-guard" }] }))
-    .toThrow(AppInvariantError);
-  expect(() => hooksJsonBundle({ SessionStart: [{ guard: "secrets-guard" }] }))
-    .toThrow(AppInvariantError);
+  expectRefusal(
+    () => hooksJsonBundle({ PreToolUse: [{ guard: "secrets-guard" }] }),
+    "missing_rewrite_fields",
+  );
+  expectRefusal(
+    () => hooksJsonBundle({ SessionStart: [{ guard: "secrets-guard" }] }),
+    "session_start_rewrite",
+  );
   // The default call bound applies when the file omits timeoutMs.
   const defaults = join(dir, "defaults.json");
   writeFileSync(defaults, JSON.stringify({ PreToolUse: [{ command: ["./guard.sh"] }] }));
@@ -367,6 +379,7 @@ test("without the hook capability the bundle refuses at compose as seam_missing"
       Bundle.Manifest.define({ capabilities: [], bundles: [hooksJsonBundle()], off: [] }),
     );
   expect(compose).toThrow(Bundle.ComposeRefused);
+  expect(compose).toThrow(expect.objectContaining({ code: "seam_missing" }));
 });
 
 test("a guard rewrite row seeds the live transform; a command gate row seeds the consult verdict (H-1)", async () => {
@@ -456,6 +469,8 @@ test("a hooks file with an unmapped event refuses the boot before any listener e
   // the offending event name, not a prose match.
   const boot = suite.boot({ config, llm: { resolveModel: fakeProviderModel } });
   await expect(boot).rejects.toBeInstanceOf(AppInvariantError);
+  await expect(boot).rejects.toThrow(expect.objectContaining({ code: "unmapped_event" }));
+  await expect(boot).rejects.toThrow(/Stop/);
 });
 
 /**
