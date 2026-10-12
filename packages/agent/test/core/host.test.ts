@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Crypto, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
+import { TestClock } from "effect/testing";
 import { SessionEntity } from "../../src/core/entity";
 import { Ledger, type LedgerConfig, OpenRefused, openLedger } from "../../src/core/host";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
@@ -167,7 +168,10 @@ test("memory mode: the entity and the plane share one in-memory store per sessio
         yield* materialize(sessionId);
         const receipt = yield* deliverPrompt(sessionId, "m1");
         const ledger = yield* Ledger;
-        expect(ledger.handles.openSession(sessionId)).toBe(ledger.sessionStore(sessionId));
+        // The entity's handle is a view over the plane's memoized store (#1345).
+        expect(ledger.handles.openSession(sessionId).sessions).toBe(
+          ledger.sessionStore(sessionId).sessions,
+        );
         expect(ledger.catalogDatabase).toBe(ledger.catalog.database);
         const kernel = ledger.openKernel(sessionId);
         return {
@@ -182,6 +186,133 @@ test("memory mode: the entity and the plane share one in-memory store per sessio
   expect(seen.verdict.kind).toBe("intact");
   expect(seen.verdict.kind === "intact" && seen.verdict.length).toBeGreaterThanOrEqual(2);
   expect(seen.inputs).toBe(1);
+});
+
+/**
+ * Advances the test clock in fixed virtual steps until `done` holds: the
+ * cluster's polls and the entity reaper sleep on that clock alone, so the
+ * outcome depends on virtual time, never on wall-clock timing.
+ */
+const stepClockUntil = (done: Effect.Effect<boolean>, label: string, maxSteps = 600) =>
+  Effect.gen(function* () {
+    for (let step = 0; step < maxSteps; step += 1) {
+      if (yield* done) return;
+      yield* TestClock.adjust(100);
+    }
+    return yield* Effect.die(new Error(`${label}: not settled within ${maxSteps} clock steps`));
+  });
+
+/** Runs `program` on the test clock: forked, then stepped until its fiber settles. */
+const settleOnClock = <A, E, R>(program: Effect.Effect<A, E, R>, label: string) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(program, { startImmediately: true });
+    yield* stepClockUntil(
+      Effect.sync(() => fiber.pollUnsafe() !== undefined),
+      label,
+    );
+    return yield* Fiber.join(fiber);
+  });
+
+test("file mode: a rebuilt host on the same paths lists the session, verifies its chain and commits a new deliver (#1345 M3a)", async () => {
+  const { catalogPath, sessionsDir } = home("reopen");
+  const sessionId = "reopen-session";
+  const host = () =>
+    openLedger(
+      config({
+        catalog: { path: catalogPath },
+        sessions: { dir: sessionsDir },
+        cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
+      }),
+    ).pipe(Layer.provide(bunCrypto));
+  const first = await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* materialize(sessionId);
+        return yield* deliverPrompt(sessionId, "m1");
+      }).pipe(Effect.provide(host())),
+    ),
+  );
+  expect(first.existed).toBe(false);
+  expect(sessionFileClosed(catalogPath)).toBe(true);
+  const second = await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const ledger = yield* Ledger;
+        const listed = ledger.listSessions().map((row) => row.id);
+        const before = ledger.openKernel(sessionId).verifyChain(sessionId);
+        const receipt = yield* deliverPrompt(sessionId, "m2");
+        const after = ledger.openKernel(sessionId).verifyChain(sessionId);
+        return { listed, before, receipt, after };
+      }).pipe(Effect.provide(host())),
+    ),
+  );
+  expect(second.listed).toEqual([sessionId]);
+  expect(second.before.kind).toBe("intact");
+  expect(second.receipt.existed).toBe(false);
+  expect(second.after.kind).toBe("intact");
+  const lengthBefore = second.before.kind === "intact" ? second.before.length : -1;
+  expect(second.after.kind === "intact" && second.after.length).toBeGreaterThan(lengthBefore);
+  const ids = readChain(join(sessionsDir, `${sessionId}.sqlite`), sessionId).map((row) => row.id);
+  expect(ids).toContain("m1");
+  expect(ids).toContain("m2");
+  expect(sessionFileClosed(catalogPath)).toBe(true);
+});
+
+test("memory mode: a passivated activation's successor continues the chain on the same shared store (#1345 M3b)", async () => {
+  const sessionId = "memory-passivation-session";
+  // The live registration's release runs at passivation: the exact signal.
+  const passivated = Deferred.makeUnsafe<void>();
+  let activations = 0;
+  const ports: LedgerConfig["ports"] = {
+    ...fixedPorts(),
+    onLive: () => {
+      activations += 1;
+      return () => {
+        Deferred.doneUnsafe(passivated, Effect.void);
+      };
+    },
+  };
+  const idleMs = 1_000;
+  const layer = openLedger(
+    config({
+      ports,
+      cluster: { storagePath: ":memory:", entityIdleMs: idleMs },
+      drain: { ...drain, idleMs },
+    }),
+  ).pipe(Layer.provide(bunCrypto), Layer.provideMerge(TestClock.layer()));
+  const seen = await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const ledger = yield* Ledger;
+        yield* materialize(sessionId);
+        const first = yield* settleOnClock(deliverPrompt(sessionId, "m1"), "first deliver");
+        const activationsAfterFirst = activations;
+        const lengthAfterFirst = ledger.openKernel(sessionId).verifyChain(sessionId);
+        // Idle past entityIdleMs: only the reaper, on the test clock, passivates.
+        yield* stepClockUntil(Deferred.isDone(passivated), "passivation");
+        const second = yield* settleOnClock(deliverPrompt(sessionId, "m2"), "second deliver");
+        const kernel = ledger.openKernel(sessionId);
+        return {
+          first,
+          second,
+          activationsAfterFirst,
+          activations,
+          lengthAfterFirst,
+          verdict: kernel.verifyChain(sessionId),
+          inputs: kernel.inputMessages(sessionId).length,
+        };
+      }).pipe(Effect.provide(layer)),
+    ),
+  );
+  expect(seen.first.existed).toBe(false);
+  expect(seen.second.existed).toBe(false);
+  expect(seen.activationsAfterFirst).toBe(1);
+  expect(seen.activations).toBe(2);
+  expect(seen.lengthAfterFirst.kind).toBe("intact");
+  expect(seen.verdict.kind).toBe("intact");
+  const lengthBefore = seen.lengthAfterFirst.kind === "intact" ? seen.lengthAfterFirst.length : -1;
+  expect(seen.verdict.kind === "intact" && seen.verdict.length).toBeGreaterThan(lengthBefore);
+  expect(seen.inputs).toBe(2);
 });
 
 test("late binding: an activation holds on the slot's ready gate and runs the delivered turn exactly once after bind", async () => {

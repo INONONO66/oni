@@ -163,10 +163,12 @@ function planeOver(
     catalogDatabase: catalog.database,
     handles: {
       catalog,
-      // File mode: fresh handles the entity closes on passivation; in-memory: shared.
+      // File mode: fresh handles the entity closes on passivation. In-memory:
+      // the plane's memoized store, whose lifetime stays with the plane so a
+      // passivated activation's successor continues the same chain (#1345).
       openSession: (sessionId) =>
         sessionsDir === undefined
-          ? opened(sessionId).store
+          ? retained(opened(sessionId).store)
           : openSessionStore(sessionFilePath(sessionsDir, sessionId), sessionOptions),
     },
     openKernel: (sessionId) => opened(sessionId).kernel,
@@ -186,6 +188,12 @@ function planeOver(
       catalog.close();
     },
   };
+}
+
+/** A view of the plane's own store whose `close` is a no-op: the plane closes the store, never the entity. */
+function retained(store: SessionStore): SessionStore {
+  const view: SessionStore = Object.create(store, { close: { value: () => undefined } });
+  return view;
 }
 
 /**
