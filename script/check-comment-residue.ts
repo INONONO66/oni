@@ -63,6 +63,26 @@ export function classifyResidue(
   source: string,
   exemptMarkers: ReadonlySet<string> = new Set(),
 ): FileResidue {
+  const { commentMask, jsdocOverSix } = commentTrivia(source);
+  const tally = { issueLines: 0, dividerLines: 0, commentLines: 0, nonblankLines: 0, jsdocOverSix };
+  let offset = 0;
+  for (const raw of source.split("\n")) {
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) {
+      tally.nonblankLines += 1;
+      if (isCommentOnly(raw, offset, commentMask)) {
+        tally.commentLines += 1;
+        if (ISSUE_TOKEN.test(trimmed)) tally.issueLines += 1;
+        if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) tally.dividerLines += 1;
+      }
+    }
+    offset += raw.length + 1;
+  }
+  return tally;
+}
+
+/** Character mask of comment trivia plus the JSDoc>6 count, from the parsed file's tokens. */
+function commentTrivia(source: string): { commentMask: Uint8Array; jsdocOverSix: number } {
   const sourceFile = ts.createSourceFile(
     "residue.ts",
     source,
@@ -86,35 +106,27 @@ export function classifyResidue(
       if (seen.has(range.pos)) continue;
       seen.add(range.pos);
       commentMask.fill(1, range.pos, range.end);
-      if (range.kind === ts.SyntaxKind.MultiLineCommentTrivia && source.startsWith("/**", range.pos)) {
+      if (
+        range.kind === ts.SyntaxKind.MultiLineCommentTrivia &&
+        source.startsWith("/**", range.pos)
+      ) {
         const span = source.slice(range.pos, range.end).split("\n").length;
         if (span > 6) jsdocOverSix += 1;
       }
     }
   };
   markComments(sourceFile);
-  const tally = { issueLines: 0, dividerLines: 0, commentLines: 0, nonblankLines: 0, jsdocOverSix };
-  let offset = 0;
-  for (const raw of source.split("\n")) {
-    const trimmed = raw.trim();
-    if (trimmed.length > 0) {
-      tally.nonblankLines += 1;
-      let commentOnly = true;
-      for (let column = 0; column < raw.length; column += 1) {
-        if (!WHITESPACE.test(raw[column] as string) && commentMask[offset + column] === 0) {
-          commentOnly = false;
-          break;
-        }
-      }
-      if (commentOnly) {
-        tally.commentLines += 1;
-        if (ISSUE_TOKEN.test(trimmed)) tally.issueLines += 1;
-        if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) tally.dividerLines += 1;
-      }
+  return { commentMask, jsdocOverSix };
+}
+
+/** True when every non-whitespace character of the line sits inside comment trivia. */
+function isCommentOnly(raw: string, offset: number, commentMask: Uint8Array): boolean {
+  for (let column = 0; column < raw.length; column += 1) {
+    if (!WHITESPACE.test(raw[column] as string) && commentMask[offset + column] === 0) {
+      return false;
     }
-    offset += raw.length + 1;
   }
-  return tally;
+  return true;
 }
 async function scanAgentSources(
   root: string,
