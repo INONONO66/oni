@@ -1,7 +1,7 @@
 /**
  * `session.configure` — generation change: manifest hash, role, parent,
- * bundles and `settings{steering, followUp, forkCopyByteCap}` holding the
- * `all|one` consumption widths and the fork copy cap. Single writer: the entity configure constructor
+ * bundles and `settings{steering, followUp, forkCopyByteCap, checkpoint}` holding the
+ * `all|one` consumption widths, the fork copy cap and the checkpoint policy. Single writer: the entity configure constructor
  * (`packages/agent/src/core/store/fence.ts`), also used at genesis by the app
  * cluster runtime and by `Session.fork` (#1257), whose child genesis pins the
  * fork boundary in `forkedFrom`.
@@ -12,6 +12,19 @@ import { RowBody, declare, refineField } from "../declaration.js";
 /** How many queued inputs one boundary consumes for each delivery mode. */
 export const ConsumptionWidth = z.enum(["all", "one"]);
 export type ConsumptionWidth = z.infer<typeof ConsumptionWidth>;
+
+/**
+ * Durable checkpoint policy (#1347): how many non-checkpoint actions one
+ * `fold.checkpoint` row covers and the largest serialized suffix (bytes, no
+ * row bound) a restore may fold after the latest checkpoint before it refuses.
+ */
+export const CheckpointPolicy = z
+  .object({
+    everyActions: z.number().int().positive(),
+    maxTailBytes: z.number().int().positive(),
+  })
+  .strict();
+export type CheckpointPolicy = z.infer<typeof CheckpointPolicy>;
 
 export const Settings = z
   .object({
@@ -30,6 +43,12 @@ export const Settings = z
      * value here.
      */
     toolOutputBudgetBytes: z.number().int().positive().optional(),
+    /**
+     * Checkpoint cadence and restore tail budget (#1347): generation
+     * configuration folded like the widths; absent falls back to the core
+     * default `{ everyActions: 256, maxTailBytes: 4 MiB }`.
+     */
+    checkpoint: CheckpointPolicy.optional(),
   })
   .strict();
 export type Settings = z.infer<typeof Settings>;

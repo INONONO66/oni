@@ -18,6 +18,7 @@ import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, AlarmRpc, De
 import { alarmDisposition, armAction, ArmRefused, firedAction, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
 import { isReservedAlarmPurpose } from "@openomni/protocol";
 import { renderReadModel } from "./read";
+import { hydrateSessionHistory, RestoreRefused } from "../inspect/history";
 
 // ─── from cluster/kernel-registry.ts (#1247) ───
 /**
@@ -845,6 +846,41 @@ function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
 }
 
 /**
+ * Activation restore (#1347): fold the suffix after the latest checkpoint
+ * under the session's `maxTailBytes` once, and log what it cost. This is the
+ * telemetry's only consumer — no read model, journal row or bus event grows.
+ * A budget refusal leaves the activation degraded (every turn restore refuses
+ * typed the same way); the line still reports the work done before refusal.
+ */
+function logRestoredHistory(handle: ActivationHandle): Effect.Effect<void> {
+  const { kernel, authority, env } = handle;
+  return Effect.suspend(() => {
+    try {
+      const { telemetry } = hydrateSessionHistory(kernel, authority.sessionId, undefined, { now: env.clock });
+      return Effect.annotateLogs(Effect.logInfo(`session restored: ${authority.sessionId}`), {
+        restoreRows: telemetry.rows,
+        restoreBytes: telemetry.bytes,
+        restorePages: telemetry.pages,
+        restoreMs: telemetry.ms,
+      });
+    } catch (error) {
+      if (!RestoreRefused.isInstance(error))
+        return Effect.logError(`session restore failed: ${authority.sessionId}`, error);
+      const { telemetry } = error.data;
+      return Effect.annotateLogs(
+        Effect.logWarning(`session restore refused (${error.data.code}): ${authority.sessionId}`),
+        {
+          restoreRows: telemetry.rows,
+          restoreBytes: telemetry.bytes,
+          restorePages: telemetry.pages,
+          restoreMs: telemetry.ms,
+        },
+      );
+    }
+  });
+}
+
+/**
  * `read` (#1253): one model page from the journal fold. A pure, bounded
  * projection over committed history — it appends nothing and never wakes the
  * loop. Pagination follows the chain's own revision cursor.
@@ -1230,6 +1266,7 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
         ownsTurn: (turnId) => kernel.latestOpenTurn(sessionId)?.turnId === turnId,
       });
       if (releaseLive !== undefined) yield* Effect.addFinalizer(() => Effect.sync(releaseLive));
+      yield* logRestoredHistory(handle);
       // #1254 S3: restore scheduling — resend every armed occurrence (forked,
       // exactly once per activation).
       yield* resendArmedAlarms(handle);

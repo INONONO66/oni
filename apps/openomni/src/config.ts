@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Actor, Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
+import { Actor, type CheckpointPolicy, Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
 import { type KekResolution, resolveKek } from "./provisioning/vault-key";
 import { Result } from "effect";
 import { z } from "zod";
@@ -20,6 +20,7 @@ export const ConfigurationError = NamedError.create(
       "invalid_machines_tcp",
       "invalid_model_fallbacks",
       "invalid_tool_output_budget_bytes",
+      "invalid_checkpoint_policy",
       "invalid_ws_port",
       // #1271 r1 M4: the machine plane is not optional — a boot without a
       // `machines` block refuses before any listener exists.
@@ -50,6 +51,8 @@ export interface OpenOmniConfig {
   readonly forkCopyByteCap?: number;
   /** Tool output budget in bytes (#1305): project larger results to stored refs. */
   readonly toolOutputBudgetBytes?: number;
+  /** Checkpoint cadence and restore tail budget (#1347): genesis settings override of the core default. */
+  readonly checkpoint?: CheckpointPolicy;
   readonly host: string;
   readonly wsPort: number;
   /** Enabled unless explicitly disabled with OPENOMNI_COMPACTION_SUMMARIZER=off. */
@@ -284,6 +287,20 @@ export function resolveToolOutput(
     : { budgetBytes: config.toolOutputBudgetBytes };
 }
 
+/**
+ * Checkpoint policy (#1347), mirroring `resolveToolOutput`: the policy is
+ * generation configuration — `session.configure{settings.checkpoint}` — and
+ * this resolved value (or absent, meaning the core default) is what the
+ * composition writes into each new session's genesis settings.
+ */
+export interface CheckpointSettings {
+  readonly policy?: CheckpointPolicy;
+}
+
+export function resolveCheckpoint(config: Pick<OpenOmniConfig, "checkpoint">): CheckpointSettings {
+  return config.checkpoint === undefined ? {} : { policy: config.checkpoint };
+}
+
 /** The one owner of the D3 drain values, mirroring `resolveClusterStorage`. */
 export function resolveAlarmDrain(
   config: Pick<OpenOmniConfig, "alarmSweep" | "entityIdleMs">,
@@ -364,6 +381,37 @@ function toolOutputBudgetBytesFromEnv(env: Record<string, string | undefined>): 
     });
   }
   return budget;
+}
+
+/**
+ * #1347: `OPENOMNI_CHECKPOINT_EVERY_ACTIONS` and
+ * `OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES` pin the genesis checkpoint policy
+ * together — one without the other is refused, so a genesis row never carries
+ * a half policy and the core default stays whole when both are unset.
+ */
+function checkpointPolicyFromEnv(env: Record<string, string | undefined>): CheckpointPolicy | undefined {
+  const read = (name: "OPENOMNI_CHECKPOINT_EVERY_ACTIONS" | "OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES") => {
+    const raw = env[name]?.trim();
+    if (raw === undefined || raw.length === 0) return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new ConfigurationError({
+        code: "invalid_checkpoint_policy",
+        message: `${name} must be a positive integer`,
+      });
+    }
+    return value;
+  };
+  const everyActions = read("OPENOMNI_CHECKPOINT_EVERY_ACTIONS");
+  const maxTailBytes = read("OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES");
+  if (everyActions === undefined && maxTailBytes === undefined) return undefined;
+  if (everyActions === undefined || maxTailBytes === undefined) {
+    throw new ConfigurationError({
+      code: "invalid_checkpoint_policy",
+      message: "OPENOMNI_CHECKPOINT_EVERY_ACTIONS and OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES must be set together",
+    });
+  }
+  return { everyActions, maxTailBytes };
 }
 
 function compactionSummarizerFromEnv(env: Record<string, string | undefined>): boolean {
@@ -721,6 +769,7 @@ export function loadConfig(
   const alarmSweep = alarmSweepFromEnv(env);
   const forkCopyByteCap = forkCopyByteCapFromEnv(env);
   const toolOutputBudgetBytes = toolOutputBudgetBytesFromEnv(env);
+  const checkpoint = checkpointPolicyFromEnv(env);
   const channelAllowedSenders = channelAllowedSendersFromEnv(env);
   const off = offFromEnv(env);
   const hooksPath = env.OPENOMNI_HOOKS_PATH?.trim() || undefined;
@@ -739,6 +788,7 @@ export function loadConfig(
     ...(alarmSweep === undefined ? {} : { alarmSweep }),
     ...(forkCopyByteCap === undefined ? {} : { forkCopyByteCap }),
     ...(toolOutputBudgetBytes === undefined ? {} : { toolOutputBudgetBytes }),
+    ...(checkpoint === undefined ? {} : { checkpoint }),
     ...(wsToken === undefined || wsToken.length === 0 ? {} : { wsToken }),
     kek: resolveKek(env, home),
     model: modelFromEnv(env),

@@ -1,7 +1,7 @@
 import {
   canonicalDigest,
   type ConfigureDisabled,
-  type ConsumptionSettings,
+  ConsumptionSettings,
   Delivery,
   PlainObjectSchema,
   type PlainValue,
@@ -258,6 +258,28 @@ function latestGenerationForIn(
       });
     const snapshot = configurationSnapshot(action);
     if (snapshot !== undefined) return snapshot;
+    cursor = action.ordinal;
+  }
+}
+
+/** `session.configure.settings` carrier (#1253); any configure row may pin the settings. */
+const ConfigureSettingsIntent = z.object({ settings: ConsumptionSettings });
+
+/**
+ * The latest `session.configure` row carrying parseable `intent.settings`,
+ * read newest-first over the configure index (#1347): the commit path reads
+ * the checkpoint policy on every batch, so this never pages whole history.
+ */
+function latestSettingsIn(
+  context: SessionKernelContext,
+  sessionId: string,
+): ConsumptionSettings | undefined {
+  let cursor = Number.MAX_SAFE_INTEGER;
+  for (;;) {
+    const action = requiredActionsIn(context).configurationActions(sessionId, cursor)[0];
+    if (action === undefined) return undefined;
+    const parsed = ConfigureSettingsIntent.safeParse(action.intent.value);
+    if (parsed.success) return parsed.data.settings;
     cursor = action.ordinal;
   }
 }
@@ -940,6 +962,8 @@ function makeSessionKernel(context: SessionKernelContext) {
       requiredActionsIn(context).actionById(id),
     latestGenerationFor: (sessionId: string): SessionGeneration.Snapshot =>
       latestGenerationForIn(context, sessionId),
+    latestSettings: (sessionId: string): ConsumptionSettings | undefined =>
+      latestSettingsIn(context, sessionId),
     /** inputHash is an exact persisted key, not a policy evaluation or JSON-path query API. */
     policyDecisionRuleIds: (sessionId: string, inputHash: string): string[] | undefined =>
       requiredActionsIn(context).policyDecisionRuleIds(sessionId, inputHash),

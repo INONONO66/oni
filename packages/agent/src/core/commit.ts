@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { SessionKernel } from "./entity";
 import {
   canonicalDigest,
-  ConsumptionSettings,
+  type ConsumptionSettings,
   type ConsumptionWidth,
   JournalKind,
   PlainValueSchema,
@@ -16,7 +16,7 @@ import {
   type Delivery,
   type PlainValue,
 } from "@openomni/protocol";
-import { foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../inspect/history";
+import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../inspect/history";
 import type { CompactionSeamService } from "./compaction-ports";
 import type * as SessionHandleStore from "./store/fence";
 import { z } from "zod";
@@ -69,9 +69,10 @@ export function commitFoldBatch(
   seam?: Pick<CompactionSeamService, "pinAction">,
 ): Effect.Effect<CommitReceipt, LedgerError> {
   return Effect.gen(function* () {
+    const { everyActions } = checkpointPolicy(kernel, input.sessionId);
     const checkpoint = readHistoryCheckpoint(kernel, input.sessionId, input.expectedRevision);
     const incoming = input.actions.filter((action) => action.kind !== "fold.checkpoint").length;
-    if (checkpoint.nonCheckpointActions + incoming < 256 && !input.actions.some(needsProjection))
+    if (checkpoint.nonCheckpointActions + incoming < everyActions && !input.actions.some(needsProjection))
       return yield* kernel.commit(input);
     const hydrated = checkpoint.hydrate();
     let state = hydrated.state;
@@ -90,7 +91,7 @@ export function commitFoldBatch(
       );
       if (action.kind !== "fold.checkpoint") count += 1;
       const compaction = executedCompactionResult(action);
-      if (count < 256 && !compaction) continue;
+      if (count < everyActions && !compaction) continue;
       actions.push(
         foldCheckpointAction({
           sessionId: input.sessionId,
@@ -103,7 +104,7 @@ export function commitFoldBatch(
       );
       count = 0;
     }
-    if (actions.length === 0 && count >= 256) {
+    if (actions.length === 0 && count >= everyActions) {
       actions.push(
         foldCheckpointAction({
           sessionId: input.sessionId,
@@ -618,9 +619,6 @@ export function staleActionBacklog(
   return { live, stale };
 }
 
-/** `session.configure.settings` carrier (#1253); any configure row may pin the widths. */
-const ConfigureSettingsIntent = z.object({ settings: ConsumptionSettings });
-
 /** Current behavior when no configure row pins widths: every boundary consumes all eligible rows. */
 export const DEFAULT_CONSUMPTION: ConsumptionSettings = { steering: "all", followUp: "all" };
 
@@ -629,18 +627,7 @@ export const DEFAULT_CONSUMPTION: ConsumptionSettings = { steering: "all", follo
  * latest `session.configure` row carrying `intent.settings`, not code.
  */
 export function consumptionSettings(kernel: SessionKernel, sessionId: string): ConsumptionSettings {
-  let settings = DEFAULT_CONSUMPTION;
-  let afterRevision = 0;
-  for (;;) {
-    const page = kernel.historyPage(sessionId, { afterRevision, limit: 256 });
-    for (const action of page.actions) {
-      if (action.kind !== "session.configure") continue;
-      const parsed = ConfigureSettingsIntent.safeParse(action.intent.value);
-      if (parsed.success) settings = parsed.data.settings;
-    }
-    if (page.nextRevision === null) return settings;
-    afterRevision = page.nextRevision;
-  }
+  return kernel.latestSettings(sessionId) ?? DEFAULT_CONSUMPTION;
 }
 
 /**

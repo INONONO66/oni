@@ -71,6 +71,7 @@ import {
   modelTransport,
   resolveAlarmSweep,
   resolveClusterStorage,
+  resolveCheckpoint,
   resolveSessionFork,
   resolveToolOutput,
   validateMachinePlane,
@@ -116,7 +117,7 @@ import {
   webSocketCallbacks,
 } from "./gateway";
 import { configureAuthority, type GenerationDefinitions } from "./composition/generation-layers";
-import { createResident } from "./resident";
+import { createResident, type ResidentOptions } from "./resident";
 import { composeCodemode, sessionOutputsSource, type ComposedCodemode } from "./composition/codemode";
 import { createRequestDomainRevisions } from "./tools/core/request-domain-revisions";
 
@@ -261,6 +262,24 @@ function createHttpRoutes(
       if (handler !== undefined) return handler(request);
     }
     return new Response("Not found", { status: 404 });
+  };
+}
+
+/**
+ * The app-resolved values the composition writes into every new session's
+ * genesis generation settings: the fork copy cap (#1257) always, the tool
+ * output budget (#1305) and checkpoint policy (#1347) only when env names
+ * them — unset leaves the core default so sessions fold it without a row.
+ */
+function residentGenesisSettings(
+  config: OpenOmniConfig,
+): Pick<ResidentOptions, "forkCopyByteCap" | "toolOutputBudgetBytes" | "checkpoint"> {
+  const budgetBytes = resolveToolOutput(config).budgetBytes;
+  const checkpoint = resolveCheckpoint(config).policy;
+  return {
+    forkCopyByteCap: resolveSessionFork(config).copyByteCap,
+    ...(budgetBytes === undefined ? {} : { toolOutputBudgetBytes: budgetBytes }),
+    ...(checkpoint === undefined ? {} : { checkpoint }),
   };
 }
 
@@ -691,14 +710,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
     const resident = createResident({
-      // #1257: the app's resolved cap is the input the composition writes
-      // into every new session's genesis generation settings.
-      forkCopyByteCap: resolveSessionFork(config).copyByteCap,
-      // #1305: an env-resolved budget rides genesis settings; unset leaves
-      // the core default so sessions fold it without a settings row.
-      ...(resolveToolOutput(config).budgetBytes === undefined
-        ? {}
-        : { toolOutputBudgetBytes: resolveToolOutput(config).budgetBytes }),
+      ...residentGenesisSettings(config),
       ...residentModelOptions(config.model, transport),
       compaction: configuredCompaction(config, { now: services.now, id: services.entropy.id }),
       composed: { current: services.composed.current },

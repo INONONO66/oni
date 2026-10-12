@@ -3,13 +3,14 @@ import { runAgentSync } from "./helpers/executor";
 import { expect, spyOn, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { sessionTree } from "./helpers/session-tree";
-import { canonicalDigest, FoldCheckpoint, PlainValueSchema } from "@openomni/protocol";
-import { foldHistoryState, hydrateSessionHistory } from "../src/inspect/history";
+import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, PlainValueSchema } from "@openomni/protocol";
+import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused } from "../src/inspect/history";
+import { actionPayloadBytes } from "../src/core/store/action-hash";
 import { deliveryActions } from "../src/core/commit";
 import { bounded } from "./helpers/bounded";
 import { effectOf, intentOf } from "./helpers/crash-matrix";
 import { commitReceivedMessage } from "./helpers/ingress";
-import { isolatedLedger, isolatedRun } from "./helpers/isolated";
+import { isolatedLedger, isolatedRun, runTestSync } from "./helpers/isolated";
 import { nth } from "./helpers/nth";
 import { requestLedger } from "./helpers/request-ledger";
 import { textMessage } from "./helpers/messages";
@@ -77,6 +78,129 @@ for (const count of [255, 256, 257]) {
     expect("tree" in SessionHandleStore).toBe(false);
   }));
 }
+
+/** Pins `settings.checkpoint` through a later `compose` configure row (#1347): settings data, not code. */
+function pinCheckpointPolicy(
+  recording: ReturnType<typeof requestLedger>,
+  kernel: ReturnType<typeof isolatedLedger>["kernel"],
+  checkpoint: CheckpointPolicy,
+) {
+  const id = recording.identity.sessionId;
+  const committed = recording.commitBatch([
+    SessionHandleStore.configureAction({
+      id: `${id}:configure:checkpoint`,
+      sessionId: id,
+      parentId: kernel.latestAction(id)?.id ?? null,
+      operation: "compose",
+      snapshot: kernel.latestGenerationFor(id),
+      settings: { steering: "all", followUp: "all", checkpoint },
+      at: 100,
+    }),
+  ]);
+  expect(committed.ok).toBe(true);
+  expect(checkpointPolicy(kernel, id)).toEqual(checkpoint);
+}
+
+/** A stepping clock: each read advances by `step`, so `telemetry.ms` is exact, never timing luck. */
+function steppingClock(step: number) {
+  let at = 0;
+  return () => {
+    at += step;
+    return at;
+  };
+}
+
+test("#1347 checkpoint cadence folds `everyActions` from the configured policy, not a literal", () => isolatedRun((ledger) => {
+  const recording = requestLedger();
+  const id = recording.identity.sessionId;
+  const kernel = ledger.kernel;
+  expect(checkpointPolicy(kernel, id)).toEqual(DEFAULT_CHECKPOINT_POLICY);
+  expect(DEFAULT_CHECKPOINT_POLICY).toEqual({ everyActions: 256, maxTailBytes: 4 * 1024 * 1024 });
+  pinCheckpointPolicy(recording, kernel, { everyActions: 8, maxTailBytes: 4 * 1024 * 1024 });
+  // configure + turn intent + compose configure = 3 non-checkpoint actions already committed.
+  expect(recording.commitBatch(paddingActions(id, recording.identity.turnId, 4)).ok).toBe(true);
+  expect(kernel.latestFoldCheckpoint(id).checkpoint).toBeUndefined();
+  expect(recording.commitBatch(paddingActions(id, recording.identity.turnId, 1, "eighth")).ok).toBe(true);
+  const checkpoint = kernel.latestFoldCheckpoint(id).checkpoint;
+  expect(checkpoint?.ordinal).toBe(9);
+  expect(FoldCheckpoint.Effect.parse(checkpoint?.effect.value).result.revision).toBe(8);
+  expect(expectReplay(id).nonCheckpointActions).toBe(0);
+  // The suffix after revision 8 is the checkpoint row itself: counted, never folded.
+  const loaded = hydrateSessionHistory(kernel, id, undefined, { now: steppingClock(3) });
+  expect(loaded.telemetry).toEqual({ rows: 1, bytes: actionPayloadBytes(nth(sessionTree(kernel, id), 8)), pages: 1, ms: 3 });
+}));
+
+test("#1347 restore reports rows, bytes, pages and elapsed ms from the injected clock", () => isolatedRun((ledger) => {
+  const recording = requestLedger({ legacy: true });
+  const id = recording.identity.sessionId;
+  const kernel = ledger.kernel;
+  const padding = paddingActions(id, recording.identity.turnId, 300, "legacy");
+  for (const action of padding) {
+    expect(ledger.session.actions.append(action, kernel.row(id).revision)).toBeDefined();
+  }
+  const tree = sessionTree(kernel, id);
+  const loaded = hydrateSessionHistory(kernel, id, undefined, { now: steppingClock(7) });
+  expect(loaded.telemetry).toEqual({
+    rows: tree.length,
+    bytes: tree.reduce((total, action) => total + actionPayloadBytes(action), 0),
+    pages: 2,
+    ms: 7,
+  });
+  expect(loaded.revision).toBe(tree.length);
+}));
+
+test("#1347 a suffix past `maxTailBytes` on a later page refuses typed with the work done and no partial state", () => isolatedRun((ledger) => {
+  const id = "bounded-restore";
+  const kernel = ledger.kernel;
+  // Pinned at genesis: page one (256 rows) fits under 10_000 bytes, page two carries the total past it.
+  const maxTailBytes = 10_000;
+  runTestSync(kernel.materialize({
+    id,
+    role: "resident",
+    parentId: null,
+    policyGeneration: 1,
+    tools: [],
+    system: { preset: "", blocks: [] },
+    settings: { steering: "all", followUp: "all", checkpoint: { everyActions: 256, maxTailBytes } },
+    actionId: `${id}:configure`,
+    at: 100,
+  }));
+  for (const action of paddingActions(id, `${id}:configure`, 600, "legacy")) {
+    expect(ledger.session.actions.append(action, kernel.row(id).revision)).toBeDefined();
+  }
+  const revision = kernel.row(id).revision;
+  const pageBytes = (afterRevision: number) =>
+    kernel.historyPage(id, { afterRevision, limit: 256 }).actions.reduce((total, action) => total + actionPayloadBytes(action), 0);
+  expect(pageBytes(0)).toBeLessThanOrEqual(maxTailBytes);
+  expect(pageBytes(0) + pageBytes(256)).toBeGreaterThan(maxTailBytes);
+  const pages = ledger.session.actions.range.bind(ledger.session.actions);
+  const read: number[] = [];
+  ledger.session.actions.range = (sessionId, cursor, limit) => {
+    read.push(cursor);
+    return pages(sessionId, cursor, limit);
+  };
+  let refused: unknown;
+  try {
+    hydrateSessionHistory(kernel, id, undefined, { now: steppingClock(5) });
+  } catch (error) {
+    refused = error;
+  } finally {
+    ledger.session.actions.range = pages;
+  }
+  if (!RestoreRefused.isInstance(refused)) throw new Error(`expected RestoreRefused, got ${String(refused)}`);
+  expect(refused.data).toEqual({
+    code: "budget",
+    sessionId: id,
+    revision,
+    maxTailBytes,
+    telemetry: { rows: 512, bytes: pageBytes(0) + pageBytes(256), pages: 2, ms: 5 },
+  });
+  // The second page was counted, then refused before folding: the read stopped there.
+  expect(read).toEqual([0, 256]);
+  // Nothing durable changed; the same chain restores whole once the budget allows it.
+  expect(kernel.row(id).revision).toBe(revision);
+  expect(kernel.verifyChain(id)).toMatchObject({ kind: "intact", length: revision });
+}));
 
 test("legacy genesis paging fixes a high-water revision, then checkpoints under the existing fence", () => isolatedRun((ledger) => {
   const recording = requestLedger({ legacy: true });

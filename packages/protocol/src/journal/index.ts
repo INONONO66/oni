@@ -19,7 +19,7 @@ export { Control as SignalControl } from "./core/signal.js";
 export { foldDeliveryPayload, V1_DELIVERY_FIELDS } from "./core/prompt.js";
 export { Phase as RequestPhase } from "./core/request.js";
 export { Op as AlarmOp, FiredOutcome as AlarmFiredOutcome, RESERVED_PURPOSES as RESERVED_ALARM_PURPOSES, isReservedPurpose as isReservedAlarmPurpose, type ReservedPurpose as ReservedAlarmPurpose } from "./core/alarm.js";
-export { Settings as ConsumptionSettings, ConsumptionWidth, Disabled as ConfigureDisabled, DisabledEntry as ConfigureDisabledEntry } from "./core/session-configure.js";
+export { CheckpointPolicy, Settings as ConsumptionSettings, ConsumptionWidth, Disabled as ConfigureDisabled, DisabledEntry as ConfigureDisabledEntry } from "./core/session-configure.js";
 export { CompactionReason } from "./capability/compaction.js";
 
 /**

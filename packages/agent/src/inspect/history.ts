@@ -2,7 +2,8 @@ import { z } from "zod";
 import * as SessionHandleStore from "../core/store/fence";
 import type { SessionKernel } from "../core/entity";
 import { AgentInvariantViolation } from "../core/failure";
-import { canonicalDigest, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
+import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
+import { actionPayloadBytes } from "../core/store/action-hash";
 
 /**
  * Canonical model-context fold over committed actions: delivered prompts,
@@ -166,6 +167,54 @@ function checkpointSeed(sessionId: string, checkpoint: LedgerAction.Node) {
   return parsed.data.result;
 }
 
+/** Core default (#1347): applies when no `session.configure{settings.checkpoint}` row pins one. */
+export const DEFAULT_CHECKPOINT_POLICY: CheckpointPolicy = {
+  everyActions: 256,
+  maxTailBytes: 4 * 1024 * 1024,
+};
+
+/** The checkpoint policy folded from the latest configure settings (#1347), never a literal. */
+export function checkpointPolicy(kernel: SessionKernel, sessionId: string): CheckpointPolicy {
+  return kernel.latestSettings(sessionId)?.checkpoint ?? DEFAULT_CHECKPOINT_POLICY;
+}
+
+/** The suffix page size (#1347): the existing `historyPage` default, not a policy value. */
+const RESTORE_PAGE_ROWS = 256;
+
+/** What one restore read after its checkpoint: rows and serialized bytes counted per page, pages, elapsed. */
+export interface RestoreTelemetry {
+  readonly rows: number;
+  readonly bytes: number;
+  readonly pages: number;
+  readonly ms: number;
+}
+
+/** Injected monotonic clock for `RestoreTelemetry.ms`; tests pin it. */
+export interface RestoreOptions {
+  readonly now?: () => number;
+}
+
+/** The restore tail exceeded `maxTailBytes` (#1347): no partial state, the work done rides along. */
+export const RestoreRefused = NamedError.create(
+  "RestoreRefused",
+  z
+    .object({
+      code: z.literal("budget"),
+      sessionId: z.string(),
+      revision: z.number().int().nonnegative(),
+      maxTailBytes: z.number().int().positive(),
+      telemetry: z
+        .object({
+          rows: z.number().int().nonnegative(),
+          bytes: z.number().int().nonnegative(),
+          pages: z.number().int().nonnegative(),
+          ms: z.number().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+);
+
 /** One committed prefix materialized as fold state, model history and compatibility rows. */
 export interface HydratedSessionHistory {
   readonly revision: number;
@@ -173,6 +222,7 @@ export interface HydratedSessionHistory {
   readonly history: Message.WithParts[];
   readonly messages: FoldCheckpoint.State["compatibility"];
   readonly nonCheckpointActions: number;
+  readonly telemetry: RestoreTelemetry;
 }
 
 /** Validate the durable seed even when a commit does not need to materialize its suffix. */
@@ -180,6 +230,7 @@ export function readHistoryCheckpoint(
   kernel: SessionKernel,
   sessionId: string,
   throughRevision?: number,
+  options: RestoreOptions = {},
 ): { nonCheckpointActions: number; hydrate: () => HydratedSessionHistory } {
   const { revision, checkpoint } = kernel.latestFoldCheckpoint(sessionId, throughRevision);
   const seed = checkpoint === undefined ? undefined : checkpointSeed(sessionId, checkpoint);
@@ -193,6 +244,7 @@ export function readHistoryCheckpoint(
         foldHistoryState(sessionId, [], seed?.state),
         seed?.revision ?? 0,
         0,
+        options,
       ),
   };
 }
@@ -202,8 +254,9 @@ export function hydrateSessionHistory(
   kernel: SessionKernel,
   sessionId: string,
   throughRevision?: number,
+  options: RestoreOptions = {},
 ): HydratedSessionHistory {
-  return readHistoryCheckpoint(kernel, sessionId, throughRevision).hydrate();
+  return readHistoryCheckpoint(kernel, sessionId, throughRevision, options).hydrate();
 }
 
 /** Recovery refresh consumes only commits newer than the runner's captured prefix. */
@@ -222,6 +275,12 @@ export function refreshSessionHistory(
   );
 }
 
+/**
+ * Folds the suffix after `afterRevision` one page at a time. Each page's
+ * serialized bytes are counted BEFORE it is folded: the first page that
+ * carries the cumulative total past `maxTailBytes` refuses typed with the
+ * work done so far, and nothing folded is returned.
+ */
 function readHistorySuffix(
   kernel: SessionKernel,
   sessionId: string,
@@ -229,14 +288,32 @@ function readHistorySuffix(
   initial: FoldCheckpoint.State,
   afterRevision: number,
   count: number,
+  options: RestoreOptions = {},
 ): HydratedSessionHistory {
+  const now = options.now ?? (() => performance.now());
+  const started = now();
+  const { maxTailBytes } = checkpointPolicy(kernel, sessionId);
   let state = initial;
   let cursor = afterRevision;
   let nonCheckpointActions = count;
+  let rows = 0;
+  let bytes = 0;
+  let pages = 0;
   while (cursor < revision) {
-    const page = kernel.historyPage(sessionId, { afterRevision: cursor, limit: 256 });
+    const page = kernel.historyPage(sessionId, { afterRevision: cursor, limit: RESTORE_PAGE_ROWS });
     const suffix = page.actions.filter((action) => action.ordinal <= revision);
     if (suffix.length === 0) throw new AgentInvariantViolation("history prefix has a revision gap");
+    pages += 1;
+    rows += suffix.length;
+    bytes += suffix.reduce((total, action) => total + actionPayloadBytes(action), 0);
+    if (bytes > maxTailBytes)
+      throw new RestoreRefused({
+        code: "budget",
+        sessionId,
+        revision,
+        maxTailBytes,
+        telemetry: { rows, bytes, pages, ms: now() - started },
+      });
     state = foldHistoryState(sessionId, suffix, state);
     nonCheckpointActions += suffix.filter((action) => action.kind !== "fold.checkpoint").length;
     cursor = suffix.at(-1)?.ordinal ?? cursor;
@@ -247,6 +324,7 @@ function readHistorySuffix(
     history: deriveHistory(state),
     messages: state.compatibility,
     nonCheckpointActions,
+    telemetry: { rows, bytes, pages, ms: now() - started },
   };
 }
 

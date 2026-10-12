@@ -53,3 +53,15 @@ export function storedActionRow(
     ordinal,
   };
 }
+
+/**
+ * Serialized payload bytes of one action (#1347): intent + effect + revert
+ * JSON, the one convention shared by fork copying, the restore tail budget
+ * and the session-file row cap.
+ */
+export function actionPayloadBytes(action: LedgerAction.Append | LedgerAction.Node): number {
+  const revert = "revert" in action ? JSON.stringify(action.revert.value) : "";
+  return Buffer.byteLength(
+    JSON.stringify(action.intent.value) + JSON.stringify(action.effect.value) + revert,
+  );
+}

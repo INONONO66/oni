@@ -11,7 +11,7 @@ const ToolRefused = Core.ToolRefused;
 type ChatAgentConfig = Core.ChatAgentConfig;
 type SessionRunner = Core.SessionRunner;
 type SessionRuntime = Core.SessionRuntime;
-import { traceIdFromUuid, type LedgerSession, type Model, type Tool } from "@openomni/protocol";
+import { type CheckpointPolicy, traceIdFromUuid, type LedgerSession, type Model, type Tool } from "@openomni/protocol";
 import { chatProviderConfig } from "./composition/chat-provider";
 import type { ComposedContext } from "./composition/composed";
 import { pinnedModelSelection, restoreModelSelection } from "./composition/model-selection";
@@ -61,6 +61,12 @@ export interface ResidentOptions {
    * (tests, unset env) leaves the core default.
    */
   readonly toolOutputBudgetBytes?: number;
+  /**
+   * Checkpoint policy written into each new session's genesis
+   * `session.configure{settings.checkpoint}` (#1347); absent (tests, unset
+   * env) leaves the core default.
+   */
+  readonly checkpoint?: CheckpointPolicy;
 }
 
 /** Resident and child use the same session-owned runner and dispatcher. */
@@ -197,12 +203,12 @@ export function createResident(options: ResidentOptions) {
         ...(composed === undefined || composed.generation.disabled.length > 0
           ? {}
           : { manifestHash: composed.generation.hash }),
-        ...(options.forkCopyByteCap === undefined && options.toolOutputBudgetBytes === undefined
+        ...(options.forkCopyByteCap === undefined && options.toolOutputBudgetBytes === undefined && options.checkpoint === undefined
           ? {}
           : {
-              // Default widths plus the app-resolved caps: fork copy (#1257)
-              // and tool output budget (#1305) are generation configuration
-              // from genesis on.
+              // Default widths plus the app-resolved caps: fork copy (#1257),
+              // tool output budget (#1305) and checkpoint policy (#1347) are
+              // generation configuration from genesis on.
               settings: {
                 steering: "all" as const,
                 followUp: "all" as const,
@@ -210,6 +216,7 @@ export function createResident(options: ResidentOptions) {
                 ...(options.toolOutputBudgetBytes === undefined
                   ? {}
                   : { toolOutputBudgetBytes: options.toolOutputBudgetBytes }),
+                ...(options.checkpoint === undefined ? {} : { checkpoint: options.checkpoint }),
               },
             }),
       });

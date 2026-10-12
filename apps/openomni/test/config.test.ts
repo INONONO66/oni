@@ -10,7 +10,7 @@ import {
   loadConfig,
   parseWsPort,
   resolveAlarmSweep,
-  resolveSessionFork, resolveToolOutput,
+  resolveCheckpoint, resolveSessionFork, resolveToolOutput,
   resolveClusterStorage,
   validateMachinePlane,
 } from "../src/config";
@@ -28,6 +28,8 @@ const ENV_KEYS = [
   "OPENOMNI_ALARM_SWEEP_IDLE_DAYS",
   "OPENOMNI_FORK_COPY_BYTE_CAP",
   "OPENOMNI_TOOL_OUTPUT_BUDGET_BYTES",
+  "OPENOMNI_CHECKPOINT_EVERY_ACTIONS",
+  "OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES",
   "OPENOMNI_WS_HOST",
   "OPENOMNI_WS_PORT",
   "OPENOMNI_WS_TOKEN",
@@ -307,6 +309,34 @@ describe("cluster storage config", () => {
     const config = loadConfig(home);
     expect(config.toolOutputBudgetBytes).toBe(200);
     expect(resolveToolOutput(config)).toEqual({ budgetBytes: 200 });
+  });
+
+  // #1347: the checkpoint policy is generation configuration pinned as one pair.
+  it("reads the checkpoint policy pair from the environment and leaves the core default when unset", () => {
+    expect(loadConfig(home).checkpoint).toBeUndefined();
+    expect(resolveCheckpoint(loadConfig(home))).toEqual({});
+
+    process.env.OPENOMNI_CHECKPOINT_EVERY_ACTIONS = "16";
+    process.env.OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES = "65536";
+    const config = loadConfig(home);
+    expect(config.checkpoint).toEqual({ everyActions: 16, maxTailBytes: 65536 });
+    expect(resolveCheckpoint(config)).toEqual({ policy: { everyActions: 16, maxTailBytes: 65536 } });
+  });
+
+  it.each([
+    ["OPENOMNI_CHECKPOINT_EVERY_ACTIONS", "0", "OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES", "1"],
+    ["OPENOMNI_CHECKPOINT_EVERY_ACTIONS", "8", "OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES", "1.5"],
+    ["OPENOMNI_CHECKPOINT_EVERY_ACTIONS", "8", "OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES", ""],
+    ["OPENOMNI_CHECKPOINT_EVERY_ACTIONS", "", "OPENOMNI_CHECKPOINT_MAX_TAIL_BYTES", "1024"],
+  ])("refuses %s=%p with %s=%p under the one typed checkpoint code", (keyA, rawA, keyB, rawB) => {
+    process.env[keyA] = rawA;
+    process.env[keyB] = rawB;
+    expect(() => loadConfig(home)).toThrow(
+      expect.objectContaining({
+        name: "OpenOmniConfigurationError",
+        data: containing({ code: "invalid_checkpoint_policy" }),
+      }),
+    );
   });
 
   it.each([["0"], ["-1"], ["1.5"], ["lots"]])(
