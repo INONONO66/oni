@@ -24,6 +24,51 @@ for (const decision of ["matched", "filtered", "refused", "deduped", "grouped", 
   });
 }
 
+const LEDGER_KEYS = [
+  "actionSeq",
+  "actorId",
+  "by",
+  "decision",
+  "factsDigest",
+  "factsUsed",
+  "inboundId",
+  "inboundTreatment",
+  "mode",
+  "outcome",
+  "reason",
+  "runWhen",
+  "sessionId",
+  "stage",
+  "surface",
+  "target",
+  "time",
+  "traceId",
+  "trustTier",
+] as const;
+
+for (const decision of ["matched", "filtered", "refused", "deduped", "grouped", "superseded"] as const) {
+  test(`${decision} ledger row accepts exactly the allowlisted keys`, () => {
+    const full = {
+      ...base,
+      decision,
+      runWhen: { verdict: "yes" as const, reason: "owner mention" },
+      target: "session:1",
+      actionSeq: 2,
+      sessionId: "session-1",
+      actorId: "actor-1",
+      trustTier: "owner" as const,
+      inboundTreatment: "full_access" as const,
+    };
+    expect(Object.keys(schema.parse(full)).sort()).toEqual([...LEDGER_KEYS]);
+    expect(schema.safeParse({ ...full, extra: 1 }).success).toBe(false);
+  });
+}
+
+test("the ledger target is a session ref", () => {
+  expect(schema.safeParse({ ...base, decision: "matched", target: "new" }).success).toBe(false);
+  expect(schema.safeParse({ ...base, decision: "matched", target: "session:" }).success).toBe(false);
+});
+
 test("the ledger row refuses full message bodies and invalid provenance", () => {
   expect(schema.safeParse({ ...base, decision: "matched", body: "full text" }).success).toBe(false);
   expect(schema.safeParse({ ...base, decision: "matched", payload: { body: "full text" } }).success).toBe(false);
