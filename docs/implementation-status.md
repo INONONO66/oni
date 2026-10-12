@@ -57,9 +57,9 @@ On `epic1337/1338-protocol-schemas` (2026-10-12, base `d9800ad74`, PR #1409).
   (#1340), the app provisioning and deliver plug-in (#1341) and the desktop
   editor (#1342) are the following rungs. No journal kind, gate point, tool,
   wire method or app/desktop file changes in this rung.
-- Tests (`bun test packages/protocol`, 570 pass / 0 fail across 52 files):
-  `ingress-input.test.ts` 8, `automation-record.test.ts` 11,
-  `ingress-ledger.test.ts` 8, `ingress-facts.test.ts` 5; the routing suite
+- Tests (`bun test packages/protocol`, 591 pass / 0 fail across 52 files):
+  `ingress-input.test.ts` 8, `automation-record.test.ts` 22,
+  `ingress-ledger.test.ts` 15, `ingress-facts.test.ts` 5; the routing suite
   under `test/ingress` is 76 pass.
 
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
