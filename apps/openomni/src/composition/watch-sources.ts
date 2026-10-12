@@ -14,8 +14,8 @@ import { processEnvironment } from "../cli/env-file";
  * storage.
  */
 
-// Promise band (#1423): `node:fs` `watch` listeners, `Bun.spawn` PTY streams and the
-// machines `pty.read` long-poll force callbacks here; Effect takes over only inside the
+// Promise band (#1423): `node:fs` `watch` listeners, `Bun.spawn` PTY streams, the
+// machines `pty.read` long-poll and the `setInterval` reconcile timer force callbacks here; Effect takes over only inside the
 // injected `WatchSenders.deliver`, so no alarm-chain decision or durable write belongs here.
 
 export class AlarmRuntimeError extends Error {
