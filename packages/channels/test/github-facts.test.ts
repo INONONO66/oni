@@ -8,6 +8,7 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
   test(`GitHub authenticated webhook preserves platform facts: ${text}`, async () => {
     const payload = {
       action: "created",
+      sender: { login: "sender", type: "Bot" },
       repository: { full_name: "owner/repo", owner: { login: "owner" }, name: "repo" },
       issue: { number: 7, title: "issue", user: { login: "owner", type: "User" } },
       comment: { id: 42, body: text, user: { login: "sender", type: "Bot" } },
@@ -15,49 +16,31 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
     const body = JSON.stringify(payload);
     const received: Channel.InboundMessage[] = [];
     const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions());
-    adapter.onMessage(async (message) => {
-      received.push(message);
-    });
+    adapter.onMessage(async (message) => { received.push(message); });
     await adapter.start("trace");
     try {
-      const response = await adapter.handleWebhook(
-        new Request("http://localhost/github/webhook", {
-          method: "POST",
-          body,
-          headers: {
-            "x-hub-signature-256": `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`,
-            "x-github-event": "issue_comment",
-            "x-github-delivery": "event-42",
-          },
-        }),
-      );
+      const response = await adapter.handleWebhook(new Request("http://localhost/github/webhook", {
+        method: "POST", body,
+        headers: {
+          "x-hub-signature-256": `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`,
+          "x-github-event": "issue_comment",
+          "x-github-delivery": "event-42",
+        },
+      }));
       expect(response.status).toBe(200);
       expect(received).toHaveLength(1);
-      expect(received[0]?.sender).toEqual({
-        kind: "external",
-        surface: "github",
-        externalId: "sender",
-      });
+      expect(received[0]?.sender).toEqual({ kind: "external", surface: "github", externalId: "sender" });
       const facts = Gateway.IngressFacts.parse(received[0]?.facts);
       expect(facts.payload).toEqual(payload);
       expect(facts).toMatchObject({
-        eventId: "event-42",
-        workspaceId: "owner/repo",
-        channelId: "issue-7",
-        dm: false,
-        render: text,
+        eventId: "event-42", event: "message", author: { externalId: "sender", isBot: true },
+        workspaceId: "owner/repo", channelId: "issue-7", dm: false, render: text,
       });
-      expect(facts.addressees).toEqual(
-        text === "ambient event"
-          ? []
-          : text === "@bot"
-            ? [{ externalId: "bot" }]
-            : [{ externalId: "owner" }, { externalId: "bot" }],
-      );
+      expect(facts.addressees).toEqual(text === "ambient event" ? []
+        : text === "@bot" ? [{ externalId: "bot" }]
+          : [{ externalId: "owner" }, { externalId: "bot" }]);
       expect(facts.reply).toEqual({
-        chain: [],
-        threadId: "7",
-        externalConversationId: "github:owner/repo:issue:7",
+        chain: [], threadId: "7", externalConversationId: "github:owner/repo:issue:7",
       });
     } finally {
       adapter.stop("trace");
@@ -93,23 +76,14 @@ for (const value of ["sent", "not_sent", "unknown"] as const) {
 test("GitHub refuses malformed destinations and missing credentials before effects", async () => {
   const realFetch = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = Object.assign(
-    async () => {
-      calls += 1;
-      return Response.json({});
-    },
-    { preconnect: realFetch.preconnect },
-  );
+  globalThis.fetch = Object.assign(async () => {
+    calls += 1;
+    return Response.json({});
+  }, { preconnect: realFetch.preconnect });
   try {
     const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions());
-    for (const endpoint of [
-      "owner/repo#7",
-      "owner/repo",
-      "owner/..#7",
-      "owner/repo#999999999999999999999",
-    ]) {
+    for (const endpoint of ["owner/repo#7", "owner/repo", "owner/..#7", "owner/repo#999999999999999999999"])
       expect(await adapter.deliver(endpoint, "content", endpoint)).toEqual({ value: "not_sent" });
-    }
     expect(calls).toBe(0);
   } finally {
     globalThis.fetch = realFetch;
