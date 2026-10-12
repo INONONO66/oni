@@ -60,6 +60,24 @@ test("rejects unknown fields and invalid windows at every nested boundary", () =
   expect(Ingress.Trigger.safeParse({ type: "on_demand", cron: "* * * * *" }).success).toBe(false);
 });
 
+const refusals: ReadonlyArray<readonly [string, object]> = [
+  ["createdBy: agent", { createdBy: "agent" }],
+  ["createdBy: bare session:", { createdBy: "session:" }],
+  ["target: other", { target: "other" }],
+  ["target: bare session:", { target: "session:" }],
+  ["kind: invalid", { kind: "reminder" }],
+  ["conditions.channels: []", { conditions: { channels: [] } }],
+  ["conditions.users: []", { conditions: { users: [] } }],
+  ["conditions.threads: []", { conditions: { threads: [] } }],
+  ["conditions.contains: []", { conditions: { contains: [] } }],
+  ["conditions.excludes: []", { conditions: { excludes: [] } }],
+  ["conditions.regex: []", { conditions: { regex: [] } }],
+];
+
+test.each(refusals)("refuses %s", (_label, over) => {
+  expect(Ingress.Automation.safeParse({ ...record, ...over }).success).toBe(false);
+});
+
 test("exposes the closed window and conditions contracts", () => {
   for (const window of [0, 5, 10, 20, 30, 60] as const) expect(Ingress.WindowSeconds.parse(window)).toBe(window);
   expect(Ingress.WindowSeconds.safeParse(61).success).toBe(false);
