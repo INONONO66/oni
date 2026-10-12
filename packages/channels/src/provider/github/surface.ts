@@ -65,6 +65,16 @@ function extractContent(event: string, raw: object): GitHubEventContent | Unsupp
     if (!parsed.success) return refusal(event, action, "invalid_payload");
     return issueContent(parsed.data.issue.body || parsed.data.issue.title, parsed.data.issue.user, parsed.data);
   }
+  if (event === "pull_request") {
+    if (action !== "opened") return refusal(event, action, "unsupported_action");
+    const parsed = GitHubWebhookPayloadSchemas.pull_request.safeParse(raw);
+    if (!parsed.success) return refusal(event, action, "invalid_payload");
+    return issueContent(parsed.data.pull_request.body || parsed.data.pull_request.title,
+      parsed.data.pull_request.user, {
+        ...parsed.data,
+        issue: { ...parsed.data.pull_request, pull_request: {} },
+      });
+  }
   return refusal(event, action, "unsupported_event");
 }
 type PreparedWebhook = Readonly<{
