@@ -1,5 +1,13 @@
 # Implementation Status
 
+## #1422 one delegation depth cap owner (lane D, umbrella #1421)
+
+Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. Tests prove the single cap.
+
+## #1424 desktop journal-kind audit (lane D, umbrella #1421)
+
+Merged `e86ae5eb0` (PR #1431). The 12-kind coverage table lives on issue #1424; the unreachable desktop `data-epoch` path is deleted; kinds whose wire row carries no payload render as marker rows, and the kinds whose rendering is a product decision are listed on the issue with a recommendation and left unrendered.
+
 ## #1423 the app's Promise band is a declared three-module band (lane D, umbrella #1421)
 
 On `app/1423-promise-band` (2026-10-12, base `c85607df7`, PR #1430).

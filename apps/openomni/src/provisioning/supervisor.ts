@@ -14,11 +14,9 @@ import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../c
  * fully unwound — grant, route, and webhook — never left half-wired.
  */
 
-// Promise band (#1423): the channels driver `surface.start` Promise contract forces this
-// supervisor onto Promises; `.then(() => undefined, ThrownError.parse)` narrows the rejection
-// to a typed Error that mountRow re-throws and startRow records as breaker status, never a
-// swallow. Effect takes over in the driver runner `deps.desired` passes into each built
-// surface, so no durable write or alarm-chain decision belongs here.
+// Promise band (#1423): the channels driver `surface.start` Promise contract forces this file
+// onto Promises; `.then(() => undefined, ThrownError.parse)` narrows rejections to a typed Error
+// mountRow re-throws and startRow records as breaker status; Effect resumes in the driver runner.
 
 /** One row the current declarations say should be running. */
 export interface DesiredChannelRow {
