@@ -1,13 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 
-/**
- * Channel-facing store DDL (#1317) — moved verbatim from the agent catalog so
- * every durable byte stays identical: the same statement text, the same
- * column names, the same file. The channels package owns these tables; the
- * agent catalog keeps only the session index and policy rows. `IF NOT EXISTS`
- * makes opening a pre-#1317 catalog file a no-op over its existing tables.
- */
 const CHANNEL_STORE_DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS actor_identity (
     id TEXT PRIMARY KEY,
@@ -110,17 +103,29 @@ const CHANNEL_STORE_DDL: readonly string[] = [
     time_created INTEGER NOT NULL
   )`,
   "CREATE INDEX IF NOT EXISTS idx_surface_key_session ON surface_key(session_id)",
+  `CREATE TABLE IF NOT EXISTS automation (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    approved INTEGER NOT NULL,
+    enabled INTEGER NOT NULL,
+    time_created INTEGER NOT NULL,
+    time_updated INTEGER NOT NULL
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_automation_enabled ON automation(enabled)",
+  `CREATE TABLE IF NOT EXISTS automation_ledger (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    inbound_id TEXT NOT NULL,
+    automation_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    data TEXT NOT NULL
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_automation_ledger_inbound ON automation_ledger(inbound_id)",
+  "CREATE INDEX IF NOT EXISTS idx_automation_ledger_limit ON automation_ledger(automation_id, decision, time)",
 ];
 
 const QueryOnlyRow = z.object({ query_only: z.number().int() });
 
-/**
- * Applies the channel-store DDL in one immediate transaction so concurrent
- * openers serialize, exactly like the catalog bootstrap did. A catalog file
- * written by newer code is opened query-only (#1252); its tables already
- * exist, so the schema application skips the file entirely — reads work and
- * any write refuses loudly at the connection.
- */
 export function applyChannelStoreSchema(db: Database): void {
   const readOnly = QueryOnlyRow.parse(db.query("PRAGMA query_only").get()).query_only === 1;
   if (readOnly) return;
