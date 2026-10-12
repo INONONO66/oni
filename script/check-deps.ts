@@ -1010,66 +1010,80 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
  * The deep-import boundary above stays independent; this rule counts the
  * tokens themselves so barrel-legal call sites are still retired shrink-only.
  */
-const APPS_AGENT_TOKEN_PATTERN =
-  /\bkernel\.(?:commit|materialize|indexSession)\b|\bcreateSessionEntityLayer\b|\bcreateSessionEntityRunTurn\b|\bSqliteClient\.layer\b|\bSingleRunner\.layer\b/g;
-
 /**
- * #1343 baseline pins measured at d9800ad74 with the comment/string-stripping
- * counter below (code references only). TIGHT: growth fails, slack fails, a
+ * #1343 baseline pins measured at d9800ad74 with the AST-walk counter below
+ * (code references only). TIGHT: growth fails, slack fails, a
  * new app file starts at zero. Retiring a call site lowers its pin in the
  * same PR; #1344 drives these toward zero.
  */
 const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
   ["apps/openomni/src/composition/cluster-runtime.ts", 5],
   ["apps/openomni/src/composition/ingress-executor.ts", 2],
-  ["apps/openomni/src/index.ts", 5],
-  ["apps/openomni/src/process-entry.ts", 4],
+  ["apps/openomni/src/composition/message-session.ts", 1],
+  ["apps/openomni/src/index.ts", 6],
+  ["apps/openomni/src/process-entry.ts", 5],
 ]);
 
-/** Counts code references only: comment trivia and string/template text are blanked first. */
-export function appsAgentTokenCount(source: string): number {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    false,
-    ts.LanguageVariant.Standard,
+/** The two entity-assembly identifiers counted wherever they appear, import specifiers included. */
+const APPS_AGENT_ENTITY_IDENTIFIERS: ReadonlySet<string> = new Set([
+  "createSessionEntityLayer",
+  "createSessionEntityRunTurn",
+]);
+
+/** Members of `kernel.` that are direct ledger-mutation responsibility tokens. */
+const APPS_AGENT_KERNEL_MEMBERS: ReadonlySet<string> = new Set([
+  "commit",
+  "materialize",
+  "indexSession",
+]);
+
+/**
+ * Counts code references only, by AST walk (`ts.createSourceFile`, ScriptKind
+ * from the extension): `kernel.commit|materialize|indexSession` and
+ * `SqliteClient.layer`/`SingleRunner.layer` as property accesses off the bare
+ * identifier, plus every `createSessionEntityLayer`/`createSessionEntityRunTurn`
+ * identifier occurrence. Comments, strings, template text, regex literals and
+ * JSX text never count and never desync the counter.
+ */
+export function appsAgentTokenCount(source: string, filePath: string): number {
+  const sourceFile = ts.createSourceFile(
+    filePath,
     source,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
-  let code = "";
-  // Brace depth at each open template substitution: a `}` at the recorded
-  // depth closes the substitution and must be re-scanned as template text,
-  // or the lexer desyncs and swallows code until the next backtick.
-  const templateStack: number[] = [];
-  let braceDepth = 0;
-  let token = scanner.scan();
-  while (token !== ts.SyntaxKind.EndOfFileToken) {
-    if (token === ts.SyntaxKind.OpenBraceToken) braceDepth += 1;
-    else if (token === ts.SyntaxKind.CloseBraceToken) {
-      if (templateStack.at(-1) === braceDepth) {
-        token = scanner.reScanTemplateToken(false);
-        if (token === ts.SyntaxKind.TemplateTail) templateStack.pop();
-      } else {
-        braceDepth -= 1;
-      }
-    } else if (token === ts.SyntaxKind.TemplateHead) templateStack.push(braceDepth);
-    const text = scanner.getTokenText();
-    const prose =
-      token === ts.SyntaxKind.SingleLineCommentTrivia ||
-      token === ts.SyntaxKind.MultiLineCommentTrivia ||
-      token === ts.SyntaxKind.StringLiteral ||
-      token === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
-      token === ts.SyntaxKind.TemplateHead ||
-      token === ts.SyntaxKind.TemplateMiddle ||
-      token === ts.SyntaxKind.TemplateTail;
-    code += prose ? " ".repeat(text.length) : text;
-    token = scanner.scan();
-  }
-  return [...code.matchAll(APPS_AGENT_TOKEN_PATTERN)].length;
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      ts.isIdentifier(node.name) &&
+      ((node.expression.text === "kernel" && APPS_AGENT_KERNEL_MEMBERS.has(node.name.text)) ||
+        ((node.expression.text === "SqliteClient" || node.expression.text === "SingleRunner") &&
+          node.name.text === "layer"))
+    ) {
+      count += 1;
+    }
+    if (ts.isIdentifier(node) && APPS_AGENT_ENTITY_IDENTIFIERS.has(node.text)) count += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return count;
 }
 
-export async function validateAppsAgentTokens(root = "."): Promise<string[]> {
+/** A root is a git checkout when `<root>/.git` exists: a directory in a clone, a file in a worktree. */
+function isGitCheckout(root: string): boolean {
+  return existsSync(join(root, ".git"));
+}
+
+export async function validateAppsAgentTokens(
+  root = ".",
+  warn: (notice: string) => void = console.warn,
+): Promise<string[]> {
   const counts = new Map<string, number>();
   for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
-    const count = appsAgentTokenCount(source);
+    const count = appsAgentTokenCount(source, filePath);
     if (count > 0) counts.set(filePath, count);
   }
   const violations: string[] = [];
@@ -1082,20 +1096,22 @@ export async function validateAppsAgentTokens(root = "."): Promise<string[]> {
     }
   }
   // Slack fails closed against a checkout only: the pins are measured at a
-  // commit, and a worktree carries a `.git` file, a clone a `.git` directory.
-  // The scratch gate fixtures are plain directories that stub every workspace
-  // entry (`apps/openomni/src/index.ts` included) at zero tokens, so presence
-  // of a pinned path cannot scope this rule the way the band ratchet's does.
+  // commit. The scratch gate fixtures are plain directories that stub every
+  // workspace entry (`apps/openomni/src/index.ts` included) at zero tokens,
+  // so presence of a pinned path cannot scope this rule. CI (actions/checkout)
+  // and every local gate run inside a checkout; outside one the skip is loud.
   // A pinned file deleted from the checkout still fails here (actual 0 < pin).
-  for (const [filePath, allowed] of existsSync(join(root, ".git"))
-    ? [...APPS_AGENT_TOKEN_RATCHET.entries()].sort()
-    : []) {
-    const actual = counts.get(filePath) ?? 0;
-    if (actual < allowed) {
-      violations.push(
-        `VIOLATION: ${filePath} token pin exceeds actual (${allowed} > ${actual}): lower the pin`,
-      );
+  if (isGitCheckout(root)) {
+    for (const [filePath, allowed] of [...APPS_AGENT_TOKEN_RATCHET.entries()].sort()) {
+      const actual = counts.get(filePath) ?? 0;
+      if (actual < allowed) {
+        violations.push(
+          `VIOLATION: ${filePath} token pin exceeds actual (${allowed} > ${actual}): lower the pin`,
+        );
+      }
     }
+  } else {
+    warn(`NOTICE [check-deps] token pin slack not judged: ${root} is not a git checkout`);
   }
   return violations;
 }

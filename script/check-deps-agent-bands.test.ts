@@ -233,9 +233,13 @@ test("#1276 (r3): a pin above the actual count fails closed", async () => {
 
 // ─── #1343: apps-to-agent direct responsibility token ratchet ───
 
-function scratchAppsTree(files: Record<string, string>, checkout = false): string {
+function scratchAppsTree(
+  files: Record<string, string>,
+  checkout: "none" | "dir" | "file" = "none",
+): string {
   const root = mkdtempSync(join(tmpdir(), "tokens-"));
-  if (checkout) mkdirSync(join(root, ".git"));
+  if (checkout === "dir") mkdirSync(join(root, ".git"));
+  if (checkout === "file") writeFileSync(join(root, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
   for (const [file, source] of Object.entries(files)) {
     const path = join(root, "apps/openomni/src", file);
     mkdirSync(join(path, ".."), { recursive: true });
@@ -253,6 +257,7 @@ test("#1343: a core token in a comment, string, or template text is prose, not a
         'const s = "SqliteClient.layer in a string";',
         `const t = \`SingleRunner.layer in template text \${1}\`;`,
       ].join("\n"),
+      "apps/openomni/src/prose.ts",
     ),
   ).toBe(0);
   expect(
@@ -260,8 +265,36 @@ test("#1343: a core token in a comment, string, or template text is prose, not a
       `const run = Core.createSessionEntityRunTurn;
 await kernel.commit({ body: \`\${kernel.materialize(id)}\` });
 `,
+      "apps/openomni/src/code.ts",
     ),
   ).toBe(3);
+});
+
+test("#1343: regex literals never desync the counter — references after them still count", () => {
+  expect(
+    appsAgentTokenCount("const r = /'/; kernel.commit(x);\n", "apps/openomni/src/regex.ts"),
+  ).toBe(1);
+  expect(
+    appsAgentTokenCount(
+      "const r = /`/;\nkernel.commit(x);\nconst q = 1;\n",
+      "apps/openomni/src/regex-backtick.ts",
+    ),
+  ).toBe(1);
+});
+
+test("#1343: JSX text with an apostrophe is prose in a .tsx file; the reference after it counts", () => {
+  expect(
+    appsAgentTokenCount(
+      "export const v = <p>don't kernel.commit here</p>;\nkernel.commit(x);\n",
+      "apps/openomni/src/view.tsx",
+    ),
+  ).toBe(1);
+});
+
+test("#1343: a line-wrapped member access is one reference (the regex-era miss)", () => {
+  expect(
+    appsAgentTokenCount("const c = kernel\n  .commit({ sessionId: id });\n", "apps/openomni/src/wrap.ts"),
+  ).toBe(1);
 });
 
 test("#1343: a new app file starts at zero — one direct token fails the ratchet", async () => {
@@ -281,11 +314,11 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
 test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
   // process-entry.ts is pinned at 4; a checkout where it is clean must fail,
   // and so must a pinned file deleted from the checkout (cluster-runtime.ts).
-  const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" }, true);
+  const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" }, "dir");
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (4 > 0): lower the pin",
+      "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (5 > 0): lower the pin",
     );
     expect(violations).toContain(
       "VIOLATION: apps/openomni/src/composition/cluster-runtime.ts token pin exceeds actual (5 > 0): lower the pin",
@@ -295,15 +328,59 @@ test("#1343: a retired call site without lowering its pin fails closed (slack)",
   }
 });
 
-test("#1343: a scratch tree that is not a checkout may stub a pinned path at zero", async () => {
+test("#1343: outside a checkout a stubbed pinned path passes, and the skip is one loud notice", async () => {
   // The gate-discovery fixture stubs every workspace entry, index.ts included,
   // in a plain directory: growth still fails there, slack is not judged.
   const root = scratchAppsTree({
     "index.ts": "export {};\n",
     "view.tsx": 'import "@openomni/protocol";\n',
   });
+  const notices: string[] = [];
   try {
-    expect(await validateAppsAgentTokens(root)).toEqual([]);
+    expect(await validateAppsAgentTokens(root, (notice) => notices.push(notice))).toEqual([]);
+    expect(notices).toEqual([
+      `NOTICE [check-deps] token pin slack not judged: ${root} is not a git checkout`,
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343: a worktree-style .git FILE scopes slack judging exactly like a .git directory", async () => {
+  const root = scratchAppsTree({ "index.ts": "export {};\n" }, "file");
+  const notices: string[] = [];
+  try {
+    const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
+    expect(notices).toEqual([]);
+    expect(violations).toContain(
+      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (6 > 0): lower the pin",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343: an already-pinned file growing above its pin fails with the file and both numbers", async () => {
+  // index.ts is pinned at 6; a seventh direct token is growth, not slack.
+  const root = scratchAppsTree(
+    {
+      "index.ts": [
+        "const run = createSessionEntityRunTurn;",
+        "kernel.commit(a);",
+        "kernel.commit(b);",
+        "kernel.materialize(c);",
+        "kernel.indexSession(d);",
+        "SqliteClient.layer;",
+        "SingleRunner.layer;",
+      ].join("\n"),
+    },
+    "file",
+  );
+  try {
+    const violations = await validateAppsAgentTokens(root);
+    expect(violations).toContain(
+      "VIOLATION: apps/openomni/src/index.ts references 7 direct agent-core tokens over the #1343 ratchet of 6 — shrink only, never grow",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
