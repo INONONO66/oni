@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { z } from "zod";
 import { Ingress } from "../src/ingress/index.js";
 
 const schema = Ingress.Events.RoutingDecision.schema;
@@ -59,10 +60,27 @@ for (const decision of ["matched", "filtered", "refused", "deduped", "grouped", 
       trustTier: "owner" as const,
       inboundTreatment: "full_access" as const,
     };
-    expect(Object.keys(schema.parse(full)).sort()).toEqual([...LEDGER_KEYS]);
+    expect(schema.parse(full)).toEqual(full);
     expect(schema.safeParse({ ...full, extra: 1 }).success).toBe(false);
   });
 }
+
+// Asserted on the declared shape, not a parsed value: Zod drops absent optional keys from
+// its output, so a new optional body-carrying field would otherwise keep this test green.
+test("every ledger variant declares exactly the allowlisted keys", () => {
+  const variants = schema instanceof z.ZodUnion ? schema.options : [];
+  const ledgerShapes = variants.flatMap((option) =>
+    option instanceof z.ZodObject &&
+    option.shape.stage instanceof z.ZodLiteral &&
+    option.shape.stage.value === "automation"
+      ? [Object.keys(option.shape).sort()]
+      : [],
+  );
+  expect(ledgerShapes).toHaveLength(6);
+  for (const keys of ledgerShapes) {
+    expect(keys).toEqual([...LEDGER_KEYS]);
+  }
+});
 
 test("the ledger target is a session ref", () => {
   expect(schema.safeParse({ ...base, decision: "matched", target: "new" }).success).toBe(false);
