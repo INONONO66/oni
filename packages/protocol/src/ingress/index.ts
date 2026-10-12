@@ -79,8 +79,8 @@ const SenderMetaSchema = z
 
 /**
  * batch ② commit 2 (#500 A6 pattern): the production-written meta keys read
- * for AUTHORIZATION (inboundTreatment, channelGrant*, correlation) and for
- * the projection/audit path (surfaceKey, kind, sender, threadId, replyToId,
+ * for AUTHORIZATION (inboundTreatment, channelGrant*, correlation) and for the
+ * projection/audit path (surfaceKey, kind, sender, threadId, replyToId,
  * agentName) are declared as typed optional fields instead of
  * riding the untyped `.catchall(z.unknown())`. The catchall is RETAINED for
  * the external DirectEventSchema.parse boundary: a channel driver may attach
