@@ -6,7 +6,7 @@ import ts from "typescript";
 import { SELECTION_SUITE_TIMEOUT_MS, verifyMutantMemoryCap, type TestRuntime, boundedArgv, classifyCandidate, copyExecution, removeExecution, decode, describeRedBaseline, execute, executionTreeHash, instrument, main, mutationSource, probeText, pythonWorker, sha256, type TestSelectionReceipt } from "./run-quality-mutations";
 import { mutationFixture, mutationEvidence, replaceArguments, reportResults } from "./quality-mutation-fixture";
 import { buildInventory, readContract } from "./quality-inventory";
-import { analyze, enumerate, programs, diagnostics, failedAssertions } from "./run-quality-mutations";
+import { analyze, enumerate, programs, diagnostics, failedAssertions, assertionIdentities } from "./run-quality-mutations";
 import { tmpdir } from "node:os";
 import { MutationCompilerWorker } from "./quality-mutation-compiler";
 
@@ -274,6 +274,30 @@ test("assertion receipt parsing separates matcher failures from crashes and othe
 		"src/a.test.ts\0matcher", "src/a.test.ts\0settlement", "src/b.test.ts\0second-file",
 	]);
 	expect(failedAssertions("")).toEqual([]);
+});
+
+test("a helper-file expect failure credits the JUnit testcase file", () => {
+  const stderr = [
+    "src/assertion.fixture.ts:",
+    "error: expect(received).toBe(expected)",
+    "(fail) behavior [1ms]",
+  ].join("\n");
+  const xml = '<testsuites><testsuite><testcase file="src/a.test.ts" name="behavior" line="9" assertions="1"><failure type="AssertionError" message="expect(received).toBe(expected)" /></testcase></testsuite></testsuites>';
+  expect(failedAssertions(stderr)).toEqual(["src/assertion.fixture.ts\0behavior"]);
+  expect(assertionIdentities(xml, stderr)).toEqual([
+    JSON.stringify({ file: "src/a.test.ts", name: "behavior", line: "9" }),
+  ]);
+});
+
+test("fixture-file assertion credit rejects ambiguous names and non-assertion failures", () => {
+  const stderr = "src/assertion.fixture.ts:\nerror: expect(received).toBe(expected)\n(fail) behavior [1ms]";
+  const testcase = '<testcase file="src/a.test.ts" name="behavior" line="9" assertions="1"><failure type="AssertionError" /></testcase>';
+  const another = testcase.replace('file="src/a.test.ts"', 'file="src/b.test.ts"');
+  expect(assertionIdentities(`<testsuites><testsuite>${testcase}${another}</testsuite></testsuites>`, stderr)).toEqual([]);
+  expect(assertionIdentities(`<testsuites><testsuite>${testcase}</testsuite></testsuites>`,
+    "src/assertion.fixture.ts:\nTypeError: broken\n(fail) behavior [1ms]",
+  )).toEqual([]);
+  expect(assertionIdentities(`<testsuites><testsuite>${testcase.replace("AssertionError", "ZodError")}</testsuite></testsuites>`, stderr)).toEqual([]);
 });
 
 test("mutation helpers cover execution tree recursion and virtual source traversal", () => {
@@ -822,6 +846,19 @@ test("execution snapshots retain isolated workspace dependencies and built expor
 	expect(result.report.sourceDiagnostics).toEqual([]);
 	expect(result.report.cleanupVerified).toBe(true);
 	expect(readFileSync(join(input.root, "vendor/dep/dist/index.js"), "utf8")).toBe("export const value = 7;");
+}, 90000);
+
+test("assertions thrown in a fixture file credit their owning testcase", async () => {
+  const input = await fixture(
+    "export const run = () => true;",
+    'const { verify } = await import("./assertion.fixture"); verify(run());',
+    {
+      "src/assertion.fixture.ts":
+        'import { expect } from "bun:test"; export function verify(value: boolean) { expect(value).toBe(true); }',
+    },
+  );
+  const result = await invoke(input, "fixture-assertion-credit", select("boolean-literal"));
+  assertBehavioralKill(result);
 }, 90000);
 
 test("review R2: negated assertion is a behavioral kill", async () => {
