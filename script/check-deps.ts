@@ -1002,6 +1002,102 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
   return violations;
 }
 
+// ─── #1343: apps-to-agent direct responsibility token ratchet ──────────────
+
+/**
+ * #1343 direct agent-core responsibility tokens: ledger mutation and
+ * entity/SQLite assembly names an app file may reference only up to its pin.
+ * The deep-import boundary above stays independent; this rule counts the
+ * tokens themselves so barrel-legal call sites are still retired shrink-only.
+ */
+const APPS_AGENT_TOKEN_PATTERN =
+  /\bkernel\.(?:commit|materialize|indexSession)\b|\bcreateSessionEntityLayer\b|\bcreateSessionEntityRunTurn\b|\bSqliteClient\.layer\b|\bSingleRunner\.layer\b/g;
+
+/**
+ * #1343 baseline pins measured at d9800ad74 with the comment/string-stripping
+ * counter below (code references only). TIGHT: growth fails, slack fails, a
+ * new app file starts at zero. Retiring a call site lowers its pin in the
+ * same PR; #1344 drives these toward zero.
+ */
+const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
+  ["apps/openomni/src/composition/cluster-runtime.ts", 5],
+  ["apps/openomni/src/composition/ingress-executor.ts", 2],
+  ["apps/openomni/src/index.ts", 5],
+  ["apps/openomni/src/process-entry.ts", 4],
+]);
+
+/** Counts code references only: comment trivia and string/template text are blanked first. */
+export function appsAgentTokenCount(source: string): number {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    source,
+  );
+  let code = "";
+  // Brace depth at each open template substitution: a `}` at the recorded
+  // depth closes the substitution and must be re-scanned as template text,
+  // or the lexer desyncs and swallows code until the next backtick.
+  const templateStack: number[] = [];
+  let braceDepth = 0;
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (token === ts.SyntaxKind.OpenBraceToken) braceDepth += 1;
+    else if (token === ts.SyntaxKind.CloseBraceToken) {
+      if (templateStack.at(-1) === braceDepth) {
+        token = scanner.reScanTemplateToken(false);
+        if (token === ts.SyntaxKind.TemplateTail) templateStack.pop();
+      } else {
+        braceDepth -= 1;
+      }
+    } else if (token === ts.SyntaxKind.TemplateHead) templateStack.push(braceDepth);
+    const text = scanner.getTokenText();
+    const prose =
+      token === ts.SyntaxKind.SingleLineCommentTrivia ||
+      token === ts.SyntaxKind.MultiLineCommentTrivia ||
+      token === ts.SyntaxKind.StringLiteral ||
+      token === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+      token === ts.SyntaxKind.TemplateHead ||
+      token === ts.SyntaxKind.TemplateMiddle ||
+      token === ts.SyntaxKind.TemplateTail;
+    code += prose ? " ".repeat(text.length) : text;
+    token = scanner.scan();
+  }
+  return [...code.matchAll(APPS_AGENT_TOKEN_PATTERN)].length;
+}
+
+export async function validateAppsAgentTokens(root = "."): Promise<string[]> {
+  const counts = new Map<string, number>();
+  let pinnedFilesScanned = 0;
+  for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
+    if (APPS_AGENT_TOKEN_RATCHET.has(filePath)) pinnedFilesScanned += 1;
+    const count = appsAgentTokenCount(source);
+    if (count > 0) counts.set(filePath, count);
+  }
+  const violations: string[] = [];
+  for (const [filePath, count] of [...counts.entries()].sort()) {
+    const allowed = APPS_AGENT_TOKEN_RATCHET.get(filePath) ?? 0;
+    if (count > allowed) {
+      violations.push(
+        `VIOLATION: ${filePath} references ${count} direct agent-core tokens over the #1343 ratchet of ${allowed} — shrink only, never grow`,
+      );
+    }
+  }
+  // Slack fails closed, scoped like the band ratchet: scratch fixture trees
+  // hold no pinned file; the repository always does.
+  for (const [filePath, allowed] of pinnedFilesScanned === 0
+    ? []
+    : [...APPS_AGENT_TOKEN_RATCHET.entries()].sort()) {
+    const actual = counts.get(filePath) ?? 0;
+    if (actual < allowed) {
+      violations.push(
+        `VIOLATION: ${filePath} token pin exceeds actual (${allowed} > ${actual}): lower the pin`,
+      );
+    }
+  }
+  return violations;
+}
+
 /**
  * #1247 S8 perimeter pin: `packages/agent/src/index.ts` exports exactly
  * the five namespaces plus at most these six named exports consumed by
@@ -1605,6 +1701,7 @@ export async function main(): Promise<void> {
   const agentBandViolationList = await validateAgentBands();
   const agentIndexPerimeterViolationList = await validateAgentIndexPerimeter();
   const appsAgentBarrelViolationList = await validateAppsAgentBarrel();
+  const appsAgentTokenViolationList = await validateAppsAgentTokens();
   const bundleViolations = await checkBundleImports();
   const deepImportViolations = await validateDeepImports();
   const deepRelativeImportViolations = await validateDeepRelativeImports();
@@ -1617,6 +1714,7 @@ export async function main(): Promise<void> {
     ...agentBandViolationList,
     ...agentIndexPerimeterViolationList,
     ...appsAgentBarrelViolationList,
+    ...appsAgentTokenViolationList,
     ...bundleViolations.map(
       (finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}`,
     ),

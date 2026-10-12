@@ -15,7 +15,9 @@ import {
   AGENT_PLUGINS,
   agentBandViolations,
   appsAgentInternalViolations,
+  appsAgentTokenCount,
   validateAgentBands,
+  validateAppsAgentTokens,
 } from "./check-deps";
 
 // ─── check (a): core -> plugins/model/inspect/testing banned ───
@@ -223,6 +225,63 @@ test("#1276 (r3): a pin above the actual count fails closed", async () => {
     const violations = await validateAgentBands(root);
     expect(violations).toContain(
       "VIOLATION: packages/agent/src/core/retry.ts pin exceeds actual (1 > 0): lower the pin",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ─── #1343: apps-to-agent direct responsibility token ratchet ───
+
+function scratchAppsTree(files: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), "tokens-"));
+  for (const [file, source] of Object.entries(files)) {
+    const path = join(root, "apps/openomni/src", file);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, source);
+  }
+  return root;
+}
+
+test("#1343: a core token in a comment, string, or template text is prose, not a reference", () => {
+  expect(
+    appsAgentTokenCount(
+      [
+        "// kernel.commit in a comment",
+        "/* createSessionEntityLayer in a block */",
+        'const s = "SqliteClient.layer in a string";',
+        "const t = `SingleRunner.layer in template text ${1}`;",
+      ].join("\n"),
+    ),
+  ).toBe(0);
+  expect(
+    appsAgentTokenCount(
+      "const run = Core.createSessionEntityRunTurn;\nawait kernel.commit({ body: `${kernel.materialize(id)}` });\n",
+    ),
+  ).toBe(3);
+});
+
+test("#1343: a new app file starts at zero — one direct token fails the ratchet", async () => {
+  const root = scratchAppsTree({
+    "composition/evil.ts": 'import { Core } from "@openomni/agent";\nexport const go = () => kernel.indexSession(1);\n',
+  });
+  try {
+    const violations = await validateAppsAgentTokens(root);
+    expect(violations).toEqual([
+      "VIOLATION: apps/openomni/src/composition/evil.ts references 1 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
+  // process-entry.ts is pinned at 4; a scratch tree where it is clean must fail.
+  const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" });
+  try {
+    const violations = await validateAppsAgentTokens(root);
+    expect(violations).toContain(
+      "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (4 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
