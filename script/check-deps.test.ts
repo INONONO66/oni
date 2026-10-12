@@ -221,7 +221,11 @@ test("accepts a clean repository with no dependency or doc warnings", async () =
   );
   const result = await run(root);
   expect(result.code).toBe(0);
-  expect(result.error).toBe("");
+  // The fixture is not a git checkout, so the #1343 token-pin slack skip is
+  // announced loudly (exactly once) instead of passing silently.
+  expect(result.error).toBe(
+    "NOTICE [check-deps] token pin slack not judged: . is not a git checkout\n",
+  );
 });
 
 test.each([
