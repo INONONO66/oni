@@ -118,6 +118,47 @@ test("delivery target materialization refuses a child beyond its pinned fanout",
   }
 });
 
+test("delivery target creation indexes the genesis in one core write and a repeat is the idempotent outcome", async () => {
+  // #1346 boundary: the app no longer materializes then indexes in two calls;
+  // the catalog row and the configure genesis exist together or not at all.
+  const plane = testPlane();
+  const materialize = messageMaterialization(() => 1, testIds("materialize"));
+  const target = () =>
+    deliveryCommit(
+      "target",
+      materialize({
+        id: "target",
+        parentId: null,
+        role: "resident",
+        tools: [],
+        preset: "",
+        runner: "resident",
+        at: 100,
+        settings: { steering: "one", followUp: "all", forkCopyByteCap: 2048 },
+      }),
+    );
+  try {
+    await runEffect(materializeDeliveryTarget(plane, target(), () => 100));
+    const kernel = plane.openKernel("target");
+    const genesis = kernel.latestAction("target");
+    expect(genesis?.kind).toBe("session.configure");
+    expect(kernel.row("target").revision).toBe(1);
+    expect(plane.catalog.sessionIndex("target")).toMatchObject({ id: "target", parentId: null, role: "resident" });
+    expect((genesis?.intent.value as { settings?: unknown }).settings).toEqual({
+      steering: "one",
+      followUp: "all",
+      forkCopyByteCap: 2048,
+    });
+    // A second creator racing the same id neither rewrites genesis nor fails the delivery.
+    await runEffect(materializeDeliveryTarget(plane, target(), () => 200));
+    expect(kernel.row("target").revision).toBe(1);
+    expect(kernel.latestAction("target")?.id).toBe(genesis?.id);
+    expect(plane.listSessions().map((row) => row.id)).toEqual(["target"]);
+  } finally {
+    plane.close();
+  }
+});
+
 test("entity delivery refuses bytes that do not match the outbound letter", async () => {
   const plane = testPlane();
   const message: SessionTransition.OutboundMessage = {

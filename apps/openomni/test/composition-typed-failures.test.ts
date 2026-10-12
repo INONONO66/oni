@@ -65,6 +65,32 @@ test("child preparation refuses a pinned policy without admission bounds", () =>
 // W5.2: the alarm child's lifecycle tests left with the child itself — the
 // entity mailbox owns wake delivery now (see the receipt for the deletions).
 
+test("ingress admission creates and indexes the perimeter session once; a second boot reuses it", () => {
+  // #1346 boundary: `createIngressExecutor` goes through `Core.createSession`
+  // (genesis + catalog index in one write) and treats an existing perimeter
+  // session as the idempotent outcome rather than a second materialization.
+  const plane = testPlane();
+  seedKernelPolicyRows(plane.catalog.policies);
+  const services = acquireSyncEffect(generationServices({ clock: () => 100, plane }));
+  try {
+    expect(plane.catalog.sessionIndex(GATEWAY_INGRESS_SESSION)).toBeUndefined();
+    runSyncEffect(createIngressExecutor(plane).pipe(Effect.provide(services)));
+    const kernel = plane.openKernel(GATEWAY_INGRESS_SESSION);
+    const genesis = kernel.latestAction(GATEWAY_INGRESS_SESSION);
+    expect(genesis?.kind).toBe("session.configure");
+    expect(kernel.row(GATEWAY_INGRESS_SESSION).revision).toBe(1);
+    expect(plane.catalog.sessionIndex(GATEWAY_INGRESS_SESSION)).toMatchObject({
+      id: GATEWAY_INGRESS_SESSION, parentId: null, role: "resident",
+    });
+    runSyncEffect(createIngressExecutor(plane).pipe(Effect.provide(services)));
+    expect(kernel.row(GATEWAY_INGRESS_SESSION).revision).toBe(1);
+    expect(kernel.latestAction(GATEWAY_INGRESS_SESSION)?.id).toBe(genesis?.id);
+    expect(plane.listSessions().map((row) => row.id)).toEqual([GATEWAY_INGRESS_SESSION]);
+  } finally {
+    plane.close();
+  }
+});
+
 test("ingress commit without a receipt becomes a typed corrupt-record commit failure", async () => {
   const plane = testPlane();
   seedKernelPolicyRows(plane.catalog.policies);
