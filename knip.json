@@ -20,7 +20,11 @@
       ]
     },
     "apps/desktop": {
-      "entry": ["test/**/*.test.ts", "test-e2e/**/*.spec.ts", "test/helpers/unbound-store.ts"],
+      "entry": [
+        "test/**/*.test.ts",
+        "test-e2e/**/*.spec.ts",
+        "test/helpers/unbound-store.ts"
+      ],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "test-e2e/**/*.ts"],
       "ignoreDependencies": ["tailwindcss"]
     },
