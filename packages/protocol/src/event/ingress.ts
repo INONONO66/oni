@@ -22,6 +22,18 @@ const RoutingDecisionBase = Base.extend({
   inboundTreatment: Actor.InboundTreatment.optional(),
 });
 
+const LedgerDecisionBase = RoutingDecisionBase.extend({
+  stage: z.literal("automation"),
+  outcome: z.literal("record"),
+  by: z.string().regex(/^(automation|rule|blacklist)\/.+/),
+  factsDigest: z.string().min(1),
+  runWhen: z
+    .object({ verdict: z.enum(["yes", "no", "unknown"]), reason: z.string() })
+    .strict()
+    .optional(),
+  actionSeq: z.number().int().nonnegative().optional(),
+});
+
 function routingDecisionUnion(candidateId: z.ZodType<string, string>) {
   return z.union([
     RoutingDecisionBase.extend({
@@ -55,6 +67,12 @@ function routingDecisionUnion(candidateId: z.ZodType<string, string>) {
       outcome: z.literal("route"),
       target: z.string(),
     }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("matched") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("filtered") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("refused") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("deduped") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("grouped") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("superseded") }).strict(),
   ]);
 }
 
