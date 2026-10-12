@@ -49,7 +49,7 @@ export function fetchProxyModels(baseURL: string, now: () => number, apiKey?: st
     try: (signal) => fetch(url, { headers, signal }),
     catch: decodeLlmFailure("proxy.models.fetch"),
   }).pipe(Effect.mapError((error) => new ProxyModelsError({
-    message: `proxy model listing unreachable: ${String(error)}`, url, cause: String(error),
+    message: `proxy model listing unreachable: ${error.message}`, url, cause: error,
   })));
   if (!response.ok) {
     return yield* new ProxyModelsError({
@@ -62,7 +62,7 @@ export function fetchProxyModels(baseURL: string, now: () => number, apiKey?: st
   const body = yield* Effect.tryPromise({
     try: () => response.json().then(ModelListing.parse), catch: decodeLlmFailure("proxy.models.json"),
   }).pipe(Effect.mapError((error) => new ProxyModelsError({
-    message: "proxy model listing returned invalid JSON", url, cause: String(error),
+    message: "proxy model listing returned invalid JSON", url, cause: error,
   })));
 
   const ids = body.data.flatMap((entry) => {

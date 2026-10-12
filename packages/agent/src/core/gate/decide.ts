@@ -1,6 +1,8 @@
 import type { LedgerError } from "../store/errors";
 import { Effect, Scope, Context, Deferred, Exit, Cause, Option, Clock, Fiber } from "effect";
 import * as Failure from "../failure";
+import { renderBodyCause } from "../failure";
+import { thrownAsError } from "../store/storage/sqlite-l0-observation";
 import { type ExecutionError, GenerationUnavailable, InvocationClosed, CommitFailed, ExecutionApprovalError, PolicyDenied, AgentFailure, Interrupted, OutcomeUnknown } from "../failure";
 import { type BusEvent, GateDecision, LedgerAction, type LedgerSession, type ObservationSink as ObservationPort, type PlainValue, type SessionTransition, Tool, type PlainObject, L0Observation, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory, listenForAbort } from "@openomni/protocol";
 import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "./compile";
@@ -317,24 +319,24 @@ export function failureEvidence(error: ExecutionError): PlainObject {
       return {
         tag: error._tag,
         message: error.message,
-        providerErrorName: typeof error.cause === "object" ? error.cause.name : null,
+        providerErrorName: error.cause instanceof Error ? error.cause.name : null,
         retryAfterMs: error.retryAfterMs ?? null,
         usage: error.usage,
         aborted: error.aborted,
         contextOverflow: error.contextOverflow,
         visibleOutput: error.visibleOutput,
-        cause: typeof error.cause === "object" ? error.cause.message : error.cause ?? null,
+        cause: error.cause instanceof Error ? error.cause.message : typeof error.cause === "string" ? error.cause : null,
       };
     case "PolicyDenied":
       return { tag: error._tag, phase: error.phase, ruleIds: [...error.ruleIds] };
     case "ToolBodyFailed":
-      return { tag: error._tag, tool: error.tool, cause: error.cause };
+      return { tag: error._tag, tool: error.tool, cause: renderBodyCause(error.cause) };
     case "InvocationClosed":
       return { tag: error._tag, tool: error.tool, reason: error.reason };
     case "GenerationUnavailable":
       return { tag: error._tag, generation: error.generation };
     case "AgentFailure":
-      return { tag: error._tag, operation: error.operation, cause: error.cause };
+      return { tag: error._tag, operation: error.operation, cause: renderBodyCause(error.cause) };
     case "CompactionExecutionError":
       return { tag: error._tag, reason: error.reason };
     case "CommitFailed":
@@ -1299,7 +1301,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     if (original === undefined) return decide(request, "pre", request.intent);
     return Effect.try({
       try: () => recoverAdmission(options, request, original),
-      catch: (cause) => cause instanceof ExecutionApprovalError ? cause : new AgentFailure({ operation: "executor.recover_admission", cause: String(cause) }),
+      catch: (cause) => cause instanceof ExecutionApprovalError ? cause : new AgentFailure({ operation: "executor.recover_admission", cause: thrownAsError(cause) }),
     });
   }
 

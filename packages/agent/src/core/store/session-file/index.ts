@@ -33,7 +33,7 @@ import { appendAction, commitSession, insertSession, selectSession } from "../st
 import { createSessions, materializeSession } from "../storage/sqlite-l0-sessions.js";
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
-import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
+import { reportCommitted, thrownAsError, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
 
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
@@ -164,9 +164,9 @@ type Reads = Pick<
  * that cannot even shape an opaque node is skipped; one bad row never blocks
  * session load.
  */
-function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, reason: string): void {
+function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, cause: unknown): void {
   try {
-    sink.publish(Journal.CorruptEvent, { seq: row.ordinal, kind: row.kind, reason });
+    sink.publish(Journal.CorruptEvent, { seq: row.ordinal, kind: row.kind, reason: thrownAsError(cause).message });
   } catch {
     // Post-read observation must never block the degraded read itself.
   }
@@ -179,7 +179,7 @@ function decodeActionDegraded(
   try {
     return decodeAction(row);
   } catch (cause) {
-    reportCorruptRow(row, sink, cause instanceof Error ? cause.message : String(cause));
+    reportCorruptRow(row, sink, cause);
     try {
       return decodeAction({
         ...row,
@@ -208,7 +208,7 @@ function decodeOneDegraded(
   try {
     return decodeAction(row);
   } catch (cause) {
-    reportCorruptRow(row, sink, cause instanceof Error ? cause.message : String(cause));
+    reportCorruptRow(row, sink, cause);
     return undefined;
   }
 }
@@ -218,7 +218,7 @@ function decodeRowsDegraded(values: ActionSqlRow[], sink: ObservationSink): Ledg
     try {
       return [decodeAction(row)];
     } catch (cause) {
-      reportCorruptRow(row, sink, cause instanceof Error ? cause.message : String(cause));
+      reportCorruptRow(row, sink, cause);
       return [];
     }
   });

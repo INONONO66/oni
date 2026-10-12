@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { decodeLlmFailure, errorFacts } from "../error";
+import { decodeLlmFailure, errorFacts, failureText } from "../error";
 import type { LlmError } from "../errors";
 import { drainToolSettlements } from "./tool-events";
 import {
@@ -108,7 +108,7 @@ export namespace Processor {
         catch: decodeLlmFailure("stream.close"),
       }).pipe(
         Effect.timeoutOption(STREAM_CLOSE_GRACE_MS),
-        Effect.catch((error) => Effect.sync(() => publishInfo(events, sessionID, trace.traceId, now, "stream.close.failed", { error: typeof error.cause === "string" ? error.cause : String(error) }))),
+        Effect.catch((error) => Effect.sync(() => publishInfo(events, sessionID, trace.traceId, now, "stream.close.failed", { error: failureText(error) }))),
         Effect.asVoid,
         Effect.interruptible,
       );

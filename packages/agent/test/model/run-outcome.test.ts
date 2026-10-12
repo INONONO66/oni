@@ -39,7 +39,8 @@ test("the provider produces typed failure facts, never a legacy error shape", as
     visibleOutput: false,
     usage: { inputTokens: 0, outputTokens: 0 },
   });
-    expect(result.error.cause).toContain(cause.message);
+    // #1344: the structured cause is the thrown Error itself, not a rendering.
+    expect(result.error.cause).toBe(cause);
 });
 
 test("stop and aborted are produced by the real attempt entry", async () => {

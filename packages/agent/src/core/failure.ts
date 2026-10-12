@@ -18,6 +18,11 @@ export class AgentStopError extends Data.TaggedError("AgentStopError")<{
 
 export class ContextAdmissionError extends Data.TaggedError("ContextAdmissionError")<Record<never, never>> {}
 
+/** Journal- and model-facing text of a structured cause: an Error renders as `name: message`, a string verbatim. */
+export function renderBodyCause(cause: string | Error): string {
+  return cause instanceof Error ? `${cause.name}: ${cause.message}` : cause;
+}
+
 export class PolicyDenied extends Data.TaggedError("PolicyDenied")<{
   readonly phase: "pre" | "post";
   readonly ruleIds: readonly string[];
@@ -25,7 +30,7 @@ export class PolicyDenied extends Data.TaggedError("PolicyDenied")<{
 
 export class ToolBodyFailed extends Data.TaggedError("ToolBodyFailed")<{
   readonly tool: string;
-  readonly cause: string;
+  readonly cause: string | Error;
 }> {}
 
 export class InvocationClosed extends Data.TaggedError("InvocationClosed")<{
@@ -50,9 +55,9 @@ export class OutcomeUnknown extends Data.TaggedError("OutcomeUnknown")<{
 /** Agent-owned failure for a Cause without a typed error; `Failure.of` synthesizes it. */
 export class AgentFailure extends Data.TaggedError("AgentFailure")<{
   readonly operation: string;
-  readonly cause: string;
+  readonly cause: string | Error;
 }> {
-  override get message(): string { return `${this.operation}: ${this.cause}`; }
+  override get message(): string { return `${this.operation}: ${renderBodyCause(this.cause)}`; }
 }
 
 /** A context-restore the admission plane refused: the caller-selected compaction target is unknown or was never executed. */

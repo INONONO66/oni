@@ -6,6 +6,7 @@ import { anthropicModel, fixedNow, sequentialIds } from "../helpers/fixtures";
 import { runEffect } from "../helpers/native";
 
 import { apiError, sdkError } from "../helpers/retry";
+import { decodeLlmFailure } from "../../../src/model/error";
 import { useProcessor, capturingSink, failingStream, statusStates } from "../helpers/processor";
 import type { StreamEvent } from "../../../src/model/processor/stream-events";
 
@@ -85,7 +86,7 @@ describe("Processor failures", () => {
         })(),
       }),
     });
-    await expect(processor.process({ system: "", promptText: "" })).rejects.toMatchObject({ _tag: "TransportFailure", cause: String(reason) });
+    await expect(processor.process({ system: "", promptText: "" })).rejects.toMatchObject({ _tag: "TransportFailure", cause: reason });
     expect(processor.message.finish).toBe("aborted");
     expect(capture.finalParts()).toMatchObject([
       { type: "tool", state: { status: "error", error: "interrupted" } },
@@ -150,5 +151,28 @@ describe("Processor failures", () => {
       { toolCallId: "call-1", content: "Processing was interrupted", isError: true },
     ]);
     expect(capture.finalParts()).toMatchObject([{ type: "tool", state: { status: "error" } }]);
+  });
+
+  // #1344: a model-boundary throw keeps its structured cause — the original
+  // Error object rides TransportFailure.cause; nothing flattens to a string.
+  test("a plain thrown Error becomes a TransportFailure carrying the structured cause", () => {
+    const thrown = new Error("socket hangup");
+    const decoded = decodeLlmFailure("provider.stream")(thrown);
+    expect(decoded).toMatchObject({
+      _tag: "TransportFailure",
+      operation: "provider.stream",
+      message: "socket hangup",
+      providerErrorName: "Error",
+    });
+    expect(decoded._tag === "TransportFailure" ? decoded.cause : undefined).toBe(thrown);
+  });
+
+  // #1344: the SDK call error still arrives as the structured APIError wrapper,
+  // with the APICallError itself as the nested cause, never a rendering of it.
+  test("an SDK call error decodes to APIError whose cause IS the APICallError", () => {
+    const callError = sdkError({ message: "upstream 500", statusCode: 500, isRetryable: false });
+    const decoded = decodeLlmFailure("provider.stream")(callError);
+    expect(decoded._tag).toBe("APIError");
+    expect(decoded._tag === "APIError" ? decoded.cause : undefined).toBe(callError);
   });
 });

@@ -90,7 +90,7 @@ export class HookSpawnError extends Schema.TaggedError<HookSpawnError>(
   "@openomni/agent/plugins/hook/HookSpawnError",
 )("HookSpawnError", {
   command: Schema.Array(Schema.String),
-  cause: Schema.String,
+  cause: Schema.Unknown,
 }) {}
 
 /** A late line is always a DECODED result; failures settle calls, they are never late. */
@@ -187,7 +187,7 @@ export function acquireHookProcess(
   return Effect.gen(function* () {
     const child = yield* Effect.try({
       try: () => spawn(config.command),
-      catch: (cause) => new HookSpawnError({ command: config.command, cause: String(cause) }),
+      catch: (cause) => new HookSpawnError({ command: config.command, cause }),
     });
 
     const pending = new Map<string, Pending>();

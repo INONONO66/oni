@@ -24,7 +24,10 @@ async function snapshot(): Promise<Catalog> {
   return Catalog.parse((await import("./models-snapshot.json")).default);
 }
 function catalogError(source: "cache" | "remote" | "cache_write", path: string) {
-  return <E>(cause: E) => new ModelCatalogError({ source, path, message: String(cause) });
+  return <E>(cause: E) => new ModelCatalogError({
+    source, path, cause,
+    message: cause instanceof Error ? cause.message : `${source} model catalog source failed`,
+  });
 }
 /** A missing cache file is `undefined`; a present file that cannot be read or decoded is a typed `cache` refusal (#1312). */
 function readCache(path: string): Effect.Effect<Catalog | undefined, LlmError> {

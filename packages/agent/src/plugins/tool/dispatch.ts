@@ -24,7 +24,7 @@ import {
   type ExecutionRequest, type Executor, type ExecutorOptions,
   type InvocationFrame, type ProcessServices, type RawToolSlots,
   type ToolDispatchDefinition, type ToolDispatchResult, type ToolErrorKind,
-  DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectToolOutput, type ToolOutputPorts,
+  DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectToolOutput, type ToolOutputPorts, renderBodyCause,
 } from "../../core/api";
 
 const NEVER_ABORTED = new AbortController().signal;
@@ -56,7 +56,7 @@ function finishResult(
   if (execution.terminal === "executed" && execution.failure !== undefined)
     return failed(
       call,
-      execution.failure._tag === "ToolBodyFailed" ? execution.failure.cause : execution.failure.message,
+      execution.failure._tag === "ToolBodyFailed" ? renderBodyCause(execution.failure.cause) : execution.failure.message,
       "execution_failed",
     );
   if (execution.terminal !== "executed") {

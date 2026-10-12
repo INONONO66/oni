@@ -87,7 +87,7 @@ export namespace Provider {
       const ids = yield* fetchProxyModels(auth.baseURL, input.now, auth.apiKey).pipe(Effect.mapError((error) =>
         new ResolutionError({
           message: `Proxy model listing failed for provider: ${input.provider}`,
-          provider: input.provider, model: input.id, reason: "proxy_listing_failed", cause: String(error),
+          provider: input.provider, model: input.id, reason: "proxy_listing_failed", cause: error,
         }),
       ));
       const discovered = enrichWithCatalog(ids, catalog, input.provider).find(

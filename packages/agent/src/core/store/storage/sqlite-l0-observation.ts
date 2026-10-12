@@ -64,7 +64,7 @@ export function publishCommitted(
  * only its `typeof`, so no user-controlled code runs on the post-commit path
  * after this point.
  */
-function thrownAsError<T>(cause: T): Error {
+export function thrownAsError<T>(cause: T): Error {
   try {
     return cause instanceof Error ? cause : new Error(String(cause));
   } catch {

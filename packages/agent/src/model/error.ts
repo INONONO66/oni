@@ -30,7 +30,12 @@ export function decodeLlmFailure(operation: string) {
   return z.union([
     KnownFailure,
     z.custom<APICallError>((value) => APICallError.isInstance(value)).transform((cause) => new APIError({ cause })),
-    z.instanceof(Error).transform((error) => new TransportFailure({ operation, message: error.message, providerErrorName: error.name, aborted: error.name === "AbortError", cause: String(error) })),
+    z.instanceof(Error).transform((error) => new TransportFailure({ operation, message: error.message, providerErrorName: error.name, aborted: error.name === "AbortError", cause: error })),
     z.preprocess(String, z.string()).transform((cause) => new AgentFailure({ operation, cause })),
   ]).transform((failure): LlmError => failure).parse;
+}
+
+/** Observation text for a stream-boundary failure: a string cause verbatim, else the typed message. */
+export function failureText(error: { readonly message: string; readonly cause?: unknown }): string {
+  return typeof error.cause === "string" ? error.cause : error.message;
 }

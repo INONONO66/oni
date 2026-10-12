@@ -5,6 +5,7 @@ import { isolated } from "../../helpers/isolated";
 import { describe, expect, it, mock } from "bun:test";
 import { recordingLedger, runTestOperation, failure as effectFailure, foreign, } from "../../helpers/effect-g2";
 import { compilePolicySnapshot } from "../../../src/core/gate/compile";
+import { ToolBodyFailed } from "../../../src/core/failure";
 import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
 
 const kinds = ["prompt", "turn", "llm", "tool"] as const;
@@ -328,6 +329,36 @@ describe("the single L2 executor's four-kind verdict model", () => {
             effect: { completed: false },
             evidence: {
               failures: [{ tag: "AgentFailure", operation: "test" }],
+              defects: [],
+              interrupted: false,
+            },
+          });
+        }),
+      ),
+    ));
+
+  // #1344: a structured Error cause on the typed body failure journals as the
+  // stable `name: message` text — the Error object never reaches the journal.
+  it("renders a structured Error body-failure cause as stable journal text", () =>
+    isolated(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { actions, executor } = harness([]);
+          const failure = new ToolBodyFailed({ tool: "test", cause: new RangeError("deep failure") });
+
+          const outcome = yield* effectFailure(
+            executor.run(
+              { kind: "tool", op: "test", intent: { requested: true }, effect: { completed: false } },
+              () => Effect.fail(failure),
+            ),
+          );
+          expect(outcome).toBe(failure);
+          const result = actions[2];
+          expect(result?.effect.value).toMatchObject({
+            phase: "result",
+            terminal: "executed",
+            evidence: {
+              failures: [{ tag: "ToolBodyFailed", tool: "test", cause: "RangeError: deep failure" }],
               defects: [],
               interrupted: false,
             },

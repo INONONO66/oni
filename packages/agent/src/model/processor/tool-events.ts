@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { decodeLlmFailure } from "../error";
+import { decodeLlmFailure, failureText } from "../error";
 import type { LlmError } from "../errors";
 import type { Message, Transcript } from "@openomni/protocol";
 import { OutputPayload, ProviderEvent } from "./event-schema";
@@ -170,6 +170,6 @@ export function drainToolSettlements(
       event = next.value;
     }
   }).pipe(Effect.timeoutOption(ABORT_SETTLE_GRACE_MS), Effect.catch((error) => Effect.sync(() => {
-    context.note("stream.settlement.failed", { error: typeof error.cause === "string" ? error.cause : String(error) });
+    context.note("stream.settlement.failed", { error: failureText(error) });
   })), Effect.asVoid);
 }

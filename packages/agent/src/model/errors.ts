@@ -6,8 +6,8 @@ import { Data } from "effect";
 
 // Field shapes are compile-time only (#1259 idx 90): plain types, no
 // module-load zod schemas — nothing here ever parses.
-type Diagnostic = { readonly operation: string; readonly cause: string };
-type MessageFields = { readonly message: string; readonly cause?: string };
+type Diagnostic = { readonly operation: string; readonly cause: unknown };
+type MessageFields = { readonly message: string; readonly cause?: unknown };
 type ProviderIdentity = {
   readonly provider?: string;
   readonly model?: string;
@@ -31,7 +31,7 @@ type UsageFields = {
 };
 type RunFields = ProviderIdentity & {
   readonly message: string;
-  readonly cause?: APICallError | string;
+  readonly cause?: unknown;
   readonly retryAfterMs?: number;
   readonly usage: UsageFields;
   readonly aborted: boolean;

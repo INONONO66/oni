@@ -1,5 +1,6 @@
 import { Clock, Effect, Cause, Exit, Option } from "effect";
 import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty } from "./failure";
+import { thrownAsError } from "./store/storage/sqlite-l0-observation";
 import type { ChatAgentConfig } from "./types";
 import type { RunState, TurnArtifacts } from "./turn";
 import { recordToolCall } from "./budget";
@@ -231,7 +232,7 @@ export function executeToolBody<In extends z.ZodType, Out extends z.ZodType>(
           // foreign rejection is a typed body failure the executor records as evidence.
           resume(isToolRefusal(cause)
             ? Effect.succeed<ToolBodyOutcome>({ status: "error", message: cause.message, errorKind: "precondition_failed" })
-            : Effect.fail(new ToolBodyFailed({ tool: definition.name, cause: String(cause) })));
+            : Effect.fail(new ToolBodyFailed({ tool: definition.name, cause: typeof cause === "string" ? cause : thrownAsError(cause) })));
         },
       );
       return Effect.sync(() => controller.abort());
