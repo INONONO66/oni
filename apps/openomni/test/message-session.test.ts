@@ -2,7 +2,7 @@ import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
 const createExecutor = Core.createExecutor;
-import { Delivery, type LedgerSession, type SessionTransition } from "@openomni/protocol";
+import { Delivery, SessionGeneration, type LedgerSession, type SessionTransition } from "@openomni/protocol";
 import { Effect } from "effect";
 import {
   createMessageDeliveryCommit,
@@ -144,7 +144,7 @@ test("delivery target creation indexes the genesis in one core write and a repea
     expect(genesis?.kind).toBe("session.configure");
     expect(kernel.row("target").revision).toBe(1);
     expect(plane.catalog.sessionIndex("target")).toMatchObject({ id: "target", parentId: null, role: "resident" });
-    expect((genesis?.intent.value as { settings?: unknown }).settings).toEqual({
+    expect(SessionGeneration.ConfigureIntent.parse(genesis?.intent.value).settings).toEqual({
       steering: "one",
       followUp: "all",
       forkCopyByteCap: 2048,

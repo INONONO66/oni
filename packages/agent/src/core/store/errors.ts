@@ -20,7 +20,7 @@ export class MaterializeRefused extends Data.TaggedError("MaterializeRefused")<{
 export class CreateRefused extends Data.TaggedError("CreateRefused")<{
   readonly sessionId: string;
   readonly reason: "duplicate" | "write";
-  readonly cause?: unknown;
+  readonly cause?: Error | LedgerError;
 }> {
   override get message(): string {
     return `session creation refused (${this.reason}): ${this.sessionId}`;

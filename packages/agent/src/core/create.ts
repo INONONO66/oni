@@ -5,7 +5,8 @@
 import { Effect } from "effect";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import type { LedgerPlane } from "./host";
-import { CreateRefused } from "./store/errors";
+import { thrownAsError } from "./failure";
+import { CreateRefused, type LedgerError } from "./store/errors";
 import { generationSnapshot, materializationSeed, type MaterializeInput } from "./store/fence";
 
 export { CreateRefused };
@@ -31,7 +32,7 @@ export function createSession(
 ): Effect.Effect<SessionReceipt, CreateRefused> {
   return Effect.gen(function* () {
     const { id, parentId, role, genesis } = input;
-    const refuse = (cause: unknown) =>
+    const refuse = (cause: Error | LedgerError): CreateRefused =>
       cause instanceof CreateRefused ? cause : new CreateRefused({ sessionId: id, reason: "write", cause });
     const snapshot = yield* Effect.try({
       try: () =>
@@ -44,7 +45,7 @@ export function createSession(
           policyGeneration: genesis.policyGeneration,
           ...(genesis.manifestHash === undefined ? {} : { manifestHash: genesis.manifestHash }),
         }),
-      catch: refuse,
+      catch: (thrown) => refuse(thrownAsError(thrown)),
     });
     const materialize = materializationSeed(
       {

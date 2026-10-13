@@ -222,7 +222,7 @@ test("process entry logs committed sessions and disposes its runtime", async () 
   const delivered: string[] = [];
   const parent = parentReplies(fixture);
   const log = mock((line: string) => {
-    const parsed: unknown = JSON.parse(line);
+    const parsed = JSON.parse(line);
     const frame = answerFrame.safeParse(parsed);
     if (frame.success) answerRequested.resolve(frame.data.answer);
     const delivery = deliverFrame.safeParse(parsed);
