@@ -6,6 +6,7 @@ import {
   type ChannelDeliveryRoute,
   type ChannelStores,
   createGatewayRouter,
+  resolveChannelGrant,
   type GatewayRouter,
   type WebSocketHandler,
   type WsConnection,
@@ -361,7 +362,7 @@ export function webSocketCallbacks(
   automation?: {
     readonly respond: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
       Effect.Effect<Ingress.AutomationResponse>;
-    readonly actors: Pick<ChannelStores["actors"], "resolveEndpoint">;
+    readonly stores: ChannelStores;
   },
 ) {
   const inflight = new Set<Promise<void>>();
@@ -426,8 +427,11 @@ export function webSocketCallbacks(
                      outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
                      outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
                   return Effect.map(
-                    automation?.respond(outcome, !ws.data.authenticated ||
-                      automation.actors.resolveEndpoint("ws", ws.data.externalId)?.identity.trustTier === "owner"
+                    // Reuse chat's ws bootstrap grant without registering a chat actor.
+                    automation?.respond(outcome, (automation.stores.actors.resolveEndpoint("ws", ws.data.externalId)?.identity.trustTier ??
+                      (ws.data.declaredActor === undefined
+                        ? resolveChannelGrant(automation.stores, { surface: "ws", sender: ws.data.externalId })?.grant.defaultTier
+                        : undefined)) === "owner"
                       ? "owner" : `session:ws:${ws.data.externalId}`) ??
                       Effect.succeed<Ingress.AutomationResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,

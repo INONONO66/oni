@@ -46,6 +46,8 @@ export interface WsConnectionData {
   authenticated: boolean;
   /** Declared actor address or a connection-local deliverable address. */
   externalId: string;
+  /** Actor declaration accepted at upgrade; absent on a bootstrap connection. */
+  declaredActor?: string;
 }
 
 export interface WsConnection {
@@ -197,6 +199,7 @@ export class WebSocketHandler {
         }),
         authenticated,
         externalId,
+        ...(declaredId ? { declaredActor: declaredId } : {}),
       } satisfies WsConnectionData,
     });
     if (ok) return undefined;
