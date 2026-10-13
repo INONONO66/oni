@@ -2,20 +2,39 @@
 
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
-On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `18ca03806`, PR #1461).
+On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `2c3efdb0a`, PR #1461).
 Webhook deliveries now emit `event: "webhook"` and the stored `secretRef`
 that verified their HMAC. GitHub deliveries emit `event: "github"` and a
 `githubEvent` key such as `pull_request.opened`. Both optional facts are
 additive protocol fields, preserved by the unified input builder and selected
-by the corresponding automation trigger. `channelId` still identifies the
-webhook credential or GitHub issue/PR, so channel conditions and grouping keep
-their meaning. Drivers report facts only; the matcher does not accept
-`message` as a specialized event.
+by the corresponding automation trigger. `Gateway.IngressFacts.event` is now
+the same six-value enum as `Ingress.Input.event` (a widening of the wire
+domain from message|reaction|mention); the channels-local `automation/facts.ts`
+copy of that enum is deleted and the router consumes `Gateway.IngressFacts`
+directly. `channelId` still identifies the webhook credential or GitHub
+issue/PR, so channel conditions and grouping keep their meaning. Drivers
+report facts only; the matcher does not accept `message` as a specialized
+event.
 
-The signed-driver integration tests use real adapters, input normalization,
-matching, and SQLite records. They failed with no route before the fix and
-now produce an action and a persisted `matched` row. The seven changed test
-files pass 41 tests; protocol snapshots include the additive fields.
+Matching is still gated by the perimeter: a verified webhook or GitHub
+delivery matches its trigger and produces an action only when the sender
+passes `GatewayRouter.ingest`, that is when the kernel route is `route` or the
+sender resolves to an identified actor with a trust tier (the
+`automationActor` arm; the matched automation then grants the inbound). An
+unidentified webhook or GitHub sender is still blocked at the channel ceiling
+(`message.external.grant_tier`) with no automation row, and a GitHub bot
+author is filtered by `rule/bot-author` before matching.
+
+`packages/channels/test/automation-driver.test.ts` proves both branches
+through the real signed drivers and the real router fixture: with an
+identified observer endpoint, the webhook (valid HMAC) and GitHub (signed
+`pull_request.opened`, `User` sender) deliveries execute with target
+`worker`, one `action` commit whose origin is `automation/selected`, a
+`route`/`surface_default` routing decision carrying `automation:selected`,
+and one router-recorded `matched` ledger row; without the endpoint the same
+deliveries return `blocked_pre message.external.grant_tier`, a
+`channel_ceiling` block, zero commits and zero automation rows. Both positive
+cases fail on the pre-fix matcher or pre-fix drivers.
 
 ## #1349 — three-line comment rule across packages/agent (PR #1449, base `2c3efdb0a`)
 
