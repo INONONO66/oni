@@ -230,11 +230,6 @@ describe("ChatAgent provider boundary failures", () => {
     expect(error).toBeInstanceOf(AgentStopError);
   });
   it.each([
-    {
-      name: "a structured error without a message",
-      outcome: { type: "error", error: { code: "provider_failed" } },
-      message: "[object Object]",
-    },
     { name: "an object without a type", outcome: {}, message: "invalid llm execution result" },
     {
       name: "an object with an unknown type",

@@ -909,8 +909,7 @@ function settleAttempt(
   result: RunResult,
 ): Effect.Effect<{ readonly type: "stop" | "continue"; readonly evidence: PlainValue }, ExecutionError> {
   if (result.type === "aborted") return Effect.fail(result.error ?? new Interrupted());
-  if (result.type === "error")
-    return Effect.fail(isLlmRunFailure(result.error) ? result.error : new AgentFailure({ operation: "llm", cause: thrownAsError(result.error) }));
+  if (result.type === "error") return Effect.fail(result.error);
   if (result.type === "stop" && result.evidence !== undefined && stopOverflows(llm, model, result.evidence))
     return Effect.fail(overflowStop(model, result.evidence));
   return Effect.succeed({
