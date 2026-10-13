@@ -13,8 +13,14 @@ export const ledgerRows: Ingress.RoutingDecisionPayload[] = [
     traceId: "trace-1", inboundId: decision === "deduped" ? "matched" : decision === "superseded" ? "conversation" : decision,
     time: 600 - index * 10, surface: "discord", mode: "direct" as const, stage: "automation" as const,
     outcome: "record" as const, decision, by: "automation/alerts", factsDigest: "sha256:digest",
-    factsUsed: decision === "grouped" ? ["group:thread-1:window-600"] : ["channels:alerts"],
-    reason: decision === "grouped" ? "firing:matched" : `${decision}:fixture`,
+    // advanceGroups / closeRows share the stored group id, not the delivery message id.
+    factsUsed: decision === "grouped" || decision === "matched" || decision === "deduped"
+      ? ["grouping", 'group:["alerts","thread-1","grouped"]'] : ["channels"],
+    reason: {
+      grouped: "firing:gateway-message-42", deduped: "event_id_dedupe", filtered: "channels",
+      refused: "dispatch:target_not_found", superseded: "conversation", matched: "matched",
+    }[decision],
+    ...(decision === "grouped" || decision === "deduped" ? { target: "session:action-session" } : {}),
     ...(decision === "matched" ? { target: "session:action-session", actionSeq: 4 } : {}),
     ...(decision === "filtered" ? { runWhen: { verdict: "no" as const, reason: "Outside working hours" } } : {}),
     ...(decision === "refused" ? { runWhen: { verdict: "unknown" as const, reason: "Missing event evidence" } } : {}),

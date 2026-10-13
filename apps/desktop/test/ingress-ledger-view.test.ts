@@ -14,15 +14,16 @@ test("renders six decisions, evidence, distinct judge verdicts and related event
       expect(ui.host.querySelector(`[data-decision="${decision}"]`)).not.toBeNull();
     }
     const filtered = ui.host.querySelector('[data-decision="filtered"]');
-    expect(filtered?.textContent).toContain("filtered:fixture");
-    expect(filtered?.textContent).toContain("channels:alerts");
+    expect(filtered?.textContent).toContain("channels");
     expect(filtered?.querySelector("button")).toBeNull();
     expect(ui.host.querySelector('[data-verdict="unknown"]')?.textContent).toContain("Indecisive");
     expect(ui.host.querySelector('[data-verdict="no"]')?.textContent).toContain("Rejected");
     const deduped = ui.host.querySelector('[data-decision="deduped"]');
     expect(deduped?.closest("tbody")?.querySelector('[data-decision="matched"]')).not.toBeNull();
     expect(ui.host.querySelector('[data-decision="grouped"] a')?.getAttribute("href")).toBe("#ingress-matched");
-    expect(ui.host.querySelector('[data-decision="grouped"]')?.textContent).toContain("thread-1:window-600");
+    expect(ui.host.querySelector('[data-decision="grouped"] a')?.textContent).toBe("matched");
+    expect(ui.host.querySelector('[data-decision="grouped"]')?.textContent).toContain('["alerts","thread-1","grouped"]');
+    expect(ui.host.querySelector('[data-decision="grouped"]')?.textContent).toContain("gateway-message-42");
     await ui.click("Winning prompt · prompt-winner");
     await ui.click("Open session · action 4 · action-session");
     expect(opened).toEqual(["prompt-winner", "action-session"]);

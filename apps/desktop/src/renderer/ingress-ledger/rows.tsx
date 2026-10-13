@@ -30,11 +30,8 @@ function DecisionDetails({ row, rows, visibleIds, onOpenSession }: {
 }) {
   const group = row.factsUsed.find((fact) => fact.startsWith("group:"));
   const firing = row.reason.match(/(?:^|\s)firing:([^\s]+)/)?.[1];
-  const firingRow = firing === undefined ? undefined : rows.find((candidate) =>
-    candidate.stage === "automation" && candidate.decision === "matched" && (
-      candidate.inboundId === firing || group !== undefined && candidate.factsUsed.includes(group) &&
-      candidate.reason.match(/(?:^|\s)firing:([^\s]+)/)?.[1] === firing
-    ),
+  const firingRow = firing === undefined || group === undefined ? undefined : rows.find((candidate) =>
+    candidate.stage === "automation" && candidate.decision === "matched" && candidate.factsUsed.includes(group),
   );
   return <details className="min-w-0 text-body">
     <summary className="focus-ring cursor-pointer py-2 font-medium">{row.decision}</summary>
@@ -45,10 +42,11 @@ function DecisionDetails({ row, rows, visibleIds, onOpenSession }: {
       <dt className="text-fg-muted">Digest</dt><dd className="break-all font-mono text-label">{row.factsDigest}</dd>
       {row.runWhen && <><dt className="text-fg-muted">Run when</dt><dd data-verdict={row.runWhen.verdict}><strong>{VERDICT[row.runWhen.verdict]}</strong><p className="break-words">{row.runWhen.reason}</p></dd></>}
       {group && <><dt className="text-fg-muted">Grouping window key</dt><dd className="break-all">{group.slice(6)}</dd></>}
-      {firing && <><dt className="text-fg-muted">Firing event</dt><dd className="break-all">
-        {firingRow && visibleIds.has(firingRow.inboundId) ? <a className="focus-ring underline" href={`#ingress-${encodeURIComponent(firingRow.inboundId)}`}>{firing}</a> : <>
-          {firing}
-          {firingRow && <SessionLink row={firingRow} rows={rows} onOpenSession={onOpenSession} />}
+      {firing && <><dt className="text-fg-muted">Delivered message</dt><dd className="break-all">{firing}</dd></>}
+      {firingRow && <><dt className="text-fg-muted">Firing event</dt><dd className="break-all">
+        {visibleIds.has(firingRow.inboundId) ? <a className="focus-ring underline" href={`#ingress-${encodeURIComponent(firingRow.inboundId)}`}>{firingRow.inboundId}</a> : <>
+          {firingRow.inboundId}
+          <SessionLink row={firingRow} rows={rows} onOpenSession={onOpenSession} />
         </>}
       </dd></>}
     </dl>
