@@ -2,7 +2,7 @@
  * `llm` — one model call envelope and its attempt rows (`attempt` ordinal,
  * `generation`, usage, finishReason); the former `attempt` kind is a phase of
  * this kind. Single writer: the loop executor
- * (`packages/agent/src/core/gate/decide.ts`).
+ * (`packages/agent/src/core/loop/executor.ts`).
  */
 import { z } from "zod";
 import { RowBody, declare, refineField } from "../declaration.js";

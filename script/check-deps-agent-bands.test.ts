@@ -48,8 +48,8 @@ test("#1276 check a: a core file importing plugins/, inspect/ or testing/ fails"
 test("#1276 check a legal edge: core-internal imports stay legal (one core)", () => {
   expect(
     agentBandViolations(
-      "packages/agent/src/core/gate/decide.ts",
-      'import { x } from "../turn";\nimport { y } from "../store/fence";\nimport { z } from "./match";',
+      "packages/agent/src/core/loop/executor.ts",
+      'import { x } from "./turn";\nimport { y } from "../store/fence";\nimport { z } from "../gate/match";',
     ),
   ).toEqual([]);
 });
@@ -233,14 +233,14 @@ test("#1276 (r3): a forbidden import in a formerly-pinned, now-clean file fails 
 });
 
 test("#1276 (r3): a pin above the actual count fails closed", async () => {
-  // core/commit.ts is pinned at 1; a scratch tree where it is clean must fail.
+  // core/journal/commit.ts is pinned at 1; a scratch tree where it is clean must fail.
   const root = scratchAgentTree({
-    "core/commit.ts": "export const clean = true;\n",
+    "core/journal/commit.ts": "export const clean = true;\n",
   });
   try {
     const violations = await validateAgentBands(root);
     expect(violations).toContain(
-      "VIOLATION: packages/agent/src/core/commit.ts pin exceeds actual (1 > 0): lower the pin",
+      "VIOLATION: packages/agent/src/core/journal/commit.ts pin exceeds actual (1 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

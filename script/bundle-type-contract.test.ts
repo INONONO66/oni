@@ -47,7 +47,7 @@ test("bundle contract types the acquisition layer and refuses capability-owned d
   host.fileExists = (file) => fixtures.has(file) || exists(file);
   const program = ts.createProgram([...fixtures.keys()], options, host);
   const diagnostics = ts.getPreEmitDiagnostics(program);
-  const owned = diagnostics.filter((item) => item.file?.fileName === resolve(root, "packages/agent/src/core/capability.ts") || item.file?.fileName.endsWith("bundle-positive.fixture.ts"));
+  const owned = diagnostics.filter((item) => item.file?.fileName === resolve(root, "packages/agent/src/core/ports/capability.ts") || item.file?.fileName.endsWith("bundle-positive.fixture.ts"));
   expect(owned.map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"))).toEqual([]);
   for (const [name, , code] of negatives) {
     const path = resolve(root, `script/bundle-${name.replaceAll(" ", "-")}.fixture.ts`);

@@ -1006,7 +1006,7 @@ export function agentBandViolations(filePath: string, source: string): string[] 
  * tree measures 45 under the same classifier, of which 16 were
  * plugins/compaction imports now routed through core/api and 4 were
  * product-choice edges the move removed (see the reconciliation receipt).
- * Includes the core/retry.ts
+ * Includes the core/loop/retry.ts
  * +1 slash-only-classifier undercount correction (r2 addendum). A new file, a
  * higher count, OR A PIN ABOVE THE ACTUAL fails: shrinkage lowers the pin in
  * the same PR. #1255 drives every entry to zero.
@@ -1016,10 +1016,10 @@ const AGENT_BAND_RATCHET: ReadonlyMap<string, number> = new Map([
   // seam and inverted the plugin -> inspect/history edge; #1352 moved the
   // model band out of the package, so the remaining pins are the
   // core -> inspect/history edges (#1255 owns those).
-  ["packages/agent/src/core/commit.ts", 1],
+  ["packages/agent/src/core/journal/commit.ts", 1],
   // #1310 split mailbox.ts; its grandfathered inspect/history edge moved to recovery.ts.
-  ["packages/agent/src/core/recovery.ts", 1],
-  ["packages/agent/src/core/run.ts", 2],
+  ["packages/agent/src/core/session/recovery.ts", 1],
+  ["packages/agent/src/core/session/run.ts", 2],
 ]);
 
 
@@ -2001,8 +2001,8 @@ function selfTest(): number {
     [
       "#1276: core-internal imports are legal (one core)",
       agentBandViolations(
-        "packages/agent/src/core/run.ts",
-        'import { x } from "./turn";\nimport { y } from "./store/fence";\nimport { z } from "./gate/decide";',
+        "packages/agent/src/core/session/run.ts",
+        'import { x } from "../loop/turn";\nimport { y } from "../store/fence";\nimport { z } from "../loop/executor";',
       ).length === 0,
     ],
     [
@@ -2043,8 +2043,8 @@ function selfTest(): number {
     [
       "#1352: a core file importing the llm port stays inside its own band",
       agentBandViolations(
-        "packages/agent/src/core/retry.ts",
-        'import { LlmRunFailure } from "./llm";',
+        "packages/agent/src/core/loop/retry.ts",
+        'import { LlmRunFailure } from "../ports/llm";',
       ).length === 0,
     ],
     [

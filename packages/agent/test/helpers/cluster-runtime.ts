@@ -1,7 +1,7 @@
 /**
  * Test cluster runtime hosting the REAL Session entity on a SingleRunner: sql message/runner storage plus the ledger
  * catalog schema in one catalog file, per-session ledger files under `sessionsDir`; every Effect runs through the
- * allowlisted `runAgent` helper. Wire contract: `src/core/messages.ts` (Deliver/Resolve/Alarm/Read). Composition seam:
+ * allowlisted `runAgent` helper. Wire contract: `src/core/journal/messages.ts` (Deliver/Resolve/Alarm/Read). Composition seam:
  * `SessionEntityContext` — this file supplies the catalog handle, the store opener and a minimal REAL turn port around `TestTurnRunner`.
  */
 import { mkdirSync, mkdtempSync } from "node:fs";

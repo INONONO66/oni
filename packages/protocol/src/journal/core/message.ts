@@ -3,7 +3,7 @@
  * (`to: channel|session`, `direction: out`) and its delivery acknowledgement;
  * the former `outbound` kind is this kind's session-directed shape.
  * Single writer: the loop outbound constructor
- * (`packages/agent/src/core/run.ts`); handlers call it.
+ * (`packages/agent/src/core/session/run.ts`); handlers call it.
  */
 import { z } from "zod";
 import { RowBody, declare, refineField } from "../declaration.js";

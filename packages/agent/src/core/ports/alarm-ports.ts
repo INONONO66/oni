@@ -3,7 +3,7 @@ import type { LedgerAction } from "@openomni/protocol";
 import type { CommitFailed } from "./failure";
 import type { AlarmFired } from "./alarm";
 
-/** Pure contracts the kernel takes without defaults; implementations live in `core/alarm.ts`. */
+/** Pure contracts the kernel takes without defaults; implementations live in `core/ports/alarm.ts`. */
 
 /**
  * `arm` commits the `alarm{arm}` chain row then forwards the occurrence; `wait` keeps the

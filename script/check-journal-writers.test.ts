@@ -18,7 +18,7 @@ afterEach(() => {
 
 const ALARM_DECLARATION = `/**
  * \`alarm\` — one timer kind. Single writer: the core timer constructor
- * (\`packages/agent/src/core/alarm.ts\`).
+ * (\`packages/agent/src/core/ports/alarm.ts\`).
  */
 export const alarm = declare(
   "alarm",
@@ -58,7 +58,7 @@ function run(root: string) {
 test("a second append literal for a declared kind outside its writer module fails", () => {
   const root = fixture({
     "packages/protocol/src/journal/core/alarm.ts": ALARM_DECLARATION,
-    "packages/agent/src/core/alarm.ts": OWNER_WRITER,
+    "packages/agent/src/core/ports/alarm.ts": OWNER_WRITER,
     "apps/openomni/src/rogue.ts":
       'const planted = { id: "x", parentId: null, sessionId: "s", kind: "alarm", ts: 2, irreversible: true };\nexport default planted;\n',
   });
@@ -69,7 +69,7 @@ test("a second append literal for a declared kind outside its writer module fail
     code: 1,
     stdout: "",
     stderr:
-      'VIOLATION [journal-writers] apps/openomni/src/rogue.ts:1 kind "alarm" is owned by packages/agent/src/core/alarm.ts\n',
+      'VIOLATION [journal-writers] apps/openomni/src/rogue.ts:1 kind "alarm" is owned by packages/agent/src/core/ports/alarm.ts\n',
   });
 
   // Same tree in-process: the finding carries the exact location and owner,
@@ -79,7 +79,7 @@ test("a second append literal for a declared kind outside its writer module fail
       file: "apps/openomni/src/rogue.ts",
       line: 1,
       kind: "alarm",
-      writer: "packages/agent/src/core/alarm.ts",
+      writer: "packages/agent/src/core/ports/alarm.ts",
     },
   ]);
   expect(checkJournalWriters(root)).toBe(1);
@@ -88,7 +88,7 @@ test("a second append literal for a declared kind outside its writer module fail
 test("an append literal with an undeclared kind is not a recognized journal row", () => {
   const root = fixture({
     "packages/protocol/src/journal/core/alarm.ts": ALARM_DECLARATION,
-    "packages/agent/src/core/alarm.ts": OWNER_WRITER,
+    "packages/agent/src/core/ports/alarm.ts": OWNER_WRITER,
     // Only declared kinds are journal rows; a foreign "notice" literal is the
     // append CHECK's problem (sqlite-l0-write refuses unknown kinds), not a
     // writer-census finding.
@@ -119,7 +119,7 @@ test("the CLI shell refuses a missing or nonexistent root", () => {
 test("intent payload literals without an append shape never count as writers", () => {
   const root = fixture({
     "packages/protocol/src/journal/core/alarm.ts": ALARM_DECLARATION,
-    "packages/agent/src/core/alarm.ts": OWNER_WRITER,
+    "packages/agent/src/core/ports/alarm.ts": OWNER_WRITER,
     // An alarm prompt origin's shape: a nested payload value carries
     // `kind: "alarm"` but no `irreversible`/`parentId` sibling — not an append row.
     "apps/openomni/src/monitor.ts":
