@@ -6,6 +6,7 @@ import { automationFixture, automationRecord } from "./helpers/automation";
 import { commitArm, FIXTURE_BASE } from "./helpers/watch-fixture";
 import { runAppEffect } from "../src/gateway";
 import { CRON_TICK } from "../src/bundles/cron";
+import { automationAlarm } from "../src/composition/automation-alarm";
 
 const suite = residentSuite();
 const cron = { expr: "* * * * *", tz: "UTC", description: "CRON_SENTINEL" };
@@ -70,4 +71,50 @@ test("a filtered schedule tick writes no local prompt shortcut", async () => {
   expect(kernel.actionById(armed.occurrenceId)).toBeUndefined();
   expect(kernel.actionById(`${armed.occurrenceId}:prompt`)).toBeUndefined();
   expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([expect.objectContaining({ decision: "filtered" })]);
+});
+
+function wakeInput(sessionId: string, payload: string, occurrenceId: string) {
+  const fired: Core.AlarmFired = {
+    occurrenceId, purpose: CRON_TICK, alarmId: "direct", armSeq: 1, sourceKey: "cron", payload, fireAt: 0,
+  };
+  const prompts: string[] = [];
+  const ctx: Core.AlarmWakeContext = {
+    sessionId, now: FIXTURE_BASE,
+    reads: { latestArm: () => undefined, settled: () => false },
+    arm: () => Effect.die(new Error("unused arm")),
+    prompt: (input) => Effect.sync(() => ({ seq: prompts.push(input.content) })),
+  };
+  return { fired, ctx, prompts };
+}
+
+test("the alarm sender is registered on the first tick only", async () => {
+  const f = await automationFixture(suite);
+  const registrations: string[] = [];
+  const actors = {
+    ...f.stores.actors,
+    registerIdentity: (identity: Parameters<typeof f.stores.actors.registerIdentity>[0]) => {
+      registrations.push(identity.id);
+      return f.stores.actors.registerIdentity(identity);
+    },
+  };
+  const ingress = automationAlarm(f.app.gateway, { ...f.stores, actors });
+  for (const occurrenceId of ["direct:fire:1", "direct:fire:2"]) {
+    const { fired, ctx, prompts } = wakeInput("ticking", JSON.stringify(cron), occurrenceId);
+    await runAppEffect(f.app.runtime, ingress(fired, ctx, { content: "TICK_SENTINEL" }));
+    expect(prompts).toEqual(["TICK_SENTINEL"]);
+  }
+  expect(registrations).toEqual(["alarm:ticking"]);
+});
+
+test.each([
+  ["an unparseable payload", "{not json", "ticking"],
+  ["an input outside the ingress schema", JSON.stringify(cron), ""],
+])("%s is a typed wake failure, not a defect", async (_label, payload, sessionId) => {
+  const f = await automationFixture(suite);
+  const { fired, ctx, prompts } = wakeInput(sessionId, payload, "direct:malformed");
+  const error = await runAppEffect(f.app.runtime,
+    Effect.flip(automationAlarm(f.app.gateway, f.stores)(fired, ctx, { content: "UNUSED" })));
+  expect(error).toBeInstanceOf(Bundle.AlarmWakeError);
+  expect(error).toMatchObject({ purpose: CRON_TICK, reason: expect.stringMatching(/^malformed_payload: /) });
+  expect(prompts).toEqual([]);
 });
