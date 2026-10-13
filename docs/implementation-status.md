@@ -1,5 +1,14 @@
 # Implementation Status
 
+## #1458 desktop ingress ledger winning-prompt link
+
+The ledger explorer links a `superseded` decision to the winning prompt using
+that stored automation row's `target: "session:<id>"`. The automation ledger
+returns only automation and group-close decisions; no separate routing row is
+required or displayed. A row without a winning session has no prompt link.
+The desktop fixture reflects those producer rows; the regression runs real
+channel ingress and SQLite ledger output before rendering desktop `LedgerRows`.
+
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
 On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a`).
@@ -27,6 +36,7 @@ On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a
   across a reconnect with `createdBy: "owner"` results; the same socket without
   the bootstrap grant is refused `require_approval`.
 
+||||||| parent of dc32cf8eb (docs: stamp #1458 ledger winning-link correction)
 ## #1348 — agent test dedup and bare-throw narrowing (PR #1448, base `18ca03806`)
 
 - Every positive bare `toThrow()` in `packages/agent/test` is narrowed to the class the code actually throws: 41 sites in 19 files → 0 (`rg --pcre2 -n '(?<!not\.)toThrow\(\)' -g '*.ts' packages/agent/test`). Each site was classified by running a scratch probe copy once (deleted afterwards, never committed) rather than guessed; the classification receipt is `lane-1348-throw-probe.txt` under the campaign evidence directory.

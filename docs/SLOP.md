@@ -1,5 +1,11 @@
 # SLOP: I09 deletion and closure receipts (#948)
 
+## #1458 ledger winning-link correction
+
+| Surface | Disposition and evidence |
+| --- | --- |
+| Desktop ingress ledger `superseded` decision | The link reads the stored automation row's own `session:<id>` target; the unreachable non-automation routing-row lookup and impossible fixture row are removed. Real router ingress → SQLite automation ledger → production `LedgerRows` reproduces the missing button before the fix and opens the winning session after it; missing target has no fabricated link. |
+
 #969 cutover, 2026-09-07: request waiting, authenticated consent and outbound delivery now use canonical actions. The new receipt below covers the replacement; historical receipts retain their original source pins. Final HEAD and gate outputs are in the PR and local report.
 
 #971 cutover, 2026-09-08: alarm occurrence identity, deadline and budget admission moved into the ledger's single judgment; evaluators report transport keys only. Receipt below.
