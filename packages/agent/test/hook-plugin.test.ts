@@ -9,9 +9,17 @@ import {
   hookProcessConsultant,
   type HookLateResult,
   type HookOutcome,
-  type HookProcess,
 } from "../src/plugins/hook";
 import { canonicalDigest, type PlainValue } from "@openomni/protocol";
+import {
+  expectPoisoned,
+  forkStarted,
+  HOOK_COMMAND as COMMAND,
+  hookFailure,
+  hookRequest as request,
+  hookScoped as scoped,
+  withHookProcess,
+} from "./helpers/hook-fixture";
 import { runTestPromise } from "./helpers/isolated";
 
 /**
@@ -19,70 +27,6 @@ import { runTestPromise } from "./helpers/isolated";
  * runs a REAL scripted child (bun -e) and synchronizes on stdout replies,
  * exit settlement or the TestClock — never on a fixed sleep.
  */
-
-/** The scripted echo child: behavior is keyed by the request's `event` field. */
-const CHILD_SCRIPT = `
-const held = [];
-const heldResult = (event) =>
-  event === "hold-rewrite" ? { type: "rewrite", fields: { input: { redacted: true } } }
-  : event === "hold-observe" ? { type: "observe", payload: { note: "late" } }
-  : { type: "gate", verdict: "allow" };
-const flushHeld = () => {
-  for (const entry of held.splice(0)) console.log(JSON.stringify({ id: entry.id, result: heldResult(entry.event) }));
-};
-process.on("SIGUSR2", flushHeld);
-const decoder = new TextDecoder();
-let buffer = "";
-for await (const chunk of Bun.stdin.stream()) {
-  buffer += decoder.decode(chunk, { stream: true });
-  let cut;
-  while ((cut = buffer.indexOf("\\n")) >= 0) {
-    const line = buffer.slice(0, cut);
-    buffer = buffer.slice(cut + 1);
-    if (line.length === 0) continue;
-    const request = JSON.parse(line);
-    const reply = (result) => console.log(JSON.stringify({ id: request.id, result }));
-    switch (request.event) {
-      case "allow": reply({ type: "gate", verdict: "allow" }); break;
-      case "deny": reply({ type: "gate", verdict: "deny", reason: "secret" }); break;
-      case "rewrite": reply({ type: "rewrite", fields: { input: { redacted: true } } }); break;
-      case "observe": reply({ type: "observe", payload: { note: "seen" } }); break;
-      case "garbage": console.log("not a json line"); break;
-      case "bad-verdict": reply({ type: "gate", verdict: "maybe" }); break;
-      case "hold":
-      case "hold-rewrite":
-      case "hold-observe": held.push({ id: request.id, event: request.event }); break;
-      case "die": process.exit(7);
-      case "silent": break;
-      case "oversize": reply({ type: "gate", verdict: "allow", reason: "r".repeat(4096) }); break;
-      case "unterminated": process.stdout.write("y".repeat(4096)); break;
-      case "flush-held": flushHeld(); reply({ type: "gate", verdict: "allow" }); break;
-    }
-  }
-}
-`;
-
-const COMMAND = [process.execPath, "-e", CHILD_SCRIPT] as const;
-
-function request(event: string, id = event, timeoutMs = 60_000): Parameters<HookProcess["call"]>[0] {
-  // #1256 r3 M-2: timeout is a per-call parameter on the request.
-  return { id, point: "tool.pre", event, decisionInput: { op: "bash" }, timeoutMs };
-}
-
-const scoped = <A, E>(body: (scope: Scope.Scope) => Effect.Effect<A, E>) =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const result = yield* body(scope).pipe(Effect.onExit(() => Scope.close(scope, Exit.void)));
-    return result;
-  });
-
-/**
- * Fork a call so it runs synchronously to its first suspension: the pending
- * entry is registered and any TestClock timer armed when the fork returns —
- * the exact-state guarantee the deleted polling loops approximated.
- */
-const forkStarted = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.forkChild(effect, { startImmediately: true });
 
 test("the capability declares exactly one handler and no kind, point, input or tool", () => {
   const capability = hookCapability();
@@ -96,11 +40,8 @@ test("the capability declares exactly one handler and no kind, point, input or t
 
 test("allow, deny, rewrite and observe results round-trip over JSON lines", () =>
   runTestPromise(
-    scoped((scope) =>
+    withHookProcess((hook) =>
       Effect.gen(function* () {
-        const hook = yield* acquireHookProcess({ command: COMMAND }).pipe(
-          Scope.provide(scope),
-        );
         expect(yield* hook.call(request("allow"))).toEqual({ kind: "gate", verdict: "allow" });
         expect(yield* hook.call(request("deny"))).toEqual({
           kind: "gate",
@@ -127,25 +68,11 @@ test("allow, deny, rewrite and observe results round-trip over JSON lines", () =
  */
 const poisonedByFraming = (event: string) =>
   runTestPromise(
-    scoped((scope) =>
+    withHookProcess((hook) =>
       Effect.gen(function* () {
-        const hook = yield* acquireHookProcess({ command: COMMAND }).pipe(
-          Scope.provide(scope),
-        );
-        expect(yield* hook.call(request(event))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "framing",
-        });
-        // The poison killed the child; its exit settles without any new input.
-        yield* hook.exited;
-        // A subsequent call CANNOT obtain allow from the poisoned PID.
-        expect(yield* hook.call(request("allow"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "exit",
-        });
-        expect(hook.inFlight()).toBe(0);
+        expect(yield* hook.call(request(event))).toEqual(hookFailure("framing"));
+        // The poison killed the child; a subsequent call CANNOT obtain allow.
+        expect(yield* expectPoisoned(hook)).toEqual({ later: hookFailure("exit"), inFlight: 0 });
       }),
     ),
   );
@@ -158,42 +85,24 @@ test("a verdict outside the vocabulary poisons the PID the same way", () =>
 
 test("the process dying during a call settles the call as an exit failure", () =>
   runTestPromise(
-    scoped((scope) =>
+    withHookProcess((hook) =>
       Effect.gen(function* () {
-        const hook = yield* acquireHookProcess({ command: COMMAND }).pipe(
-          Scope.provide(scope),
-        );
-        expect(yield* hook.call(request("die"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "exit",
-        });
+        expect(yield* hook.call(request("die"))).toEqual(hookFailure("exit"));
         expect(yield* hook.exited).toBe(7);
         // A dead PID refuses further calls without hanging.
-        expect(yield* hook.call(request("allow"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "exit",
-        });
+        expect(yield* hook.call(request("allow"))).toEqual(hookFailure("exit"));
       }),
     ),
   ));
 
 test("a nonresponsive script times out when the TestClock passes timeoutMs", () =>
   runTestPromise(
-    scoped((scope) =>
+    withHookProcess((hook) =>
       Effect.gen(function* () {
-        const hook = yield* acquireHookProcess({ command: COMMAND }).pipe(
-          Scope.provide(scope),
-        );
         const call = yield* forkStarted(hook.call(request("silent", "silent", 5_000)));
         expect(hook.inFlight()).toBe(1);
         yield* TestClock.adjust(5_001);
-        expect(yield* Fiber.join(call)).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "timeout",
-        });
+        expect(yield* Fiber.join(call)).toEqual(hookFailure("timeout"));
         expect(hook.inFlight()).toBe(0);
       }),
     ).pipe(Effect.provide(TestClock.layer())),
@@ -257,45 +166,28 @@ test("a missing executable is a typed spawn refusal, never a partial activation"
 
 test("H-2: a response line over maxLineBytes poisons the PID as a framing failure", () =>
   runTestPromise(
-    scoped((scope) =>
-      Effect.gen(function* () {
-        const hook = yield* acquireHookProcess({
-          command: COMMAND,
-          maxLineBytes: 1024,
-        }).pipe(Scope.provide(scope));
-        expect(yield* hook.call(request("oversize"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "framing",
-        });
-        // The poisoned PID was killed and refuses further calls without hanging.
-        yield* hook.exited;
-        expect(yield* hook.call(request("allow"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "exit",
-        });
-      }),
+    withHookProcess(
+      (hook) =>
+        Effect.gen(function* () {
+          expect(yield* hook.call(request("oversize"))).toEqual(hookFailure("framing"));
+          // The poisoned PID was killed and refuses further calls without hanging.
+          expect(yield* expectPoisoned(hook)).toEqual({ later: hookFailure("exit"), inFlight: 0 });
+        }),
+      { maxLineBytes: 1024 },
     ),
   ));
 
 test("H-2: an unterminated buffer over maxLineBytes poisons the PID as a framing failure", () =>
   runTestPromise(
-    scoped((scope) =>
-      Effect.gen(function* () {
-        const hook = yield* acquireHookProcess({
-          command: COMMAND,
-          maxLineBytes: 1024,
-        }).pipe(Scope.provide(scope));
-        // The child floods 4096 bytes with NO newline: the buffer bound trips
-        // without ever completing a line, and the pending call settles framing.
-        expect(yield* hook.call(request("unterminated"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "framing",
-        });
-        yield* hook.exited;
-      }),
+    withHookProcess(
+      (hook) =>
+        Effect.gen(function* () {
+          // The child floods 4096 bytes with NO newline: the buffer bound trips
+          // without ever completing a line, and the pending call settles framing.
+          expect(yield* hook.call(request("unterminated"))).toEqual(hookFailure("framing"));
+          yield* hook.exited;
+        }),
+      { maxLineBytes: 1024 },
     ),
   ));
 
@@ -379,11 +271,7 @@ test("H-3: a result settling after its timeout surfaces through the typed onLate
         expect(hook.inFlight()).toBe(1);
         yield* TestClock.adjust(5_001);
         // The call itself settled as the one timeout failure the gate folds to deny.
-        expect(yield* Fiber.join(call)).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "timeout",
-        });
+        expect(yield* Fiber.join(call)).toEqual(hookFailure("timeout"));
         // The child answers AFTER the deadline (stdin is processed in order, so
         // "flush-held" strictly follows "hold"): the decoded result re-surfaces
         // through onLate with its original call id.
@@ -583,11 +471,7 @@ test("C-1: a stdin write failure settles the call as a typed exit failure, nothi
           { command: ["./hook.sh"] },
           () => child,
         ).pipe(Scope.provide(scope));
-        expect(yield* hook.call(request("allow"))).toEqual({
-          kind: "failure",
-          code: "hook_timeout",
-          cause: "exit",
-        });
+        expect(yield* hook.call(request("allow"))).toEqual(hookFailure("exit"));
         expect(hook.inFlight()).toBe(0);
       }),
     ),

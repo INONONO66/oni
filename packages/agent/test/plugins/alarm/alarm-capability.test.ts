@@ -3,124 +3,26 @@ import { runTestSync } from "../../helpers/isolated";
 import { Effect, Logger } from "effect";
 import type { Alarm } from "@openomni/protocol";
 import { AlarmComposeError, composeAlarmPurposes } from "../../../src/core/alarm";
+import { AlarmWakeError, ArmRefused, type ArmVerb } from "../../../src/core/api";
+import { alarmCapability, MONITOR_HIT, MONITOR_SOURCE, MONITOR_TIMEOUT, watchPurposes, WatchRefused } from "../../../src/plugins/alarm";
 import {
-  AlarmWakeError,
-  ArmRefused,
-  type AlarmFired,
-  type AlarmWakeContext,
-  type ArmVerb,
-} from "../../../src/core/api";
-import {
-  alarmCapability,
-  MONITOR_HIT,
-  MONITOR_SOURCE,
-  MONITOR_TIMEOUT,
-  watchPurposes,
-  WatchRefused,
-  type AlarmCapabilityDefinition,
-  type WatchWakeDeps,
-} from "../../../src/plugins/alarm";
+  fired,
+  stubArm,
+  stubCapability as capability,
+  stubContext,
+  WATCH_SPEC as spec,
+  wakeHit,
+  wakeTimeout,
+  watchVerb,
+  type ArmCall,
+  type ChainRows,
+  type PromptCall,
+} from "../../helpers/alarm-capability";
 
 // #1254 P1: the removable alarm capability — purpose registry through Lane
 // 1's compose, wake dispatch, the watch handlers over the supersedes
 // lifecycle (no generation counter), and the guarded arm/watch verbs. Pure functions and
 // stubbed AlarmWakeContext; Lane 4 wires the live dispatch.
-
-type ArmCall = Parameters<ArmVerb>[0];
-
-/** In-test chain pages keyed by alarmId — the latest committed arm row per chain. */
-type ChainRows = Record<string, { occurrenceId: string; at: number | null }>;
-
-function stubArm(calls: ArmCall[], refuse?: ArmRefused, chains?: ChainRows): ArmVerb {
-  return (input) => {
-    if (refuse !== undefined) return Effect.fail(refuse);
-    calls.push(input);
-    const alarmId = input.alarmId ?? "minted-alarm";
-    const occurrenceId = `occ-${calls.length}`;
-    if (chains !== undefined) chains[alarmId] = { occurrenceId, at: input.at };
-    return Effect.succeed({ alarmId, occurrenceId, armSeq: calls.length });
-  };
-}
-
-function stubContext(input: {
-  readonly arm: ArmVerb;
-  readonly prompts?: PromptCall[];
-  readonly chains?: ChainRows;
-}): AlarmWakeContext {
-  const prompts = input.prompts ?? [];
-  return {
-    sessionId: "session-1",
-    reads: { latestArm: (alarmId) => input.chains?.[alarmId], settled: () => false },
-    arm: input.arm,
-    now: 5_000,
-    prompt: ({ content }) =>
-      Effect.sync(() => {
-        prompts.push({ content });
-        return { seq: prompts.length };
-      }),
-  };
-}
-
-function fired(input: Partial<AlarmFired> & { readonly payload: string }): AlarmFired {
-  return {
-    occurrenceId: "occ-live",
-    purpose: MONITOR_HIT,
-    alarmId: "watch-1",
-    armSeq: 7,
-    sourceKey: MONITOR_SOURCE,
-    fireAt: 4_000,
-    ...input,
-  };
-}
-
-const spec: Alarm.WatchSpec = {
-  watch: { command: "tail -f log", description: "log watch", persistent: true },
-  policyGeneration: 1,
-  notificationLimit: 2,
-};
-
-interface PromptCall {
-  readonly content: string;
-}
-
-function wakeDeps(closed: string[]): WatchWakeDeps {
-  return { close: (watchId) => closed.push(watchId) };
-}
-
-function capability(input: {
-  readonly arm: ArmVerb;
-  readonly closed?: string[];
-  readonly installs?: string[];
-  /** When set, every native install refuses with this reason. */
-  readonly refuseInstall?: string;
-  readonly extra?: readonly { readonly bundle: string; readonly purposes: readonly string[] }[];
-}): AlarmCapabilityDefinition {
-  const deps = wakeDeps(input.closed ?? []);
-  return runTestSync(
-    alarmCapability({
-      bundles: [
-        { bundle: "monitor", purposes: watchPurposes(deps) },
-        ...(input.extra ?? []).map((declaration) => ({
-          bundle: declaration.bundle,
-          purposes: declaration.purposes.map((name) => ({
-            name,
-            handler: () => Effect.succeed("delivered" as const),
-          })),
-        })),
-      ],
-      compose: composeAlarmPurposes,
-      arm: () => input.arm,
-      watch: {
-        install: ({ watchId }) =>
-          input.refuseInstall === undefined
-            ? Effect.sync(() => {
-                (input.installs ?? []).push(watchId);
-              })
-            : Effect.fail(new WatchRefused({ reason: input.refuseInstall })),
-      },
-    }),
-  );
-}
 
 describe("purpose registry through composeAlarmPurposes", () => {
   test("a reserved purpose declaration refuses the whole capability", () => {
@@ -146,7 +48,7 @@ describe("purpose registry through composeAlarmPurposes", () => {
       bundles: [
         {
           bundle: "monitor",
-          purposes: watchPurposes(wakeDeps([])),
+          purposes: watchPurposes({ close: () => undefined }),
         },
         {
           bundle: "copycat",
@@ -179,14 +81,9 @@ describe("wake dispatch", () => {
     const calls: ArmCall[] = [];
     const definition = capability({ arm: stubArm(calls) });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          payload: JSON.stringify({
-            spec,
-            notifications: 0,
-            hit: { content: "line one", terminal: false, detail: "line:1" },
-          }),
-        }),
+      wakeHit(
+        definition,
+        { notifications: 0, hit: { content: "line one", terminal: false, detail: "line:1" } },
         stubContext({ arm: stubArm(calls), prompts }),
       ),
     );
@@ -217,14 +114,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     const calls: ArmCall[] = [];
     const definition = capability({ arm: stubArm([]) });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          payload: JSON.stringify({
-            spec: { ...spec, notificationLimit: 3 },
-            notifications: 0,
-            hit: { content: "tick", terminal: false, detail: "line:1" },
-          }),
-        }),
+      wakeHit(
+        definition,
+        { spec: { ...spec, notificationLimit: 3 }, notifications: 0, hit: { content: "tick", terminal: false, detail: "line:1" } },
         stubContext({ arm: stubArm(calls), prompts }),
       ),
     );
@@ -247,14 +139,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     const calls: ArmCall[] = [];
     const definition = capability({ arm: stubArm([]), closed });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          payload: JSON.stringify({
-            spec,
-            notifications: 1,
-            hit: { content: "last", terminal: false, detail: "line:2" },
-          }),
-        }),
+      wakeHit(
+        definition,
+        { notifications: 1, hit: { content: "last", terminal: false, detail: "line:2" } },
         stubContext({ arm: stubArm(calls), prompts }),
       ),
     );
@@ -278,14 +165,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     const calls: ArmCall[] = [];
     const definition = capability({ arm: stubArm([]), closed });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          payload: JSON.stringify({
-            spec,
-            notifications: 0,
-            hit: { content: "exit 0", terminal: true, detail: "exit" },
-          }),
-        }),
+      wakeHit(
+        definition,
+        { notifications: 0, hit: { content: "exit 0", terminal: true, detail: "exit" } },
         stubContext({ arm: stubArm(calls) }),
       ),
     );
@@ -303,14 +185,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     };
     const definition = capability({ arm: stubArm([]), closed });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          payload: JSON.stringify({
-            spec,
-            notifications: 0,
-            hit: { content: "exit 0", terminal: true, detail: "exit" },
-          }),
-        }),
+      wakeHit(
+        definition,
+        { notifications: 0, hit: { content: "exit 0", terminal: true, detail: "exit" } },
         stubContext({ arm: stubArm(calls, undefined, chains), chains }),
       ),
     );
@@ -334,14 +211,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     };
     const definition = capability({ arm: stubArm([]), closed });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          payload: JSON.stringify({
-            spec,
-            notifications: 1,
-            hit: { content: "last", terminal: false, detail: "line:2" },
-          }),
-        }),
+      wakeHit(
+        definition,
+        { notifications: 1, hit: { content: "last", terminal: false, detail: "line:2" } },
         stubContext({ arm: stubArm(calls, undefined, chains), chains }),
       ),
     );
@@ -358,8 +230,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     const definition = capability({ arm: stubArm([]) });
     const error = runTestSync(
       Effect.flip(
-        definition.wake(
-          fired({ payload: JSON.stringify({ spec, notifications: 0 }) }),
+        wakeHit(
+          definition,
+          { notifications: 0 },
           stubContext({ arm: stubArm([]) }),
         ),
       ),
@@ -371,14 +244,9 @@ describe("monitor.hit over the supersedes lifecycle", () => {
     const definition = capability({ arm: stubArm([]) });
     const error = runTestSync(
       Effect.flip(
-        definition.wake(
-          fired({
-            payload: JSON.stringify({
-              spec: { ...spec, notificationLimit: 3 },
-              notifications: 0,
-              hit: { content: "tick", terminal: false, detail: "line:1" },
-            }),
-          }),
+        wakeHit(
+          definition,
+          { spec: { ...spec, notificationLimit: 3 }, notifications: 0, hit: { content: "tick", terminal: false, detail: "line:1" } },
           stubContext({ arm: stubArm([], new ArmRefused({ code: "alarm_budget" })) }),
         ),
       ),
@@ -395,18 +263,11 @@ describe("monitor.timeout", () => {
     const calls: ArmCall[] = [];
     const definition = capability({ arm: stubArm([]), closed });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          purpose: MONITOR_TIMEOUT,
-          alarmId: "watch-1:timeout",
-          payload: JSON.stringify({ watchId: "watch-1" }),
-        }),
-        stubContext({
+      wakeTimeout(definition, stubContext({
           arm: stubArm(calls),
           prompts,
           chains: { "watch-1": { occurrenceId: "occ-main", at: 4_500 } },
-        }),
-      ),
+        })),
     );
     expect(outcome).toBe("delivered");
     expect(calls).toEqual([
@@ -432,18 +293,11 @@ describe("monitor.timeout", () => {
     const closed: string[] = [];
     const definition = capability({ arm: stubArm([]), closed });
     const outcome = runTestSync(
-      definition.wake(
-        fired({
-          purpose: MONITOR_TIMEOUT,
-          alarmId: "watch-1:timeout",
-          payload: JSON.stringify({ watchId: "watch-1" }),
-        }),
-        stubContext({
+      wakeTimeout(definition, stubContext({
           arm: stubArm(calls),
           prompts,
           chains: { "watch-1": { occurrenceId: "occ-main", at: null } },
-        }),
-      ),
+        })),
     );
     expect(outcome).toBe("exhausted");
     expect(prompts).toEqual([]);
@@ -457,12 +311,8 @@ describe("verbs", () => {
     const calls: ArmCall[] = [];
     const installs: string[] = [];
     const definition = capability({ arm: stubArm(calls), installs });
-    const timed: Alarm.WatchSpec = {
-      ...spec,
-      watch: { command: "make build", description: "build watch", timeout_ms: 60_000 },
-    };
     const result = runTestSync(
-      definition.verbs.watch({ sessionId: "session-1", turnId: "turn-1", watchId: "watch-9", spec: timed, now: 1_000 }),
+      watchVerb(definition),
     );
     expect(result).toEqual({ alarmId: "watch-9", occurrenceId: "occ-1", armSeq: 1 });
     expect(calls).toHaveLength(2);
@@ -499,13 +349,9 @@ describe("verbs", () => {
       });
     };
     const definition = capability({ arm: boundaryArm, installs });
-    const timed: Alarm.WatchSpec = {
-      ...spec,
-      watch: { command: "make build", description: "build watch", timeout_ms: 60_000 },
-    };
     const error = runTestSync(
       Effect.flip(
-        definition.verbs.watch({ sessionId: "session-1", turnId: "turn-1", watchId: "watch-9", spec: timed, now: 1_000 }),
+        watchVerb(definition),
       ),
     );
     expect(error).toBeInstanceOf(ArmRefused);
@@ -540,13 +386,9 @@ describe("verbs", () => {
       }
     });
     const definition = capability({ arm: doubleRefusal, installs });
-    const timed: Alarm.WatchSpec = {
-      ...spec,
-      watch: { command: "make build", description: "build watch", timeout_ms: 60_000 },
-    };
     const error = runTestSync(
       Effect.flip(
-        definition.verbs.watch({ sessionId: "session-1", turnId: "turn-1", watchId: "watch-9", spec: timed, now: 1_000 }),
+        watchVerb(definition),
       ).pipe(Effect.provide(Logger.layer([warnings]))),
     );
     expect(error).toBeInstanceOf(ArmRefused);
@@ -566,13 +408,9 @@ describe("verbs", () => {
   test("a refused native install retires the armed chain and its timeout, then surfaces the refusal", () => {
     const calls: ArmCall[] = [];
     const definition = capability({ arm: stubArm(calls), refuseInstall: "no machines plane" });
-    const timed: Alarm.WatchSpec = {
-      ...spec,
-      watch: { command: "make build", description: "build watch", timeout_ms: 60_000 },
-    };
     const error = runTestSync(
       Effect.flip(
-        definition.verbs.watch({ sessionId: "session-1", turnId: "turn-1", watchId: "watch-9", spec: timed, now: 1_000 }),
+        watchVerb(definition),
       ),
     );
     expect(error).toBeInstanceOf(WatchRefused);

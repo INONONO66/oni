@@ -4,22 +4,23 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
-import { armAction, firedAction, type AlarmCapability } from "../src/core/alarm";
+import { firedAction, type AlarmCapability } from "../src/core/alarm";
 import { LedgerSession } from "@openomni/protocol";
 import { openCatalogStore } from "../src/core/store/catalog";
 import { LEGACY_INGRESS_POLICY_KIND } from "../src/core/gate/migrate";
 import { CatalogVersionRefused, type LedgerError } from "../src/core/store/errors";
-import { openSessionStore } from "../src/core/store/session-file";
-import * as SessionHandleStore from "../src/core/store/fence";
+import type * as SessionHandleStore from "../src/core/store/fence";
 import {
-  clusterTempDir,
-  readChain,
-  runCluster,
-  sendAlarm,
-  sessionFileFor,
-  type TestClusterOptions,
-} from "./helpers/cluster-runtime";
+  armedOccurrence,
+  crashingCapability,
+  firedRows as firedRowsOf,
+  noteArm as arm,
+  noteCapability,
+  resendSignal,
+} from "./helpers/alarm-recovery";
+import { clusterTempDir, readChain, runCluster, sendAlarm, sendRescan, sessionFileFor } from "./helpers/cluster-runtime";
 import { runAgent } from "./helpers/executor";
+import { fencedSession, withSessionHandles } from "./helpers/seeded-session";
 
 // #1254 S3: scheduling that survives a crash. The arm row's commit maintains
 // the session file's `armed_alarms` index in the SAME transaction; the catalog
@@ -27,7 +28,8 @@ import { runAgent } from "./helpers/executor";
 // confirmed empty; an activation resends every armed row's ORIGINAL occurrence
 // so the cluster's DeliverAt door (occurrence id = dedupe key) re-fires it.
 
-const { dir, sessionsDir, catalogFile } = clusterTempDir("alarm-recovery-");
+const home = clusterTempDir("alarm-recovery-");
+const { dir, sessionsDir, catalogFile } = home;
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -43,22 +45,14 @@ async function readSession(
     readonly kernel: SessionHandleStore.SessionKernel;
   }) => Promise<void> | void,
 ): Promise<void> {
-  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-  const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-  try {
-    await use({ catalog, kernel: SessionHandleStore.createSessionKernel(store, catalog) });
-  } finally {
-    store.close();
-    catalog.close();
-  }
+  await withSessionHandles(home, sessionId, ({ catalog, kernel }) => use({ catalog, kernel }));
 }
 
-/** Materialize + index one session, run `arm` inside a short-lived handle pair. */
+/** Materialize + index one session, run `use` inside a short-lived fenced handle pair. */
 async function withSession(
   sessionId: string,
   use: (input: {
     readonly catalog: ReturnType<typeof openCatalogStore>;
-    readonly store: ReturnType<typeof openSessionStore>;
     readonly kernel: SessionHandleStore.SessionKernel;
     readonly commit: (
       actions: readonly ReturnType<typeof firedAction>[],
@@ -67,59 +61,24 @@ async function withSession(
     >;
   }) => Promise<void>,
 ): Promise<void> {
-  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-  const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-  const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-  try {
-    catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
-    await runAgent(
-      kernel.materialize({
-        id: sessionId,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${sessionId}:materialize`,
-        at: 1,
-      }),
-    );
-    const adoption = await runAgent(kernel.adoptFence({ sessionId, owner: "arm-writer", fence: 1 }));
-    const commit = (actions: readonly ReturnType<typeof firedAction>[]) =>
-      runAgent(
-        Effect.result(
-          kernel.commit({
-            sessionId,
-            owner: "arm-writer",
-            fence: adoption.fence,
-            now: 2,
-            expectedRevision: kernel.row(sessionId).revision,
-            actions: [...actions],
-            state: "idle",
-          }),
+  await runAgent(
+    Effect.scoped(
+      fencedSession(home, sessionId, { owner: "arm-writer", fence: 1, commitNow: () => 2 }).pipe(
+        Effect.flatMap((seeded) =>
+          Effect.promise(() =>
+            use({
+              catalog: seeded.catalog,
+              kernel: seeded.kernel,
+              commit: (actions) => runAgent(Effect.result(seeded.commit([...actions]))),
+            }),
+          ),
         ),
-      );
-    await use({ catalog, store, kernel, commit });
-  } finally {
-    store.close();
-    catalog.close();
-  }
+      ),
+    ),
+  );
 }
 
-function arm(sessionId: string, alarmId: string, armSeq: number, at: number | null, supersedes: string | null = null) {
-  return armAction({
-    parentId: null,
-    sessionId,
-    purpose: "note.due",
-    at,
-    supersedes,
-    alarmId,
-    sourceKey: "note",
-    payload: { note: `${alarmId}@${armSeq}` },
-    armSeq,
-    ts: 2,
-  });
-}
+const firedRows = (sessionId: string, occurrenceId: string) => firedRowsOf(home, sessionId, occurrenceId);
 
 describe("armed_alarms index in the append transaction", () => {
   test("arm upserts, retire deletes, fired deletes — all visible through the kernel reads", async () => {
@@ -389,77 +348,6 @@ describe("catalog schema v2 (has_armed)", () => {
 
 // ─── crash → activation resend, through the real cluster door ───
 
-const RESEND_TIMEOUT_MS = 15_000;
-
-/**
- * #1254 S4: non-reserved purposes dispatch to the composed capability; an
- * unbound purpose folds stale. These recovery tests pin the RESEND path, so
- * the `note.due` purpose is registered with a wake that just accepts.
- */
-const noteCapability: AlarmCapability = {
-  purposes: ["note.due"],
-  wake: () => Effect.succeed("delivered" as const),
-};
-
-function resendSignal(): {
-  readonly options: Pick<TestClusterOptions, "onAlarmResend">;
-  readonly delivered: (occurrenceId: string) => Promise<void>;
-} {
-  const seen = new Map<string, () => void>();
-  const settled = new Set<string>();
-  return {
-    options: {
-      onAlarmResend: (_sessionId, occurrence, receipt) => {
-        if (receipt.outcome !== "delivered") return;
-        settled.add(occurrence.occurrenceId);
-        seen.get(occurrence.occurrenceId)?.();
-      },
-    },
-    delivered: (occurrenceId) =>
-      new Promise<void>((resolve, reject) => {
-        if (settled.has(occurrenceId)) return resolve();
-        seen.set(occurrenceId, resolve);
-        setTimeout(
-          () => reject(new Error(`timed out waiting for resend of ${occurrenceId}`)),
-          RESEND_TIMEOUT_MS,
-        ).unref?.();
-      }),
-  };
-}
-
-function firedRows(sessionId: string, occurrenceId: string): Record<string, number> {
-  const rows = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
-  return {
-    delivered: rows.filter((row) => row.id === `${occurrenceId}:delivered`).length,
-    stale: rows.filter((row) => row.id === `${occurrenceId}:stale`).length,
-  };
-}
-
-/** A wake that "crashes" the attempt: a defect after the strike committed, before any fired row. */
-function crashingCapability(): AlarmCapability & { readonly attempts: () => number } {
-  let attempts = 0;
-  return {
-    purposes: ["note.due"],
-    wake: () =>
-      Effect.sync(() => {
-        attempts += 1;
-      }).pipe(Effect.andThen(Effect.die(new Error("simulated crash mid-attempt")))),
-    attempts: () => attempts,
-  };
-}
-
-/** The original occurrence of one armed row, as the cluster's DeliverAt door would send it. */
-async function armedOccurrence(sessionId: string) {
-  let fired: Parameters<typeof sendAlarm>[1] | undefined;
-  await readSession(sessionId, ({ kernel }) => {
-    const [row] = kernel.armedAlarms();
-    if (row === undefined) throw new Error(`no armed row for ${sessionId}`);
-    fired = { ...row, fireAt: row.fireAt };
-  });
-  if (fired === undefined) throw new Error("unreachable");
-  return fired;
-}
-
 describe("#1347 occurrence strikes in the session file", () => {
   test("the strike commits before the handler, without a journal row; a re-arm resets it", async () => {
     const sessionId = "strike-ledger";
@@ -491,7 +379,7 @@ describe("#1347 occurrence strikes in the session file", () => {
       occurrenceId = armed.occurrenceId;
       expect(Result.isSuccess(await commit([armed.action]))).toBe(true);
     });
-    const occurrence = await armedOccurrence(sessionId);
+    const occurrence = armedOccurrence(home, sessionId);
     const capability = crashingCapability();
     await runCluster(
       { sessionsDir, catalogFile, alarmCapability: capability },
@@ -541,15 +429,7 @@ describe("#1347 occurrence strikes in the session file", () => {
     await runCluster(
       { sessionsDir, catalogFile, alarmCapability: capability, ...signal.options },
       Effect.gen(function* () {
-        yield* sendAlarm(sessionId, {
-          occurrenceId: `${sessionId}:rescan:boot-2`,
-          purpose: "rescan",
-          alarmId: `${sessionId}:rescan`,
-          armSeq: 0,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: PAST_FIRE_AT,
-        });
+        yield* sendRescan(sessionId, `${sessionId}:rescan:boot-2`, PAST_FIRE_AT);
         yield* Effect.promise(() => signal.delivered(occurrenceId));
       }),
     );
@@ -582,29 +462,13 @@ describe("crash recovery through the cluster", () => {
     await runCluster(
       { sessionsDir, catalogFile, alarmCapability: noteCapability, ...signal.options },
       Effect.gen(function* () {
-        const receipt = yield* sendAlarm(sessionId, {
-          occurrenceId: `${sessionId}:rescan:boot-1`,
-          purpose: "rescan",
-          alarmId: `${sessionId}:rescan`,
-          armSeq: 0,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: PAST_FIRE_AT,
-        });
+        const receipt = yield* sendRescan(sessionId, `${sessionId}:rescan:boot-1`, PAST_FIRE_AT);
         expect(receipt.outcome).toBe("delivered");
         yield* Effect.promise(() => signal.delivered(occurrenceId));
         // Bounded termination: once the index is empty a second sweep's wake
         // converges — it replies delivered, resends nothing, appends nothing
         // (the chain census below pins the zero-effect claim).
-        const second = yield* sendAlarm(sessionId, {
-          occurrenceId: `${sessionId}:rescan:boot-1b`,
-          purpose: "rescan",
-          alarmId: `${sessionId}:rescan`,
-          armSeq: 0,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: PAST_FIRE_AT,
-        });
+        const second = yield* sendRescan(sessionId, `${sessionId}:rescan:boot-1b`, PAST_FIRE_AT);
         expect(second.outcome).toBe("delivered");
       }),
     );
@@ -643,29 +507,13 @@ describe("crash recovery through the cluster", () => {
         },
       },
       Effect.gen(function* () {
-        yield* sendAlarm(sessionId, {
-          occurrenceId: `${sessionId}:rescan:boot-n`,
-          purpose: "rescan",
-          alarmId: `${sessionId}:rescan`,
-          armSeq: 0,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: PAST_FIRE_AT,
-        });
+        yield* sendRescan(sessionId, `${sessionId}:rescan:boot-n`, PAST_FIRE_AT);
         for (const occurrenceId of occurrences) {
           yield* Effect.promise(() => signal.delivered(occurrenceId));
         }
         // A second rescan on the SAME activation resends nothing: the resend
         // ran exactly once and every delivered row already left the index.
-        const second = yield* sendAlarm(sessionId, {
-          occurrenceId: `${sessionId}:rescan:boot-n2`,
-          purpose: "rescan",
-          alarmId: `${sessionId}:rescan`,
-          armSeq: 0,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: PAST_FIRE_AT,
-        });
+        const second = yield* sendRescan(sessionId, `${sessionId}:rescan:boot-n2`, PAST_FIRE_AT);
         expect(second.outcome).toBe("delivered");
       }),
     );
@@ -699,15 +547,7 @@ describe("crash recovery through the cluster", () => {
     await runCluster(
       { sessionsDir, catalogFile, alarmCapability: noteCapability, ...signal.options },
       Effect.gen(function* () {
-        yield* sendAlarm(sessionId, {
-          occurrenceId: `${sessionId}:rescan:boot-2`,
-          purpose: "rescan",
-          alarmId: `${sessionId}:rescan`,
-          armSeq: 0,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: PAST_FIRE_AT,
-        });
+        yield* sendRescan(sessionId, `${sessionId}:rescan:boot-2`, PAST_FIRE_AT);
         yield* Effect.promise(() => signal.delivered(newOccurrence));
         // The old occurrence arrives late (it was never registered before the
         // crash): the chain guard folds it to a recorded stale fact.
