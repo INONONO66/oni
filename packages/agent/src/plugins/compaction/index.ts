@@ -5,32 +5,21 @@ import {
   type CompactionSeamService,
   type SeamTag,
 } from "../../core/api";
-import { Compaction } from "./compact";
-import { DEFAULT_PROTECT_RECENT } from "./contract";
-import { estimateMessagesTokens } from "./estimate";
-import { executeCompaction } from "./execute-cut";
-import { resolveCompactionGeometry } from "./geometry";
-import { measuredContextTokens } from "./measure";
+import { bindCompactionRun } from "./policy";
 import { prepareCompactionRestore } from "./restore";
-import { CompactionSession } from "./speculate";
 import { createCompactionPin, type CompactionHistoryPorts } from "./successor";
 
 export { Compaction } from "./compact";
+export { DEFAULT_TOOL_OUTPUT_ELISION } from "./contract";
 export { CompactionSession } from "./speculate";
 export type { CompactionHistoryPorts } from "./successor";
 
-/** Every member IS the module export the kernel used to import: one frozen object. */
+/** The two run-free operations plus the binding that yields a run's `maybeCompact`/`window`. */
 export function compactionSeamService(history: CompactionHistoryPorts): CompactionSeamService {
+  const ports = { pinAction: createCompactionPin(history), prepareRestore: prepareCompactionRestore };
   return Object.freeze({
-    protectRecent: DEFAULT_PROTECT_RECENT,
-    geometry: resolveCompactionGeometry,
-    measure: measuredContextTokens,
-    estimate: estimateMessagesTokens,
-    shouldCompact: Compaction.shouldCompact,
-    execute: executeCompaction,
-    createSession: (config) => new CompactionSession(config),
-    pinAction: createCompactionPin(history),
-    prepareRestore: prepareCompactionRestore,
+    ...ports,
+    bind: (binding) => bindCompactionRun(binding, ports),
   } satisfies CompactionSeamService);
 }
 
