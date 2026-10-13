@@ -58,10 +58,11 @@ export interface CompactionOptions {
 }
 
 /**
- * `threshold` is the automatic after-turn check; `yield` the window yield; `overflow` the port's
- * declared overflow. Only `threshold` may come back `skipped`, and only below threshold or disabled.
+ * `prepare` only starts speculation after a continuation; `threshold` is the after-turn check;
+ * `yield` is the window yield and `overflow` the declared overflow. A pending speculative cut
+ * can defer execution below grace for any execution reason.
  */
-export type CompactionReason = "threshold" | "yield" | "overflow";
+export type CompactionReason = "prepare" | "threshold" | "yield" | "overflow";
 
 /** `completed` settles the outcome into the run state; a rewrite shows as `compactionCount` growth. */
 export type CompactionOutcome = "skipped" | "completed" | { readonly failed: ExecutionError };

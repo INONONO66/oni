@@ -863,7 +863,7 @@ function runModelStep(
   const type = successfulOutcome(outcome.value);
   if (type === "continue") {
     handleContinue(config.events, state, base, turn.turnUsage, source.now);
-    yield* compact("threshold");
+    yield* compact("prepare");
     return undefined;
   }
   const result = yield* handleStop(state, config, execution, base, turn, compact);

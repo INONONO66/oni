@@ -22,6 +22,9 @@ import { recoveryRecording } from "../helpers/effect-g3r";
 import { runInput } from "../helpers/run-input";
 import { testMessageSource } from "../helpers/message-source";
 import { collector } from "../helpers/observation-collector";
+import { runTestAgent } from "../helpers/effect-g3";
+import { windowedLlm } from "../helpers/mock-llm";
+import { assistantWithParts } from "../helpers/messages";
 
 /** Compaction rewrites a run's history; the record carries that run's trace. */
 const TEST_TRACE_ID = "trace-compaction-test";
@@ -938,6 +941,51 @@ describe("CompactionRun seam", () => {
       undefined,
     );
   }
+
+  it("prepares without writing during a tool loop, then compacts at the turn end", async () => {
+    const recording = recoveryRecording();
+    const rows = () => recording.committed.filter((action) => action.kind === "compaction");
+    let rowsAtSecondCall = -1;
+    let calls = 0;
+    const result = await isolated(runTestAgent(
+      runInput([
+        { role: "user", content: "goal" },
+        { role: "assistant", content: "old evidence ".repeat(80) },
+        { role: "user", content: "recent question" },
+        { role: "assistant", content: "recent answer" },
+        { role: "user", content: "continue" },
+      ]),
+      {
+        events: collector(),
+        executor: recording.executor,
+        model: { provider: "provider", id: "model" },
+        compaction: { contextWindowTokens: WINDOW, protectRecentMessages: 2, speculate: false },
+        llm: windowedLlm(async (_input, sink) => {
+          calls += 1;
+          if (calls === 2) rowsAtSecondCall = rows().length;
+          sink.onMessage(assistantWithParts(
+            `step-${calls}`,
+            "seam",
+            [
+              { id: `text-${calls}`, sessionID: "seam", messageID: `step-${calls}`, type: "text", text: "answer" },
+              {
+                id: `finish-${calls}`, sessionID: "seam", messageID: `step-${calls}`,
+                type: "step-finish", reason: calls === 1 ? "tool-calls" : "stop",
+                tokens: { input: 900, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+              },
+            ],
+            900,
+            1,
+          ));
+          return { type: calls === 1 ? "continue" : "stop" };
+        }),
+      },
+    ));
+    expect(calls).toBe(2);
+    expect(rowsAtSecondCall).toBe(0);
+    expect(result.compactionCount).toBe(1);
+    expect(rows().length).toBeGreaterThan(0);
+  });
 
   it("skips the threshold reason below the window threshold with zero facts", async () => {
     const events = collector();

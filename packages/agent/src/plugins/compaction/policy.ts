@@ -93,6 +93,7 @@ export class CompactionRun {
       const measuredTokens = state.lastCallContextTokens;
       const geometry = run.geometry(state, options);
       yield* run.prepare(state, options, geometry, measuredTokens);
+      if (reason === "prepare") return "skipped";
       if (reason === "threshold" && run.belowThreshold(state, options, geometry, measuredTokens)) return "skipped";
       const candidate = run.session?.candidate();
       const executed = yield* Effect.result(executeCompaction({
