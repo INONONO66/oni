@@ -479,24 +479,28 @@ On `stab/11-retire-inbox-worker-vocabulary` (2026-10-08, base `4b36d0f73`).
   route -> `automations` all follow (231 files). Ingress drops the retired
   string/object subordinate target with a typed parse refusal
   (`packages/protocol/test/ingress/target.test.ts`).
-- Versioned reads, bytes frozen: prompt/signal/turn declarations at version 2;
-  `foldDeliveryPayload` renames version-1 fields strictly after chain-hash
-  verification (`packages/protocol/test/journal/delivery-version.test.ts`);
-  `LedgerSession.foldLegacyRole` folds the retired role byte at every reader
-  (session decode, catalog index, gate `Match` role and message-rule
-  sender/target roles); session-file pending/input SQL COALESCEs both JSON
-  field spellings via the `V1_DELIVERY_FIELDS` object — the one sanctioned home
-  for the legacy field spellings is `packages/protocol/src/journal/core/prompt.ts`.
-- Catalog v2 -> v3: the two CHECK-constrained tables rebuild byte-for-byte so
-  `child` rows and `ingress` policy rows insert while legacy bytes stay valid
-  (`packages/agent/test/alarm-recovery.test.ts`); `translateLegacyPolicyRow`
-  converts the retired input-queue policy address onto `ingress` for new
-  generations (`LEGACY_INGRESS_POLICY_KIND`).
-- Legacy bytes live as plain `as const` literals at exactly four sanctioned
-  sites (`l0.ts` `LEGACY_CHILD_ROLE`, `migrate.ts` `LEGACY_INGRESS_POLICY_KIND`,
-  `prompt.ts` `V1_DELIVERY_FIELDS`, and the tests that prove each retired byte is
-  refused); no string-assembly obfuscation anywhere (`rg '\["in", ?"box"\]'`
-  and `rg '\["wor", ?"ker"\]'` are 0).
+- Versioned reads (#1315, read-side folds deleted by #1351): prompt/signal/turn
+  declarations stay at version 2 and stored bytes stay frozen, but
+  `foldDeliveryPayload`, `LedgerSession.foldLegacyRole`, `V1_DELIVERY_FIELDS`,
+  `LEGACY_CHILD_ROLE` and `LEGACY_INGRESS_POLICY_KIND` grep to zero; the
+  session-file pending/input SQL reads only `deliveryId`/`deliveryIds`/
+  `deliveryKind`. The real-data gate that makes the deletion safe (every Owner
+  session file carries zero version-1 delivery fields) is the Owner receipt
+  tracked in #1466.
+- Catalog v3 -> v4 (#1351, `CATALOG_SCHEMA_VERSION` 4): one `immediate`
+  transaction rewrites exactly the retired bytes — `session_index.role` and the
+  `policy.match` paths `$.role`, `$.message.senderRole`, `$.message.targetRole`
+  `worker` -> `child`, pre-phase `policy.kind` `inbox.deliver` -> `ingress` —
+  then copies rows into tables whose CHECK constraints exclude the retired
+  values; any other off-vocabulary byte or key collision fails the whole
+  transaction with the typed `CatalogUpgradeRefused` and leaves the file at
+  `user_version` 3 byte-identical (`packages/agent/test/store/catalog-upgrade.test.ts`,
+  `packages/agent/test/alarm-recovery.test.ts`). The Owner catalog backup
+  before the first v4 boot is also #1466.
+- Legacy bytes now appear only inside the v4 upgrade literals in
+  `packages/agent/src/core/store/catalog.ts` and the tests that prove each is
+  rewritten or refused; `rg '\["in", ?"box"\]'` and `rg '\["wor", ?"ker"\]'`
+  stay 0.
 - Deliberately kept wire-frozen vocabulary: `Actor.Kind internal_worker`,
   `TrustTier assigned_worker`; third-party names untouched: Playwright
   `workers: 1`, Python stdlib `ThreadPoolExecutor(max_workers=…)`.
