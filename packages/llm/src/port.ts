@@ -1,4 +1,4 @@
-import type { Token } from "@openomni/protocol";
+import type { PlainValue, Token } from "@openomni/protocol";
 
 /**
  * The classification vocabulary this package answers the agent core's
@@ -7,9 +7,12 @@ import type { Token } from "@openomni/protocol";
  * shapes are restated here and checked structurally at the composition root.
  */
 
+/** Provider errors and channel-visible plain values accepted by the pure classifier. */
+export type ProviderError = Error | PlainValue;
+
 /** What the loop knows about a settled attempt; provider facts are read out of `error` here, never by the loop. */
 export interface FailureFacts {
-  readonly error?: unknown;
+  readonly error?: ProviderError;
   readonly usage?: Token.ProviderUsage | undefined;
   readonly finishReason?: string | undefined;
   readonly contextWindow?: number | undefined;

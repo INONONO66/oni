@@ -33,7 +33,7 @@ export class FakeProviderError extends Error {
 /** The ratio the real port names once; the fake mirrors it so window tests mean the same thing on both bindings. */
 const NEAR_WINDOW_RATIO = 0.99;
 
-function providerCause(error: unknown): FakeProviderError | undefined {
+function providerCause(error: FailureFacts["error"]): FakeProviderError | undefined {
   if (error instanceof FakeProviderError) return error;
   return isLlmRunFailure(error) && error.cause instanceof FakeProviderError ? error.cause : undefined;
 }

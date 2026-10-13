@@ -103,7 +103,7 @@ export class LlmRunFailure extends Data.TaggedError("LlmRunFailure")<{
 const LlmRunFailureTag = z.object({ _tag: z.literal("LlmRunFailure") });
 
 /** Structural identity, never a class check: the implementation's class lives behind the port. */
-export function isLlmRunFailure(error: unknown): error is LlmRunFailure {
+export function isLlmRunFailure<E>(error: E): error is E & LlmRunFailure {
   return LlmRunFailureTag.safeParse(error).success;
 }
 
@@ -130,7 +130,7 @@ export type RunResult =
 
 /** What the loop knows about a settled attempt; the port reads provider facts out of `error` itself. */
 export interface FailureFacts {
-  readonly error?: unknown;
+  readonly error?: Error;
   readonly usage?: Token.ProviderUsage | undefined;
   readonly finishReason?: string | undefined;
   readonly contextWindow?: number | undefined;

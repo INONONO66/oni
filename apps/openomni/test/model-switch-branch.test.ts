@@ -1,6 +1,6 @@
 import { attemptIntentIds, isAttemptRow, isLogicalLlm } from "../../../packages/agent/test/helpers/llm-rows";
 import { expect, test } from "bun:test";
-import { LlmRunFailure } from "../../../packages/agent/src/core/llm";
+import { LlmRunFailure, type FailureFacts } from "../../../packages/agent/src/core/llm";
 import { fakeClassifyFailure, FakeProviderError } from "../../../packages/agent/test/helpers/fake-llm";
 import { PlainObjectSchema, type LedgerAction } from "@openomni/protocol";
 import { Effect } from "effect";
@@ -28,7 +28,7 @@ function retryFailure() {
   });
 }
 
-const classify = (error: unknown) => fakeClassifyFailure({ error });
+const classify = (error: FailureFacts["error"]) => fakeClassifyFailure({ error });
 
 function attemptIntents(actions: readonly LedgerAction.Node[]) {
   return actions.filter((action) => isAttemptRow(action, attemptIntentIds(actions)) &&

@@ -77,7 +77,7 @@ export function classifyTurnFailure(error: ThrownValue): ClassifiedFailure {
  * vocabulary: an abort or overflow that still reached the channel carries no
  * provider class, so it reads as the unclassified residue.
  */
-function providerReason(failure: unknown): Core.ProviderReason {
+function providerReason(failure: Error | PlainValue): Core.ProviderReason {
   const classified = classifyFailure({ error: failure });
   return classified.kind === "retryable" || classified.kind === "terminal" ? classified.providerReason : "non_retryable";
 }

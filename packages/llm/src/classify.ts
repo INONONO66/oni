@@ -2,7 +2,7 @@ import { parseJson } from "@openomni/protocol";
 import { z } from "zod";
 import { type ApiFailure, coerceApiError, declaredContextOverflow, errorFacts } from "./error";
 import { headerDelay } from "./header-delay";
-import type { AttemptFailureReason, FailureClass, FailureFacts, ProviderReason, RetryableProviderReason } from "./port";
+import type { AttemptFailureReason, FailureClass, FailureFacts, ProviderError, ProviderReason, RetryableProviderReason } from "./port";
 
 const Payload = z.object({
   type: z.string().catch(""),
@@ -84,7 +84,7 @@ export function classifyFailure(facts: FailureFacts): FailureClass {
   }
 }
 
-function isAborted(error: unknown): boolean {
+function isAborted(error: FailureFacts["error"]): boolean {
   if (errorFacts(error).aborted === true) return true;
   const named = Named.safeParse(error);
   return named.success && named.data.name === "AbortError";
@@ -122,7 +122,7 @@ function answeredByTransport(data: ApiFailure): boolean {
 const MAX_CAUSE_DEPTH = 8;
 const Caused = z.object({ cause: z.instanceof(Object) });
 
-function apiCause<E>(error: E): ApiFailure | undefined {
+function apiCause(error: ProviderError | undefined): ApiFailure | undefined {
   let current: object | undefined = z.instanceof(Object).safeParse(error).data;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined; depth += 1) {
     const apiError = coerceApiError(current);
@@ -164,7 +164,7 @@ function retryableClass(data: ApiFailure): RetryableProviderReason {
 
 /**
  * Balance exhaustion must be unambiguous: these signals identify a spent
- * account, unlike a provider's billing service outage or a per-minute quota.
+ * account, unlike the provider's billing service outage or a per-minute quota.
  * The check precedes retryability because no wait restores a spent balance.
  */
 const BILLING_PATTERNS = [
