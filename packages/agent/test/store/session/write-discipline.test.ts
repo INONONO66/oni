@@ -1,8 +1,9 @@
 import { Effect, Result } from "effect";
 import { describe, expect, test } from "bun:test";
-import type { LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { LedgerAction } from "@openomni/protocol";
 import type { LedgerError } from "../../../src/core/store/errors";
 import { runLedgerSync } from "../helpers/effect";
+import { materializeRow, residentRow } from "../helpers/ledger";
 import { useMemoryStores } from "../helpers/storage";
 
 const stores = useMemoryStores();
@@ -11,20 +12,7 @@ function run<T>(effect: Effect.Effect<T, LedgerError>): T {
   return Result.getOrThrowWith(runLedgerSync(Effect.result(effect)), (error) => error);
 }
 
-function l0Session(id: string): LedgerSession.Row {
-  return {
-    id,
-    parentId: null,
-    role: "resident",
-    fenceOwner: null,
-    fence: 0,
-    revision: 0,
-    state: "idle",
-    toolsGeneration: 0,
-    systemHash: "",
-    policyGeneration: 0,
-  };
-}
+const l0Session = residentRow;
 
 function terminalAction(sessionId: string): LedgerAction.Append {
   return {
@@ -61,7 +49,7 @@ describe("fenced session write discipline", () => {
   test("SQLite rejects a stale fence after a successor adoption under another owner", () => {
     const { sessions } = stores.session;
     const sessionId = "session-fence";
-    expect(run(sessions.create(l0Session(sessionId)))).toBe(true);
+    expect(materializeRow(sessions, l0Session(sessionId))).toBe(true);
 
     expect(run(sessions.adoptFence({ sessionId, owner: "owner-a", fence: 1 }))).toEqual({
       ok: true,
@@ -82,13 +70,13 @@ describe("fenced session write discipline", () => {
         owner: "owner-b",
         fence: 2,
         now: 30_001,
-        expectedRevision: 0,
+        expectedRevision: 1,
         actions: [terminalAction(sessionId)],
         state: "idle",
       }),
     );
     expect(committed.ok).toBe(true);
-    expect(committed.row).toMatchObject({ revision: 1, fence: 2, fenceOwner: "owner-b" });
+    expect(committed.row).toMatchObject({ revision: 2, fence: 2, fenceOwner: "owner-b" });
 
     expect(() =>
       run(
@@ -97,7 +85,7 @@ describe("fenced session write discipline", () => {
           owner: "owner-a",
           fence: 1,
           now: 30_001,
-          expectedRevision: 0,
+          expectedRevision: 1,
           actions: [{ ...terminalAction(sessionId), id: `${sessionId}:late-result` }],
           state: "idle",
         }),
@@ -107,7 +95,7 @@ describe("fenced session write discipline", () => {
         _tag: "CommitRefused",
         reason: "fence",
         currentFence: 2,
-        currentRevision: 1,
+        currentRevision: 2,
       }),
     );
   });
@@ -116,7 +104,7 @@ describe("fenced session write discipline", () => {
     const { sessions } = stores.session;
     const kernel = stores.kernel;
     const sessionId = "session-boundary";
-    expect(run(sessions.create(l0Session(sessionId)))).toBe(true);
+    expect(materializeRow(sessions, l0Session(sessionId))).toBe(true);
     expect(run(sessions.adoptFence({ sessionId, owner: "owner", fence: 1 }))).toEqual({
       ok: true,
       fence: 1,
@@ -133,7 +121,7 @@ describe("fenced session write discipline", () => {
           owner: "owner",
           fence: 1,
           now: 11,
-          expectedRevision: 0,
+          expectedRevision: 1,
           actions: prompts,
           state: "idle",
         }),
@@ -173,13 +161,13 @@ describe("fenced session write discipline", () => {
         owner: "owner",
         fence: 1,
         now: 12,
-        expectedRevision: 2,
+        expectedRevision: 3,
         actions,
         state: "running",
       }),
     );
     expect(committed.ok).toBe(true);
-    expect(committed.row).toMatchObject({ revision: 5, state: "running", fenceOwner: "owner" });
+    expect(committed.row).toMatchObject({ revision: 6, state: "running", fenceOwner: "owner" });
     expect(kernel.pendingMessages(sessionId)).toEqual([]);
   });
 });
@@ -189,7 +177,7 @@ describe("canonical batch rollback", () => {
     const { sessions } = stores.session;
     const kernel = stores.kernel;
     const sessionId = "rollback";
-    run(sessions.create(l0Session(sessionId)));
+    expect(materializeRow(sessions, l0Session(sessionId))).toBe(true);
     run(sessions.adoptFence({ sessionId, owner: "owner", fence: 1 }));
     run(
       sessions.commit({
@@ -197,7 +185,7 @@ describe("canonical batch rollback", () => {
         owner: "owner",
         fence: 1,
         now: 1,
-        expectedRevision: 0,
+        expectedRevision: 1,
         actions: [promptAction(sessionId, `${sessionId}:input`, "preserve", 1)],
         state: "idle",
       }),
@@ -214,7 +202,7 @@ describe("canonical batch rollback", () => {
           owner: "owner",
           fence: 1,
           now: 3,
-          expectedRevision: 1,
+          expectedRevision: 2,
           actions: [first, refused],
           state: "idle",
         }),

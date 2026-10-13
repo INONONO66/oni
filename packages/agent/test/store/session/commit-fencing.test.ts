@@ -3,6 +3,7 @@ import { Effect, Result } from "effect";
 import { expect, test } from "bun:test";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import { runLedgerSync } from "../helpers/effect";
+import { materializeRow, residentRow } from "../helpers/ledger";
 import { useMemoryStores } from "../helpers/storage";
 
 const stores = useMemoryStores();
@@ -28,7 +29,7 @@ function commitAs(fence: number, actionId: string): LedgerSession.Commit {
     owner: "kernel-owner",
     fence,
     now: 10_001,
-    expectedRevision: 0,
+    expectedRevision: 1,
     actions: [resultAction(actionId)],
     state: "idle",
   };
@@ -41,27 +42,7 @@ function commitAs(fence: number, actionId: string): LedgerSession.Commit {
 test("a stale fence is rejected at commit time with no partial row, even under the same owner name", () => {
   const { sessions } = stores.session;
   const actions = stores.session.actions;
-  expect(
-    Result.getOrThrowWith(
-      runLedgerSync(
-        Effect.result(
-          sessions.create({
-            id: sessionId,
-            parentId: null,
-            role: "resident",
-            fenceOwner: null,
-            fence: 0,
-            revision: 0,
-            state: "idle",
-            toolsGeneration: 0,
-            systemHash: "",
-            policyGeneration: 0,
-          }),
-        ),
-      ),
-      (error) => error,
-    ),
-  ).toBe(true);
+  expect(materializeRow(sessions, residentRow(sessionId))).toBe(true);
   expect(
     Result.getOrThrowWith(
       runLedgerSync(
@@ -80,7 +61,7 @@ test("a stale fence is rejected at commit time with no partial row, even under t
     ),
   ).toEqual({ ok: true, fence: 2 });
   const before = sessions.get(sessionId);
-  expect(before).toMatchObject({ fenceOwner: "kernel-owner", fence: 2, revision: 0 });
+  expect(before).toMatchObject({ fenceOwner: "kernel-owner", fence: 2, revision: 1 });
 
   // Owner name matches and the revision is exact: only the fence is stale,
   // and the rejection is typed with the current fence.
@@ -94,10 +75,12 @@ test("a stale fence is rejected at commit time with no partial row, even under t
       _tag: "CommitRefused",
       reason: "fence",
       currentFence: 2,
-      currentRevision: 0,
+      currentRevision: 1,
     }),
   );
-  expect(sessionTree(sessionId, actions)).toEqual([]);
+  expect(sessionTree(sessionId, actions).map((action) => action.id)).toEqual([
+    `${sessionId}:configure`,
+  ]);
   expect(sessions.get(sessionId)).toEqual(before);
 
   // A re-adoption of an already-passed fence is refused as stale.
@@ -118,6 +101,9 @@ test("a stale fence is rejected at commit time with no partial row, even under t
     (error) => error,
   );
   expect(committed.ok).toBe(true);
-  expect(committed.row).toMatchObject({ revision: 1, fence: 2 });
-  expect(sessionTree(sessionId, actions).map((action) => action.id)).toEqual(["successor-result"]);
+  expect(committed.row).toMatchObject({ revision: 2, fence: 2 });
+  expect(sessionTree(sessionId, actions).map((action) => action.id)).toEqual([
+    `${sessionId}:configure`,
+    "successor-result",
+  ]);
 });

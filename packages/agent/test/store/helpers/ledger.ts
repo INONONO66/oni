@@ -1,11 +1,19 @@
 import { Database } from "bun:sqlite";
-import { L0Observation, type ObservationSink, type Storage } from "@openomni/protocol";
+import { Effect, Result } from "effect";
+import {
+  L0Observation,
+  type LedgerAction,
+  LedgerSession,
+  type ObservationSink,
+  type Storage,
+} from "@openomni/protocol";
 import { bootstrapStoreDatabase } from "../../../src/core/store/session-file";
 import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 import { createActions, L0Write } from "../../../src/core/store/session-file";
 import type { ObservationPublishFailure } from "../../../src/core/store/storage/sqlite-l0-observation";
 import { createSessions } from "../../../src/core/store/storage/sqlite-l0-sessions";
 import type { SessionWriteAdapter } from "../../../src/core/store/services";
+import { runLedgerSync } from "./effect";
 
 /** In-memory database on the fresh session-file schema. */
 export function openLedgerDatabase(): Database {
@@ -50,4 +58,45 @@ export function observedL0Adapters(db: Database): {
     observations,
     failures,
   };
+}
+
+/** The genesis `session.configure` row every materialized session opens with. */
+export function genesisAction(sessionId: string, ts = 0): LedgerAction.Append {
+  return {
+    id: `${sessionId}:configure`,
+    parentId: null,
+    sessionId,
+    kind: "session.configure",
+    intent: { encodingVersion: 1, value: {} },
+    effect: { encodingVersion: 1, value: {} },
+    irreversible: true,
+    ts,
+  };
+}
+
+/** A resident L0 row at revision 0, as `materialize` expects it. */
+export function residentRow(id: string): LedgerSession.Row {
+  return LedgerSession.Row.parse({
+    id,
+    parentId: null,
+    role: "resident",
+    fenceOwner: null,
+    fence: 0,
+    revision: 0,
+    state: "idle",
+  });
+}
+
+/**
+ * Creates `row` through the only creation path (#1351): the genesis
+ * configure action lands at revision 1, so callers append from
+ * `expectedRevision: 1`. Returns whether the row was created.
+ */
+export function materializeRow(sessions: SessionWriteAdapter, row: LedgerSession.Row): boolean {
+  return Result.getOrThrowWith(
+    runLedgerSync(
+      Effect.result(sessions.materialize({ row, initialAction: genesisAction(row.id) })),
+    ),
+    (error) => error,
+  ).created;
 }
