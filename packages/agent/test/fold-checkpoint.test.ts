@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Logger, References } from "effect";
 import { runAgentSync } from "./helpers/executor";
 import { expect, spyOn, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
@@ -17,7 +17,7 @@ import { testBudget } from "./helpers/approval-policy";
 import { runInput } from "./helpers/run-input";
 import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
 import { actionPayloadBytes } from "../src/core/store/action-hash";
-import { deliveryActions, turnTerminalAction } from "../src/core/commit";
+import { deliveryActions, foldCheckpointAction, turnTerminalAction } from "../src/core/commit";
 import { bounded } from "./helpers/bounded";
 import { effectOf, intentOf } from "./helpers/crash-matrix";
 import { commitReceivedMessage } from "./helpers/ingress";
@@ -351,6 +351,66 @@ test("#1347 the writer keeps the restore tail under `maxTailBytes`: 4 MiB of row
   expect(canonicalDigest(PlainValueSchema.parse(restored.state))).toBe(
     canonicalDigest(PlainValueSchema.parse(foldHistoryState(id, sessionTree(kernel, id)))),
   );
+}));
+
+test("#1347 a folded state past the row cap degrades explicitly: the checkpoint's typed `row_bytes` refusal is logged, the caller's rows still land", () => isolatedRun((ledger) => {
+  const recording = requestLedger();
+  const id = recording.identity.sessionId;
+  const turnId = recording.identity.turnId;
+  const kernel = ledger.kernel;
+  // configure + turn intent + compose configure = 3 non-checkpoint rows: the next row is the fourth.
+  pinCheckpointPolicy(recording, kernel, { everyActions: 4, maxTailBytes: 4 * 1024 * 1024 });
+  const ROW_CAP = 1_048_576;
+  const revision = kernel.row(id).revision;
+  // A delivered prompt folds twice (message parts and compatibility text), so a prompt row
+  // well under the cap carries the checkpoint row just past it.
+  const prompt = (content: string) =>
+    nth(deliveryActions(
+      [{
+        id: `${id}:big`, sessionId: id, kind: "prompt", content, origin: { encodingVersion: 1, value: {} },
+        status: "pending", consumedBy: null, consumedAt: null, createdAt: 100, ordinal: 1,
+      }],
+      { kind: "turn", turnId },
+      "after_tools",
+      kernel.latestAction(id)?.id ?? null,
+    ), 0);
+  const checkpointBytes = (content: string) =>
+    actionPayloadBytes(foldCheckpointAction({
+      sessionId: id, parentId: `${id}:big:delivery`, revision: revision + 1, at: 100, reason: "interval",
+      state: foldHistoryState(id, [...sessionTree(kernel, id), { ...prompt(content), ordinal: revision + 1, prevHash: "", actionHash: "" }]),
+    }));
+  const base = 500_000;
+  const slope = checkpointBytes("x".repeat(base + 1)) - checkpointBytes("x".repeat(base));
+  expect(slope).toBe(2);
+  const content = "x".repeat(base + Math.ceil((ROW_CAP + 1 - checkpointBytes("x".repeat(base))) / slope));
+  const row = prompt(content);
+  expect(actionPayloadBytes(row)).toBeLessThan(ROW_CAP);
+  const overBy = checkpointBytes(content) - ROW_CAP;
+  expect(overBy).toBeGreaterThanOrEqual(1);
+  expect(overBy).toBeLessThanOrEqual(slope);
+  const warnings: { message: string; annotations: Record<string, unknown> }[] = [];
+  const collector = Logger.make((options) => {
+    if (options.logLevel !== "Warn") return;
+    for (const item of Array.isArray(options.message) ? options.message : [options.message]) {
+      if (typeof item === "string")
+        warnings.push({ message: item, annotations: { ...options.fiber.getRef(References.CurrentLogAnnotations) } });
+    }
+  });
+  // The fourth row: the writer plans a checkpoint, the store refuses it typed, the row lands without it.
+  const receipt = runAgentSync(recording.ledger.commit(row).pipe(Effect.provide(Logger.layer([collector]))));
+  expect(receipt.revision).toBe(revision + 1);
+  expect(kernel.row(id).revision).toBe(revision + 1);
+  expect(kernel.latestFoldCheckpoint(id).checkpoint).toBeUndefined();
+  expect(warnings).toEqual([{
+    message: `fold checkpoint refused (row_bytes): ${id}`,
+    annotations: { sessionId: id, checkpointId: `${id}:fold:${revision + 1}`, checkpointBytes: ROW_CAP + overBy },
+  }]);
+  expect(kernel.verifyChain(id)).toMatchObject({ kind: "intact", length: revision + 1 });
+  // Nothing wedges: later rows keep landing at the threshold, each without a checkpoint, and the history still folds whole.
+  expect(recording.commitBatch(paddingActions(id, turnId, 2)).ok).toBe(true);
+  expect(kernel.row(id).revision).toBe(revision + 3);
+  expect(kernel.latestFoldCheckpoint(id).checkpoint).toBeUndefined();
+  expect(expectReplay(id).history.map((message) => message.info.id)).toEqual([`${id}:big`]);
 }));
 
 test("legacy genesis paging fixes a high-water revision, then checkpoints under the existing fence", () => isolatedRun((ledger) => {

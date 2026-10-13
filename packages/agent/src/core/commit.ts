@@ -19,6 +19,7 @@ import {
 import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../inspect/history";
 import { actionPayloadBytes } from "./store/action-hash";
 import type { CompactionSeamService } from "./compaction-ports";
+import { SchemaRefused } from "./store/errors";
 import type * as SessionHandleStore from "./store/fence";
 import { z } from "zod";
 import { RunReasonCode } from "./reason-codes";
@@ -66,6 +67,13 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
  * lands when the non-checkpoint count reaches `everyActions` OR the tail bytes
  * (checkpoint row inclusive) would pass `maxTailBytes`, so no restore ever meets
  * a tail this writer let grow past the budget.
+ *
+ * A checkpoint row carries the whole folded state, so a session whose state has
+ * outgrown the row cap can never checkpoint again. That degrades explicitly
+ * (#1347 M1): the store's typed `row_bytes` refusal of a checkpoint this writer
+ * added is logged, and the caller's rows commit without it. The next commit at
+ * the threshold replays the same tail, so the cost is a full-tail fold per
+ * commit, never a wedged session or a lost caller row.
  */
 export function commitFoldBatch(
   kernel: SessionKernel,
@@ -88,51 +96,88 @@ export function commitFoldBatch(
     )
       return yield* kernel.commit(input);
     const hydrated = checkpoint.hydrate();
-    let state = hydrated.state;
-    let count = hydrated.nonCheckpointActions;
-    let bytes = tailBytes;
-    const actions: LedgerAction.Append[] = [];
-    for (const draft of input.actions) {
-      const sourceRevision = input.expectedRevision + actions.length;
-      const contextPinned = pinContext(draft, state, sourceRevision);
-      const action = pinThroughSeam(seam, kernel, contextPinned, state, sourceRevision);
-      actions.push(action);
-      const ordinal = input.expectedRevision + actions.length;
-      state = foldHistoryState(
-        input.sessionId,
-        [{ ...action, ordinal, prevHash: "", actionHash: "" }],
-        state,
-      );
-      if (action.kind !== "fold.checkpoint") count += 1;
-      bytes += actionPayloadBytes(action);
-      const compaction = executedCompactionResult(action);
-      if (count < everyActions && bytes <= maxTailBytes && !compaction) continue;
-      const interval = foldCheckpointAction({
-        sessionId: input.sessionId,
-        parentId: action.id,
-        revision: ordinal,
-        at: input.now,
-        reason: compaction ? "compaction" : "interval",
-        state,
-      });
-      actions.push(interval);
-      count = 0;
-      bytes = actionPayloadBytes(interval);
-    }
-    if (actions.length === 0 && (count >= everyActions || bytes > maxTailBytes)) {
-      actions.push(
-        foldCheckpointAction({
-          sessionId: input.sessionId,
-          parentId: kernel.latestAction(input.sessionId, input.expectedRevision)?.id ?? null,
-          revision: input.expectedRevision,
-          at: input.now,
-          reason: "interval",
-          state,
-        }),
-      );
-    }
-    return yield* kernel.commit({ ...input, actions });
+    const seed = { state: hydrated.state, count: hydrated.nonCheckpointActions, bytes: tailBytes };
+    const policy = { everyActions, maxTailBytes };
+    const planned = planFoldBatch(kernel, seam, input, seed, policy, true);
+    return yield* kernel.commit({ ...input, actions: planned.actions }).pipe(
+      Effect.catchIf(
+        (error): error is SchemaRefused =>
+          error instanceof SchemaRefused &&
+          error.reason === "row_bytes" &&
+          error.actionId !== undefined &&
+          planned.added.has(error.actionId),
+        (refused) => {
+          const row = planned.added.get(refused.actionId ?? "");
+          return Effect.annotateLogs(
+            Effect.logWarning(`fold checkpoint refused (row_bytes): ${input.sessionId}`),
+            {
+              sessionId: input.sessionId,
+              checkpointId: refused.actionId,
+              checkpointBytes: row === undefined ? null : actionPayloadBytes(row),
+            },
+          ).pipe(
+            Effect.andThen(
+              kernel.commit({ ...input, actions: planFoldBatch(kernel, seam, input, seed, policy, false).actions }),
+            ),
+          );
+        },
+      ),
+    );
   });
+}
+
+type FoldPlan = {
+  readonly actions: LedgerAction.Append[];
+  /** The interval/compaction checkpoint rows this writer added, by id. */
+  readonly added: ReadonlyMap<string, LedgerAction.Append>;
+};
+
+/**
+ * Pin the caller's drafts against the running fold and, with `checkpoints`,
+ * interleave the checkpoint rows policy asks for; without it the plan is the
+ * pinned drafts alone (the M1 fallback after a refused checkpoint).
+ */
+function planFoldBatch(
+  kernel: SessionKernel,
+  seam: Pick<CompactionSeamService, "pinAction"> | undefined,
+  input: LedgerSession.Commit,
+  seed: { readonly state: FoldCheckpoint.State; readonly count: number; readonly bytes: number },
+  policy: { readonly everyActions: number; readonly maxTailBytes: number },
+  checkpoints: boolean,
+): FoldPlan {
+  let state = seed.state;
+  let count = seed.count;
+  let bytes = seed.bytes;
+  const actions: LedgerAction.Append[] = [];
+  const added = new Map<string, LedgerAction.Append>();
+  const past = () => count >= policy.everyActions || bytes > policy.maxTailBytes;
+  const add = (parentId: string | null, revision: number, reason: "interval" | "compaction") => {
+    if (!checkpoints) return;
+    const interval = foldCheckpointAction({ sessionId: input.sessionId, parentId, revision, at: input.now, reason, state });
+    actions.push(interval);
+    added.set(interval.id, interval);
+    count = 0;
+    bytes = actionPayloadBytes(interval);
+  };
+  for (const draft of input.actions) {
+    const sourceRevision = input.expectedRevision + actions.length;
+    const contextPinned = pinContext(draft, state, sourceRevision);
+    const action = pinThroughSeam(seam, kernel, contextPinned, state, sourceRevision);
+    actions.push(action);
+    const ordinal = input.expectedRevision + actions.length;
+    state = foldHistoryState(
+      input.sessionId,
+      [{ ...action, ordinal, prevHash: "", actionHash: "" }],
+      state,
+    );
+    if (action.kind !== "fold.checkpoint") count += 1;
+    bytes += actionPayloadBytes(action);
+    if (executedCompactionResult(action)) add(action.id, ordinal, "compaction");
+    else if (past()) add(action.id, ordinal, "interval");
+  }
+  if (actions.length === 0 && past())
+    add(kernel.latestAction(input.sessionId, input.expectedRevision)?.id ?? null, input.expectedRevision, "interval");
+  return { actions, added };
 }
 
 function needsProjection(action: LedgerAction.Append): boolean {
