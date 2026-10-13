@@ -1228,7 +1228,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   const recovery = createExecutionRecovery(options, record);
   const turnId = options.identity.turnId ?? options.identity.parentActionId;
   /** #1305: tool rows commit a bounded projection; every other kind commits verbatim. */
-  const projectValue = (kind: LedgerAction.Kind, value: PlainValue): PlainValue => {
+  const projectValue = (kind: string, value: PlainValue): PlainValue => {
     const put = options.ledger.putToolOutput;
     if (kind !== "tool" || put === undefined) return value;
     return projectResultValue(value, {
@@ -1491,8 +1491,11 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   function complete<R>(stage: Stage<R>, raw: PlainValue): Effect.Effect<ExecutionResult, ExecutionError> {
     return Effect.gen(function* () {
       const value = clonePlainValue(raw);
+      // #1347 H2: the post decision row records the gate's `output`, so it
+      // consults the same bounded projection the tool row commits (#1305) —
+      // never the full result, which would push the decision row past the cap.
       const outcome = consulted(stage.request.kind, "post")
-        ? yield* decide(stage.request, "post", { intent: stage.request.intent, effect: stage.request.effect, result: value }).pipe(
+        ? yield* decide(stage.request, "post", { intent: stage.request.intent, effect: stage.request.effect, result: projectValue(stage.kind, value) }).pipe(
             Effect.flatMap((post) => settlePost(stage.request, post, value)))
         : { terminal: "executed" as const, value };
       if (stage.request.boundary === true && outcome.terminal === "executed" && stage.intent !== undefined) {
@@ -1600,7 +1603,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
       if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause);
       const value = clonePlainValue(exit.value);
       if (!consulted(request.kind, "post")) return { terminal: "executed", value } as const;
-      const post = yield* decide(request, "post", { intent: request.intent, effect: request.effect, result: value });
+      const post = yield* decide(request, "post", { intent: request.intent, effect: request.effect, result: projectValue(request.kind, value) });
       return yield* settlePost(request, post, value);
     }));
   }

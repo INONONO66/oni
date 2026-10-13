@@ -49,21 +49,14 @@ export interface AppendLimits {
   readonly rowByteCap: number;
 }
 
-/** Payload one row may carry: 1 MiB, the figure the row cap is stated in. */
-const ROW_PAYLOAD_CAP = 1024 * 1024;
-
 /**
- * Headroom for the journal's own framing around a payload at the cap: the
- * gate's decision metadata on a `policy.decision` row (hashes, verdict,
- * matched ids, obligations) and the executor's result envelope on a `tool`
- * row (`phase`, `effect`, `resultHash`). `actionPayloadBytes` cannot separate
- * framing from payload, so a payload of exactly 1 MiB (the bounded-projection
- * measurement fixture) is admitted with its envelope: 529 and 224 bytes there.
+ * Default row cap at the append boundary (#1347): exactly 1 MiB of serialized
+ * payload (`actionPayloadBytes`, intent plus effect). Rows that could carry a
+ * tool result — the `tool` row and its `tool.post` `policy.decision` row —
+ * commit the bounded projection (#1305), so the cap is a backstop, not a
+ * budget any producer runs up against.
  */
-const ROW_FRAMING_ALLOWANCE = 4 * 1024;
-
-/** Default row cap at the append boundary: a 1 MiB payload plus its framing. */
-export const DEFAULT_ROW_BYTE_CAP = ROW_PAYLOAD_CAP + ROW_FRAMING_ALLOWANCE;
+export const DEFAULT_ROW_BYTE_CAP = 1024 * 1024;
 
 /**
  * Fail-closed write (#1252): every journal row body must satisfy its kind's

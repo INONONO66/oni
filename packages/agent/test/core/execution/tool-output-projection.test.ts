@@ -9,6 +9,8 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { canonicalDigest, canonicalJson, type LedgerAction, type PlainValue } from "@openomni/protocol";
 import { useMemoryStores, testNow } from "../../store/helpers/storage";
+import { actionPayloadBytes } from "../../../src/core/store/action-hash";
+import { L0Write } from "../../../src/core/store/session-file";
 import { materializeSession, adoptWriter } from "../../store/helpers/session";
 import { testExecutor } from "../../helpers/executor";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
@@ -85,18 +87,21 @@ function plainObject(value: PlainValue | undefined): Record<string, PlainValue> 
   return value;
 }
 
-function resultRows(sessionId: string = SESSION): LedgerAction.Node[] {
+function allRows(sessionId: string = SESSION): LedgerAction.Node[] {
   const rows: LedgerAction.Node[] = [];
   let afterRevision = 0;
   for (;;) {
     const page = stores.kernel.historyPage(sessionId, { afterRevision, limit: 256 });
-    for (const action of page.actions) {
-      if (action.kind !== "tool") continue;
-      if (plainObject(action.effect.value).phase === "result") rows.push(action);
-    }
+    rows.push(...page.actions);
     if (page.nextRevision === null) return rows;
     afterRevision = page.nextRevision;
   }
+}
+
+function resultRows(sessionId: string = SESSION): LedgerAction.Node[] {
+  return allRows(sessionId).filter(
+    (action) => action.kind === "tool" && plainObject(action.effect.value).phase === "result",
+  );
 }
 
 function runTool(
@@ -112,17 +117,19 @@ function runTool(
 }
 
 describe("tool output projection through the durable gate (#1305)", () => {
-  it("a 1 MiB result commits as a bounded row whose ref reads back whole", () =>
+  it("a 1 MB result commits as a bounded row whose ref reads back whole", () =>
     isolated(
       Effect.gen(function* () {
         materializeSession(stores.kernel, SESSION);
         const authority = adoptWriter(stores.kernel, SESSION);
-        // Baseline session: the same 1 MiB result through a ledger WITHOUT
+        // Baseline session: the same 1 MB result through a ledger WITHOUT
         // output ports — no projection — measured for the before/after pairs.
+        // 1_000_000 bytes, not 1 MiB: the unprojected baseline rows must still
+        // fit the 1 MiB row cap (#1347) with their framing.
         const BASELINE = "projection-baseline";
         materializeSession(stores.kernel, BASELINE);
         const baselineAuthority = adoptWriter(stores.kernel, BASELINE);
-        const bigText = "m".repeat(1_048_576);
+        const bigText = "m".repeat(1_000_000);
         const value: PlainValue = { status: "ok", output: bigText };
         const baseline = yield* runTool(baselineAuthority, value, "baseline");
         expect(baseline.terminal).toBe("executed");
@@ -137,7 +144,7 @@ describe("tool output projection through the durable gate (#1305)", () => {
         const row = resultRows().at(-1);
         if (row === undefined) throw new Error("missing result row");
         const effect = plainObject(row.effect.value);
-        // The committed row is bounded: well under the budget, never 1 MiB.
+        // The committed row is bounded: well under the budget, never 1 MB.
         const beforeBytes = Buffer.byteLength(canonicalJson(baselineRow.effect.value), "utf8");
         const afterBytes = Buffer.byteLength(canonicalJson(row.effect.value), "utf8");
         // The read-plane event (one serialized history-page action node) is
@@ -181,6 +188,37 @@ describe("tool output projection through the durable gate (#1305)", () => {
         const rows = resultRows();
         const lastRef = plainObject(plainObject(plainObject(rows.at(-1)?.effect.value).result).outputRef);
         expect(lastRef.outputId).toBe(outputId);
+      }),
+    ));
+
+  it("#1347 a 2 MiB result commits through the projecting executor with every row at or under the 1 MiB cap", () =>
+    isolated(
+      Effect.gen(function* () {
+        materializeSession(stores.kernel, SESSION);
+        const authority = adoptWriter(stores.kernel, SESSION);
+        const value: PlainValue = { status: "ok", output: "m".repeat(2_097_152) };
+        const before = allRows().length;
+        const outcome = yield* runTool(authority, value);
+        expect(outcome.terminal).toBe("executed");
+        if (outcome.terminal !== "executed") throw new Error("not executed");
+        expect(outcome.value).toEqual(value);
+
+        // The run's rows: the tool row AND the tool.post policy.decision row
+        // (whose gate `output` records the result) are both bounded by the
+        // projection, so none approaches the row cap.
+        const rows = allRows().slice(before);
+        expect(rows.map((row) => row.kind)).toEqual(["policy.decision", "tool", "policy.decision", "tool"]);
+        for (const row of rows) expect(actionPayloadBytes(row)).toBeLessThanOrEqual(L0Write.DEFAULT_ROW_BYTE_CAP);
+        const post = rows.find((row) => row.kind === "policy.decision" && plainObject(row.intent.value).hook === "tool.post");
+        if (post === undefined) throw new Error("missing tool.post decision");
+        const gate = plainObject(plainObject(post.intent.value).gate);
+        const ref = plainObject(plainObject(plainObject(gate.output).result).outputRef);
+        expect(ref.outputId).toBe(canonicalDigest(value));
+        const toolRef = plainObject(plainObject(plainObject(resultRows().at(-1)?.effect.value).result).outputRef);
+        expect(toolRef.outputId).toBe(canonicalDigest(value));
+        expect(stores.kernel.toolOutput(canonicalDigest(value))?.bytes.byteLength).toBe(
+          Buffer.byteLength(canonicalJson(value), "utf8"),
+        );
       }),
     ));
 
