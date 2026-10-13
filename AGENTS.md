@@ -194,7 +194,7 @@ The per-PR quality ratchet stack (census, exact statement evidence, coverage
 ratchet, metrics legs) was deleted by #1116 in favor of the lean PR gate:
 build, types, lint (including `noExcessiveCognitiveComplexity`), dependency
 rules, tests, and the patch-coverage gate. Deep audits stay scheduled:
-`quality-audit.yml` records absolute findings and capped quality-debt issues;
+`quality-audit.yml` records absolute findings in one rolling `quality: audit summary` issue (never per-file issues);
 `quality-mutation.yml` runs `run-quality-mutations.ts`, which requires a
 complete campaign receipt, including restoration and cleanup proof.
 

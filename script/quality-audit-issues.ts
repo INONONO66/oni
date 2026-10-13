@@ -25,9 +25,12 @@ const previousSchema = z.object({
 });
 type Previous = z.infer<typeof previousSchema>;
 const SUMMARY = "quality: audit summary";
-const LABELS = ["quality-debt", ...findingKinds.map((kind) => `quality:${kind}`)];
+const LABEL = "quality-debt";
+/** The audit owns exactly one issue: the rolling summary. Per-file and
+ * per-regression issues were noise that every run reopened after a hand close,
+ * so the publisher never reads, writes, or closes any other issue. */
 type Operation = {
-  action: "create" | "update" | "close";
+  action: "create" | "update";
   title: string;
   body: string;
   labels: string[];
@@ -54,87 +57,40 @@ function cell(text: string) {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ").replaceAll("\r", " ");
 }
 
-export function fileBody(file: ReturnType<typeof aggregateFiles>[number], audit: Audit) {
-  const rows = file.findings
-    .slice(0, 100)
-    .map(
-      (finding) =>
-        `| ${finding.kind} | ${finding.line || "file"} | ${finding.count} | ${cell(finding.message).slice(0, 350)} |`,
-    );
-  return [
-    `Audit: ${audit.runUrl}`,
-    `Commit: ${audit.head}`,
-    "",
-    "| Kind | Line | Count | Finding |",
-    "| --- | ---: | ---: | --- |",
-    ...rows,
-    "",
-    `Total: ${file.count}. Showing ${rows.length}/${file.findings.length} finding groups.`,
-    "Full evidence: quality-audit.json in the Quality Audit run artifacts.",
-  ].join("\n");
-}
-
-function upsert(
-  title: string,
-  body: string,
-  labels: string[],
-  issues: readonly Issue[],
-): Operation {
+function upsert(body: string, issues: readonly Issue[]): Operation {
   const existing =
-    issues.find((issue) => issue.title === title && issue.state === "open") ??
-    issues.find((issue) => issue.title === title);
+    issues.find((issue) => issue.title === SUMMARY && issue.state === "open") ??
+    issues.find((issue) => issue.title === SUMMARY);
   return {
     action: existing ? "update" : "create",
-    title,
+    title: SUMMARY,
     body,
-    labels: [
-      ...new Set([
-        ...(existing?.labels.map((label) => label.name).filter((name) => !LABELS.includes(name)) ??
-          []),
-        ...labels,
-      ]),
-    ],
+    labels: [...new Set([...(existing?.labels.map((label) => label.name) ?? []), LABEL])],
     ...(existing ? { number: existing.number } : {}),
   };
 }
 
-function fileIssue(issue: Issue) {
-  return (
-    issue.title.startsWith("quality: ") &&
-    issue.title !== SUMMARY &&
-    !issue.title.startsWith("quality: regression ")
-  );
-}
-
-export function capFiles(audit: Audit, issues: readonly Issue[], cap = 50) {
+function summaryBody(audit: Audit, previous: Previous | undefined) {
   const files = aggregateFiles(audit.findings);
-  const open = new Set(
-    issues
-      .filter((issue) => issue.state === "open" && fileIssue(issue))
-      .map((issue) => issue.title.slice(9)),
-  );
-  const retained = files.filter((file) => open.has(file.path));
-  if (retained.length > cap) throw new Error(`Existing per-file issues exceed cap ${cap}`);
-  const selected = [
-    ...retained,
-    ...files.filter((file) => !open.has(file.path)).slice(0, cap - retained.length),
-  ];
-  const paths = new Set(selected.map((file) => file.path));
-  return {
-    selected,
-    skipped: files.filter((file) => !paths.has(file.path)).map((file) => file.path),
-  };
-}
-
-function summaryBody(audit: Audit, skipped: readonly string[], firstRun: boolean) {
-  const files = aggregateFiles(audit.findings);
+  const increased = previous ? regressions(previous, audit) : [];
   return [
     `Audit: ${audit.runUrl}`,
-    `Complete: ${audit.complete}; first run: ${firstRun}`,
+    `Commit: ${audit.head}`,
+    `Complete: ${audit.complete}; first run: ${!previous}`,
     "",
-    "| Kind | Total findings |",
-    "| --- | ---: |",
-    ...findingKinds.map((kind) => `| ${kind} | ${audit.totals[kind]} |`),
+    "| Kind | Previous | Current |",
+    "| --- | ---: | ---: |",
+    ...findingKinds.map(
+      (kind) => `| ${kind} | ${previous?.totals[kind] ?? "-"} | ${audit.totals[kind]} |`,
+    ),
+    "",
+    previous
+      ? `Regressions since ${previous.head}: ${
+          increased.length
+            ? increased.map((row) => `${row.kind} ${row.previous} -> ${row.current}`).join(", ")
+            : "none"
+        }.`
+      : "No previous audit to compare against.",
     "",
     `Mutation: see [quality-mutation.yml](${audit.runUrl.split("/").slice(0, 5).join("/")}/actions/workflows/quality-mutation.yml).`,
     "",
@@ -146,9 +102,6 @@ function summaryBody(audit: Audit, skipped: readonly string[], firstRun: boolean
     "| --- | ---: |",
     ...files.slice(0, 50).map((file) => `| ${cell(file.path)} | ${file.count} |`),
     "",
-    "## Skipped per-file issues",
-    ...(skipped.length ? skipped.map((path) => `- ${cell(path)}`) : ["None."]),
-    "",
     "<!-- quality-audit:v1 -->",
     "```json",
     JSON.stringify({ version: 1, head: audit.head, totals: audit.totals }),
@@ -158,55 +111,8 @@ function summaryBody(audit: Audit, skipped: readonly string[], firstRun: boolean
 
 export function planIssues(audit: Audit, issues: readonly Issue[]) {
   const summary = issues.find((issue) => issue.title === SUMMARY);
-  const firstRun = !summary;
-  const selection = summary
-    ? capFiles(audit, issues)
-    : { selected: [], skipped: aggregateFiles(audit.findings).map((file) => file.path) };
-  const skipped = selection.skipped;
-  const operations: Operation[] = [];
-  if (summary) {
-    const currentPaths = new Set(audit.findings.map((finding) => finding.path));
-    for (const issue of issues.filter((row) => row.state === "open" && fileIssue(row))) {
-      if (!currentPaths.has(issue.title.slice(9)))
-        operations.push({
-          action: "close",
-          number: issue.number,
-          title: issue.title,
-          body: `No findings in the current audit: ${audit.runUrl}`,
-          labels: [],
-        });
-    }
-    for (const file of selection.selected)
-      operations.push(
-        upsert(
-          `quality: ${file.path}`,
-          fileBody(file, audit),
-          ["quality-debt", ...new Set(file.findings.map((finding) => `quality:${finding.kind}`))],
-          issues,
-        ),
-      );
-    const previous = previousAudit(summary.body ?? "");
-    const increased = regressions(previous, audit);
-    const title = `quality: regression ${previous.head}..${audit.head}`;
-    if (increased.length && !issues.some((issue) => issue.title === title))
-      operations.push(
-        upsert(
-          title,
-          [
-            `Audit: ${audit.runUrl}`,
-            "",
-            "| Kind | Previous | Current |",
-            "| --- | ---: | ---: |",
-            ...increased.map((row) => `| ${row.kind} | ${row.previous} | ${row.current} |`),
-          ].join("\n"),
-          ["quality-debt"],
-          issues,
-        ),
-      );
-  }
-  // Advance history last, so a failed publication can be safely retried against the same base.
-  operations.push(upsert(SUMMARY, summaryBody(audit, skipped, firstRun), ["quality-debt"], issues));
-  return { firstRun, skipped, operations };
+  const previous = summary ? previousAudit(summary.body ?? "") : undefined;
+  return { firstRun: !summary, operation: upsert(summaryBody(audit, previous), issues) };
 }
 
 export async function ghCommand(args: readonly string[], input?: string, executable = "gh") {
@@ -214,17 +120,6 @@ export async function ghCommand(args: readonly string[], input?: string, executa
 }
 
 async function apply(operation: Operation, endpoint: string, run: Gh) {
-  if (operation.action === "close") {
-    await run(
-      ["api", "--method", "POST", `${endpoint}/${operation.number}/comments`, "--input", "-"],
-      JSON.stringify({ body: operation.body }),
-    );
-    await run(
-      ["api", "--method", "PATCH", `${endpoint}/${operation.number}`, "--input", "-"],
-      JSON.stringify({ state: "closed", state_reason: "completed" }),
-    );
-    return;
-  }
   const target = operation.number ? `${endpoint}/${operation.number}` : endpoint;
   const result = await run(
     ["api", "--method", operation.number ? "PATCH" : "POST", target, "--input", "-"],
@@ -255,12 +150,11 @@ export async function publishAudit(
     "api",
     "--paginate",
     "--slurp",
-    `${endpoint}?state=all&labels=quality-debt&per_page=100`,
+    `${endpoint}?state=all&labels=${LABEL}&per_page=100`,
   ]);
   const issues = z.array(z.array(issueSchema)).parse(JSON.parse(response)).flat();
   const plan = planIssues(audit, issues);
-  for (const label of LABELS)
-    await run(["label", "create", label, "--repo", repo, "--color", "D4C5F9", "--force"]);
-  for (const operation of plan.operations) await apply(operation, endpoint, run);
+  await run(["label", "create", LABEL, "--repo", repo, "--color", "D4C5F9", "--force"]);
+  await apply(plan.operation, endpoint, run);
   return plan;
 }

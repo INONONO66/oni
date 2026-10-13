@@ -154,18 +154,16 @@ Python is included in clone scans, not Bun coverage or TypeScript function
 metrics. `script/conformance/quality-contract.json` pins the metric algorithm,
 TypeScript version, LCOV coverage interpretation and thresholds.
 
-`script/quality-audit-issues.ts` uses `gh` with parsed JSON, creates missing
-`quality-debt` and
-`quality:{coverage,complexity,cyclomatic,halstead,crap,clones,types}` labels, and maintains
-one rolling `quality: audit summary` issue. The first run creates **only** that
-summary. Subsequent runs update/reopen `quality: <repo-relative path>` issues,
-close resolved files with a comment, and create at most 50 open per-file issues.
-Existing open debt retains its slots; remaining slots go to highest finding
-counts first (path breaks ties). The summary lists skipped files. Per-file bodies
-show up to 100 finding groups; the artifact contains the complete findings.
-Growth in a kind's total creates `quality: regression <base>..<head>` using the
-previous summary's fenced JSON totals. The summary advances last for retry safety;
-malformed history and incomplete measurements stop publication, not reset it.
+`script/quality-audit-issues.ts` uses `gh` with parsed JSON, creates the missing
+`quality-debt` label, and maintains exactly one issue: the rolling
+`quality: audit summary`, updated (or reopened) in place and never duplicated.
+Its body carries the previous and current totals per kind, the regressions since
+the previous summary's head, the fifty highest finding counts by file, and the
+fenced JSON totals the next run compares against. The publisher never creates,
+reopens, or closes any other issue: the earlier per-file and
+`quality: regression` issues reopened after every hand close and were retired as
+noise. The artifact contains the complete findings. Malformed history and
+incomplete measurements stop publication, not reset it.
 
 Local preview after building:
 
