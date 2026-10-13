@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Message } from "@openomni/protocol";
-import { measuredContextTokens } from "../../src/plugins/compaction/measure";
+import { measuredContextTokens } from "../../src/core/measure";
 import { assistantWithParts } from "../helpers/messages";
 
 function message(parts: Message.Part[], totalInput: number): Message.WithParts {
