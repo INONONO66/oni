@@ -48,11 +48,12 @@ async function restartApp(config: ReturnType<typeof suite.config>) {
   return planeOf(app.runtime);
 }
 
-test("facade interrupt rides the entity Deliver signal, never an app-side commit", async () => {
+/** A held fake model: the test owns when the turn's one model call returns. */
+async function heldTurnApp(prefix: string) {
   const entered = Promise.withResolvers<string>();
   const release = Promise.withResolvers<void>();
   const app = await suite.boot({
-    config: suite.config("index-interrupt-", { wsToken: "interrupt-token" }),
+    config: suite.config(prefix, { wsToken: "interrupt-token" }),
     llm: {
       resolveModel: fakeProviderModel,
       run: (input) => Effect.gen(function* () {
@@ -68,28 +69,32 @@ test("facade interrupt rides the entity Deliver signal, never an app-side commit
   const sessionId = await bounded(entered.promise);
   const handle = app.sessions.get(sessionId);
   if (handle === undefined) throw new Error("live turn missing");
-  // #1346: the app plane is read-only for the interrupt - the row lands
-  // through the session entity's `Deliver` door, whose single writer owns
-  // the revision CAS the deleted app retry used to duplicate.
-  const original = plane.openKernel;
-  let appCommits = 0;
-  const spy = spyOn(plane, "openKernel").mockImplementation((id) => {
-    const kernel = original(id);
-    if (id !== sessionId) return kernel;
-    const commit: typeof kernel.commit = (input) => {
-      appCommits += 1;
-      return kernel.commit(input);
-    };
-    return { ...kernel, commit };
-  });
+  return { app, plane, sessionId, handle, release };
+}
+
+function signalRows(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string) {
+  return sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter((action) => action.kind === "signal");
+}
+
+test("facade interrupt rides the entity Deliver signal: the activation's writer commits the row under its own fence", async () => {
+  const { plane, sessionId, handle, release } = await heldTurnApp("index-interrupt-");
+  const kernel = plane.openKernel(sessionId);
+  // #1346: the live activation holds the fence under the runner's writer
+  // identity; the interrupt row must land under THAT owner and fence (the
+  // single writer's CAS), never under a fence another writer adopted.
+  const live = kernel.row(sessionId);
+  expect(live).toMatchObject({ state: "running", fenceOwner: `openomni:${process.pid}` });
+  const committed: { readonly id: string; readonly revision: number }[] = [];
+  suite.defer(
+    Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
+      if (event.sessionId === sessionId && event.kind === "signal") committed.push({ id: event.id, revision: event.revision });
+    }),
+  );
   try {
     const interrupted = runEffect(handle.interrupt());
     release.resolve();
     await bounded(interrupted);
-    expect(appCommits).toBe(0);
-    const signals = sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter(
-      (action) => action.kind === "signal",
-    );
+    const signals = signalRows(plane, sessionId);
     // One received interrupt row from the session itself, consumed by the
     // turn's own `before_llm` boundary drain.
     expect(signals.map((action) => action.effect.value)).toEqual([
@@ -97,8 +102,36 @@ test("facade interrupt rides the entity Deliver signal, never an app-side commit
       expect.objectContaining({ phase: "delivery", kind: "interrupt", boundary: "before_llm", deliveryId: signals[0]?.id }),
     ]);
     expect(signals[0]?.intent.value).toEqual({ kind: "session", id: sessionId });
+    // Writer identity: the row committed on the live chain (after the turn
+    // rows the activation wrote) and the fence owner/fence never changed
+    // hands around it — the activation's own CAS, no other writer.
+    expect(committed.find((event) => event.id === signals[0]?.id)?.revision).toBeGreaterThan(live.revision);
+    const after = kernel.row(sessionId);
+    expect([after.fenceOwner, after.fence]).toEqual([live.fenceOwner, live.fence]);
+    expect(after.state).toBe("interrupted");
   } finally {
-    spy.mockRestore();
+    release.resolve();
+  }
+});
+
+test("two concurrent facade interrupts serialize at the entity door: one row, both succeed, no stray signal", async () => {
+  // Re-homed stale-revision case: the deleted app retry duplicated a row on a
+  // revision race; the entity's single writer serializes the two interrupts,
+  // the second finds `interrupted` (not `running`) and is the typed no-op.
+  const { plane, sessionId, handle, release } = await heldTurnApp("index-interrupt-twice-");
+  const kernel = plane.openKernel(sessionId);
+  try {
+    const first = runEffect(handle.interrupt());
+    const second = runEffect(handle.interrupt());
+    release.resolve();
+    await bounded(Promise.all([first, second]));
+    const signals = signalRows(plane, sessionId);
+    expect(signals.map((action) => action.effect.value)).toEqual([
+      { deliveryKind: "interrupt", content: "" },
+      expect.objectContaining({ phase: "delivery", kind: "interrupt", deliveryId: signals[0]?.id }),
+    ]);
+    expect(kernel.pendingMessages(sessionId)).toEqual([]);
+  } finally {
     release.resolve();
   }
 });

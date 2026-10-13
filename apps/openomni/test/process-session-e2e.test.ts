@@ -37,7 +37,12 @@ type ProcessPlane = {
 /**
  * The parent-side reply door a served child forwards its deliveries to
  * (#1346): the child maps each commit to its `Deliver` payload and never
- * writes another chain; the fixture parent lands the row directly.
+ * writes another chain. The fixture parent is NOT an entity-owned session
+ * (its sender turn runs under the fixture's local runner, so no activation
+ * could adopt its fence); these drain tests claim the child's forwarding,
+ * not admission, and land the row locally. Admission through the parent's
+ * entity with the real frame payload is proven by the `startOpenOmni` test
+ * below, where the parent is a booted app.
  */
 function parentReplies(fixture: ReturnType<typeof messageFixture>): ProcessReplies {
   return {
@@ -218,8 +223,12 @@ test("process entry logs committed sessions and disposes its runtime", async () 
   const answerFrame = z.object({ kind: z.literal("request_answer"), answer: SessionTransition.Answer });
   // #1346: the child's deliveries arrive as `request_deliver` frames; the
   // parent lands each row and acks with the pending row receipt.
-  const deliverFrame = z.object({ kind: z.literal("request_deliver"), commit: Delivery.Commit }).loose();
-  const delivered: string[] = [];
+  const deliverFrame = z.object({
+    kind: z.literal("request_deliver"),
+    commit: Delivery.Commit,
+    deliver: z.object({ kind: z.string(), body: z.string(), source: z.string(), idempotencyKey: z.string() }),
+  });
+  const delivered: { readonly sessionId: string; readonly kind: string; readonly idempotencyKey: string }[] = [];
   const parent = parentReplies(fixture);
   const log = mock((line: string) => {
     const parsed = JSON.parse(line);
@@ -227,9 +236,13 @@ test("process entry logs committed sessions and disposes its runtime", async () 
     if (frame.success) answerRequested.resolve(frame.data.answer);
     const delivery = deliverFrame.safeParse(parsed);
     if (!delivery.success) return;
-    const { commit } = delivery.data;
-    delivered.push(commit.sessionId);
-    void parent.deliver({ commit, deliver: { kind: "", body: "", source: "", idempotencyKey: commit.id } }).then(
+    const { commit, deliver } = delivery.data;
+    delivered.push({ sessionId: commit.sessionId, kind: deliver.kind, idempotencyKey: deliver.idempotencyKey });
+    // The frame carries the child's real mapped payload (#1346 M6): the
+    // destination's `Deliver` body, source and idempotency key, not a stub.
+    expect(deliver).toMatchObject({ kind: commit.kind, source: JSON.stringify(commit.origin.value), idempotencyKey: commit.id });
+    expect(JSON.parse(deliver.body)).toMatchObject({ content: commit.content });
+    void parent.deliver({ commit, deliver }).then(
       (row) => stdin.write(`${JSON.stringify({ ok: true, inputId: commit.id, row })}\n`),
       (error: Error) => stdin.write(`${JSON.stringify({ ok: false, inputId: commit.id, error: error.message })}\n`),
     );
@@ -253,8 +266,9 @@ test("process entry logs committed sessions and disposes its runtime", async () 
     expect(createRuntime).toHaveBeenCalledTimes(1);
     expect(requests).toBe(2);
     expect(log).toHaveBeenCalledWith(JSON.stringify({ sessionIds: ["sender"] }));
-    // The tool send crossed the parent door; the settlement rides the answer frame.
-    expect(delivered).toEqual(["sender"]);
+    // The tool send crossed the parent door with the child's mapped payload;
+    // the settlement rides the answer frame.
+    expect(delivered).toEqual([{ sessionId: "sender", kind: "prompt", idempotencyKey: expect.any(String) }]);
     expect(exit).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(stdin.isPaused()).toBe(true);
@@ -269,6 +283,7 @@ test("process entry logs committed sessions and disposes its runtime", async () 
       preview: "PROCESS_SENTINEL",
       pointer: { session: child.id },
     });
+    expect(sessionTree("sender", fixture.plane.sessionStore("sender").actions).some((action) => action.id === delivered[0]?.idempotencyKey)).toBe(true);
   } finally {
     dispose.mockRestore();
     stdin.destroy();
@@ -696,4 +711,20 @@ test("startOpenOmni runs a process session and drains its atomic parent reply wi
     terminal: "completed",
     delivery: "followUp",
   });
+  // Writer identity (#1346 M6): both child deliveries (the tool send and the
+  // settlement reply) crossed the parent's `request_deliver` door into the
+  // parent's Session entity, whose activation holds the fence under this
+  // app's writer — the row's fence owner is `openomni:<pid>`, never the
+  // child's `process:<pid>` nor a test-adopted owner, and the chain is
+  // the entity's single-writer sequence (strictly increasing ordinals).
+  const parentRow = plane.openKernel(child.parentId).row(child.parentId);
+  expect(parentRow).toMatchObject({ fenceOwner: `openomni:${process.pid}` });
+  const parentChain = sessionTree(child.parentId, plane.sessionStore(child.parentId).actions);
+  const chainIds = new Set(parentChain.filter((action) => action.sessionId === child.parentId).map((action) => action.id));
+  const landed = receivedMessages(plane, child.parentId).filter(
+    (row) => row.id === replies[0]?.id || (row.content === "PROCESS_TOOL_SENTINEL" && !row.id.endsWith(":delivery")),
+  );
+  expect(landed).toHaveLength(2);
+  expect(landed.every((row) => chainIds.has(row.id))).toBe(true);
+  expect(parentChain.map((action) => action.ordinal)).toEqual([...parentChain.map((action) => action.ordinal)].sort((a, b) => a - b));
 }, 60_000);

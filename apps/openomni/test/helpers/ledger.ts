@@ -89,7 +89,11 @@ export function adoptTestFence(
  * A cluster-free delivery commit for fixtures that never boot an entity: the
  * received row lands directly on the destination chain (a running destination
  * lends its live fence, an idle one is taken over), idempotent on the row id.
- * The product path is the entity's `Deliver` RPC; this stays test-only.
+ * The product path is the entity's `Deliver` RPC; this stays test-only and
+ * must not back a test that claims admission behavior (#1346 M6): the
+ * `messageFixture` sender holds its turn under a local runner, so no entity
+ * can own it. Admission through the entity is proven where the parent is a
+ * booted app (`startOpenOmni` in process-session-e2e, session-wave-e2e).
  */
 export function localDelivery(
   plane: AppLedgerPlane,
