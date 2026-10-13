@@ -4,7 +4,7 @@ import { Core } from "@openomni/agent";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
 import { Bus } from "./bus";
-import type { AppSessionHandle } from "../../src";
+import type { AppSessionHandle } from "../../src/index";
 import { LlmCall, type AnyToolDefinition, type LedgerAction } from "@openomni/protocol";
 type AdoptReceipt = Core.AdoptReceipt;
 type LedgerError = Core.LedgerError;

@@ -2,10 +2,10 @@ import { Effect } from "effect";
 import { Core, Bundle } from "@openomni/agent";
 import { parseJson } from "@openomni/protocol";
 import { AppInvariantError } from "../invariant";
-import { cronPurposes } from "../bundles/cron";
-import { delegationPurposes, type DelegationDeadlineDeps } from "../bundles/delegation-policy";
-import { monitorPurposes } from "../bundles/monitor";
-import { createLiveArmRegistry, type LiveArmRegistry } from "./alarm-plane";
+import { cronPurposes } from "../bundles/alarms/cron/index";
+import { delegationPurposes, type DelegationDeadlineDeps } from "../bundles/delegation-policy/index";
+import { monitorPurposes } from "../bundles/alarms/monitor/index";
+import { createLiveArmRegistry, type LiveArmRegistry } from "../bundles/alarms/index";
 import type { WatchSources } from "./watch-sources";
 import type { AlarmIngress } from "./automation-alarm";
 

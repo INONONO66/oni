@@ -202,6 +202,7 @@ function bundleNamespace(file: string): string | undefined {
 export type BundleImportFinding = {
   readonly code:
     | "BUNDLE_CROSS_NAMESPACE"
+    | "BUNDLE_APP_IMPORT"
     | "BUNDLE_COMPUTED_IMPORT"
     | "BUNDLE_PARSE_ERROR"
     | "BUNDLE_UNRESOLVED_IMPORT"
@@ -209,6 +210,7 @@ export type BundleImportFinding = {
     | "BUNDLE_CONFIG_ERROR";
   readonly file: string;
   readonly line: number;
+  readonly specifier?: string;
 };
 
 type ModuleEdge = { readonly line: number; readonly specifier: string | undefined };
@@ -429,7 +431,14 @@ export async function checkBundleImports(
     const targetPath = relative(root, resolve(target));
     const targetNamespace = bundleNamespace(targetPath);
     if (targetNamespace && targetNamespace !== namespace) {
-      findings.push({ code: "BUNDLE_CROSS_NAMESPACE", ...location });
+      findings.push({ code: "BUNDLE_CROSS_NAMESPACE", ...location, specifier: edge.specifier });
+    } else if (
+      bundleNamespace(location.file) &&
+      targetPath.startsWith("apps/openomni/src/") &&
+      !targetPath.startsWith("apps/openomni/src/bundles/") &&
+      targetPath !== "apps/openomni/src/bundles/seams.ts"
+    ) {
+      findings.push({ code: "BUNDLE_APP_IMPORT", ...location, specifier: edge.specifier });
     } else if (!targetPath.includes("node_modules/") && !targetPath.startsWith("../")) {
       visit(resolve(target), namespace);
     }
@@ -466,6 +475,107 @@ export async function checkBundleImports(
   ];
 }
 
+/** #1428: moved-tree edges, measured with checkBundleImports; #1454 removes them. */
+const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["apps/openomni/src/bundles/messaging/index.ts", new Set(["../delegation-policy/index"])],
+  ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../messaging/index", "../provision/provision"])],
+  ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../tools/core/watch"])],
+  ["apps/openomni/src/bundles/alarms/monitor/index.ts", new Set(["../../tools/core/watch"])],
+  ["apps/openomni/src/bundles/resident/index.ts", new Set(["../prompt/build", "../prompt/roles", "../tools/core/catalog"])],
+  ["apps/openomni/src/bundles/tools/core/request-domain-revisions.ts", new Set(["../../provision/automation-schema", "../../provision/automation"])],
+  ["apps/openomni/src/bundles/tools/core/catalog.ts", new Set(["../../provision/provision", "../../provision/channels", "../../messaging/send-message/index"])],
+  ["apps/openomni/src/bundles/provision/provision.ts", new Set(["../tools/core/contact-mutations"])],
+  ["apps/openomni/src/bundles/provision/contacts.ts", new Set(["../tools/core/contact-mutations"])],
+  ["apps/openomni/src/bundles/provision/execution.ts", new Set(["../tools/core/contact-mutations"])],
+]);
+const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["apps/openomni/src/bundles/hooks-json/index.ts", new Set(["../../invariant"])],
+  ["apps/openomni/src/bundles/compaction/summarizer.ts", new Set(["../../composition/completion"])],
+  ["apps/openomni/src/bundles/compaction/strategy.ts", new Set(["../../config"])],
+  ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../composition/point-table", "../../invariant"])],
+  ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
+  ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component", "../../composition/generation-layers"])],
+  ["apps/openomni/src/bundles/tools/core/watch.ts", new Set(["../../../composition/cluster-runtime"])],
+  ["apps/openomni/src/bundles/tools/core/request-domain-revisions.ts", new Set(["../../../invariant"])],
+  ["apps/openomni/src/bundles/provision/status.ts", new Set(["../../channels"])],
+  ["apps/openomni/src/bundles/provision/channels.ts", new Set(["../../channels"])],
+  ["apps/openomni/src/bundles/provision/supervisor.ts", new Set(["../../thrown", "../../channels"])],
+  ["apps/openomni/src/bundles/provision/automation.ts", new Set(["../../thrown"])],
+  ["apps/openomni/src/bundles/provision/declared.ts", new Set(["../../channels", "../../gateway"])],
+]);
+
+type BundlePinCode = "BUNDLE_CROSS_NAMESPACE" | "BUNDLE_APP_IMPORT";
+type BundlePinTable = ReadonlyMap<string, ReadonlySet<string>>;
+
+function isPinnedBundleCode(code: BundleImportFinding["code"]): code is BundlePinCode {
+  return code === "BUNDLE_CROSS_NAMESPACE" || code === "BUNDLE_APP_IMPORT";
+}
+
+function bundlePins(code: BundlePinCode): BundlePinTable {
+  return code === "BUNDLE_CROSS_NAMESPACE" ? BUNDLE_SIBLING_PINS : BUNDLE_APP_PINS;
+}
+
+function collectBundleEdges(findings: readonly BundleImportFinding[]): Map<BundlePinCode, Map<string, BundleImportFinding[]>> {
+  const edges = new Map<string, Map<string, BundleImportFinding[]>>();
+  for (const finding of findings) {
+    if (!isPinnedBundleCode(finding.code) || !finding.specifier) continue;
+    const bySpecifier = edges.get(finding.code) ?? new Map<string, BundleImportFinding[]>();
+    const fileFindings = bySpecifier.get(finding.file) ?? [];
+    fileFindings.push(finding);
+    bySpecifier.set(finding.file, fileFindings);
+    edges.set(finding.code, bySpecifier);
+  }
+  return edges as Map<BundlePinCode, Map<string, BundleImportFinding[]>>;
+}
+
+function bundleEdgeViolations(code: BundlePinCode, edges: Map<string, BundleImportFinding[]>): string[] {
+  const violations: string[] = [];
+  const pins = bundlePins(code);
+  const label = code === "BUNDLE_CROSS_NAMESPACE" ? "sibling" : "app-module";
+  for (const [file, fileFindings] of [...edges].sort(([left], [right]) => left.localeCompare(right))) {
+    const allowed = pins.get(file) ?? new Set<string>();
+    const unexpected = fileFindings.filter((finding) => !allowed.has(finding.specifier ?? ""));
+    if (unexpected.length === 0) continue;
+    violations.push(...unexpected.map((finding) => `VIOLATION: ${finding.code} ${file}:${finding.line}`));
+    violations.push(`VIOLATION: ${file} has ${fileFindings.length} ${label} edges outside the #1428 exact pin`);
+  }
+  return violations;
+}
+
+function bundlePinSlackViolations(
+  findings: readonly BundleImportFinding[],
+  root: string,
+): string[] {
+  if (!isGitCheckout(root)) return [];
+  const violations: string[] = [];
+  for (const code of ["BUNDLE_CROSS_NAMESPACE", "BUNDLE_APP_IMPORT"] as const) {
+    const actual = new Map<string, Set<string>>();
+    for (const finding of findings) {
+      if (finding.code !== code || !finding.specifier) continue;
+      const file = actual.get(finding.file) ?? new Set<string>();
+      file.add(finding.specifier);
+      actual.set(finding.file, file);
+    }
+    for (const [file, allowed] of bundlePins(code)) {
+      const live = actual.get(file) ?? new Set<string>();
+      for (const specifier of allowed) if (!live.has(specifier))
+        violations.push(`VIOLATION: ${file} pin exceeds actual import ${specifier}: lower the pin`);
+    }
+  }
+  return violations;
+}
+
+export function bundleImportViolations(
+  findings: readonly BundleImportFinding[],
+  root = ".",
+): string[] {
+  const violations = findings
+    .filter((finding) => !isPinnedBundleCode(finding.code) || !finding.specifier)
+    .map((finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}${finding.specifier ? "" : " missing import identity"}`);
+  for (const [code, edges] of collectBundleEdges(findings)) violations.push(...bundleEdgeViolations(code, edges));
+  violations.push(...bundlePinSlackViolations(findings, root));
+  return violations;
+}
 async function validateDependencyDirection(): Promise<string[]> {
   const violations: string[] = [];
 
@@ -1209,7 +1319,7 @@ const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
 const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [
-  { file: "apps/openomni/src/provisioning/contacts.ts", receiver: "port", member: "materialize" },
+  { file: "apps/openomni/src/bundles/provision/contacts.ts", receiver: "port", member: "materialize" },
 ];
 
 /** The banned member a property or element access names, if any (`create` only off `sessionStore(...)`). */
@@ -1518,12 +1628,12 @@ async function validateDeepImports(): Promise<string[]> {
   return violations;
 }
 
-async function* scannedImports(pattern: RegExp): AsyncGenerator<{
+async function* scannedImports(pattern: RegExp, root = "."): AsyncGenerator<{
   filePath: string;
   importPath: string;
   line: number;
 }, void, void> {
-  for await (const { filePath, source } of scanRepositorySources("**/*.{ts,tsx}")) {
+  for await (const { filePath, source } of scanRepositorySources("**/*.{ts,tsx}", root)) {
     for (const match of source.matchAll(pattern)) {
       const importPath = match[1];
       if (importPath === undefined) continue;
@@ -1532,20 +1642,38 @@ async function* scannedImports(pattern: RegExp): AsyncGenerator<{
   }
 }
 
-async function validateDeepRelativeImports(): Promise<string[]> {
+/** #1428 layout adds one level under bundles/<bundle>/<sub>/; removal tracked in #1454. */
+const DEEP_RELATIVE_IMPORT_PINS: ReadonlyMap<string, string> = new Map([
+  ["apps/openomni/src/bundles/tools/core/watch.ts", "../../../composition/cluster-runtime"],
+  ["apps/openomni/src/bundles/tools/core/request-domain-revisions.ts", "../../../invariant"],
+]);
+
+export async function validateDeepRelativeImports(root = "."): Promise<string[]> {
   const violations: string[] = [];
   const importPattern = /(?:from\s+|import\s*\(\s*)["'](\.{2}\/[^"']*)["']/g;
+  const used = new Set<string>();
 
-  for await (const { filePath, importPath, line } of scannedImports(importPattern)) {
+  for await (const { filePath, importPath, line } of scannedImports(importPattern, root)) {
     const isSelfRootImport = importPath.startsWith("../../src/");
     const isDeepRelativeImport = parentTraversalDepth(importPath) >= 3;
     if (!isSelfRootImport && !isDeepRelativeImport) continue;
+    if (DEEP_RELATIVE_IMPORT_PINS.get(filePath) === importPath && !used.has(filePath)) {
+      used.add(filePath);
+      continue;
+    }
     const reason = isSelfRootImport ? "self-root relative import" : "deep relative import";
     violations.push(
       `VIOLATION: ${filePath}:${line} imports ${importPath} — ${reason}; use a closer relative import or a domain barrel`,
     );
   }
 
+  if (isGitCheckout(root)) {
+    for (const [filePath, importPath] of DEEP_RELATIVE_IMPORT_PINS) {
+      if (!used.has(filePath)) {
+        violations.push(`VIOLATION: ${filePath} stale pin for ${importPath} — remove the #1428 exemption`);
+      }
+    }
+  }
   return violations;
 }
 
@@ -1995,9 +2123,7 @@ export async function main(): Promise<void> {
     ...appsAgentBarrelViolationList,
     ...appsAgentTokenViolationList,
     ...appsSessionWriteViolationList,
-    ...bundleViolations.map(
-      (finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}`,
-    ),
+    ...bundleImportViolations(bundleViolations),
     ...deepImportViolations,
     ...deepRelativeImportViolations,
     ...goldenViolations,

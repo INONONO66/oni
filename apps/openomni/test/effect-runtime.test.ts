@@ -5,7 +5,7 @@ import { bootResource } from "../src/composition/boot";
 import { createSessionEntityPortsSlot } from "../src/composition/cluster-runtime";
 import { gatewayRuntime, runAppBoot, toolPorts } from "../src/gateway";
 
-import { startOpenOmni } from "../src";
+import { startOpenOmni } from "../src/index";
 import { Core } from "@openomni/agent";
 const Entropy = Core.Entropy;
 import { Clock } from "effect";

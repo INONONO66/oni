@@ -26,7 +26,7 @@ import { residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { runEffect } from "./helpers/effect";
 import { testToolsBundle } from "./helpers/app-fixture";
-import type { AppSessionHandle } from "../src";
+import type { AppSessionHandle } from "../src/index";
 import { contentBlocks, messageStart, messageEnd, sseResponse } from "./helpers/anthropic-sse";
 import {
   adoptAtFence,

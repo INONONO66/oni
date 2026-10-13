@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Bus } from "./helpers/bus";
 import { PROCESS_SESSION_NO_REQUEST_EXIT } from "../src/process-entry";
-import { startOpenOmni } from "../src";
+import { startOpenOmni } from "../src/index";
 import { testMachinesPlane } from "./helpers/self-machine";
 
 const appDir = join(import.meta.dir, "..");

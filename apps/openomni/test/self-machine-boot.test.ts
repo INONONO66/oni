@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import * as Machines from "@openomni/machines";
 import { Machine } from "@openomni/protocol";
-import { startOpenOmni } from "../src";
+import { startOpenOmni } from "../src/index";
 import * as Gateway from "../src/gateway";
 import { SelfAttachError } from "../src/composition/self-machine";
 import type { OpenOmniConfig } from "../src/config";

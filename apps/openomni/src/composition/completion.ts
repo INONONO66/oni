@@ -11,7 +11,7 @@ type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
 import { traceIdFromUuid, type Message, type PlainObject } from "@openomni/protocol";
 import { Effect } from "effect";
-import type { LlmCall } from "../tools/completion";
+import type { LlmCall } from "../bundles/tools/completion/index";
 
 interface ResolvedModel {
   readonly provider: string;

@@ -13,8 +13,8 @@ import {
   desiredChannels,
   materializePersons,
   vaultCredentialReader,
-} from "../src/provisioning/declared";
-import { resolveKek, vaultKeyPath } from "../src/provisioning/vault-key";
+} from "../src/bundles/provision/declared";
+import { resolveKek, vaultKeyPath } from "../src/bundles/provision/vault-key";
 
 import { putChannelCredential } from "./helpers/channel-credential";
 import { testChannelDeps } from "./helpers/test-entropy";

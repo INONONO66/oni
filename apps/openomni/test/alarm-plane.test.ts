@@ -7,7 +7,7 @@ import {
   createLiveArmRegistry,
   foldAlarmChains,
   watchStateOf,
-} from "../src/composition/alarm-plane";
+} from "../src/bundles/alarms/index";
 import { runEffect, runSyncResult } from "./helpers/effect";
 import {
   awaitScheduled,

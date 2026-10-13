@@ -2,7 +2,8 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkEffectBoundaries, checkEffectBoundaryFindings, effectServiceInventory, main, type BoundaryFinding } from "./check-effect-boundaries";
+import { catalogDefinitions } from "../apps/openomni/src/bundles/tools/core/catalog";
+import { checkEffectBoundaries, checkEffectBoundaryFindings, effectServiceInventory, main, PREEXISTING_TOOL_EFFECT_PINS, TOOL_BODY_PATHS, type BoundaryFinding } from "./check-effect-boundaries";
 import { decodeJson } from "./quality-json";
 import { verifyPinnedFilesExist } from "./lint-side-effects";
 
@@ -147,9 +148,41 @@ test("rejects malformed manifest dependency sections before checking boundaries"
 });
 
 test("rejects an Effect import in a tool body", (): void => {
-  const root = fixture([{ path: "apps/openomni/src/tools/send-message.ts", source: 'import { Effect } from "effect";' }]);
+  const root = fixture([{ path: "apps/openomni/src/bundles/messaging/send-message/index.ts", source: 'import { Effect } from "effect";' }]);
   expect(codes(root)).toContain("R1_TOOL_EFFECT_IMPORT");
   expect(run(root).code).toBe(1);
+});
+
+test("rejects an Effect import in the provision tool body", (): void => {
+  const root = fixture([{ path: "apps/openomni/src/bundles/provision/provision.ts", source: 'import { Effect } from "effect";' }]);
+  expect(codes(root)).toContain("R1_TOOL_EFFECT_IMPORT");
+  expect(run(root).code).toBe(1);
+});
+
+test("maps every catalog tool name to an existing checked body", async (): Promise<void> => {
+  const ports = {
+    messages: undefined,
+    machines: undefined,
+    cells: undefined,
+    llm: undefined,
+    provisioning: undefined,
+    clock: () => 0,
+    id: () => "test",
+  } as never;
+  const expected = [...catalogDefinitions(ports).map(({ name }) => name), "monitor"];
+  expect(new Set(TOOL_BODY_PATHS.keys())).toEqual(new Set(expected));
+  for (const path of TOOL_BODY_PATHS.values()) expect(await Bun.file(join(import.meta.dir, "..", path)).exists()).toBe(true);
+});
+
+test("keeps the pre-existing send_message Effect pin exact and detects staleness", (): void => {
+  const pin = PREEXISTING_TOOL_EFFECT_PINS.get("send_message");
+  if (!pin) throw new Error("missing send_message pin");
+  const root = fixture([{ path: pin.file, source: `\n\n${pin.text}\n` }]);
+  expect(checkEffectBoundaryFindings(root, PREEXISTING_TOOL_EFFECT_PINS)).toContainEqual({
+    code: "R1_TOOL_EFFECT_IMPORT", file: pin.file, line: pin.line, failing: false,
+  });
+  writeFileSync(join(root, pin.file), "export {};\n");
+  expect(checkEffectBoundaryFindings(root, PREEXISTING_TOOL_EFFECT_PINS).map(({ code }) => code)).toContain("R1_STALE_TOOL_EFFECT_PIN");
 });
 
 test("scans an untracked source file", (): void => {
@@ -291,9 +324,9 @@ test("allows both approved edges on their own", (): void => {
   expect(run(root).code).toBe(0);
 });
 
-test.each(["packages/ui/src/view.tsx", "apps/desktop/src/main.ts", "apps/openomni/src/tools/core/filesystem.ts"])("excludes imports in %s", (path: string): void => {
+test.each(["packages/ui/src/view.tsx", "apps/desktop/src/main.ts"])("excludes imports in %s", (path: string): void => {
   const root = fixture([{ path, source: 'import type { Effect } from "effect/Effect";' }]);
-  expect(codes(root)).toEqual([path.includes("/tools/") ? "R1_TOOL_EFFECT_IMPORT" : "R1_EFFECT_IMPORT"]);
+  expect(codes(root)).toEqual(["R1_EFFECT_IMPORT"]);
 });
 
 test.each(["packages/protocol/package.json", "packages/ui/package.json", "apps/desktop/package.json"])("excludes effect dependencies in %s", (path: string): void => {

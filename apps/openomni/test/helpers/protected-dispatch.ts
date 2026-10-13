@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
 import { Effect } from "effect";
 import { Bundle, Core } from "@openomni/agent";
 const createDispatcher = Bundle.createDispatcher;
@@ -12,10 +12,10 @@ import type {
 import { compiledPolicy } from "../../../../packages/agent/test/helpers/compiled-policy";
 import { bounded } from "../../../../packages/agent/test/helpers/request-ledger";
 import { requestLedger } from "../../../../packages/agent/test/helpers/effect-g1";
-import { createRequestDomainRevisions } from "../../src/tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "../../src/bundles/tools/core/request-domain-revisions";
 import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
 import { testPlane } from "./ledger";
-import { PROVISION_POLICY_ROWS } from "../../src/tools/provision";
+import { PROVISION_POLICY_ROWS } from "../../src/bundles/provision/provision";
 import { executorLayer, catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";
 import { runEffect, runSyncEffect } from "./effect";
 import { provisionPort } from "./provision-port";

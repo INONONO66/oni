@@ -1,7 +1,7 @@
 import { Ingress } from "@openomni/protocol";
 import { Effect } from "effect";
-import { automationLedger, executeAutomation, type AutomationPort } from "../provisioning/automation";
-import { AutomationOperation, type AutomationRefusal } from "../provisioning/automation-schema";
+import { automationLedger, executeAutomation, type AutomationPort } from "../bundles/provision/automation";
+import { AutomationOperation, type AutomationRefusal } from "../bundles/provision/automation-schema";
 
 const successes = {
   automation_add: "automation_added",

@@ -10,7 +10,7 @@ import { canonicalDigest, Gateway } from "@openomni/protocol";
 import { messageFixture } from "./helpers/message-fixture";
 import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { messageMaterialization, prepareMessage } from "../src/composition/message-session";
-import { ADMISSION_DEPTH_MAX } from "../src/bundles/delegation-policy";
+import { ADMISSION_DEPTH_MAX } from "../src/bundles/delegation-policy/index";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
 
 import { storageDirectories } from "./helpers/storage-directories";

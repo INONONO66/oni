@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
 import type { PlainObject } from "@openomni/protocol";
 import { Effect } from "effect";
-import { CRON_TICK, cronBundle, cronPurposes } from "../src/bundles/cron";
-import { monitorBundle, monitorPurposes } from "../src/bundles/monitor";
+import { CRON_TICK, cronBundle, cronPurposes } from "../src/bundles/alarms/cron/index";
+import { monitorBundle, monitorPurposes } from "../src/bundles/alarms/monitor/index";
 import { ToolCapabilitySeam } from "../src/bundles/seams";
 import { runEffect } from "./helpers/effect";
 

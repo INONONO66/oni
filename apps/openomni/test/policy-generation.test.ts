@@ -4,10 +4,10 @@ const createPolicyCompiler = Core.createPolicyCompiler;
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
 import type { PolicyRow } from "@openomni/protocol";
-import { monitorBundle } from "../src/bundles/monitor";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "../src/policy-seed";
-import { MESSAGE_POLICY_ROWS } from "../src/message-policy";
-import { PROVISION_POLICY_ROWS } from "../src/tools/provision";
+import { monitorBundle } from "../src/bundles/alarms/monitor/index";
+import { gateRowPolicySeeds, seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { MESSAGE_POLICY_ROWS } from "../src/bundles/messaging/index";
+import { PROVISION_POLICY_ROWS } from "../src/bundles/provision/provision";
 import { testPlane } from "./helpers/ledger";
 
 // #1308: the wake-budget seed is the composed bundle row, projected the same

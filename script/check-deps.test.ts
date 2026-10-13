@@ -6,12 +6,14 @@ import {
   agentBandViolations,
   agentIndexPerimeterViolations,
   appsRetiredHostViolations,
+  bundleImportViolations,
   checkBundleImports,
   checkDocFreshness,
   main,
   validateAgentBands,
   validateAgentIndexPerimeter,
   validateAppsAgentBarrel,
+  validateDeepRelativeImports,
 } from "./check-deps";
 import { checkPython } from "./check-quality-python";
 import { TOPOLOGY } from "./topology";
@@ -113,6 +115,26 @@ test.each([
   expect(result.error).toContain(`BUNDLE_CROSS_NAMESPACE ${audit}:2`);
 });
 
+test("sibling edge pins reject growth and require shrinkage in a checkout", () => {
+  const file = "apps/openomni/src/bundles/messaging/index.ts";
+  const root = fixture({});
+  const finding = { code: "BUNDLE_CROSS_NAMESPACE" as const, file, line: 2, specifier: "../delegation-policy/index" };
+  const swapped = { ...finding, line: 3, specifier: "../different-bundle/index" };
+  expect(bundleImportViolations([finding, swapped], root)).toContain(
+    `VIOLATION: BUNDLE_CROSS_NAMESPACE ${file}:3`,
+  );
+
+  expect(bundleImportViolations([finding], root)).toEqual([]);
+});
+
+test("a removed deep-relative edge leaves a stale layout pin", async () => {
+  const root = fixture({});
+  mkdirSync(join(root, ".git"));
+  expect(await validateDeepRelativeImports(root)).toContain(
+    "VIOLATION: apps/openomni/src/bundles/tools/core/watch.ts stale pin for ../../../composition/cluster-runtime — remove the #1428 exemption",
+  );
+});
+
 test("refuses tsconfig aliases inherited by the app", async () => {
   const root = fixture({
     "tsconfig.base.json": JSON.stringify({
@@ -143,7 +165,7 @@ test.each([
   });
   const result = await run(root);
   expect(result.code).toBe(1);
-  expect(result.error).toContain("BUNDLE_CROSS_NAMESPACE apps/openomni/src/cycle.ts:2");
+  expect(result.error).toContain("VIOLATION: BUNDLE_APP_IMPORT apps/openomni/src/bundles/audit-log/index.ts:1");
 });
 
 test.each([
@@ -158,7 +180,7 @@ test.each([
   });
   const result = await run(root);
   expect(result.code).toBe(1);
-  expect(result.error).toContain("BUNDLE_COMPUTED_IMPORT apps/openomni/src/bridge.ts:1");
+  expect(result.error).toContain("VIOLATION: BUNDLE_APP_IMPORT apps/openomni/src/bundles/audit-log/index.ts:1");
 });
 
 test("allows same namespace, external dependencies, approved core barrels and app composition", async () => {
@@ -258,11 +280,12 @@ test.each([
     "apps/openomni/src/loader.ts": 'export { load } from "./loader-origin.js";',
     "apps/openomni/src/loader-origin.ts": "export const load = require;",
   });
-  expect(await checkBundleImports(root)).toContainEqual({
+  expect(await checkBundleImports(root)).toContainEqual(expect.objectContaining({
     code: "BUNDLE_CROSS_NAMESPACE",
     file: audit,
     line: 1,
-  });
+    specifier: "../demo/index.js",
+  }));
   expect((await run(root)).code).toBe(1);
 });
 
@@ -338,11 +361,12 @@ test("follows require edges into shared barrels", async () => {
     "apps/openomni/src/shared.ts": 'export * from "./bundles/demo/index.js";',
     [demo]: "export {};",
   });
-  expect(await checkBundleImports(root)).toContainEqual({
-    code: "BUNDLE_CROSS_NAMESPACE",
-    file: "apps/openomni/src/shared.ts",
+  expect(await checkBundleImports(root)).toContainEqual(expect.objectContaining({
+    code: "BUNDLE_APP_IMPORT",
+    file: audit,
     line: 1,
-  });
+    specifier: "../../shared.js",
+  }));
 });
 
 test("refuses unresolved aliases instead of treating them as external dependencies", async () => {
@@ -716,7 +740,7 @@ const repoRoot = join(import.meta.dir, "..");
 const RETIRED_SURFACES: Readonly<Record<string, { pattern: RegExp; globs: readonly string[] }>> = {
   "monitor tool/ports files": {
     pattern: /./,
-    globs: ["apps/openomni/src/tools/monitor.ts", "apps/openomni/src/composition/monitor-ports.ts"],
+    globs: ["apps/openomni/src/bundles/tools/monitor.ts", "apps/openomni/src/composition/monitor-ports.ts"],
   },
   "sessionTool(/toolSpec( in the agent": {
     pattern: /sessionTool\(|toolSpec\(/,

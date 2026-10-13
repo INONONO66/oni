@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import * as Machines from "@openomni/machines";
 import type { Machine } from "@openomni/protocol";
 import * as Codemode from "../src/composition/codemode";
-import { startOpenOmni } from "../src";
+import { startOpenOmni } from "../src/index";
 import { runEffect } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 import { testSelfMachine } from "./helpers/self-machine";

@@ -1,6 +1,6 @@
 import type { Bundle } from "@openomni/agent";
 import { Context } from "effect";
-import type { MonitorPorts } from "../tools/core/watch";
+import type { MonitorPorts } from "../bundles/tools/core/watch";
 
 /**
  * The late-bound live alarm ports the monitor bundle's ONE tool declaration

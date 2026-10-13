@@ -9,7 +9,7 @@ import { rmSync } from "node:fs";
 import { type Core, Inspect } from "@openomni/agent";
 import { createSessionKernel } from "../../../packages/agent/src/core/store/fence";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
-import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
+import { openSessionStore } from "../../../packages/agent/src/core/store/session-file/index";
 import { SessionRead } from "@openomni/protocol";
 import { readSessionCursor } from "../src/gateway";
 import { clusterTempDir } from "../../../packages/agent/test/helpers/cluster-runtime";

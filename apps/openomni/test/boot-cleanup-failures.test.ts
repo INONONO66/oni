@@ -3,7 +3,7 @@ import { expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import { bootResource } from "../src/composition/boot";
 import { gatewayRuntime, runAppBoot } from "../src/gateway";
-import { startOpenOmni } from "../src";
+import { startOpenOmni } from "../src/index";
 import { AppLifecycleFailure } from "../src/runtime";
 import { Bus } from "./helpers/bus";
 import { testMachinesPlane } from "./helpers/self-machine";

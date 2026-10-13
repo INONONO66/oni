@@ -1,5 +1,5 @@
 import { runEffect } from "./effect";
-import type { startOpenOmni } from "../../src";
+import type { startOpenOmni } from "../../src/index";
 
 type RunningApp = Awaited<ReturnType<typeof startOpenOmni>>;
 

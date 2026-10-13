@@ -1,12 +1,12 @@
 import { Bundle } from "@openomni/agent";
-import { approvalPolicyBundle } from "./bundles/approval-policy";
-import { cronBundle } from "./bundles/cron";
-import { delegationPolicyBundle } from "./bundles/delegation-policy";
-import { hooksJsonBundle, type HooksJsonInput } from "./bundles/hooks-json";
-import { monitorBundle } from "./bundles/monitor";
+import { approvalPolicyBundle } from "./bundles/approval-policy/index";
+import { cronBundle } from "./bundles/alarms/cron/index";
+import { delegationPolicyBundle } from "./bundles/delegation-policy/index";
+import { hooksJsonBundle, type HooksJsonInput } from "./bundles/hooks-json/index";
+import { monitorBundle } from "./bundles/alarms/monitor/index";
 import { ToolCapabilitySeam } from "./bundles/seams";
-import type { MonitorPorts } from "./tools/core/watch";
-import { sendMessageBundle } from "./bundles/send-message";
+import type { MonitorPorts } from "./bundles/tools/core/watch";
+import { sendMessageBundle } from "./bundles/messaging/send-message/index";
 
 /**
  * The tool-capability contract (#1255 P3, #1316): the dispatcher lives in

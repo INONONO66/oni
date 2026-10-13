@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
 import { testToolPorts } from "./tool-ports";
 import { Context, Effect, Layer, Scope } from "effect";
 import { Bundle, Core } from "@openomni/agent";
@@ -13,13 +13,13 @@ const closeSessions = Core.closeSessions;
 type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./bus";
 import { immediateRetryAlarm as nullRetryAlarm } from "./immediate-retry-alarm";
-import { createResident, type ResidentOptions } from "../../src/resident";
+import { createResident, type ResidentOptions } from "../../src/bundles/resident/index";
 import { runEffect, runSyncEffect } from "./effect";
 import { effectScope } from "./effect-scope";
 import { drainSession, localDelivery, resolvedRuntimeFor, testPlane } from "./ledger";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
 
-import { seedKernelPolicyRows } from "../../src/policy-seed";
+import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {

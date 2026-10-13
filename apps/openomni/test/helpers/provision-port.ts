@@ -1,6 +1,6 @@
 import { createAutomationStore, Vault } from "@openomni/channels";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
-import type { ProvisionPort } from "../../src/provisioning/channels";
+import type { ProvisionPort } from "../../src/bundles/provision/channels";
 import { testPlane } from "./ledger";
 
 /** Real durable stores under a quiet supervisor: enough for address-book authority tests. */

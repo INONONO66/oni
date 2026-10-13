@@ -7,14 +7,14 @@ import {
   runCluster,
   sendPrompt,
 } from "../../../../packages/agent/test/helpers/cluster-runtime";
-import { createAlarmMonitorPorts, createLiveArmRegistry } from "../../src/composition/alarm-plane";
-import { cronPurposes } from "../../src/bundles/cron";
-import { monitorBundle, monitorPurposes } from "../../src/bundles/monitor";
+import { createAlarmMonitorPorts, createLiveArmRegistry } from "../../src/bundles/alarms/index";
+import { cronPurposes } from "../../src/bundles/alarms/cron/index";
+import { monitorBundle, monitorPurposes } from "../../src/bundles/alarms/monitor/index";
 import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
 import { createAppLedger } from "./ledger";
-import type { MonitorPorts } from "../../src/tools/core/watch";
+import type { MonitorPorts } from "../../src/bundles/tools/core/watch";
 import type { ArmedWatch, WatchSources } from "../../src/composition/watch-sources";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "../../src/policy-seed";
+import { gateRowPolicySeeds, seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
 import { runEffect } from "./effect";
 import { adoptTestFence } from "./ledger";
 import { testClock } from "./test-entropy";

@@ -7,14 +7,14 @@ type ExecutionApprovalRequest = Core.ExecutionApprovalRequest;
 import { Bus, newTraceId } from "./helpers/bus";
 import { Effect } from "effect";
 import { type Alarm, canonicalDigest, L0Observation, Operational, type PlainObject } from "@openomni/protocol";
-import type { AppSessionHandle } from "../src";
+import type { AppSessionHandle } from "../src/index";
 import {
   assistantMessage,
   requestToolStep,
 } from "./helpers/assistant-message";
 import { adoptTestFence, planeOf } from "./helpers/ledger";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
-import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
+import { foldAlarmChains, watchStateOf } from "../src/bundles/alarms/index";
 import { testMachinesPlane } from "./helpers/self-machine";
 import { bounded } from "./helpers/protected-dispatch";
 import { runEffect } from "./helpers/effect";

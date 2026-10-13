@@ -1,5 +1,5 @@
 import { composedHolder } from "./helpers/bundle-fixture";
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { expect, test } from "bun:test";
 import { Core, Testing } from "@openomni/agent";
 const GenerationLayers = Core.GenerationLayers;
@@ -10,8 +10,8 @@ const projectTools = Core.projectTools;
 import type { AnyToolDefinition } from "@openomni/protocol";
 import { Effect, type Layer } from "effect";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../src/gateway";
-import { seedKernelPolicyRows } from "../src/policy-seed";
-import { createResident } from "../src/resident";
+import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { createResident } from "../src/bundles/resident/index";
 import type { CatalogSelection, GenerationDefinitions } from "../src/composition/generation-layers";
 import { testToolPorts } from "./helpers/tool-ports";
 import { allowConfigure } from "./helpers/generation-services";

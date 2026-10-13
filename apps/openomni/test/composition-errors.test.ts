@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { testToolPorts } from "./helpers/tool-ports";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
@@ -7,7 +7,7 @@ import { newTraceId } from "./helpers/bus";
 import { Bus } from "./helpers/bus";
 import { Component } from "@openomni/protocol";
 import { observeComponent } from "../src/observation/component";
-import { createResident } from "../src/resident";
+import { createResident } from "../src/bundles/resident/index";
 import { allowConfigure } from "./helpers/generation-services";
 import { testPlane } from "./helpers/ledger";
 

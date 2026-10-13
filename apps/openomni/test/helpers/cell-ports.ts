@@ -1,5 +1,5 @@
 import type { ComposedCodemode } from "../../src/composition/codemode";
-import type { ToolPorts } from "../../src/tools/core/catalog";
+import type { ToolPorts } from "../../src/bundles/tools/core/catalog";
 import { runEffect } from "./effect";
 
 /** The test boundary mirrors the app's Promise-facing tool ports. */

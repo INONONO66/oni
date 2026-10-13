@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
 import { appManifest } from "../src/manifest";
-import { createMonitorTool } from "../src/bundles/monitor";
+import { createMonitorTool } from "../src/bundles/alarms/monitor/index";
 import { ToolCapabilitySeam } from "../src/bundles/seams";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import { runEffect } from "./helpers/effect";

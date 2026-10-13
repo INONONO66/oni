@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect, Fiber } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -13,17 +13,17 @@ import { catalogLayer, executorLayer } from "../../../packages/agent/test/helper
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
 import { compiledPolicy } from "../../../packages/agent/test/helpers/compiled-policy";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
-import { createRequestDomainRevisions } from "../src/tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "../src/bundles/tools/core/request-domain-revisions";
 import { runEffect } from "./helpers/effect";
 import { afterEach, beforeEach, expect, it } from "bun:test";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
-import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
+import { openSessionStore } from "../../../packages/agent/src/core/store/session-file/index";
 import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { testPlane } from "./helpers/ledger";
 const eraseTool = Core.eraseTool;
 import type { PlainObject } from "@openomni/protocol";
-import { createProvisionTool, PROVISION_POLICY_ROWS } from "../src/tools/provision";
-import { catalogDefinitions } from "../src/tools/core/catalog";
+import { createProvisionTool, PROVISION_POLICY_ROWS } from "../src/bundles/provision/provision";
+import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
 import { testToolPorts } from "./helpers/tool-ports";
 import { executor } from "./helpers/executor";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";

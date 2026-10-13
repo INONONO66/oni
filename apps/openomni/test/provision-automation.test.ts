@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { Ingress, type ToolExecutionContext } from "@openomni/protocol";
-import { createProvisionTool, ProvisionInput } from "../src/tools/provision";
-import { executeAutomation } from "../src/provisioning/automation";
-import { executeProvision } from "../src/provisioning/execution";
+import { createProvisionTool, ProvisionInput } from "../src/bundles/provision/provision";
+import { executeAutomation } from "../src/bundles/provision/automation";
+import { executeProvision } from "../src/bundles/provision/execution";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";

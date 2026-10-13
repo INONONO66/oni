@@ -3,7 +3,7 @@ import { Bus } from "./helpers/bus";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { Tool } from "@openomni/protocol";
-import { createProvisionTool } from "../src/tools/provision";
+import { createProvisionTool } from "../src/bundles/provision/provision";
 import { protectedDispatch, bounded } from "./helpers/protected-dispatch";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";

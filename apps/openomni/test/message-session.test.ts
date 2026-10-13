@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
 const createExecutor = Core.createExecutor;
