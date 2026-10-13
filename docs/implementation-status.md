@@ -1,5 +1,22 @@
 # Implementation Status
 
+## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
+
+On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `18ca03806`, PR #1461).
+Webhook deliveries now emit `event: "webhook"` and the stored `secretRef`
+that verified their HMAC. GitHub deliveries emit `event: "github"` and a
+`githubEvent` key such as `pull_request.opened`. Both optional facts are
+additive protocol fields, preserved by the unified input builder and selected
+by the corresponding automation trigger. `channelId` still identifies the
+webhook credential or GitHub issue/PR, so channel conditions and grouping keep
+their meaning. Drivers report facts only; the matcher does not accept
+`message` as a specialized event.
+
+The signed-driver integration tests use real adapters, input normalization,
+matching, and SQLite records. They failed with no route before the fix and
+now produce an action and a persisted `matched` row. The seven changed test
+files pass 41 tests; protocol snapshots include the additive fields.
+
 ## #1349 — three-line comment rule across packages/agent (PR #1449, base `2c3efdb0a`)
 
 - Scope: `packages/agent/src`, `packages/agent/test`, `packages/agent/bench` plus `script/check-comment-residue.ts` and its test; nothing else (`git diff --name-only 2c3efdb0a..HEAD | grep -vE '^packages/agent/|^script/check-comment-residue'` is empty — this stamp is the lead's tail commit). The rung lands alone, after #1348, because every agent file it touches is also a rebase hazard for the other rungs.
@@ -9,7 +26,6 @@
 - Gate: `script/check-comment-residue.ts` now carries a per-file `[issueNumberLines, dividerLines]` pin table over every agent src file, a package comment-ratio ceiling and a JSDoc>6 ceiling of 0, all equal to HEAD actuals (a pin above its actual is itself a violation: shrink only, never grow). The blanket `structuralHeaders` divider exemption is replaced by `durableByteNotes`: an enumerated list of (file, exact marker, reason) entries with a budget of 10, exempt only from the issue count and never from the ratio.
 - Rebases: onto `ce36b8296` (#1347 added comments that broke the pins — trimmed to policy, not re-pinned upward: `05bf79c98`) and onto `2c3efdb0a` (#1348 split/moved eight test files — main's code taken verbatim, policy re-applied to the surviving comments), each followed by a shrink-only re-pin commit.
 - Review: r1 High 0, Medium 3 — M1 (10 issue-ref/divider lines left in test + bench) removed, M2 (`writerLoop` lost its invariant note: RPC-only enqueue, arrival order, loss-free shutdown redelivery) restored as a 5-line note, M3 (over-width lines) rewrapped; Lows carried as PR comments.
-
 ## #1458 desktop ingress ledger winning-prompt link (PR #1460, base `b3d62bbc3`)
 
 The ledger explorer links a `superseded` decision to the winning prompt using
@@ -20,7 +36,8 @@ The desktop fixture reflects those producer rows; the channels router test pins
 that a real ingest stores the superseded row with the winning session target,
 and the desktop test renders that row shape through production `LedgerRows`.
 
-||||||| parent of f1437c47a (docs: stamp #1349 three-line comment rule across packages/agent (PR #1449) (#1349))
+
+
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
 On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a`).
@@ -48,7 +65,8 @@ On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a
   across a reconnect with `createdBy: "owner"` results; the same socket without
   the bootstrap grant is refused `require_approval`.
 
-||||||| parent of ca7facfe2 (docs: stamp #1349 three-line comment rule across packages/agent (PR #1449) (#1349))
+
+
 ## #1348 — agent test dedup and bare-throw narrowing (PR #1448, base `18ca03806`)
 
 - Every positive bare `toThrow()` in `packages/agent/test` is narrowed to the class the code actually throws: 41 sites in 19 files → 0 (`rg --pcre2 -n '(?<!not\.)toThrow\(\)' -g '*.ts' packages/agent/test`). Each site was classified by running a scratch probe copy once (deleted afterwards, never committed) rather than guessed; the classification receipt is `lane-1348-throw-probe.txt` under the campaign evidence directory.
