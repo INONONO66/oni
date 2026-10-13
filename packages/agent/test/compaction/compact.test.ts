@@ -942,6 +942,21 @@ describe("CompactionRun seam", () => {
     );
   }
 
+  it("arms window yield from the model window without compaction overrides", () => {
+    const state = seamState(100);
+    const configured = new CompactionRun(
+      {
+        options: { contextWindowTokens: 3000, reserveTokens: 1500 },
+        identity,
+        events: collector(),
+      },
+      undefined,
+    );
+    expect(configured.window(state)).toBeUndefined();
+    state.contextWindowTokens = WINDOW;
+    expect(configured.window(state)?.yieldAt).toBe(450);
+  });
+
   it("prepares without writing during a tool loop, then compacts at the turn end", async () => {
     const recording = recoveryRecording();
     const rows = () => recording.committed.filter((action) => action.kind === "compaction");

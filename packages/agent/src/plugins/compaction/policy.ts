@@ -73,16 +73,12 @@ export class CompactionRun {
 
   /** Reads the real window even with no options bound: admission is a window fact, not a strategy. */
   window(state: RunState): CompactionWindow | undefined {
-    const options = this.resolved(state) ?? this.windowOnly(state);
-    if (options === undefined) return undefined;
+    const contextWindowTokens = state.contextWindowTokens;
+    if (contextWindowTokens === undefined) return undefined;
     return {
-      yieldAt: Math.floor(this.geometry(state, options).thresholdTokens),
+      yieldAt: Math.floor(this.geometry(state, { contextWindowTokens }).thresholdTokens),
       measure: estimateMessagesTokens,
     };
-  }
-
-  private windowOnly(state: RunState): ResolvedCompactionOptions | undefined {
-    return state.contextWindowTokens === undefined ? undefined : { contextWindowTokens: state.contextWindowTokens };
   }
 
   maybeCompact(state: RunState, reason: CompactionReason): Effect.Effect<CompactionOutcome, never, Entropy | Scope.Scope> {
