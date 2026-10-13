@@ -1,6 +1,6 @@
 # Implementation Status
 
-## #1458 desktop ingress ledger winning-prompt link (PR #1460, base `2c3efdb0a`)
+## #1458 desktop ingress ledger winning-prompt link (PR #1460, base `b3d62bbc3`)
 
 The ledger explorer links a `superseded` decision to the winning prompt using
 that stored automation row's `target: "session:<id>"`. The automation ledger
