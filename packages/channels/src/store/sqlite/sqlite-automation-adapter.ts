@@ -66,6 +66,43 @@ export function createSqliteAutomationAdapter(db: Database, now: () => number): 
       ).get(inboundId));
       return row === null ? undefined : Route.parse(JSON.parse(row.data));
     },
+    ledger(query) {
+      return DecisionRow.array().parse(db.query(`
+        SELECT data FROM (
+          SELECT data, time, seq AS position FROM automation_ledger
+          UNION ALL
+          SELECT data, json_extract(data, '$.time') AS time, rowid AS position FROM automation_group_close
+        ) WHERE (? IS NULL OR json_extract(data, '$.surface') = ?)
+          AND (? IS NULL OR json_extract(data, '$.decision') = ?)
+          AND (? IS NULL OR json_extract(data, '$.by') = ?)
+          AND (? IS NULL OR time >= ?) AND (? IS NULL OR time <= ?)
+        ORDER BY time DESC, position DESC LIMIT ?`).all(
+          query.surface ?? null, query.surface ?? null,
+          query.decision ?? null, query.decision ?? null,
+          query.recordId ?? null, `automation/${query.recordId}`,
+          query.since ?? null, query.since ?? null,
+          query.until ?? null, query.until ?? null, query.limit,
+        )).map((row) => Ingress.Events.RoutingDecision.schema.parse(JSON.parse(row.data)));
+    },
+    delivered(inboundId, sessionId, actionSeq) {
+      db.transaction(() => {
+        for (const table of ["automation_ledger", "automation_group_close"]) {
+          db.query(`UPDATE ${table} SET data = json_set(data, '$.target', ?, '$.sessionId', ?, '$.actionSeq', ?)
+            WHERE inbound_id = ? AND json_extract(data, '$.decision') IN ('matched', 'grouped')`)
+            .run(`session:${sessionId}`, sessionId, actionSeq, inboundId);
+        }
+      }).immediate();
+    },
+    refused(inboundId, reason) {
+      db.transaction(() => {
+        db.query(`UPDATE automation_ledger SET decision = 'refused',
+            data = json_set(data, '$.decision', 'refused', '$.reason', ?)
+          WHERE inbound_id = ? AND decision = 'matched'`).run(reason, inboundId);
+        db.query(`UPDATE automation_group_close SET data = json_set(data, '$.decision', 'refused', '$.reason', ?)
+          WHERE inbound_id = ? AND json_extract(data, '$.decision') = 'matched'`).run(reason, inboundId);
+        db.query("UPDATE automation_delivery SET completed = 1 WHERE inbound_id = ?").run(inboundId);
+      }).immediate();
+    },
     completeDelivery(inboundId) {
       db.query("UPDATE automation_delivery SET completed = 1 WHERE inbound_id = ?").run(inboundId);
     },
@@ -78,7 +115,19 @@ export function createSqliteAutomationAdapter(db: Database, now: () => number): 
         const closed = db.query("UPDATE automation_group SET closed_at = ?, matched = ? WHERE id = ? AND closed_at IS NULL")
           .run(at, Number(matched), id);
         if (closed.changes === 0) return [];
-        const rows = decisions.map((decision) => Ingress.Events.RoutingDecision.schema.parse(decision));
+        const firing = decisions.find((decision) => decision.stage === "automation" && decision.decision === "matched");
+        const receipt = firing === undefined ? null : DecisionRow.nullable().parse(db.query(
+          "SELECT data FROM automation_ledger WHERE inbound_id = ? AND json_extract(data, '$.actionSeq') IS NOT NULL LIMIT 1",
+        ).get(firing.inboundId));
+        const delivered = receipt === null ? undefined : Ingress.Events.RoutingDecision.schema.parse(JSON.parse(receipt.data));
+        const rows = decisions.map((decision) => {
+          return Ingress.Events.RoutingDecision.schema.parse({
+            ...decision,
+            ...(delivered?.stage === "automation" && decision.stage === "automation" &&
+              (decision.decision === "matched" || decision.decision === "grouped")
+              ? { target: delivered.target, sessionId: delivered.sessionId, actionSeq: delivered.actionSeq } : {}),
+          });
+        });
         for (const row of rows) {
           db.query("INSERT INTO automation_group_close (group_id, inbound_id, data) VALUES (?, ?, ?)")
             .run(id, row.inboundId, JSON.stringify(row));

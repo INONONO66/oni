@@ -59,6 +59,11 @@ const OPS: Record<string, readonly string[]> = {
     "secret_rotate",
     "bundle_enable",
     "bundle_disable",
+    "automation_add",
+    "automation_remove",
+    "automation_enable",
+    "automation_disable",
+    "automation_list",
     "status",
   ],
 };

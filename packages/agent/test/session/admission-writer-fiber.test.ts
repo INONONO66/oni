@@ -171,9 +171,9 @@ function makeWriterWorld(
           approvalPolicy: TEST_APPROVAL_POLICY,
           runTurn: options?.runTurn ?? makeTurnPort(resolvedRunner("ok"), false, () => 1_000),
           // #1310: admission refuses a snapshot with no declared kinds.
-          capabilityKinds: ["tool", "compaction"],
+          capabilityKinds: ["tool", "compaction", "action"],
           // #1313: deliver refuses an unbound inputRegistrations port.
-          inputRegistrations: ["prompt", "signal"],
+          inputRegistrations: ["prompt", "action", "signal"],
           ...(options?.alarmCapability === undefined ? {} : { alarmCapability: options.alarmCapability }),
         },
       },
@@ -334,6 +334,37 @@ test("D3: the alarm budget yields the head to a queued prompt, then serves the d
     const deferredFold = world.kernel.actionById("ghost-3:stale");
     if (promptRow === undefined || deferredFold === undefined) throw new Error("appends missing");
     expect(promptRow.ordinal).toBeLessThan(deferredFold.ordinal);
+    yield* Fiber.interrupt(fiber);
+  }))));
+
+test.each(["prompt", "action"] as const)("D3: alarm-routed %s uses the same prompt budget reset as Deliver", (kind) =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    const sessionId = `writer-alarm-${kind}`;
+    const world = yield* makeWriterWorld(sessionId, {
+      alarmsBeforePrompt: 2,
+      alarmCapability: {
+        purposes: ["note.due"],
+        wake: (fired, ctx) => Effect.gen(function* () {
+          if (ctx.deliver === undefined) throw new Error("missing writer intake");
+          yield* ctx.deliver({
+            kind, body: JSON.stringify({ content: "ROUTED_INPUT" }),
+            source: origin(fired.occurrenceId), idempotencyKey: fired.occurrenceId,
+          }).pipe(Effect.mapError((error) => new AlarmWakeError({ purpose: fired.purpose, reason: error._tag })));
+          return "delivered" as const;
+        }),
+      },
+    });
+    const minted = yield* commitArmedRow(world, sessionId, "routed");
+    yield* Queue.offerAll(world.queue, [
+      staleAlarmEnvelope(sessionId, 1), armedOccurrence(sessionId, minted),
+      staleAlarmEnvelope(sessionId, 3), promptEnvelope(sessionId, "p1"),
+    ]);
+    const fiber = yield* Effect.forkIn(writerLoop(world.handle, world.queue, world.replier), world.handle.scope);
+    const replies = yield* takeN(world.replies, 4);
+    expect(replies.every((reply) => Exit.isSuccess(reply.exit))).toBe(true);
+    expect(replies.map((reply) => reply.tag)).toEqual(kind === "prompt"
+      ? ["Alarm", "Alarm", "Alarm", "Deliver"] : ["Alarm", "Alarm", "Deliver", "Alarm"]);
+    expect(world.kernel.actionById(minted.occurrenceId)?.kind).toBe(kind);
     yield* Fiber.interrupt(fiber);
   }))));
 

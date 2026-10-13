@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { Ingress } from "@openomni/protocol";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
-import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState } from "./router/_router-fixture.js";
+import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
 
 beforeEach(resetRouterState);
 
@@ -14,6 +14,39 @@ function addTrigger(id: string, extras: Partial<Ingress.Automation> = {}) {
     ...extras,
   }));
 }
+
+test.each(["matched", "missing", "disabled", "unapproved"] as const)(
+  "an ungranted channel routes only a matched approved record: %s", async (state) => {
+    const stores = ledger().stores;
+    stores.actors.registerIdentity({ id: "observer", kind: "human", trustTier: "observer" });
+    stores.actors.registerEndpoint({
+      id: "observer-endpoint", actorId: "observer", channel: ownerSender.surface,
+      externalId: ownerSender.externalId, workspace: ownerFacts.workspaceId,
+    });
+    if (state !== "missing") addTrigger("ungranted", {
+      enabled: state === "matched",
+      createdBy: state === "unapproved" ? "session:proposer" : "owner",
+    });
+    const router = makeRouter();
+    const result = await runEffect(router.ingest(ownerSender, ownerFacts));
+    if (state === "matched") {
+      expect(result).toMatchObject({ status: "executed", handle: { target: "worker" } });
+      expect(commits).toHaveLength(1);
+      expect(routingDecisions()).toContainEqual(expect.objectContaining({
+        outcome: "route", factsUsed: expect.arrayContaining(["automation:ungranted"]),
+      }));
+      expect(await runEffect(router.ingest(ownerSender, ownerFacts)))
+        .toMatchObject({ status: "blocked_pre", reasonCode: "message.external.event_id_dedupe" });
+      expect(commits).toHaveLength(1);
+    } else {
+      expect(result).toMatchObject({ status: "blocked_pre", reasonCode: "message.external.grant_tier" });
+      expect(commits).toHaveLength(0);
+      expect(routingDecisions()).toContainEqual(expect.objectContaining({
+        outcome: "block", stage: "channel_ceiling",
+      }));
+    }
+  },
+);
 
 test("a granted direct surface keeps the pre-migration session target", async () => {
   registerOwnerDm();
@@ -67,7 +100,7 @@ test("a new-target action materializes one new session", async () => {
   expect(result.handle.target).not.toBe("new");
 });
 
-test("a repeated event returns its disposition without a second decision or session row", async () => {
+test("a repeated event records dedupe without a second session row", async () => {
   registerOwnerDm();
   const router = makeRouter();
   const first = await runEffect(router.ingest(ownerSender, ownerFacts));
@@ -83,7 +116,9 @@ test("a repeated event returns its disposition without a second decision or sess
   expect(commits).toHaveLength(1);
   expect(ledger().kernel.row(first.handle.target).revision).toBe(before);
   expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm"))
-    .toEqual(recorded);
+    .toEqual([...recorded, expect.objectContaining({
+      decision: "deduped", inboundId: "discord:owner-workspace:owner-dm:inbound-owner-dm",
+    })]);
 });
 
 test("a filtered event records one ingress row and no session journal row", async () => {

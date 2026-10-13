@@ -1,10 +1,11 @@
 import { type Gateway, Ingress } from "@openomni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { inboundIdOf } from "../inbound-id.js";
+import type { IngressFacts } from "../../automation/facts.js";
 
 export function ingressInput(stores: ChannelStores,
   sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts, at: number) {
+  facts: IngressFacts, at: number) {
   const identities = facts.addressees.flatMap((addressee) => {
     const resolved = stores.actors.resolveEndpoint(facts.surface, addressee.externalId, facts.workspaceId);
     return resolved === undefined ? [] : [resolved.identity];

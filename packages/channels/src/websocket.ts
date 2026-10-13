@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Effect } from "effect";
 import { decodeChannelFailure, DeliveryNotSent, InvalidInbound, type ChannelError } from "./errors";
 import { newTraceId } from "./support/trace";
-import { Channel, Gateway, Operational, SessionFork, SessionRead } from "@openomni/protocol";
+import { Channel, Gateway, Ingress, Operational, SessionFork, SessionRead } from "@openomni/protocol";
 import { authenticateWebSocketUpgrade } from "./authn/websocket";
 import type { ChannelAuthnDecisionObserver } from "./authn/types";
 import type { PublishPort } from "./types";
@@ -12,6 +12,8 @@ export type WebSocketMessageHandler = (
 ) => Effect.Effect<void, ChannelError> | Effect.Effect<Gateway.IngestResult, ChannelError>;
 
 export type WebSocketFrameOutcome =
+  | Ingress.AutomationRequest
+  | Ingress.AutomationRefused
   | z.infer<typeof SessionRead.Receipt>
   | SessionRead.Bound
   | SessionRead.Request
@@ -266,7 +268,9 @@ export class WebSocketHandler {
   }
 }
 
-function decodeFrame(raw: string): Effect.Effect<z.infer<typeof WebSocketFrame>, InvalidInbound> {
+function decodeFrame(raw: string): Effect.Effect<
+  z.infer<typeof WebSocketFrame> | Ingress.AutomationRequest | Ingress.AutomationRefused, InvalidInbound
+> {
   return Effect.gen(function* () {
     const document = yield* Effect.try({
       try: () => z.record(z.string(), z.json()).safeParse(JSON.parse(raw)),
@@ -275,6 +279,19 @@ function decodeFrame(raw: string): Effect.Effect<z.infer<typeof WebSocketFrame>,
       operation: "websocket.frame", reason: "invalid_json", cause: failure.cause,
     })));
     if (!document.success) {
+      return yield* new InvalidInbound({ operation: "websocket.frame", reason: "invalid_frame" });
+    }
+    if (Ingress.AutomationRequest.options.some((schema) => schema.shape.type.value === document.data.type)) {
+      const request = Ingress.AutomationRequest.safeParse(document.data);
+      if (request.success) return request.data;
+      const refused = Ingress.AutomationRefused.safeParse({
+        type: `${document.data.type}_refused`, requestId: document.data.requestId,
+        reason: "invalid_record", detail: "Invalid automation request",
+        issues: request.error.issues.map((issue) => ({
+          path: issue.path.map(String), message: issue.message, code: issue.code,
+        })),
+      });
+      if (refused.success) return refused.data;
       return yield* new InvalidInbound({ operation: "websocket.frame", reason: "invalid_frame" });
     }
     const frame = WebSocketFrame.safeParse(document.data);

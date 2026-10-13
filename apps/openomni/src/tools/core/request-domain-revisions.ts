@@ -2,8 +2,11 @@ import { AppInvariantError } from "../../invariant";
 import type { ActorRegistry, PersonStore } from "@openomni/channels";
 import type { PlainValue, SessionTransition } from "@openomni/protocol";
 import { ContactOperation, contactDomainRevisions } from "./contact-mutations";
+import { AutomationOperation } from "../../provisioning/automation-schema";
+import { automationDomainRevisions, automationId, type AutomationPort } from "../../provisioning/automation";
 
 export interface RequestDomainDeps {
+  readonly automations?: AutomationPort;
   readonly actors: ActorRegistry;
   readonly persons: Pick<PersonStore, "get">;
 }
@@ -41,6 +44,9 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
     if (Object.keys(request.domainRevisions).length === 0) return {};
     const input = request.parsedInput;
     if (input !== null && typeof input === "object" && !Array.isArray(input)) {
+      const automation = AutomationOperation.safeParse(input.operation);
+      if (automation.success)
+        return automationDomainRevisions(deps.automations, automationId(automation.data, request));
       const revisions = operationDomainRevisions(deps, input.operation);
       if (revisions !== undefined) return revisions;
     }

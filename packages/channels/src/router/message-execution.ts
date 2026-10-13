@@ -113,6 +113,14 @@ function deliveryAdmission(
         ...(external === undefined ? {} : { inboundTreatment: external.route.decision.inboundTreatment ?? "full_access" }),
         ...(external?.automation?.kind === "action"
           ? { source: external.automation.source, handlerRef: external.automation.handlerRef } : {}),
+        ...(external?.automation?.automationId === undefined ||
+          external.automation.automationId.startsWith("granted-direct:") ? {} : {
+          automation: {
+            id: external.automation.automationId,
+            newSession: external.automation.newSession ?? false,
+            ...(external.automation.instructions === undefined ? {} : { instructions: external.automation.instructions }),
+          },
+        }),
       },
     },
   };
@@ -134,7 +142,8 @@ function admitExternal(context: MessageContext, content: string) {
     const decision = requireRoutedDecision(external.route.decision);
     yield* executeRequestRoute(context.stores, external.route, decision,
       context.ports.requests, content, context.clock());
-    if (external.automation?.kind !== "action")
+    if (external.automation?.automationId === undefined ||
+        external.automation.automationId.startsWith("granted-direct:"))
       context.stores.surfaceKeys.claim(external.surfaceKey, context.prepared.target);
     return external.route.requestExecution.kind === "request";
   });

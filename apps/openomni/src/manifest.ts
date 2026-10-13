@@ -66,7 +66,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     ],
     bundles: [
       monitorBundle(input.wake, input.alarms),
-      cronBundle(),
+      cronBundle(input.wake.prompt),
       hooksJsonBundle(input.hooks),
       sendMessageBundle(),
       delegationPolicyBundle(),

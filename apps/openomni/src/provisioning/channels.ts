@@ -8,6 +8,7 @@ import type { KekResolution } from "./vault-key";
 import { refusal, storeRefusal } from "./contacts";
 import type { BundlePort } from "./bundles";
 import { Statuses } from "./status";
+import type { AutomationPort } from "./automation";
 
 export const CHANNEL_DECLARE_INPUT = z
   .object({
@@ -71,6 +72,7 @@ export const ChannelResult = z.discriminatedUnion("op", [
 ]);
 
 export interface ProvisionPort {
+  readonly automations?: AutomationPort;
   readonly persons: Pick<PersonStore, "put" | "get" | "list" | "remove">;
   readonly instances: Pick<ChannelInstanceStore, "put" | "get" | "list">;
   readonly secrets: Pick<SecretStore, "put" | "get">;

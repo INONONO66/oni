@@ -267,7 +267,11 @@ function isToolRefusal(value: CaughtValue): value is Error {
 // ─── from tool-dispatcher.ts (#1247) ───
 /** Executable catalog data copied into each captured generation's dispatch table. */
 export type ToolDispatchDefinition<In extends z.ZodType = z.ZodType, Out extends z.ZodType = z.ZodType> = ToolDefinition<In, Out> & {
-  readonly approval?: (input: PlainValue) => NonNullable<ExecutionRequest["approval"]>;
+  readonly approval?: (
+    input: PlainValue,
+    context?: ToolExecutionContext,
+    prepare?: boolean,
+  ) => NonNullable<ExecutionRequest["approval"]>;
 };
 
 export class ToolRefused extends Error {
@@ -330,7 +334,11 @@ export interface Dispatcher {
 
 export function defineTool<In extends z.ZodType, Out extends z.ZodType>(
   definition: ToolDefinition<In, Out>,
-  approval?: (input: z.output<In>) => NonNullable<ExecutionRequest["approval"]>,
+  approval?: (
+    input: z.output<In>,
+    context?: ToolExecutionContext,
+    prepare?: boolean,
+  ) => NonNullable<ExecutionRequest["approval"]>,
 ): ToolDispatchDefinition<In, Out> {
   if (definition.name.trim() === "") throw new AgentInvariantViolation("tool name must not be empty");
   if (definition.description.trim() === "") throw new AgentInvariantViolation("tool description must not be empty");
@@ -340,7 +348,8 @@ export function defineTool<In extends z.ZodType, Out extends z.ZodType>(
   return {
     ...definition,
     ...(approval === undefined ? {} : {
-      approval: (input: PlainValue) => approval(definition.input.parse(input)),
+      approval: (input: PlainValue, context?: ToolExecutionContext, prepare?: boolean) =>
+        approval(definition.input.parse(input), context, prepare),
     }),
   };
 }

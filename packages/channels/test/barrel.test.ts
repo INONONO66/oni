@@ -3,6 +3,7 @@ import * as barrel from "../src";
 
 test("channels barrel exposes only its runtime public surface", () => {
   expect(Object.keys(barrel).sort()).toEqual([
+    "AutomationConfigurationError",
     "AutomationEnableRefused",
     "ChannelProviders",
     "ChannelsFailure",
@@ -27,6 +28,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "decodeChannelFailure",
     "openChannelStore",
     "resolveChannelGrant",
+    "scheduleTickChannel",
     "unconfiguredChannelStores",
   ]);
   expect("WebSocketFrames" in barrel).toBe(false);

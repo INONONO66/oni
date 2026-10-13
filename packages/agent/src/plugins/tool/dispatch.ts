@@ -188,7 +188,16 @@ function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options
 
     const executor = requireExecutor(resolveExecutor());
     const parsedValue = PlainValueSchema.parse(parsedInput.data);
-    const approval = approvalFromOriginal(originalAction?.intent.value, binding?.(parsedValue));
+    let approval: ExecutionRequest["approval"];
+    try {
+      approval = approvalFromOriginal(
+        originalAction?.intent.value,
+        binding?.(parsedValue, context, originalAction === undefined),
+      );
+    } catch (error) {
+      if (!(error instanceof ToolRefused)) throw error;
+      return { kind: "refused", result: failed(call, error.message, "precondition_failed") };
+    }
     const request: ExecutionRequest = {
       kind: "tool",
       op: definition.name,
@@ -204,7 +213,7 @@ function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options
         ? {}
         : {
             approval,
-            domainRevisions: () => binding?.(parsedValue).domainRevisions ?? {},
+            domainRevisions: () => binding?.(parsedValue, context, false).domainRevisions ?? {},
           }),
     };
     let admittedValue = parsedValue;

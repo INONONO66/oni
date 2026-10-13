@@ -204,8 +204,10 @@
   "Gateway.IngestSender#session": ["id", "kind"],
   "Gateway.IngressFacts": [
     "addressees",
+    "author",
     "channelId",
     "dm",
+    "event",
     "eventId",
     "payload",
     "render",
@@ -482,6 +484,96 @@
     "trustTier",
     "type"
   ],
+  "Ingress.Automation": [
+    "conditions",
+    "createdBy",
+    "enabled",
+    "grouping",
+    "id",
+    "instructions",
+    "kind",
+    "limits",
+    "name",
+    "runWhen",
+    "target",
+    "triggers"
+  ],
+  "Ingress.AutomationLedgerFilter": [
+    "decision",
+    "limit",
+    "recordId",
+    "since",
+    "surface",
+    "until"
+  ],
+  "Ingress.AutomationRefused": [
+    "detail",
+    "id",
+    "issues",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "Ingress.AutomationRequest#automation_add": ["record", "requestId", "type"],
+  "Ingress.AutomationRequest#automation_disable": ["id", "requestId", "type"],
+  "Ingress.AutomationRequest#automation_enable": ["id", "requestId", "type"],
+  "Ingress.AutomationRequest#automation_ledger": [
+    "decision",
+    "limit",
+    "recordId",
+    "requestId",
+    "since",
+    "surface",
+    "type",
+    "until"
+  ],
+  "Ingress.AutomationRequest#automation_list": ["requestId", "type"],
+  "Ingress.AutomationRequest#automation_remove": ["id", "requestId", "type"],
+  "Ingress.AutomationResponse#6": [
+    "detail",
+    "id",
+    "issues",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "Ingress.AutomationResponse#automation_added": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.AutomationResponse#automation_disabled": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.AutomationResponse#automation_enabled": [
+    "record",
+    "requestId",
+    "type"
+  ],
+  "Ingress.AutomationResponse#automation_ledger_read": [
+    "requestId",
+    "rows",
+    "type"
+  ],
+  "Ingress.AutomationResponse#automation_listed": [
+    "records",
+    "requestId",
+    "type"
+  ],
+  "Ingress.AutomationResponse#automation_removed": ["id", "requestId", "type"],
+  "Ingress.Conditions": [
+    "channels",
+    "contains",
+    "dm",
+    "excludes",
+    "includeBots",
+    "mentionOnly",
+    "regex",
+    "threads",
+    "users"
+  ],
   "Ingress.DirectEventSchema": [
     "channel",
     "id",
@@ -493,6 +585,19 @@
     "traceId",
     "userId",
     "workspace"
+  ],
+  "Ingress.Input": [
+    "author",
+    "body",
+    "channelId",
+    "dm",
+    "event",
+    "eventId",
+    "mentionsBot",
+    "receivedAt",
+    "surface",
+    "threadId",
+    "workspaceId"
   ],
   "Ingress.InternalEventSchema": [
     "agentName",
@@ -522,6 +627,12 @@
     "threadId"
   ],
   "Ingress.TargetSchema": ["kind", "parentSessionId", "sessionId"],
+  "Ingress.Trigger#github": ["event", "type"],
+  "Ingress.Trigger#message": ["event", "surface", "type"],
+  "Ingress.Trigger#on_demand": ["type"],
+  "Ingress.Trigger#schedule": ["cron", "type", "tz"],
+  "Ingress.Trigger#webhook": ["secretRef", "type"],
+  "Ingress.TriggerContext": ["automationId", "event", "matched", "trigger"],
   "Ipc.Notification": ["id", "method", "params", "type", "v"],
   "Ipc.Request": ["id", "method", "params", "type", "v"],
   "Ipc.Response": ["error", "id", "result", "type", "v"],

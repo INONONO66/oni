@@ -65,6 +65,8 @@ export interface OpenOmniConfig {
   readonly model: {
     readonly provider: string;
     readonly id: string;
+    /** Perimeter judge model on the configured provider; absent uses the primary model. */
+    readonly fastId?: string;
     readonly apiKey: string;
     /**
      * Operator-chosen provider endpoint, replacing the models.dev catalog's.
@@ -615,11 +617,13 @@ function socialBudgetsFromEnv(env: Record<string, string | undefined>): OpenOmni
 
 function modelFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["model"] {
   const baseUrl = env.OPENOMNI_MODEL_BASE_URL?.trim();
+  const fastId = env.OPENOMNI_FAST_MODEL_ID?.trim();
   const headers = parseEnvJson("OPENOMNI_MODEL_HEADERS", ModelHeaders, env);
   const fallbacks = modelFallbacksFromEnv(env);
   return {
     provider: required("OPENOMNI_MODEL_PROVIDER", env),
     id: required("OPENOMNI_MODEL_ID", env),
+    ...(fastId === undefined || fastId.length === 0 ? {} : { fastId }),
     apiKey: required("OPENOMNI_MODEL_API_KEY", env),
     ...(baseUrl === undefined || baseUrl.length === 0 ? {} : { baseUrl }),
     ...(headers === undefined ? {} : { headers }),

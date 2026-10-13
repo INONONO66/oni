@@ -17,9 +17,11 @@ export const PendingGroup = z.object({
 export type PendingGroup = z.infer<typeof PendingGroup>;
 
 export const Route = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("prompt"), target: z.string(), origin: Ingress.Input }),
+  z.object({ kind: z.literal("prompt"), target: z.string(), origin: Ingress.Input,
+    automationId: z.string().optional(), instructions: z.string().optional(), newSession: z.boolean().optional() }),
   z.object({ kind: z.literal("action"), target: z.string(), source: z.literal("ingress"),
-    handlerRef: z.string(), body: Ingress.TriggerContext }),
+    handlerRef: z.string(), body: Ingress.TriggerContext,
+    automationId: z.string().optional(), instructions: z.string().optional(), newSession: z.boolean().optional() }),
 ]);
 type Route = z.infer<typeof Route>;
 
@@ -38,12 +40,21 @@ export interface MatchPorts {
   readonly judge?: (question: string, input: Ingress.Input) => Verdict;
 }
 
+/**
+ * A cron tick's channel names its expression. Monitor ticks share the alarm
+ * surface and event but carry a `monitor:` channel, so no schedule trigger
+ * can match them (a typed watch trigger is follow-up work).
+ */
+export function scheduleTickChannel(cron: string): string {
+  return `cron:${cron}`;
+}
+
 function triggerMatches(trigger: Ingress.Trigger, input: Ingress.Input): boolean {
   switch (trigger.type) {
     case "message": return trigger.surface === input.surface && trigger.event === input.event;
     case "webhook": return input.event === "webhook" && trigger.secretRef === input.channelId;
     case "github": return input.event === "github" && trigger.event === input.channelId;
-    case "schedule": return input.event === "schedule" && trigger.cron === input.channelId;
+    case "schedule": return input.event === "schedule" && input.channelId === scheduleTickChannel(trigger.cron);
     case "on_demand": return false;
   }
 }
@@ -186,9 +197,11 @@ export function match(records: readonly Ingress.Automation[], input: Ingress.Inp
     rows.splice(0, rows.length, ...group.rows);
     if (group.held) break;
     route = record.kind === "prompt"
-      ? { kind: "prompt", target: record.target, origin: input }
+      ? { kind: "prompt", target: record.target, origin: input,
+          automationId: record.id, instructions: record.instructions, newSession: record.target === "new" }
       : { kind: "action", target: record.target, source: "ingress", handlerRef: `automation/${record.id}`,
-          body: context(record, result.trigger, group.inputs, result.runWhen) };
+          body: context(record, result.trigger, group.inputs, result.runWhen),
+          automationId: record.id, instructions: record.instructions, newSession: record.target === "new" };
     rows.push(ledger(input, ports.now, record.id, "matched", "matched", result.factsUsed, result.runWhen));
     break;
   }
@@ -219,8 +232,10 @@ export function advanceGroups(records: readonly Ingress.Automation[], pending: r
     const route: Route | undefined = record?.enabled !== true ? undefined
       : record.kind === "prompt"
         ? { kind: "prompt", target: record.target,
+            automationId: record.id, instructions: record.instructions, newSession: record.target === "new",
             origin: { ...latest, body: group.inputs.map((input) => input.body).join("\n\n") } }
         : { kind: "action", target: record.target, source: "ingress",
+            automationId: record.id, instructions: record.instructions, newSession: record.target === "new",
             handlerRef: `automation/${record.id}`, body: context(record, group.trigger, group.inputs, group.runWhen) };
     decisions.push({ ...(route === undefined ? {} : { route }), rows, pending: [] });
   }

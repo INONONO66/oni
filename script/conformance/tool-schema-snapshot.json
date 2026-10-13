@@ -378,7 +378,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|status. contact_promote, contact_merge, bundle_enable and bundle_disable suspend for Owner consent.",
+    "description": "Administer contacts, channels, credentials, automations, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|status. Authority changes require Owner consent. Session-created automations remain disabled until the Owner enables them.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -701,6 +701,365 @@
                     }
                   },
                   "required": ["name"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "automation_add"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "record": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "createdBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "owner"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^session:.+"
+                            }
+                          ]
+                        },
+                        "triggers": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "schedule"
+                                  },
+                                  "cron": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "tz": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": ["type", "cron", "tz"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "message"
+                                  },
+                                  "surface": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "event": {
+                                    "type": "string",
+                                    "enum": ["message", "reaction", "mention"]
+                                  }
+                                },
+                                "required": ["type", "surface", "event"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "webhook"
+                                  },
+                                  "secretRef": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": ["type", "secretRef"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "github"
+                                  },
+                                  "event": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": ["type", "event"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "on_demand"
+                                  }
+                                },
+                                "required": ["type"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "conditions": {
+                          "type": "object",
+                          "properties": {
+                            "channels": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "users": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "threads": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "contains": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "excludes": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "regex": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "includeBots": {
+                              "type": "boolean"
+                            },
+                            "dm": {
+                              "type": "boolean"
+                            },
+                            "mentionOnly": {
+                              "type": "boolean"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "runWhen": {
+                          "type": "string"
+                        },
+                        "grouping": {
+                          "type": "object",
+                          "properties": {
+                            "windowSeconds": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "const": 0
+                                },
+                                {
+                                  "type": "number",
+                                  "const": 5
+                                },
+                                {
+                                  "type": "number",
+                                  "const": 10
+                                },
+                                {
+                                  "type": "number",
+                                  "const": 20
+                                },
+                                {
+                                  "type": "number",
+                                  "const": 30
+                                },
+                                {
+                                  "type": "number",
+                                  "const": 60
+                                }
+                              ]
+                            },
+                            "by": {
+                              "type": "string",
+                              "enum": ["thread", "channel", "author"]
+                            }
+                          },
+                          "required": ["windowSeconds", "by"],
+                          "additionalProperties": false
+                        },
+                        "target": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "new"
+                            },
+                            {
+                              "type": "string",
+                              "pattern": "^session:.+"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "default": "action",
+                          "type": "string",
+                          "enum": ["prompt", "action"]
+                        },
+                        "instructions": {
+                          "type": "string"
+                        },
+                        "limits": {
+                          "type": "object",
+                          "properties": {
+                            "maxRunsPerDay": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": ["maxRunsPerDay"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "enabled",
+                        "createdBy",
+                        "triggers",
+                        "target"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["record"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "automation_remove"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["id"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "automation_enable"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["id"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "automation_disable"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["id"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "automation_list"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
                   "additionalProperties": false
                 }
               },

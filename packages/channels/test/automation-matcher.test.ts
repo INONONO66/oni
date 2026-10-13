@@ -14,7 +14,7 @@ const input = Ingress.Input.parse({
 test.each([
   { trigger: { type: "webhook", secretRef: "hook" }, event: "webhook", channelId: "hook" },
   { trigger: { type: "github", event: "pull_request" }, event: "github", channelId: "pull_request" },
-  { trigger: { type: "schedule", cron: "* * * * *", tz: "UTC" }, event: "schedule", channelId: "* * * * *" },
+  { trigger: { type: "schedule", cron: "* * * * *", tz: "UTC" }, event: "schedule", channelId: "cron:* * * * *" },
 ] as const)("specialized trigger matches its input and rejects the wrong selector", ({ trigger, event, channelId }) => {
   const automation = Ingress.Automation.parse({ ...record, triggers: [trigger] });
   expect(match([automation], { ...input, event, channelId }, { now: 0 }).route?.kind).toBe("action");

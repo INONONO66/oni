@@ -1,5 +1,34 @@
 # Implementation Status
 
+## #1341 app wiring for rule-based ingress automation (epic #1337, rung 4)
+
+On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
+
+- `provision` gains `automation_add`, `automation_remove`, `automation_enable`,
+  `automation_disable`, `automation_list` (`src/provisioning/automation.ts`,
+  schema in `automation-schema.ts`); the gateway exposes the same five as
+  one-to-one methods plus read-only `automation_ledger`, the contract #1342's
+  desktop editor consumes. Authority is owner-only, derived from the socket
+  actor's trust tier, never from the request (#1446 r1 H2).
+- `src/composition/automation-wire.ts` answers every request with a typed value
+  (refusals included, no throw); `automation-judge.ts` binds the optional fast
+  model (`OPENOMNI_FAST_MODEL_ID`) to the channels judge port;
+  `automation-alarm.ts` registers the alarm sender once per session and types
+  malformed payloads as `AlarmWakeError`; `automation-delivery.ts` lands
+  `prompt|action` rows — target `new` composes the #1346 create-session
+  RPCs, a missing `session:<id>` target records `refused target_not_found`.
+- Channels fixes landed with the wiring: missing-channel routes are granted only
+  after a matched record (r1 H1); schedule triggers match `cron:<expr>` ticks
+  only, never a `monitor:` alarm channel (r1 M4); `AutomationConfigurationError`
+  and `scheduleTickChannel` join the package barrel.
+- Snapshot baselines (`script/conformance/tool-schema-snapshot.json`,
+  `schema-snapshot.json`) grew by the five provision ops; additive, recorded for
+  Owner sign-off in `[ino]` issue #1450.
+- Verification: review r1 H1-H2/M2-M7 fixed and lead-verified from the diff
+  without r2; post-rebase CI reds were three stale test expectations; CI green
+  at merge. Receipt names #1434.
+
+
 ## #1347 — restore budget, persisted step budget, strikes, row byte cap (PR #1445, base `c3850ac09`)
 
 - `fold.checkpoint` rows carry `budgetState`; the checkpoint policy (`everyActions`, `maxTailBytes`) lives in `session.configure` settings. A crash-open reactivation resumes its step/budget counters from the checkpoint through `createSessionChatRunner` and stops with the existing `AgentStopError{reason: "budget"}` before any model call (the reactivation test drives `createController(...).reconcile()` over reopened SQLite files and fails when the `budgetState` hand-off in `run.ts` is removed).

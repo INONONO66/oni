@@ -1,6 +1,6 @@
 export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
-export { ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
+export { AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
 export type { ChannelError } from "./errors.js";
 export type { ChannelProvider, ProviderDeliveryRoute } from "./provider/contract.js";
 export type { EffectRunner } from "./types.js";
@@ -19,6 +19,7 @@ export {
 // them through this barrel instead of the retired ledger package root.
 export { createActorRegistry, type ActorRegistry } from "./store/actor/index.js";
 export { createAutomationStore, AutomationEnableRefused } from "./store/automation/index.js";
+export { scheduleTickChannel } from "./automation/matcher.js";
 export { createBlacklistStore } from "./store/blacklist/index.js";
 export { createChannelGrantStore, type ChannelGrantStore } from "./store/channel-grant/index.js";
 export { createReplyGrantStore } from "./store/reply-grant/index.js";
