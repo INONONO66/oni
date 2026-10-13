@@ -4,8 +4,6 @@ import { DecisionFact, type Storage, type Storage as ProtocolStorage } from "@op
 import { z } from "zod";
 import { parsePlainJson } from "./json";
 
-
-/** Narrow first-writer-wins port on one store handle's transaction boundary. */
 namespace DecisionFacts {
   export type Port = ProtocolStorage.DecisionFactSubAdapter;
 
@@ -15,10 +13,7 @@ namespace DecisionFacts {
   }
 }
 
-/**
- * Handle-scoped decision-fact port (W5.2 F1): the perimeter injects the store
- * handle whose transaction boundary its admission unit runs in.
- */
+/** The perimeter injects the handle whose transaction boundary its admission unit runs in. */
 export function createDecisionFactPort(source: DecisionFacts.Source): {
   transaction<T>(operation: () => T): T;
   port(): DecisionFacts.Port | undefined;
@@ -39,7 +34,6 @@ export function computeDecisionFactHash(input: {
     .update(JSON.stringify([input.key, input.type, input.data, input.timeCreated]))
     .digest("hex");
 }
-
 
 const SqliteRow = z.object({
   key: z.string(),

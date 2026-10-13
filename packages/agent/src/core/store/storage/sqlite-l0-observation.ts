@@ -5,21 +5,15 @@ import { parsePlainJson } from "../json";
 import type { Database } from "bun:sqlite";
 import { Gateway, Delivery, type LedgerAction, PlainValueSchema, SessionTransition, L0Observation, type ObservationSink, } from "@openomni/protocol";
 
-/** A post-commit observation publish that failed without unwinding the committed write. */
 export interface ObservationPublishFailure {
   readonly actionId: string;
   readonly cause: Error;
 }
 
-/** Routes an observation publish failure; the composing host logs it in its own runtime. */
+/** The composing host logs it in its own runtime. */
 export type ObservationFailurePort = (failure: ObservationPublishFailure) => void;
 
-/**
- * Publishes one committed receipt and routes a publish failure to the port.
- * Both run after the transaction committed, so neither may unwind the write:
- * a port that throws has refused the last report channel there is, and that
- * second failure is dropped so the committed result still reaches the caller.
- */
+/** Both run after commit, so neither may unwind the write; a throwing port has refused the last report channel and that second failure is dropped. */
 export function reportCommitted(
   db: Database,
   sink: ObservationSink,
@@ -35,11 +29,7 @@ export function reportCommitted(
   }
 }
 
-/**
- * Post-commit observation must never unwind the committed write, so a publish
- * failure is returned as a value for the store's failure port — never thrown
- * and never silently swallowed here.
- */
+/** Returned as a value for the failure port — never thrown, never silently swallowed. */
 export function publishCommitted(
   db: Database,
   sink: ObservationSink,

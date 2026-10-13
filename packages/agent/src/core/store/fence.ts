@@ -28,32 +28,24 @@ import { GATE_ROW_WRITER_VERSION } from "../gate/rows";
 
 export const RESUME_BUDGET = 10;
 
-/** The storage capabilities one kernel handle reads and writes. */
 interface SessionKernelStores {
   transaction<T>(operation: () => T): T;
   readonly sessions?: SessionWriteAdapter;
   readonly actions?: ProtocolStorage.ActionSubAdapter;
   readonly policies?: ProtocolStorage.PolicyRowSubAdapter;
-  /** #1254 S3: reads over the session file's durable `armed_alarms` index. */
   readonly armed?: {
     armedAlarms(): readonly ArmedAlarmRow[];
     armedCount(): number;
     strikeArmedAlarm(occurrenceId: string): number | undefined;
   };
-  /** #1305: content-addressed tool output bytes of the session file. */
   readonly toolOutputs: ToolOutputsAdapter;
 }
 
-/**
- * Handle-scoped storage access (W5.2 review F1). `stores()` throws when
- * storage is unreachable — read paths fail closed exactly like the previous
- * process-global reads; write paths refuse with a typed `StorageUnavailable`
- * when a required store is absent.
- */
+/** `stores()` throws when storage is unreachable so reads fail closed; writes refuse with a typed `StorageUnavailable` when a required store is absent. */
 interface SessionKernelContext {
   stores(): SessionKernelStores;
   readonly childSessionsPage: CatalogStore["childSessionsPage"];
-  /** #1254 S3: the catalog `has_armed` flag write (ordering law in `commitIn`). */
+  /** Ordering law in `commitIn`. */
   readonly markArmed?: (sessionId: string, armed: boolean) => void;
 }
 
@@ -65,7 +57,6 @@ interface GenerationSeed {
     readonly blocks: readonly SessionGeneration.SystemBlock[];
   };
   readonly policyGeneration: number;
-  /** The composed manifest's `Generation.hash` this generation adopts (#1255). */
   readonly manifestHash?: string;
 }
 
@@ -73,7 +64,7 @@ export interface MaterializeInput extends GenerationSeed {
   readonly id: string;
   readonly parentId: string | null;
   readonly role: LedgerSession.Role;
-  /** Generation settings pinned at genesis (#1253/#1257): widths and fork copy cap. */
+  /** Pinned at genesis: widths and fork copy cap. */
   readonly settings?: ConsumptionSettings;
   readonly actionId: string;
   readonly at: number;
@@ -109,7 +100,6 @@ function materializeIn(
   );
 }
 
-/** Canonical first materialization payload: the fresh idle row plus its `create` configure action. */
 export function materializationSeed(
   input: {
     readonly id: string;
@@ -117,7 +107,6 @@ export function materializationSeed(
     readonly role: LedgerSession.Role;
     readonly actionId: string;
     readonly at: number;
-    /** Generation settings pinned at genesis (#1253/#1257). */
     readonly settings?: ConsumptionSettings;
   },
   snapshot: SessionGeneration.Snapshot,
@@ -151,10 +140,9 @@ function commitIn(
   context: SessionKernelContext,
   input: LedgerSession.Commit,
 ): Effect.Effect<CommitReceipt, LedgerError> {
-  // #1254 S3 catalog intent ordering: flag the session as possibly-armed
-  // BEFORE the session transaction that commits an arm (an extra true costs a
-  // boot rescan); clear only after a committed batch touched the alarm plane
-  // AND the index confirms empty (a premature false would lose recovery).
+  // Flag possibly-armed BEFORE the arming transaction (an extra true costs a
+  // rescan); clear only after a committed batch touched the alarm plane AND
+  // the index confirms empty (a premature false would lose recovery).
   const deltas = input.actions.flatMap((action) => {
     const delta = armedAlarmDelta(action);
     return delta === undefined ? [] : [delta];
@@ -366,34 +354,21 @@ function outboundRowsIn(
   }
 }
 
-/** The chain effect one received message committed; the pending fold reads it back. */
 const ReceivedEffect = z.object({
   deliveryKind: Delivery.Kind,
   content: z.string(),
   delivery: z.enum(["steer", "followUp"]).optional(),
 });
 
-/**
- * Pending-message projection (W5.2): `prompt` actions carrying a delivered-input
- * payload whose id no delivery row references yet, folded from the
- * chain — there is no input-queue table.
- */
-/**
- * The `after` cursor a deferred `action` input's intent carries (#1256 H-3),
- * if any — the ONE typed owner of this projection (r3 L-1).
- */
+/** `prompt` actions with a delivered-input payload no delivery row references yet, folded from the chain — there is no input-queue table. */
+/** The ONE typed owner of the deferred `action` cursor projection. */
 const AfterCursorIntent = z.looseObject({ after: z.number().int().nonnegative().optional() });
 function afterCursorOf(intent: PlainValue): number | undefined {
   const parsed = AfterCursorIntent.safeParse(intent);
   return parsed.success ? parsed.data.after : undefined;
 }
 
-/**
- * Every input row, consumed or pending (#1257): the SQL projection that
- * replaced the retired whole-history received-message chain fold. Status
- * comes from the
- * same delivery-reference rule the pending read uses.
- */
+/** Status comes from the same delivery-reference rule the pending read uses. */
 function inputMessagesIn(context: SessionKernelContext, sessionId: string): Delivery.Row[] {
   const pending = new Set(
     requiredActionsIn(context)
@@ -499,8 +474,7 @@ export function generationSnapshot(input: GenerationSeed & {
       .join("\n\n"),
     systemHash: canonicalDigest(blocks),
     policyGeneration: input.policyGeneration,
-    // #1319: every snapshot this writer materializes records the gate-row
-    // writer version; snapshots persisted before the cutover stay versionless.
+    // Snapshots persisted before the cutover stay versionless.
     rowsVersion: GATE_ROW_WRITER_VERSION,
     ...(input.manifestHash === undefined ? {} : { manifestHash: input.manifestHash }),
   });
@@ -512,11 +486,11 @@ export function configureAction(input: {
   readonly parentId: string | null;
   readonly operation: SessionGeneration.ConfigureIntent["operation"];
   readonly snapshot: SessionGeneration.Snapshot;
-  /** `all|one` consumption widths (#1253); present only when the configure pins them. */
+  /** Present only when the configure pins them. */
   readonly settings?: ConsumptionSettings;
-  /** Fork ancestry (#1257); present only on a forked child's genesis configure. */
+  /** Present only on a forked child's genesis configure. */
   readonly forkedFrom?: SessionGeneration.ForkAncestry;
-  /** The composed off cascade (#1255); present only when a manifest composed. */
+  /** Present only when a manifest composed. */
   readonly disabled?: ConfigureDisabled;
   readonly at: number;
 }): LedgerAction.Append {
@@ -583,7 +557,6 @@ export function turnTerminal(
 
 const DELIVERY_KINDS: ReadonlySet<string> = new Set(["prompt", "signal", "action"]);
 
-/** A delivered-input journal row (#1252): prompt/signal/action with a delivery-phase effect. */
 export function delivery(action: LedgerAction.Node | undefined): SessionTurn.Delivery | undefined {
   if (action === undefined || !DELIVERY_KINDS.has(action.kind)) return undefined;
   const parsed = SessionTurn.Delivery.safeParse(action.effect.value);
@@ -768,10 +741,7 @@ function configurationSnapshot(
   return effect.success ? effect.data.snapshot : undefined;
 }
 
-/**
- * The newest `count` turns: one ascending window opens after the intent preceding them, because
- * deliveries commit before their own turn intent. The window carries the intents themselves.
- */
+/** The window opens after the intent preceding the newest `count` turns because deliveries commit before their own turn intent. */
 function turnTails(
   context: SessionKernelContext,
   sessionId: string,
@@ -796,7 +766,7 @@ function turnTails(
 
 interface TailWindow {
   readonly tails: Map<string, TailFold>;
-  /** Prompt deliveries seen before their turn intent, keyed by turn id. */
+  /** Prompt deliveries seen before their turn intent. */
   readonly pending: Map<string, SessionTurn.Message[]>;
 }
 
@@ -806,7 +776,7 @@ interface TailFold {
   terminal?: { readonly action: LedgerAction.Node; readonly effect: SessionTurn.Terminal };
 }
 
-/** Route each window row by its stored phase so only the needed schema parses. */
+// Route by stored phase so only the needed schema parses.
 function foldTailAction({ tails, pending }: TailWindow, action: LedgerAction.Node): void {
   const delivered = delivery(action);
   if (delivered !== undefined) {
@@ -915,7 +885,7 @@ function makeSessionKernel(context: SessionKernelContext) {
       sessionWritesIn(context).pipe(Effect.flatMap((sessions) => sessions.adoptFence(input))),
     commit: (input: LedgerSession.Commit) => commitIn(context, input),
     pendingMessages: (sessionId: string): Delivery.Row[] => pendingMessagesIn(context, sessionId),
-    /** Ordinal of the latest executed compaction, else 0 — the staleness horizon for `action` inputs (#1256 H-3). */
+    /** The staleness horizon for `action` inputs; 0 when nothing executed. */
     compactionHead: (sessionId: string): number =>
       requiredActionsIn(context).latestCompaction(sessionId)?.ordinal ?? 0,
     inputMessages: (sessionId: string): Delivery.Row[] => inputMessagesIn(context, sessionId),
@@ -1005,7 +975,6 @@ function makeSessionKernel(context: SessionKernelContext) {
     policyRows: (generation?: number): PolicyRow.Row[] => policyRowsIn(context, generation),
     currentPolicyGeneration: (): number =>
       policyRowsIn(context).reduce((latest, policy) => Math.max(latest, policy.generation), 0),
-    /** #1254 S3: armed occurrences restored from the session file's durable index. */
     armedAlarms: (): readonly ArmedAlarmRow[] => requiredArmedIn(context).armedAlarms(),
     armedCount: (): number => requiredArmedIn(context).armedCount(),
     /** One consumed delivery attempt; undefined once the row is retired. */
@@ -1025,15 +994,9 @@ function makeSessionKernel(context: SessionKernelContext) {
   };
 }
 
-/** The kernel handle API — exactly the historical module-level surface. */
 export type SessionKernel = ReturnType<typeof makeSessionKernel>;
 
-/**
- * Handle-scoped kernel factory (W5.2 review F1): session facts (row, chain,
- * snapshots) come from one per-session store; policy rows come from the
- * catalog. There is no input-queue table — `pendingMessages` folds the pending
- * projection straight from the action chain.
- */
+/** Session facts come from one per-session store, policy rows from the catalog; `pendingMessages` folds straight from the action chain. */
 export function createSessionKernel(session: SessionStore, catalog: CatalogStore): SessionKernel {
   return makeSessionKernel({
     stores: () => ({

@@ -15,13 +15,11 @@ export const ActionSqlRow = z.object({
   intent: z.string(),
   effect: z.string(),
   revert: z.string().nullable(),
-  // Hot read path (tree/range decode every row): single-layer checks instead
-  // of union + transform + pipe stacks (SqliteCount cost a >20% tree/history
-  // bench regression here). The production adapter never enables safeIntegers,
-  // so these columns arrive as numbers; an unexpected bigint fails closed.
+  // Hot read path: single-layer checks instead of union/transform stacks
+  // (SqliteCount cost a >20% tree/history bench regression here). An
+  // unexpected bigint fails closed.
   irreversible: z.union([z.literal(0), z.literal(1)]),
   encoding_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  // Mirrors protocol EpochMs: finite, non-negative, fractional allowed.
   ts: z.number().finite().nonnegative(),
   ordinal: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   prev_hash: z.string(),
@@ -30,12 +28,7 @@ export const ActionSqlRow = z.object({
 
 export type ActionSqlRow = z.infer<typeof ActionSqlRow>;
 
-/**
- * Chain-verification boundary (session-file `verifyChain` is the only
- * consumer): connections may run with safeIntegers, so INTEGER columns can
- * arrive as bigint and are folded to the same admitted numbers the hot
- * schema accepts.
- */
+/** Chain-verification boundary: connections may run with safeIntegers, so bigint INTEGER columns fold to the same admitted numbers. */
 export const ActionSqlRowSafeIntegers = ActionSqlRow.extend({
   irreversible: SqliteCount.pipe(z.union([z.literal(0), z.literal(1)])),
   encoding_version: SqliteCount,
@@ -77,7 +70,7 @@ export function decodeSession(row: SessionSqlRow): LedgerSession.Row {
   return LedgerSession.Row.parse({
     id: row.id,
     parentId: row.parent_id,
-    // #1315 versioned read: pre-rename files persist the retired role byte.
+    // Pre-rename files persist the retired role byte.
     role: LedgerSession.foldLegacyRole(row.role),
     fenceOwner: row.lease_owner,
     fence: row.lease_fence,
@@ -90,9 +83,8 @@ export function decodeSession(row: SessionSqlRow): LedgerSession.Row {
 }
 
 export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
-  // #1315 versioned read: version-1 input-plane payloads fold their retired
-  // field names to the version-2 `delivery*` names strictly after the chain
-  // hash was computed over the stored bytes.
+  // Version-1 input-plane payloads fold their retired field names strictly
+  // after the chain hash was computed over the stored bytes.
   const common = {
     id: row.id,
     parentId: row.parent_id,

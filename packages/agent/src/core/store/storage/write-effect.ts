@@ -17,7 +17,7 @@ export function writeEffect<A>(
           refusal = error;
           throw error;
         }),
-      // A foreign throw (SQLite itself) rides structured; the refusal wins when one was raised.
+      // The refusal wins over a foreign SQLite throw when one was raised.
       catch: thrownAsError,
     }).pipe(Effect.mapError((cause) => refusal ?? new AgentFailure({ operation, cause })));
   });

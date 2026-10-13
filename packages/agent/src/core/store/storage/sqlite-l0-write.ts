@@ -86,8 +86,6 @@ function throwRefusal(action: LedgerAction.Append, reason: string, refuse: Refus
   throw error;
 }
 
-// ─── #1254 S3: armed_alarms index delta, derived from the alarm row itself ───
-
 const ArmDeltaIntent = z.object({
   op: z.literal("arm"),
   alarmId: z.string().min(1),
@@ -96,18 +94,12 @@ const ArmDeltaIntent = z.object({
 const ArmDeltaEffect = z.object({ occurrenceId: z.string().min(1) });
 const FiredDeltaIntent = z.object({ op: z.literal("fired"), occurrenceId: z.string().min(1) });
 
-/** What one committed `alarm` row does to the session file's `armed_alarms` index. */
 type ArmedAlarmDelta =
   | { readonly op: "upsert"; readonly alarmId: string; readonly occurrenceId: string; readonly fireAt: number }
   | { readonly op: "retire"; readonly alarmId: string }
   | { readonly op: "fired"; readonly occurrenceId: string };
 
-/**
- * Derives the `armed_alarms` delta from the appended row (#1254 S3, decision 6
- * in delta-g010: callers supply nothing — a caller-supplied delta could desync
- * from the row). Pre-#1254 alarm rows (watch lifecycle, retry.scheduled
- * evidence) carry no `alarmId`/`occurrenceId` and yield no delta.
- */
+/** Derived from the row, never caller-supplied (a supplied delta could desync); legacy alarm rows without `alarmId`/`occurrenceId` yield no delta. */
 export function armedAlarmDelta(action: LedgerAction.Append): ArmedAlarmDelta | undefined {
   if (action.kind !== "alarm") return undefined;
   const arm = ArmDeltaIntent.safeParse(action.intent.value);
@@ -126,7 +118,7 @@ export function armedAlarmDelta(action: LedgerAction.Append): ArmedAlarmDelta | 
   return fired.success ? { op: "fired", occurrenceId: fired.data.occurrenceId } : undefined;
 }
 
-/** Applies the derived delta inside the SAME transaction that appended the row. */
+/** Same transaction as the row append. */
 function applyArmedAlarmDelta(db: Database, delta: ArmedAlarmDelta): void {
   switch (delta.op) {
     case "upsert":
@@ -145,11 +137,7 @@ function applyArmedAlarmDelta(db: Database, delta: ArmedAlarmDelta): void {
   }
 }
 
-/**
- * Single append outside a batch: validates the one-action batch (existence +
- * parent ownership live in `validActionBatch`, the single query site per
- * check — #1314) and then appends.
- */
+/** Existence and parent ownership live in `validActionBatch`, the single query site per check. */
 export function appendAction(
   db: Database,
   action: LedgerAction.Append,
@@ -166,11 +154,7 @@ export function appendAction(
   return appendValidatedAction(db, action, expectedRevision, limits, refuse);
 }
 
-/**
- * #1314: the write after validation. Callers guarantee `validActionBatch`
- * already covered this action inside the same transaction; no existence or
- * parent re-query happens here.
- */
+/** Callers guarantee `validActionBatch` already covered this action in the same transaction; no re-query here. */
 function appendValidatedAction(
   db: Database,
   action: LedgerAction.Append,
@@ -222,15 +206,10 @@ function appendValidatedAction(
 }
 
 /**
- * Fenced chain commit (W5.2): the session file is the single fence authority.
- * Authority is owner + fence equality against the single session row plus the
- * expected revision, inside this file's write lock — the same lock the
- * successor's `adoptFence` CAS takes, so there are exactly two interleavings
- * and both are correct: an old-fence commit landing before adoption is
- * accepted, durable, and visible to the successor (adoption is strictly
- * later in the same serialized file); one landing after adoption is refused
- * "stale". The catalog only allocates fence numbers; no lease-expiry clock
- * enters the predicate.
+ * Authority is owner + fence + revision inside this file's write lock — the
+ * same lock `adoptFence` takes — so an old-fence commit lands strictly before
+ * adoption (accepted, visible to the successor) or after it (refused stale).
+ * No lease-expiry clock enters the predicate.
  */
 export function commitSession(
   db: Database,
