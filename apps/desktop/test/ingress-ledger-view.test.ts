@@ -1,8 +1,50 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
+import { z } from "zod";
+import { Ingress } from "@openomni/protocol";
 import { IngressLedgerView } from "../src/renderer/ingress-ledger/view";
+import { LedgerRows } from "../src/renderer/ingress-ledger/rows";
 import { automationRenderer } from "./helpers/automation-renderer";
 import { createAutomationFixture, ledgerRows } from "./helpers/automation-wire";
+
+test("stored superseded decision links to the winning prompt without a routing row", async () => {
+  const fixtureUrl = new URL("../../../packages/channels/test/router/_router-fixture.ts", import.meta.url);
+  const ledgerUrl = new URL("../../../packages/channels/test/helpers/ledger.ts", import.meta.url);
+  const effectUrl = new URL("../../../packages/channels/test/helpers/effect.ts", import.meta.url);
+  const protocolUrl = new URL("../../../packages/protocol/dist/index.js", import.meta.url);
+  const producer = Bun.spawn([process.execPath, "-e", `
+    import { makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState } from "${fixtureUrl}";
+    import { ledger } from "${ledgerUrl}";
+    import { runEffect } from "${effectUrl}";
+    import { Ingress } from "${protocolUrl}";
+    resetRouterState();
+    registerOwnerDm();
+    ledger().stores.automations.add(Ingress.Automation.parse({
+      id: "notify", name: "Notify", enabled: true, createdBy: "owner",
+      triggers: [{ type: "message", surface: ownerFacts.surface, event: "message" }],
+      target: "session:worker", kind: "action",
+    }));
+    const result = await runEffect(makeRouter().ingest(ownerSender, ownerFacts));
+    if (result.status !== "executed") throw new Error("Expected prompt delivery");
+    console.log(JSON.stringify({ target: result.handle.target, rows: ledger().stores.automations.ledger({ limit: 20 }) }));
+  `], { cwd: new URL("../../..", import.meta.url).pathname, stdout: "pipe", stderr: "pipe" });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    producer.exited, new Response(producer.stdout).text(), new Response(producer.stderr).text(),
+  ]);
+  expect(exitCode, stderr).toBe(0);
+  const { target, rows } = z.object({
+    target: z.string(), rows: Ingress.Events.RoutingDecision.schema.array(),
+  }).parse(JSON.parse(stdout));
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ decision: "superseded", target: `session:${target}` });
+  const ui = automationRenderer();
+  const opened: string[] = [];
+  try {
+    await ui.render(createElement(LedgerRows, { rows, related: rows, now: 1000, onOpenSession: (id) => opened.push(id) }));
+    await ui.click(`Winning prompt · ${target}`);
+    expect(opened).toEqual([target]);
+  } finally { await ui.close(); }
+});
 
 test("renders six decisions, evidence, distinct judge verdicts and related event links", async () => {
   const fixture = createAutomationFixture();
@@ -43,7 +85,7 @@ test("filters through wire queries rather than evaluating records locally", asyn
     expect(fixture.requests.at(-1)).toMatchObject({ type: "automation_ledger", surface: "discord" });
     expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(1);
     await ui.click("Clear");
-    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(7);
+    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(6);
   } finally { await ui.close(); }
 });
 
@@ -69,17 +111,15 @@ test("filtered relationship views retain original events and winning sessions", 
   } finally { await ui.close(); }
 });
 
-test("superseded evidence never labels a blocked route as the winning prompt", async () => {
-  const fixture = createAutomationFixture([], [
-    { traceId: "blocked", inboundId: "conversation", time: 700, surface: "discord", mode: "direct", stage: "channel_ceiling", outcome: "block", sessionId: "wrong-session", reason: "blocked", factsUsed: [] },
-    ...ledgerRows,
-  ]);
+test("superseded evidence without a winning session offers no prompt link", async () => {
+  const fixture = createAutomationFixture([], ledgerRows.map((row) =>
+    row.stage === "automation" && row.decision === "superseded" ? { ...row, target: undefined } : row));
   const ui = automationRenderer();
   const opened: string[] = [];
   try {
     await ui.render(createElement(IngressLedgerView, { transport: fixture.transport, now: 1000, onOpenSession: (id) => opened.push(id) }));
-    await ui.click("Winning prompt · prompt-winner");
-    expect(opened).toEqual(["prompt-winner"]);
+    expect(ui.host.querySelector('[data-decision="superseded"] button')).toBeNull();
+    expect(opened).toEqual([]);
   } finally { await ui.close(); }
 });
 
@@ -95,7 +135,7 @@ test("disconnected and refused ledger reads expose no fabricated rows and can re
     expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain("store_unconfigured");
     fixture.refuse(null);
     await ui.click("Retry");
-    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(7);
+    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(6);
   } finally { await ui.close(); }
 });
 

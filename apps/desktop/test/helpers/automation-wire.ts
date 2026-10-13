@@ -8,7 +8,6 @@ export const automationRecord: Ingress.Automation = {
 };
 
 export const ledgerRows: Ingress.RoutingDecisionPayload[] = [
-  { traceId: "trace-1", inboundId: "conversation", time: 600, surface: "discord", mode: "direct", stage: "surface_default", outcome: "route", target: "session:prompt-winner", reason: "conversation", factsUsed: [] },
   ...(["matched", "filtered", "refused", "deduped", "grouped", "superseded"] as const).map((decision, index) => ({
     traceId: "trace-1", inboundId: decision === "deduped" ? "matched" : decision === "superseded" ? "conversation" : decision,
     time: 600 - index * 10, surface: "discord", mode: "direct" as const, stage: "automation" as const,
@@ -22,6 +21,7 @@ export const ledgerRows: Ingress.RoutingDecisionPayload[] = [
     }[decision],
     ...(decision === "grouped" || decision === "deduped" ? { target: "session:action-session" } : {}),
     ...(decision === "matched" ? { target: "session:action-session", actionSeq: 4 } : {}),
+    ...(decision === "superseded" ? { target: "session:prompt-winner" } : {}),
     ...(decision === "filtered" ? { runWhen: { verdict: "no" as const, reason: "Outside working hours" } } : {}),
     ...(decision === "refused" ? { runWhen: { verdict: "unknown" as const, reason: "Missing event evidence" } } : {}),
   })),

@@ -5,16 +5,11 @@ type Row = Ingress.RoutingDecisionPayload;
 type AutomationRow = Extract<Row, { stage: "automation" }>;
 const VERDICT = { yes: "Accepted", no: "Rejected", unknown: "Indecisive" } as const;
 
-function SessionLink({ row, rows, onOpenSession }: {
+function SessionLink({ row, onOpenSession }: {
   readonly row: Row;
-  readonly rows: readonly Row[];
   readonly onOpenSession: (id: string) => void;
 }) {
-  const winner = row.stage === "automation" && row.decision === "superseded"
-    ? rows.find((candidate) => candidate.inboundId === row.inboundId && candidate.stage !== "automation" && candidate.outcome === "route" && (candidate.sessionId !== undefined || candidate.target?.startsWith("session:")))
-    : undefined;
-  const linked = row.stage === "automation" && row.decision === "superseded" ? winner : row;
-  const sessionId = linked?.target?.startsWith("session:") ? linked.target.slice(8) : linked?.sessionId;
+  const sessionId = row.target?.startsWith("session:") ? row.target.slice(8) : row.sessionId;
   if (sessionId === undefined) return null;
   return <button className="focus-ring min-h-10 break-all text-left text-body underline underline-offset-4" type="button" onClick={() => onOpenSession(sessionId)}>
     {row.stage === "automation" && row.decision === "superseded" ? "Winning prompt" : "Open session"}
@@ -46,11 +41,11 @@ function DecisionDetails({ row, rows, visibleIds, onOpenSession }: {
       {firingRow && <><dt className="text-fg-muted">Firing event</dt><dd className="break-all">
         {visibleIds.has(firingRow.inboundId) ? <a className="focus-ring underline" href={`#ingress-${encodeURIComponent(firingRow.inboundId)}`}>{firingRow.inboundId}</a> : <>
           {firingRow.inboundId}
-          <SessionLink row={firingRow} rows={rows} onOpenSession={onOpenSession} />
+          <SessionLink row={firingRow} onOpenSession={onOpenSession} />
         </>}
       </dd></>}
     </dl>
-    <SessionLink row={row} rows={rows} onOpenSession={onOpenSession} />
+    <SessionLink row={row} onOpenSession={onOpenSession} />
   </details>;
 }
 
@@ -87,7 +82,7 @@ export function LedgerRows({ rows, related, now, onOpenSession }: {
       </th><td className="min-w-0 py-2 align-top">
         {[...group].sort((a, b) => Number(a.stage === "automation" && a.decision === "deduped") - Number(b.stage === "automation" && b.decision === "deduped")).map((row) => (
           <div key={JSON.stringify(row)} className={row.stage === "automation" && row.decision === "deduped" ? "ml-4" : ""} data-decision={row.stage === "automation" ? row.decision : row.outcome}>
-            {row.stage === "automation" ? <DecisionDetails row={row} rows={related} visibleIds={visibleIds} onOpenSession={onOpenSession} /> : <><p className="py-2">{row.reason}</p><SessionLink row={row} rows={related} onOpenSession={onOpenSession} /></>}
+            {row.stage === "automation" ? <DecisionDetails row={row} rows={related} visibleIds={visibleIds} onOpenSession={onOpenSession} /> : <><p className="py-2">{row.reason}</p><SessionLink row={row} onOpenSession={onOpenSession} /></>}
           </div>
         ))}
       </td></tr>
