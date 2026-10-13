@@ -216,10 +216,8 @@ function appendReceived(
     const row = kernel.row(authority.sessionId);
     const now = env.clock();
     const action = receivedActionFor(authority.sessionId, kind, message, now, delivery, after);
-    // #1346 H3: the interrupt row carries the `running -> interrupted`
-    // transition the single writer owns; on any other state the control is
-    // consumed by the drain as a no-op delivery, never left pending for the
-    // NEXT turn to abort.
+    // The interrupt row carries the writer-owned `running -> interrupted`
+    // transition; any other state drains the control as a no-op delivery.
     const committed = yield* commitIn(handle, {
       sessionId: authority.sessionId,
       owner: authority.owner,

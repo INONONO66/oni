@@ -17,11 +17,9 @@ export class MaterializeRefused extends Data.TaggedError("MaterializeRefused")<{
 }> {}
 
 /**
- * One creation refused: `duplicate` when the session file already holds the
- * id (the idempotent outcome for a concurrent creator), `orphan_index` when
- * only a catalog index row exists with no session file behind it (earlier
- * state a caller must fail closed on, never continue against), or `write`
- * when the write unit failed.
+ * One creation refused: `duplicate` (the session file holds the id — the
+ * idempotent outcome for a concurrent creator), `orphan_index` (a catalog row
+ * with no session file behind it; fail closed) or `write` (the unit failed).
  */
 export class CreateRefused extends Data.TaggedError("CreateRefused")<{
   readonly sessionId: string;

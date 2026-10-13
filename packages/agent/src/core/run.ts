@@ -126,10 +126,7 @@ export interface SessionRuntime {
    * compaction append is a defect and a restore refuses typed.
    */
   readonly compaction?: CompactionSeamService;
-  /**
-   * Dispatches an already committed source obligation through gateway
-   * admission; `ledger` is the source turn's own fenced commit door.
-   */
+  /** Dispatches a committed source obligation through gateway admission; `ledger` is the source turn's fenced door. */
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
     readonly ledger: Pick<ExecutionLedger, "commit">;
@@ -469,10 +466,8 @@ function fencedExecutionLedger(
 }
 
 /**
- * The policy-gate executor of a session with no live turn (#1346 M1): the
- * core adopts the fence for `owner` and builds the executor over its own
- * fenced commit door. The caller receives the gate's `run`/`recover` — every
- * row it writes is a gate decision at the core's CAS — never the ledger: no
+ * The policy-gate executor of a session with no live turn: the core adopts the
+ * fence for `owner` and builds the executor over its own fenced door, so no
  * commit, materialize or fence-adoption door leaves the core.
  */
 export function adoptedExecutor(

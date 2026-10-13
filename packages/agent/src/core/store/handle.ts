@@ -1,7 +1,4 @@
-/**
- * The Core-public face of the session handle store: pure action builders,
- * fold projections and the kernel TYPE. `createSessionKernel` stays internal.
- */
+/** The Core-public face of the session handle store: action builders, folds and the kernel TYPE; `createSessionKernel` stays internal. */
 export {
   configureAction,
   delivery,

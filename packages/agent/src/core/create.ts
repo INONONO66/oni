@@ -1,7 +1,4 @@
-/**
- * The one session creation door: genesis configure row and catalog index
- * commit together through the store's enclosed write unit.
- */
+/** The one session creation door: genesis configure row and catalog index commit in one enclosed write unit. */
 import { Effect } from "effect";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import type { LedgerPlane } from "./host";

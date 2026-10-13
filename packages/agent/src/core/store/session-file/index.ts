@@ -957,12 +957,7 @@ export class SessionStore extends StoreHandle {
     );
   }
 
-  /**
-   * One atomic creation write: genesis configure row and catalog index land
-   * together; a duplicate on either plane refuses typed with zero new facts
-   * (`duplicate` when the session file already holds the id, `orphan_index`
-   * when only a catalog row does).
-   */
+  /** One atomic creation write: genesis row and catalog index land together; a duplicate on either plane refuses typed with zero new facts. */
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
       const created = this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
@@ -977,14 +972,10 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * The catalog's write lock encloses the session-file transaction: the index
-   * row inserts first (a lost race refuses before any session write) and a
-   * thrown session write unwinds both. The index row's `createdAt` is the
-   * caller's time (#1346 M4: the injected clock, never the catalog's own), so
-   * a fork child's index stamp equals the fork's `now`. An index row the
-   * insert collides with is a `duplicate` only when this session file holds
-   * the id too; a catalog row with no session file is an `orphan_index` the
-   * caller must not treat as the idempotent outcome (#1346 M3).
+   * The catalog lock encloses the session-file write: index row first (a lost
+   * race refuses before any session write), a thrown write unwinds both, and
+   * `createdAt` is the caller's clock. A colliding index row is `duplicate`
+   * only with a session file behind it; a catalog row alone is `orphan_index`.
    */
   private indexed<T>(
     index: SessionIndexUnit,
