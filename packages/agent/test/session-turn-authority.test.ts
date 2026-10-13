@@ -38,16 +38,9 @@ test("known trusted origins keep acting with no violation", () => {
   }
 });
 
-// Integration seam: a real turn over mail of unknown provenance runs the
-// runner with evidence authority and records the violation observation.
-test("a turn over unknown-provenance mail runs as evidence and records the violation fact", () => {
+/** One isolated session runtime at fixed `clock` whose observations land in `published` as plain objects. */
+function observedRuntime(clock: number, idPrefix: string) {
   const published: { name: string; data: PlainObject }[] = [];
-  const authorities: (string | undefined)[] = [];
-  const runner: SessionRunner = (input) =>
-    Effect.sync(() => {
-      authorities.push(input.authority);
-      return { kind: "result", text: "done" };
-    });
   const runtime: SessionFixture = {
     authorizeConfigure: allowConfigure,
     observations: {
@@ -59,10 +52,23 @@ test("a turn over unknown-provenance mail runs as evidence and records the viola
         });
       },
     },
-    clock: () => 1_000,
-    entropy: (() => { let next = 0; return () => `authority-id-${++next}`; })(),
+    clock: () => clock,
+    entropy: (() => { let next = 0; return () => `${idPrefix}-${++next}`; })(),
     ...isolatedRuntime(),
   };
+  return { runtime, published };
+}
+
+// Integration seam: a real turn over mail of unknown provenance runs the
+// runner with evidence authority and records the violation observation.
+test("a turn over unknown-provenance mail runs as evidence and records the violation fact", () => {
+  const authorities: (string | undefined)[] = [];
+  const runner: SessionRunner = (input) =>
+    Effect.sync(() => {
+      authorities.push(input.authority);
+      return { kind: "result", text: "done" };
+    });
+  const { runtime, published } = observedRuntime(1_000, "authority-id");
   return isolated(Effect.scoped(Effect.gen(function* () {
     seedPolicy();
     yield* Effect.addFinalizer(() => closeSessions(runtime).pipe(Effect.orDie));
@@ -99,28 +105,13 @@ test("a turn over unknown-provenance mail runs as evidence and records the viola
 // Integration seam (#1310): a prompt whose action row cannot be found fails
 // the turn typed — the runner never runs, no authority (not even evidence).
 test("a prompt with no recorded origin fails the turn typed and never runs the runner", () => {
-  const published: { name: string; data: PlainObject }[] = [];
   let runnerCalls = 0;
   const runner: SessionRunner = () =>
     Effect.sync(() => {
       runnerCalls += 1;
       return { kind: "interrupted" };
     });
-  const runtime: SessionFixture = {
-    authorizeConfigure: allowConfigure,
-    observations: {
-      publish: <T>(event: BusEvent.Descriptor<T>, data: T) => {
-        const value = PlainValueSchema.parse(data);
-        published.push({
-          name: event.name,
-          data: value !== null && typeof value === "object" && !Array.isArray(value) ? value : {},
-        });
-      },
-    },
-    clock: () => 2_000,
-    entropy: (() => { let next = 0; return () => `origin-less-id-${++next}`; })(),
-    ...isolatedRuntime(),
-  };
+  const { runtime, published } = observedRuntime(2_000, "origin-less-id");
   return isolated(Effect.scoped(Effect.gen(function* () {
     seedPolicy();
     yield* Effect.addFinalizer(() => closeSessions(runtime).pipe(Effect.orDie));

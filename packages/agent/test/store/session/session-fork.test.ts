@@ -6,19 +6,16 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { PlainValueSchema, SessionGeneration, type LedgerAction } from "@openomni/protocol";
+import { SessionGeneration, type LedgerAction } from "@openomni/protocol";
 import { testNow } from "../helpers/storage";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION } from "../../../src/core/store/session-file";
 import { receivedMessageAction } from "../../../src/core/commit";
 import { forkSession, isForkBoundary } from "../../../src/core/fork";
-import { createAssistantMessage } from "../../../src/core/message-factory";
-import { foldSessionHistory } from "../../../src/inspect/history";
-import { createCompactionPlan } from "../../../src/plugins/compaction/durable";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
+import { answerThenCompaction } from "../../helpers/durable-compaction";
 import { testExecutor } from "../../helpers/executor";
-import { messageSource } from "../../helpers/message-source";
 import { sessionTree } from "../../helpers/session-tree";
 import { runLedgerSync } from "../helpers/effect";
 import { CatalogVersionRefused } from "../../../src/core/store/errors";
@@ -146,28 +143,7 @@ describe("Session.fork", () => {
       },
       random: () => 0,
     });
-    runLedgerSync(
-      Effect.gen(function* () {
-        const answer = createAssistantMessage("compact summary", "", PARENT, messageSource);
-        yield* executor.run(
-          { kind: "message", op: "assistant", intent: { messageId: answer.info.id }, effect: {} },
-          () => Effect.sync(() => PlainValueSchema.parse(answer)),
-        );
-        const prior = foldSessionHistory(PARENT, sessionTree(stores.kernel, PARENT));
-        const plan = createCompactionPlan(prior, [answer], 100);
-        yield* executor.run(
-          {
-            kind: "compaction",
-            op: "compact",
-            intent: { trigger: "threshold" },
-            effect: {},
-            revertData: () => PlainValueSchema.parse(plan.record.revert),
-          },
-          () =>
-            Effect.sync(() => PlainValueSchema.parse({ ...plan.record, projection: plan.projection })),
-        );
-      }),
-    );
+    runLedgerSync(answerThenCompaction(executor, stores.kernel, PARENT, "compact summary"));
     // The executed compaction result row is a boundary anchor by rule.
     const compactionRow = sessionTree(stores.kernel, PARENT).find((node) => {
       const effect = node.effect.value;

@@ -572,6 +572,18 @@ export const sendRescan = (sessionId: string, occurrenceId: string, fireAt: numb
     fireAt,
   });
 
+/** The ad-hoc `kick` rescan occurrence (armSeq 1, already due) that merely activates `sessionId`. */
+export const sendKick = (sessionId: string) =>
+  sendAlarm(sessionId, {
+    occurrenceId: "kick",
+    purpose: "rescan",
+    alarmId: "kick",
+    armSeq: 1,
+    sourceKey: "rescan",
+    payload: "{}",
+    fireAt: Date.now() - 1,
+  });
+
 export function sessionFileFor(sessionsDir: string, sessionId: string): string {
   return `${sessionsDir}/${sessionId}.sqlite`;
 }

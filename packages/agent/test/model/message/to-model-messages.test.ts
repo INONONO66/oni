@@ -133,6 +133,36 @@ describe("toModelMessages", () => {
   });
 });
 
+/** The finished `msg-a` assistant carrying one completed `call-1` tool part for `tool` with `input` and `output`. */
+function assistantWithCompletedCall(
+  info: Partial<Message.AssistantMessage>,
+  tool: string,
+  input: Record<string, string>,
+  output: string,
+): Message.WithParts {
+  return {
+    info: assistantInfo({ ...info, finish: "stop" }),
+    parts: [
+      {
+        id: "part-tool",
+        sessionID: "session-1",
+        messageID: "msg-a",
+        type: "tool",
+        callID: "call-1",
+        tool,
+        state: {
+          status: "completed",
+          input,
+          output,
+          time: { start: 1100, end: 1150 },
+          title: tool,
+          metadata: {},
+        },
+      } as Message.ToolPart,
+    ],
+  };
+}
+
 function assistantInfo(
   overrides: Partial<Message.AssistantMessage> = {},
 ): Message.AssistantMessage {
@@ -202,41 +232,8 @@ describe("toModelMessages tool-name wire sanitization (all providers)", () => {
     api: { npm: "@ai-sdk/openai" },
   };
 
-  function assistantWithDottedToolCall(): Message.WithParts {
-    return {
-      info: {
-        id: "msg-a",
-        sessionID: "session-1",
-        role: "assistant",
-        time: { created: 1100, completed: 1200 },
-        parentID: "msg-u",
-        modelID: "gpt-4o",
-        providerID: "openai-proxy",
-        agent: "default",
-        path: { cwd: "/", root: "/" },
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        finish: "stop",
-      } as Message.AssistantMessage,
-      parts: [
-        {
-          id: "part-tool",
-          sessionID: "session-1",
-          messageID: "msg-a",
-          type: "tool",
-          callID: "call-1",
-          tool: "message.send",
-          state: {
-            status: "completed",
-            input: { text: "hi" },
-            output: "sent",
-            time: { start: 1100, end: 1150 },
-            title: "message.send",
-            metadata: {},
-          },
-        } as Message.ToolPart,
-      ],
-    };
-  }
+  const assistantWithDottedToolCall = () =>
+    assistantWithCompletedCall({ modelID: "gpt-4o", providerID: "openai-proxy" }, "message.send", { text: "hi" }, "sent");
 
   test("sanitizes tool-call and tool-result block names for a non-claude provider", () => {
     const result = toModelMessages([assistantWithDottedToolCall()], openaiModel);
@@ -353,41 +350,7 @@ describe("toModelMessages reasoning signature resend gate (#532 candidate 10)", 
 });
 
 describe("D5 tool result split at the model boundary", () => {
-  function assistantWithToolText(output: string): Message.WithParts {
-    return {
-      info: {
-        id: "msg-a",
-        sessionID: "session-1",
-        role: "assistant",
-        time: { created: 1100, completed: 1200 },
-        parentID: "msg-u",
-        modelID: "claude-3-5-sonnet",
-        providerID: "anthropic",
-        agent: "default",
-        path: { cwd: "/", root: "/" },
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        finish: "stop",
-      } as Message.AssistantMessage,
-      parts: [
-        {
-          id: "part-tool",
-          sessionID: "session-1",
-          messageID: "msg-a",
-          type: "tool",
-          callID: "call-1",
-          tool: "echo",
-          state: {
-            status: "completed",
-            input: { value: "x" },
-            output,
-            time: { start: 1100, end: 1150 },
-            title: "echo",
-            metadata: {},
-          },
-        } as Message.ToolPart,
-      ],
-    };
-  }
+  const assistantWithToolText = (output: string) => assistantWithCompletedCall({}, "echo", { value: "x" }, output);
 
   function toolResultValue(
     messages: ReturnType<typeof toModelMessages>,

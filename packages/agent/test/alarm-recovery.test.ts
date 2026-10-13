@@ -18,7 +18,7 @@ import {
   noteCapability,
   resendSignal,
 } from "./helpers/alarm-recovery";
-import { clusterTempDir, readChain, runCluster, sendAlarm, sendRescan, sessionFileFor } from "./helpers/cluster-runtime";
+import { clusterTempDir, readChain, runCluster, sendAlarm, sendKick, sendRescan, sessionFileFor } from "./helpers/cluster-runtime";
 import { runAgent } from "./helpers/executor";
 import { fencedSession, withSessionHandles } from "./helpers/seeded-session";
 
@@ -79,6 +79,20 @@ async function withSession(
 }
 
 const firedRows = (sessionId: string, occurrenceId: string) => firedRowsOf(home, sessionId, occurrenceId);
+
+/** Post-run census: no armed rows remain in the session file and the catalog index agrees. */
+const expectNothingArmed = (sessionId: string) =>
+  readSession(sessionId, ({ kernel, catalog }) => {
+    expect(kernel.armedCount()).toBe(0);
+    expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
+  });
+
+/** The exhausted terminal row landed exactly once and no fired row of either outcome exists. */
+function expectExhaustedOnce(sessionId: string, occurrenceId: string) {
+  const chain = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
+  expect(chain.filter((row) => row.id === `${occurrenceId}:exhausted`)).toHaveLength(1);
+  expect(firedRows(sessionId, occurrenceId)).toEqual({ delivered: 0, stale: 0 });
+}
 
 describe("armed_alarms index in the append transaction", () => {
   test("arm upserts, retire deletes, fired deletes — all visible through the kernel reads", async () => {
@@ -397,13 +411,8 @@ describe("#1347 occurrence strikes in the session file", () => {
         expect(capability.attempts()).toBe(2);
       }),
     );
-    const chain = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
-    expect(chain.filter((row) => row.id === `${occurrenceId}:exhausted`)).toHaveLength(1);
-    expect(firedRows(sessionId, occurrenceId)).toEqual({ delivered: 0, stale: 0 });
-    await readSession(sessionId, ({ kernel, catalog }) => {
-      expect(kernel.armedCount()).toBe(0);
-      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
-    });
+    expectExhaustedOnce(sessionId, occurrenceId);
+    await expectNothingArmed(sessionId);
   }, 30_000);
 
   test("process death after the increment, before execution: the restart sees the strike and the resend exhausts on the third attempt", async () => {
@@ -434,13 +443,8 @@ describe("#1347 occurrence strikes in the session file", () => {
       }),
     );
     expect(capability.attempts()).toBe(1);
-    const chain = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
-    expect(chain.filter((row) => row.id === `${occurrenceId}:exhausted`)).toHaveLength(1);
-    expect(firedRows(sessionId, occurrenceId)).toEqual({ delivered: 0, stale: 0 });
-    await readSession(sessionId, ({ kernel, catalog }) => {
-      expect(kernel.armedCount()).toBe(0);
-      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
-    });
+    expectExhaustedOnce(sessionId, occurrenceId);
+    await expectNothingArmed(sessionId);
   }, 30_000);
 });
 
@@ -477,10 +481,7 @@ describe("crash recovery through the cluster", () => {
     const chain = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
     // The rescan wake itself appended nothing.
     expect(chain.filter((row) => row.id.includes(":rescan"))).toHaveLength(0);
-    await readSession(sessionId, ({ kernel, catalog }) => {
-      expect(kernel.armedCount()).toBe(0);
-      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
-    });
+    await expectNothingArmed(sessionId);
   }, 30_000);
 
   test("resend is bounded: N armed rows resend exactly N occurrences, once per activation", async () => {
@@ -523,10 +524,7 @@ describe("crash recovery through the cluster", () => {
     for (const occurrenceId of occurrences) {
       expect(firedRows(sessionId, occurrenceId)).toEqual({ delivered: 1, stale: 0 });
     }
-    await readSession(sessionId, ({ kernel, catalog }) => {
-      expect(kernel.armedCount()).toBe(0);
-      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
-    });
+    await expectNothingArmed(sessionId);
   }, 30_000);
 
   test("supersede then crash: the new occurrence fires, the late old one folds stale with zero execution", async () => {
@@ -566,10 +564,7 @@ describe("crash recovery through the cluster", () => {
 
     expect(firedRows(sessionId, newOccurrence)).toEqual({ delivered: 1, stale: 0 });
     expect(firedRows(sessionId, oldOccurrence)).toEqual({ delivered: 0, stale: 1 });
-    await readSession(sessionId, ({ kernel, catalog }) => {
-      expect(kernel.armedCount()).toBe(0);
-      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
-    });
+    await expectNothingArmed(sessionId);
   }, 30_000);
 });
 
@@ -611,15 +606,7 @@ describe("live arm forward through the cluster", () => {
     await runCluster(
       { sessionsDir, catalogFile, alarmCapability: capability },
       Effect.gen(function* () {
-        yield* sendAlarm(sessionId, {
-          occurrenceId: "kick",
-          purpose: "rescan",
-          alarmId: "kick",
-          armSeq: 1,
-          sourceKey: "rescan",
-          payload: "{}",
-          fireAt: Date.now() - 1,
-        });
+        yield* sendKick(sessionId);
         yield* Effect.promise(() => chained);
       }),
     );

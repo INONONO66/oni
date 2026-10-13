@@ -135,8 +135,32 @@ export function wakeHit(
   return definition.wake(fired({ payload: JSON.stringify({ spec: WATCH_SPEC, ...body }) }), context);
 }
 
+/** Fresh collectors plus a stub capability whose source closes land in `closed`. */
+function wakeCollectors() {
+  const closed: string[] = [];
+  const calls: ArmCall[] = [];
+  const prompts: PromptCall[] = [];
+  return { closed, calls, prompts, definition: stubCapability({ arm: stubArm([]), closed }) };
+}
+
+/** Runs one `monitor.hit` wake of a fresh stub capability over `chains`; returns the outcome with every collector. */
+export function hitOutcome(body: Parameters<typeof wakeHit>[1], chains?: ChainRows) {
+  const { closed, calls, prompts, definition } = wakeCollectors();
+  const outcome = runTestSync(
+    wakeHit(definition, body, stubContext({ arm: stubArm(calls, undefined, chains), prompts, chains })),
+  );
+  return { outcome, calls, closed, prompts };
+}
+
+/** Runs one `monitor.timeout` wake of a fresh stub capability over `chains`; returns the outcome with every collector. */
+export function timeoutOutcome(chains: ChainRows) {
+  const { closed, calls, prompts, definition } = wakeCollectors();
+  const outcome = runTestSync(wakeTimeout(definition, stubContext({ arm: stubArm(calls), prompts, chains })));
+  return { outcome, calls, closed, prompts };
+}
+
 /** Wake the definition with the `monitor.timeout` companion of `watch-1`. */
-export function wakeTimeout(definition: AlarmCapabilityDefinition, context: AlarmWakeContext) {
+function wakeTimeout(definition: AlarmCapabilityDefinition, context: AlarmWakeContext) {
   return definition.wake(
     fired({
       purpose: MONITOR_TIMEOUT,

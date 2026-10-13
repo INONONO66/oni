@@ -1,5 +1,4 @@
-import { messageSource } from "./message-source";
-import { sessionTree } from "./session-tree";
+import { answerThenCompaction } from "./durable-compaction";
 import { runChatAttempts } from "./chat-attempts";
 import { seededTestAgent } from "./seeded-test-agent";
 import { recordingLedger } from "./recording-ledger";
@@ -14,10 +13,6 @@ import { createTurnDispatcher } from "../../src/plugins/tool";
 import type { AnyToolDefinition } from "@openomni/protocol";
 import type { Run, RunInput } from "../../src/model";
 import type {} from "../../src/core/run";
-import { PlainValueSchema } from "@openomni/protocol";
-import { createCompactionPlan } from "../../src/plugins/compaction/durable";
-import { createAssistantMessage } from "../../src/core/message-factory";
-import { foldSessionHistory } from "../../src/inspect/history";
 import type { SessionRunnerInput, SessionRunnerResult } from "../../src/core/run";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import type { LedgerAction, SessionTransition } from "@openomni/protocol";
@@ -132,27 +127,9 @@ export function suspendedRequest(handle: SessionHandle, suspended: Promise<void>
 }
 export { runChatAttempts };
 export function answerThenCompact(executor: DurableExecutor, input: SessionRunnerInput) {
-  return Effect.gen(function* () {
-    const answer = createAssistantMessage("answer", "", input.sessionId, messageSource);
-    yield* executor.run(
-      { kind: "message", op: "assistant", intent: { messageId: answer.info.id }, effect: {} },
-      () => Effect.sync(() => PlainValueSchema.parse(answer)),
-    );
-    const prior = foldSessionHistory(input.sessionId, sessionTree(input.kernel, input.sessionId));
-    const plan = createCompactionPlan(prior, [answer], 100);
-    yield* executor.run(
-      {
-        kind: "compaction",
-        op: "compact",
-        intent: { trigger: "threshold" },
-        effect: {},
-        revertData: () => PlainValueSchema.parse(plan.record.revert),
-      },
-      () =>
-        Effect.sync(() => PlainValueSchema.parse({ ...plan.record, projection: plan.projection })),
-    );
-    return { kind: "result", text: "answer", finishReason: "stop" } satisfies SessionRunnerResult;
-  });
+  return answerThenCompaction(executor, input.kernel, input.sessionId, "answer").pipe(
+    Effect.map(() => ({ kind: "result", text: "answer", finishReason: "stop" }) satisfies SessionRunnerResult),
+  );
 }
 
 export function dispatchingRunner(

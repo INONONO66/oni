@@ -16,7 +16,7 @@ import type { Alarm } from "@openomni/protocol";
 import { armAction, composeAlarmPurposes, firedAction, type AlarmCapability, type ArmRefused } from "../../src/core/alarm";
 import { alarmCapability, WatchRefused } from "../../src/plugins/alarm";
 import { liveArmRegistry, liveWatchCapability } from "../helpers/alarm-budget";
-import { clusterTempDir, runCluster, sendAlarm, sendPrompt } from "../helpers/cluster-runtime";
+import { clusterTempDir, runCluster, sendAlarm, sendKick, sendPrompt } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
 import {
   fencedSession,
@@ -154,15 +154,7 @@ test("ctx.arm fills the budget to maxArmed, then ArmRefused{alarm_budget}; re-ar
     Effect.gen(function* () {
       // Any occurrence activates the entity; activation resends the boot arm,
       // whose delivery runs the wake above.
-      yield* sendAlarm(sessionId, {
-        occurrenceId: "kick",
-        purpose: "rescan",
-        alarmId: "kick",
-        armSeq: 1,
-        sourceKey: "rescan",
-        payload: "{}",
-        fireAt: Date.now() - 1,
-      });
+      yield* sendKick(sessionId);
       return yield* Effect.promise(() => report);
     }),
   );

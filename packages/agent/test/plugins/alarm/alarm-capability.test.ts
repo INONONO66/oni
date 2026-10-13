@@ -7,12 +7,13 @@ import { AlarmWakeError, ArmRefused, type ArmVerb } from "../../../src/core/api"
 import { alarmCapability, MONITOR_HIT, MONITOR_SOURCE, MONITOR_TIMEOUT, watchPurposes, WatchRefused } from "../../../src/plugins/alarm";
 import {
   fired,
+  hitOutcome,
   stubArm,
   stubCapability as capability,
   stubContext,
+  timeoutOutcome,
   WATCH_SPEC as spec,
   wakeHit,
-  wakeTimeout,
   watchVerb,
   type ArmCall,
   type ChainRows,
@@ -108,6 +109,12 @@ describe("wake dispatch", () => {
   });
 });
 
+/** `watch-1` live at t=4000 with its timeout companion armed at t=65000. */
+const liveWithTimeout = (): ChainRows => ({
+  "watch-1": { occurrenceId: "occ-live", at: 4_000 },
+  "watch-1:timeout": { occurrenceId: "occ-timeout", at: 65_000 },
+});
+
 describe("monitor.hit over the supersedes lifecycle", () => {
   test("a non-terminal hit under budget prompts and re-arms superseding the fired occurrence", () => {
     const prompts: PromptCall[] = [];
@@ -134,17 +141,10 @@ describe("monitor.hit over the supersedes lifecycle", () => {
   });
 
   test("budget exhaustion returns exhausted and retires the chain", () => {
-    const prompts: PromptCall[] = [];
-    const closed: string[] = [];
-    const calls: ArmCall[] = [];
-    const definition = capability({ arm: stubArm([]), closed });
-    const outcome = runTestSync(
-      wakeHit(
-        definition,
-        { notifications: 1, hit: { content: "last", terminal: false, detail: "line:2" } },
-        stubContext({ arm: stubArm(calls), prompts }),
-      ),
-    );
+    const { outcome, calls, closed, prompts } = hitOutcome({
+      notifications: 1,
+      hit: { content: "last", terminal: false, detail: "line:2" },
+    });
     expect(outcome).toBe("exhausted");
     expect(calls).toEqual([
       {
@@ -161,35 +161,20 @@ describe("monitor.hit over the supersedes lifecycle", () => {
   });
 
   test("a terminal hit retires the chain and closes the source", () => {
-    const closed: string[] = [];
-    const calls: ArmCall[] = [];
-    const definition = capability({ arm: stubArm([]), closed });
-    const outcome = runTestSync(
-      wakeHit(
-        definition,
-        { notifications: 0, hit: { content: "exit 0", terminal: true, detail: "exit" } },
-        stubContext({ arm: stubArm(calls) }),
-      ),
-    );
+    const { outcome, calls, closed } = hitOutcome({
+      notifications: 0,
+      hit: { content: "exit 0", terminal: true, detail: "exit" },
+    });
     expect(outcome).toBe("delivered");
     expect(calls[0]).toMatchObject({ at: null, payload: { reason: "fired" } });
     expect(closed).toEqual(["watch-1"]);
   });
 
   test("a terminal hit retires the armed timeout companion with the main chain", () => {
-    const closed: string[] = [];
-    const calls: ArmCall[] = [];
-    const chains: ChainRows = {
-      "watch-1": { occurrenceId: "occ-live", at: 4_000 },
-      "watch-1:timeout": { occurrenceId: "occ-timeout", at: 65_000 },
-    };
-    const definition = capability({ arm: stubArm([]), closed });
-    const outcome = runTestSync(
-      wakeHit(
-        definition,
-        { notifications: 0, hit: { content: "exit 0", terminal: true, detail: "exit" } },
-        stubContext({ arm: stubArm(calls, undefined, chains), chains }),
-      ),
+    const chains = liveWithTimeout();
+    const { outcome, calls, closed } = hitOutcome(
+      { notifications: 0, hit: { content: "exit 0", terminal: true, detail: "exit" } },
+      chains,
     );
     expect(outcome).toBe("delivered");
     expect(calls.map((call) => [call.purpose, call.at, call.alarmId, call.supersedes])).toEqual([
@@ -203,19 +188,10 @@ describe("monitor.hit over the supersedes lifecycle", () => {
   });
 
   test("budget exhaustion retires the armed timeout companion with the main chain", () => {
-    const closed: string[] = [];
-    const calls: ArmCall[] = [];
-    const chains: ChainRows = {
-      "watch-1": { occurrenceId: "occ-live", at: 4_000 },
-      "watch-1:timeout": { occurrenceId: "occ-timeout", at: 65_000 },
-    };
-    const definition = capability({ arm: stubArm([]), closed });
-    const outcome = runTestSync(
-      wakeHit(
-        definition,
-        { notifications: 1, hit: { content: "last", terminal: false, detail: "line:2" } },
-        stubContext({ arm: stubArm(calls, undefined, chains), chains }),
-      ),
+    const chains = liveWithTimeout();
+    const { outcome, calls, closed } = hitOutcome(
+      { notifications: 1, hit: { content: "last", terminal: false, detail: "line:2" } },
+      chains,
     );
     expect(outcome).toBe("exhausted");
     expect(calls.map((call) => [call.purpose, call.at, call.alarmId, call.supersedes])).toEqual([
@@ -258,17 +234,7 @@ describe("monitor.hit over the supersedes lifecycle", () => {
 
 describe("monitor.timeout", () => {
   test("prompts, retires the main chain through the chain reads, and closes the source", () => {
-    const prompts: PromptCall[] = [];
-    const closed: string[] = [];
-    const calls: ArmCall[] = [];
-    const definition = capability({ arm: stubArm([]), closed });
-    const outcome = runTestSync(
-      wakeTimeout(definition, stubContext({
-          arm: stubArm(calls),
-          prompts,
-          chains: { "watch-1": { occurrenceId: "occ-main", at: 4_500 } },
-        })),
-    );
+    const { outcome, calls, closed, prompts } = timeoutOutcome({ "watch-1": { occurrenceId: "occ-main", at: 4_500 } });
     expect(outcome).toBe("delivered");
     expect(calls).toEqual([
       {
@@ -288,17 +254,7 @@ describe("monitor.timeout", () => {
   });
 
   test("a timeout for a settled watch appends no prompt, arms nothing, and lapses as exhausted", () => {
-    const prompts: PromptCall[] = [];
-    const calls: ArmCall[] = [];
-    const closed: string[] = [];
-    const definition = capability({ arm: stubArm([]), closed });
-    const outcome = runTestSync(
-      wakeTimeout(definition, stubContext({
-          arm: stubArm(calls),
-          prompts,
-          chains: { "watch-1": { occurrenceId: "occ-main", at: null } },
-        })),
-    );
+    const { outcome, calls, closed, prompts } = timeoutOutcome({ "watch-1": { occurrenceId: "occ-main", at: null } });
     expect(outcome).toBe("exhausted");
     expect(prompts).toEqual([]);
     expect(calls).toEqual([]);
