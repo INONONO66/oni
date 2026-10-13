@@ -6,7 +6,7 @@ import {
 } from "@openomni/protocol";
 import { GateComposeError, type GatePointTable } from "../points";
 
-/** One row validated against its point record and the registered handler set, rejecting fail-closed. */
+/** One row validated against its point record and the handler set, rejecting fail-closed. */
 
 function reject(code: GateComposeError["data"]["code"], row: GateRow, detail?: string): never {
   throw new GateComposeError({
@@ -58,7 +58,10 @@ function validateObserve(row: GateRow): void {
     reject("bad_action", row, "how");
 }
 
-/** The fold applies exactly one mode: an admitted constant beside a declared guard would execute the constant and silently bypass the guard. */
+/**
+ * The fold applies exactly one mode: an admitted constant beside a declared guard would execute the
+ * constant and silently bypass the guard.
+ */
 function validateGate(row: GateRow): void {
   if (row.how.metric !== undefined) {
     // Obligation row: metric/limit under the projection-fixed allow; its optional

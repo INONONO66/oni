@@ -1,7 +1,10 @@
 import { seam, type SeamTag } from "./capability";
 import type { ResolvedAgentBudget } from "./types";
 
-/** Plain data only, no callbacks; the providing bundle owns the literals and the core has no fallback — a manifest without a provider refuses `seam_missing` at compose. */
+/**
+ * Plain data only, no callbacks; the providing bundle owns the literals and the core has no
+ * fallback — a manifest without a provider refuses `seam_missing` at compose.
+ */
 export interface ApprovalPolicy {
   readonly responders: readonly string[];
   /** At most `limit` open approvals per `windowMs`. */

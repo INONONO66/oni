@@ -41,7 +41,7 @@ export namespace Compaction {
       readonly trigger: "threshold" | "yield";
       readonly signal?: AbortSignal;
       readonly measuredTokens?: number;
-      /** Promoted with zero model calls when its canonical prefix is unchanged; otherwise the synchronous merge runs. */
+      /** Promoted with zero model calls when its canonical prefix is unchanged; else merged. */
       readonly candidate?: CompactionCandidate;
     },
   ): Effect.Effect<CompactionResult, ExecutionError, Entropy> {

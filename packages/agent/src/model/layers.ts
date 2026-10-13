@@ -4,7 +4,7 @@ import { Provider } from "./provider";
 import { run } from "./run";
 import { Llm } from "./services";
 
-/** Resolved once when the Layer is built: a later environment change cannot redirect a running service's credential I/O. */
+/** Resolved once at Layer build: a later environment change cannot redirect a running service. */
 export const LlmLive = Layer.sync(Llm, () => {
   const authFilePath = resolveAuthFilePath();
   return {

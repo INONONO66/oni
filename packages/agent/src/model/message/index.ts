@@ -13,7 +13,11 @@ type AssistantReasoningBlock = Extract<AssistantContentBlock, { type: "reasoning
 type AssistantToolCallBlock = Extract<AssistantContentBlock, { type: "tool-call" }>;
 type ToolResultBlock = Extract<ToolMessage["content"][number], { type: "tool-result" }>;
 
-/** A reasoning signature is valid only for the exact model that produced it, so it is resent only when {providerID, modelID} match the stored pair; other providers ignore the foreign `anthropic` namespace. */
+/**
+ * A reasoning signature is valid only for the exact model that produced it, so it is resent only
+ * when {providerID, modelID} match the stored pair; other providers ignore the foreign `anthropic`
+ * namespace.
+ */
 function buildAssistantReasoningBlock(
   part: Message.ReasoningPart,
   resendSignature: boolean,

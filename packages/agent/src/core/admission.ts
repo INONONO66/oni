@@ -25,7 +25,7 @@ interface AdmissionSnapshot {
   readonly pending: readonly Delivery.Row[];
   readonly open?: SessionHandleStore.OpenTurn;
   readonly terminal?: ReturnType<SessionKernel["latestTurnTerminal"]>;
-  /** A snapshot carrying no kinds is a typed `missing_capability_kinds` refusal, never a silent built-in list. */
+  /** No kinds in the snapshot is a typed `missing_capability_kinds` refusal, never a default. */
   readonly capabilityKinds?: readonly string[];
 }
 
@@ -122,7 +122,10 @@ export function createSessionAdmission(
     }, runtime.compaction);
   }
 
-  /** A composed generation differing from the adopted `manifestHash` appends one compose configure before capture; rotation happens strictly between turns. */
+  /**
+   * A composed generation differing from the adopted `manifestHash` appends one compose configure
+   * before capture; rotation happens strictly between turns.
+   */
   function adoptComposedManifest(): Effect.Effect<void, AdmissionError> {
     return Effect.gen(function* () {
       const composed = runtime.composed?.current();

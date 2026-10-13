@@ -29,7 +29,7 @@ export class AdmissionFailure extends Schema.TaggedError<AdmissionFailure>(
   code: Schema.Literals(["revision", "shutdown"]),
 }) {}
 
-/** A closed code set; a rejection appends nothing — zero new journal facts ride a refused delivery. */
+/** A closed code set; a rejection appends nothing: zero journal facts ride a refused delivery. */
 export class DeliverRefused extends Schema.TaggedError<DeliverRefused>(
   "@openomni/agent/cluster/DeliverRefused",
 )("DeliverRefused", {
@@ -74,7 +74,10 @@ export const DeliverRpc = Rpc.make("Deliver", {
   primaryKey: (payload) => payload.idempotencyKey,
 }).annotate(ClusterSchema.Persisted, true);
 
-/** `payload` is canonical JSON of the resolution or the cancelling principal; `inputId` is the idempotency key the request authority dedupes on. */
+/**
+ * `payload` is canonical JSON of the resolution or the cancelling principal; `inputId` is the
+ * idempotency key the request authority dedupes on.
+ */
 export const ResolveRpc = Rpc.make("Resolve", {
   payload: {
     requestId: Schema.String,
@@ -89,7 +92,10 @@ export const ResolveRpc = Rpc.make("Resolve", {
 
 export const DeadlineAlarmBody = Schema.Struct({ requestId: Schema.String });
 
-/** `occurrenceId` is the cluster primary key and chain-guard identity; a superseded occurrence folds to a recorded `fired{stale}` fact — a fact, not a rejection. */
+/**
+ * `occurrenceId` is the cluster primary key and chain-guard identity; a superseded occurrence folds
+ * to a recorded `fired{stale}` fact — a fact, not a rejection.
+ */
 export class AlarmOccurrence extends Schema.Class<AlarmOccurrence>(
   "@openomni/agent/cluster/AlarmOccurrence",
 )({
@@ -125,7 +131,7 @@ export const DeliverBody = Schema.Struct({
   content: Schema.String,
   control: Schema.optional(Schema.Literals(["interrupt", "resume", "cancel"])),
   delivery: Schema.optional(Schema.Literals(["steer", "followUp"])),
-  /** `action` inputs: the journal ordinal the deferred payload was computed against; older than the compaction head is closed stale. */
+  /** `action` inputs: the journal ordinal the payload was computed against; past head = stale. */
   after: Schema.optional(Schema.Number),
 });
 export type DeliverBody = typeof DeliverBody.Type;
@@ -149,7 +155,7 @@ export const ReadPage = Schema.Struct({
 });
 export type ReadPage = typeof ReadPage.Type;
 
-/** A pure projection that appends nothing and never wakes the loop, so it is deliberately NOT cluster-persisted. */
+/** A pure projection that appends nothing and never wakes the loop, so NOT cluster-persisted. */
 export const ReadRpc = Rpc.make("Read", {
   payload: {
     model: ReadModelName,

@@ -45,7 +45,7 @@ export {
   type WatchWakeDeps,
 } from "./watch";
 
-/** Imports only its own plugin and `core/api.ts`; never builds an `alarm` journal literal — arming is always the injected `ArmVerb`. */
+/** Imports only its plugin and `core/api.ts`; arming is always the injected `ArmVerb`. */
 
 export interface AlarmBundlePurposes {
   readonly bundle: string;
@@ -94,7 +94,10 @@ function guardArm(registry: ReadonlyMap<string, string>, raw: ArmVerb): ArmVerb 
   };
 }
 
-/** The app's manifest lists the purpose-free form (`purposes: {}`, raw arm) because bundle contracts declare their own purposes and compose rejects a duplicate. */
+/**
+ * The app's manifest lists the purpose-free form (`purposes: {}`, raw arm) because bundle contracts
+ * declare their own purposes and compose rejects a duplicate.
+ */
 export function alarmContract(input: {
   readonly purposes: Readonly<Record<string, AlarmPurposeHandler>>;
   readonly arm: (sessionId: string, turnId: string) => ArmVerb;
@@ -110,7 +113,10 @@ export function alarmContract(input: {
   });
 }
 
-/** Reserved/`rescan`/duplicate purposes refuse with no partial activation; an unregistered purpose is a typed wake failure with zero handler execution. */
+/**
+ * Reserved/`rescan`/duplicate purposes refuse with no partial activation; an unregistered purpose
+ * is a typed wake failure with zero handler execution.
+ */
 export function alarmCapability<E>(
   options: AlarmCapabilityOptions<E>,
 ): Effect.Effect<AlarmCapabilityDefinition, E> {

@@ -10,7 +10,7 @@ const DeliveryFailure = z.object({
 });
 type DeliveryFailure = z.infer<typeof DeliveryFailure>;
 
-/** Reported as data on the plane it failed on, never thrown or logged; a failing failure report is dropped. */
+/** Reported as data on the plane it failed on, never thrown or logged; a failing report drops. */
 export const ObservationDeliveryFailed = BusEvent.define(
   "observation.delivery_failed",
   DeliveryFailure,
@@ -59,7 +59,7 @@ export interface ObservationBusOptions {
   /** Never ambient. */
   readonly now: () => number;
   readonly onError?: FailureReporter;
-  /** Called once per `publish` with whether the observation was enqueued, so skips can be counted without subscribing. */
+  /** Called once per `publish` with the enqueued flag, so skips count without subscribing. */
   readonly onPublish?: (eventName: string, delivered: boolean) => void;
 }
 
@@ -69,7 +69,10 @@ export class ObservationSubscriberFailure extends Data.TaggedError("ObservationS
   readonly cause: string;
 }> {}
 
-/** Publication is synchronous, nonblocking and lossy — observations are never journal-durable; closing a subscriber's Scope interrupts its drain. */
+/**
+ * Publication is synchronous, nonblocking and lossy — observations are never journal-durable;
+ * closing a subscriber's Scope interrupts its drain.
+ */
 export const makeObservationBus = (
   options: ObservationBusOptions,
 ): Effect.Effect<ObservationBus, never, Scope.Scope> =>

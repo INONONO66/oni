@@ -11,7 +11,7 @@ import {
 import { z } from "zod";
 import { clonePlain } from "./match";
 
-/** The compiler in `compose.ts` owns admission, matching and replay; this module owns everything a row does once it matches. */
+/** `compose.ts` owns admission, matching and replay; this module owns a matched row's effects. */
 
 export type HandlerResolver = ((ref: string) => GateHandler | undefined) | undefined;
 
@@ -36,7 +36,10 @@ export interface GateHandlerResult {
   readonly payload?: PlainValue;
 }
 
-/** An asynchronous consultant runs at ITS ROW'S POSITION in the ordered fold and its settled result folds exactly like a sync handler response. */
+/**
+ * An asynchronous consultant runs at ITS ROW'S POSITION in the ordered fold and its settled result
+ * folds exactly like a sync handler response.
+ */
 export type PreparedResults = ReadonlyMap<string, GateHandlerResult>;
 
 export type GateHandler = (input: GateHandlerInput) => GateHandlerResult;
@@ -131,7 +134,7 @@ export function applyRow(
   if (row.how.ref !== undefined) consultRow(row, row.how.ref, state, handlers, when, prepared);
 }
 
-/** An escape throws; the handler receives an isolated copy, so in-place mutation can never reach the decision. */
+/** An escape throws; the handler gets an isolated copy, so mutation never reaches the decision. */
 function invokeGuarded(
   row: GateRow,
   handler: GateHandler,
@@ -152,7 +155,10 @@ function invokeGuarded(
   });
 }
 
-/** Audit-only: nothing an observer returns, mutates, or throws can change the verdict or value — a failure is recorded as a fact and the decision stands. */
+/**
+ * Audit-only: nothing an observer returns, mutates, or throws can change the verdict or value — a
+ * failure is recorded as a fact and the decision stands.
+ */
 function observeRow(
   row: GateRow,
   state: FoldState,

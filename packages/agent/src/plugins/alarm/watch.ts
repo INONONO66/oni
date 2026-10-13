@@ -31,7 +31,7 @@ export interface AlarmPurposeDeclaration {
   readonly handler: AlarmPurposeHandler;
 }
 
-/** `notifications` is the budget consumed by committed wakes — budget state rides the chain, never process memory. */
+/** `notifications` is the budget consumed by committed wakes; it rides the chain, not memory. */
 export const WatchHitPayload = z
   .object({
     spec: Alarm.WatchSpec,
@@ -75,7 +75,10 @@ function promptWake(deps: WatchWakeDeps, fired: AlarmFired, ctx: AlarmWakeContex
   return deps.prompt === undefined ? ctx.prompt(input).pipe(Effect.asVoid) : deps.prompt(fired, ctx, input);
 }
 
-/** Settles only once the source has subscribed, so the watch verb returns after subscription and no line between the tool's return and the subscribe is lost. */
+/**
+ * Settles only once the source has subscribed, so the watch verb returns after subscription and no
+ * line between the tool's return and the subscribe is lost.
+ */
 export interface WatchInstallDeps {
   readonly install: (input: {
     readonly sessionId: string;
@@ -123,7 +126,7 @@ function retire(
     .pipe(Effect.mapError(armToWake(fired)), Effect.asVoid);
 }
 
-/** A settled watch leaves no armed row behind: retire the timeout companion while it is still armed. */
+/** A settled watch leaves no armed row: retire the timeout companion while it is still armed. */
 function retireTimeoutCompanion(
   ctx: AlarmWakeContext,
   fired: AlarmFired,
@@ -143,7 +146,10 @@ function retireTimeoutCompanion(
     .pipe(Effect.mapError(armToWake(fired)), Effect.asVoid);
 }
 
-/** Commit the wake prompt, then retire (terminal hit), exhaust (the core records `fired{exhausted}`), or re-arm with `supersedes` and the spent budget. */
+/**
+ * Commit the wake prompt, then retire (terminal hit), exhaust (the core records
+ * `fired{exhausted}`), or re-arm with `supersedes` and the spent budget.
+ */
 function monitorHit(deps: WatchWakeDeps): AlarmPurposeHandler {
   return ({ fired, ctx }) =>
     Effect.gen(function* () {
@@ -179,7 +185,7 @@ function monitorHit(deps: WatchWakeDeps): AlarmPurposeHandler {
     });
 }
 
-/** A settled main chain gets no prompt and no arm — the occurrence lapses as `exhausted` so a completed watch is never woken again. */
+/** A settled main chain gets no prompt and no arm; it lapses `exhausted`, never woken again. */
 function monitorTimeout(deps: WatchWakeDeps): AlarmPurposeHandler {
   return ({ fired, ctx }) =>
     Effect.gen(function* () {
@@ -215,7 +221,7 @@ export type WatchVerb = (input: {
   ArmRefused | WatchRefused
 >;
 
-/** Best effort, never masking: a refused compensating retire is logged and the original refusal still reaches the caller. */
+/** Best effort, never masking: a refused compensating retire is logged; the original wins. */
 function retireCommitted(
   arm: ArmVerb,
   chain: {

@@ -41,7 +41,10 @@ interface SessionKernelStores {
   readonly toolOutputs: ToolOutputsAdapter;
 }
 
-/** `stores()` throws when storage is unreachable so reads fail closed; writes refuse with a typed `StorageUnavailable` when a required store is absent. */
+/**
+ * `stores()` throws when storage is unreachable so reads fail closed; writes refuse with a typed
+ * `StorageUnavailable` when a required store is absent.
+ */
 interface SessionKernelContext {
   stores(): SessionKernelStores;
   readonly childSessionsPage: CatalogStore["childSessionsPage"];
@@ -360,7 +363,10 @@ const ReceivedEffect = z.object({
   delivery: z.enum(["steer", "followUp"]).optional(),
 });
 
-/** `prompt` actions with a delivered-input payload no delivery row references yet, folded from the chain — there is no input-queue table. */
+/**
+ * `prompt` actions with a delivered-input payload no delivery row references yet, folded from the
+ * chain — there is no input-queue table.
+ */
 /** The ONE typed owner of the deferred `action` cursor projection. */
 const AfterCursorIntent = z.looseObject({ after: z.number().int().nonnegative().optional() });
 function afterCursorOf(intent: PlainValue): number | undefined {
@@ -741,7 +747,7 @@ function configurationSnapshot(
   return effect.success ? effect.data.snapshot : undefined;
 }
 
-/** The window opens after the intent preceding the newest `count` turns because deliveries commit before their own turn intent. */
+/** Opens after the intent before the newest `count` turns: deliveries precede their intent. */
 function turnTails(
   context: SessionKernelContext,
   sessionId: string,
@@ -996,7 +1002,7 @@ function makeSessionKernel(context: SessionKernelContext) {
 
 export type SessionKernel = ReturnType<typeof makeSessionKernel>;
 
-/** Session facts come from one per-session store, policy rows from the catalog; `pendingMessages` folds straight from the action chain. */
+/** Session facts from the session store, policy rows from the catalog; backlog folds the chain. */
 export function createSessionKernel(session: SessionStore, catalog: CatalogStore): SessionKernel {
   return makeSessionKernel({
     stores: () => ({

@@ -17,7 +17,7 @@ import {
 /** The seam a product bundle's `requires` resolves against at compose. */
 export const ActionSeam: SeamTag = seam("@openomni/action/Action");
 
-/** The reducer is identity because an action row is a deferred INPUT consumed by delivery, never folded session state. */
+/** Identity reducer: an action row is a deferred INPUT consumed by delivery, never folded state. */
 export function actionCapability(): CapabilityDefinition<"action", SeamTag, object> {
   const declaration = Journal.CAPABILITY_DECLARATIONS.find((entry) => entry.kind === "action");
   // Invariant, not a refusal: the protocol's closed kind list declares `action`.

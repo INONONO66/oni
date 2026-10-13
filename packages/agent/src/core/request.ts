@@ -213,7 +213,10 @@ function resolutionRecord(
   };
 }
 
-/** A `request.open` with a deadline arms `<requestId>:deadline` in the SAME batch; every terminal transition retires it, and an outracing occurrence expires the request only if still open. */
+/**
+ * A `request.open` with a deadline arms `<requestId>:deadline` in the SAME batch; every terminal
+ * transition retires it, and an outracing occurrence expires the request only if still open.
+ */
 function deadlineArms(
   command: SessionTransition.Command,
   request: SessionTransition.Request,

@@ -58,7 +58,11 @@ function staleLeaseRefusal(current: LedgerSession.Row): FenceRefused {
   });
 }
 
-/** The authority transfer, under the same file lock every fenced commit serializes behind; idempotent for the current pair, and a file fence at or beyond the target means a later activation already won. */
+/**
+ * The authority transfer, under the same file lock every fenced commit serializes behind;
+ * idempotent for the current pair, and a file fence at or beyond the target means a later
+ * activation already won.
+ */
 function adoptFence(db: Database, request: LedgerSession.AdoptFence, refuse: RefuseWrite) {
   const current = selectSession(db, request.sessionId);
   if (current === undefined) return refuse(new SessionNotFound({ sessionId: request.sessionId }));

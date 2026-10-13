@@ -6,7 +6,10 @@ import type { AgentFailure, ContextRestoreError, ExecutionError } from "./failur
 import type { ExecutionRequest, Executor } from "./gate/decide";
 import type { Entropy } from "./ports";
 
-/** The ONE core-owned contract to the removable compaction plugin; with no service wired the kernel skips compaction and records nothing — no built-in fallback. */
+/**
+ * The ONE core-owned contract to the removable compaction plugin; with no service wired the kernel
+ * skips compaction and records nothing — no built-in fallback.
+ */
 export const CompactionSeam: SeamTag = seam("@openomni/compaction/Compaction");
 
 export interface CompactionYield {
@@ -42,22 +45,28 @@ export interface ToolOutputElision {
 }
 
 export interface CompactionOptions {
-  /** Narrows the recorded real window: strategy config only sets this to compact as if the window were smaller. */
+  /** Narrows the recorded real window: compact as if the window were smaller. */
   contextWindowTokens?: number;
   reserveTokens?: number;
   protectRecentMessages?: number;
-  /** The summarizer merges the newly cut span into the previous anchor body; it never regenerates. The mechanism owns the exclusions and threading. */
+  /**
+   * The summarizer merges the newly cut span into the previous anchor body; it never regenerates.
+   * The mechanism owns the exclusions and threading.
+   */
   onSummarize?: (
     messages: Message.WithParts[],
     previousAnchor: string | undefined,
     budget: SummarizationBudget,
     signal?: AbortSignal,
   ) => Effect.Effect<string, ExecutionError>;
-  /** The newest user message is always preserved even when it alone exceeds the budget — user tokens are irreplaceable. */
+  /** The newest user message is always kept, even alone over budget: it is irreplaceable. */
   preserveUserMessageChars?: number;
-  /** Old completed tool outputs elide first; the lossy cut joins the round whenever the estimated reclaim cannot cover the overage. */
+  /** Old tool outputs elide first; the lossy cut joins when the estimated reclaim cannot cover. */
   elideToolOutputs?: ToolOutputElision;
-  /** Meaningful only with `onSummarize`: the summary runs in the background past the prepare ratio and promotes with zero model calls while its span is live. */
+  /**
+   * Meaningful only with `onSummarize`: the summary runs in the background past the prepare ratio
+   * and promotes with zero model calls while its span is live.
+   */
   speculate?: false;
   /** Deterministic fallback after this. */
   summarizerDeadlineMs?: number;

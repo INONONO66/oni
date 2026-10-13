@@ -1,4 +1,7 @@
-/** The core keeps the `Dispatcher` contract, tool definition, body execution and projections; this band owns how calls are prepared, admitted and finished, plus the per-turn composition. */
+/**
+ * The core keeps the `Dispatcher` contract, tool definition, body execution and projections; this
+ * band owns how calls are prepared, admitted and finished, plus the per-turn composition.
+ */
 import { Effect } from "effect";
 import { z } from "zod";
 import {
@@ -129,7 +132,11 @@ export function createDispatcher(
 }
 
 function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options?: DispatcherOptions, invocation?: () => InvocationFrame): Dispatcher {
-  /** Resolved per dispatch: resolving once at construction would capture `undefined` (the cell door builds before any execution context exists) and a definition-keyed cache would leak a stale executor from an unrelated session. */
+  /**
+   * Resolved per dispatch: resolving once at construction would capture `undefined` (the cell door
+   * builds before any execution context exists) and a definition-keyed cache would leak a stale
+   * executor from an unrelated session.
+   */
   const resolveExecutor = (): Executor | undefined =>
     options?.executor ?? activeInvocation.getStore()?.executor;
   const { specs, dispatch: dispatchTable } = projectTools(definitions);
@@ -333,7 +340,7 @@ function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options
   };
 }
 
-/** Mirrors the fields both runners pin on their `SessionRunnerInput`, so composing the executor+dispatcher has one owner. */
+/** Mirrors the fields both runners pin on `SessionRunnerInput`; the composition has one owner. */
 interface TurnDispatchInput {
   readonly signal?: AbortSignal;
   readonly sessionId: string;
@@ -410,7 +417,7 @@ interface TurnDispatchRuntime {
   readonly authorizeApproval?: ExecutorOptions["authorizeApproval"];
 }
 
-/** Both runners build this identically, so "how a turn's tools commit durably" has a single owner. */
+/** Both runners build this identically, so "how a turn's tools commit" has a single owner. */
 export function createTurnDispatcher(
   input: TurnDispatchInput,
   runtime: TurnDispatchRuntime,

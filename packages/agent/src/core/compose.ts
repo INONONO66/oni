@@ -15,17 +15,20 @@ export class GenerationHandlers extends Context.Service<GenerationHandlers, Poli
 export interface ConsultantSeed {
   readonly name: string;
   readonly rows: readonly BundleGateRow[];
-  /** A payload that settles AFTER its call timed out re-enters through the composition's `deliver` door as an `action` row, never this turn's decision. */
+  /**
+   * A payload that settles AFTER its call timed out re-enters through the composition's `deliver`
+   * door as an `action` row, never this turn's decision.
+   */
   readonly late?: (payload: PlainValue) => void;
-  /** A late result delivers with this `after` cursor; one older than the compaction head folds to `turn.consumed.stale`. */
+  /** A late result delivers with this `after` cursor; older than head folds `consumed.stale`. */
   readonly cursor?: () => number;
-  /** Timed-out calls kept correlatable for a late result; older entries evict first. Default 256. */
+  /** Timed-out calls kept correlatable for a late result; oldest evict first. Default 256. */
   readonly lateWindow?: number;
-  /** Absent = the executing fiber's clock; tests thread a TestClock so hook deadlines advance deterministically. */
+  /** Absent = the fiber's clock; tests thread a TestClock so hook deadlines are deterministic. */
   readonly clock?: Clock.Clock;
 }
 
-/** `consult` is acquired INSIDE the generation Layer's Scope; a factory failure refuses the generation — never a partial activation. */
+/** `consult` is acquired INSIDE the generation Layer's Scope; a factory failure refuses it all. */
 export interface ConsultantHandler {
   readonly consultant: (
     seed: ConsultantSeed,
@@ -62,7 +65,7 @@ export interface DisabledEntry {
   readonly because: string;
 }
 
-/** Recomputed from empty state on every manifest change, never patched; the in-flight turn finishes on the generation it captured. */
+/** Recomputed from empty on every manifest change; an in-flight turn finishes on its generation. */
 export interface Generation {
   readonly hash: string;
   /** An off capability's kind is absent. */
@@ -314,7 +317,7 @@ function mergeBundleTables(
   return { tools, rows };
 }
 
-/** The Effect-free form for Promise-side composition roots; a refusal throws the typed `ComposeRefused`. Same single implementation. */
+/** Effect-free form for Promise-side roots; a refusal throws the typed `ComposeRefused`. */
 export function composeSync(manifest: ManifestDefinition): Generation {
   uniqueNames(manifest);
   const disabledMap = cascadeOff(manifest);
@@ -353,7 +356,7 @@ export function composeSync(manifest: ManifestDefinition): Generation {
   });
 }
 
-/** The one loader path; `off` is intended deactivation, distinct from the `seam_missing` rejection. */
+/** The one loader path; `off` is intended deactivation, not the `seam_missing` rejection. */
 export function compose(manifest: ManifestDefinition): Effect.Effect<Generation, ComposeRefused> {
   return Effect.suspend(() => {
     try {

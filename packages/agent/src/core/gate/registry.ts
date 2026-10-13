@@ -10,7 +10,10 @@ import type { Effect } from "effect";
 import { clonePlain, freezePlain } from "./match";
 import type { GateHandler, GateHandlerResult } from "./compose";
 
-/** The handler registry a composition ships, the kernel's built-in one, and the wrapper exposing a named transformer as a gate handler with a digest-recorded response. */
+/**
+ * The handler registry a composition ships, the kernel's built-in one, and the wrapper exposing a
+ * named transformer as a gate handler with a digest-recorded response.
+ */
 
 export interface NamedTransformer {
   readonly name: string;
@@ -34,7 +37,10 @@ export interface ConsultInput {
   readonly value: PlainValue;
 }
 
-/** Called BEFORE the synchronous fold; its settled result is the row's prepared response. A consultant never fails its Effect — every failure maps to a deny-folding result. */
+/**
+ * Called BEFORE the synchronous fold; its settled result is the row's prepared response. A
+ * consultant never fails its Effect — every failure maps to a deny-folding result.
+ */
 export interface NamedConsultant {
   readonly name: string;
   readonly consult: (input: ConsultInput) => Effect.Effect<GateHandlerResult>;

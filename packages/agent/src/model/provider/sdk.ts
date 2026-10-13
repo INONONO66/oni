@@ -13,9 +13,9 @@ type SdkOptions = {
   headers?: Record<string, string>;
   name?: string;
 };
-/** The package stays env-free: the host resolves these and hands them down, exactly as it hands down `Auth.Info`. */
+/** The package stays env-free: the host resolves these and hands them down like `Auth.Info`. */
 export interface Transport {
-  /** Proxy auth still outranks it: a credential minted for a proxy must not be redirected elsewhere. */
+  /** Proxy auth still outranks it: a credential minted for a proxy is never redirected. */
   readonly baseUrl?: string;
   /** An operator value wins over the client identity default. */
   readonly headers?: Record<string, string>;
@@ -31,7 +31,10 @@ const BUNDLED_PROVIDERS = new Map<string, (options: SdkOptions) => BundledProvid
   ["@ai-sdk/openai", (options) => createOpenAI(options)],
 ]);
 
-/** `LanguageModel` also admits a bare gateway id string nothing here returns; leaving it in the signature only pushed casts onto callers. */
+/**
+ * `LanguageModel` also admits a bare gateway id string nothing here returns; leaving it in the
+ * signature only pushed casts onto callers.
+ */
 type ResolvedLanguageModel = Exclude<LanguageModel, string>;
 
 const SDK_CACHE = new Map<string, ProviderSDK>();

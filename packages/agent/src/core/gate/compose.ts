@@ -19,7 +19,10 @@ import { clonePlain } from "./match";
 
 export type { GateHandler, GateHandlerResult, PreparedResults } from "./fold";
 
-/** Compiles the row contract against the merged point table, rejecting fail-closed, and folds every matching row into one decision per point: deny beats approval beats allow. */
+/**
+ * Compiles the row contract against the merged point table, rejecting fail-closed, and folds every
+ * matching row into one decision per point: deny beats approval beats allow.
+ */
 
 interface GateDecideInput<Context> {
   readonly when: Readonly<Record<string, PlainValue>>;
@@ -33,7 +36,10 @@ interface GateDecideOptions {
   /** Same input hash replays it verbatim. */
   readonly recorded?: GateDecision;
   readonly prepared?: PreparedResults;
-  /** The fold STOPS at the first matched consult row listed here without a prepared result and surfaces `GateOutcome.pending` carrying the value AT THAT ROW'S POSITION. */
+  /**
+   * The fold STOPS at the first matched consult row listed here without a prepared result and
+   * surfaces `GateOutcome.pending` carrying the value AT THAT ROW'S POSITION.
+   */
   readonly pendingAsync?: ReadonlySet<string>;
 }
 
@@ -50,7 +56,7 @@ interface GateOutcome {
   readonly value: PlainValue;
   readonly emissions: readonly GateEmission[];
   readonly replayed: boolean;
-  /** A pending outcome is a PARTIAL fold: resolve the consultant, add it to `prepared` and decide again — never commit this decision. */
+  /** Pending = PARTIAL fold: resolve the consultant, add to `prepared`, decide again. */
   readonly pending?: PendingConsult;
 }
 

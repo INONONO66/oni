@@ -12,7 +12,11 @@ import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 /** The composed `how.ref` target the hook capability registers. */
 export const HOOK_PROCESS_REF = "hook/process";
 
-/** A response line or unterminated buffer beyond this is a framing violation: the PID is poisoned, every in-flight call settles `failure("framing")` and the child is killed — stdout never grows unbounded on a misbehaving hook. */
+/**
+ * A response line or unterminated buffer beyond this is a framing violation: the PID is poisoned,
+ * every in-flight call settles `failure("framing")` and the child is killed — stdout never grows
+ * unbounded on a misbehaving hook.
+ */
 const HOOK_MAX_LINE_BYTES = 64 * 1024;
 
 export const HookGateVerdict = z.enum(["allow", "deny", "require_approval"]);
@@ -38,11 +42,17 @@ export interface HookCallInput {
   readonly decisionInput: PlainValue;
   /** Bounds THIS call via the Effect clock; carried per request, never process-pool identity. */
   readonly timeoutMs: number;
-  /** A well-formed line answering THIS call beyond it fails only this call; the reader's absolute `maxLineBytes` cap still poisons the PID. */
+  /**
+   * A well-formed line answering THIS call beyond it fails only this call; the reader's absolute
+   * `maxLineBytes` cap still poisons the PID.
+   */
   readonly maxLineBytes?: number;
 }
 
-/** Timeout, malformed framing (an out-of-vocabulary verdict included) and process death all map to the one `hook_timeout`-coded failure a gate row journals as `deny{bundle_failure}`. */
+/**
+ * Timeout, malformed framing (an out-of-vocabulary verdict included) and process death all map to
+ * the one `hook_timeout`-coded failure a gate row journals as `deny{bundle_failure}`.
+ */
 export type HookOutcome =
   | { readonly kind: "gate"; readonly verdict: HookGateVerdict; readonly reason?: string }
   | { readonly kind: "rewrite"; readonly fields: Readonly<Record<string, PlainValue>> }
@@ -74,15 +84,21 @@ export interface HookLateResult {
 }
 
 export interface HookProcessConfig {
-  /** The command IS the process identity: one PID per distinct command per generation; timeout and framing bounds ride each call. */
+  /** The command IS the process identity: one PID per command per generation; bounds per call. */
   readonly command: readonly string[];
   /** The reader's ABSOLUTE line/buffer byte cap; default `HOOK_MAX_LINE_BYTES`. */
   readonly maxLineBytes?: number;
-  /** A well-formed line whose id no longer matches an in-flight call (it timed out) is handed here instead of dropped; the consultant routes it back as an `action` row. Fire-and-forget. */
+  /**
+   * A well-formed line whose id no longer matches an in-flight call (it timed out) is handed here
+   * instead of dropped; the consultant routes it back as an `action` row. Fire-and-forget.
+   */
   readonly onLate?: (late: HookLateResult) => void;
 }
 
-/** Exactly what `Bun.spawn` returns, narrowed to the used members so a test can inject a child whose pipe fails — the ONE seam for the write-failure path. */
+/**
+ * Exactly what `Bun.spawn` returns, narrowed to the used members so a test can inject a child whose
+ * pipe fails — the ONE seam for the write-failure path.
+ */
 export interface HookChildProcess {
   readonly pid: number;
   readonly stdout: AsyncIterable<Uint8Array>;
@@ -127,7 +143,10 @@ function outcomeOf(result: z.infer<typeof HookResult>): HookLateOutcome {
   }
 }
 
-/** The ONLY process-spawning site of the hook path. Finalizer order on Scope close: await the last in-flight call, stop the stdout reader, then kill the PID and await its exit. */
+/**
+ * The ONLY process-spawning site of the hook path. Finalizer order on Scope close: await the last
+ * in-flight call, stop the stdout reader, then kill the PID and await its exit.
+ */
 export function acquireHookProcess(
   config: HookProcessConfig,
   spawn: (command: readonly string[]) => HookChildProcess = (command) =>

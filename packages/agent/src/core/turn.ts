@@ -47,7 +47,7 @@ function toMessagesWithParts(
   return output;
 }
 
-/** Every downstream stage takes this complete trace, so none decides what to do about a missing id. */
+/** Every downstream stage takes this complete trace, so none handles a missing id. */
 export type RunTrace = TraceContext.Type & {
   readonly traceId: string;
   readonly sessionId: string;
@@ -80,7 +80,7 @@ function nonEmptyString<T>(value: T): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** The runner builds exactly one run identity from a trace it refused to mint; nothing else may synthesize one. */
+/** The runner builds one run identity from a trace it refused to mint; nothing else may. */
 export interface AgentRunBase {
   readonly traceId: string;
   readonly sessionId: string;
@@ -102,13 +102,13 @@ export interface RunState {
   readonly totalUsage: TokenUsage;
   continuationCount: number;
   compactionCount: number;
-  /** Provider-measured context of the latest model call; the compaction trigger reads this, never the cumulative run spend. */
+  /** Provider-measured context of the latest call; the compaction trigger reads this. */
   lastCallContextTokens?: number;
-  /** One-shot overflow recovery: a provider context-overflow re-enters the compaction seam at most once per run. */
+  /** One-shot overflow recovery: a provider overflow re-enters compaction at most once per run. */
   overflowCompactionAttempted?: boolean;
-  /** The resolved model's context window; undefined when the catalog does not know (proxy models report 0). */
+  /** The resolved model's context window; undefined when unknown (proxy models report 0). */
   contextWindowTokens?: number;
-  /** Set when a window yield reclaimed nothing: re-yielding every step would kill a run the window could still carry. */
+  /** Set when a window yield reclaimed nothing: re-yielding every step would kill a viable run. */
   windowYieldDisarmed?: boolean;
   /** Last committed structural yield; the policy and loop share its adaptive threshold. */
   lastCompactionYield?: CompactionYield;
@@ -116,7 +116,7 @@ export interface RunState {
   turnIndex: number;
   /** The last `turnIndex` charged to the budget; -1 before the first turn. */
   chargedTurnIndex: number;
-  /** 1-based retry attempt stamped per attempt: the same `turnIndex` under a higher attempt is a retry re-entry, never progress. */
+  /** 1-based retry attempt: same `turnIndex` under a higher attempt is a re-entry, not progress. */
   attempt: number;
   readonly startTime: number;
 }
@@ -125,15 +125,18 @@ export interface TurnArtifacts {
   readonly toolExecutor?: import("./types").ChatAgentConfig["toolExecutor"];
   readonly runInput: RunInput;
   readonly trackingSink: Sink;
-  /** The llm fold's latest immutable boundary snapshot: the single source of truth for what enters history at turn end. */
+  /** The llm fold's latest boundary snapshot: the one source of what enters history at turn end. */
   readonly turnAssistant: { message?: Message.WithParts };
   readonly turnUsage: TokenUsage;
   readonly toolPolicyDecisions: Array<{ readonly decision: Policy.PolicyDecision }>;
   /** A turn that used its whole step budget ended on the cap, not a window yield. */
   readonly stepCap: number;
-  /** Mutable on purpose: a `model.override` reroutes after `buildTurn` planned, and turnYield must classify against the call's real arm state. */
+  /**
+   * Mutable on purpose: a `model.override` reroutes after `buildTurn` planned, and turnYield must
+   * classify against the call's real arm state.
+   */
   windowYieldArmed: boolean;
-  /** Yield disambiguator: a tool-calls stop below the step cap with this set is a steering yield, not a cap end or window yield. */
+  /** Yield disambiguator: a tool-calls stop below the step cap with this is a steering yield. */
   readonly steering: { requested: boolean };
 }
 
@@ -183,7 +186,10 @@ function getCompactionCount(state: RunState): number | undefined {
   return state.compactionCount > 0 ? state.compactionCount : undefined;
 }
 
-/** Charged once per turn: a retried attempt re-enters without advancing `turnIndex`, so per-attempt charging would let transient errors eat headroom. */
+/**
+ * Charged once per turn: a retried attempt re-enters without advancing `turnIndex`, so per-attempt
+ * charging would let transient errors eat headroom.
+ */
 export function recordRunTurn(state: RunState): void {
   if (state.chargedTurnIndex === state.turnIndex) return;
   state.chargedTurnIndex = state.turnIndex;
@@ -202,7 +208,10 @@ function disarmWindowYield(state: RunState): void {
   state.windowYieldDisarmed = true;
 }
 
-/** The window guards are judgments about ONE model's window; carried onto a smaller fallback window they would fire blind with the recovery already consumed. */
+/**
+ * The window guards are judgments about ONE model's window; carried onto a smaller fallback window
+ * they would fire blind with the recovery already consumed.
+ */
 function resetModelWindowGuards(state: RunState): void {
   state.windowYieldDisarmed = undefined;
   state.lastCompactionYield = undefined;
@@ -327,7 +336,10 @@ function emitErrorRetry(
   });
 }
 
-/** Carries `reason`/`maxAttempts` because on a first-attempt terminal failure no `ErrorRetry` precedes this and the narrowed budget exists nowhere else. */
+/**
+ * Carries `reason`/`maxAttempts` because on a first-attempt terminal failure no `ErrorRetry`
+ * precedes this and the narrowed budget exists nowhere else.
+ */
 function emitRunFailed(
   events: BusEvent.Sink,
   agentBase: AgentRunBase,
@@ -540,7 +552,10 @@ export function buildTurn(
 
 type StopOutcome = AgentResult | "continue";
 
-/** A turn whose last step still asked for tools was stopped by the loop (step cap or window yield); anything else is the model's own stop. */
+/**
+ * A turn whose last step still asked for tools was stopped by the loop (step cap or window yield);
+ * anything else is the model's own stop.
+ */
 function turnYield(
   turn: TurnArtifacts,
   assistantMessage: Message.WithParts,

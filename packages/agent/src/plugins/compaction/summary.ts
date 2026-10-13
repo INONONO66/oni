@@ -9,10 +9,17 @@ const DEFAULT_SUMMARIZER_DEADLINE_MS = 60_000;
 
 const ANCHOR_HEADER = "[Conversation Summary]\n";
 
-/** The one closed grammar a marker may wear: the L7 byte guard exempts marker parts BECAUSE a 21-char `[recorded date]` line cannot smuggle paraphrased user speech. */
+/**
+ * The one closed grammar a marker may wear: the L7 byte guard exempts marker parts BECAUSE a
+ * 21-char `[recorded date]` line cannot smuggle paraphrased user speech.
+ */
 const TIME_MARKER_RE = /^\[recorded \d{4}-\d{2}-\d{2}\]$/;
 
-/** Production models must be told what markers mean, like the bench responder is. Render-only, never in `anchorBody`; the literal "YYYY-MM-DD" cannot match the marker grammar, so the guard never mistakes it for one. */
+/**
+ * Production models must be told what markers mean, like the bench responder is. Render-only, never
+ * in `anchorBody`; the literal "YYYY-MM-DD" cannot match the marker grammar, so the guard never
+ * mistakes it for one.
+ */
 const MARKER_LEGEND =
   "(Messages marked [recorded YYYY-MM-DD] carry the date each message was recorded, in UTC.)";
 
@@ -31,7 +38,7 @@ export function withSummarizerDeadline(
   });
 }
 
-/** Shared with the L7 byte guard: the tags around free text are NOT a marker — that stays user speech and fails the byte check if new. */
+/** Shared with the L7 byte guard: tags around free text are NOT a marker; it is user speech. */
 function isTimeCarriageMarkerPart(part: Message.Part): boolean {
   return (
     part.type === "text" &&
@@ -56,7 +63,11 @@ function carriesUserSpeech(message: Message.WithParts): boolean {
   );
 }
 
-/** Preserved user text says "yesterday" and nothing in the window says when that was. The marker is REGENERATED from `info.time.created` at every cut (never accumulated) and never enters the record: resume re-derives it from the structured `time`. */
+/**
+ * Preserved user text says "yesterday" and nothing in the window says when that was. The marker is
+ * REGENERATED from `info.time.created` at every cut (never accumulated) and never enters the
+ * record: resume re-derives it from the structured `time`.
+ */
 function stampTimeMarker(message: Message.WithParts, id: () => string): Message.WithParts {
   const marker: Message.TextPart = {
     id: id(),
@@ -166,7 +177,7 @@ export function attemptAnchoredCut(
   });
 }
 
-/** Newest-first under the budget, returned in original order; the newest user message is taken unconditionally. */
+/** Newest-first under budget, returned in original order; newest user message unconditional. */
 function selectPreservedUsers(
   span: readonly Message.WithParts[],
   budgetChars: number,

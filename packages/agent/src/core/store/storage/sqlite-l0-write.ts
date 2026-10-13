@@ -99,7 +99,10 @@ type ArmedAlarmDelta =
   | { readonly op: "retire"; readonly alarmId: string }
   | { readonly op: "fired"; readonly occurrenceId: string };
 
-/** Derived from the row, never caller-supplied (a supplied delta could desync); legacy alarm rows without `alarmId`/`occurrenceId` yield no delta. */
+/**
+ * Derived from the row, never caller-supplied (a supplied delta could desync); legacy alarm rows
+ * without `alarmId`/`occurrenceId` yield no delta.
+ */
 export function armedAlarmDelta(action: LedgerAction.Append): ArmedAlarmDelta | undefined {
   if (action.kind !== "alarm") return undefined;
   const arm = ArmDeltaIntent.safeParse(action.intent.value);
@@ -154,7 +157,7 @@ export function appendAction(
   return appendValidatedAction(db, action, expectedRevision, limits, refuse);
 }
 
-/** Callers guarantee `validActionBatch` already covered this action in the same transaction; no re-query here. */
+/** Callers guarantee `validActionBatch` covered this action in-transaction; no re-query. */
 function appendValidatedAction(
   db: Database,
   action: LedgerAction.Append,

@@ -20,7 +20,7 @@ export type TokenUsage = Token.AgentUsage;
 
 export type AgentBudget = Actor.Profile.Budget;
 
-/** Resolved once at entry against the injected policy's `defaultBudget`, so enforcement reads values, never literals. */
+/** Resolved once at entry against the policy's `defaultBudget`; enforcement reads no literal. */
 export type ResolvedAgentBudget = AgentBudget &
   Required<Pick<AgentBudget, "maxTurns" | "maxToolCalls" | "maxWallTimeMs" | "maxToolRuntimeMs">>;
 
@@ -37,7 +37,7 @@ type AgentToolSpec = Tool.Spec & {
 };
 
 export interface ChatAgentConfig {
-  /** Required: consulted for progress, blocked and open-intent state before judging a stop; no empty default. */
+  /** Required: consulted for progress, blocked and open-intent state before judging a stop. */
   stopEvidence: () => Effect.Effect<{
     readonly progress: boolean;
     readonly blocked: boolean;
@@ -50,31 +50,38 @@ export interface ChatAgentConfig {
   systemPrompt?: string;
   execution?: AgentExecutionLifecycle;
   compaction?: CompactionOptions;
-  /** Absent = the compaction capability is off: no window-yield geometry, context tracking or compaction; nothing falls back. */
+  /** Absent = compaction is off: no window-yield geometry, context tracking or compaction. */
   compactionSeam?: CompactionSeamService;
   tools?: AgentToolSpec[];
   model: Model.Ref;
   /**
      * Ordered fallbacks AFTER `model`: only timeout / transient_error /
      * validation_error advance the chain (a chain also makes validation_error
-     * retryable); the last candidate absorbs remaining attempts. Absent = every attempt uses `model`.
+     * retryable); the last candidate absorbs remaining attempts. Absent = every attempt uses
+     * `model`.
      */
   modelFallbacks?: Model.Ref[];
-  /** The model an earlier turn ended on; releasing a pinned fallback is a recorded, policy-evaluated `restore_model_selection` at turn start. */
+  /**
+   * The model an earlier turn ended on; releasing a pinned fallback is a recorded, policy-evaluated
+   * `restore_model_selection` at turn start.
+   */
   pinnedModel?: Model.Ref;
-  /** App-injected release policy for a pinned fallback: returns the chain index this turn starts from. Absent = start at the primary. */
+  /** App-injected pinned-fallback release: the chain index to start from. Absent = primary. */
   restoreModelSelection?: (
     executor: Pick<Executor, "run">,
     pinned: Model.Ref | undefined,
     chain: readonly Model.Ref[],
   ) => Effect.Effect<number, ExecutionError>;
   budget?: AgentBudget;
-  /** The values `budget` leaves unset; required — the product bundle owns the numbers, the core keeps no literal. */
+  /** The values `budget` leaves unset; required: the bundle owns the numbers, not the core. */
   defaultBudget: ResolvedAgentBudget;
   onStepFinish?: (step: AgentStep) => Effect.Effect<void, ExecutionError>;
   toolExecutor?: (call: Tool.Call, context?: Tool.ExecutionContext) => Effect.Effect<Tool.Result, ExecutionError>;
   signal?: AbortSignal;
-  /** Undescribed on purpose: the shape is the PROVIDER's and differs per SDK version; the host that reads operator config owns rejecting a bad value. */
+  /**
+   * Undescribed on purpose: the shape is the PROVIDER's and differs per SDK version; the host that
+   * reads operator config owns rejecting a bad value.
+   */
   providerOptions?: PlainObject;
   auth?: RunInput["auth"];
   /** Forwarded verbatim to every llm call; the loop only carries it, like `auth`. */

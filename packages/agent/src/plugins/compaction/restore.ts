@@ -9,7 +9,10 @@ import {
 } from "../../core/api";
 import { CompactionRecord, restoreCompactionProjection } from "./durable";
 
-/** Validates the compaction intent and its executed record, then returns the typed `restore_context_projection` request plus the restored value. */
+/**
+ * Validates the compaction intent and its executed record, then returns the typed
+ * `restore_context_projection` request plus the restored value.
+ */
 export function prepareCompactionRestore(
   input: CompactionRestoreInput,
 ): Effect.Effect<CompactionRestorePlan, ContextRestoreError | AgentFailure> {
@@ -27,7 +30,7 @@ export function prepareCompactionRestore(
   });
 }
 
-/** The typed compensation of one compaction; a distinct recorded action, never a mutation of the original. */
+/** The typed compensation of one compaction; a distinct recorded action, never a mutation. */
 export function restoreContextRequest(
   compactionId: string,
   predecessorProjectionHash: string,

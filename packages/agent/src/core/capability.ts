@@ -11,9 +11,15 @@ import type { AlarmFired } from "./alarm";
 import type { SessionError } from "./failure";
 import type { BundleLayerServices } from "./ports";
 
-/** Only capabilities declare journal kinds, points and loop steps; bundles consume capability verbs through seams and never declare kinds. */
+/**
+ * Only capabilities declare journal kinds, points and loop steps; bundles consume capability verbs
+ * through seams and never declare kinds.
+ */
 
-/** A seam is a KEY, deliberately not a `Context.Service`: nothing reads one today and the boundary gate refuses an unread tag. A service class carrying `key` may stand in. */
+/**
+ * A seam is a KEY, deliberately not a `Context.Service`: nothing reads one today and the boundary
+ * gate refuses an unread tag. A service class carrying `key` may stand in.
+ */
 export interface SeamTag {
   readonly key: string;
 }
@@ -37,7 +43,10 @@ export class CapabilityHookError extends Schema.TaggedError<CapabilityHookError>
   reason: Schema.String,
 }) {}
 
-/** A kind is registered only while its owner is composed: rows of an off capability stay opaque in the fold and reject as `deliver` input. */
+/**
+ * A kind is registered only while its owner is composed: rows of an off capability stay opaque in
+ * the fold and reject as `deliver` input.
+ */
 export interface CapabilityKindDeclaration {
   readonly schema: z.ZodType;
   readonly version: number;
@@ -179,7 +188,10 @@ function defineCapability<
 
 export const Capability = Object.freeze({ define: defineCapability });
 
-/** Acquired inside the generation's Scope; fails only with the typed session errors the generation unwinds on — anything else is a defect. */
+/**
+ * Acquired inside the generation's Scope; fails only with the typed session errors the generation
+ * unwinds on — anything else is a defect.
+ */
 type BundleLayer = Layer.Layer<never, SessionError, BundleLayerServices>;
 
 export type BundleTool = AnyToolDefinition & { readonly idempotent?: boolean };

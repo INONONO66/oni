@@ -47,7 +47,7 @@ export function effectiveBudgetThresholds(budget?: Actor.Profile.BudgetThreshold
 
 type BudgetStatus = "ok" | "reassurance" | "warning" | "exceeded";
 
-/** The explicit budget wins per field; unset fields read the injected policy's `defaultBudget` — no core ceiling literal. */
+/** Explicit budget wins per field; unset fields read the policy's `defaultBudget`, no literal. */
 export function resolveAgentBudget(
   defaults: ResolvedAgentBudget,
   explicit?: AgentBudget,
@@ -108,7 +108,7 @@ export function evaluateBudget(state: BudgetState, now: () => number, budget: Re
   return { status: "ok", elapsedMs, maxRatio };
 }
 
-/** Invoked from the per-turn lifecycle check so the event fires exactly once per turn, never once per policy that reads it. */
+/** Invoked from the per-turn lifecycle check so the event fires once per turn, not per policy. */
 export function publishBudgetTelemetry(
   state: BudgetState,
   run: { readonly traceId: string; readonly sessionId: string },

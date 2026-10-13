@@ -57,10 +57,13 @@ export namespace Retry {
   export const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
   export const RETRY_MAX_DELAY = 2_147_483_647;
 
-  /** A server-directed wait above twice the 30s backoff cap fails fast; its retry policy belongs to the caller. */
+  /** A server-directed wait above twice the 30s cap fails fast; retry policy is the caller's. */
   export const RETRY_HEADER_DELAY_CAP = 60_000;
 
-  /** A retryable failure with no HTTP status dying under this window signals refused connections, which backoff cannot relieve: a streak retries on the short probe delay then declines. */
+  /**
+   * A retryable failure with no HTTP status dying under this window signals refused connections,
+   * which backoff cannot relieve: a streak retries on the short probe delay then declines.
+   */
   export const INSTANT_FAILURE_WINDOW_MS = 2000;
   export const INSTANT_FAILURE_PROBE_DELAY_MS = 250;
   export const INSTANT_FAILURE_STREAK_LIMIT = 3;
@@ -96,7 +99,7 @@ export namespace Retry {
       }
     | { readonly retry: false; readonly reason: Reason; readonly detail?: string };
 
-  /** Terminal classification precedes probes, headers and backoff; `sources` injects the clock and jitter draw for reproducibility. */
+  /** Terminal classification precedes probes, headers, backoff; `sources` injects clock/jitter. */
   export function decide<E>(
     attempt: number,
     error: E,
@@ -242,13 +245,16 @@ export namespace Retry {
     return data.isRetryable ? undefined : "non_retryable";
   }
 
-  /** Status is the fallback: 429 is a rate limit; 5xx and the provider-marked retryable residue share server_error since no consumer distinguishes them. */
+  /**
+   * Status is the fallback: 429 is a rate limit; 5xx and the provider-marked retryable residue
+   * share server_error since no consumer distinguishes them.
+   */
   function retryableClass(data: ApiFailure): RetryableReason {
     const sniffed = classifyErrorPayload(data.message) ?? classifyErrorPayload(data.responseBody);
     return sniffed ?? (data.statusCode === 429 ? "rate_limit" : "server_error");
   }
 
-  /** Only unambiguous spent-account signals, checked before retryability: no wait restores a spent balance. */
+  /** Only unambiguous spent-account signals, before retryability: no wait restores a balance. */
   const BILLING_PATTERNS = [
     "insufficient_quota",
     "out of budget",
@@ -267,7 +273,7 @@ export namespace Retry {
     return /exceeded\s+your\s+(?:current|monthly)\s+(?:usage\s+)?quota/.test(haystack);
   }
 
-  /** Scoped to 4xx: a 5xx merely mentioning a content policy is a server fault and keeps its retries. */
+  /** Scoped to 4xx: a 5xx mentioning a content policy is a server fault and keeps retries. */
   const CONTENT_POLICY_PATTERNS = [
     "content_policy_violation",
     "content_filter",

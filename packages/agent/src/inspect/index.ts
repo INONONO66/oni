@@ -245,7 +245,8 @@ function deliveryCause(
 
 function lineageCause(action: LedgerAction.Node): SessionHistory.Cause {
   if (action.parentId !== null) return { kind: "action", actionId: action.parentId };
-  // Turns always descend from `session.configure`, so a root action is never a turn with delivery ids.
+  // Turns always descend from `session.configure`, so a root action is never a turn with delivery
+  // ids.
   return action.kind === "prompt" ? { kind: "delivery", deliveryIds: [action.id] } : { kind: "root" };
 }
 
@@ -275,7 +276,7 @@ function outcomeOf(
   return recordedOutcome(action, effect);
 }
 
-/** The outcome an action's own record states: its turn terminal, a pending phase, or a settled terminal. */
+/** The outcome an action's own record states: turn terminal, pending phase, or settled terminal. */
 function recordedOutcome(
   action: LedgerAction.Node,
   effect: PlainObject,

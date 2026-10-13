@@ -1,9 +1,15 @@
 import type { PlainValue, PointId, PolicyRow } from "@openomni/protocol";
 import { GateComposeError, type GatePointTable } from "../points";
 
-/** Historical generations keep their exact bytes; only the latest generation converts, while pinned historical generations are projected the same way at compile time. */
+/**
+ * Historical generations keep their exact bytes; only the latest generation converts, while pinned
+ * historical generations are projected the same way at compile time.
+ */
 
-/** The one sanctioned home for the retired policy address: historical generations still project it onto `ingress.pre`; the vocabulary-retirement grep excludes it by name. */
+/**
+ * The one sanctioned home for the retired policy address: historical generations still project it
+ * onto `ingress.pre`; the vocabulary-retirement grep excludes it by name.
+ */
 export const LEGACY_INGRESS_POLICY_KIND = "inbox.deliver" as const;
 
 const LEGACY_POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
@@ -37,13 +43,20 @@ function matchValue(row: PolicyRowDraft): Readonly<Record<string, PlainValue>> {
   return value;
 }
 
-/** The retired v3 mapping consulted `turn/post` for every compaction operation; conversion inverts it so each historical restriction lands on the compaction point with its real operation. */
+/**
+ * The retired v3 mapping consulted `turn/post` for every compaction operation; conversion inverts
+ * it so each historical restriction lands on the compaction point with its real operation.
+ */
 const COMPACTION_OP_BY_LEGACY_OP: ReadonlyMap<string, string> = new Map([
   ["compaction", "compact"],
   ["restore_context_projection", "restore_context_projection"],
 ]);
 
-/** A `turn/post` row matching a historical compaction operation becomes a `compaction/pre` row, so a base-era deny keeps refusing; a wildcard `turn/post` row stays and the compiler projects it onto both points. */
+/**
+ * A `turn/post` row matching a historical compaction operation becomes a `compaction/pre` row, so a
+ * base-era deny keeps refusing; a wildcard `turn/post` row stays and the compiler projects it onto
+ * both points.
+ */
 export function translateLegacyPolicyRow<Row extends PolicyRowDraft>(row: Row): Row {
   // The historical byte never survives into a NEW generation.
   if (row.kind === LEGACY_INGRESS_POLICY_KIND && row.phase === "pre")
@@ -60,7 +73,7 @@ export function translateLegacyPolicyRow<Row extends PolicyRowDraft>(row: Row): 
   };
 }
 
-/** The marker is inert: it only matches the reserved `point-registry` op, which no execution uses. */
+/** Inert marker: it only matches the reserved `point-registry` op, which no execution uses. */
 export const POINT_GENERATION_ROW: PolicyRowDraft = Object.freeze({
   name: "point-registry",
   kind: "turn",

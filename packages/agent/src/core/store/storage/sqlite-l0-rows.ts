@@ -28,7 +28,7 @@ export const ActionSqlRow = z.object({
 
 export type ActionSqlRow = z.infer<typeof ActionSqlRow>;
 
-/** Chain-verification boundary: connections may run with safeIntegers, so bigint INTEGER columns fold to the same admitted numbers. */
+/** Chain-verification boundary: safeIntegers bigint columns fold to the same numbers. */
 export const ActionSqlRowSafeIntegers = ActionSqlRow.extend({
   irreversible: SqliteCount.pipe(z.union([z.literal(0), z.literal(1)])),
   encoding_version: SqliteCount,

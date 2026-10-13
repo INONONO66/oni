@@ -26,7 +26,7 @@ export function computeActionHash(input: Omit<ActionSqlRow, "action_hash">): str
     .digest("hex");
 }
 
-/** The single serialization both the writer and the replayed-key comparison hash: "same payload" is byte-equality of the committed row. */
+/** The one serialization writer and replay compare: "same payload" = byte-equal row. */
 export function storedActionRow(
   action: LedgerAction.Append,
   prevHash: string,

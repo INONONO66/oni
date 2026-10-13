@@ -18,7 +18,7 @@ const RemoteProvider = z.object({
   npm: z.enum(["@ai-sdk/anthropic", "@ai-sdk/openai"]),
   models: z.record(z.string(), RemoteModel),
 });
-/** The SDK gate: an entry without a bundled SDK is an explicit policy skip, never a parse failure. */
+/** The SDK gate: an entry without a bundled SDK is a policy skip, never a parse failure. */
 const SdkCandidate = z.looseObject({ npm: z.string().optional() });
 
 export const CatalogProvider = z.object({
@@ -32,7 +32,7 @@ export const CatalogProvider = z.object({
 export const Catalog = z.record(z.string(), CatalogProvider);
 export type Catalog = z.infer<typeof Catalog>;
 
-/** A malformed entry under a supported SDK is a parse failure the caller sees, never a silently dropped record. */
+/** A malformed entry under a supported SDK is a visible parse failure, never a dropped record. */
 export const RemoteCatalog = z
   .record(z.string(), SdkCandidate)
   .transform((providers, ctx): Catalog => {

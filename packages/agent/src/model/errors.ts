@@ -30,7 +30,7 @@ type UsageFields = {
 };
 type RunFields = ProviderIdentity & {
   readonly message: string;
-  /** The SDK error when the attempt failed at the provider, else the typed failure's own cause or the failure itself. */
+  /** The SDK error when the provider failed, else the typed failure's cause or itself. */
   readonly cause?: APICallError | Error | string;
   readonly retryAfterMs?: number;
   readonly usage: UsageFields;
@@ -52,7 +52,7 @@ export class ProxyModelsError extends Data.TaggedError("ProxyModelsError")<Messa
 export class ModelCatalogError extends Data.TaggedError("ModelCatalogError")<
   MessageFields & { readonly source: "cache" | "remote" | "cache_write"; readonly path: string }
 > {
-  /** A catalog source throw as the typed refusal: the cause rides structured, the message is its rendered text. */
+  /** A catalog source throw as the typed refusal: structured cause, rendered-text message. */
   static fromThrown<E>(source: ModelCatalogError["source"], path: string, cause: E): ModelCatalogError {
     const error = thrownAsError(cause);
     return new ModelCatalogError({ source, path, cause: error, message: renderBodyCause(error) });

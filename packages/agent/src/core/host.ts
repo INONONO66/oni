@@ -88,7 +88,7 @@ export interface LedgerConfig extends LedgerStoreConfig {
 
 export type ClusterServices = Layer.Success<ReturnType<typeof SingleRunner.layer>>;
 
-/** Catalog first, then the sessions directory, so a sessions refusal releases the catalog it just opened; the caller owns `close`. */
+/** Catalog first, then sessions, so a refusal releases the catalog; caller owns `close`. */
 export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
   const catalogPath = config.catalog?.path ?? ":memory:";
   let catalog: CatalogStore;
@@ -183,7 +183,7 @@ function retained(store: SessionStore): SessionStore {
   return view;
 }
 
-/** One opener, one release, so the catalog closes exactly once; a typed refusal fails the layer, any other throw is a defect. */
+/** One opener, one release; a typed refusal fails the layer, any other throw is a defect. */
 function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused> {
   return Layer.effect(
     Ledger,
@@ -200,7 +200,7 @@ function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused
   );
 }
 
-/** Acquired under one Scope and released once, in reverse; sharding config is pinned explicit, ambient `SHARDING_*` env never applies. */
+/** One Scope, released in reverse; sharding config is explicit, `SHARDING_*` env ignored. */
 export function openLedger(
   config: LedgerConfig,
 ): Layer.Layer<Ledger | ClusterServices, OpenRefused, Crypto.Crypto> {

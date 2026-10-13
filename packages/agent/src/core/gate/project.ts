@@ -7,7 +7,7 @@ import type { CompiledRow, Match } from "./row-parse";
 import type { HandlerTable } from "./registry";
 import { gateRowId } from "./rows";
 
-/** The gate is the single production evaluator; this metadata only formats its decision back into the legacy `PolicyEvaluation` shape. */
+/** The gate is the single evaluator; this only formats its decision as a `PolicyEvaluation`. */
 export interface ProjectedGeneration {
   readonly gate: CompiledGate<MessagePolicyContext>;
   readonly rowById: ReadonlyMap<string, CompiledRow>;
@@ -90,7 +90,7 @@ function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
   }
 }
 
-/** A wildcard `turn/post` row projects onto the compaction point too; op-specific compaction rows were already converted before parsing. */
+/** A wildcard `turn/post` row projects onto the compaction point too; op rows converted earlier. */
 function projectedPoints(row: CompiledRow, table: GatePointTable): PointId[] {
   const point = legacyPointOf(row.kind, row.phase);
   if (point === undefined || !table.has(point))
@@ -100,7 +100,7 @@ function projectedPoints(row: CompiledRow, table: GatePointTable): PointId[] {
   return [point];
 }
 
-/** Rows are ordered by legacy precedence (priority descending, name ascending); message rule tables compile to per-row matchers. */
+/** Legacy precedence order (priority desc, name asc); message rule tables become row matchers. */
 export function projectGeneration(
   parsed: readonly CompiledRow[],
   generation: number,

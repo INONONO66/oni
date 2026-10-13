@@ -12,7 +12,7 @@ const AgentBase = z.object({
   time: z.number(),
 });
 
-/** The persisted event names stay the historical `agent.*` strings: ledger rows and category derivation key on them byte-for-byte. */
+/** Persisted names stay the historical `agent.*` strings: ledger rows key on them byte-for-byte. */
 export const RunEvents = {
   TurnStart: BusEvent.define(
     "agent.turn.start",
@@ -29,7 +29,10 @@ export const RunEvents = {
     }),
     { visibility: "llm_reason" },
   ),
-  /** `completed` is the last record on every exit path (a summarizer throw included), so a started row without one diagnoses a run that died inside compaction. */
+  /**
+   * `completed` is the last record on every exit path (a summarizer throw included), so a started
+   * row without one diagnoses a run that died inside compaction.
+   */
   CompactionStarted: BusEvent.define(
     "agent.compaction.started",
     AgentBase.extend({
@@ -48,7 +51,10 @@ export const RunEvents = {
       messagesAfter: z.number(),
       removedCount: z.number(),
       elidedChars: z.number(),
-      /** An unanchored cut is a different loss class than an anchored one and must not masquerade as it; absent on rows recorded before the field existed. */
+      /**
+       * An unanchored cut is a different loss class than an anchored one and must not masquerade as
+       * it; absent on rows recorded before the field existed.
+       */
       anchored: z.boolean().optional(),
       savedTokens: z.number().optional(),
       tokensBefore: z.number().optional(),

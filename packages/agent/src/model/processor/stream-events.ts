@@ -16,7 +16,7 @@ export type StreamEventContext = {
   readonly record: (fact: Transcript.Fact) => void;
   /** Debug note for normalized-away provider anomalies. */
   readonly note: (msg: string, data?: PlainObject) => void;
-  /** Restores the dotted internal name the provider's sanitized wire name stands for; absent records verbatim. */
+  /** Restores the dotted internal name behind the sanitized wire name; absent = verbatim. */
   readonly toolNames?: ReadonlyMap<string, string>;
   readonly externalTools?: boolean;
   /** The local estimator's input source when the provider's count is unusable. */
@@ -38,7 +38,7 @@ export type StreamEventState = {
   pendingTools: Map<string, string>;
   usage: Transcript.Usage;
   usageProvenance: "reported" | "estimated" | "unknown";
-  /** Reset at each step-finish so per-step estimates stay additive with per-step provider counts. */
+  /** Reset at each step-finish so per-step estimates stay additive with provider counts. */
   stepEmittedAssistant: string;
   finishReason?: string;
   visibleOutput: boolean;
@@ -55,7 +55,10 @@ export function createStreamEventState(): StreamEventState {
   };
 }
 
-/** Exact mapping: length and content-filter/error finishes never rewrite to "stop"; a filtered turn closes as "error". Stores the ai-unified finishReason the yield detector reads. */
+/**
+ * Exact mapping: length and content-filter/error finishes never rewrite to "stop"; a filtered turn
+ * closes as "error". Stores the ai-unified finishReason the yield detector reads.
+ */
 export function mapFinishReason(reason: string | undefined): Transcript.FinishReason {
   switch (reason) {
     case "length":

@@ -8,7 +8,7 @@ import {
 } from "@openomni/protocol";
 import { z } from "zod";
 
-/** The core always registers its eight records; a capability point is present only while its owner is composed. */
+/** The core always registers its eight records; a capability point exists only while composed. */
 export type GatePointTable = ReadonlyMap<string, PointRecord>;
 
 export const GateComposeError = NamedError.create(
@@ -38,7 +38,10 @@ export interface ComposePointTableOptions {
 
 const capabilityRecords = new Map(CAPABILITY_POINT_RECORDS.map((record) => [record.id, record]));
 
-/** Fail-closed and typed: a missing core record is `builtin_removed`, a re-registered point `duplicate`, an id without a record `unknown_point`. */
+/**
+ * Fail-closed and typed: a missing core record is `builtin_removed`, a re-registered point
+ * `duplicate`, an id without a record `unknown_point`.
+ */
 export function composePointTable(options: ComposePointTableOptions): GatePointTable {
   const core = options.core ?? CORE_POINT_RECORDS;
   for (const sealed of CORE_POINT_RECORDS) {
@@ -73,7 +76,7 @@ export const KERNEL_CAPABILITY_POINTS: readonly CapabilityPointRegistration[] = 
   Object.freeze({ bundle: "action", points: Object.freeze(["action.pre"] as const) }),
 ]);
 
-/** An unregistered pre point fails closed; an unregistered post point is simply not consulted. No default table. */
+/** Unregistered pre point fails closed; unregistered post point is not consulted. No default. */
 export function executionPoint(
   kind: string,
   phase: "pre" | "post",

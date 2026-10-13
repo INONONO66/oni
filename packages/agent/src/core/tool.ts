@@ -29,7 +29,7 @@ export function assertToolExecutor(config: ChatAgentConfig): void {
   }
 }
 
-/** Config-time: an ambiguous catalog refuses the run before it opens instead of surfacing mid-turn as a retryable "tool" error. */
+/** Config-time: an ambiguous catalog refuses before the run opens, not as a "tool" error. */
 export function assertUnambiguousToolMetadata(config: ChatAgentConfig): void {
   const tools = config.tools;
   // Two tools resolving to the same key (`a_b` alongside `a.b`) used to be a
@@ -214,7 +214,8 @@ export function executeToolBody<In extends z.ZodType, Out extends z.ZodType>(
         (cause: CaughtValue) => {
           settle("failed");
           // An explicit ToolRefused keeps its model-facing classification; every other
-          // foreign rejection is a typed body failure recorded as evidence (an Error rides structured).
+          // foreign rejection is a typed body failure recorded as evidence (an Error rides
+          // structured).
           resume(isToolRefusal(cause)
             ? Effect.succeed<ToolBodyOutcome>({ status: "error", message: cause.message, errorKind: "precondition_failed" })
             : Effect.fail(new ToolBodyFailed({ tool: definition.name, cause: cause instanceof Error ? cause : thrownAsError(cause).message })));
@@ -288,7 +289,7 @@ export interface DispatcherOptions {
   readonly executor: Executor;
   readonly timeoutMs?: number;
   readonly retainEffect?: (effect: Promise<void>) => void;
-  /** A dispatcher composed without it performs no projection; the per-turn dispatcher always carries the ledger-backed ports. */
+  /** Composed without it = no projection; the per-turn dispatcher always carries the ports. */
   readonly toolOutput?: ToolOutputPorts;
 }
 
@@ -352,7 +353,7 @@ export function toolInputSchema(definition: AnyToolDefinition): JsonSchemaObject
 
 export type ProjectableTool = ToolDispatchDefinition & { readonly idempotent?: boolean };
 
-/** Derived ONCE from one definition list; no caller re-projects. `idempotent` is preserved — the run loop alone decides replay. */
+/** Derived ONCE from one definition list; `idempotent` is kept, the run loop decides replay. */
 export interface ToolProjections {
   readonly session: readonly SessionGeneration.Tool[];
   readonly specs: readonly Tool.Spec[];

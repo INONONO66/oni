@@ -13,7 +13,10 @@ import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type Hydr
 
 type RecoveryError = SessionError;
 
-/** Admission owns entering a turn; this module owns re-entering one and rebuilding context from a recorded compaction row through the composed seam only. */
+/**
+ * Admission owns entering a turn; this module owns re-entering one and rebuilding context from a
+ * recorded compaction row through the composed seam only.
+ */
 export function createSessionRecovery(
   kernel: SessionKernel,
   sessionId: string,

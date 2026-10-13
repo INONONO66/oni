@@ -16,7 +16,10 @@ import { legacyPointOf } from "./migrate";
 import type { CompileErrorData, CompiledRow, PolicyCompileError } from "./row-parse";
 import type { ProjectedGeneration } from "./project";
 
-/** The legacy `PolicyEvaluation` shape, the evaluator that formats a gate decision back into it, and the fail-closed snapshot for generations that refused to compile. */
+/**
+ * The legacy `PolicyEvaluation` shape, the evaluator that formats a gate decision back into it, and
+ * the fail-closed snapshot for generations that refused to compile.
+ */
 
 export interface PolicyEvaluationInput {
   readonly kind: string;
@@ -26,7 +29,7 @@ export interface PolicyEvaluationInput {
   readonly sessionId?: string;
   readonly message?: MessagePolicyContext;
   readonly value: PlainValue;
-  /** Replayed verbatim — recorded responses included — without invoking handlers; excluded from the input identity. */
+  /** Replayed verbatim, responses included, without handlers; outside the input identity. */
   readonly recorded?: GateDecision;
 }
 
@@ -60,7 +63,10 @@ export interface CompiledPolicySnapshot {
   readonly contentHash: string;
   readonly pointTable: GatePointTable;
   evaluate(input: PolicyEvaluationInput): PolicyEvaluation;
-  /** Resolves async consultants IN ROW ORDER, each receiving the fold's value at its position; the sync `evaluate` on a consult row folds `handler_unavailable` -> deny. */
+  /**
+   * Resolves async consultants IN ROW ORDER, each receiving the fold's value at its position; the
+   * sync `evaluate` on a consult row folds `handler_unavailable` -> deny.
+   */
   evaluateEffect?(input: PolicyEvaluationInput): Effect.Effect<PolicyEvaluation>;
 }
 
@@ -88,7 +94,11 @@ function projectedWhenOf(input: PolicyEvaluationInput): Record<string, PlainValu
   return when;
 }
 
-/** The ordered fold runs up to the first unprepared consult row, which surfaces CARRYING THE FOLD'S VALUE AT ITS POSITION; undefined when the input refuses, the recorded decision replays, or every async row is prepared. */
+/**
+ * The ordered fold runs up to the first unprepared consult row, which surfaces CARRYING THE FOLD'S
+ * VALUE AT ITS POSITION; undefined when the input refuses, the recorded decision replays, or every
+ * async row is prepared.
+ */
 export interface PlannedConsult extends PendingConsult {
   readonly point: string;
 }
@@ -221,7 +231,7 @@ function projectedReason(
   return undefined;
 }
 
-/** The first consulted payload carrying a string `reason`, else on a deny the first recorded fact's code. */
+/** First consulted payload with a string `reason`, else on deny the first recorded fact's code. */
 function consultedReason(decision: GateDecision): string | undefined {
   for (const entry of decision.consulted) {
     const payload = entry.payload;

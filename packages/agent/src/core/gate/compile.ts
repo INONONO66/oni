@@ -19,7 +19,10 @@ export { createHandlerTable, HandlerTableError, KERNEL_POLICY_REGISTRY, type Han
 export { PolicyCompileError } from "./row-parse";
 export type { CompiledPolicySnapshot, PolicyEvaluation, PolicyEvaluationInput } from "./evaluate";
 
-/** Validates historical rows (`row-parse.ts`), projects them onto the gate (`project.ts`) and exposes the compatibility evaluator (`evaluate.ts`). */
+/**
+ * Validates historical rows (`row-parse.ts`), projects them onto the gate (`project.ts`) and
+ * exposes the compatibility evaluator (`evaluate.ts`).
+ */
 
 export interface CompilePolicySnapshotOptions {
   readonly registry: HandlerTable;

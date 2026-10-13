@@ -141,7 +141,11 @@ function normalizeOutputPayload(event: ProviderEvent): { output: string; isError
   };
 }
 
-/** On abort, results for tools the SDK already executed may still be in the stream; recording them as interrupted would misreport a real side effect, so settlement events drain for a bounded grace first. */
+/**
+ * On abort, results for tools the SDK already executed may still be in the stream; recording them
+ * as interrupted would misreport a real side effect, so settlement events drain for a bounded grace
+ * first.
+ */
 const ABORT_SETTLE_GRACE_MS = 250;
 
 export function drainToolSettlements(

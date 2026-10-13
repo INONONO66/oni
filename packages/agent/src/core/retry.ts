@@ -10,18 +10,21 @@ export const RetryReason = z.enum([
 ]);
 export type RetryReason = z.infer<typeof RetryReason>;
 
-/** `aborted` is not a `RetryReason`: an abort is an instruction to stop, never a fault to classify, so it never appears on `agent.error.retry`. */
+/**
+ * `aborted` is not a `RetryReason`: an abort is an instruction to stop, never a fault to classify,
+ * so it never appears on `agent.error.retry`.
+ */
 /** An honest absence, never defaulted to a transient claim. */
 export type TerminalReason = RetryReason | "aborted" | "unclassified";
 
-/** The name is the identity `isAbort` checks — never the message, which tool and provider errors may collide with. */
+/** The name is the identity `isAbort` checks, never the message, which other errors may share. */
 export function abortError(message = "aborted"): Error {
   const error = new Error(message);
   error.name = "AbortError";
   return error;
 }
 
-/** Decided by the signal state or the typed identity — never by message substrings; an abort must not emit retry-promising telemetry. */
+/** Decided by signal state or typed identity, never substrings; an abort promises no retry. */
 export function isAbort(error: Error, signal?: AbortSignal): boolean {
   return (
     signal?.aborted === true ||
@@ -34,7 +37,10 @@ function asLlmFailure(error: Error): LlmRunFailure | undefined {
   return error instanceof LlmRunFailure ? error : undefined;
 }
 
-/** A host that must TELL someone why the turn produced nothing needs these facts; re-deriving them from the message is the string matching the closed vocabulary exists to avoid. */
+/**
+ * A host that must TELL someone why the turn produced nothing needs these facts; re-deriving them
+ * from the message is the string matching the closed vocabulary exists to avoid.
+ */
 const AgentFailureFacts = z.object({
   reason: z.enum([...RetryReason.options, "aborted"]),
   attempt: z.number(),
@@ -43,7 +49,7 @@ const AgentFailureFacts = z.object({
 });
 type AgentFailureFacts = z.infer<typeof AgentFailureFacts>;
 
-/** Carried on the error itself (wrapping would change the identity every catcher reads); the symbol keeps the facts off enumeration. */
+/** Carried on the error itself (wrapping changes the identity catchers read); symbol = hidden. */
 const FAILURE_FACTS = Symbol.for("openomni.agent.failureFacts");
 
 export function attachFailureFacts(error: Error, facts: AgentFailureFacts): void {
@@ -55,7 +61,10 @@ export function attachFailureFacts(error: Error, facts: AgentFailureFacts): void
   });
 }
 
-/** Undefined when the error did not come from a run or died before any decision; absent is a real answer — never invent an attempt count. */
+/**
+ * Undefined when the error did not come from a run or died before any decision; absent is a real
+ * answer — never invent an attempt count.
+ */
 export function failureFacts<T>(error: T): AgentFailureFacts | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const parsed = AgentFailureFacts.safeParse(Reflect.get(error, FAILURE_FACTS));

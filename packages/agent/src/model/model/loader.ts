@@ -9,7 +9,7 @@ import { Catalog, RemoteCatalog } from "./schema";
 const DEFAULT_CACHE_PATH = join(homedir(), ".openomni", "models.json");
 const REMOTE_TIMEOUT_MS = 10_000;
 
-/** The package's one environment owner: the credential file location is resolved here and injected into `auth/storage`. */
+/** The package's one environment owner: credential file location injected into `auth/storage`. */
 export function resolveAuthFilePath(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
@@ -22,7 +22,7 @@ async function snapshot(): Promise<Catalog> {
 function catalogError(source: "cache" | "remote" | "cache_write", path: string) {
   return <E>(cause: E) => ModelCatalogError.fromThrown(source, path, cause);
 }
-/** A missing cache file is `undefined`; a present file that cannot be read or decoded is a typed `cache` refusal. */
+/** A missing cache file is `undefined`; an unreadable one is a typed `cache` refusal. */
 function readCache(path: string): Effect.Effect<Catalog | undefined, LlmError> {
   return Effect.gen(function* () {
     const file = Bun.file(path);
@@ -31,7 +31,7 @@ function readCache(path: string): Effect.Effect<Catalog | undefined, LlmError> {
     return yield* Effect.try({ try: () => RemoteCatalog.parse(raw), catch: catalogError("cache", path) });
   });
 }
-/** Every remote failure — unreachable, timeout, non-OK status, bad body, bad decode — is a typed `remote` refusal. */
+/** Every remote failure (network, timeout, status, body, decode) is a typed `remote` refusal. */
 function fetchRemote(): Effect.Effect<Catalog, LlmError> {
   const url = `${process.env.OPENOMNI_MODELS_URL || "https://models.dev"}/api.json`;
   return Effect.tryPromise({

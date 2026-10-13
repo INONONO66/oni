@@ -49,7 +49,7 @@ export const CATALOG_SCHEMA: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS idx_policy_read ON policy(generation, kind, phase, priority DESC, name)",
 ];
 
-/** A file whose `PRAGMA user_version` is greater than this was written by newer code and opens read-only. */
+/** A `PRAGMA user_version` above this was written by newer code and opens read-only. */
 const CATALOG_SCHEMA_VERSION = 3;
 
 const UserVersion = z.object({ user_version: z.number().int().nonnegative() });
@@ -90,7 +90,7 @@ const SessionIndexSqlRow = z
 
 const RotatedFence = z.object({ fence: z.number().int().positive() });
 
-/** Cross-session facts only; never authorizes a session-file write by itself — `commitSession`'s owner+fence check stays the authority. */
+/** Cross-session facts only; `commitSession`'s owner+fence check stays the write authority. */
 export class CatalogStore extends StoreHandle {
   readonly policies: ProtocolStorage.PolicyRowSubAdapter;
   private readonly newerFileVersion: number | undefined;
@@ -101,7 +101,7 @@ export class CatalogStore extends StoreHandle {
     this.policies = createPolicies(db, this.transaction);
   }
 
-  /** The composition root attaches the channels-owned store to the same file; the catalog constructs nothing channel-facing. */
+  /** The composition root attaches the channels-owned store here; the catalog builds none of it. */
   get database(): Database {
     return this.db;
   }
@@ -153,7 +153,10 @@ export class CatalogStore extends StoreHandle {
     ).all(parentId, afterId, size));
   }
 
-  /** `has_armed = 1` is written BEFORE the arming commit and `= 0` only after a transaction confirmed the index empty: an extra true costs a rescan, a premature false would lose recovery. */
+  /**
+   * `has_armed = 1` is written BEFORE the arming commit and `= 0` only after a transaction
+   * confirmed the index empty: an extra true costs a rescan, a premature false would lose recovery.
+   */
   markArmed(sessionId: string, armed: boolean): void {
     this.refuseNewerSchema("markArmed");
     this.db
@@ -168,7 +171,10 @@ export class CatalogStore extends StoreHandle {
       .map((row) => row.id);
   }
 
-  /** Only ALLOCATES the next fence: authority transfers when the winner adopts it into the session file, whose lock serializes against every fenced commit. */
+  /**
+   * Only ALLOCATES the next fence: authority transfers when the winner adopts it into the session
+   * file, whose lock serializes against every fenced commit.
+   */
   rotateFence(sessionId: string): number {
     this.refuseNewerSchema("rotateFence");
     return this.transaction(() => {
@@ -189,7 +195,10 @@ interface OpenCatalogStoreOptions {
   readonly observationSink?: ObservationSink;
 }
 
-/** SQLite cannot alter a CHECK constraint, so the two constrained tables are renamed aside, recreated from CATALOG_SCHEMA and every row copied unchanged. */
+/**
+ * SQLite cannot alter a CHECK constraint, so the two constrained tables are renamed aside,
+ * recreated from CATALOG_SCHEMA and every row copied unchanged.
+ */
 function migrateCatalogChecks(db: Database): void {
   for (const table of ["session_index", "policy"] as const) {
     db.run(`ALTER TABLE ${table} RENAME TO ${table}_v2`);

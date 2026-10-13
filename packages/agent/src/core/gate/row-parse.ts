@@ -11,7 +11,7 @@ import { z } from "zod";
 import { freezePlain } from "./match";
 import type { HandlerTable, NamedTransformer } from "./registry";
 
-/** Turns one persisted policy row into its validated compiled form; projection onto the gate lives in `project.ts`. */
+/** One persisted policy row to its validated compiled form; projection is in `project.ts`. */
 
 export const MANDATORY_RULE_NAMES = ["compaction"] as const;
 export type RuleName = (typeof MANDATORY_RULE_NAMES)[number];
@@ -96,7 +96,10 @@ function compileErrorMessage(options: CompileErrorOptions): string {
   }
 }
 
-/** Rows written before the role rename persist the retired byte; compile folds it to `child`. Named because an inline callback parameter would be contextually typed `unknown`. */
+/**
+ * Rows written before the role rename persist the retired byte; compile folds it to `child`. Named
+ * because an inline callback parameter would be contextually typed `unknown`.
+ */
 function foldMatchRoles<Input>(input: Input) {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
   return Object.fromEntries(

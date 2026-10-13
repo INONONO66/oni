@@ -85,7 +85,7 @@ async function runSessionHydration(): Promise<void> {
   }
 }
 
-// #1314: the fanout benchmark measures the production observation bus — an
+// The fanout benchmark measures the production observation bus — an
 // Effect PubSub built by `makeObservationBus` inside a Scope — not a test
 // substitute. Each subscription is acquired deterministically (`yield*`
 // registers interest before any publish), and each iteration awaits a

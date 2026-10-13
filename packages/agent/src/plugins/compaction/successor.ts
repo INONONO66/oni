@@ -11,7 +11,7 @@ import {
 } from "@openomni/protocol";
 import { z } from "zod";
 
-/** The plugin band may not import the inspect band's history module; composition wires the real fold/hydrate functions in. */
+/** The plugin band may not import inspect's history module; composition wires fold/hydrate in. */
 export interface CompactionHistoryPorts {
   readonly fold: (
     sessionId: string,

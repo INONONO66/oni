@@ -62,7 +62,10 @@ function plainObject(value: PlainValue): Record<string, PlainValue> | undefined 
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 }
 
-/** Over budget the row carries `{outputRef}` with a top-level `revert` key preserved verbatim: crash recovery reads it off the boundary result. */
+/**
+ * Over budget the row carries `{outputRef}` with a top-level `revert` key preserved verbatim: crash
+ * recovery reads it off the boundary result.
+ */
 export function projectResultValue(value: PlainValue, ports: ToolOutputPorts): PlainValue {
   const json = canonicalJson(value);
   const bytes = Buffer.byteLength(json, "utf8");

@@ -13,7 +13,10 @@ export interface ObservationPublishFailure {
 /** The composing host logs it in its own runtime. */
 export type ObservationFailurePort = (failure: ObservationPublishFailure) => void;
 
-/** Both run after commit, so neither may unwind the write; a throwing port has refused the last report channel and that second failure is dropped. */
+/**
+ * Both run after commit, so neither may unwind the write; a throwing port has refused the last
+ * report channel and that second failure is dropped.
+ */
 export function reportCommitted(
   db: Database,
   sink: ObservationSink,

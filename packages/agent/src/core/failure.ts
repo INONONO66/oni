@@ -23,7 +23,7 @@ export function renderBodyCause(cause: string | Error): string {
   return cause.name === "" ? cause.message : `${cause.name}: ${cause.message}`;
 }
 
-/** `instanceof`/`String()` may throw again (a revoked Proxy), so the fallback names only the `typeof` and runs no user code. */
+/** `instanceof`/`String()` may throw again (revoked Proxy), so the fallback names only `typeof`. */
 export function thrownAsError<T>(cause: T): Error {
   try {
     return cause instanceof Error ? cause : new Error(String(cause));
@@ -129,7 +129,11 @@ export class ExecutionApprovalError extends Data.TaggedError("ExecutionApprovalE
   readonly code: "stale_approval" | "approval_authority_unavailable" | "unauthenticated";
 }> {}
 
-/** Unauthenticated provenance runs with `evidence_only` authority and is recorded as a violation fact — tagged like `SessionPolicyRefusal`, not an `Error`; a `missing_origin` prompt fails its turn instead. */
+/**
+ * Unauthenticated provenance runs with `evidence_only` authority and is recorded as a violation
+ * fact — tagged like `SessionPolicyRefusal`, not an `Error`; a `missing_origin` prompt fails its
+ * turn instead.
+ */
 export class InboundAuthorityViolation {
   readonly _tag = "InboundAuthorityViolation";
   constructor(readonly reason: "unknown_origin" | "undeclared_treatment" | "missing_origin") {}
@@ -143,7 +147,10 @@ export class RunnerOutputMissing {
   get message(): string { return `runner output missing: turn ${this.turnId}`; }
 }
 
-/** Mutually inconsistent durable views (a running session with no open turn): drains report the typed refusal instead of folding into a stop. */
+/**
+ * Mutually inconsistent durable views (a running session with no open turn): drains report the
+ * typed refusal instead of folding into a stop.
+ */
 export class SessionAdmissionRefused {
   readonly _tag = "SessionAdmissionRefused";
   constructor(readonly sessionId: string) {}

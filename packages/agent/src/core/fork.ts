@@ -19,7 +19,10 @@ import type {
 } from "./store/session-file/index.js";
 import { SESSION_FILE_SCHEMA_VERSION } from "./store/session-file/index.js";
 
-/** A generation overrides this by pinning `settings.forkCopyByteCap`; the fork reads the cap off the parent generation, never a caller constant. */
+/**
+ * A generation overrides this by pinning `settings.forkCopyByteCap`; the fork reads the cap off the
+ * parent generation, never a caller constant.
+ */
 export const DEFAULT_FORK_COPY_BYTE_CAP = 4 * 1024 * 1024;
 
 export type ForkRefusalReason =
@@ -85,7 +88,7 @@ function isInputRow(action: LedgerAction.Node): boolean {
   return typeof plainObject(action.effect.value)?.deliveryKind === "string";
 }
 
-/** Consumption deterministically re-mints `<deliveryId>:delivery` for a re-admitted key, so a copied one must never keep that id slot. */
+/** Consumption re-mints `<deliveryId>:delivery` on re-admission; a copy must not keep it. */
 function isDeliveryRow(action: LedgerAction.Node): boolean {
   if (action.kind !== "prompt" && action.kind !== "signal" && action.kind !== "action") return false;
   return plainObject(action.effect.value)?.phase === "delivery";
@@ -95,7 +98,7 @@ function isArmRow(action: LedgerAction.Node): boolean {
   return action.kind === "alarm" && plainObject(action.intent.value)?.op === "arm";
 }
 
-/** A projected tool row carries stored-output refs; the fork copies those bytes so the child's `tool_output` reads resolve. */
+/** A projected tool row carries stored-output refs; the fork copies those bytes for the child. */
 function collectOutputIds(value: PlainValue, into: Set<string>): void {
   if (value === null || typeof value !== "object") return;
   if (Array.isArray(value)) {
@@ -163,7 +166,10 @@ function readParentPrefix(
   }
 }
 
-/** Parent-side checks first; the child is written in one transaction; the catalog `parent_id` row lands last because its connection cannot join the file transaction. */
+/**
+ * Parent-side checks first; the child is written in one transaction; the catalog `parent_id` row
+ * lands last because its connection cannot join the file transaction.
+ */
 interface ForkPlan {
   readonly parentRow: ReturnType<SessionKernel["row"]>;
   readonly copies: readonly LedgerAction.Append[];

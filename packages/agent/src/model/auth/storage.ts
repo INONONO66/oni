@@ -62,7 +62,10 @@ export namespace Auth {
   export function all(authFilePath: string): Effect.Effect<Record<string, Info>, LlmError> {
     return Effect.try({ try: () => readAuthFile(authFilePath), catch: decodeLlmFailure("auth.read") });
   }
-  /** One synchronous read/atomic rename boundary so concurrent effects cannot lose credentials; the temp suffix comes from the injected `id`, never ambient entropy. */
+  /**
+   * One synchronous read/atomic rename boundary so concurrent effects cannot lose credentials; the
+   * temp suffix comes from the injected `id`, never ambient entropy.
+   */
   export function set(
     key: string,
     info: Info,

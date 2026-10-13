@@ -119,14 +119,14 @@ export type SessionRunnerResult =
 export type SessionRunner = (input: SessionRunnerInput) => Effect.Effect<SessionRunnerResult, ExecutionError, RunnerServices>;
 
 export interface SessionRuntime {
-  /** Absent = the compaction capability is off: a compaction append is a defect and a restore refuses typed. */
+  /** Absent = compaction is off: a compaction append is a defect and a restore refuses typed. */
   readonly compaction?: CompactionSeamService;
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
     readonly ledger: Pick<ExecutionLedger, "commit">;
   }) => Effect.Effect<LedgerAction.Receipt, ExecutionError, RunnerServices>;
   readonly onDeliveryCommitted?: (sessionIds: readonly string[]) => void;
-  /** App-injected child settlement, called at turn seal; absent = a sealing child never writes toward its parent. */
+  /** App-injected child settlement at turn seal; absent = a child never writes to its parent. */
   readonly settleChild?: (
     kernel: SessionKernel,
     row: LedgerSession.Row,
@@ -158,13 +158,19 @@ export interface SessionRuntime {
   readonly openKernel: (sessionId: string) => SessionKernel;
   readonly listSessions: () => LedgerSession.Row[];
   readonly onHibernate?: (sessionId: string) => Effect.Effect<void, ExecutionError>;
-  /** Bounds only the caller-facing `close()` wait on an abort-ignoring runner; the turn continuation still settles durably. `0` detaches immediately. */
+  /**
+   * Bounds only the caller-facing `close()` wait on an abort-ignoring runner; the turn continuation
+   * still settles durably. `0` detaches immediately.
+   */
   readonly closeGraceMs?: number;
-  /** Read at every turn start: a `hash` differing from the adopted `manifestHash` appends one compose configure before the turn captures its generation. Absent = static manifest. */
+  /**
+   * Read at every turn start: a `hash` differing from the adopted `manifestHash` appends one
+   * compose configure before the turn captures its generation. Absent = static manifest.
+   */
   readonly composed?: { readonly current: () => ComposedManifest | undefined };
 }
 
-/** The journal-facing face of one composed `Generation`: recomputed from empty state on every manifest change, never patched. */
+/** Journal-facing face of one composed `Generation`: recomputed from empty, never patched. */
 export interface ComposedManifest {
   readonly hash: string;
   readonly tools: readonly SessionGeneration.Tool[];
@@ -253,7 +259,7 @@ export interface SessionControllerLifecycle {
   release(): void;
 }
 
-/** The entity owns receipt, dedupe, fence authority and backlog admission; the turn machinery and timer folds stay behind these ports. */
+/** The entity owns receipt, dedupe, fence and backlog admission; turn machinery stays behind. */
 
 export type SessionAdmissionSnapshot = Parameters<typeof decideSessionAdmission>[0];
 type SessionAdmissionDecision = ReturnType<typeof decideSessionAdmission>;
@@ -283,18 +289,24 @@ export interface SessionEntityTurnInput {
 export interface SessionEntityPorts {
   /** The request authority reads its recent-open quota here; required — no in-core literal. */
   readonly approvalPolicy: ApprovalPolicy;
-  /** Redelivered messages can activate a session before boot bound the real ports; the gate holds that activation. Absent means ready. */
+  /** Redelivery can activate before boot bound the ports; the gate holds it. Absent = ready. */
   readonly ready?: Effect.Effect<void>;
   readonly runTurn: (input: SessionEntityTurnInput) => Effect.Effect<void, SessionError>;
-  /** A turn recovered in this activation and parked on a still-open request re-reads it through this doorbell: the app-side answer path never saw that turn. */
+  /**
+   * A turn recovered in this activation and parked on a still-open request re-reads it through this
+   * doorbell: the app-side answer path never saw that turn.
+   */
   readonly onRequestReady?: (sessionId: string) => void;
-  /** A delivered occurrence whose purpose is neither loop-reserved nor declared here folds to a recorded `fired{stale}` fact with zero execution. */
+  /**
+   * A delivered occurrence whose purpose is neither loop-reserved nor declared here folds to a
+   * recorded `fired{stale}` fact with zero execution.
+   */
   readonly alarmCapability?: import("./alarm").AlarmCapability;
-  /** Test seam for the keep-alive toggles around a detached turn; the real keep-alive rides `Entity.keepAlive`. */
+  /** Test seam for keep-alive toggles around a detached turn; real one is `Entity.keepAlive`. */
   readonly onKeepAlive?: (enabled: boolean) => void;
   /** Absent is the typed `seam_missing` refusal at `deliver` — never a core fallback. */
   readonly inputRegistrations?: readonly string[];
-  /** Absent refuses every admission with a typed `missing_capability_kinds` decision — never a built-in default. */
+  /** Absent refuses every admission with a typed `missing_capability_kinds` decision. */
   readonly capabilityKinds?: readonly string[];
   readonly requestDomainRevisions?: (
     request: SessionTransition.Request,
@@ -308,16 +320,19 @@ export interface SessionEntityPorts {
     sessionId: string,
     occurrence: import("./alarm").AlarmFired,
   ) => Effect.Effect<void, import("./alarm").AlarmSendRefused>;
-  /** The ONE committing arm path app-side verbs delegate to (`not_live` when no activation is registered); the release runs at passivation. */
+  /**
+   * The ONE committing arm path app-side verbs delegate to (`not_live` when no activation is
+   * registered); the release runs at passivation.
+   */
   readonly onLive?: (
     sessionId: string,
     verbs: {
       readonly arm: import("./alarm").ArmVerb;
-      /** True iff this activation owns the named turn: an effect authorized under one activation never commits through a successor. */
+      /** True iff this activation owns the turn: an effect never commits via a successor. */
       readonly ownsTurn: (turnId: string) => boolean;
     },
   ) => () => void;
-  /** Fired synchronously after every committed arm so native source handles follow the chain (refresh on re-arm, close on retire). */
+  /** Fired synchronously after every committed arm so native handles follow the chain. */
   readonly onArmed?: (notice: import("./alarm").AlarmArmNotice) => void;
 }
 
@@ -357,7 +372,7 @@ function fencedExecutionLedger(
   };
 }
 
-/** The core adopts the fence for `owner` and builds the executor over its own fenced door, so no commit or fence door leaves the core. */
+/** The core adopts the fence for `owner` and builds the executor over its own fenced door. */
 export function adoptedExecutor(
   kernel: SessionKernel,
   sessionId: string,
@@ -373,7 +388,7 @@ export function adoptedExecutor(
   );
 }
 
-/** No lease TTL, no heartbeat: the fence CAS is the whole takeover authority; a lost race re-reads the row and re-decides. */
+/** No lease TTL, no heartbeat: the fence CAS is the takeover authority; a lost race re-decides. */
 export function adoptSessionAuthority(
   kernel: SessionKernel,
   sessionId: string,
@@ -496,7 +511,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
         : Effect.void;
     }
 
-    /** A known entry is capturable only while its snapshot matches and it still has live owners or is current. */
+    /** Capturable only while its snapshot matches and it still has live owners or is current. */
     function admitCapture(bundle: GenerationBundle, entry: Entry | undefined): Effect.Effect<void, SessionError> {
       if (stopping) return Effect.fail(new GenerationUnavailable({ generation: bundle.id.generation }));
       if (entry === undefined) return Effect.void;
@@ -549,7 +564,10 @@ export function makeSessionGenerations(initial: GenerationBundle) {
       })));
     }
 
-    /** Awaits live owners without flipping `stopping`, so the fail-fast `drain` observes zero owners; loops because a detached turn may briefly hand its capture to a successor entry. */
+    /**
+     * Awaits live owners without flipping `stopping`, so the fail-fast `drain` observes zero
+     * owners; loops because a detached turn may briefly hand its capture to a successor entry.
+     */
     const settle: Effect.Effect<void> = Effect.suspend(() => {
       const pending = [...entries.values()].filter((entry) => entry.owners.pending() > 0);
       if (pending.length === 0) return Effect.void;
@@ -844,7 +862,10 @@ export function inboundAuthority(origin: PlainValue): InboundAuthorityDecision {
   return { authority: "evidence_only", violation: new InboundAuthorityViolation("unknown_origin") };
 }
 
-/** No prompt means a kernel-driven turn (`act`); a prompt whose action row cannot be found is a typed `missing_origin` the turn FAILS on. */
+/**
+ * No prompt means a kernel-driven turn (`act`); a prompt whose action row cannot be found is a
+ * typed `missing_origin` the turn FAILS on.
+ */
 export function promptInboundAuthority(
   promptId: string | undefined,
   origin: PlainValue | undefined,
@@ -1103,7 +1124,7 @@ interface SessionChatRun {
 interface SessionChatRunnerOptions {
   readonly prepare: (input: SessionRunnerInput) => Effect.Effect<SessionChatRun, ExecutionError, RunnerServices>;
   readonly reportError?: (error: Error, input: SessionRunnerInput) => string | undefined;
-  /** App-injected pinned-model read; absent = no turn-start pin, the chain starts at the primary. */
+  /** App-injected pinned-model read; absent = no turn-start pin, start at the primary. */
   readonly pinnedModel?: (kernel: SessionKernel, sessionId: string, turnId: string) => Model.Ref | undefined;
 }
 

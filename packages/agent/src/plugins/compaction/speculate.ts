@@ -42,8 +42,10 @@ export class CompactionSession implements CompactionSessionPort {
       const prepared = prepareSummarizerInput(plan.summarizerInput, contextWindowTokens, plan.previousAnchor);
       if (prepared.messages.length === 0) return Effect.void;
       this.#inFlight = true;
-      // A preparation aborted before its summarizer call leaves `#entered` unresolved; the waiters it
-      // collected are owed the next entry, so a fresh Deferred is allotted only after the previous one resolved.
+      // A preparation aborted before its summarizer call leaves `#entered` unresolved; the waiters
+      // it
+      // collected are owed the next entry, so a fresh Deferred is allotted only after the previous
+      // one resolved.
       const entered = Deferred.isDoneUnsafe(this.#entered) ? Deferred.makeUnsafe<void>() : this.#entered;
       this.#entered = entered;
       const generation = this.#generation;

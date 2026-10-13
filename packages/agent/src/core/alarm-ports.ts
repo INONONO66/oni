@@ -5,7 +5,11 @@ import type { AlarmFired } from "./alarm";
 
 /** Pure contracts the kernel takes without defaults; implementations live in `core/alarm.ts`. */
 
-/** `arm` commits the `alarm{arm}` chain row then forwards the occurrence; `wait` keeps the in-process residual sleep; `settle` retires the chain so a completed attempt leaves no open alarm. */
+/**
+ * `arm` commits the `alarm{arm}` chain row then forwards the occurrence; `wait` keeps the
+ * in-process residual sleep; `settle` retires the chain so a completed attempt leaves no open
+ * alarm.
+ */
 export interface RetryAlarmPort {
   arm(input: {
     /** The chain id is `<id>:retry`. */
