@@ -997,9 +997,8 @@ export function createSessionTurn(
   function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string) {
     return Effect.gen(function* () {
       const observations = yield* ObservationService;
-      // Steer rows drain at tool.post boundaries, followUp rows wait for turn end.
-      // EVERY boundary applies the stale split: a late `action` with `after` behind
-      // the compaction head is closed durably here, never delivered mid-turn.
+      // Steer rows drain at tool.post boundaries, followUp rows at turn end. EVERY boundary
+      // closes a late `action` with `after` behind the compaction head durably, never delivers it.
       const { consumed: pending, stale } = boundaryConsumption(
         kernel.pendingMessages(sessionId),
         boundary,

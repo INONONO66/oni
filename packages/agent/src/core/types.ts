@@ -99,11 +99,9 @@ export interface ChatAgentInput {
   /** The open turn's checkpointed budget counters; absent or null starts the run from zero. */
   readonly budgetState?: import("@openomni/protocol").FoldCheckpoint.BudgetState | null;
   /**
-   * Hydrated history. `partMetadata`, when present, rides onto the rebuilt
-   * text part verbatim — hydration must not strip structural identity
-   * (compaction anchors carry theirs here; #702/#722 review: an anchor that
-   * loses its metadata across resume breaks the merge chain and stacks
-   * stale renders as pseudo-user messages).
+   * Hydrated history. `partMetadata`, when present, rides onto the rebuilt text
+   * part verbatim: an anchor that loses its metadata across resume breaks the
+   * compaction merge chain and stacks stale renders as pseudo-user messages.
    */
   messages: Array<
     | {

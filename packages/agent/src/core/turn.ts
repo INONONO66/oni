@@ -55,9 +55,8 @@ export type RunTrace = TraceContext.Type & {
 };
 
 /**
- * Refuses an incomplete trace: ids invented on a run's behalf correlate to
- * nothing and the caller never learns it forgot. Inheritance is required, not
- * wire format — the emitter that puts it on the wire enforces `traceparent`.
+ * Refuses an incomplete trace: ids invented on a run's behalf correlate to nothing.
+ * Inheritance is required, not wire format — the emitter enforces `traceparent`.
  */
 function requireTrace(
   subject: string,
@@ -556,10 +555,9 @@ function turnYield(
   }
   if (lastReason !== "tool-calls") return null;
   if (steps >= turn.stepCap) return "steps";
-  // The cap outranks steering: a turn that spent its whole step budget ended
-  // on the cap even if the steering check also fired — "max-steps" stays the
-  // honest terminal. Steering outranks the window: the pending message should
-  // reach the model next turn; a still-full window re-arms and yields again.
+  // The cap outranks steering ("max-steps" stays the honest terminal even if the
+  // steering check also fired); steering outranks the window (the pending message
+  // should reach the model next turn; a still-full window re-arms and yields again).
   if (turn.steering.requested) return "steer";
   return turn.windowYieldArmed ? "window" : "steps";
 }
