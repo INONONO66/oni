@@ -1,5 +1,30 @@
 # Implementation Status
 
+## #1342 desktop automation editor and ingress ledger explorer (epic #1337, rung 5)
+
+- `apps/desktop/src/renderer/gateway/` transport gained six typed methods over the
+  existing WebSocket: `automation_add`, `automation_remove`, `automation_enable`,
+  `automation_disable`, `automation_list`, `automation_ledger_read`; replies are
+  `*_added/removed/enabled/disabled/listed/ledger` or the shared `*_refused`
+  frame. Every request has a bounded wait; a missing or malformed reply resolves
+  to a typed refusal and re-enables the list (#1447 r1 M2).
+- `renderer/automation/{editor,triggers,conditions,view}.tsx`: record editor for
+  the `Ingress.Automation` contract; `invalid_record` issues (local and server)
+  render next to their field; `require_approval` and refusals are shown, never
+  retried.
+- `renderer/ingress-ledger/{rows,view}.tsx`: ledger explorer over
+  `automation_ledger_read` (range/page bounded); a grouped row links to the
+  `matched` row sharing its `group:<id>` fact, the shape `packages/channels`
+  `router/automation/groups.ts` writes (#1447 r1 H1).
+- Fixture preview lives only in `apps/desktop/test/automation-preview.{tsx,html}`
+  and helpers; no mock data in the renderer; `sqlite` appears 0 times in
+  `apps/desktop/src`.
+- Verification: 113 desktop tests at delivery, 40 changed-file tests and six root
+  gates after the review fixes, eight light/dark × desktop/narrow captures with
+  no horizontal overflow; live-gateway integration is covered by #1341's wire
+  tests, not by desktop tests.
+
+
 ## #1346 one-call session creation and the four entity RPCs (epic #1356, rung 4)
 
 On `epic1356/1346-create-session-four-rpcs` (2026-10-13, base `89b90b793`, PR #1444).
