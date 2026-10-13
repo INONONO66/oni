@@ -10,7 +10,6 @@ import { prepareCompactionRestore } from "./restore";
 import { createCompactionPin, type CompactionHistoryPorts } from "./successor";
 
 export { Compaction } from "./compact";
-export { DEFAULT_TOOL_OUTPUT_ELISION } from "./contract";
 export { CompactionSession } from "./speculate";
 export type { CompactionHistoryPorts } from "./successor";
 

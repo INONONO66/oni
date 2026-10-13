@@ -957,6 +957,28 @@ describe("CompactionRun seam", () => {
     expect(configured.window(state)?.yieldAt).toBe(450);
   });
 
+  it("elides a long recorded tool output using the plugin defaults", async () => {
+    const tool = makeToolAssistantMessage("a1", "call-big");
+    const toolPart = tool.parts.find((part: Message.Part): part is Message.ToolPart => part.type === "tool");
+    if (toolPart?.state.status !== "completed") throw new Error("missing tool fixture");
+    toolPart.state.output = "x".repeat(4500);
+    const state = seamState(5000);
+    state.messages = [makeUserMessage("u0"), tool, makeAssistantMessage("a2"), makeAssistantMessage("a3")];
+    const result = await isolated(new CompactionRun(
+      { options: { contextWindowTokens: WINDOW, protectRecentMessages: 2 }, identity, events: collector() },
+      undefined,
+    ).maybeCompact(state, "threshold"));
+    expect(result).toBe("completed");
+    const kept = state.messages.flatMap((message) => message.parts).find(
+      (part): part is Message.ToolPart => part.type === "tool",
+    );
+    expect(kept?.state.status).toBe("completed");
+    if (kept?.state.status !== "completed") throw new Error("missing elided output");
+    expect(kept.state.output).toContain("[output elided by compaction: 4500 chars; recall: call-big]");
+    expect(kept.state.output.endsWith("x".repeat(500))).toBe(true);
+    expect(kept.state.output).not.toContain("x".repeat(501));
+  });
+
   it("prepares without writing during a tool loop, then compacts at the turn end", async () => {
     const recording = recoveryRecording();
     const rows = () => recording.committed.filter((action) => action.kind === "compaction");

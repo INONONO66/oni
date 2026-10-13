@@ -34,8 +34,6 @@ import {
   compactionCapability as defineCompactionCapability,
   type CompactionHistoryPorts,
 } from "./plugins/compaction";
-export { DEFAULT_TOOL_OUTPUT_ELISION } from "./plugins/compaction";
-
 const compactionHistoryPorts: CompactionHistoryPorts = {
   fold: foldSessionHistory,
   hydrate: hydrateSessionHistory,

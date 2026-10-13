@@ -9,7 +9,6 @@ type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
 import { loadConfig } from "../src/config";
 import { compactionOptions } from "../src/bundles/compaction/index";
-import { Bundle } from "@openomni/agent";
 import { assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
@@ -51,7 +50,6 @@ describe("compaction composition configuration", () => {
     const compaction = runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus)));
     expect(compaction.onSummarize).toBeUndefined();
     expect(compaction.elideToolOutputs).toBeUndefined();
-    expect(Bundle.DEFAULT_TOOL_OUTPUT_ELISION).toEqual({ minOutputChars: 4000, keepHeadChars: 500 });
   });
   it("passes configured compaction through the production Resident root", async () => {
     const config = suite.config("openomni-root-compaction-", {

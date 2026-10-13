@@ -30,7 +30,3 @@ test("compaction on WITHOUT a summarizer provider refuses typed seam_missing: th
   expect(refused.name).toBe("compaction-strategy");
   expect(refused.detail).toBe("@openomni/openomni/CompactionSummarizerSeam");
 });
-
-test("the elision defaults the composition binds are the plugin's, not the app's", () => {
-  expect(Bundle.DEFAULT_TOOL_OUTPUT_ELISION).toEqual({ minOutputChars: 4000, keepHeadChars: 500 });
-});
