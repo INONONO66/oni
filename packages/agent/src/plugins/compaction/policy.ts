@@ -94,7 +94,9 @@ export class CompactionRun {
       const geometry = run.geometry(state, options);
       yield* run.prepare(state, options, geometry, measuredTokens);
       if (reason === "prepare") return "skipped";
-      if (reason === "threshold" && run.belowThreshold(state, options, geometry, measuredTokens)) return "skipped";
+      if (reason === "threshold" && run.belowThreshold(state, options, measuredTokens)) return "skipped";
+      if (measuredTokens !== undefined && run.session?.inFlight() === true && measuredTokens < geometry.graceTokens)
+        return "skipped";
       const candidate = run.session?.candidate();
       const executed = yield* Effect.result(executeCompaction({
         history: state.messages,
@@ -115,16 +117,14 @@ export class CompactionRun {
     });
   }
 
-  /** Below the threshold, or still below grace while a speculative cut is in flight: wait for it. */
+  /** The automatic check only executes after its threshold. */
   private belowThreshold(
     state: RunState,
     options: ResolvedCompactionOptions,
-    geometry: CompactionGeometry,
     measuredTokens: number | undefined,
   ): boolean {
     if (measuredTokens === undefined) return true;
-    if (!Compaction.shouldCompact(measuredTokens, options, state.lastCompactionYield)) return true;
-    return this.session?.inFlight() === true && measuredTokens < geometry.graceTokens;
+    return !Compaction.shouldCompact(measuredTokens, options, state.lastCompactionYield);
   }
 
   private prepare(
