@@ -86,10 +86,11 @@ function matchIngress(
     };
     let outcome = yield* judgeAndMatch(addressed && record !== undefined
       ? [...userRecords, record] : userRecords, input, options, ports.judge);
-    if (!addressed && outcome.route === undefined && outcome.rows.length === 0 &&
+    if (outcome.route === undefined &&
         !outcome.pending.some((group) => group.inputs.some((member) => member.eventId === input.eventId)) &&
         record !== undefined) {
-      outcome = yield* judgeAndMatch([record], input, options, ports.judge);
+      const fallback = yield* judgeAndMatch([record], input, options, ports.judge);
+      outcome = { ...fallback, rows: outcome.rows.length === 0 ? fallback.rows : outcome.rows };
     }
     return outcome;
   });
@@ -102,12 +103,6 @@ function projectDisposition(
 ) {
   if (route.requestExecution.kind === "request" || route.decision.outcome !== "route") return undefined;
   if (outcome.route !== undefined) return undefined;
-  const row = outcome.rows.find((decision) => decision.stage === "automation" &&
-    (decision.decision === "deduped" || decision.decision === "refused" || decision.decision === "filtered"));
-  if (row?.stage === "automation") {
-    if (row.decision === "refused") return row.reason;
-    return row.decision === "deduped" ? "message.external.event_id_dedupe" : row.decision;
-  }
   return outcome.pending.some((group) => group.inputs.some((member) => member.eventId === eventId))
     ? "grouped" : undefined;
 }

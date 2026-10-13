@@ -54,7 +54,10 @@ test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
     const before = commits.length;
     const replay = await runEffect(router.ingest(ownerSender, event));
     if (original.status === "blocked_pre") expect(replay).toEqual(original);
-    else expect(replay).toMatchObject({ reasonCode: "message.external.event_id_dedupe" });
+    else expect(replay).toMatchObject({
+      reasonCode: decision === "filtered" ? "filtered"
+        : decision === "refused" ? "limit" : "message.external.event_id_dedupe",
+    });
     expect(commits).toHaveLength(before);
     expect(ledger().stores.automations.decisions(id)).toEqual(rows);
     expect(routingDecisions().filter((row) => row.stage === "automation" && row.inboundId === id))

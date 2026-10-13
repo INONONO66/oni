@@ -99,7 +99,7 @@ test("a filtered event records one ingress row and no session journal row", asyn
   expect(ledger().kernel.actionById(id)).toBeUndefined();
 });
 
-test("a rate-limited ambient event records refused and no session journal row", async () => {
+test("a rate-limited automation records refused while ordinary delivery still executes", async () => {
   registerOwnerDm();
   addTrigger("limited", { limits: { maxRunsPerDay: 1 } });
   ledger().stores.automations.record(Ingress.Events.RoutingDecision.schema.parse({
@@ -110,12 +110,12 @@ test("a rate-limited ambient event records refused and no session journal row", 
   const eventId = "discord:owner-workspace:owner-dm:limited-one";
   const result = await runEffect(makeRouter().ingest(ownerSender,
     { ...ownerFacts, eventId: "limited-one", dm: false }));
-  expect(result).toMatchObject({ status: "blocked_pre", reasonCode: "limit" });
+  expect(result.status).toBe("executed");
   expect(ledger().stores.automations.decisions(eventId)).toEqual([
     expect.objectContaining({ decision: "refused", reason: "limit" }),
   ]);
-  expect(commits).toHaveLength(0);
-  expect(ledger().kernel.actionById(eventId)).toBeUndefined();
+  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerFacts.render })]);
+  expect(commits[0]?.sessionId).not.toBe("worker");
 });
 
 test("a grouped window closes once on injected clock advance without member journal rows", async () => {
