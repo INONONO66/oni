@@ -4,6 +4,10 @@ import { AppInvariantError } from "./invariant";
 import { retryableOnce } from "./retryable-once";
 import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
+import { automationWire } from "./composition/automation-wire";
+import { automationJudge } from "./composition/automation-judge";
+import { createAutomationDelivery } from "./composition/automation-delivery";
+import { automationAlarm, type AlarmIngress } from "./composition/automation-alarm";
 import { foreignFailure } from "./composition/failure";
 import { shutdownSessions } from "./shutdown";
 import {
@@ -80,7 +84,7 @@ import {
 import { createCompletionPort } from "./composition/completion";
 import { processEntryPath } from "./process-entry-path";
 import { createProcessSessionTransport } from "./composition/process-session";
-import { commitDeliverPayload, createMessageDeliveryCommit, prepareMessage } from "./composition/message-session";
+import { commitDeliverPayload, prepareMessage } from "./composition/message-session";
 import { dispatchOutboundMessage } from "./composition/terminal-message";
 import {
   DELEGATION_DEADLINE,
@@ -316,7 +320,13 @@ export async function startOpenOmni(options: StartOptions = {}) {
         ? Effect.fail({ reason: "outbound cancel door is not composed" })
         : cancelDoor(input),
   };
-  const watchPlane = createWatchPlane({ delegation: delegationDeadline });
+    let alarmIngress: AlarmIngress | undefined;
+    const watchPlane = createWatchPlane({
+      delegation: delegationDeadline,
+      ingress: (fired, ctx, input) => alarmIngress === undefined
+        ? Effect.fail(new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "automation ingress is not composed" }))
+        : alarmIngress(fired, ctx, input),
+    });
   // #1256: the hooks file is config compiled once per boot; a bad file is a
   // typed refusal thrown here, before any listener exists.
   const hooks = config.hooksPath === undefined ? undefined : readHooksJson(config.hooksPath);
@@ -370,6 +380,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
       release: (value: A) => Effect.Effect<void, E2>,
     ) => runAppBoot(runtime, bootResource(resource, release));
     const plane = services.plane;
+    const channelStores = createChannelStores(channelStoreSource(plane, services.now));
+    const automations = { store: channelStores.automations, id: services.entropy.id };
     const incident = (msg: string, error: Error | Cause.Cause<Error>): void =>
       services.observations.publish(Operational.Events.Error, {
         traceId: traceIdFromUuid(services.entropy.id()),
@@ -404,6 +416,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         );
 
     const domainRevisions = createRequestDomainRevisions({
+      automations,
       actors: plane.stores.actors,
       persons: plane.stores.persons,
     });
@@ -552,6 +565,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     };
     const alarmPlane = alarmCapabilityView(liveAlarm);
     const provisioningPort: ProvisionPort = {
+      automations,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
       secrets: plane.stores.secrets,
@@ -841,7 +855,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
       return processSessions.wake(id).catch((error: Error) => incident("process session wake failed", error));
     };
     const deliveryDeps = { plane, client: entityClient, clock: services.now };
-    const commitDelivery = createMessageDeliveryCommit(deliveryDeps);
+    const commitDelivery = createAutomationDelivery(
+      deliveryDeps, channelStores.automations,
+    );
     const commitProcessDelivery = commitDeliverPayload(deliveryDeps);
     // Deadline-carrying requests arm one persisted DeliverAt alarm occurrence
     // on the owning session; the chain fold decides applied-versus-stale at
@@ -885,6 +901,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
           ),
         ),
     };
+    const judge = await runAppBoot(runtime, automationJudge(config.model, {
+      now: services.now, id: services.entropy.id,
+    }));
     gateway = await runAppBoot(
       runtime,
       createResidentGateway(
@@ -894,8 +913,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
               commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))),
           },
           prepare: prepareMessage(plane, resident.genesis),
+          judge,
           requests: requestsWithDeadlines,
-          stores: createChannelStores(channelStoreSource(plane, services.now)),
+          stores: channelStores,
           authenticateAnswer: (_sender, credential, requestId) =>
             Effect.try({
               try: () => authenticateOwner(credential, requestId),
@@ -940,6 +960,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         },
       ),
     );
+    alarmIngress = automationAlarm(gateway, channelStores);
     await runAppBoot(runtime, automationClock(gateway, services.now,
       (error) => incident("automation window close failed", error)).pipe(
       Effect.forkIn(appScope), Effect.asVoid,
@@ -1084,7 +1105,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         sessionsDir: config.sessionsDir,
         now: services.now,
         id: services.entropy.id,
-      }));
+      }), automationWire(provisioningPort.automations));
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,

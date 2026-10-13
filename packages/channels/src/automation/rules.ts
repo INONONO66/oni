@@ -3,7 +3,7 @@ import { Ingress } from "@openomni/protocol";
 
 /** Pre-session rules share the matcher's input and ledger vocabulary. */
 export function matchPerimeterRules(input: Ingress.Input, at: number): Ingress.RoutingDecisionPayload | undefined {
-  const rule = input.author.isBot && input.surface !== "webhook" ? {
+  const rule = input.author.isBot && input.surface !== "webhook" && input.surface !== "alarm" ? {
     reason: "bot_author", by: "rule/bot-author", factsUsed: ["author.isBot"],
   } : input.event === "reaction" ? {
     reason: "reaction_unrouted", by: "rule/reaction-unrouted", factsUsed: ["event"],

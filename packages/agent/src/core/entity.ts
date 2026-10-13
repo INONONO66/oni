@@ -621,6 +621,7 @@ function resolveCommand(
 function alarmOccurrence(
   handle: ActivationHandle,
   occurrence: AlarmOccurrence,
+  promptReceived: () => void,
 ): Effect.Effect<AlarmReceipt, AdmissionFailure> {
   return Effect.gen(function* () {
     // #1254 S3: `rescan` is entity-internal — activating the entity already
@@ -647,7 +648,7 @@ function alarmOccurrence(
       yield* drain(handle).pipe(Effect.orDie);
       return { outcome: "delivered" as const };
     }
-    return yield* capabilityWake(handle, occurrence);
+    return yield* capabilityWake(handle, occurrence, promptReceived);
   }).pipe(Effect.catchIf(
     (error): error is LedgerError => !(error instanceof AdmissionFailure),
     (error) => Effect.die(error),
@@ -680,6 +681,7 @@ function expireDeadline(
 function capabilityWake(
   handle: ActivationHandle,
   occurrence: AlarmOccurrence,
+  promptReceived: () => void,
 ): Effect.Effect<AlarmReceipt, LedgerError | AdmissionFailure> {
   return Effect.gen(function* () {
     const capability = handle.env.ports.alarmCapability;
@@ -696,7 +698,7 @@ function capabilityWake(
       payload: occurrence.payload,
       fireAt: occurrence.fireAt,
     };
-    const wake = yield* capability.wake(fired, wakeContext(handle, occurrence)).pipe(
+    const wake = yield* capability.wake(fired, wakeContext(handle, occurrence, promptReceived)).pipe(
       Effect.catchTag("AlarmWakeError", (error) =>
         Effect.logWarning(`alarm wake failed: ${occurrence.occurrenceId} (${error.reason})`).pipe(
           Effect.as("stale" as const),
@@ -714,12 +716,16 @@ function capabilityWake(
 }
 
 /** The wake context one capability dispatch receives (#1254 S4). */
-function wakeContext(handle: ActivationHandle, occurrence: AlarmOccurrence): AlarmWakeContext {
+function wakeContext(handle: ActivationHandle, occurrence: AlarmOccurrence, promptReceived: () => void): AlarmWakeContext {
   return {
     sessionId: handle.authority.sessionId,
     reads: armedChainReads(handle),
     arm: entityArmVerb(handle),
     now: handle.env.clock(),
+    deliver: (input) => Effect.suspend(() => {
+      if (input.kind === "prompt") promptReceived();
+      return deliver(handle, input);
+    }),
     prompt: (input) =>
       appendReceived(handle, "prompt", {
         messageId: `${occurrence.occurrenceId}:prompt`,
@@ -1111,7 +1117,7 @@ export function writerLoop(
       case "Alarm": {
         const req = request as Envelope.Request<typeof AlarmRpc>;
         alarmsSincePrompt += 1;
-        return alarmOccurrence(handle, req.payload).pipe(
+        return alarmOccurrence(handle, req.payload, () => { alarmsSincePrompt = 0; }).pipe(
           Effect.exit,
           Effect.flatMap((exit) => replier.complete(req, exit)),
         );

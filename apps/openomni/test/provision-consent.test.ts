@@ -77,6 +77,14 @@ it("consent is a require_approval policy row on the contact and bundle authority
       { op: "provision", operation: "bundle_disable" },
       { type: "require_approval", reason: "provision.bundle_disable requires Owner consent" },
     ],
+    [
+      { op: "provision", operation: "automation_add" },
+      { type: "require_approval", reason: "provision.automation_add requires Owner consent" },
+    ],
+    [
+      { op: "provision", operation: "automation_enable" },
+      { type: "require_approval", reason: "provision.automation_enable requires Owner consent" },
+    ],
   ]);
   expect(PROVISION_POLICY_ROWS.every((row) => row.kind === "tool" && row.phase === "pre")).toBe(
     true,

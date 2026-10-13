@@ -209,7 +209,6 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   const gatheredRequest = findRequestCandidates(requests.list(), correlation);
   const request = routeRequestState(gatheredRequest);
   const target = targetKey(resolveTarget(event));
-  const surfaceSessionId = grantedDirectSession(stores, event, key);
   const blacklist = blacklistState(stores, event, correlation, at);
   const channelResolution = resolveChannelGrant(stores, {
     surface: event.surface,
@@ -218,6 +217,7 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
     ...(event.userId === undefined ? {} : { sender: event.userId }),
   });
   const channel = channelState(channelResolution, event.meta?.inboundTreatment === "evidence_only");
+  const surfaceSessionId = channel === undefined ? stores.surfaceKeys.lookup(key) : grantedDirectSession(stores, event, key);
   const actor = actorState(event);
   const decision = resolveRoute(
     {
@@ -240,6 +240,7 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   if (
     decision.outcome === "route" &&
     decision.stage === "surface_default" &&
+    !decision.factsUsed.includes("channel:missing") &&
     decision.sessionId === undefined
   ) {
     const sessionId = claimGrantedDirect(stores, event, key, id());

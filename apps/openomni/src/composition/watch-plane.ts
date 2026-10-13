@@ -7,6 +7,7 @@ import { delegationPurposes, type DelegationDeadlineDeps } from "../bundles/dele
 import { monitorPurposes } from "../bundles/monitor";
 import { createLiveArmRegistry, type LiveArmRegistry } from "./alarm-plane";
 import type { WatchSources } from "./watch-sources";
+import type { AlarmIngress } from "./automation-alarm";
 
 /**
  * The native-source alarm plane (#1255 P3): everything that knows WHICH
@@ -66,18 +67,21 @@ interface AlarmOccurrence {
 }
 
 export function createWatchPlane(
-  deps: { readonly delegation?: DelegationDeadlineDeps } = {},
+  deps: { readonly delegation?: DelegationDeadlineDeps; readonly ingress?: AlarmIngress } = {},
 ): WatchPlane {
   let sources: WatchSources | undefined;
   const live = (): WatchSources => {
     if (sources === undefined) throw new AppInvariantError("watch sources used before boot bound them");
     return sources;
   };
-  const wake: Bundle.WatchWakeDeps = { close: (watchId) => void live().close(watchId) };
+  const wake: Bundle.WatchWakeDeps = {
+    close: (watchId) => void live().close(watchId),
+    ...(deps.ingress === undefined ? {} : { prompt: deps.ingress }),
+  };
   const arms = createLiveArmRegistry();
   const declared: readonly Bundle.AlarmBundlePurposes[] = [
     monitorPurposes(wake),
-    cronPurposes(),
+    cronPurposes(deps.ingress),
     // #1258: the delegation deadline purpose; the cancel door is injected by
     // the boot (entity deliver), fail-closed until bound.
     delegationPurposes(

@@ -12,6 +12,7 @@ import { isAuthorizedTopLevelActor } from "./authority-actor";
 import { resolveAndRecordRoute, resolveKernelRoute } from "./routing-resolution";
 import type { GatewayRouterPorts } from "./message-ports";
 import { evaluateSocialBudget } from "./messaging/social-budget";
+import type { IngressFacts } from "../automation/facts.js";
 
 function admitWebSocketOwner(
   stores: ChannelStores,
@@ -32,7 +33,7 @@ function admitWebSocketOwner(
 
 function resolveIngress(
   stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number,
+  facts: IngressFacts, ports: GatewayRouterPorts, at: number,
   ingress: ReturnType<typeof ingressInput>, closing: boolean,
   observe = true,
 ) {
@@ -81,7 +82,9 @@ function matchIngress(
       !candidate.id.startsWith("granted-direct:"));
     const options = {
       now: at, pending,
-      ...(addressed ? { conversation: `session:${existing ?? route.decision.sessionId}` } : {}),
+      ...(addressed && isAuthorizedTopLevelActor(route.event) &&
+        !route.decision.factsUsed.includes("channel:missing")
+        ? { conversation: `session:${existing ?? route.decision.sessionId}` } : {}),
       matchedToday: (automationId: string) => stores.automations.matchedToday(automationId, at),
     };
     let outcome = yield* judgeAndMatch(addressed && record !== undefined
@@ -141,7 +144,7 @@ function buildMessage(
   identities: ReturnType<typeof resolveIngress>["identities"],
   addressed: boolean,
   egressBudget: boolean,
-): NonNullable<PolicyEvaluationInput["message"]> {
+): Extract<NonNullable<PolicyEvaluationInput["message"]>, { sender: "external" }> {
   const addressee = addressed ? "bot"
     : identities.some((identity) => identity.trustTier === "owner") ? "owner" : "ambient";
   return {
@@ -149,7 +152,8 @@ function buildMessage(
     ...(route.decision.trustTier === undefined ? {} : { senderTier: route.decision.trustTier }),
     addressee, identity: route.decision.outcome === "route",
     grantTier: route.decision.outcome === "route" &&
-      (route.requestExecution.kind === "request" || isAuthorizedTopLevelActor(route.event)),
+      (route.requestExecution.kind === "request" ||
+        (!route.decision.factsUsed.includes("channel:missing") && isAuthorizedTopLevelActor(route.event))),
     egressBudget, eventIdUnique: true,
     replyCorrelation: route.decision.outcome !== "ambiguous",
   };
@@ -159,7 +163,7 @@ function buildMessage(
 export function externalMessage(
   stores: ChannelStores,
   sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: Gateway.IngressFacts,
+  facts: IngressFacts,
   ports: GatewayRouterPorts,
   at: number,
   budgets: readonly Gateway.SocialBudget[],
@@ -179,16 +183,20 @@ export function externalMessage(
     const message = buildMessage(route, identities, addressed, egressBudget);
     const automation = route.decision.outcome === "route" && route.requestExecution.kind !== "request"
       ? outcome.route : undefined;
-    return { route, event, target, surfaceKey, message, facts,
+    return { route, event, target, surfaceKey,
+      message: { ...message, grantTier: message.grantTier || automation?.automationId !== undefined }, facts,
       content: automation?.kind === "action" ? JSON.stringify(automation.body)
         : automation?.origin.body ?? facts.render,
-      pending: outcome.pending, disposition, decision: outcome.rows[0], automation };
+      pending: outcome.pending,
+      disposition: disposition ?? (automation === undefined && !message.grantTier &&
+        outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),
+      decision: outcome.rows[0], automation };
   });
 }
 
 /** Replays validate frozen authority but never re-evaluate the automation or append a decision. */
 export function replayExternal(stores: ChannelStores,
-  sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: Gateway.IngressFacts,
+  sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: IngressFacts,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
   input: ReturnType<typeof ingressInput>) {
   return Effect.gen(function* () {

@@ -107,11 +107,13 @@ test("SDK retry ownership and route-bound credentials hold at the HTTP surface",
     },
     parts: [{ id: "part-user", sessionID: "session", messageID: "msg-user", type: "text", text: "hello" }],
   };
-  const base = { ...input, messages: [userMessage], auth, authProvider: "provider", allowAuthFallback: false,
+  const base = { ...input, messages: [userMessage], auth, authProvider: "provider", allowAuthFallback: false, temperature: 0,
     transport: { baseUrl: `${server.url}v1` } };
   try {
     expect(streamArguments(base, "", new AbortController().signal, [],
       getLanguage(base.model, auth, base.transport)).maxRetries).toBe(0);
+    expect(streamArguments(base, "", new AbortController().signal, [],
+      getLanguage(base.model, auth, base.transport)).temperature).toBe(0);
     expect(await run(base, sink, { createStream: overWire(base) })).toMatchObject({ type: "error", error: { cause: { statusCode: 503 } } });
     expect(authorizations).toEqual(["Bearer route-a-key"]);
     const changed = { ...base, model: { ...input.model, providerID: "fallback" } };

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Core } from "@openomni/agent";
 const defineTool = Core.defineTool;
 import type { PolicyRow } from "@openomni/protocol";
+import { AutomationOperation, AutomationResult } from "../provisioning/automation-schema";
 import { ContactOperation, ContactResult } from "./core/contact-mutations";
 import {
   PERSON_DECLARE_INPUT,
@@ -19,6 +20,7 @@ const ProvisionOperation = z.discriminatedUnion("op", [
   ...ContactOperation.options,
   ...ChannelOperation.options,
   ...BundleOperation.options,
+  ...AutomationOperation.options,
   z.object({ op: z.literal("status"), args: EMPTY_INPUT }).strict(),
 ]);
 export const ProvisionInput = z.object({ operation: ProvisionOperation }).strict();
@@ -28,6 +30,7 @@ export const ProvisionOutput = z.discriminatedUnion("op", [
   ...ContactResult.options,
   ...ChannelResult.options,
   ...BundleResult.options,
+  ...AutomationResult.options,
   ProvisionStatusOutput.extend({ op: z.literal("status") }),
 ]);
 
@@ -38,7 +41,7 @@ export function createProvisionTool(port: ProvisionPort | undefined, now: () => 
       name: "provision",
       category: "mutation",
       description:
-        "Administer contacts, channels, credentials, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|status. contact_promote, contact_merge, bundle_enable and bundle_disable suspend for Owner consent.",
+        "Administer contacts, channels, credentials, automations, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|status. Authority changes require Owner consent. Session-created automations remain disabled until the Owner enables them.",
       input: ProvisionInput,
       output: ProvisionOutput,
       visibility: { model: ["resident"], cell: ["resident"] },
@@ -55,6 +58,8 @@ export const PROVISION_POLICY_ROWS: readonly Omit<PolicyRow.Row, "generation">[]
   "contact_merge",
   "bundle_enable",
   "bundle_disable",
+  "automation_add",
+  "automation_enable",
 ].map((operation) => ({
   name: `provision-${operation.replaceAll("_", "-")}-consent`,
   kind: "tool",

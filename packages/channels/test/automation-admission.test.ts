@@ -33,7 +33,7 @@ test.each([0, 10] as const)("blocked routing cannot enter a %s-second automation
 });
 
 test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
-  "%s replay preserves original and close facts without another observation", async (decision) => {
+  "%s replay preserves original facts and records delivered duplicates", async (decision) => {
     registerOwnerDm();
     trigger(decision === "filtered" ? { conditions: { contains: ["missing"] } }
       : decision === "refused" ? { limits: { maxRunsPerDay: 1 } }
@@ -62,9 +62,12 @@ test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
         : decision === "refused" ? "limit" : "message.external.event_id_dedupe",
     });
     expect(commits).toHaveLength(before);
-    expect(ledger().stores.automations.decisions(id)).toEqual(rows);
+    const expected = decision === "matched" || decision === "superseded"
+      ? [...rows, expect.objectContaining({ decision: "deduped", inboundId: id, reason: "event_id_dedupe" })]
+      : rows;
+    expect(ledger().stores.automations.decisions(id)).toEqual(expected);
     expect(routingDecisions().filter((row) => row.stage === "automation" && row.inboundId === id))
-      .toEqual(rows);
+      .toEqual(expected);
   },
 );
 

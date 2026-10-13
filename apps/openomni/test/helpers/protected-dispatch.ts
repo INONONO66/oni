@@ -18,6 +18,7 @@ import { testPlane } from "./ledger";
 import { PROVISION_POLICY_ROWS } from "../../src/tools/provision";
 import { executorLayer, catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";
 import { runEffect, runSyncEffect } from "./effect";
+import { provisionPort } from "./provision-port";
 
 export { bounded };
 export function protectedDispatch(
@@ -37,7 +38,7 @@ export function protectedDispatch(
   const recording = runSyncEffect(requestLedger({
     id: sessionId,
     clock: () => clockRef.now,
-    domainRevisions: createRequestDomainRevisions(plane.stores),
+    domainRevisions: createRequestDomainRevisions({ ...plane.stores, automations: provisionPort(plane).automations }),
     kernel,
     onRequest(request) {
       if (request.state === "open") opened.resolve(request);
@@ -56,7 +57,7 @@ export function protectedDispatch(
   const dispatcher = runSyncEffect(createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([definition]))));
   const execution = dispatcher.execute(
     { id: "original-call", tool: definition.name, input },
-    { sessionId: recording.identity.sessionId, turnId: "turn", signal: controller.signal },
+    { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId ?? "turn", signal: controller.signal },
   );
   const outcome = runEffect(Effect.result(execution));
   const running = outcome.then((result) => {

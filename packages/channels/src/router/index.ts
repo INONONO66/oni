@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Gateway } from "@openomni/protocol";
+import { Gateway, Ingress } from "@openomni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -12,6 +12,7 @@ import { externalMessage, replayExternal } from "./external-message";
 import { filterAutomationRules } from "./automation-rules";
 import { answerOwnerRequest } from "./request/owner-answer";
 import type { GatewayRouter, GatewayRouterPorts } from "./message-ports";
+import { IngressFacts } from "../automation/facts.js";
 
 export type { ChannelDeliveryRoute, GatewayRouter, GatewayRouterPorts } from "./message-ports";
 
@@ -138,7 +139,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     envelope: Parameters<GatewayRouter["ingest"]>[1], at: number) {
     return Effect.gen(function* () {
       if (sender.kind !== "external") return { external: undefined, filtered: undefined };
-      const facts = Gateway.IngressFacts.parse(envelope);
+      const facts = IngressFacts.parse(envelope);
       if (sender.surface !== facts.surface)
         throw new ChannelsFailure({ operation: "message.ingress", cause: "authenticated surface mismatch" });
       yield* stores.automations.ready;
@@ -147,6 +148,15 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       if (replay !== undefined) {
         const external = yield* replayExternal(stores, sender, facts, ports, at,
           messagingPorts?.budgets?.() ?? [], input);
+        if (external === undefined && replay.status === "blocked_pre" &&
+            replay.reasonCode === "message.external.event_id_dedupe") {
+          const original = stores.automations.decisions(input.input.eventId)[0];
+          if (original?.stage === "automation") {
+            const deduped = { ...original, time: at, decision: "deduped" as const, reason: "event_id_dedupe" };
+            stores.automations.record(deduped);
+            ports.sink(Ingress.Events.RoutingDecision, deduped);
+          }
+        }
         return { external, filtered: external === undefined ? replay : undefined };
       }
       const filtered = filterAutomationRules(stores, input.input, ports.sink, at);

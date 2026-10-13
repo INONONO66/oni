@@ -120,7 +120,9 @@ const CHANNEL_STORE_DDL: readonly string[] = [
     time INTEGER NOT NULL,
     data TEXT NOT NULL
   )`,
-  "CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_ledger_inbound ON automation_ledger(inbound_id)",
+  "DROP INDEX IF EXISTS idx_automation_ledger_inbound",
+  "CREATE INDEX IF NOT EXISTS idx_automation_ledger_inbound_lookup ON automation_ledger(inbound_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_ledger_decision ON automation_ledger(inbound_id) WHERE decision != 'deduped'",
   "CREATE INDEX IF NOT EXISTS idx_automation_ledger_limit ON automation_ledger(automation_id, decision, time)",
   `CREATE TABLE IF NOT EXISTS automation_delivery (
     inbound_id TEXT PRIMARY KEY,

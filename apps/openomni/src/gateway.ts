@@ -12,7 +12,7 @@ import {
 import { type ChannelError, decodeChannelFailure, type ChannelStoreSource } from "@openomni/channels";
 import { Core, type Bundle, Inspect } from "@openomni/agent";
 import type { ChannelGrantStore } from "@openomni/channels";
-import type { Actor, Gateway, LedgerAction } from "@openomni/protocol";
+import type { Actor, Gateway, Ingress, LedgerAction } from "@openomni/protocol";
 const Entropy = Core.Entropy;
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
@@ -357,6 +357,8 @@ export function webSocketCallbacks(
   sink: Context.Service.Shape<typeof ObservationSink>,
   openSession?: (sessionId: string) => Core.SessionHandleStore.SessionKernel | undefined,
   fork?: (request: SessionFork.Request) => Effect.Effect<SessionFork.Response>,
+  automation?: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
+    Effect.Effect<Ingress.AutomationResponse>,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -415,6 +417,19 @@ export function webSocketCallbacks(
           handler.handleFrame(ws.data, data).pipe(
             Effect.matchEffect({
               onSuccess: (outcome) => {
+                if ("type" in outcome &&
+                    (outcome.type === "automation_add" || outcome.type === "automation_remove" ||
+                     outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
+                     outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
+                  return Effect.map(
+                    automation?.(outcome, ws.data.sessionId === undefined ? "owner" : `session:${ws.data.sessionId}`) ??
+                      Effect.succeed<Ingress.AutomationResponse>({
+                        type: `${outcome.type}_refused`, requestId: outcome.requestId,
+                        reason: "store_unconfigured", detail: "Automation store is not configured",
+                      }),
+                    (frame) => ws.send(JSON.stringify(frame)),
+                  );
+                }
                 // #1257: the fork program runs on this edge's app runtime (W5.3
                 // effect boundary); unavailability is a typed refusal.
                 if (!("admitted" in outcome) && outcome.type === "session_fork") {

@@ -24,7 +24,7 @@ export const CronPayload = z
   .strict();
 export type CronPayload = z.infer<typeof CronPayload>;
 
-function cronTick(): Bundle.AlarmPurposeHandler {
+function cronTick(prompt?: Bundle.WatchWakeDeps["prompt"]): Bundle.AlarmPurposeHandler {
   return ({ fired, ctx }) =>
     Effect.gen(function* () {
       const payload = yield* Effect.try({
@@ -39,7 +39,7 @@ function cronTick(): Bundle.AlarmPurposeHandler {
         }),
         catch: () => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "cron_expr" }),
       });
-      yield* ctx.prompt({
+      const input = {
         content: JSON.stringify({
           kind: CRON_TICK,
           description: payload.description,
@@ -57,7 +57,8 @@ function cronTick(): Bundle.AlarmPurposeHandler {
           missed: grid.missed.count,
           missedSaturated: grid.missed.saturated,
         },
-      });
+      };
+      yield* prompt === undefined ? ctx.prompt(input) : prompt(fired, ctx, input);
       yield* ctx
         .arm({
           purpose: CRON_TICK,
@@ -78,15 +79,15 @@ function cronTick(): Bundle.AlarmPurposeHandler {
 }
 
 /** The cron bundle's purpose declaration for the capability composition. */
-export function cronPurposes(): Bundle.AlarmBundlePurposes {
-  return { bundle: "cron", purposes: [{ name: CRON_TICK, handler: cronTick() }] };
+export function cronPurposes(prompt?: Bundle.WatchWakeDeps["prompt"]): Bundle.AlarmBundlePurposes {
+  return { bundle: "cron", purposes: [{ name: CRON_TICK, handler: cronTick(prompt) }] };
 }
 
 /** The `cron` bundle contract (#1255 `Bundle.define`): the one tick purpose, no tools, no rows. */
-export function cronBundle(): Bundle.BundleContract<"cron", object, Bundle.AlarmPurposeHandler> {
+export function cronBundle(prompt?: Bundle.WatchWakeDeps["prompt"]): Bundle.BundleContract<"cron", object, Bundle.AlarmPurposeHandler> {
   return Bundle.define({
     name: "cron",
     requires: [Bundle.AlarmSeam],
-    purposes: { [CRON_TICK]: cronTick() },
+    purposes: { [CRON_TICK]: cronTick(prompt) },
   });
 }

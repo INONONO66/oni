@@ -40,6 +40,8 @@ export interface RunInput {
   toolChoice?: "auto" | "required" | "none";
   /** Maximum generated tokens for this call; absent leaves the provider default. */
   maxTokens?: number;
+  /** Call-owned sampling temperature; absent leaves the provider default. */
+  temperature?: number;
   /**
    * Step-boundary yield: stop the step loop once the last finished step's
    * input tokens (the ai SDK's cache-inclusive prompt total) reach this.

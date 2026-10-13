@@ -19,6 +19,8 @@ export interface AutomationAdapter {
   list(): StoredAutomation[];
   record(decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: MatchDecision["route"]): void;
   decisions(inboundId: string): Ingress.RoutingDecisionPayload[];
+  ledger(query: Ingress.AutomationLedgerFilter): Ingress.RoutingDecisionPayload[];
+  delivered(inboundId: string, sessionId: string, actionSeq: number): void;
   pendingDelivery(inboundId: string): MatchDecision["route"];
   completeDelivery(inboundId: string): void;
   groups(): StoredGroup[];
@@ -100,6 +102,9 @@ export function createAutomationStore(source: { readonly automation?: Automation
     record: (decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: MatchDecision["route"]) =>
       adapter().record(decision, group, route),
     decisions: (inboundId: string) => adapter().decisions(inboundId),
+    ledger: (query: Ingress.AutomationLedgerFilter) => adapter().ledger(query),
+    delivered: (inboundId: string, sessionId: string, actionSeq: number) =>
+      adapter().delivered(inboundId, sessionId, actionSeq),
     pendingDelivery: (inboundId: string) => adapter().pendingDelivery(inboundId),
     completeDelivery: (inboundId: string) => adapter().completeDelivery(inboundId),
     groups: () => adapter().groups(),

@@ -81,6 +81,7 @@ function statusLines(statuses: readonly ChannelRuntimeStatus[]): string {
 }
 
 export function renderProvision(value: z.output<typeof ProvisionOutput>): string {
+  if ("result" in value && value.op !== "contact_add") return JSON.stringify(value.result);
   if (value.op === "status") return renderProvisionStatus(value);
   if (value.op === "contact_add") {
     return `person ${value.result.id} declared (tier ${value.result.trustTier}, revision ${value.result.revision})`;

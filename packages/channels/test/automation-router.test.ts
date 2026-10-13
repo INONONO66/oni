@@ -67,7 +67,7 @@ test("a new-target action materializes one new session", async () => {
   expect(result.handle.target).not.toBe("new");
 });
 
-test("a repeated event returns its disposition without a second decision or session row", async () => {
+test("a repeated event records dedupe without a second session row", async () => {
   registerOwnerDm();
   const router = makeRouter();
   const first = await runEffect(router.ingest(ownerSender, ownerFacts));
@@ -83,7 +83,9 @@ test("a repeated event returns its disposition without a second decision or sess
   expect(commits).toHaveLength(1);
   expect(ledger().kernel.row(first.handle.target).revision).toBe(before);
   expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm"))
-    .toEqual(recorded);
+    .toEqual([...recorded, expect.objectContaining({
+      decision: "deduped", inboundId: "discord:owner-workspace:owner-dm:inbound-owner-dm",
+    })]);
 });
 
 test("a filtered event records one ingress row and no session journal row", async () => {

@@ -61,6 +61,7 @@ export function streamArguments(
     tools: streamTools(input.tools, names, input.model),
     toolChoice: input.toolChoice,
     ...(input.maxTokens === undefined ? {} : { maxOutputTokens: input.maxTokens }),
+    ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
     maxRetries: 0,
     stopWhen: stopConditions(input),
     onError: (failure) => {

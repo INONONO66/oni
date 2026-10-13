@@ -78,6 +78,16 @@ export type AlarmPromptVerb = AlarmWakeContext["prompt"];
 export interface WatchWakeDeps {
   /** Fire-and-forget close of the process-local native source. */
   readonly close: (watchId: string) => void;
+  /** Product routing for an observed wake; absent keeps the local prompt behavior. */
+  readonly prompt?: (
+    fired: AlarmFired,
+    ctx: AlarmWakeContext,
+    input: Parameters<AlarmPromptVerb>[0],
+  ) => Effect.Effect<void, AlarmWakeError>;
+}
+
+function promptWake(deps: WatchWakeDeps, fired: AlarmFired, ctx: AlarmWakeContext, input: Parameters<AlarmPromptVerb>[0]) {
+  return deps.prompt === undefined ? ctx.prompt(input).pipe(Effect.asVoid) : deps.prompt(fired, ctx, input);
 }
 
 /**
@@ -169,7 +179,7 @@ function monitorHit(deps: WatchWakeDeps): AlarmPurposeHandler {
       const hit = payload.hit;
       if (hit === undefined)
         return yield* new AlarmWakeError({ purpose: fired.purpose, reason: "missing_hit" });
-      yield* ctx.prompt({ content: hit.content, payload: { watchId: fired.alarmId, detail: hit.detail } });
+      yield* promptWake(deps, fired, ctx, { content: hit.content, payload: { watchId: fired.alarmId, detail: hit.detail } });
       if (hit.terminal) {
         yield* retire(ctx, fired, fired.alarmId, fired.occurrenceId, "fired");
         yield* retireTimeoutCompanion(ctx, fired);
@@ -209,7 +219,7 @@ function monitorTimeout(deps: WatchWakeDeps): AlarmPurposeHandler {
       const payload = yield* parsePayload(WatchTimeoutPayload, fired);
       const latest = ctx.reads.latestArm(payload.watchId);
       if (latest === undefined || latest.at === null) return "exhausted" as const;
-      yield* ctx.prompt({
+      yield* promptWake(deps, fired, ctx, {
         content: JSON.stringify({ watchId: payload.watchId, reason: "timeout" }),
         payload: { watchId: payload.watchId, reason: "timeout" },
       });

@@ -18,6 +18,7 @@ import {
 } from "./channels";
 import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
+import { automationDomainRevisions, automationId, executeApprovedAutomation, executeAutomation } from "./automation";
 function provisionExecutors(port: ProvisionPort, now: () => number) {
   return {
     contact_add: executePersonDeclare(port, now),
@@ -36,6 +37,15 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
   const composed = port === undefined ? undefined : provisionExecutors(port, now);
   const executors = () => composed ?? refusal("provision", "provisioning is not composed");
   return async ({ operation }: z.output<typeof ProvisionInput>, context: ToolExecutionContext) => {
+    switch (operation.op) {
+      case "automation_add":
+      case "automation_enable":
+        return executeApprovedAutomation(port?.automations, operation, context);
+      case "automation_remove":
+      case "automation_disable":
+      case "automation_list":
+        return executeAutomation(port?.automations, operation, `session:${context.sessionId}`);
+    }
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return refusal("provision", "provisioning is not composed");
       return mutateContact(port, operation, context.domainRevisions);
@@ -76,7 +86,15 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
 }
 
 export function provisionApproval(port: ProvisionPort | undefined) {
-  return ({ operation }: z.output<typeof ProvisionInput>) => {
+  return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext, prepare = false) => {
+    if ((operation.op === "automation_add" || operation.op === "automation_enable") && context !== undefined) {
+      const id = automationId(operation, context);
+      if (prepare && operation.op === "automation_add")
+        executeAutomation(port?.automations, {
+          ...operation, args: { record: { ...operation.args.record, id } },
+        }, `session:${context.sessionId}`);
+      return { required: true, domainRevisions: automationDomainRevisions(port?.automations, id) };
+    }
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return { required: false, domainRevisions: {} };
       return { required: false, domainRevisions: contactDomainRevisions(port.actors, operation) };

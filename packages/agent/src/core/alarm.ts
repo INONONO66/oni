@@ -3,6 +3,7 @@ import { seam } from "./capability";
 import { interruptOn } from "./ports";
 import { Alarm, canonicalJson, isReservedAlarmPurpose, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
 import type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
+import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "./messages";
 
 export type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
 
@@ -279,6 +280,13 @@ export interface AlarmWakeContext {
   readonly reads: AlarmChainReads;
   readonly arm: ArmVerb;
   readonly now: number;
+  /** Reentrant intake on the owning writer; avoids an RPC to the writer handling this wake. */
+  readonly deliver?: (input: {
+    readonly kind: string;
+    readonly body: string;
+    readonly source: string;
+    readonly idempotencyKey: string;
+  }) => Effect.Effect<DeliverReceipt, DeliverRefused | AdmissionFailure>;
   /**
    * #1254 S4: appends one `prompt{origin: "alarm"}` input row through the
    * entity's writer path; `seq` is the committed revision. The origin is
