@@ -9,7 +9,7 @@ import { createSessionKernel } from "../../../src/core/store/fence";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 import { actionPayloadBytes } from "../../../src/core/store/action-hash";
 import { SchemaRefused } from "../../../src/core/store/errors";
-import { L0Write, openSessionStore, SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
+import { openSessionStore, SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 import { runLedgerSync } from "../helpers/effect";
 import { testNow } from "../helpers/storage";
 import { expectBusyBeforeSchema, policyFixture } from "./store-fixtures";
@@ -272,15 +272,15 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
         state: "idle",
       });
 
-    // The boundary itself: a payload of exactly DEFAULT_ROW_BYTE_CAP bytes lands.
-    const atCap = promptRowOfBytes({ id: "s2:at-cap", sessionId: "s2", parentId: "s2:configure", bytes: L0Write.DEFAULT_ROW_BYTE_CAP });
+    // The boundary itself, pinned as the issue's literal 1 MiB and not the constant: a payload of exactly 1_048_576 bytes lands.
+    const atCap = promptRowOfBytes({ id: "s2:at-cap", sessionId: "s2", parentId: "s2:configure", bytes: 1_048_576 });
     expect(runLedgerSync(commit([atCap])).ok).toBe(true);
     const settled = chainHead(path);
     expect(settled.count).toBe(2);
     const revision = kernel.row("s2").revision;
 
     // One byte over: typed refusal on the existing error, before any chain mutation.
-    const over = promptRowOfBytes({ id: "s2:over", sessionId: "s2", parentId: "s2:at-cap", bytes: L0Write.DEFAULT_ROW_BYTE_CAP + 1 });
+    const over = promptRowOfBytes({ id: "s2:over", sessionId: "s2", parentId: "s2:at-cap", bytes: 1_048_577 });
     const refused = runLedgerSync(Effect.flip(commit([over])));
     expect(refused).toBeInstanceOf(SchemaRefused);
     expect(refused).toMatchObject({ sessionId: "s2", actionId: "s2:over", kind: "prompt", reason: "row_bytes" });
