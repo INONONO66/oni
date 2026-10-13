@@ -4,6 +4,8 @@ import * as Errors from "../src/errors";
 import type { ChannelError } from "../src/errors";
 
 const failures = {
+  AutomationEnableRefused: new Errors.AutomationEnableRefused({ id: "fixture", reason: "approval_required" }),
+  AutomationConfigurationError: new Errors.AutomationConfigurationError({ reason: "store_unconfigured" }),
   DeliveryNotSent: new Errors.DeliveryNotSent({ operation: "fixture.preflight", cause: "refused" }),
   ChannelsFailure: Errors.decodeChannelFailure("fixture")(new Error("foreign")),
   InvalidInbound: new Errors.InvalidInbound({ operation: "websocket.frame", reason: "invalid_json" }),

@@ -14,6 +14,15 @@ export class DeliveryNotSent extends Data.TaggedError("DeliveryNotSent")<
   z.infer<typeof ChannelsFailureFields>
 > {}
 
+export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
+  readonly reason: "approval_required" | "not_found";
+  readonly id: string;
+}> {}
+
+export class AutomationConfigurationError extends Data.TaggedError("AutomationConfigurationError")<{
+  readonly reason: "store_unconfigured" | "invalid_regex";
+}> {}
+
 const InvalidInboundFields = z.object({
   operation: z.string(),
   cause: z.string().optional(),
@@ -89,6 +98,8 @@ export class RateLimited extends Data.TaggedError("RateLimited")<
 
 export type ChannelError =
   | ChannelsFailure
+  | AutomationConfigurationError
+  | AutomationEnableRefused
   | DeliveryNotSent
   | InvalidInbound
   | DiscordGatewayFetchError

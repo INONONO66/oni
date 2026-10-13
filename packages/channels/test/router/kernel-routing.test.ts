@@ -39,7 +39,10 @@ describe("GatewayRouter kernel routing", () => {
     registerOwnerDm();
     const mapped = createMappedOwnerSession();
     await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
-    expect(routingDecisions()).toHaveLength(1);
+    expect(routingDecisions()).toHaveLength(2);
+    expect(routingDecisions()[1]).toMatchObject({
+      stage: "automation", decision: "superseded", target: `session:${mapped.id}`,
+    });
     expect(routingDecisions()[0]).toMatchObject({
       inboundId: ownerEvent.id,
       stage: "surface_default",
@@ -74,8 +77,7 @@ describe("GatewayRouter kernel routing", () => {
     try {
       await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
       expect(blacklist).toHaveBeenCalledTimes(1);
-      // The granted-direct migration reads the grant in addition to route admission.
-      expect(channels).toHaveBeenCalledTimes(2);
+      expect(channels).toHaveBeenCalledTimes(1);
     } finally {
       blacklist.mockRestore();
       channels.mockRestore();

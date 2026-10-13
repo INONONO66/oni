@@ -10,6 +10,34 @@ const input = Ingress.Input.parse({
   author: { externalId: "user", isBot: false }, dm: false, mentionsBot: true,
   body: "deploy now", receivedAt: 0,
 });
+
+test.each([
+  { trigger: { type: "webhook", secretRef: "hook" }, event: "webhook", channelId: "hook" },
+  { trigger: { type: "github", event: "pull_request" }, event: "github", channelId: "pull_request" },
+  { trigger: { type: "schedule", cron: "* * * * *", tz: "UTC" }, event: "schedule", channelId: "* * * * *" },
+] as const)("specialized trigger matches its input and rejects the wrong selector", ({ trigger, event, channelId }) => {
+  const automation = Ingress.Automation.parse({ ...record, triggers: [trigger] });
+  expect(match([automation], { ...input, event, channelId }, { now: 0 }).route?.kind).toBe("action");
+  expect(match([automation], { ...input, event, channelId: "other" }, { now: 0 }).rows).toEqual([]);
+});
+
+test("disabled and on-demand records do not consume external events", () => {
+  expect(match([{ ...record, enabled: false }, { ...record, triggers: [{ type: "on_demand" }] }],
+    input, { now: 0 })).toEqual({ rows: [], pending: [] });
+});
+
+test("regex conditions match cached expressions and conversation precedence skips the judge", async () => {
+  const regex = { ...record, conditions: { regex: ["^deploy"] }, runWhen: "Should run?" };
+  let calls = 0;
+  const result = await runEffect(judgeAndMatch([regex], input, {
+    now: 0, conversation: "session:existing",
+  }, () => { calls++; return Effect.succeed("yes"); }));
+  expect(result.route?.target).toBe("session:existing");
+  expect(result.rows[0]).toMatchObject({ decision: "superseded" });
+  expect(calls).toBe(0);
+  expect(match([{ ...regex, runWhen: undefined }], { ...input, body: "other" }, { now: 0 }).rows[0])
+    .toMatchObject({ decision: "filtered", reason: "regex" });
+});
 const record = Ingress.Automation.parse({
   id: "deploy", name: "Deploy", enabled: true, createdBy: "owner",
   triggers: [{ type: "message", surface: "telegram", event: "message" }],
@@ -54,13 +82,13 @@ describe("automation matcher", () => {
       return Effect.succeed("unknown" as const);
     }));
     expect(questions).toEqual(["Urgent?"]);
-    expect(result.rows[1]).toMatchObject({ decision: "filtered", runWhen: { verdict: "unknown", reason: "judge_unknown" } });
+    expect(result.rows).toEqual([expect.objectContaining({ decision: "filtered", runWhen: { verdict: "unknown", reason: "judge_unknown" } })]);
   });
 
-  test("a repeated event is ledger-only", () => {
+  test("a repeated event creates no new decision", () => {
     const result = match([record], input, { now: 0, seen: true });
     expect(result.route).toBeUndefined();
-    expect(result.rows[0]).toMatchObject({ decision: "deduped" });
+    expect(result.rows).toEqual([]);
   });
 
   test("the daily limit refuses the next match", () => {

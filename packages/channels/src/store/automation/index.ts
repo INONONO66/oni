@@ -1,5 +1,11 @@
 import { Ingress } from "@openomni/protocol";
-import { Data } from "effect";
+import { Effect } from "effect";
+import { AutomationConfigurationError, AutomationEnableRefused } from "../../errors.js";
+import { compiledPattern } from "../../automation/regex.js";
+import type { StoredGroup } from "./group.js";
+import type { MatchDecision } from "../../automation/matcher.js";
+
+export { AutomationEnableRefused } from "../../errors.js";
 
 export interface StoredAutomation {
   readonly record: Ingress.Automation;
@@ -11,26 +17,29 @@ export interface AutomationAdapter {
   set(entry: StoredAutomation): void;
   remove(id: string): boolean;
   list(): StoredAutomation[];
-  record(decision: Ingress.RoutingDecisionPayload): void;
+  record(decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: MatchDecision["route"]): void;
   decisions(inboundId: string): Ingress.RoutingDecisionPayload[];
+  pendingDelivery(inboundId: string): MatchDecision["route"];
+  completeDelivery(inboundId: string): void;
+  groups(): StoredGroup[];
+  closeGroup(id: string, at: number, matched: boolean): void;
   matchedSince(id: string, start: number, end: number): number;
 }
-
-export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
-  readonly reason: "approval_required" | "not_found";
-  readonly id: string;
-}> {}
 
 export function createAutomationStore(source: { readonly automation?: AutomationAdapter }) {
   function adapter(): AutomationAdapter {
     if (source.automation === undefined) {
-      throw new AutomationEnableRefused({ reason: "not_found", id: "automation store unconfigured" });
+      throw new AutomationConfigurationError({ reason: "store_unconfigured" });
     }
     return source.automation;
   }
   return {
+    ready: Effect.suspend(() => source.automation === undefined
+      ? Effect.fail(new AutomationConfigurationError({ reason: "store_unconfigured" }))
+      : Effect.void),
     add(record: Ingress.Automation, approved = false): StoredAutomation {
       const entry = { record: Ingress.Automation.parse(record), approved };
+      for (const pattern of entry.record.conditions?.regex ?? []) compiledPattern(pattern);
       if (entry.record.enabled && entry.record.createdBy !== "owner" && !approved) {
         throw new AutomationEnableRefused({ reason: "approval_required", id: entry.record.id });
       }
@@ -68,7 +77,6 @@ export function createAutomationStore(source: { readonly automation?: Automation
       readonly surfaceKey: string;
       readonly surface: string;
       readonly channelId: string;
-      readonly users?: readonly string[];
       readonly sessionId: string;
     }): Ingress.Automation {
       const id = `granted-direct:${input.surfaceKey}`;
@@ -78,8 +86,7 @@ export function createAutomationStore(source: { readonly automation?: Automation
           { type: "message", surface: input.surface, event: "message" },
           { type: "message", surface: input.surface, event: "mention" },
         ],
-        conditions: { channels: [input.channelId],
-          ...(input.users === undefined ? {} : { users: [...input.users] }), includeBots: false },
+        conditions: { channels: [input.channelId], includeBots: false },
         target: `session:${input.sessionId}`, kind: "prompt",
       });
       const previous = adapter().get(id);
@@ -89,8 +96,13 @@ export function createAutomationStore(source: { readonly automation?: Automation
       }
       return record;
     },
-    record: (decision: Ingress.RoutingDecisionPayload) => adapter().record(decision),
+    record: (decision: Ingress.RoutingDecisionPayload, group?: StoredGroup, route?: MatchDecision["route"]) =>
+      adapter().record(decision, group, route),
     decisions: (inboundId: string) => adapter().decisions(inboundId),
+    pendingDelivery: (inboundId: string) => adapter().pendingDelivery(inboundId),
+    completeDelivery: (inboundId: string) => adapter().completeDelivery(inboundId),
+    groups: () => adapter().groups(),
+    closeGroup: (id: string, at: number, matched: boolean) => adapter().closeGroup(id, at, matched),
     matchedToday(id: string, at: number): number {
       const start = Math.floor(at / 86_400_000) * 86_400_000;
       return adapter().matchedSince(id, start, start + 86_400_000);

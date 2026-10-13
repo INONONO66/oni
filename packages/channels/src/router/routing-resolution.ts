@@ -8,7 +8,7 @@ import {
   type BusEvent,
 } from "@openomni/protocol";
 import type { ChannelStores } from "./stores.js";
-import { claimGrantedDirect, grantedDirectSession } from "../automation/granted-direct.js";
+import { claimGrantedDirect, grantedDirectSession } from "./automation/granted-direct.js";
 import { recordRouteDecided } from "./route-record";
 import { applyChannelGrantTreatment } from "./authority.js";
 import { matchBlacklist } from "./blacklist.js";
@@ -190,7 +190,7 @@ function blacklistState(
   };
 }
 
-function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
+export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   stores: ChannelStores,
   event: Event,
   key: string,
@@ -299,6 +299,7 @@ export function resolveAndRecordRoute<Event extends Gateway.DeliveredEvent>(
   requests: GatewayRouterPorts["requests"],
   at: number,
   id: () => string,
+  observe = true,
 ): KernelRouteResolution<Event> {
   const resolution = resolveKernelRoute(stores, event, key, traceId, requests, at, id);
   const decision = Ingress.Events.RoutingDecision.schema.parse(
@@ -311,6 +312,6 @@ export function resolveAndRecordRoute<Event extends Gateway.DeliveredEvent>(
   // equivalent replay); lossy by contract, published through the injected
   // sink (channels never imports the observation channel). A divergent
   // replay publishes nothing (the gate throws above).
-  publish(Ingress.Events.RoutingDecision, effective);
+  if (observe) publish(Ingress.Events.RoutingDecision, effective);
   return { ...resolution, decision: effective };
 }

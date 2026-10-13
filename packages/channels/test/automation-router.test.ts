@@ -67,13 +67,14 @@ test("a new-target action materializes one new session", async () => {
   expect(result.handle.target).not.toBe("new");
 });
 
-test("a repeated event records deduped without a second session row", async () => {
+test("a repeated event returns its disposition without a second decision or session row", async () => {
   registerOwnerDm();
   const router = makeRouter();
   const first = await runEffect(router.ingest(ownerSender, ownerFacts));
   expect(first.status).toBe("executed");
   if (first.status !== "executed") return;
   const before = ledger().kernel.row(first.handle.target).revision;
+  const recorded = ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm");
   const replay = await runEffect(router.ingest(ownerSender, ownerFacts));
   expect(replay).toMatchObject({
     status: "blocked_pre",
@@ -81,8 +82,8 @@ test("a repeated event records deduped without a second session row", async () =
   });
   expect(commits).toHaveLength(1);
   expect(ledger().kernel.row(first.handle.target).revision).toBe(before);
-  expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm")
-    .filter((row) => row.stage === "automation" && row.decision === "deduped")).toHaveLength(1);
+  expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm"))
+    .toEqual(recorded);
 });
 
 test("a filtered event records one ingress row and no session journal row", async () => {
@@ -130,19 +131,17 @@ test("a grouped window closes once on injected clock advance without member jour
     expect(ledger().kernel.actionById(`discord:owner-workspace:owner-dm:${eventId}`)).toBeUndefined();
   }
   time.now = 10000;
-  await runEffect(router.ingest(ownerSender,
-    { ...ownerFacts, eventId: "clock-advance", dm: false, event: "reaction" }));
+  await runEffect(makeRouter({ now: () => time.now }).advance());
   expect(commits).toHaveLength(1);
   expect(commits[0]?.kind).toBe("action");
   const groupedCommit = commits[0];
   if (groupedCommit === undefined) throw new Error("expected one commit");
   expect(JSON.parse(groupedCommit.content).event.messages).toHaveLength(3);
-  for (const [eventId, decision] of [["one", "grouped"], ["two", "grouped"], ["three", "matched"]] as const) {
+  for (const eventId of ["one", "two", "three"]) {
     expect(ledger().stores.automations.decisions(`discord:owner-workspace:owner-dm:${eventId}`))
-      .toEqual([expect.objectContaining({ decision })]);
+      .toEqual([expect.objectContaining({ decision: "grouped" })]);
   }
   time.now = 20000;
-  await runEffect(router.ingest(ownerSender,
-    { ...ownerFacts, eventId: "second-advance", dm: false, event: "reaction" }));
+  await runEffect(router.advance());
   expect(commits).toHaveLength(1);
 });

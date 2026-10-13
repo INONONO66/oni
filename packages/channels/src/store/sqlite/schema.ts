@@ -120,8 +120,20 @@ const CHANNEL_STORE_DDL: readonly string[] = [
     time INTEGER NOT NULL,
     data TEXT NOT NULL
   )`,
-  "CREATE INDEX IF NOT EXISTS idx_automation_ledger_inbound ON automation_ledger(inbound_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_ledger_inbound ON automation_ledger(inbound_id)",
   "CREATE INDEX IF NOT EXISTS idx_automation_ledger_limit ON automation_ledger(automation_id, decision, time)",
+  `CREATE TABLE IF NOT EXISTS automation_delivery (
+    inbound_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS automation_group (
+    id TEXT PRIMARY KEY,
+    automation_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    closed_at INTEGER,
+    matched INTEGER NOT NULL DEFAULT 0
+  )`,
 ];
 
 const QueryOnlyRow = z.object({ query_only: z.number().int() });

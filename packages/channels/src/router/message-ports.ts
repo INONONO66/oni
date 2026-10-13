@@ -88,6 +88,7 @@ export interface GatewayRouterPorts {
 }
 
 export interface GatewayRouter {
+  advance(at?: number): Effect.Effect<void, ChannelError>;
   ingest(
     sender: Gateway.IngestSender,
     message: Gateway.SendMessage | Gateway.IngressFacts | Gateway.RequestAnswer,

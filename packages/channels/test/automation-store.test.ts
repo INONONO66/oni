@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { Ingress } from "@openomni/protocol";
 import { createAutomationStore, AutomationEnableRefused } from "../src/store/automation/index.js";
 import { openChannelStore } from "../src/store/sqlite/index.js";
+import { AutomationConfigurationError } from "../src/errors.js";
+import { compiledPattern } from "../src/automation/regex.js";
+import { effectFailure } from "./helpers/effect-failure.js";
 
 const record = Ingress.Automation.parse({
   id: "daily", name: "Daily", enabled: false, createdBy: "session:x",
@@ -50,9 +53,47 @@ describe("automation store", () => {
       users: ["user"], sessionId: "resident" };
     const first = store.migrateGrantedDirect(grant);
     expect(first).toMatchObject({ kind: "prompt", enabled: true, target: "session:resident",
-      conditions: { channels: ["dm:user"], users: ["user"], includeBots: false } });
+      conditions: { channels: ["dm:user"], includeBots: false } });
+    expect(first.conditions?.users).toBeUndefined();
     expect(store.migrateGrantedDirect(grant)).toEqual(first);
     expect(store.list()).toHaveLength(1);
     db.close();
   });
+});
+
+test("invalid regex configuration is refused before persistence and valid patterns are cached", () => {
+  const { db, store } = fixture();
+  try {
+    for (const pattern of ["[", "x".repeat(513)]) {
+      expect(() => store.add({ ...record, conditions: { regex: [pattern] } }))
+        .toThrow(AutomationConfigurationError);
+      expect(store.get(record.id)).toBeUndefined();
+    }
+    store.add({ ...record, conditions: { regex: ["^deploy"] } });
+    expect(compiledPattern("^deploy")).toBe(compiledPattern("^deploy"));
+    expect(compiledPattern("^deploy").test("deploy now")).toBe(true);
+  } finally { db.close(); }
+});
+
+test("unconfigured automation storage fails through the typed Effect channel", async () => {
+  const store = createAutomationStore({});
+  expect(await effectFailure(store.ready)).toMatchObject({
+    _tag: "AutomationConfigurationError", reason: "store_unconfigured",
+  });
+  expect(() => store.list()).toThrow(AutomationConfigurationError);
+});
+
+test("owner approval and enable disable remove operations retain their stored state", () => {
+  const { db, store } = fixture();
+  try {
+    expect(() => store.add({ ...record, enabled: true })).toThrow(AutomationEnableRefused);
+    expect(store.list()).toEqual([]);
+    for (const operate of [store.enable, store.disable, store.approve])
+      expect(() => operate("missing")).toThrow(AutomationEnableRefused);
+    store.add({ ...record, createdBy: "owner", enabled: true });
+    expect(store.disable(record.id).record.enabled).toBe(false);
+    expect(store.enable(record.id).record.enabled).toBe(true);
+    expect(store.remove(record.id)).toBe(true);
+    expect(store.remove(record.id)).toBe(false);
+  } finally { db.close(); }
 });

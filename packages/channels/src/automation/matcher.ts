@@ -1,25 +1,27 @@
 import { createHash } from "node:crypto";
 import { Ingress } from "@openomni/protocol";
+import { z } from "zod";
+import { compiledPattern } from "./regex.js";
 
 interface Verdict {
   readonly verdict: "yes" | "no" | "unknown";
   readonly reason: string;
 }
 
-export interface PendingGroup {
-  readonly automationId: string;
-  readonly key: string;
-  readonly openedAt: number;
-  readonly windowSeconds: Ingress.WindowSeconds;
-  readonly trigger: Ingress.Trigger;
-  readonly inputs: readonly Ingress.Input[];
-  readonly runWhen?: Verdict;
-}
+export const PendingGroup = z.object({
+  automationId: z.string(), key: z.string(), openedAt: z.number(),
+  windowSeconds: Ingress.WindowSeconds, trigger: Ingress.Trigger,
+  inputs: z.array(Ingress.Input).min(1).max(64),
+  runWhen: Ingress.TriggerContext.shape.matched.shape.runWhen,
+});
+export type PendingGroup = z.infer<typeof PendingGroup>;
 
-type Route =
-  | { readonly kind: "prompt"; readonly target: string; readonly origin: Ingress.Input }
-  | { readonly kind: "action"; readonly target: string; readonly source: "ingress";
-      readonly handlerRef: string; readonly body: Ingress.TriggerContext };
+export const Route = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("prompt"), target: z.string(), origin: Ingress.Input }),
+  z.object({ kind: z.literal("action"), target: z.string(), source: z.literal("ingress"),
+    handlerRef: z.string(), body: Ingress.TriggerContext }),
+]);
+type Route = z.infer<typeof Route>;
 
 export interface MatchDecision {
   readonly route?: Route;
@@ -57,7 +59,7 @@ function conditionMatches(conditions: Ingress.Conditions, input: Ingress.Input):
     ["threads", conditions.threads === undefined || (input.threadId !== undefined && conditions.threads.includes(input.threadId))],
     ["contains", conditions.contains === undefined || conditions.contains.some((text) => input.body.includes(text))],
     ["excludes", conditions.excludes === undefined || conditions.excludes.every((text) => !input.body.includes(text))],
-    ["regex", conditions.regex === undefined || conditions.regex.some((pattern) => new RegExp(pattern).test(input.body))],
+    ["regex", conditions.regex === undefined || conditions.regex.some((pattern) => compiledPattern(pattern).test(input.body))],
     ["dm", conditions.dm === undefined || conditions.dm === input.dm],
     ["mentionOnly", conditions.mentionOnly === undefined || !conditions.mentionOnly || input.mentionsBot],
   ];
@@ -75,14 +77,15 @@ type Candidate =
   | { readonly kind: "match"; readonly trigger: Ingress.Trigger;
       readonly factsUsed: string[]; readonly runWhen?: Verdict };
 
-function candidate(record: Ingress.Automation, input: Ingress.Input, judge?: MatchPorts["judge"]): Candidate {
+function candidate(record: Ingress.Automation, input: Ingress.Input, judge?: MatchPorts["judge"],
+  superseded = false): Candidate {
   if (!record.enabled) return { kind: "skip" };
   const trigger = record.triggers.find((item) => triggerMatches(item, input));
   if (trigger === undefined) return { kind: "skip" };
   const structural = conditionMatches(record.conditions ?? {}, input);
   if (!structural.matched) return { kind: "filtered", reason: structural.reason, factsUsed: structural.factsUsed };
-  const verdict = record.runWhen === undefined ? undefined : judge?.(record.runWhen, input);
-  if (record.runWhen !== undefined && verdict?.verdict !== "yes") {
+  const verdict = record.runWhen === undefined || superseded ? undefined : judge?.(record.runWhen, input);
+  if (!superseded && record.runWhen !== undefined && verdict?.verdict !== "yes") {
     return { kind: "filtered", reason: "runWhen", factsUsed: [...structural.factsUsed, "runWhen"],
       runWhen: verdict ?? { verdict: "unknown", reason: "judge_unavailable" } };
   }
@@ -137,16 +140,11 @@ function collectGroup(record: Ingress.Automation, trigger: Ingress.Trigger, inpu
   const previous = index < 0 ? undefined : pending[index];
   if (index >= 0) pending.splice(index, 1);
   const inputs = [...(previous?.inputs ?? []), input];
-  if ((previous === undefined || at - previous.openedAt < grouping.windowSeconds * 1000) &&
-      inputs.length < 64) {
-    pending.push({ automationId: record.id, key, openedAt: previous?.openedAt ?? at,
-      windowSeconds: grouping.windowSeconds, trigger, inputs,
-      ...(verdict === undefined ? {} : { runWhen: verdict }) });
-    return { inputs, held: true, rows: [] };
-  }
-  return { inputs, held: false,
-    rows: inputs.slice(0, -1).map((member) =>
-      ledger(member, at, record.id, "grouped", `firing:${input.eventId}`, factsUsed)) };
+  pending.push({ automationId: record.id, key, openedAt: previous?.openedAt ?? at,
+    windowSeconds: grouping.windowSeconds, trigger, inputs,
+    ...(verdict === undefined ? {} : { runWhen: verdict }) });
+  return { inputs, held: true,
+    rows: [ledger(input, at, record.id, "grouped", "grouped", factsUsed, verdict)] };
 }
 
 function limitReached(record: Ingress.Automation, ports: MatchPorts): boolean {
@@ -159,39 +157,39 @@ export function match(records: readonly Ingress.Automation[], input: Ingress.Inp
   const rows: Ingress.RoutingDecisionPayload[] = [];
   const pending = [...(ports.pending ?? [])];
   if (ports.seen) {
-    rows.push(ledger(input, ports.now, "ingress", "deduped", "event_id", ["eventId"]));
     return { rows, pending };
   }
   let route: Route | undefined = ports.conversation === undefined ? undefined
     : { kind: "prompt", target: ports.conversation, origin: input };
   for (const record of records) {
-    const result = candidate(record, input, ports.judge);
+    const result = candidate(record, input, ports.judge, route !== undefined);
     if (result.kind === "skip") continue;
     if (result.kind === "filtered") {
-      rows.push(ledger(input, ports.now, record.id, "filtered", result.reason,
+      rows.splice(0, rows.length, ledger(input, ports.now, record.id, "filtered", result.reason,
         result.factsUsed, result.runWhen));
       continue;
     }
     if (route !== undefined) {
-      rows.push(ledger(input, ports.now, record.id, "superseded",
+      rows.splice(0, rows.length, ledger(input, ports.now, record.id, "superseded",
         ports.conversation === undefined ? "earlier_match" : "conversation",
         result.factsUsed, result.runWhen));
-      continue;
+      break;
     }
     if (limitReached(record, ports)) {
-      rows.push(ledger(input, ports.now, record.id, "refused", "limit",
+      rows.splice(0, rows.length, ledger(input, ports.now, record.id, "refused", "limit",
         [...result.factsUsed, "limits.maxRunsPerDay"], result.runWhen));
-      continue;
+      break;
     }
     const group = collectGroup(record, result.trigger, input, ports.now, pending,
       result.factsUsed, result.runWhen);
-    rows.push(...group.rows);
+    rows.splice(0, rows.length, ...group.rows);
     if (group.held) break;
     route = record.kind === "prompt"
       ? { kind: "prompt", target: record.target, origin: input }
       : { kind: "action", target: record.target, source: "ingress", handlerRef: `automation/${record.id}`,
           body: context(record, result.trigger, group.inputs, result.runWhen) };
     rows.push(ledger(input, ports.now, record.id, "matched", "matched", result.factsUsed, result.runWhen));
+    break;
   }
   return { ...(route === undefined ? {} : { route }), rows, pending };
 }
@@ -203,7 +201,7 @@ export function advanceGroups(records: readonly Ingress.Automation[], pending: r
   const decisions: MatchDecision[] = [];
   const remaining: PendingGroup[] = [];
   for (const group of pending) {
-    if (now - group.openedAt < group.windowSeconds * 1000) {
+    if (group.inputs.length < 64 && now - group.openedAt < group.windowSeconds * 1000) {
       remaining.push(group);
       continue;
     }
@@ -218,7 +216,8 @@ export function advanceGroups(records: readonly Ingress.Automation[], pending: r
       active ? "matched" : "disabled", ["grouping"], group.runWhen));
     const route: Route | undefined = record?.enabled !== true ? undefined
       : record.kind === "prompt"
-        ? { kind: "prompt", target: record.target, origin: latest }
+        ? { kind: "prompt", target: record.target,
+            origin: { ...latest, body: group.inputs.map((input) => input.body).join("\n\n") } }
         : { kind: "action", target: record.target, source: "ingress",
             handlerRef: `automation/${record.id}`, body: context(record, group.trigger, group.inputs, group.runWhen) };
     decisions.push({ ...(route === undefined ? {} : { route }), rows, pending: [] });

@@ -47,8 +47,13 @@ beforeEach(() => {
   registerResponder();
 });
 
-test("correlated reply resolves the request and commits only to its owner", async () => {
+test.each([0, 10] as const)("correlated reply bypasses a %s-second action trigger and commits only to its owner", async (windowSeconds) => {
   await runEffect(await openRequest("request-session-owner"));
+  ledger().stores.automations.add(Ingress.Automation.parse({
+    id: "request-trigger", name: "Request trigger", enabled: true, createdBy: "owner",
+    triggers: [{ type: "message", surface: "telegram", event: "message" }],
+    target: "session:worker", grouping: { by: "channel", windowSeconds },
+  }));
   ledger().stores.surfaceKeys.claim(
     Channel.SurfaceKey.fromChannel({
       surface: "telegram",
@@ -72,6 +77,10 @@ test("correlated reply resolves the request and commits only to its owner", asyn
   });
   expect(commits).toHaveLength(1);
   expect(commits[0]?.sessionId).toBe("request-owner");
+  await runEffect(kernelRouter().advance(10_001));
+  expect(commits).toHaveLength(1);
+  expect(ledger().stores.automations.decisions(scope("reply").id)).toEqual([]);
+  expect(ledger().stores.automations.groups()).toEqual([]);
   expect(ledger().kernel.requestById("request-session-owner")).toMatchObject({
     state: "resolved",
 

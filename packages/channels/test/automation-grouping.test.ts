@@ -45,11 +45,13 @@ describe("automation grouping", () => {
       pending = match([record], { ...input, eventId: String(n) }, { now: 0, pending }).pending;
     }
     const full = match([record], { ...input, eventId: "64" }, { now: 0, pending });
-    expect(full.route?.kind).toBe("action");
-    if (full.route?.kind === "action") expect(full.route.body.event.messages).toHaveLength(64);
-    expect(full.rows).toHaveLength(64);
-    expect(full.pending).toHaveLength(0);
-    const next = match([record], { ...input, eventId: "65" }, { now: 0, pending: full.pending });
+    expect(full.rows).toEqual([expect.objectContaining({ inboundId: "64", decision: "grouped" })]);
+    const closed = advanceGroups([record], full.pending, 0);
+    expect(closed.decisions[0]?.route?.kind).toBe("action");
+    const route = closed.decisions[0]?.route;
+    if (route?.kind === "action") expect(route.body.event.messages).toHaveLength(64);
+    expect(closed.pending).toHaveLength(0);
+    const next = match([record], { ...input, eventId: "65" }, { now: 0, pending: closed.pending });
     expect(next.pending[0]?.inputs).toHaveLength(1);
     expect(advanceGroups([record], next.pending, 10000).decisions[0]?.rows).toHaveLength(1);
   });

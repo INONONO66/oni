@@ -17,5 +17,7 @@ test("an event held by a grouping window cannot also fire another trigger", () =
   const held = match([first, second], input, { now: 0 });
   expect(held.route).toBeUndefined();
   expect(held.pending).toHaveLength(1);
-  expect(held.rows).toHaveLength(0);
+  expect(held.rows).toEqual([expect.objectContaining({
+    inboundId: "one", decision: "grouped", by: "automation/group",
+  })]);
 });

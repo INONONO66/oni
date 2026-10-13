@@ -180,6 +180,7 @@ test("reply endpoint changes reject an otherwise equivalent route replay", async
   createMappedOwnerSession();
   const router = makeRouter();
   await runEffect(router.ingest(ownerSender, ownerFacts));
+  const observed = [...routingDecisions()];
   const fact = ledger().sessions.decisionFacts?.head(streamId());
   if (fact === undefined) throw new Error("route fact missing");
   const original = Ingress.Events.RoutingDecision.schema.parse(fact.data);
@@ -206,7 +207,7 @@ test("reply endpoint changes reject an otherwise equivalent route replay", async
     code: "route_replay_divergent",
   });
   expect(commits).toHaveLength(1);
-  expect(routingDecisions()).toHaveLength(1);
+  expect(routingDecisions()).toEqual(observed);
 });
 
 test("equivalent blocked redelivery returns a refusal without another route fact", async () => {

@@ -11,16 +11,20 @@ export function judgeAndMatch(
   judge?: (question: string, event: Ingress.Input) => Effect.Effect<"yes" | "no" | "unknown", ChannelError>,
 ): Effect.Effect<MatchDecision, ChannelError> {
   return Effect.gen(function* () {
-    const preliminary = match(records, input, ports);
-    const verdicts = new Map<string, { verdict: "yes" | "no" | "unknown"; reason: string }>();
-    for (const row of preliminary.rows) {
-      if (row.stage !== "automation" || row.reason !== "runWhen") continue;
-      const record = records.find((candidate) => `automation/${candidate.id}` === row.by);
-      if (record?.runWhen === undefined || judge === undefined) continue;
-      const verdict = yield* judge(record.runWhen, input);
-      verdicts.set(record.runWhen, { verdict, reason: `judge_${verdict}` });
+    let result = match([], input, ports);
+    for (const record of records) {
+      let next = match([record], input, ports);
+      if (next.rows.some((row) => row.reason === "runWhen") &&
+          record.runWhen !== undefined && judge !== undefined) {
+        const verdict = yield* judge(record.runWhen, input);
+        next = match([record], input, {
+          ...ports, judge: () => ({ verdict, reason: `judge_${verdict}` }),
+        });
+      }
+      if (next.rows.length > 0) result = next;
+      if (next.rows.some((row) => row.stage === "automation" && row.decision !== "filtered"))
+        return next;
     }
-    return match(records, input, { ...ports, judge: (question) =>
-      verdicts.get(question) ?? { verdict: "unknown", reason: "judge_unavailable" } });
+    return result;
   });
 }
