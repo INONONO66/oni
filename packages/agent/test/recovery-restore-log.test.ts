@@ -27,14 +27,15 @@ test("#1347 a typed activation restore refusal logs its warning and measured wor
   const refused = runTestSync(Effect.flip(restoreSessionHistory(kernel, id, { now })));
   expect(RestoreRefused.isInstance(refused)).toBe(true);
   expect(refused.data.telemetry).toEqual({ rows: 512, bytes: pageBytes(0) + pageBytes(256), pages: 2, ms: 0 });
-  const warnings: { message: string; annotations: Record<string, unknown> }[] = [];
+  const warnings: { message: string; annotations: Record<string, string | number> }[] = [];
   const collector = Logger.make((options) => {
     if (options.logLevel !== "Warn") return;
+    const annotations: Record<string, string | number> = {};
+    for (const [key, value] of Object.entries(options.fiber.getRef(References.CurrentLogAnnotations))) {
+      if (typeof value === "string" || typeof value === "number") annotations[key] = value;
+    }
     for (const message of Array.isArray(options.message) ? options.message : [options.message]) {
-      if (typeof message === "string") warnings.push({
-        message,
-        annotations: options.fiber.getRef(References.CurrentLogAnnotations),
-      });
+      if (typeof message === "string") warnings.push({ message, annotations });
     }
   });
   runTestSync(logRestoredHistory(kernel, id, now).pipe(Effect.provide(Logger.layer([collector]))));
