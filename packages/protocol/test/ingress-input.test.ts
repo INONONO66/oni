@@ -16,7 +16,11 @@ const input = {
 
 for (const event of ["message", "reaction", "mention", "webhook", "github", "schedule"] as const) {
   test(`normalizes ${event} inputs without dropping fields`, () => {
-    const value = { ...input, event };
+    const value = {
+      ...input, event,
+      ...(event === "webhook" ? { secretRef: "secret:hook-1" } : {}),
+      ...(event === "github" ? { githubEvent: "pull_request.opened" } : {}),
+    };
     expect(Ingress.Input.parse(value)).toEqual(value);
   });
 }

@@ -11,6 +11,10 @@ export const Input = z
     eventId: Id,
     surface: Id,
     event: z.enum(["message", "reaction", "mention", "webhook", "github", "schedule"]),
+    /** Stored credential reference that verified a webhook, never the secret itself. */
+    secretRef: Id.optional(),
+    /** GitHub event/action key, for example pull_request.opened. */
+    githubEvent: Id.optional(),
     channelId: Id.optional(),
     threadId: Id.optional(),
     workspaceId: Id.optional(),

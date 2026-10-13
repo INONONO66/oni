@@ -37,7 +37,8 @@ test("GitHub pull_request opened carries sender bot fact and PR identity", async
   expect(response.status).toBe(200);
   expect(received).toHaveLength(1);
   expect(received[0]?.facts).toMatchObject({
-    event: "message",
+    event: "github",
+    githubEvent: "pull_request.opened",
     author: { externalId: "ci-bot", isBot: true },
     channelId: "pr-12",
     render: "Update dependencies",

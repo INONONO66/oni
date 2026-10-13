@@ -37,7 +37,8 @@ test("verified raw body produces one normalized inbound message", async () => {
   expect(received).toHaveLength(1);
   expect(Gateway.IngressFacts.parse(received[0]?.facts)).toMatchObject({
     surface: "webhook",
-    event: "message",
+    event: "webhook",
+    secretRef: "secret:hook-1",
     channelId: "hook-1",
     author: { externalId: "secret:hook-1", isBot: true },
     // render is the raw body verbatim, never a stringify(parse()) round-trip (M3).

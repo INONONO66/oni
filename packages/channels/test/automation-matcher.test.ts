@@ -12,13 +12,13 @@ const input = Ingress.Input.parse({
 });
 
 test.each([
-  { trigger: { type: "webhook", secretRef: "hook" }, event: "webhook", channelId: "hook" },
-  { trigger: { type: "github", event: "pull_request" }, event: "github", channelId: "pull_request" },
-  { trigger: { type: "schedule", cron: "* * * * *", tz: "UTC" }, event: "schedule", channelId: "cron:* * * * *" },
-] as const)("specialized trigger matches its input and rejects the wrong selector", ({ trigger, event, channelId }) => {
+  { trigger: { type: "webhook", secretRef: "hook" }, event: "webhook", selector: { secretRef: "hook" } },
+  { trigger: { type: "github", event: "pull_request.opened" }, event: "github", selector: { githubEvent: "pull_request.opened" } },
+  { trigger: { type: "schedule", cron: "* * * * *", tz: "UTC" }, event: "schedule", selector: { channelId: "cron:* * * * *" } },
+] as const)("specialized trigger matches its input and rejects the wrong selector", ({ trigger, event, selector }) => {
   const automation = Ingress.Automation.parse({ ...record, triggers: [trigger] });
-  expect(match([automation], { ...input, event, channelId }, { now: 0 }).route?.kind).toBe("action");
-  expect(match([automation], { ...input, event, channelId: "other" }, { now: 0 }).rows).toEqual([]);
+  expect(match([automation], { ...input, event, ...selector }, { now: 0 }).route?.kind).toBe("action");
+  expect(match([automation], { ...input, event, channelId: "other", secretRef: "other", githubEvent: "other" }, { now: 0 }).rows).toEqual([]);
 });
 
 test("disabled and on-demand records do not consume external events", () => {

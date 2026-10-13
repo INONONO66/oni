@@ -43,7 +43,8 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
       expect(facts.payload).toEqual(payload);
       expect(facts).toMatchObject({
         eventId: "event-42",
-        event: "message",
+        event: "github",
+        githubEvent: "issue_comment.created",
         author: { externalId: "sender", isBot: true },
         workspaceId: "owner/repo",
         channelId: "issue-7",

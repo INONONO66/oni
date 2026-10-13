@@ -5,7 +5,6 @@ import type {
   BusEvent, Gateway, Ingress, Delivery, LedgerAction, PlainValue, SessionTransition,
 } from "@openomni/protocol";
 import type { KernelDeliveryReceipt } from "../support/deliver";
-import type { IngressFacts } from "../automation/facts.js";
 
 export type ChannelDeliveryRoute = (
   externalId: string,
@@ -92,6 +91,6 @@ export interface GatewayRouter {
   advance(at?: number): Effect.Effect<void, ChannelError>;
   ingest(
     sender: Gateway.IngestSender,
-    message: Gateway.SendMessage | IngressFacts | Gateway.RequestAnswer,
+    message: Gateway.SendMessage | Gateway.IngressFacts | Gateway.RequestAnswer,
   ): Effect.Effect<Gateway.IngestResult, ChannelError>;
 }

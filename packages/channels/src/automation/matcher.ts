@@ -52,8 +52,8 @@ export function scheduleTickChannel(cron: string): string {
 function triggerMatches(trigger: Ingress.Trigger, input: Ingress.Input): boolean {
   switch (trigger.type) {
     case "message": return trigger.surface === input.surface && trigger.event === input.event;
-    case "webhook": return input.event === "webhook" && trigger.secretRef === input.channelId;
-    case "github": return input.event === "github" && trigger.event === input.channelId;
+    case "webhook": return input.event === "webhook" && trigger.secretRef === input.secretRef;
+    case "github": return input.event === "github" && trigger.event === input.githubEvent;
     case "schedule": return input.event === "schedule" && input.channelId === scheduleTickChannel(trigger.cron);
     case "on_demand": return false;
   }

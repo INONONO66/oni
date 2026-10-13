@@ -12,7 +12,6 @@ import { externalMessage, replayExternal } from "./external-message";
 import { filterAutomationRules } from "./automation-rules";
 import { answerOwnerRequest } from "./request/owner-answer";
 import type { GatewayRouter, GatewayRouterPorts } from "./message-ports";
-import { IngressFacts } from "../automation/facts.js";
 
 export type { ChannelDeliveryRoute, GatewayRouter, GatewayRouterPorts } from "./message-ports";
 
@@ -139,7 +138,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     envelope: Parameters<GatewayRouter["ingest"]>[1], at: number) {
     return Effect.gen(function* () {
       if (sender.kind !== "external") return { external: undefined, filtered: undefined };
-      const facts = IngressFacts.parse(envelope);
+      const facts = Gateway.IngressFacts.parse(envelope);
       if (sender.surface !== facts.surface)
         throw new ChannelsFailure({ operation: "message.ingress", cause: "authenticated surface mismatch" });
       yield* stores.automations.ready;
