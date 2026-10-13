@@ -24,6 +24,22 @@ Five parallel implementations inside `packages/agent` collapsed to one owner eac
 
 Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `7e05bb8d1` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1344-r1.log`): build, check-types, lint, lint:tools, check-topology, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types, verify-tsconfig-inheritance, lint:docs, check-quality-python, the eight workspace test lanes, the three script lanes and patch coverage all exit 0; jscpd `packages/agent/src` 9 → 0; `check-comment-residue` OK at 1424bp. Review r1 (`review-1344-r1.md`, H0 M6 L6) fixed in full; r2 (`review-1344-r2.md`, H0 M1 L5) confirmed them and found one new Medium — a second `thrownAsError` copy in `model/model/loader.ts` — fixed by the lead before merge (loader on `core/failure`'s `thrownAsError`/`renderBodyCause`).
 
+## #1339 channel drivers report facts only and emit the unified ingress input (epic #1337, rung 2)
+
+On `epic1337/1339-facts-only-drivers` (2026-10-13, base `6f9503ef1`, PR #1410).
+
+- Slack, Discord, Telegram and GitHub normalizers emit `Ingress.Input` with
+  `IngressFacts` author/event (bot flag, reactions, edits, pull-request events);
+  Slack `message_changed` edits by the bot itself are dropped as self-echo.
+- Fifth provider: signed webhook (`packages/channels/src/provider/webhook/`),
+  composed in `apps/openomni` with its own credential reader; webhook rows boot
+  with their own schema.
+- `router/ingress-filter.ts` records bot and reaction ignores as ledger rows
+  before routing; `router/inbound-id.ts` is the single inbound-id helper; GitHub
+  refused connections classify `not_sent` through the shared `isNotSent` rule.
+- No automation policy or matcher yet (rung 3, #1340). Tests: channels 709 pass /
+  0 fail; apps/openomni green.
+
 ## #1338 protocol contracts for the unified ingress input, automation records and automation ledger decisions (epic #1337, rung 1)
 
 On `epic1337/1338-protocol-schemas` (2026-10-12, base `d9800ad74`, PR #1409).
