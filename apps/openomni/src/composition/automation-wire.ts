@@ -13,6 +13,22 @@ const successes = {
   automation_list: "automation_listed",
 } as const;
 
+function automationResponse(port: AutomationPort | undefined, request: Ingress.AutomationRequest,
+  caller: "owner" | `session:${string}`): Ingress.AutomationResponse {
+  if (request.type === "automation_ledger") {
+    if (port === undefined)
+      throw new AutomationRefused({ type: "error", reason: "store_unconfigured" });
+    const { type: _type, requestId, ...query } = request;
+    return { type: "automation_ledger_read", requestId, rows: port.store.ledger(query) };
+  }
+  const { type, requestId, ...args } = request;
+  const operation = AutomationOperation.parse({ op: type, args });
+  const { result } = executeAutomation(port, operation, caller);
+  if ("type" in result)
+    throw new AutomationRefused({ type: "error", reason: "require_approval", id: result.id });
+  return Ingress.AutomationResponse.parse({ type: successes[type], requestId, ...result });
+}
+
 /** The desktop and session socket use the same provisioning implementation as the tool. */
 export function automationWire(port: AutomationPort | undefined) {
   return (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
@@ -23,18 +39,7 @@ export function automationWire(port: AutomationPort | undefined) {
           ...(id === undefined ? {} : { id }),
         });
       try {
-        if (request.type === "automation_ledger") {
-          if (port === undefined)
-            return refuse("store_unconfigured", "Automation store is not configured");
-          const { type: _type, requestId, ...query } = request;
-          return { type: "automation_ledger_read", requestId, rows: port.store.ledger(query) };
-        }
-        const { type, requestId, ...args } = request;
-        const operation = AutomationOperation.parse({ op: type, args });
-        const { result } = executeAutomation(port, operation, caller);
-        if ("type" in result)
-          return refuse("require_approval", "Automation enable requires Owner consent", result.id);
-        return Ingress.AutomationResponse.parse({ type: successes[type], requestId, ...result });
+        return automationResponse(port, request, caller);
       } catch (error) {
         if (error instanceof AutomationRefused)
           return refuse(error.refusal.reason, error.message, error.refusal.id);

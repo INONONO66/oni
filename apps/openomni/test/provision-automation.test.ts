@@ -97,6 +97,41 @@ test("a session cannot replace an Owner-approved id", () => {
   expect(automations.store.get("rule")?.record.target).toBe("new");
 });
 
+test.each(["existing_id", "invalid_regex"] as const)(
+  "a %s proposal is a typed tool refusal before opening approval", async (reason) => {
+    const { plane, port, automations } = fixture();
+    if (reason === "existing_id")
+      executeAutomation(automations, { op: "automation_add", args: { record: record() } }, "owner");
+    const proposal = reason === "existing_id" ? record() : { ...record(), conditions: { regex: ["["] } };
+    const f = protectedDispatch(createProvisionTool(port, () => 100), {
+      operation: { op: "automation_add", args: { record: proposal } },
+    }, undefined, { plane });
+    try {
+      expect(await bounded(f.running)).toMatchObject({ isError: true, errorKind: "precondition_failed" });
+      expect(f.kernel.requestRows()).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test("a session wire proposal stays disabled until the Owner enables it", async () => {
+  const { automations } = fixture();
+  const wire = automationWire(automations);
+  expect(await runEffect(wire({
+    type: "automation_add", requestId: "session-add", record: record(),
+  }, "session:agent"))).toMatchObject({
+    type: "automation_add_refused", reason: "require_approval", id: "rule",
+  });
+  expect(automations.store.get("rule")?.record).toMatchObject({ enabled: false, createdBy: "session:agent" });
+  expect(await runEffect(wire({
+    type: "automation_enable", requestId: "session-enable", id: "rule",
+  }, "session:agent"))).toMatchObject({ type: "automation_enable_refused", reason: "require_approval" });
+  expect(await runEffect(wire({
+    type: "automation_enable", requestId: "owner-enable", id: "rule",
+  }, "owner"))).toMatchObject({ type: "automation_enabled", record: { enabled: true, createdBy: "session:agent" } });
+});
+
 test.each(["automation_remove", "automation_enable", "automation_disable"] as const)(
   "%s refuses a missing id with the shared wire reason", async (type) => {
     const { automations } = fixture();

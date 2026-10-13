@@ -1,6 +1,6 @@
 import { Core } from "@openomni/agent";
 import { canonicalDigest, type ToolExecutionContext } from "@openomni/protocol";
-import type { createAutomationStore } from "@openomni/channels";
+import { AutomationConfigurationError, type createAutomationStore } from "@openomni/channels";
 import type { AutomationOperation, AutomationResult, AutomationRefusal } from "./automation-schema";
 
 export class AutomationRefused extends Core.ToolRefused {
@@ -19,6 +19,36 @@ function ownerEnable(store: AutomationPort["store"], id: string) {
   return { record: store.enable(id).record };
 }
 
+function addAutomation(
+  port: AutomationPort,
+  operation: Extract<AutomationOperation, { op: "automation_add" }>,
+  caller: "owner" | `session:${string}`,
+): AutomationResult {
+  const record = {
+    ...operation.args.record,
+    id: operation.args.record.id ?? port.id(),
+    createdBy: caller,
+    enabled: caller === "owner" && operation.args.record.enabled,
+  };
+  // Session callers cannot replace an approved record with their own bytes.
+  const existing = port.store.get(record.id);
+  if (caller !== "owner" && existing !== undefined) {
+    if (canonicalDigest(existing.record) !== canonicalDigest(record))
+      throw new AutomationRefused({ type: "error", reason: "invalid_record", id: record.id });
+    return { op: operation.op, result: { type: "require_approval", id: record.id } };
+  }
+  try {
+    port.store.add(record, caller === "owner");
+  } catch (error) {
+    if (!(error instanceof AutomationConfigurationError)) throw error;
+    throw new AutomationRefused({
+      type: "error", reason: error.reason === "store_unconfigured" ? error.reason : "invalid_record", id: record.id,
+    });
+  }
+  return { op: operation.op, result: caller === "owner"
+    ? { record } : { type: "require_approval", id: record.id } };
+}
+
 /** Both gateway and tool callers enter here; creator and approval are never caller data. */
 export function executeAutomation(
   port: AutomationPort | undefined,
@@ -29,24 +59,8 @@ export function executeAutomation(
     throw new AutomationRefused({ type: "error", reason: "store_unconfigured" });
   const { store } = port;
   switch (operation.op) {
-    case "automation_add": {
-      const record = {
-        ...operation.args.record,
-        id: operation.args.record.id ?? port.id(),
-        createdBy: caller,
-        enabled: caller === "owner" && operation.args.record.enabled,
-      };
-      // Session callers cannot replace an approved record with their own bytes.
-      const existing = store.get(record.id);
-      if (caller !== "owner" && existing !== undefined) {
-        if (canonicalDigest(existing.record) !== canonicalDigest(record))
-          throw new AutomationRefused({ type: "error", reason: "invalid_record", id: record.id });
-        return { op: operation.op, result: { type: "require_approval", id: record.id } };
-      }
-      store.add(record, caller === "owner");
-      return { op: operation.op, result: caller === "owner"
-        ? { record } : { type: "require_approval", id: record.id } };
-    }
+    case "automation_add":
+      return addAutomation(port, operation, caller);
     case "automation_list":
       return { op: operation.op, result: { records: store.list().map((entry) => entry.record) } };
     case "automation_remove":
@@ -84,6 +98,22 @@ export function automationId(operation: AutomationOperation, context: {
 
 export function automationDomainRevisions(port: AutomationPort | undefined, id: string): Record<string, number> {
   return { [`automation:${id}:${canonicalDigest(port?.store.get(id) ?? null)}`]: 0 };
+}
+
+/** Prepare a disabled draft once, then bind consent to its exact stored revision. */
+export function automationApproval(port: AutomationPort | undefined) {
+  return (
+    operation: Extract<AutomationOperation, { op: "automation_add" | "automation_enable" }>,
+    context: ToolExecutionContext,
+    prepare: boolean,
+  ) => {
+    const id = automationId(operation, context);
+    if (prepare)
+      executeAutomation(port, operation.op === "automation_add"
+        ? { ...operation, args: { record: { ...operation.args.record, id } } }
+        : operation, `session:${context.sessionId}`);
+    return { required: true, domainRevisions: automationDomainRevisions(port, id) };
+  };
 }
 
 /** Consent only spends the exact record the Owner saw, never a subsequently edited one. */
