@@ -21,6 +21,7 @@ import { jumpFrom } from "./shell/history";
 import { placeIcon } from "./shell/place-icon";
 import { SessionList } from "./shell/session-list";
 import { AutomationView } from "./automation/view";
+import { IngressLedgerView } from "./ingress-ledger/view";
 import { sessionGlyphProps } from "./shell/session-glyph";
 import { SessionTree } from "./shell/session-tree";
 import { shellShortcut } from "./shell/shortcuts";
@@ -270,6 +271,8 @@ export function App({ platform, storage, host }: AppEnvironment) {
   const content =
     place?.kind === "route" && place.route === "automations" ? (
       <AutomationView key={tab?.id} transport={transport} sessions={localSessions} id={host.id} />
+    ) : place?.kind === "route" && place.route === "ingress" ? (
+      <IngressLedgerView key={tab?.id} transport={transport} now={now} onOpenSession={onOpenChild} />
     ) : session === undefined ? (
       <ConsoleContent
         emptyLabel={
