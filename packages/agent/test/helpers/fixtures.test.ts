@@ -8,7 +8,13 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Exit, Scope } from "effect";
 import { clusterTempDir } from "./cluster-runtime";
 import { runAgent } from "./executor";
-import { fencedSession, readArmedAlarms, sessionHandles, withSessionHandles } from "./seeded-session";
+import {
+  fencedSession,
+  readArmedAlarms,
+  type SessionHandles,
+  sessionHandles,
+  withSessionHandles,
+} from "./seeded-session";
 import { liveArmRegistry, liveWatchCapability } from "./alarm-budget";
 import { crashingCapability, firedRows, noteArm, resendSignal } from "./alarm-recovery";
 import { interestBus, recordingSources } from "./bus-fixture";
@@ -22,6 +28,17 @@ const scopedExit = <A, E>(body: (scope: Scope.Scope) => Effect.Effect<A, E, Scop
     return exit;
   });
 
+/**
+ * bun:sqlite refuses every read on a closed `Database` with exactly this
+ * error; a leaked (still-open) handle answers instead. Asserting it on the
+ * captured pair is what lets the teardown pins fail when release leaks.
+ */
+const closedDatabase = expect.objectContaining({ name: "RangeError", message: "Cannot use a closed database" });
+const expectReleased = (handles: Pick<SessionHandles, "catalog" | "store">, sessionId: string) => {
+  expect(() => handles.catalog.sessionIndex(sessionId)).toThrow(closedDatabase);
+  expect(() => handles.store.armedCount()).toThrow(closedDatabase);
+};
+
 describe("seeded-session fixture", () => {
   test("two fencedSession acquisitions of one home seed distinct sessions and close their handles", async () => {
     const home = clusterTempDir("fixtures-seeded-");
@@ -34,29 +51,40 @@ describe("seeded-session fixture", () => {
           expect(b.fence).toBe(1);
           expect(a.kernel.row("s-a").revision).toBe(b.kernel.row("s-b").revision);
           yield* a.commit([noteArm("s-a", "n", 1, 10).action]);
-          return { a: a.kernel.armedCount(), b: b.kernel.armedCount(), scope };
+          return { a: a.kernel.armedCount(), b: b.kernel.armedCount(), scope, pairs: [a, b] as const };
         }),
       ),
     );
     expect(Exit.isSuccess(seen)).toBe(true);
     if (!Exit.isSuccess(seen)) return;
     expect(seen.value).toMatchObject({ a: 1, b: 0 });
-    // The scope closed both handle pairs: a fresh pair reads the durable rows back.
+    // The scope closed both handle pairs: each acquired pair now refuses reads ...
+    const [a, b] = seen.value.pairs;
+    expectReleased(a, "s-a");
+    expectReleased(b, "s-b");
+    // ... and a fresh pair reads the durable rows back.
     expect(readArmedAlarms(home, "s-a")).toHaveLength(1);
     expect(readArmedAlarms(home, "s-b")).toHaveLength(0);
   });
 
   test("sessionHandles releases on a failing body, so the file reopens cleanly", async () => {
     const home = clusterTempDir("fixtures-release-");
+    const acquired: SessionHandles[] = [];
     const exit = await runAgent(
       scopedExit(() =>
         Effect.gen(function* () {
-          yield* sessionHandles(home, "s-fail");
+          acquired.push(yield* sessionHandles(home, "s-fail"));
           return yield* Effect.fail(new Error("body failed"));
         }),
       ),
     );
     expect(Exit.isFailure(exit)).toBe(true);
+    // The failing body still released: the captured pair refuses reads ...
+    const [released] = acquired;
+    expect(released).toBeDefined();
+    if (released === undefined) return;
+    expectReleased(released, "s-fail");
+    // ... and a fresh pair opens the same files cleanly.
     const row = withSessionHandles(home, "s-fail", ({ catalog }) => catalog.sessionIndex("s-fail"));
     expect(row).toBeUndefined();
   });
