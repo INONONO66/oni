@@ -77,12 +77,12 @@ export function adoptTestFence(
 }
 
 /**
- * A cluster-free delivery commit for fixtures that never boot an entity: the
- * core's received-message action lands on the destination chain under the
- * core's fence fold (a running destination lends its live fence, an idle one
- * is taken over), idempotent on the row id. The product path is the entity's
- * `Deliver` RPC, which needs a booted cluster; this stays test-only and must
- * not back a test that claims admission behavior (#1346 M6): the
+ * A cluster-free delivery for fixtures that never boot an entity: the app
+ * materializes the declared destination, then the agent's `Testing` seam
+ * lands the received-message action under the core's own fence fold — no
+ * fence branch, CAS or commit lives here (#1346 M6). The product path is the
+ * entity's `Deliver` RPC, which needs a booted cluster; this stays test-only
+ * and must not back a test that claims admission behavior: the
  * `messageFixture` sender holds its turn under a local runner, so no entity
  * can own it. Admission through the entity is proven where the parent is a
  * booted app (`startOpenOmni` in process-session-e2e, session-wave-e2e).
@@ -95,32 +95,10 @@ export function localDelivery(
   return (input: Delivery.Commit): Effect.Effect<Delivery.Row, AgentFailure> =>
     Effect.gen(function* () {
       yield* materializeDeliveryTarget(plane, input, clock);
-      const kernel = plane.openKernel(input.sessionId);
-      const existing = kernel.actionById(input.id);
-      if (existing !== undefined) return pendingDeliveryRow(input, existing.ordinal);
-      const refuse = (error: { readonly _tag: string }) =>
-        new AgentFailure({ operation: "message.commit", cause: error._tag });
-      const live = kernel.row(input.sessionId);
-      const authority =
-        live.state === "running" && live.fenceOwner !== null
-          ? { owner: live.fenceOwner, fence: live.fence }
-          : { owner, fence: yield* adoptTestFence(kernel, input.sessionId, owner).pipe(Effect.mapError(refuse)) };
-      const row = kernel.row(input.sessionId);
-      const committed = yield* kernel
-        .commit({
-          sessionId: input.sessionId,
-          owner: authority.owner,
-          fence: authority.fence,
-          now: clock(),
-          expectedRevision: row.revision,
-          actions: [Core.receivedMessageAction({ ...input, at: input.createdAt })],
-          state: row.state,
-        })
-        .pipe(Effect.mapError(refuse));
-      const receipt = committed.receipts[0];
-      if (receipt === undefined)
-        return yield* new AgentFailure({ operation: "message.commit", cause: "no receipt" });
-      return pendingDeliveryRow(input, receipt.action.ordinal);
+      const ordinal = yield* Testing.localDelivery(plane.openKernel(input.sessionId), input, owner, clock).pipe(
+        Effect.mapError((error) => new AgentFailure({ operation: "message.commit", cause: error._tag })),
+      );
+      return pendingDeliveryRow(input, ordinal);
     });
 }
 

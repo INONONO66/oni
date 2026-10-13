@@ -393,6 +393,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/plugins/tool/index.ts", [1, 0]],
   ["packages/agent/src/testing/commit.ts", [0, 0]],
   ["packages/agent/src/testing/controller.ts", [1, 0]],
+  ["packages/agent/src/testing/delivery.ts", [1, 0]],
   ["packages/agent/src/testing/index.ts", [1, 0]],
   ["packages/agent/src/testing/registry.ts", [2, 1]],
 ]);
