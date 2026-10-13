@@ -47,7 +47,7 @@ export async function watchFixture(sessionId: string, owner: string): Promise<Wa
       refreshed.push(spec);
       return true;
     },
-    observe: () => undefined,
+    observe: () => false,
     close: (id) => {
       closed.push(id);
       live.delete(id);
@@ -175,6 +175,7 @@ function recordPersistedSend(catalogFile: string, fireAt: number): void {
 export async function withEntityAlarmPorts<A>(
   sessionId: string,
   body: (fx: EntityAlarmFixture) => Promise<A>,
+  watchPlane?: import("../../src/composition/watch-plane").WatchPlane,
 ): Promise<A> {
   const { sessionsDir, catalogFile } = clusterTempDir("entity-alarm-");
   const registry = createLiveArmRegistry();
@@ -232,14 +233,17 @@ export async function withEntityAlarmPorts<A>(
         // Mirrors the app root's onArmed follower (#1254 H1): a retiring
         // monitor.hit arm closes the native handle at the commit.
         onArmed: (notice) => {
+          watchPlane?.onArmed(notice);
           if (notice.purpose !== Bundle.MONITOR_HIT || notice.at !== null) return;
           closed.push(notice.alarmId);
         },
         onLive: (id, verbs) => {
           rawVerbs.set(id, verbs.arm);
           const release = registry.onLive(id, verbs);
+          const releaseWatch = watchPlane?.arms.onLive(id, verbs);
           return () => {
             rawVerbs.delete(id);
+            releaseWatch?.();
             release();
           };
         },

@@ -44,7 +44,7 @@ export interface AppManifestInput {
   /** The composed alarm capability's frozen `Capability.define` contract. */
   readonly alarm: Bundle.CapabilityDefinition<"alarm">;
   /** The watch wake dependencies the monitor bundle's purposes close over. */
-  readonly wake: Bundle.WatchWakeDeps;
+  readonly wake: import("./bundles/alarms/monitor/index").MonitorWakeDeps;
   /** The live alarm ports the monitor tool executes against, late-bound (#1308). */
   readonly alarms: () => MonitorPorts | undefined;
   /** The parsed hooks JSON config (#1256); absent composes zero hook rows. */

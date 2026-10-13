@@ -691,7 +691,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       {
         clock: services.now,
         failure: (watchId, error) => incident(`watch ${watchId} send failed`, error),
-        ...(tools.machines === undefined ? {} : { machines: tools.machines }),
+        ...(tools.machines === undefined ? {} : { machines: tools.machines }), retirePath: (sessionId, watchId) => runAppEffect(runtime, watchPlane.retirePath(sessionId, watchId)),
       },
     );
     await acquire(Effect.succeed(watchSources), (resource) =>
@@ -1273,6 +1273,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     };
     const stop = async () => {
       await boundServer.stop(true);
+      await watchSources.closeAll();
       await supervisor.stopAll();
       await runAppEffect(runtime, shutdownSessions(sessionRuntime, recovery));
       if (cells !== undefined)

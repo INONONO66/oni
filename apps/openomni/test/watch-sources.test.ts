@@ -3,6 +3,10 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Alarm } from "@openomni/protocol";
+import { Bundle, Core } from "@openomni/agent";
+import { Effect } from "effect";
+import { alarmChainReads, foldAlarmChains } from "../src/bundles/alarms/index";
+import { createWatchPlane } from "../src/composition/watch-plane";
 import {
   AlarmRuntimeError,
   commandSource,
@@ -11,6 +15,8 @@ import {
   type WatchHitSend,
 } from "../src/composition/watch-sources";
 import { eventSignal } from "./helpers/event-signal";
+import { runEffect } from "./helpers/effect";
+import { FIXTURE_BASE, withEntityAlarmPorts } from "./helpers/watch-fixture";
 
 // Each PTY test spawns /bin/sh under a fresh terminal; at load average 25+ that
 // spawn can stall past the 5 s default (#1027). Only the failure ceiling.
@@ -142,7 +148,7 @@ test("path watch fires on observed modification with the stat-identity transport
       }),
     );
     writeFileSync(path, "after with more bytes");
-    sources.observe("watch-path");
+    sources.observe("monitor-session", "watch-path");
     await sources.close("watch-path");
     expect(sends).toHaveLength(1);
     const entry = parseHit(sends[0] as WatchHitSend);
@@ -172,7 +178,7 @@ test("refresh swaps the armed occurrence without touching the native handle", as
     });
     await sources.install(first);
     writeFileSync(path, "v2 grows the file");
-    sources.observe("watch-swap");
+    sources.observe("monitor-session", "watch-swap");
     // Re-arm: the chain's new occurrence and spent budget ride the holder.
     expect(
       sources.refresh(
@@ -185,7 +191,7 @@ test("refresh swaps the armed occurrence without touching the native handle", as
       ),
     ).toBe(true);
     writeFileSync(path, "v3 grows the file even more");
-    sources.observe("watch-swap");
+    sources.observe("monitor-session", "watch-swap");
     await sources.close("watch-swap");
     expect(sends.map((send) => [send.occurrenceId, send.armSeq])).toEqual([
       ["occ-watch-swap-1", 1],
@@ -242,6 +248,101 @@ test("path watch native callback observes a created target", async () => {
   }
 });
 
+test("installing a path watch arms one separate watch cadence chain", async () => {
+  const plane = createWatchPlane();
+  const arms: Parameters<Core.ArmVerb>[0][] = [];
+  const installed: ArmedWatch[] = [];
+  plane.bind({
+    install: (spec) => {
+      installed.push(spec);
+      return Promise.resolve();
+    },
+    refresh: () => false,
+    observe: () => true,
+    close: () => Promise.resolve(),
+    closeAll: () => Promise.resolve(),
+  });
+  const release = plane.arms.onLive("monitor-session", {
+    arm: (input) => Effect.sync(() => {
+      arms.push(input);
+      return { alarmId: input.alarmId ?? "generated", occurrenceId: `occ-${arms.length}`, armSeq: 1 };
+    }),
+    ownsTurn: (turnId) => turnId === "turn",
+  });
+  try {
+    const capability = await runEffect(plane.capabilityFor(["monitor"]));
+    await runEffect(capability.verbs.watch({
+      sessionId: "monitor-session",
+      turnId: "turn",
+      watchId: "path-one",
+      spec: {
+        watch: { path: "/tmp/target", event: "create", description: "target", persistent: true },
+        policyGeneration: 1,
+        notificationLimit: 8,
+      },
+      now: FIXTURE_BASE,
+    }));
+    expect(installed).toHaveLength(1);
+    expect(arms.map((arm) => [arm.purpose, arm.alarmId, arm.sourceKey])).toEqual([
+      ["monitor.hit", "path-one", "monitor"],
+      ["watch", "path-one:watch", "watch:path-one"],
+    ]);
+    expect(typeof arms[1]?.at).toBe("number");
+  } finally {
+    release();
+  }
+});
+
+test("restoring a native path source arms cadence once without restarting an existing handle", async () => {
+  const plane = createWatchPlane();
+  let installed = false;
+  const arms: Parameters<Core.ArmVerb>[0][] = [];
+  plane.bind({
+    install: () => {
+      installed = true;
+      return Promise.resolve();
+    },
+    refresh: () => installed,
+    observe: () => true,
+    close: () => Promise.resolve(),
+    closeAll: () => Promise.resolve(),
+  });
+  const release = plane.arms.onLive("monitor-session", {
+    arm: (input) => Effect.sync(() => {
+      arms.push(input);
+      return { alarmId: input.alarmId ?? "generated", occurrenceId: `occ-${arms.length}`, armSeq: 1 };
+    }),
+    ownsTurn: () => true,
+  });
+  try {
+    const send = plane.sendOccurrence(() => Effect.void);
+    const occurrence = {
+      occurrenceId: "monitor-occ",
+      purpose: "monitor.hit",
+      alarmId: "restored-path",
+      armSeq: 1,
+      sourceKey: "monitor",
+      payload: JSON.stringify({
+        spec: {
+          watch: { path: "/tmp/target", event: "modify", description: "recovered", persistent: true },
+          policyGeneration: 1,
+          notificationLimit: 8,
+        },
+        notifications: 0,
+      }),
+      fireAt: FIXTURE_BASE,
+    };
+    await runEffect(send("monitor-session", occurrence));
+    await runEffect(send("monitor-session", occurrence));
+    expect(installed).toBe(true);
+    expect(arms.map((arm) => [arm.purpose, arm.alarmId, arm.sourceKey])).toEqual([
+      ["watch", "restored-path:watch", "watch:restored-path"],
+    ]);
+  } finally {
+    release();
+  }
+});
+
 test("a create whose native event is lost is observed by the reconcile cadence exactly once", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watch-sources-race-"));
   const path = join(directory, "target");
@@ -249,10 +350,9 @@ test("a create whose native event is lost is observed by the reconcile cadence e
   const reconciled = eventSignal<WatchHitSend>("lost-create reconcile", SPAWNED_PTY_MS);
   // Models the measured Bun 1.4.1 loss (oven-sh/bun#44385): the create lands
   // after install() returned and the native stream never reports it. Only the
-  // injected cadence can observe it; the test drives the ticks.
+  // watch alarm can observe it; the test fires the persisted occurrence.
   let live: ((eventType: string, fileName: string | null) => void) | undefined;
-  let tick: (() => void) | undefined;
-  let cancelled = 0;
+  const plane = createWatchPlane();
   const sources = createWatchSources(
     {
       deliver: (send) => {
@@ -268,43 +368,183 @@ test("a create whose native event is lost is observed by the reconcile cadence e
         live = listener;
         return { on: () => undefined, close: () => undefined };
       },
-      reconcile: (fn) => {
-        tick = fn;
-        return () => {
-          cancelled += 1;
-        };
-      },
+      retirePath: (sessionId, watchId) => runEffect(plane.retirePath(sessionId, watchId)),
     },
   );
+  plane.bind(sources);
   try {
-    await sources.install(
-      armed({
+    await withEntityAlarmPorts("monitor-session", async (fx) => {
+      const capability = await runEffect(plane.capabilityFor(["monitor"]));
+      await sources.install(armed({
         id: "watch-race",
         watch: { path, event: "create", description: "lost-create reconcile", persistent: true },
-      }),
-    );
-    writeFileSync(path, "created after install returned; the native event is lost");
-    expect(sends).toHaveLength(0);
-    tick?.();
-    const send = await reconciled.promise;
-    expect(send.alarmId).toBe("watch-race");
-    // A late native replay of the same create and the next tick both see an
-    // unchanged stat identity: no double-fire.
-    live?.("rename", "target");
-    tick?.();
-    await sources.close("watch-race");
-    expect(cancelled).toBe(1);
-    expect(sends).toHaveLength(1);
-    const entry = parseHit(sends[0] as WatchHitSend);
-    expect(entry.hit).toMatchObject({
-      terminal: false,
-      content: JSON.stringify({ path, event: "create" }),
-    });
-    expect(entry.hit.detail.startsWith("path:create:")).toBe(true);
+      }));
+      await runEffect(fx.entityArm({
+        purpose: "watch",
+        at: FIXTURE_BASE + 1_000,
+        alarmId: "watch-race:watch",
+        sourceKey: "watch:watch-race",
+        payload: { watchId: "watch-race" },
+      }));
+      const fire = async () => {
+        const chain = foldAlarmChains(fx.kernel, fx.sessionId).get("watch-race:watch");
+        if (chain === undefined) throw new Error("missing watch cadence chain");
+        const current = fx.kernel.armedAlarms().find((row) => row.alarmId === chain.alarmId);
+        return runEffect(capability.wake({
+          occurrenceId: chain.latest.occurrenceId,
+          purpose: "watch",
+          alarmId: chain.alarmId,
+          armSeq: current?.armSeq ?? 1,
+          sourceKey: chain.latest.sourceKey,
+          payload: JSON.stringify(chain.latest.payload),
+          fireAt: FIXTURE_BASE + 1_000,
+        }, {
+          sessionId: fx.sessionId,
+          reads: alarmChainReads(fx.kernel, fx.sessionId),
+          arm: fx.entityArm,
+          now: FIXTURE_BASE + 1_000,
+          prompt: () => Effect.succeed({ seq: 1 }),
+        }));
+      };
+      writeFileSync(path, "created after install returned; the native event is lost");
+      expect(sends).toHaveLength(0);
+      expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(1);
+      expect(await fire()).toBe("delivered");
+      const send = await reconciled.promise;
+      expect(send.alarmId).toBe("watch-race");
+      live?.("rename", "target");
+      expect(await fire()).toBe("delivered");
+      expect(sends).toHaveLength(1);
+      expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(1);
+      const entry = parseHit(sends[0] as WatchHitSend);
+      expect(entry.hit).toMatchObject({
+        terminal: false,
+        content: JSON.stringify({ path, event: "create" }),
+      });
+      expect(entry.hit.detail.startsWith("path:create:")).toBe(true);
+      await sources.close("watch-race");
+      expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(0);
+      expect(await fire()).toBe("exhausted");
+      expect(sends).toHaveLength(1);
+    }, plane);
   } finally {
     await sources.closeAll();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("closeAll joins a path retirement already removed from the live holders", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "watch-sources-close-"));
+  const path = join(directory, "target");
+  writeFileSync(path, "stable");
+  const retireEntered = Promise.withResolvers<void>();
+  const releaseRetire = Promise.withResolvers<void>();
+  let retirements = 0;
+  const sources = createWatchSources(recordingSenders().senders, {
+    clock: () => 0,
+    failure: () => undefined,
+    pathWatch: () => ({ on: () => undefined, close: () => undefined }),
+    retirePath: async () => {
+      retirements += 1;
+      retireEntered.resolve();
+      await releaseRetire.promise;
+    },
+  });
+  try {
+    await sources.install(armed({
+      id: "watch-closing",
+      watch: { path, event: "modify", description: "closing path", persistent: true },
+    }));
+    const retirement = sources.close("watch-closing");
+    await retireEntered.promise;
+    const shutdown = sources.closeAll();
+    expect(await Promise.race([
+      shutdown.then(() => "settled" as const),
+      Promise.resolve("pending" as const),
+    ])).toBe("pending");
+    releaseRetire.resolve();
+    await Promise.all([retirement, shutdown]);
+    await sources.close("watch-closing");
+    expect(retirements).toBe(1);
+  } finally {
+    releaseRetire.resolve();
+    await sources.closeAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a watch alarm fired before its path source is registered retires without a hit", async () => {
+  const plane = createWatchPlane();
+  let observations = 0;
+  plane.bind({
+    install: () => Promise.resolve(),
+    refresh: () => false,
+    observe: () => {
+      observations += 1;
+      return false;
+    },
+    close: () => Promise.resolve(),
+    closeAll: () => Promise.resolve(),
+  });
+  await withEntityAlarmPorts("unregistered-path-session", async (fx) => {
+    const capability = await runEffect(plane.capabilityFor(["monitor"]));
+    const occurrence = await runEffect(fx.entityArm({
+      purpose: "watch",
+      at: FIXTURE_BASE + 1_000,
+      alarmId: "missing:watch",
+      sourceKey: "watch:missing",
+      payload: { watchId: "missing" },
+    }));
+    expect(await runEffect(capability.wake({
+      occurrenceId: occurrence.occurrenceId,
+      purpose: "watch",
+      alarmId: "missing:watch",
+      armSeq: occurrence.armSeq,
+      sourceKey: "watch:missing",
+      payload: JSON.stringify({ watchId: "missing" }),
+      fireAt: FIXTURE_BASE + 1_000,
+    }, {
+      sessionId: fx.sessionId,
+      reads: alarmChainReads(fx.kernel, fx.sessionId),
+      arm: fx.entityArm,
+      now: FIXTURE_BASE + 1_000,
+      prompt: () => Effect.succeed({ seq: 1 }),
+    }))).toBe("exhausted");
+    expect(observations).toBe(1);
+    expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "missing:watch")).toEqual([]);
+  }, plane);
+});
+
+test("a watch cadence refuses re-arm with the entity's typed arm reason", async () => {
+  const plane = createWatchPlane();
+  plane.bind({
+    install: () => Promise.resolve(),
+    refresh: () => false,
+    observe: () => true,
+    close: () => Promise.resolve(),
+    closeAll: () => Promise.resolve(),
+  });
+  const capability = await runEffect(plane.capabilityFor(["monitor"]));
+  const refused = await runEffect(Effect.flip(capability.wake({
+    occurrenceId: "cadence-old",
+    purpose: "watch",
+    alarmId: "cadence:watch",
+    armSeq: 1,
+    sourceKey: "watch:cadence",
+    payload: JSON.stringify({ watchId: "cadence" }),
+    fireAt: FIXTURE_BASE,
+  }, {
+    sessionId: "monitor-session",
+    reads: {
+      latestArm: () => ({ occurrenceId: "cadence-old", at: FIXTURE_BASE }),
+      settled: () => false,
+    },
+    arm: () => Effect.fail(new Core.ArmRefused({ code: "not_live" })),
+    now: FIXTURE_BASE,
+    prompt: () => Effect.succeed({ seq: 1 }),
+  })));
+  expect(refused).toBeInstanceOf(Bundle.AlarmWakeError);
+  expect(refused.reason).toBe("not_live");
 });
 
 /** The stderr each process tool fails with (exit 1); `/bin/kill` still kills the group so the held shell exits. */
@@ -394,7 +634,7 @@ test("a faulting path source sends a terminal source_error summary and the typed
       }),
     );
     chmodSync(directory, 0o000);
-    sources.observe("watch-fault");
+    sources.observe("monitor-session", "watch-fault");
     const send = await summary.promise;
     const entry = parseHit(send);
     expect(send).toMatchObject({ alarmId: "watch-fault", occurrenceId: "occ-watch-fault-2" });

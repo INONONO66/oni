@@ -15,7 +15,7 @@ import { processEnvironment } from "../cli/env-file";
  */
 
 // Promise band (#1423): `node:fs` `watch`, `Bun.spawn` PTY streams, the machines `pty.read`
-// long-poll and the `setInterval` reconcile timer force callbacks here; Effect takes over only
+// long-poll and native path-watch callbacks force callbacks here; Effect takes over only
 // inside the injected `WatchSenders.deliver`, so no alarm decision or durable write lives here.
 
 export class AlarmRuntimeError extends Error {
@@ -284,24 +284,14 @@ const nativePathWatch: PathWatchInstaller = (directory, listener) =>
  * load 10-12: the create test loses ~10% of native events, and a single
  * post-install stat does not recover them because the rebuild outlives the
  * fs.watch() return). A path watch therefore reconciles its stat identity on
- * this cadence beside the native callback; the identity key makes both paths
+ * an alarm cadence beside the native callback; the identity key makes both paths
  * idempotent, so a hit is never doubled.
  */
-const PATH_RECONCILE_MS = 1_000;
-/** Runs `tick` on the reconcile cadence until the returned cancel is called; injected so a test drives the ticks. */
-export type ReconcileScheduler = (tick: () => void) => () => void;
-const nativeReconcile: ReconcileScheduler = (tick) => {
-  const timer = setInterval(tick, PATH_RECONCILE_MS);
-  timer.unref();
-  return () => clearInterval(timer);
-};
-
 export function pathSource(
   spec: Extract<Alarm.Watch, { path: string }>,
   event: (content: string, identity: string) => void,
   failure: (error: Error) => void,
   installWatch: PathWatchInstaller = nativePathWatch,
-  schedule: ReconcileScheduler = nativeReconcile,
 ): AlarmSource {
   // The stat identity is the transport occurrence key; `previous` is only the
   // physical snapshot that classifies create/modify. Durable dedupe is the ledger's.
@@ -328,15 +318,13 @@ export function pathSource(
     if (name === null || name === basename(spec.path)) observe();
   });
   source.on("error", failure);
-  const cancel = schedule(observe);
   // The first reconcile runs at once so a create that landed while fs.watch()
-  // was still installing is observed before the first cadence tick.
+  // was still installing is observed before the first alarm fire.
   observe();
   return {
     observe,
     close() {
       closed = true;
-      cancel();
       source.close();
       return Promise.resolve();
     },
@@ -396,7 +384,7 @@ export interface WatchSources {
    */
   refresh(spec: ArmedWatch): boolean;
   /** Reconciles a path watch's stat identity outside its native callback. */
-  observe(id: string): void;
+  observe(sessionId: string, id: string): boolean;
   close(id: string): Promise<void>;
   closeAll(): Promise<void>;
 }
@@ -418,8 +406,8 @@ export function createWatchSources(
     readonly machines?: TerminalWatchMachines;
     /** Test seam for a lost native event (G015); production uses the native installer. */
     readonly pathWatch?: PathWatchInstaller;
-    /** Test seam for the reconcile cadence (G015); production uses a 1 s unref'd interval. */
-    readonly reconcile?: ReconcileScheduler;
+    /** Retires the path's alarm chain through the live entity arm verb. */
+    readonly retirePath?: (sessionId: string, watchId: string) => Promise<void>;
   },
 ): WatchSources {
   // The watch plane owns the boot-time runtime requirement: composing it on a
@@ -523,16 +511,34 @@ export function createWatchSources(
         enqueue(holder, { content, terminal: false, detail: `path:${identity}` }),
       (error) => sourceFailure(spec, holder, error),
       options.pathWatch,
-      options.reconcile,
     );
   }
 
-  async function close(id: string): Promise<void> {
+  const retirements = new Set<Promise<void>>();
+  let shutdown: Promise<void> | undefined;
+
+  function retire(id: string): Promise<void> {
     const holder = holders.get(id);
-    if (holder === undefined) return;
+    if (holder === undefined) return Promise.resolve();
     holders.delete(id);
-    await holder.source.close();
-    await holder.tail;
+    const retirement = (async () => {
+      await holder.source.close();
+      await holder.tail;
+      if ("path" in holder.current.base.spec.watch)
+        await options.retirePath?.(holder.current.sessionId, id);
+    })();
+    retirements.add(retirement);
+    void retirement.then(
+      () => retirements.delete(retirement),
+      () => retirements.delete(retirement),
+    );
+    return retirement;
+  }
+
+  function close(id: string): Promise<void> {
+    // Shutdown is one recorded join. A late alarm callback closes nothing and
+    // joins that same result instead of starting work against a disposed app.
+    return shutdown === undefined ? retire(id) : shutdown;
   }
 
   /** In-flight installs by watch id: a concurrent duplicate adopts the winner. */
@@ -592,12 +598,20 @@ export function createWatchSources(
       holder.current = spec;
       return true;
     },
-    observe(id) {
-      holders.get(id)?.source.observe?.();
+    observe(sessionId, id) {
+      const holder = holders.get(id);
+      const source = holder?.current.sessionId === sessionId ? holder.source : undefined;
+      if (source?.observe === undefined) return false;
+      source.observe();
+      return true;
     },
     close,
-    async closeAll() {
-      await Promise.all([...holders.keys()].map(close));
+    closeAll() {
+      shutdown ??= (async () => {
+        await Promise.all([...holders.keys()].map(retire));
+        while (retirements.size > 0) await Promise.all([...retirements]);
+      })();
+      return shutdown;
     },
   };
 }
