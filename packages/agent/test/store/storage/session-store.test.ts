@@ -11,7 +11,8 @@ import { actionPayloadBytes } from "../../../src/core/store/action-hash";
 import { SchemaRefused } from "../../../src/core/store/errors";
 import { openSessionStore, SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 import { runLedgerSync } from "../helpers/effect";
-import { testNow } from "../helpers/storage";
+import { materializeSession } from "../helpers/session";
+import { testNow, withDiskStores } from "../helpers/storage";
 import { expectBusyBeforeSchema, policyFixture } from "./store-fixtures";
 
 function tableCensus(path: string): Array<{ name: string }> {
@@ -106,27 +107,12 @@ test("openSessionStore rejects a corrupt payload instead of returning a handle",
 });
 
 test("createSessionKernel serves session facts from the session file and policy rows from the catalog", () => {
-  const directory = mkdtempSync(join(tmpdir(), "session-store-"));
-  const session = openSessionStore(join(directory, "s1.sqlite"), { now: testNow });
-  const catalog = openCatalogStore(join(directory, "catalog.sqlite"), { now: testNow });
-  try {
-    const kernel = createSessionKernel(session, catalog);
-    const created = runLedgerSync(
-      kernel.materialize({
-        id: "s1",
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 0,
-        actionId: "s1:configure",
-        at: 1,
-      }),
-    );
-    expect(created.row).toMatchObject({ id: "s1", state: "idle" });
+  withDiskStores("session-store", ({ session, catalog, kernel }) => {
+    const created = materializeSession(kernel, "s1");
+    expect(created).toMatchObject({ id: "s1", state: "idle" });
 
     const adopted = runLedgerSync(
-      kernel.adoptFence({ sessionId: "s1", owner: "owner", fence: created.row.fence + 1 }),
+      kernel.adoptFence({ sessionId: "s1", owner: "owner", fence: created.fence + 1 }),
     );
     expect(adopted).toEqual({ ok: true, fence: 1 });
 
@@ -181,11 +167,7 @@ test("createSessionKernel serves session facts from the session file and policy 
     // The input-queue-table plane is gone (W5.2 #1197): pending work is a pure
     // projection over undelivered prompt actions, and a fresh file has none.
     expect(kernel.pendingMessages("s1")).toEqual([]);
-  } finally {
-    session.close();
-    catalog.close();
-    rmSync(directory, { recursive: true });
-  }
+  });
 });
 
 // ─── #1347 row payload cap at the append boundary ───
@@ -325,12 +307,7 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
 });
 
 test("#1347 row cap covers schema-exempt checkpoint rows and the materialize genesis row", () => {
-  const directory = mkdtempSync(join(tmpdir(), "session-store-"));
-  const path = join(directory, "s3.sqlite");
-  const session = openSessionStore(path, { now: testNow, rowByteCap: 512 });
-  const catalog = openCatalogStore(join(directory, "catalog.sqlite"), { now: testNow });
-  try {
-    const kernel = createSessionKernel(session, catalog);
+  withDiskStores("session-store", ({ session, kernel, path }) => {
     // An oversized genesis row never creates the session: no row, no chain.
     const genesis = runLedgerSync(
       Effect.flip(
@@ -350,20 +327,9 @@ test("#1347 row cap covers schema-exempt checkpoint rows and the materialize gen
     expect(session.sessions.get("s3")).toBeUndefined();
     expect(chainHead(path)).toEqual({ count: 0, head: null });
 
-    const created = runLedgerSync(
-      kernel.materialize({
-        id: "s3",
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 0,
-        actionId: "s3:configure",
-        at: 1,
-      }),
-    );
+    const created = materializeSession(kernel, "s3");
     const adopted = runLedgerSync(
-      kernel.adoptFence({ sessionId: "s3", owner: "owner", fence: created.row.fence + 1 }),
+      kernel.adoptFence({ sessionId: "s3", owner: "owner", fence: created.fence + 1 }),
     );
     const settled = chainHead(path);
     const checkpoint: LedgerAction.Append = {
@@ -391,9 +357,5 @@ test("#1347 row cap covers schema-exempt checkpoint rows and the materialize gen
     );
     expect(refused).toMatchObject({ _tag: "SchemaRefused", kind: "fold.checkpoint", reason: "row_bytes" });
     expect(chainHead(path)).toEqual(settled);
-  } finally {
-    session.close();
-    catalog.close();
-    rmSync(directory, { recursive: true });
-  }
+  }, { sessionFile: "s3.sqlite", session: { rowByteCap: 512 } });
 });
