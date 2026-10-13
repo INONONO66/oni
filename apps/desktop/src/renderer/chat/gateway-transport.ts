@@ -30,10 +30,16 @@ interface GatewayChatTransportOptions {
   /** Injected in tests. Defaults to the platform `WebSocket`. */
   readonly WebSocketImpl?: SocketConstructor;
   readonly onSessionBound?: (chatId: string, sessionId: string) => void;
+  /** One deadline for opening the socket and receiving an automation reply. */
+  readonly automationTimeoutMs?: number;
 }
 
 const serverFrameSchema = z.union([
   Ingress.AutomationResponse,
+  // A correlated but malformed reply must reject its waiter, not disappear or reach chat.
+  z.object({ requestId: z.string() }).transform(({ requestId }) => ({
+    type: "invalid_automation_response" as const, requestId,
+  })),
   SessionRead.Response,
   SessionRead.Receipt,
   SessionRead.Bound,
@@ -227,11 +233,15 @@ export function createGatewayChatTransport(
     options.onSessionBound?.(chatId, result.handle.target);
   }
 
-  function settleAutomation(source: SocketLike, frame: Ingress.AutomationResponse): void {
+  function settleAutomation(source: SocketLike, frame: Extract<ServerFrame, { requestId: string }>): void {
     const entry = automations.get(frame.requestId);
     if (entry?.socket !== source) return;
     automations.delete(frame.requestId);
-    for (const waiter of entry.waiters) waiter.resolve(frame);
+    if (frame.type === "invalid_automation_response") {
+      rejectWaiters(entry.waiters, new GatewayUnavailableError("Invalid automation response"));
+    } else {
+      for (const waiter of entry.waiters) waiter.resolve(frame);
+    }
   }
 
   function settle(source: SocketLike, frame: ServerFrame): void {
@@ -337,22 +347,29 @@ export function createGatewayChatTransport(
     responseType: Type,
   ): Promise<AutomationReply<Type>> {
     const request = Ingress.AutomationRequest.parse({ ...input, requestId: options.id() });
-    const live = await connectUntilAborted(undefined);
-    if (live === undefined) throw new GatewayUnavailableError("gateway socket unavailable");
-    const response = await new Promise<Ingress.AutomationResponse>((resolve, reject) => {
-      automations.set(request.requestId, { socket: live, waiters: [{ resolve, reject }] });
-      try {
-        live.send(JSON.stringify(request));
-      } catch (error) {
-        automations.delete(request.requestId);
-        reject(error instanceof Error ? error : new GatewayUnavailableError(String(error)));
-      }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new GatewayUnavailableError("Automation request timed out")), options.automationTimeoutMs ?? 15_000);
     });
-    if ("reason" in response) throw new AutomationRefusedError(response);
-    if (!isAutomationReply(response, responseType)) {
-      throw new GatewayUnavailableError(`Unexpected automation response: ${response.type}`);
+    try {
+      const live = await Promise.race([connectUntilAborted(undefined), deadline]);
+      if (live === undefined) throw new GatewayUnavailableError("gateway socket unavailable");
+      const reply = new Promise<Ingress.AutomationResponse>((resolve, reject) => {
+        automations.set(request.requestId, { socket: live, waiters: [{ resolve, reject }] });
+        live.send(JSON.stringify(request));
+      });
+      const response = await Promise.race([reply, deadline]);
+      if ("reason" in response) throw new AutomationRefusedError(response);
+      if (!isAutomationReply(response, responseType)) {
+        throw new GatewayUnavailableError(`Unexpected automation response: ${response.type}`);
+      }
+      return response;
+    } catch (error) {
+      throw error instanceof Error ? error : new GatewayUnavailableError(String(error));
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      automations.delete(request.requestId);
     }
-    return response;
   }
 
   return {

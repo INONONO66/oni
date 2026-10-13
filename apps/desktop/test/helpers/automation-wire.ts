@@ -98,7 +98,10 @@ export function createAutomationFixture(
       });
     }
     deliver(response: Ingress.AutomationResponse) {
-      for (const listener of this.messages) listener({ data: JSON.stringify(Ingress.AutomationResponse.parse(response)) });
+      this.deliverRaw(JSON.stringify(Ingress.AutomationResponse.parse(response)));
+    }
+    deliverRaw(data: string) {
+      for (const listener of this.messages) listener({ data });
     }
     close() {
       this.readyState = 3;

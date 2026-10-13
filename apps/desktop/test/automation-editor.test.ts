@@ -1,8 +1,37 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { act, createElement } from "react";
 import { AutomationView } from "../src/renderer/automation/view";
+import { GatewayUnavailableError } from "../src/renderer/errors";
 import { automationRenderer } from "./helpers/automation-renderer";
 import { automationRecord, createAutomationFixture } from "./helpers/automation-wire";
+
+test.each(["timeout", "malformed"] as const)("list controls recover after an automation %s", async (failure) => {
+  let hold = true;
+  const fixture = createAutomationFixture([automationRecord], [], (request) => hold && request.type === "automation_disable" ? "hold" : undefined);
+  const ui = automationRenderer();
+  jest.useFakeTimers();
+  try {
+    await ui.render(createElement(AutomationView, { transport: fixture.transport, sessions: [], id: () => "new" }));
+    const sent = fixture.nextRequest();
+    await ui.click("Disable");
+    const request = await sent;
+    expect([...ui.host.querySelectorAll("button")].every((button) => button.disabled)).toBe(true);
+    await act(async () => {
+      if (failure === "timeout") jest.advanceTimersByTime(15_000);
+      else fixture.sockets[0]?.deliverRaw(JSON.stringify({ type: "automation_disabled", requestId: request.requestId, record: null }));
+    });
+    expect(ui.client.getMutationCache().getAll().at(-1)?.state.error).toBeInstanceOf(GatewayUnavailableError);
+    expect(ui.host.querySelector('[role="alert"]')).not.toBeNull();
+    expect([...ui.host.querySelectorAll("button")].every((button) => !button.disabled)).toBe(true);
+    hold = false;
+    await ui.click("Disable");
+    expect(fixture.records.get(automationRecord.id)?.enabled).toBe(false);
+  } finally {
+    for (const socket of fixture.sockets) socket.close();
+    jest.useRealTimers();
+    await ui.close();
+  }
+});
 
 test("local validation associates nested issues with their controls before sending", async () => {
   const fixture = createAutomationFixture();

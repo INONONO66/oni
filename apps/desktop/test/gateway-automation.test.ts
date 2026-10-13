@@ -1,6 +1,49 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { AutomationRefusedError, GatewayUnavailableError } from "../src/renderer/errors";
 import { automationRecord, createAutomationFixture } from "./helpers/automation-wire";
+
+test("unanswered automation requests expire without closing the socket and can retry", async () => {
+  let hold = true;
+  const fixture = createAutomationFixture([], [], () => hold ? "hold" : undefined);
+  jest.useFakeTimers();
+  try {
+    const sent = fixture.nextRequest();
+    const result = fixture.transport.automationList().catch((error: Error) => error);
+    const request = await sent;
+    jest.advanceTimersByTime(15_000);
+    expect(await result).toBeInstanceOf(GatewayUnavailableError);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(fixture.sockets[0]?.readyState).toBe(1);
+    fixture.sockets[0]?.deliver({ type: "automation_listed", requestId: request.requestId, records: [automationRecord] });
+    hold = false;
+    expect((await fixture.transport.automationList()).records).toEqual([]);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    for (const socket of fixture.sockets) socket.close();
+    jest.useRealTimers();
+  }
+});
+
+test.each([
+  { type: "automation_listed", records: [], extra: true },
+  { type: "automation_list_refused", reason: "new_reason", detail: "Invalid reply" },
+  { type: "automation_listed", records: "malformed" },
+  { type: "error", message: "Request failed" },
+])("malformed correlated reply $type rejects promptly with a typed failure", async (reply) => {
+  const fixture = createAutomationFixture([], [], () => "hold");
+  jest.useFakeTimers();
+  try {
+    const sent = fixture.nextRequest();
+    const result = fixture.transport.automationList().catch((error: Error) => error);
+    const request = await sent;
+    fixture.sockets[0]?.deliverRaw(JSON.stringify({ ...reply, requestId: request.requestId }));
+    expect(await result).toBeInstanceOf(GatewayUnavailableError);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    for (const socket of fixture.sockets) socket.close();
+    jest.useRealTimers();
+  }
+});
 
 test("correlates simultaneous automation replies and rejects invalid requests before sending", async () => {
   const fixture = createAutomationFixture();
