@@ -7,7 +7,7 @@ import { CommitRefused } from "../../src/core/store/errors";
 import { CommitFailed } from "../../src/core/ports/failure";
 import type { ExecutorOptions } from "../../src/core/loop/executor";
 import { createRetryAlarmPort, type AlarmFired } from "../../src/core/ports/alarm";
-import type { RetryAlarmDeps } from "../../src/core/ports/alarm-ports";
+import type { RetryAlarmDeps } from "../../src/core/ports/alarm";
 
 // Type-level drop-in proof: the chain-backed port replaces the timer port.
 type RetryPortSlot = NonNullable<ExecutorOptions["retryAlarm"]>;

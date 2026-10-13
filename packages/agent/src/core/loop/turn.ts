@@ -13,7 +13,8 @@ import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfi
 import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "../journal/message-factory";
 import type { CompactionPort, CompactionReason, CompactionYield } from "../ports/compaction-ports";
 import * as Retry from "./retry";
-import { type RetryReason, type TerminalReason, failureFacts, MAX_ATTEMPTS, observeRetry } from "./retry";
+import { failureFacts, MAX_ATTEMPTS, observeRetry } from "./retry";
+import type { RetryReason, TerminalReason } from "../ports/reason-codes";
 import { buildSystemPrompt, prepareTurnTools, settleModelTools, assertToolExecutor, assertUnambiguousToolMetadata } from "./tool";
 import { Entropy, ObservationSink } from "../ports/ports";
 import { measuredContextTokens } from "../ports/measure";

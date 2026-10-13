@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { selectModel } from "../../src/core/loop/model-select";
-import type { RetryReason } from "../../src/core/loop/retry";
+import type { RetryReason } from "../../src/core/ports/reason-codes";
 
 const REASONS = [
   "timeout",

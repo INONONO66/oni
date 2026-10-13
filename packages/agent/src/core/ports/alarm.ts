@@ -2,10 +2,36 @@ import { Effect, Schema } from "effect";
 import { seam } from "./capability";
 import { interruptOn } from "./ports";
 import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
-import type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
+import type { CommitFailed } from "./failure";
 import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "../journal/messages";
 
-export type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
+/**
+ * `arm` commits the `alarm{arm}` chain row then forwards the occurrence; `wait` keeps the
+ * in-process residual sleep; `settle` retires the chain so a completed attempt leaves no open
+ * alarm.
+ */
+export interface RetryAlarmPort {
+  arm(input: {
+    /** The chain id is `<id>:retry`. */
+    readonly id: string;
+    readonly attempt: number;
+    readonly reason: string;
+    readonly fireAt: number;
+  }): Effect.Effect<void, CommitFailed>;
+  wait(fireAt: number, signal?: AbortSignal): Effect.Effect<void>;
+  settle(input: {
+    readonly id: string;
+    readonly attempt: number;
+  }): Effect.Effect<void, CommitFailed>;
+}
+
+export interface RetryAlarmDeps {
+  readonly sessionId: string;
+  readonly commitArm: (action: LedgerAction.Append) => Effect.Effect<void, CommitFailed>;
+  /** Default void. */
+  readonly send: (occurrence: AlarmFired) => Effect.Effect<void, CommitFailed>;
+  readonly clock: () => number;
+}
 
 /**
  * Timer plane over cluster DeliverAt (): a persisted timer message is

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BusEvent, Token } from "@openomni/protocol";
-import { RetryReason } from "../loop/retry";
+import { RetryReason } from "../ports/reason-codes";
 
 const AgentBase = z.object({
   traceId: z.string(),

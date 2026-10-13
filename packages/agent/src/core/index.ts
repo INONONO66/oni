@@ -13,7 +13,7 @@ export {
 } from "./ports/llm";
 export * from "./ports/failure";
 export * from "./ports/ports";
-export * from "./ports/alarm-ports";
+export type { RetryAlarmPort, RetryAlarmDeps } from "./ports/alarm";
 export type { CompactionOptions, CompactionSeamService } from "./ports/compaction-ports";
 export {
   createExecutor, ExecutionApprovalError, ExecutorContext, executorContext, ExecutorContextError,

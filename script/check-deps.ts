@@ -8,8 +8,9 @@ import ts from "typescript";
 import { z } from "zod";
 import { PlainValueSchema } from "../packages/protocol/src/json.js";
 import { commandOutput } from "./command-output";
+import { valueImportSpecifiers } from "./check-import-cycles";
 import { runScriptMain } from "./main-runner";
-import { assertTopologyComplete, TOPOLOGY, type WorkspaceTopology } from "./topology";
+import { AGENT_CORE_EDGES, assertTopologyComplete, TOPOLOGY, type WorkspaceTopology } from "./topology";
 
 type PackageRule = {
   displayName: string;
@@ -966,7 +967,7 @@ export function agentBandViolations(filePath: string, source: string): string[] 
   const band = agentBandOf(filePath);
   const rules = band === undefined ? undefined : AGENT_BANDS[band];
   if (band === undefined || rules === undefined) return [];
-  const violations: string[] = [];
+  const violations = agentCoreValueViolations(filePath, source);
   if (band === "plugins") {
     const plugin = filePath.slice(AGENT_SRC_PREFIX.length).split("/")[1] ?? "";
     if (!(AGENT_PLUGINS as readonly string[]).includes(plugin)) {
@@ -994,6 +995,28 @@ export function agentBandViolations(filePath: string, source: string): string[] 
         `VIOLATION: ${filePath}:${line} names ambient authority ${match[0]} — #1247 bands: ${band}/ takes clock/entropy/config through ports`,
       );
     }
+  }
+  return violations;
+}
+
+function agentCoreValueViolations(filePath: string, source: string): string[] {
+  const prefix = `${AGENT_SRC_PREFIX}core/`;
+  if (!filePath.startsWith(prefix)) return [];
+  const rest = filePath.slice(prefix.length);
+  if (rest === "api.ts" || rest === "index.ts") return [];
+  const importer = rest.split("/")[0] ?? "";
+  const allowed = AGENT_CORE_EDGES[importer];
+  if (allowed === undefined) return [];
+  const violations: string[] = [];
+  for (const spec of valueImportSpecifiers(source)) {
+    if (!spec.startsWith(".")) continue;
+    const resolved = resolveAgentRelative(filePath, spec);
+    if (!resolved.startsWith(prefix)) continue;
+    const target = resolved.slice(prefix.length).split("/")[0] ?? "";
+    if (target === importer || allowed.includes(target)) continue;
+    violations.push(
+      `VIOLATION: ${filePath} imports ${spec} — #1354 core value edges: ${importer}/ may not import ${target}`,
+    );
   }
   return violations;
 }

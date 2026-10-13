@@ -1,6 +1,8 @@
 import { DateTime, PrimaryKey, Schema } from "effect";
 import { ClusterSchema, DeliverAt } from "effect/cluster";
 import { Rpc } from "effect/rpc";
+import { AdmissionFailure } from "../ports/failure";
+export { AdmissionFailure } from "../ports/failure";
 
 /**
  * The three writer RPCs are persisted and acked only after the ledger commit,
@@ -21,13 +23,6 @@ export class SessionPolicyRefusal {
     return "session policy refused";
   }
 }
-
-/** Both codes refuse THIS delivery attempt only — the persisted envelope redelivers. */
-export class AdmissionFailure extends Schema.TaggedError<AdmissionFailure>(
-  "@openomni/agent/cluster/AdmissionFailure",
-)("AdmissionFailure", {
-  code: Schema.Literals(["revision", "shutdown"]),
-}) {}
 
 /** A closed code set; a rejection appends nothing: zero journal facts ride a refused delivery. */
 export class DeliverRefused extends Schema.TaggedError<DeliverRefused>(

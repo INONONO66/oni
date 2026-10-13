@@ -1,9 +1,15 @@
-import { Data, Cause, Option } from "effect";
+import { Data, Cause, Option, Schema } from "effect";
 import type { StopVerdict } from "../loop/turn";
 import type { LedgerError } from "../store/errors";
-import { AdmissionFailure } from "../journal/messages";
 import { LlmRunFailure } from "./llm";
 import type { LedgerSession } from "@openomni/protocol";
+
+/** Both codes refuse THIS delivery attempt only — the persisted envelope redelivers. */
+export class AdmissionFailure extends Schema.TaggedError<AdmissionFailure>(
+  "@openomni/agent/cluster/AdmissionFailure",
+)("AdmissionFailure", {
+  code: Schema.Literals(["revision", "shutdown"]),
+}) {}
 
 /** Machine stop verdicts are typed execution failures, never defects. */
 export class AgentStopError extends Data.TaggedError("AgentStopError")<{
@@ -174,7 +180,7 @@ export type ExecutionError =
   | AgentStopError;
 
 export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError | AdmissionFailure;
-export { AdmissionFailure, LlmRunFailure };
+export { LlmRunFailure };
 
 export function fromCause<E, F>(cause: Cause.Cause<E>, synthesize: (pretty: string) => F): E | F {
   return Option.getOrElse(Cause.findErrorOption(cause), () => synthesize(pretty(cause)));
