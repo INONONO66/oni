@@ -11,11 +11,7 @@ import {
 } from "@openomni/protocol";
 import { z } from "zod";
 
-/**
- * The fold/hydrate ports the pin needs (#1307). The plugin band may not
- * import the inspect band's history module; composition (`bundle.ts`) wires
- * the real functions in when it builds the capability.
- */
+/** The plugin band may not import the inspect band's history module; composition wires the real fold/hydrate functions in. */
 export interface CompactionHistoryPorts {
   readonly fold: (
     sessionId: string,

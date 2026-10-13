@@ -18,14 +18,10 @@ export {
 } from "./process";
 
 /**
- * The removable `plugins/hook` capability (#1256): no journal kind, no point,
- * no input, no model tool — exactly one `how.ref` handler target
- * (`hook/process`) other declarations reference, plus the scoped
- * process-acquisition verb the product composes inside a generation's Scope.
- * `requires: ["action"]` is a seam NAME resolved by compose, never an import:
- * hook results re-enter the session only as `action` rows through the entity
- * `deliver` path, so turning `action` off cascades `hook` (and every bundle
- * over it) off with the root recorded as `because`.
+ * The removable hook capability: no kind, point, input or model tool —
+ * exactly one `how.ref` handler target (`hook/process`) plus the scoped
+ * process-acquisition verb. `requires: ["action"]` is a seam NAME: hook
+ * results re-enter only as `action` rows, so `action` off cascades `hook` off.
  */
 
 /** The seam a product bundle's `requires` resolves against at compose. */
@@ -37,13 +33,12 @@ export interface HookVerbs {
   readonly acquire: typeof acquireHookProcess;
 }
 
-/** The hook capability's `Capability.define` contract (#1256). */
 export function hookCapability(): CapabilityDefinition<"hook", SeamTag, HookVerbs> {
   return Capability.define({
     name: "hook",
     requires: ["action"],
-    // #1256 r2 H-1: the registration IS the consultant — compiled rows naming
-    // `hook/process` consult the scoped process the composition acquires here.
+    // The registration IS the consultant — compiled rows naming `hook/process`
+    // consult the scoped process the composition acquires here.
     handlers: { [HOOK_PROCESS_REF]: { consultant: hookProcessConsultant } },
     verbs: { acquire: acquireHookProcess },
     seam: HookSeam,

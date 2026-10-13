@@ -12,39 +12,26 @@ import {
 } from "../../core/api";
 
 /**
- * Watch plane over the #1254 alarm lifecycle: a watch is an armed alarm
- * (`alarmId = watchId`, `sourceKey: "monitor"`) whose payload carries the
- * sealed spec and the wake budget consumed so far. A native occurrence
- * arrives as a `monitor.hit` wake; re-arm is a new `arm` with `supersedes`;
- * retiring is an `at: null` arm — there is no cancel action and no generation counter.
- * Timed watches arm a second alarm (`alarmId = <watchId>:timeout`) consumed
- * by `monitor.timeout`.
+ * A watch is an armed alarm (`alarmId = watchId`, `sourceKey: "monitor"`)
+ * whose payload carries the sealed spec and the wake budget spent so far;
+ * re-arm is `arm` with `supersedes`, retire is an `at: null` arm.
  */
 
-/** The watch plane's two purposes (the body's `monitor.hit`; `watch.*` literals are gone). */
 export const MONITOR_HIT = "monitor.hit";
 export const MONITOR_TIMEOUT = "monitor.timeout";
-/** Occurrence-minter source key for every watch-plane arm. */
 export const MONITOR_SOURCE = "monitor";
 
-/** One registered purpose handler: the capability's wake dispatch target. */
 export type AlarmPurposeHandler = (input: {
   readonly fired: AlarmFired;
   readonly ctx: AlarmWakeContext;
 }) => Effect.Effect<AlarmWakeOutcome, AlarmWakeError>;
 
-/** One purpose a bundle declares through the capability. */
 export interface AlarmPurposeDeclaration {
   readonly name: string;
   readonly handler: AlarmPurposeHandler;
 }
 
-/**
- * The arm payload of a watch chain, plus the native hit detail the source
- * adapter merges onto the occurrence it (re)sends. `notifications` is the
- * budget consumed by committed wakes — budget state rides the chain, never
- * process memory.
- */
+/** `notifications` is the budget consumed by committed wakes — budget state rides the chain, never process memory. */
 export const WatchHitPayload = z
   .object({
     spec: Alarm.WatchSpec,
@@ -53,7 +40,7 @@ export const WatchHitPayload = z
       .object({
         content: z.string(),
         terminal: z.boolean(),
-        /** Transport detail (PTY line slot, path stat identity, exit) — never an id. */
+        /** Transport detail, never an id. */
         detail: z.string(),
       })
       .strict()
@@ -64,19 +51,17 @@ export type WatchHitPayload = z.infer<typeof WatchHitPayload>;
 
 const WatchTimeoutPayload = z.object({ watchId: z.string().min(1) }).strict();
 
-/** Typed watch-verb refusal (spec or native-source install). */
 export class WatchRefused extends Schema.TaggedError<WatchRefused>(
   "@openomni/agent/plugins/alarm/WatchRefused",
 )("WatchRefused", {
   reason: Schema.String,
 }) {}
 
-/** The core's alarm-originated prompt verb (`AlarmWakeContext.prompt`; origin `alarm` is fixed by the core). */
+/** Origin `alarm` is fixed by the core. */
 export type AlarmPromptVerb = AlarmWakeContext["prompt"];
 
-/** What the wake handlers need from the app: the native-source closer (the prompt rides the wake context). */
 export interface WatchWakeDeps {
-  /** Fire-and-forget close of the process-local native source. */
+  /** Fire-and-forget. */
   readonly close: (watchId: string) => void;
   /** Product routing for an observed wake; absent keeps the local prompt behavior. */
   readonly prompt?: (
@@ -90,18 +75,13 @@ function promptWake(deps: WatchWakeDeps, fired: AlarmFired, ctx: AlarmWakeContex
   return deps.prompt === undefined ? ctx.prompt(input).pipe(Effect.asVoid) : deps.prompt(fired, ctx, input);
 }
 
-/**
- * Install seam for the native source adapter (PTY command / fs path / machine
- * terminal). It settles only once the source has subscribed, so the watch verb
- * — and the tool `create` above it — returns after subscription (#1273): no
- * line emitted between the tool's return and the subscribe can be lost.
- */
+/** Settles only once the source has subscribed, so the watch verb returns after subscription and no line between the tool's return and the subscribe is lost. */
 export interface WatchInstallDeps {
   readonly install: (input: {
     readonly sessionId: string;
     readonly watchId: string;
     readonly spec: Alarm.WatchSpec;
-    /** The armed occurrence a native hit resends (the cluster dedupes on it). */
+    /** The cluster dedupes on it. */
     readonly occurrence: {
       readonly occurrenceId: string;
       readonly alarmId: string;
@@ -124,7 +104,6 @@ function armToWake(fired: AlarmFired): (refused: ArmRefused) => AlarmWakeError {
   return (refused) => new AlarmWakeError({ purpose: fired.purpose, reason: refused.code });
 }
 
-/** Retires a watch chain: an `at: null` arm superseding the named occurrence. */
 function retire(
   ctx: AlarmWakeContext,
   fired: AlarmFired,
@@ -144,10 +123,7 @@ function retire(
     .pipe(Effect.mapError(armToWake(fired)), Effect.asVoid);
 }
 
-/**
- * A settled watch leaves no armed row behind (#1254 H5a): retire the
- * `<watchId>:timeout` companion when it is still armed.
- */
+/** A settled watch leaves no armed row behind: retire the timeout companion while it is still armed. */
 function retireTimeoutCompanion(
   ctx: AlarmWakeContext,
   fired: AlarmFired,
@@ -167,11 +143,7 @@ function retireTimeoutCompanion(
     .pipe(Effect.mapError(armToWake(fired)), Effect.asVoid);
 }
 
-/**
- * `monitor.hit`: commit the wake prompt, then either retire (terminal hit),
- * exhaust (budget spent — the core records `fired{exhausted}` from the
- * returned outcome), or re-arm with `supersedes` and the spent budget.
- */
+/** Commit the wake prompt, then retire (terminal hit), exhaust (the core records `fired{exhausted}`), or re-arm with `supersedes` and the spent budget. */
 function monitorHit(deps: WatchWakeDeps): AlarmPurposeHandler {
   return ({ fired, ctx }) =>
     Effect.gen(function* () {
@@ -207,12 +179,7 @@ function monitorHit(deps: WatchWakeDeps): AlarmPurposeHandler {
     });
 }
 
-/**
- * `monitor.timeout`: one terminal wake that retires the main watch chain.
- * A settled main chain (retired or never armed) gets no prompt and no arm —
- * the occurrence lapses as `exhausted` (fired{exhausted}, no drain wake), so
- * a completed watch is never woken again (#1254 H5b).
- */
+/** A settled main chain gets no prompt and no arm — the occurrence lapses as `exhausted` so a completed watch is never woken again. */
 function monitorTimeout(deps: WatchWakeDeps): AlarmPurposeHandler {
   return ({ fired, ctx }) =>
     Effect.gen(function* () {
@@ -229,7 +196,6 @@ function monitorTimeout(deps: WatchWakeDeps): AlarmPurposeHandler {
     });
 }
 
-/** The watch plane's purpose declarations — the monitor bundle hands these to the capability. */
 export function watchPurposes(deps: WatchWakeDeps): readonly AlarmPurposeDeclaration[] {
   return [
     { name: MONITOR_HIT, handler: monitorHit(deps) },
@@ -237,10 +203,9 @@ export function watchPurposes(deps: WatchWakeDeps): readonly AlarmPurposeDeclara
   ];
 }
 
-/** The `watch` verb: validate the sealed spec, arm the chain(s), install the native source. */
 export type WatchVerb = (input: {
   readonly sessionId: string;
-  /** #1254 r2 H3: the calling turn's token — the arm authority check rides it. */
+  /** The arm authority check rides the calling turn's token. */
   readonly turnId: string;
   readonly watchId: string;
   readonly spec: Alarm.WatchSpec;
@@ -250,11 +215,7 @@ export type WatchVerb = (input: {
   ArmRefused | WatchRefused
 >;
 
-/**
- * Create-compensation retire (#1254 r2 H2): best effort, never masking — a
- * refused compensating retire is logged and the original refusal still
- * reaches the caller (the armed row stands for the boot sweep of last resort).
- */
+/** Best effort, never masking: a refused compensating retire is logged and the original refusal still reaches the caller. */
 function retireCommitted(
   arm: ArmVerb,
   chain: {
@@ -284,12 +245,10 @@ export function createWatchVerb(
   deps: WatchInstallDeps,
 ): WatchVerb {
   return (input) => {
-    // #1254 r4 H1: mint the authorizing arm when the watch verb is INVOKED,
-    // before any suspension — the registry binds authority at mint time, so a
-    // watch effect built under one activation and executed after a successor
-    // registered (recovery keeps the durable turn id) refuses
-    // `stale_activation` instead of committing through the successor. The one
-    // captured verb authorizes the arms AND the compensating retires below.
+    // Mint the authorizing arm when the verb is INVOKED, before any suspension:
+    // the registry binds authority at mint time, so an effect executed after a
+    // successor registered refuses `stale_activation` instead of committing
+    // through it. This one verb authorizes the arms AND the retires below.
     const arm = armFor(input.sessionId, input.turnId);
     return Effect.gen(function* () {
       const parsed = Alarm.WatchSpec.safeParse(input.spec);
@@ -298,7 +257,7 @@ export function createWatchVerb(
           reason: parsed.error.issues[0]?.message ?? "invalid watch spec",
         });
       const spec = parsed.data;
-      // The first commit: before it succeeds nothing needs compensation.
+      // Before the first commit succeeds nothing needs compensation.
       const main = yield* arm({
         purpose: MONITOR_HIT,
         at: input.now,
@@ -306,13 +265,9 @@ export function createWatchVerb(
         sourceKey: MONITOR_SOURCE,
         payload: { spec, notifications: 0 },
       });
-      // #1254 r2 H2: EVERY step after the first successful arm runs inside one
-      // compensating path. A refusal anywhere past that point — the timeout
-      // arm (e.g. `alarm_budget` at the last free slot) or the awaited native
-      // install — retires exactly the chains that committed, so a partially
-      // created watch never stays armed, and the caller receives the ORIGINAL
-      // typed refusal. The retiring arm's post-commit notice closes any
-      // native handle the entity's concurrent fresh-arm forward installed.
+      // A refusal anywhere past the first successful arm retires exactly the
+      // chains that committed, so a partially created watch never stays armed
+      // and the caller receives the ORIGINAL typed refusal.
       const committed: { timeout?: { alarmId: string; occurrenceId: string } } = {};
       const remainder = Effect.gen(function* () {
         if (spec.watch.timeout_ms !== undefined)
@@ -323,9 +278,7 @@ export function createWatchVerb(
             sourceKey: MONITOR_SOURCE,
             payload: { watchId: input.watchId },
           });
-        // A chain whose native source never subscribed is retired, not left
-        // armed: the refusal reaches the caller and no row waits for a hit
-        // that cannot arrive.
+        // A chain whose native source never subscribed is retired, not left armed.
         yield* deps.install({
           sessionId: input.sessionId,
           watchId: input.watchId,

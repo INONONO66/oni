@@ -18,18 +18,12 @@ import {
 } from "./process";
 
 /**
- * The hook capability's gate consultant (#1256 r2, H-1): the named service a
- * composed `how.ref: "hook/process"` row consults. The composition acquires
- * it inside the generation Layer's Scope: every distinct command configured
- * on the generation's hook rows spawns its ONE PID eagerly, so a hook that
- * cannot spawn refuses the whole generation (typed candidate failure) instead
- * of partially activating. At decision time the consultant writes one JSON
- * request line and folds the typed outcome into the gate's prepared-result
- * channel — every failure (timeout, framing, exit, bad params) folds to deny
- * with `reason: "bundle_failure"`, never a widened verdict vocabulary.
+ * Every distinct command on the generation's hook rows spawns its ONE PID
+ * eagerly inside the generation Scope, so a hook that cannot spawn refuses
+ * the whole generation; every call failure folds to deny with
+ * `reason: "bundle_failure"`, never a widened verdict vocabulary.
  */
 
-/** The row params a hooks product compiles onto a `hook/process` row. */
 const HookRowParams = z.looseObject({
   event: z.string().min(1),
   command: z.array(z.string().min(1)).min(1),
@@ -37,11 +31,7 @@ const HookRowParams = z.looseObject({
   maxLineBytes: z.number().int().positive().optional(),
 });
 
-/**
- * #1256 r3 M-2: pool identity is the COMMAND (argv; cwd and env are not
- * configurable today) — one PID per distinct command per generation. Timeout
- * and framing bounds are per-call parameters on the request, never pool key.
- */
+/** Pool identity is the COMMAND (argv): timeout and framing bounds are per-call, never pool key. */
 function processKey(params: z.infer<typeof HookRowParams>): string {
   return canonicalDigest({ command: params.command });
 }
@@ -59,7 +49,6 @@ function denyResult(cause: string): GateHandlerResult {
   };
 }
 
-/** Folds one typed process outcome into the gate's prepared handler result. */
 function resultOf(outcome: HookOutcome): GateHandlerResult {
   switch (outcome.kind) {
     case "gate":
@@ -83,15 +72,11 @@ function resultOf(outcome: HookOutcome): GateHandlerResult {
   }
 }
 
-/**
- * The `ConsultantHandler` factory the hook capability registers under
- * `hook/process`. Late results (H-3) re-enter through `seed.late` as action
- * rows via the composition's deliver door; a seed without the port drops them.
- */
-/** Timed-out calls remembered for late correlation; older entries evict first. */
+/** Late results re-enter through `seed.late` as action rows; a seed without the port drops them. */
+/** Older entries evict first. */
 const LATE_WINDOW = 256;
 
-/** The PlainValue rendering of a late outcome; failures are never late (they WERE the fold). */
+/** Failures are never late: they WERE the fold. */
 function latePayloadOf(outcome: HookLateOutcome): PlainValue {
   switch (outcome.kind) {
     case "gate":
@@ -111,9 +96,8 @@ export function hookProcessConsultant(
   seed: ConsultantSeed,
 ): Effect.Effect<NamedConsultant["consult"], HookSpawnError, Scope.Scope> {
   return Effect.gen(function* () {
-    // #1256 H-3: calls that timed out, keyed by wire id with the journal
-    // cursor captured at CALL time — a late line re-enters the session as an
-    // `action` row carrying that `after` cursor through `seed.late`.
+    // Timed-out calls keyed by wire id with the journal cursor captured at
+    // CALL time: a late line re-enters as an `action` row carrying that `after`.
     const timedOut = new Map<string, number | null>();
     const lateWindow = seed.lateWindow ?? LATE_WINDOW;
     const rememberTimeout = (id: string, after: number | null): void => {
@@ -134,8 +118,8 @@ export function hookProcessConsultant(
         ...(after === null ? {} : { after }),
       });
     };
-    // One PID per distinct configured command, spawned EAGERLY in the
-    // generation's Scope: a missing executable refuses the generation.
+    // Spawned EAGERLY in the generation's Scope: a missing executable refuses
+    // the generation.
     const pool = new Map<string, HookProcess>();
     for (const row of seed.rows) {
       const params = HookRowParams.safeParse(row.how.params);
@@ -175,8 +159,7 @@ export function hookProcessConsultant(
               return resultOf(outcome);
             }),
           );
-        // #1256 r5 H-2: the call deadline runs on the seeded clock when one is
-        // injected (TestClock in tests), else the executing fiber's clock.
+        // The deadline runs on the seeded clock when one is injected (TestClock).
         return seed.clock === undefined ? call : Effect.provideService(call, Clock.Clock, seed.clock);
       });
   });

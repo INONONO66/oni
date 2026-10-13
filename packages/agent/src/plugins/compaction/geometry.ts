@@ -1,5 +1,4 @@
-// #1307: the geometry shapes are seam types the kernel also reads; the core
-// owns them and this module implements against them.
+// The geometry shapes are core-owned seam types; this module implements against them.
 import type {
   CompactionGeometry,
   CompactionGeometryInput as CompactionGeometryOptions,

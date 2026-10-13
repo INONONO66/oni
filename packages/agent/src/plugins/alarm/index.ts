@@ -18,8 +18,7 @@ import {
   type WatchVerb,
 } from "./watch";
 
-// The frozen core/api seam, surfaced through the Bundle namespace for the
-// app (the Core barrel does not export it; core/** is lane-untouchable).
+// The frozen core/api seam, surfaced through the Bundle namespace for the app.
 export {
   AlarmWakeError,
   ArmRefused,
@@ -46,24 +45,14 @@ export {
   type WatchWakeDeps,
 } from "./watch";
 
-/**
- * The removable `plugins/alarm` capability (#1254): purpose registry, wake
- * dispatch, the watch plane, and the `arm`/`watch` verbs. It imports only its
- * own plugin and `core/api.ts`; it never builds an `alarm` journal literal —
- * arming is always the injected `ArmVerb` (the run loop's commit path).
- */
+/** Imports only its own plugin and `core/api.ts`; never builds an `alarm` journal literal — arming is always the injected `ArmVerb`. */
 
-/** One bundle's purpose declarations (`requires: alarm`). */
 export interface AlarmBundlePurposes {
   readonly bundle: string;
   readonly purposes: readonly AlarmPurposeDeclaration[];
 }
 
-/**
- * Structural view of `Core.composeAlarmPurposes` — injected because a plugin
- * may import only `core/api.ts`, and the compose check stays Lane 1's single
- * implementation.
- */
+/** Injected because a plugin may import only `core/api.ts`. */
 export type ComposePurposesVerb<E> = (input: {
   readonly capabilities: readonly {
     readonly bundle: string;
@@ -74,22 +63,16 @@ export type ComposePurposesVerb<E> = (input: {
 export interface AlarmCapabilityOptions<E> {
   readonly bundles: readonly AlarmBundlePurposes[];
   readonly compose: ComposePurposesVerb<E>;
-  /**
-   * The app's committing arm verb, scoped to the session AND the calling
-   * turn (#1254 r2 H3): tool-facing arms carry the turn token the live
-   * activation checks; the capability only guards and delegates.
-   */
+  /** Scoped to the session AND the calling turn; the capability only guards and delegates. */
   readonly arm: (sessionId: string, turnId: string) => ArmVerb;
   readonly watch: WatchInstallDeps;
 }
 
-/** What the app composes: the #1255 `Capability.define` result plus the composed verbs. */
 export interface AlarmCapabilityDefinition extends AlarmCapability {
-  /** The frozen `Capability.define` contract (#1255 S1). */
   readonly definition: CapabilityDefinition<"alarm">;
   readonly name: "alarm";
   readonly points: readonly ["alarm.fired"];
-  /** purpose -> owning bundle; the core's reserved purposes map to "core". */
+  /** The core's reserved purposes map to "core". */
   readonly registry: ReadonlyMap<string, string>;
   readonly verbs: {
     readonly arm: (sessionId: string, turnId: string) => ArmVerb;
@@ -97,7 +80,7 @@ export interface AlarmCapabilityDefinition extends AlarmCapability {
   };
 }
 
-/** Reserved and unregistered purposes are typed arm refusals, never appends. */
+/** Reserved and unregistered purposes are typed refusals, never appends. */
 function guardArm(registry: ReadonlyMap<string, string>, raw: ArmVerb): ArmVerb {
   return (input) => {
     if (
@@ -111,13 +94,7 @@ function guardArm(registry: ReadonlyMap<string, string>, raw: ArmVerb): ArmVerb 
   };
 }
 
-/**
- * The alarm capability's `Capability.define` contract (#1255 S1): the verbs
- * are `arm` plus the watch verb composed over it. `alarmCapability` freezes
- * one per live on-set with the registry-guarded arm; the app's manifest lists
- * the purpose-free form (`purposes: {}`, raw arm) because the manifest's
- * bundle contracts declare their own purposes and compose rejects a duplicate.
- */
+/** The app's manifest lists the purpose-free form (`purposes: {}`, raw arm) because bundle contracts declare their own purposes and compose rejects a duplicate. */
 export function alarmContract(input: {
   readonly purposes: Readonly<Record<string, AlarmPurposeHandler>>;
   readonly arm: (sessionId: string, turnId: string) => ArmVerb;
@@ -133,12 +110,7 @@ export function alarmContract(input: {
   });
 }
 
-/**
- * The one export the app composes. Reserved/`rescan`/duplicate purpose names
- * are refused through the injected compose verb (no partial activation); the
- * wake dispatch routes a fired occurrence to its registered handler, and an
- * unregistered purpose is a typed wake failure with zero handler execution.
- */
+/** Reserved/`rescan`/duplicate purposes refuse with no partial activation; an unregistered purpose is a typed wake failure with zero handler execution. */
 export function alarmCapability<E>(
   options: AlarmCapabilityOptions<E>,
 ): Effect.Effect<AlarmCapabilityDefinition, E> {

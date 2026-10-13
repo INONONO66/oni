@@ -4,8 +4,7 @@ import { prepareSummarizerInput } from "./estimate";
 import { withSummarizerDeadline } from "./summary";
 import type { CompactionOptions } from "./compact";
 
-// #1307: the candidate shape is a seam type (the kernel passes it through
-// dispatch); the core owns it and this module re-exports the old name.
+// The candidate shape is a core-owned seam type; this module re-exports the old name.
 export type { CompactionCandidate } from "../../core/api";
 import type { CompactionCandidate, CompactionSessionConfig, CompactionSessionPort } from "../../core/api";
 
@@ -93,14 +92,11 @@ export class CompactionSession implements CompactionSessionPort {
   }
 
   /**
-   * Run-settle abort. v3 flushed the scheduler queue at every async
-   * resumption, so a preparation forked before the run's last async boundary
-   * always entered (its summarizer call was issued, then aborted) before the
-   * run's finalizer ran. v4 resumes fibers directly, bypassing the dispatcher
-   * queue, so grant the one start tick v3 guaranteed before interrupting.
-   * Direct abort() stays tick-free: v3 never started a fork that was aborted
-   * in the same synchronous continuation.
-   */
+     * Run-settle abort. v3 flushed the scheduler queue at every async resumption,
+     * so a preparation forked before the run's last async boundary always entered
+     * before the finalizer ran; v4 resumes fibers directly, so grant that one
+     * start tick before interrupting. Direct abort() stays tick-free.
+     */
   settleAbort(): Effect.Effect<void> {
     return Effect.yieldNow.pipe(Effect.andThen(this.abort()));
   }

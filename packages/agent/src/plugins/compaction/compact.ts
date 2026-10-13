@@ -22,21 +22,11 @@ export namespace Compaction {
     return totalTokens >= resolveThresholdTokens(options, previousYield);
   }
   /**
-   * @param identity The run whose history is being rewritten. A separate
-   * required parameter rather than a field on `options`: identity is a
-   * per-call fact, not configuration, and an optional field validated by a
-   * runtime throw gives the compiler nothing — which is how the caller that
-   * supplied none reached production.
-   * @param events Where the record of the rewrite goes. Beside the identity,
-   * not inside it: a destination is not something the trace says.
-   * @param dispatch What fired the seam and what was measured — per-dispatch
-   * facts the bracket records.
-   *
-   * The lock bracket: exactly one `agent.compaction.started` before any work
-   * and exactly one `agent.compaction.completed` as the last record on every
-   * exit path, a summarizer throw included. A started without a completed
-   * diagnoses a run that died inside compaction.
-   */
+     * `identity` is a required parameter rather than an optional field on
+     * `options` because an optional field validated by a runtime throw is how
+     * the caller that supplied none reached production. Exactly one `started`
+     * before any work and one `completed` as the last record on every exit.
+     */
   export function compact(
     messages: Message.WithParts[],
     options: ResolvedCompactionOptions,
@@ -51,9 +41,7 @@ export namespace Compaction {
       readonly trigger: "threshold" | "yield";
       readonly signal?: AbortSignal;
       readonly measuredTokens?: number;
-      /** A speculative candidate (L4): promoted with zero model calls when
-       * its canonical prefix is unchanged; otherwise the synchronous merge
-       * runs and the result reports the discard. */
+      /** Promoted with zero model calls when its canonical prefix is unchanged; otherwise the synchronous merge runs. */
       readonly candidate?: CompactionCandidate;
     },
   ): Effect.Effect<CompactionResult, ExecutionError, Entropy> {
@@ -125,9 +113,8 @@ export namespace Compaction {
         finish,
       ).pipe(Effect.onError((cause) => Effect.sync(() => {
       const message = pretty(cause);
-      // The one exit finish() cannot serve: the summarizer threw. The
-      // bracket still closes — `failed` is this operation's terminal — and
-      // the throw propagates unchanged into the seam's fail-closed contract.
+      // The summarizer threw: the bracket still closes with `failed` and the throw
+      // propagates unchanged into the seam's fail-closed contract.
       events.publish(RunEvents.CompactionCompleted, {
         ...identity,
         time: now(),

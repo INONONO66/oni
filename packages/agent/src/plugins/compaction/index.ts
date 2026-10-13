@@ -19,10 +19,7 @@ export { Compaction } from "./compact";
 export { CompactionSession } from "./speculate";
 export type { CompactionHistoryPorts } from "./successor";
 
-/**
- * The seam service (#1307): every member IS the module export the kernel used
- * to import directly — one frozen object, reached only through composition.
- */
+/** Every member IS the module export the kernel used to import directly — one frozen object, reached only through composition. */
 export function compactionSeamService(history: CompactionHistoryPorts): CompactionSeamService {
   return Object.freeze({
     protectRecent: DEFAULT_PROTECT_RECENT,
@@ -37,12 +34,7 @@ export function compactionSeamService(history: CompactionHistoryPorts): Compacti
   } satisfies CompactionSeamService);
 }
 
-/**
- * The removable `plugins/compaction` capability (#1307): no new journal kind
- * (`compaction` rows ship with the core fold), no point, no input, no model
- * tool — exactly the seam service the kernel's commit, restore, and run-loop
- * paths consume. Off = those paths skip compaction and record nothing new.
- */
+/** The removable compaction capability: no new kind, point, input or model tool — exactly the seam service commit, restore and the run loop consume. Off = those paths skip and record nothing. */
 export function compactionCapability(
   history: CompactionHistoryPorts,
 ): CapabilityDefinition<"compaction", SeamTag, CompactionSeamService> {
