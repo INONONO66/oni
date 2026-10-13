@@ -1175,19 +1175,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
               })
               .pipe(
                 Effect.flatMap(() => entry.boundary("before_llm")),
-                // The entity refuses an interrupt with no running turn: the
-                // turn sealed under us, or a concurrent interrupt already
-                // landed and drained (the single writer serialized the two
-                // and the second found `interrupted`, not `running`). Either
-                // way there is nothing left to interrupt and no stray signal
-                // was written — the no-op the early return is.
-                Effect.catchIf(
-                  (error) =>
-                    error._tag === "DeliverRefused" &&
-                    error.code === "denied" &&
-                    (liveTurns.get(id) !== entry || entry.interrupted()),
-                  () => Effect.void,
-                ),
                 Effect.mapError(
                   (error) =>
                     new AgentFailure({

@@ -468,15 +468,25 @@ function fencedExecutionLedger(
   };
 }
 
-/** The execution ledger of a session with no live turn: adopts the fence for `owner`, then commits fenced. */
-export function adoptedExecutionLedger(
+/**
+ * The policy-gate executor of a session with no live turn (#1346 M1): the
+ * core adopts the fence for `owner` and builds the executor over its own
+ * fenced commit door. The caller receives the gate's `run`/`recover` — every
+ * row it writes is a gate decision at the core's CAS — never the ledger: no
+ * commit, materialize or fence-adoption door leaves the core.
+ */
+export function adoptedExecutor(
   kernel: SessionKernel,
   sessionId: string,
   owner: string,
   clock: () => number,
-): Effect.Effect<Pick<ExecutionLedger, "commit">, LedgerError> {
+  options: Omit<ExecutorOptions, "ledger">,
+): ReturnType<typeof createExecutor> {
   return adoptSessionAuthority(kernel, sessionId, owner).pipe(
-    Effect.map((fence) => fencedExecutionLedger(kernel, sessionId, owner, fence, clock)),
+    Effect.mapError((error) => new CommitFailed({ error })),
+    Effect.flatMap((fence) =>
+      createExecutor({ ...options, ledger: fencedExecutionLedger(kernel, sessionId, owner, fence, clock) }),
+    ),
   );
 }
 

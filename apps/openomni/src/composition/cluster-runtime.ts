@@ -225,8 +225,6 @@ interface LiveTurnEntry {
    * synchronously, before the first RPC hop, and released after the drain.
    */
   readonly hold: () => () => void;
-  /** Whether the turn's own signal is already aborted (an earlier interrupt drained). */
-  readonly interrupted: () => boolean;
 }
 
 export interface SessionLivePlane {
@@ -250,7 +248,6 @@ export function createSessionLivePlane(): SessionLivePlane {
           approvals: undefined,
           boundary: input.boundary,
           ledger: input.ledger,
-          interrupted: () => input.signal.aborted,
           hold: () => {
             if (holds === 0) settled = Deferred.makeUnsafe<void>();
             holds += 1;

@@ -2,7 +2,7 @@ import { Effect, Semaphore } from "effect";
 import { messageDecisionRules } from "./message-decision";
 import { APPROVAL_POLICY } from "../bundles/approval-policy";
 import { Core } from "@openomni/agent";
-const createExecutor = Core.createExecutor;
+type Executor = Core.Executor;
 const Entropy = Core.Entropy;
 const GenerationLayers = Core.GenerationLayers;
 const CommitFailed = Core.CommitFailed;
@@ -15,7 +15,7 @@ import type { AppLedgerPlane } from "./cluster-runtime";
 import { ComposedGeneration } from "./composed";
 import { captureNow } from "./platform";
 
-type ExecutionResult = Effect.Success<ReturnType<Effect.Success<ReturnType<typeof createExecutor>>["run"]>>;
+type ExecutionResult = Effect.Success<ReturnType<Executor["run"]>>;
 type Run = Parameters<typeof createGatewayRouter>[0]["run"];
 type NativeRun = (sender: Parameters<Run>[0], request: Parameters<Run>[1], body: (intent: LedgerAction.Receipt) => Effect.Effect<PlainValue, ExecutionError>) => Effect.Effect<ExecutionResult & { readonly matchedRuleIds: readonly string[] }, ExecutionError>;
 
@@ -52,17 +52,13 @@ export function createIngressExecutor(plane: AppLedgerPlane): Effect.Effect<Nati
       const owner = nextId();
       const captured = yield* generations.capture({ sessionId: id, generation: row.toolsGeneration }).pipe(Effect.mapError((error) => new AgentFailure({ operation: "ingress.capture", cause: String(error) })));
       // The perimeter has no live turn and no entity activation: the core
-      // adopts the fence for this request's writer and owns every revision
-      // the executor commits at. The one counted app-side fence adoption —
-      // pinned by exact line in script/check-deps.ts (#1346 M1).
-      const ledger = yield* Core.adoptedExecutionLedger(kernel, id, owner, clock).pipe(
-        Effect.mapError((error) => new CommitFailed({ error })),
-      );
+      // adopts the fence for this request's writer and builds the gate's
+      // executor over its own fenced door (#1346 M1). The app holds the
+      // executor — run under the gate — never a ledger, fence or commit.
       const work = Effect.gen(function* () {
-      const executor = yield* createExecutor({
+      const executor = yield* Core.adoptedExecutor(kernel, id, owner, clock, {
         approvalPolicy: APPROVAL_POLICY,
         identity: { sessionId: id, role: "resident", parentActionId: null },
-        ledger,
       });
       return yield* executor.run(request, body).pipe(
         Effect.map((result) => ({ ...result, matchedRuleIds: messageDecisionRules(kernel, id, request) })),

@@ -1200,19 +1200,15 @@ interface AppsSessionWriteSite {
 }
 
 /**
- * #1346: the app-side session-store writes that survive the cutover, by
+ * #1346: the one app-side session-store write that survives the cutover, by
  * exact source line — the deferred `tools.add` `session.configure` commit
- * (its input contract is parent-owned; it is not converted into a signal),
- * and the perimeter ingress executor's fence adoption (`Core.adoptedExecutionLedger`):
- * the gateway-ingress session has no live turn and no entity activation, so
- * its tool-request executor adopts the fence for the request's writer. The
- * second is a counted exception (review-1346-r1 M1), not an invisible door;
- * retiring it means routing perimeter requests through the Session entity.
- * Moving a line re-pins it here; a second write anywhere fails.
+ * (its input contract is parent-owned; it is not converted into a signal).
+ * Moving the line re-pins it here; a second write anywhere fails. The
+ * perimeter ingress executor adopts no fence and holds no ledger: the core's
+ * `adoptedExecutor` owns both (review-1346-r1 M1).
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1237, receiver: "kernel", member: "commit" },
-  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 58, receiver: "Core", member: "adoptedExecutionLedger" },
+  { file: "apps/openomni/src/index.ts", line: 1224, receiver: "kernel", member: "commit" },
 ];
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */

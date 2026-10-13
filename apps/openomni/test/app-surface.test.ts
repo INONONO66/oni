@@ -114,10 +114,12 @@ test("facade interrupt rides the entity Deliver signal: the activation's writer 
   }
 });
 
-test("two concurrent facade interrupts serialize at the entity door: one row, both succeed, no stray signal", async () => {
+test("two concurrent facade interrupts serialize at the entity door: both land, both drain, no stray signal", async () => {
   // Re-homed stale-revision case: the deleted app retry duplicated a row on a
-  // revision race; the entity's single writer serializes the two interrupts,
-  // the second finds `interrupted` (not `running`) and is the typed no-op.
+  // revision race; the entity's single writer serializes the two interrupts
+  // at its own CAS — each lands exactly once and each is drained by the live
+  // turn's boundary (the second as a no-op on the already-interrupted turn),
+  // so nothing stays pending for the NEXT turn to abort.
   const { plane, sessionId, handle, release } = await heldTurnApp("index-interrupt-twice-");
   const kernel = plane.openKernel(sessionId);
   try {
@@ -125,12 +127,14 @@ test("two concurrent facade interrupts serialize at the entity door: one row, bo
     const second = runEffect(handle.interrupt());
     release.resolve();
     await bounded(Promise.all([first, second]));
-    const signals = signalRows(plane, sessionId);
-    expect(signals.map((action) => action.effect.value)).toEqual([
-      { deliveryKind: "interrupt", content: "" },
-      expect.objectContaining({ phase: "delivery", kind: "interrupt", deliveryId: signals[0]?.id }),
-    ]);
+    const signals = signalRows(plane, sessionId).map((action) => ({ id: action.id, value: action.effect.value }));
+    const interrupts = signals.filter((signal) => (signal.value as { deliveryKind?: string }).deliveryKind === "interrupt");
+    expect(interrupts).toHaveLength(2);
+    for (const interrupt of interrupts) {
+      expect(signals.filter((signal) => (signal.value as { deliveryId?: string }).deliveryId === interrupt.id)).toHaveLength(1);
+    }
     expect(kernel.pendingMessages(sessionId)).toEqual([]);
+    expect(kernel.row(sessionId).state).toBe("interrupted");
   } finally {
     release.resolve();
   }

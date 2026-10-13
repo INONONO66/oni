@@ -1,7 +1,7 @@
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { expect, test } from "bun:test";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -388,28 +388,30 @@ test("an interrupt after the turn sealed leaves no stray consumable signal", asy
     await settled;
     const row = activeRow();
     const kernel = plane().openKernel(row.id);
-    const sealedRevision = kernel.row(row.id).revision;
+    // The facade: no live turn means no handle at all — the early return
+    // is structural, nothing can issue an interrupt on a sealed session.
+    expect(app.sessions.get(row.id)).toBeUndefined();
     // The entity door itself: an interrupt control with no running turn is
-    // refused typed instead of landing as a pending signal the NEXT turn
-    // would consume.
-    const refused = await runAppEffect(
+    // consumed by the activation's drain as a no-op delivery — the control
+    // row and its delivery record land, nothing stays pending for the NEXT
+    // turn to abort, and the row state is untouched (no `interrupted`).
+    const landed = await runAppEffect(
       app.runtime,
       Effect.scoped(
         Effect.gen(function* () {
           const makeClient = yield* Core.SessionEntity.client;
-          return yield* Effect.result(
-            makeClient(row.id).Deliver({
-              kind: "signal",
-              body: JSON.stringify({ content: "", control: "interrupt" }),
-              source: JSON.stringify({ kind: "session", id: row.id }),
-              idempotencyKey: "late-interrupt",
-            }),
-          );
+          return yield* makeClient(row.id).Deliver({
+            kind: "signal",
+            body: JSON.stringify({ content: "", control: "interrupt" }),
+            source: JSON.stringify({ kind: "session", id: row.id }),
+            idempotencyKey: "late-interrupt",
+          });
         }),
       ),
     );
-    expect(Result.isFailure(refused) ? refused.failure : undefined).toMatchObject({ _tag: "DeliverRefused", code: "denied" });
-    expect(kernel.row(row.id)).toMatchObject({ revision: sealedRevision, state: "idle" });
+    expect(landed.existed).toBe(false);
+    expect(tree(row.id).map((action) => action.id)).toEqual(expect.arrayContaining(["late-interrupt", "late-interrupt:delivery"]));
+    expect(kernel.row(row.id)).toMatchObject({ state: "idle" });
     expect(kernel.pendingMessages(row.id)).toEqual([]);
     const terminals = tree(row.id).flatMap((action) => {
       const terminal = Core.SessionHandleStore.turnTerminal(action);
