@@ -27,7 +27,9 @@ function fallbackHarness(errorMessage: string) {
         type: "error",
         error: providerFailure(
           errorMessage,
-          errorMessage === "validation failed" ? { retryable: false, statusCode: 400 } : {},
+          errorMessage === "validation failed"
+            ? { retryable: false, statusCode: 400, failureClass: { kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 400 } }
+            : { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } },
         ),
       };
     sink.onMessage(createAssistantMessage("recovered", "", "session", messageSource));
@@ -103,7 +105,7 @@ describe("model fallback via placement", () => {
             return createStopOutcome();
           }
           if (calls === 2)
-            return { type: "error" as const, error: providerFailure("transient blip") };
+            return { type: "error" as const, error: providerFailure("transient blip", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) };
           sink.onMessage(stepSnapshot("third", "done", "stop", 10, 5));
           return createStopOutcome();
         }),

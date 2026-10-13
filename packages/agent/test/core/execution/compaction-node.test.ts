@@ -140,6 +140,7 @@ it("commits a reversible compaction result before completion observations and th
           return {
             type: "error",
             error: providerFailure("prompt is too long", {
+              failureClass: { kind: "overflow" },
               contextOverflow: true,
               retryable: false,
             }),

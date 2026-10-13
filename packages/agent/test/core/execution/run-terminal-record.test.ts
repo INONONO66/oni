@@ -44,7 +44,7 @@ function awaitRunFailed() {
 
 const timingOutLlm = mockLlm(async () => ({
   type: "error",
-  error: providerFailure("connection timeout", { statusCode: 408 }),
+  error: providerFailure("connection timeout", { statusCode: 408, failureClass: { kind: "retryable", reason: "timeout", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }),
 }));
 
 describe("one terminal record per started run", () => {

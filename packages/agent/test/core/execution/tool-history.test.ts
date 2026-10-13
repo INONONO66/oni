@@ -112,7 +112,7 @@ describe("tool-bearing history", () => {
             sink.onMessage(toolSnapshot("first", "answer", "tool-calls"));
             return createStopOutcome();
           }
-          if (calls === 2) return { type: "error", error: providerFailure("transient failure") };
+          if (calls === 2) return { type: "error", error: providerFailure("transient failure", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) };
           sink.onMessage(createAssistantMessage("done", "", "session", messageSource));
           return createStopOutcome();
         },

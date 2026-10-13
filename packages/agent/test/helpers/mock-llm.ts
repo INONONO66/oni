@@ -1,6 +1,6 @@
 import { messageSource } from "./message-source";
 import type { ChatFixture as ChatAgentConfig } from "./chat-services";
-import { LlmRunFailure, type LlmSink as Sink, type RunInput, type RunResult } from "../../src/core/llm";
+import { LlmRunFailure, type FailureClass, type LlmSink as Sink, type RunInput, type RunResult } from "../../src/core/llm";
 import { Effect } from "effect";
 import type {} from "../../src/core/types";
 import { createAssistantMessage } from "../../src/core/message-factory";
@@ -38,6 +38,7 @@ export function providerFailure(
     statusCode?: number;
     contextOverflow?: boolean;
     aborted?: boolean;
+    failureClass?: FailureClass;
   } = {},
 ): LlmRunFailure {
   const cause = new FakeProviderError({
@@ -45,6 +46,7 @@ export function providerFailure(
     statusCode: options.statusCode ?? 529,
     responseHeaders: { "retry-after-ms": "0" },
     isRetryable: options.retryable ?? true,
+    failureClass: options.failureClass,
   });
   return new LlmRunFailure({
       cause,

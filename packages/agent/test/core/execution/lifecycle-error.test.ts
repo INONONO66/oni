@@ -1,36 +1,24 @@
 import { expect, test } from "bun:test";
 import { attemptReason, decide } from "../../../src/core/retry";
-import { fakeClassifyFailure } from "../../helpers/fake-llm";
-import { providerFailure } from "../../helpers/mock-llm";
+import type { FailureClass } from "../../../src/core/llm";
 
 /** Deterministic injected draw: zero jitter. */
 const random = () => 0;
 
-/**
- * The loop's placement facts come from the port's classification (#1352):
- * the recorded attempt reason and the retry verdict are derived from the
- * closed `FailureClass`, never from the provider error itself.
- */
-for (const [statusCode, retryable, reason] of [
-  [408, true, "timeout"],
-  [529, true, "transient_error"],
-  [400, false, "validation_error"],
-] as const) {
+/** The core consumes the port's closed verdict, never an error's provider fields. */
+for (const [statusCode, retryable, reason, classified] of [
+  [408, true, "timeout", { kind: "retryable", reason: "timeout", providerReason: "server_error", instant: false }],
+  [529, true, "transient_error", { kind: "retryable", reason: "transient_error", providerReason: "server_error", instant: false }],
+  [400, false, "validation_error", { kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 400 }],
+] as const satisfies readonly (readonly [number, boolean, string, FailureClass])[]) {
   test(`provider status ${statusCode} produces canonical placement facts`, () => {
-    const classified = fakeClassifyFailure({ error: providerFailure("opaque", { statusCode, retryable }) });
     expect(attemptReason(classified)).toBe(reason);
     expect(decide(1, classified, random).retry).toBe(retryable);
   });
 }
 
 test("a context overflow is not classified as a generic provider retry", () => {
-  const failure = providerFailure("context overflow", {
-    contextOverflow: true,
-    retryable: false,
-    statusCode: 400,
-  });
-  const classified = fakeClassifyFailure({ error: failure });
-  expect(classified).toEqual({ kind: "overflow" });
+  const classified = { kind: "overflow" } as const;
   expect(attemptReason(classified)).toBe("context_overflow");
   expect(decide(1, classified, random).retry).toBe(false);
 });

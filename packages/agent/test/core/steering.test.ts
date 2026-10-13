@@ -79,7 +79,7 @@ describe("mid-turn steering", () => {
           llm: mockLlm(async (input: RunInput, sink: Sink) => {
             calls += 1;
             return calls === 1
-              ? { type: "error", error: providerFailure("transient blip") }
+              ? { type: "error", error: providerFailure("transient blip", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) }
               : completeModel(input, sink);
           }),
         }).run(runInput([{ role: "user", content: "start" }])),

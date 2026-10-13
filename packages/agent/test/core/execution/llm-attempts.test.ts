@@ -29,6 +29,7 @@ function providerFailure(visibleOutput = false) {
       retryAfterMs: 0,
       cause: new FakeProviderError({
         message: "overloaded", statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
+        failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false },
       }),
   });
 }

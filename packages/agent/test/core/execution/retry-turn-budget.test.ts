@@ -37,7 +37,7 @@ describe("turn budget across retries", () => {
         model: { provider: "anthropic", id: "claude-3-haiku-20240307" },
         llm: mockLlm(async (input, sink) => {
           calls += 1;
-          if (calls === 1) return { type: "error", error: providerFailure("transient provider hiccup") };
+          if (calls === 1) return { type: "error", error: providerFailure("transient provider hiccup", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) };
           return completeModel(input, sink);
         }),
       }));

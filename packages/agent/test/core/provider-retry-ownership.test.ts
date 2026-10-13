@@ -25,12 +25,13 @@ let providerFailure: (call: number) => Error | undefined = () => undefined;
 
 afterEach(() => Bus.reset());
 
-function providerError(message: string, retryable: boolean): Error {
+function providerError(message: string, retryable: boolean, failureClass: import("../../src/core/llm").FailureClass): Error {
   return new FakeProviderError({
     message,
     isRetryable: retryable,
     statusCode: retryable ? 529 : 400,
     responseHeaders: retryable ? { "retry-after-ms": "0" } : {},
+    failureClass,
   });
 }
 
@@ -103,7 +104,7 @@ describe("provider retry ownership", () => {
       retries += 1;
     });
     resetProvider((call: number) =>
-      call === 1 ? providerError("provider overloaded", true) : undefined,
+      call === 1 ? providerError("provider overloaded", true, { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false }) : undefined,
     );
     try {
       const result = await isolated(
@@ -134,7 +135,7 @@ describe("provider retry ownership", () => {
   });
 
   it("does not add an agent attempt for a failure the port classifies as terminal", async () => {
-    resetProvider(() => providerError("validation failed", false));
+    resetProvider(() => providerError("validation failed", false, { kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 400 }));
     expect(
       await isolated(
         effectFailure(createAgent().run(runInput([{ role: "user", content: "invalid" }]))),
@@ -144,7 +145,7 @@ describe("provider retry ownership", () => {
   });
 
   it("a retryable failure on every attempt stops at the loop's cap, never at the port", async () => {
-    resetProvider(() => providerError("provider overloaded", true));
+    resetProvider(() => providerError("provider overloaded", true, { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false }));
     const thrown = await isolated(
       effectFailure(createAgent().run(runInput([{ role: "user", content: "keep failing" }]))),
     );
@@ -169,7 +170,7 @@ function failure(
   });
 }
 
-async function classifiedRun(providerFailure: LlmRunFailure) {
+async function classifiedRun(providerFailure: LlmRunFailure, classifyFailure: import("../../src/core/llm").LlmPort["classifyFailure"]) {
   let calls = 0;
   const thrown = await isolated(
     effectFailure(
@@ -184,6 +185,7 @@ async function classifiedRun(providerFailure: LlmRunFailure) {
               calls += 1;
               return { type: "error", error: providerFailure };
             }),
+          classifyFailure,
         },
       }).run(runInput([{ role: "user", content: "hello" }])),
     ),
@@ -194,7 +196,7 @@ async function classifiedRun(providerFailure: LlmRunFailure) {
 describe("typed provider failure preservation", () => {
   it("preserves abort identity without retry", async () => {
     const providerFailure = failure({ aborted: true, retryAfterMs: 1_234 });
-    const result = await classifiedRun(providerFailure);
+    const result = await classifiedRun(providerFailure, () => ({ kind: "aborted" }));
     expect(result).toEqual({ calls: 1, thrown: providerFailure });
     expect(failureFacts(result.thrown)).toMatchObject({ reason: "aborted", attempt: 1 });
     expect(providerFailure.retryAfterMs).toBe(1_234);
@@ -204,7 +206,7 @@ describe("typed provider failure preservation", () => {
     const cause = new Error("socket closed");
     const usage = { ...zeroUsage, inputTokens: 17, outputTokens: 5 };
     const providerFailure = failure({ contextOverflow: true, usage }, cause);
-    const result = await classifiedRun(providerFailure);
+    const result = await classifiedRun(providerFailure, () => ({ kind: "overflow" }));
     expect(result.calls).toBe(1);
     expect(result.thrown).toBe(providerFailure);
     expect(providerFailure.cause).toBe(String(cause));

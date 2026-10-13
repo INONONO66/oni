@@ -30,6 +30,7 @@ type Prefix = "none" | "reasoning" | "text" | "tool";
 function providerFailure(prefix: Prefix, floor: number): LlmRunFailure {
   const cause = new FakeProviderError({
     message: "overloaded", statusCode: 529, isRetryable: true, responseHeaders: { "retry-after-ms": String(floor) },
+    failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: floor, directed: true, instant: false },
   });
   return new LlmRunFailure({
     message: "overloaded", cause, providerErrorName: cause.name, retryAfterMs: floor,

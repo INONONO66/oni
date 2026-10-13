@@ -52,6 +52,7 @@ async function expectSquashedCause<A, E>(
 describe("context overflow recovery", () => {
   it("does not blindly retry when compaction is unavailable and preserves the failure", async () => {
     const original = providerFailure("prompt is too long", {
+      failureClass: { kind: "overflow" },
       contextOverflow: true,
       retryable: false,
     });
@@ -97,6 +98,7 @@ describe("context overflow recovery", () => {
                 ? {
                     type: "error",
                     error: providerFailure("prompt is too long", {
+                      failureClass: { kind: "overflow" },
                       contextOverflow: true,
                       retryable: false,
                     }),
@@ -159,10 +161,12 @@ describe("context overflow recovery", () => {
 
   it("stops after the one compacting retry and preserves the second overflow", async () => {
     const first = providerFailure("prompt is too long on first call", {
+      failureClass: { kind: "overflow" },
       contextOverflow: true,
       retryable: false,
     });
     const second = providerFailure("prompt is too long on second call", {
+      failureClass: { kind: "overflow" },
       contextOverflow: true,
       retryable: false,
     });
