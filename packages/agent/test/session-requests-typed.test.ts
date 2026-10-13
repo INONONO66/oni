@@ -1,70 +1,26 @@
 import { Cause, Effect, Exit } from "effect";
 import { expect, test } from "bun:test";
-import { canonicalDigest, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest } from "@openomni/protocol";
 import { AgentFailure } from "../src/core/failure";
-import { createSessionRequests } from "../src/core/request";
-import { isolated, isolatedLedger } from "./helpers/isolated";
-import { allowConfigure, isolatedRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
+import { isolated } from "./helpers/isolated";
+import {
+  appendSourceInvocation,
+  gatewayPort,
+  materializeSource,
+  messageIntent,
+  openingRequest as opening,
+} from "./helpers/request-port";
 
 const setup = Effect.gen(function* () {
-  yield* isolatedLedger().kernel.materialize({
-    id: "source",
-    parentId: null,
-    role: "resident",
-    tools: [],
-    system: { preset: "", blocks: [] },
-    policyGeneration: 0,
-    actionId: "configure",
-    at: 1,
-  });
-  const actions = isolatedLedger().session.actions;
-  const invocation = (id: string, intent: PlainValue) => {
-    actions.append(
-      {
-        id,
-        sessionId: "source",
-        parentId: "configure",
-        kind: "message",
-        intent: { encodingVersion: 1, value: intent },
-        effect: { encodingVersion: 1, value: { phase: "pending" } },
-        irreversible: true,
-        ts: 1,
-      },
-      isolatedLedger().kernel.row("source").revision,
-    );
-  };
-  invocation("first", { phase: "intent", value: { messageId: "first" }, effectHash: canonicalDigest({}) });
-  invocation("stale-turn", {
+  yield* materializeSource;
+  appendSourceInvocation("first", messageIntent("first"));
+  appendSourceInvocation("stale-turn", {
     phase: "intent",
     turnId: "missing-turn",
     value: { messageId: "stale-turn" },
     effectHash: canonicalDigest({}),
   });
 });
-
-const opening = (requestId: string) => ({
-  requestId,
-  sessionId: "source",
-  expectedResponders: ["peer"],
-  correlation: {},
-  allowedActions: ["report_result" as const],
-  resolution: "first" as const,
-  threshold: 1,
-  deadline: 200,
-  at: 100,
-});
-
-function gatewayPort() {
-  return Effect.gen(function* () {
-    const fixture: SessionFixture = {
-      clock: () => 100,
-      observations: { publish: () => undefined },
-      authorizeConfigure: allowConfigure,
-      ...isolatedRuntime(),
-    };
-    return yield* withSessionServices(createSessionRequests(fixture), fixture);
-  });
-}
 
 test("a timeout for an unknown request is a defect, not a typed session failure", () => isolated(Effect.gen(function* () {
   yield* setup;

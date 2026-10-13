@@ -1,18 +1,16 @@
-import { messageSource } from "../../helpers/message-source";
+
 import { testExecutor, runAgentSync } from "../../helpers/executor";
 import type { ResolvedExecutorOptions } from "../../../src/core/gate/decide";
 import { catalogLayer } from "../../helpers/service-layers";
 import { expect, it } from "bun:test";
-import { PlainObjectSchema, type LedgerAction, type Message, type ToolExecutionContext } from "@openomni/protocol";
+import { PlainObjectSchema, type LedgerAction, type ToolExecutionContext } from "@openomni/protocol";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { sessionTree as kernelSessionTree } from "../../helpers/session-tree";
 import { requestLedger } from "../../helpers/effect-g1";
 import { createTestAgent } from "../../helpers/effect-g2";
 import { runInput } from "../../helpers/run-input";
+import { pendingTimedAssistant, readyWaveTurn } from "../../helpers/tool-wave";
 import { fixtureStopEvidence } from "../../helpers/chat-services";
-import { createAssistantMessage } from "../../../src/core/message-factory";
-import { createRunState } from "../../../src/core/turn";
-import { buildTurn } from "../../../src/core/turn";
 import { settleModelTools } from "../../../src/core/tool";
 import type { ObservedChatAgentConfig } from "../../../src/core/types";
 import { createRawSlots } from "../../../src/core/gate/decide";
@@ -58,21 +56,10 @@ function toolResults(actions: readonly LedgerAction.Append[]) {
   });
 }
 
-function fallbackTurn(
+const fallbackTurn = (
   config: ObservedChatAgentConfig,
   onToolResult: (result: { toolCallId: string }) => void = () => undefined,
-) {
-  const input = runInput([]);
-  const state = createRunState(input, messageSource);
-  const built = buildTurn(state, config, { providerID: "test", id: "test", name: "test" }, undefined, input.traceContext, messageSource, {
-    onMessage: () => undefined, onToolCall: () => undefined, onToolResult,
-  });
-  if (built.type !== "ready") throw new Error("turn unavailable");
-  const turn = built.turn;
-  const message = pendingAssistant(["A", "B"]);
-  turn.turnAssistant.message = message;
-  return { state, turn };
-}
+) => readyWaveTurn(config, context.sessionId, { onMessage: () => undefined, onToolCall: () => undefined, onToolResult });
 
 for (const door of ["cell", "wave"] as const) {
   for (const owner of ["bound", "generation"] as const) {
@@ -377,13 +364,7 @@ it("holds the entire wave until every captured approval has a durable answer", (
   expect(toolResults(sessionTree(ledger.identity.sessionId)).map((action) => PlainObjectSchema.parse(action.effect.value).callId)).toEqual(calls);
 }))));
 
-function pendingAssistant(ids: readonly string[]): Message.WithParts {
-  const message = createAssistantMessage("", "", context.sessionId, messageSource);
-  return { ...message, parts: ids.map((id) => ({
-    id: `${id}:part`, sessionID: context.sessionId, messageID: message.info.id,
-    type: "tool", callID: id, tool: "timed", state: { status: "pending", input: {} },
-  })) };
-}
+const pendingAssistant = (ids: readonly string[]) => pendingTimedAssistant(context.sessionId, ids);
 
 it("dispatches zero tools when the canonical assistant call-block write fails", () => isolated(Effect.gen(function* () {
   const ledger = recordingLedger();

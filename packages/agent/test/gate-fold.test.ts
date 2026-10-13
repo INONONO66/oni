@@ -1,15 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { canonicalDigest, emittedRowKey, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, emittedRowKey } from "@openomni/protocol";
 import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
-import { fullPointTable, gateRow } from "./helpers/gate-rows";
+import { GateComposeError } from "../src/core/points";
+import {
+  auditObserveGate,
+  commandRewriteGate,
+  countingHandler,
+  fullPointTable,
+  gateRow,
+  guardGate,
+  rewriteChain,
+} from "./helpers/gate-rows";
 
 const table = fullPointTable();
-
-function plainModel(value: PlainValue): string {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return "";
-  const model = value.model;
-  return typeof model === "string" ? model : "";
-}
 
 describe("gate decision fold (#1251)", () => {
   it("folds deny > require_approval > allow and records every matched row id in order", () => {
@@ -79,23 +82,14 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("a consulted gate always calls its declared guard - a conflicting constant cannot reach the fold (#1251 r5)", () => {
-    let calls = 0;
-    const guard: GateHandler = () => {
-      calls += 1;
-      return { verdict: "deny", payload: { blocked: true } };
-    };
-    const gate = compileGateRows({
-      table,
-      rows: [gateRow("tool.pre", { how: { ref: "guard/check" } })],
-      handlers: ["guard/check"],
-      generation: 1,
-    });
+    const { handler: guard, calls } = countingHandler(() => ({ verdict: "deny", payload: { blocked: true } }));
+    const gate = guardGate(table, "guard/check");
     const { decision } = gate.decide(
       "tool.pre",
       { when: {}, value: {} },
       { handlers: () => guard },
     );
-    expect(calls).toBe(1);
+    expect(calls()).toBe(1);
     expect(decision.verdict).toBe("deny");
     expect(decision.consulted.map((entry) => entry.ref)).toEqual(["guard/check"]);
     // The reviewer's r5 probe row: ref plus a constant allow. It must refuse at
@@ -107,36 +101,16 @@ describe("gate decision fold (#1251)", () => {
         handlers: ["guard/check"],
         generation: 1,
       }),
-    ).toThrow();
-    expect(calls).toBe(1);
+    ).toThrow(GateComposeError);
+    expect(calls()).toBe(1);
   });
 
   it("applies rewrites in row order, each over the prior output, to declared fields only", () => {
-    const upgrade: GateHandler = (input) => ({
-      value: { model: `${plainModel(input.value)}+a`, extra: "dropped" },
-      payload: { step: "a" },
-    });
-    const suffix: GateHandler = (input) => ({
-      value: { model: `${plainModel(input.value)}+b` },
-      payload: { step: "b" },
-    });
-    const handlers = new Map<string, GateHandler>([
-      ["rewrite/upgrade", upgrade],
-      ["rewrite/suffix", suffix],
-    ]);
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("llm.pre", { order: 1, do: "rewrite", how: { ref: "rewrite/upgrade", fields: ["model"] } }),
-        gateRow("llm.pre", { order: 2, do: "rewrite", how: { ref: "rewrite/suffix", fields: ["model"] } }),
-      ],
-      handlers: [...handlers.keys()],
-      generation: 1,
-    });
+    const { gate, handlers } = rewriteChain(table, { extra: "dropped" });
     const outcome = gate.decide(
       "llm.pre",
       { when: {}, value: { model: "base", temperature: 0.2 } },
-      { handlers: (ref) => handlers.get(ref) },
+      { handlers },
     );
     expect(outcome.value).toEqual({ model: "base+a+b", temperature: 0.2 });
     expect(outcome.decision.consulted.map((entry) => entry.payload)).toEqual([
@@ -146,26 +120,19 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("an observe row invokes its handler once and records an audit annotation only (#1251 r1)", () => {
-    let calls = 0;
-    const observer: GateHandler = () => {
-      calls += 1;
-      // A hostile observer: its verdict and value must be ignored.
-      return { verdict: "deny", value: { input: "hijacked" }, payload: { audit: "seen" } };
-    };
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", { id: "audit/tool.pre#1", do: "observe", how: { ref: "audit/log" } }),
-      ],
-      handlers: ["audit/log"],
-      generation: 1,
-    });
+    // A hostile observer: its verdict and value must be ignored.
+    const { handler: observer, calls } = countingHandler(() => ({
+      verdict: "deny",
+      value: { input: "hijacked" },
+      payload: { audit: "seen" },
+    }));
+    const gate = auditObserveGate(table);
     const outcome = gate.decide(
       "tool.pre",
       { when: {}, value: { input: "original" } },
       { handlers: () => observer },
     );
-    expect(calls).toBe(1);
+    expect(calls()).toBe(1);
     expect(outcome.decision.verdict).toBe("allow");
     expect(outcome.value).toEqual({ input: "original" });
     expect(outcome.decision.annotations).toEqual([
@@ -175,14 +142,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("an observe row whose handler is unavailable at decide time records a fact and the decision stands (#1251 r5)", () => {
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", { id: "audit/tool.pre#1", do: "observe", how: { ref: "audit/log" } }),
-      ],
-      handlers: ["audit/log"],
-      generation: 1,
-    });
+    const gate = auditObserveGate(table);
     const { decision } = gate.decide(
       "tool.pre",
       { when: {}, value: { op: "read" } },
@@ -196,25 +156,14 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("an observe handler's unrecorded response becomes a fact, never an annotation (#1251 r5)", () => {
-    let calls = 0;
-    const silent: GateHandler = () => {
-      calls += 1;
-      return {};
-    };
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", { id: "audit/tool.pre#1", do: "observe", how: { ref: "audit/log" } }),
-      ],
-      handlers: ["audit/log"],
-      generation: 1,
-    });
+    const { handler: silent, calls } = countingHandler(() => ({}));
+    const gate = auditObserveGate(table);
     const { decision } = gate.decide(
       "tool.pre",
       { when: {}, value: { op: "read" } },
       { handlers: () => silent },
     );
-    expect(calls).toBe(1);
+    expect(calls()).toBe(1);
     expect(decision.verdict).toBe("allow");
     expect(decision.annotations).toEqual([]);
     expect(decision.facts).toEqual([
@@ -402,18 +351,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("a prepared consultant rewrite is contained to the declared fields (#1256 r4 H-2)", () => {
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", {
-          id: "hooks/tool.pre#1",
-          do: "rewrite",
-          how: { ref: "hook/process", fields: ["command"] },
-        }),
-      ],
-      handlers: ["hook/process"],
-      generation: 1,
-    });
+    const gate = commandRewriteGate(table);
     const prepared = new Map([
       [
         "hooks/tool.pre#1",
@@ -432,18 +370,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("a prepared rewrite touching an undeclared field denies fail-closed with one incompatible_response fact (#1256 r4 H-2)", () => {
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", {
-          id: "hooks/tool.pre#1",
-          do: "rewrite",
-          how: { ref: "hook/process", fields: ["command"] },
-        }),
-      ],
-      handlers: ["hook/process"],
-      generation: 1,
-    });
+    const gate = commandRewriteGate(table);
     // The consultant answers with a field OUTSIDE the declared rewrite set.
     const prepared = new Map([
       [
@@ -465,18 +392,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("a verdict-shaped consultant reply on a rewrite row is incompatible, never applied (#1256 r4 H-2)", () => {
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", {
-          id: "hooks/tool.pre#1",
-          do: "rewrite",
-          how: { ref: "hook/process", fields: ["command"] },
-        }),
-      ],
-      handlers: ["hook/process"],
-      generation: 1,
-    });
+    const gate = commandRewriteGate(table);
     const prepared = new Map([
       ["hooks/tool.pre#1", { verdict: "allow" as const, payload: { ref: "hook/process", verdict: "allow" } }],
     ]);

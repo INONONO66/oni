@@ -1,4 +1,5 @@
 import { Effect, Logger, References } from "effect";
+import { z } from "zod";
 import { runAgentSync } from "./helpers/executor";
 import { expect, spyOn, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
@@ -93,8 +94,8 @@ for (const count of [255, 256, 257]) {
     const loaded = expectReplay(id);
     expect(loaded.revision).toBe(actions.length);
     expect(loaded.nonCheckpointActions).toBe(count >= 256 ? count - 256 : count);
-    expect(() => ledger.session.actions.range(id, 0, 257)).toThrow();
-    expect(() => ledger.kernel.historyPage(id, { limit: 257 })).toThrow();
+    expect(() => ledger.session.actions.range(id, 0, 257)).toThrow(z.ZodError);
+    expect(() => ledger.kernel.historyPage(id, { limit: 257 })).toThrow(z.ZodError);
     expect("tree" in SessionHandleStore).toBe(false);
   }));
 }
@@ -559,7 +560,9 @@ test("a compaction below N commits result and checkpoint together, rolls both ba
       ) {
         const before = sessionTree(kernel, reconstructionSession);
         const revision = kernel.row(reconstructionSession).revision;
-        expect(() => recording.commitBatch([action], { expectedRevision: revision - 1 })).toThrow();
+        expect(() => recording.commitBatch([action], { expectedRevision: revision - 1 })).toThrow(
+          expect.objectContaining({ _tag: "CommitRefused", reason: "revision" }),
+        );
         expect(sessionTree(kernel, reconstructionSession)).toEqual(before);
         expect(() =>
           ledger.session.transaction(() => {

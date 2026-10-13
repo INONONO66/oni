@@ -40,6 +40,31 @@ function accessors(current: () => LedgerStores): LedgerStores {
   };
 }
 
+/**
+ * One real on-disk `<sessionFile>` + `catalog.sqlite` pair in a fresh temp
+ * directory for the duration of `body`; the handles close and the directory
+ * is removed on every exit. Session store options ride `options.session`.
+ */
+type SessionStoreOptions = Parameters<typeof openSessionStore>[1];
+
+export function withDiskStores<A>(
+  label: string,
+  body: (stores: LedgerStores & { readonly directory: string; readonly path: string }) => A,
+  options: { readonly sessionFile?: string; readonly session?: Partial<SessionStoreOptions> } = {},
+): A {
+  const directory = mkdtempSync(join(tmpdir(), `${label}-`));
+  const path = join(directory, options.sessionFile ?? "s1.sqlite");
+  const session = openSessionStore(path, { now: testNow, ...options.session });
+  const catalog = openCatalogStore(join(directory, "catalog.sqlite"), { now: testNow });
+  try {
+    return body({ session, catalog, kernel: SessionHandleStore.createSessionKernel(session, catalog), directory, path });
+  } finally {
+    session.close();
+    catalog.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 /** Fresh in-memory session + catalog stores and a kernel over them, per test. */
 export function useMemoryStores(sink?: ObservationSink): LedgerStores {
   let stores: LedgerStores | undefined;

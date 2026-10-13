@@ -15,7 +15,7 @@ import {
   fixtureTurn,
 } from "../helpers/open-turn-fixture";
 import { openRequest } from "../helpers/open-request";
-import { approvalAnswer, invocationNode } from "../helpers/request-fixtures";
+import { approvalAnswer, invocationNode, kernelOwnedRow } from "../helpers/request-fixtures";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 import {
   clusterTempDir,
@@ -38,20 +38,7 @@ type TurnTerminal = NonNullable<AdmissionSnapshot["terminal"]>;
 // Shared fixtures (mirrors packages/agent/test/session-fsm.test.ts shapes).
 // ---------------------------------------------------------------------------
 
-function sessionRow(state: LedgerSession.State): LedgerSession.Row {
-  return {
-    id: "S",
-    parentId: null,
-    role: "resident",
-    fenceOwner: "kernel",
-    fence: 1,
-    revision: 1,
-    state,
-    toolsGeneration: 1,
-    systemHash: "system",
-    policyGeneration: 1,
-  };
-}
+const sessionRow = (state: LedgerSession.State) => kernelOwnedRow("S", state);
 
 const turn = fixtureTurn;
 const open: OpenTurn = fixtureOpenTurn;

@@ -9,7 +9,7 @@ test("cleanup reports a non-file database path instead of silently leaving it be
   const path = join(directory, "fixture.db");
   mkdirSync(path);
   try {
-    expect(() => removeSqliteFiles(path)).toThrow();
+    expect(() => removeSqliteFiles(path)).toThrow(expect.objectContaining({ code: "ERR_FS_EISDIR" }));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

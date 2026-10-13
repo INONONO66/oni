@@ -13,41 +13,9 @@ import { RunEvents } from "../../../src/core/turn";
 import { executeCompaction } from "../../../src/plugins/compaction/execute-cut";
 import { createCompactionPlan, restoreCompactionProjection } from "../../../src/plugins/compaction/durable";
 import { Compaction } from "../../../src/plugins/compaction/compact";
+import { compactionExecutionInput, evidenceAssistant } from "../../helpers/compaction-cut";
 
-function assistant(id: string): Message.WithParts {
-  return {
-    info: {
-      id,
-      sessionID: "compaction-937",
-      role: "assistant",
-      time: { created: 1 },
-      parentID: "",
-      modelID: "model",
-      providerID: "provider",
-      agent: "resident",
-      path: { cwd: "/", root: "/" },
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    },
-    parts: [
-      {
-        id: `${id}-tool`,
-        sessionID: "compaction-937",
-        messageID: id,
-        type: "tool",
-        callID: `${id}-call`,
-        tool: "read",
-        state: {
-          status: "completed",
-          input: { path: id },
-          output: "evidence ".repeat(100),
-          title: "read",
-          metadata: {},
-          time: { start: 1, end: 2 },
-        },
-      },
-    ],
-  };
-}
+const assistant = (id: string) => evidenceAssistant("compaction-937", id);
 
 it("retains an original atomic entry when the configured protected tail is zero", async () => {
   // Given: a full-rewrite candidate with real completed call/result pairs.
@@ -189,27 +157,8 @@ it("commits a reversible compaction result before completion observations and th
   ).toHaveLength(1);
 });
 
-function executionInput(
-  executor: Parameters<typeof executeCompaction>[0]["executor"],
-  observed: string[],
-): Parameters<typeof executeCompaction>[0] {
-  return {
-    history: [assistant("first"), assistant("last")],
-    executor,
-    options: {
-      contextWindowTokens: 1000,
-      protectRecentMessages: 1,
-      onSummarize: () => Effect.promise(async () => "summary"),
-    },
-    identity: { traceId: "trace", sessionId: "session-1" },
-    dispatch: { trigger: "yield" },
-    events: {
-      publish(event) {
-        observed.push(event.name);
-      },
-    },
-  };
-}
+const executionInput = (executor: Parameters<typeof executeCompaction>[0]["executor"], observed: string[]) =>
+  compactionExecutionInput(executor, observed, [assistant("first"), assistant("last")]);
 
 it("holds completion observation until the reversible commit resolves", () =>
   isolated(Effect.scoped(Effect.gen(function* () {

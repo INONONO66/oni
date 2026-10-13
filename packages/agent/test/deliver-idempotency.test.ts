@@ -16,17 +16,16 @@ import {
   clusterTempDir,
   completionSignal,
   readChain,
+  refusedDeliverAfterSeed,
   runCluster,
   sendDeliver,
   sendRead,
   sessionFileFor,
   type TestClusterOptions,
 } from "./helpers/cluster-runtime";
-import { openCatalogStore } from "../src/core/store/catalog";
-import { openSessionStore } from "../src/core/store/session-file";
-import * as SessionHandleStore from "../src/core/store/fence";
 import { receivedMessageAction } from "../src/core/commit";
 import { runAgent } from "./helpers/executor";
+import { fencedSession } from "./helpers/seeded-session";
 import type { DeliverRefused } from "../src/core/messages";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-deliver-idempotency-");
@@ -37,22 +36,13 @@ afterAll(() => {
 });
 
 test("a blank idempotency key is missing_key and appends nothing", async () => {
-  const sessionId = "idem-missing-key";
-  const seeded = await runCluster(
-    options,
-    Effect.gen(function* () {
-      yield* sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "seed", content: "seed" });
-      return readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length;
-    }),
-  );
-  const refusal = await runCluster(
-    options,
-    sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "  ", content: "keyless" }).pipe(
-      Effect.flip,
-    ),
-  );
+  const { refusal, seeded, after } = await refusedDeliverAfterSeed(options, "idem-missing-key", {
+    kind: "prompt",
+    idempotencyKey: "  ",
+    content: "keyless",
+  });
   expect((refusal as DeliverRefused).code).toBe("missing_key");
-  expect(readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length).toBe(seeded);
+  expect(after).toBe(seeded);
 });
 
 test("a replayed key resolves to the original seq with zero new facts", async () => {
@@ -94,59 +84,30 @@ test("a replayed key resolves to the original seq with zero new facts", async ()
  * (not the cluster envelope store) must resolve or refuse the replayed key.
  */
 async function seedPromptRow(sessionId: string, key: string, content: string): Promise<void> {
-  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-  const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-  const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-  try {
-    await runAgent(
-      kernel.materialize({
-        id: sessionId,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${sessionId}:materialize`,
-        at: 1,
-      }),
-    );
-    catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
-    const fence = catalog.rotateFence(sessionId);
-    await runAgent(kernel.adoptFence({ sessionId, owner: "seeder", fence }));
-    const row = kernel.row(sessionId);
-    await runAgent(
-      kernel.commit({
-        sessionId,
-        owner: "seeder",
-        fence,
-        now: 2,
-        expectedRevision: row.revision,
-        actions: [
-          receivedMessageAction({
-            id: key,
-            sessionId,
-            kind: "prompt",
-            content,
-            origin: {
-              encodingVersion: 1,
-              value: {
-                kind: "message",
-                messageId: key,
-                senderSessionId: sessionId,
-                sourceActionId: key,
+  await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const session = yield* fencedSession(options, sessionId);
+        yield* session.commit(
+          [
+            receivedMessageAction({
+              id: key,
+              sessionId,
+              kind: "prompt",
+              content,
+              origin: {
+                encodingVersion: 1,
+                value: { kind: "message", messageId: key, senderSessionId: sessionId, sourceActionId: key },
               },
-            },
-            parentActionId: null,
-            at: 2,
-          }),
-        ],
-        state: row.state,
+              parentActionId: null,
+              at: 2,
+            }),
+          ],
+          2,
+        );
       }),
-    );
-  } finally {
-    store.close();
-    catalog.close();
-  }
+    ),
+  );
 }
 
 test("a key already accepted on the journal returns {seq, existed: true} as success", async () => {

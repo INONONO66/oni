@@ -1,34 +1,15 @@
 import { Effect, Result } from "effect";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { Alarm } from "@openomni/protocol";
 import { runLedgerSync } from "../helpers/effect";
-import { useMemoryStores, testNow } from "../helpers/storage";
 import { adoptWriter } from "../helpers/session";
-import { CHILD, PARENT, forkFixture } from "../helpers/fork-fixture";
+import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
-import { openSessionStore, type SessionStore } from "../../../src/core/store/session-file";
 import { receivedMessageAction, turnTerminalAction } from "../../../src/core/commit";
 import { alarmDisposition, armAction, firedAction, type AlarmChainReads } from "../../../src/core/alarm";
 
-const stores = useMemoryStores();
-let childStore: SessionStore | undefined;
-
-beforeEach(() => {
-  childStore = openSessionStore(":memory:", { now: testNow });
-});
-
-afterEach(() => {
-  childStore?.close();
-  childStore = undefined;
-});
-
-function child(): SessionStore {
-  if (childStore === undefined) throw new Error("child store only exists inside a test");
-  return childStore;
-}
-
-const fixture = forkFixture(stores, child);
+const { stores, child, fixture } = useForkFixture();
 
 const ArmIntent = z.looseObject({ op: z.literal("arm"), alarmId: z.string(), at: z.number().nullable() });
 const ArmEffect = z.looseObject({ occurrenceId: z.string() });

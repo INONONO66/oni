@@ -2,14 +2,17 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Crypto, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
+import { Context, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { SessionEntity } from "../../src/core/entity";
 import { Ledger, type LedgerConfig, OpenRefused, openLedger } from "../../src/core/host";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 import {
+  BunTestCrypto,
   clusterMessages,
+  indexResident,
   makeTurnPort,
+  materializeResident,
   readChain,
   resolvedRunner,
   sessionFileClosed,
@@ -22,14 +25,7 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const bunCrypto = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
-    digest: (algorithm, data) =>
-      Effect.promise(async () => new Uint8Array(await crypto.subtle.digest(algorithm, data))),
-  }),
-);
+const bunCrypto = BunTestCrypto;
 
 const drain = {
   alarmsBeforePrompt: 4,
@@ -67,22 +63,8 @@ function config(overrides: Partial<LedgerConfig>): LedgerConfig {
 const materialize = (sessionId: string) =>
   Effect.gen(function* () {
     const ledger = yield* Ledger;
-    yield* ledger.openKernel(sessionId).materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: 1,
-      actionId: `${sessionId}:materialize`,
-      at: Date.now(),
-    });
-    ledger.catalog.indexSession({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      createdAt: Date.now(),
-    });
+    yield* materializeResident(ledger.openKernel(sessionId), sessionId);
+    indexResident(ledger.catalog, sessionId);
   });
 
 const deliverPrompt = (sessionId: string, key: string) =>

@@ -1,8 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { useMemoryStores, testNow } from "../helpers/storage";
-import { CHILD, PARENT, forkFixture } from "../helpers/fork-fixture";
+import { describe, expect, test } from "bun:test";
+import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
-import { openSessionStore, type SessionStore } from "../../../src/core/store/session-file";
 import { FORK_ASIDE_REF, forkAncestryOf, forkAside } from "../../../src/inspect/tree";
 import { forkAsideTransformer } from "../../helpers/fork-aside";
 import { foldSessionHistory } from "../../../src/inspect/history";
@@ -43,24 +41,7 @@ const FORK_ASIDE_ROW: Omit<PolicyRow.Row, "generation"> = {
   },
 };
 
-const stores = useMemoryStores();
-let childStore: SessionStore | undefined;
-
-beforeEach(() => {
-  childStore = openSessionStore(":memory:", { now: testNow });
-});
-
-afterEach(() => {
-  childStore?.close();
-  childStore = undefined;
-});
-
-function child(): SessionStore {
-  if (childStore === undefined) throw new Error("child store only exists inside a test");
-  return childStore;
-}
-
-const fixture = forkFixture(stores, child);
+const { stores, child, fixture } = useForkFixture();
 
 describe("inspect aside (#1257)", () => {
   test("the aside is an inspect projection, never model context or compaction input", () => {

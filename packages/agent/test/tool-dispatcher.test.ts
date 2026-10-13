@@ -4,6 +4,7 @@ import { catalogLayer } from "./helpers/service-layers";
 import { Effect, Fiber } from "effect";
 import { isolated } from "./helpers/isolated";
 import { describe, expect, it } from "bun:test";
+import { AgentInvariantViolation } from "../src/core/failure";
 import { defineTool, eraseTool, projectTools, ToolRefused, toolInputSchema } from "../src/core/tool";
 import { createDispatcher } from "../src/plugins/tool";
 import { recordingExecutor } from "./helpers/effect-g2";
@@ -94,7 +95,7 @@ describe("tool dispatcher public contract", () => {
       ),
     ));
   it("rejects empty metadata and non-object input schemas", () => {
-    expect(() => definition({ name: " " })).toThrow();
+    expect(() => definition({ name: " " })).toThrow(AgentInvariantViolation);
     expect(() =>
       defineTool({
         name: "scalar",
@@ -106,7 +107,7 @@ describe("tool dispatcher public contract", () => {
         execute: async (value: string) => value,
         render: (_input: string, value: string) => value,
       }),
-    ).toThrow();
+    ).toThrow(AgentInvariantViolation);
     expect(() =>
       defineTool({
         name: "described",
@@ -118,7 +119,7 @@ describe("tool dispatcher public contract", () => {
         execute: async () => "ok",
         render: (_input: Record<string, never>, value: string) => value,
       }),
-    ).toThrow();
+    ).toThrow(AgentInvariantViolation);
   });
 
   it("projects model and session specifications from definitions", () => {

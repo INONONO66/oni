@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { Effect } from "effect";
-import { canonicalDigest, type LedgerSession, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
 import { defineBundle, Manifest } from "../src/core/capability";
 import { compose, ComposeRefused } from "../src/core/compose";
 import { ApprovalPolicySeam } from "../src/core/approval-policy";
@@ -8,22 +8,11 @@ import { createApprovalRequest } from "../src/core/request-binding";
 import { resolveAgentBudget } from "../src/core/budget";
 import { decideRequestTransition } from "../src/core/request";
 import { openRequest } from "./helpers/open-request";
-import { invocationNode } from "./helpers/request-fixtures";
+import { invocationNode, kernelOwnedRow, openRequestCommand } from "./helpers/request-fixtures";
 import { runTestPromise } from "./helpers/isolated";
 import { TEST_APPROVAL_POLICY, TEST_BUDGET } from "./helpers/approval-policy";
 
-const row: LedgerSession.Row = {
-  id: "session",
-  parentId: null,
-  role: "resident",
-  fenceOwner: "kernel",
-  fence: 1,
-  revision: 1,
-  state: "running",
-  toolsGeneration: 1,
-  systemHash: "system",
-  policyGeneration: 1,
-};
+const row = kernelOwnedRow("session", "running");
 const original = invocationNode({ sessionId: "session", parentId: null });
 
 function pendingApproval(): SessionTransition.Request {
@@ -36,17 +25,7 @@ function pendingApproval(): SessionTransition.Request {
   });
 }
 
-function openCommand(pending: SessionTransition.Request): SessionTransition.Command {
-  return {
-    version: 1,
-    sessionId: row.id,
-    inputId: "open",
-    at: 20,
-    expectedRevision: row.revision,
-    authority: { owner: "kernel", fence: 1 },
-    payload: { kind: "request.open", request: pending },
-  };
-}
+const openCommand = (pending: SessionTransition.Request) => openRequestCommand(row, pending);
 
 it("the injected recent-open quota decides admission: limit 2 rejects the third open approval, limit 3 admits it", () => {
   const pending = pendingApproval();

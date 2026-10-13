@@ -1,4 +1,20 @@
-import { canonicalDigest, type LedgerAction, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type LedgerSession, type SessionTransition } from "@openomni/protocol";
+
+/** A resident session row `id` leased to owner `kernel` at fence/revision/generation 1 in `state`. */
+export function kernelOwnedRow(id: string, state: LedgerSession.State): LedgerSession.Row {
+  return {
+    id,
+    parentId: null,
+    role: "resident",
+    fenceOwner: "kernel",
+    fence: 1,
+    revision: 1,
+    state,
+    toolsGeneration: 1,
+    systemHash: "system",
+    policyGeneration: 1,
+  };
+}
 
 /** One pending irreversible "write original" tool invocation node. */
 export function invocationNode(input: {
@@ -51,5 +67,18 @@ export function approvalAnswer(
     decision: "approve",
     allowedAction: "report_result",
     content: "yes",
+  };
+}
+
+/** The kernel-owned `request.open` command for `pending` at t=20 against `row`'s revision. */
+export function openRequestCommand(row: LedgerSession.Row, pending: SessionTransition.Request): SessionTransition.Command {
+  return {
+    version: 1,
+    sessionId: row.id,
+    inputId: "open",
+    at: 20,
+    expectedRevision: row.revision,
+    authority: { owner: "kernel", fence: 1 },
+    payload: { kind: "request.open", request: pending },
   };
 }

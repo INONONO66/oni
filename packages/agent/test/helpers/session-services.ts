@@ -62,6 +62,23 @@ export function isolatedRuntime(): Pick<SessionRuntime, "openKernel" | "listSess
   return kernelRuntime(() => isolatedLedger().kernel);
 }
 
+/** The silent isolated session runtime at t=20 whose ids are `${prefix}-N` under process `processId`. */
+export function silentRuntime(prefix: string, processId: string, extra: Partial<SessionFixture> = {}): SessionFixture {
+  let sequence = 0;
+  return {
+    authorizeConfigure: allowConfigure,
+    observations: { publish: () => undefined, subscribe: () => () => undefined },
+    clock: () => 20,
+    entropy: () => `${prefix}-${++sequence}`,
+    processId,
+    ...isolatedRuntime(),
+    ...extra,
+  };
+}
+
+/** Caps an effect at the suite-wide two-second deadline. */
+export const boundedBy2s = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.timeout("2 seconds"));
+
 /** A runtime kernel plane over one explicit kernel handle (crash children own their stores). */
 export function kernelRuntime(kernel: () => SessionKernel): Pick<SessionRuntime, "openKernel" | "listSessions" | "settleChild" | "compaction" | "approvalPolicy"> {
   // #1308: child settlements are composition-injected; fixtures ride a seam stub.

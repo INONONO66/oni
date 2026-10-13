@@ -9,12 +9,10 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Deferred, Effect, Fiber } from "effect";
-import { openCatalogStore } from "../src/core/store/catalog";
-import { openSessionStore } from "../src/core/store/session-file";
-import * as SessionHandleStore from "../src/core/store/fence";
 import {
   clusterTempDir,
   readChain,
+  refusedDeliverAfterSeed,
   runCluster,
   sendAlarm,
   sendDeliver,
@@ -22,8 +20,9 @@ import {
   sessionFileFor,
 } from "./helpers/cluster-runtime";
 import { SessionNotFound } from "../src/core/store/errors";
-import { seedSessionWithOpenRequest } from "./helpers/seed-request";
-import { armAction } from "../src/core/alarm";
+import { retryAlarmEnvelope, retryAttemptChain, seedSessionWithOpenRequest } from "./helpers/seed-request";
+import { type FencedSession, fencedSession, materializeSession, sessionHandles, withSessionHandles } from "./helpers/seeded-session";
+import type { LedgerError } from "../src/core/store/errors";
 import { Alarm } from "@openomni/protocol";
 import { approvalAnswer } from "./helpers/request-fixtures";
 import { runAgent } from "./helpers/executor";
@@ -39,37 +38,19 @@ afterAll(() => {
 /** Materialize + index one session; `prepare` runs under an adopted fence. */
 async function seedSession(
   sessionId: string,
-  prepare?: (input: {
-    readonly kernel: SessionHandleStore.SessionKernel;
-    readonly authority: { readonly owner: string; readonly fence: number };
-  }) => Promise<void>,
+  prepare?: (session: FencedSession) => Effect.Effect<void, LedgerError>,
 ): Promise<void> {
-  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-  const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-  const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-  try {
-    await runAgent(
-      kernel.materialize({
-        id: sessionId,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${sessionId}:materialize`,
-        at: 1,
+  await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        if (prepare === undefined) {
+          yield* materializeSession(yield* sessionHandles(options, sessionId), sessionId);
+          return;
+        }
+        yield* prepare(yield* fencedSession(options, sessionId, { commitNow: () => 100 }));
       }),
-    );
-    catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
-    if (prepare !== undefined) {
-      const fence = catalog.rotateFence(sessionId);
-      await runAgent(kernel.adoptFence({ sessionId, owner: "seeder", fence }));
-      await prepare({ kernel, authority: { owner: "seeder", fence } });
-    }
-  } finally {
-    store.close();
-    catalog.close();
-  }
+    ),
+  );
 }
 
 test("a session absent from both planes refuses activation before any handler runs", () => {
@@ -79,17 +60,11 @@ test("a session absent from both planes refuses activation before any handler ru
   // ever observes a missing row — the old in-handler `closed` fallback was
   // unreachable and is deleted.
   const sessionId = "surface-absent-session";
-  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-  const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-  try {
+  withSessionHandles(options, sessionId, ({ catalog, kernel }) => {
     expect(() => catalog.rotateFence(sessionId)).toThrow(SessionNotFound);
-    const kernel = SessionHandleStore.createSessionKernel(store, catalog);
     expect(() => kernel.row(sessionId)).toThrow(SessionNotFound);
     expect(readChain(sessionFileFor(sessionsDir, sessionId), sessionId)).toEqual([]);
-  } finally {
-    store.close();
-    catalog.close();
-  }
+  });
 });
 
 test("deliver(prompt) replaces Prompt: the input row lands and a turn runs to seal", async () => {
@@ -169,22 +144,13 @@ test("deliver(signal interrupt/resume) replaces Interrupt and Resume: idle contr
 });
 
 test("deliver with an unregistered kind is unknown_kind with zero new facts", async () => {
-  const sessionId = "surface-unknown-kind";
-  const before = await runCluster(
-    options,
-    Effect.gen(function* () {
-      yield* sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "seed", content: "seed" });
-      return readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length;
-    }),
-  );
-  const refusal = await runCluster(
-    options,
-    sendDeliver(sessionId, { kind: "action", idempotencyKey: "a1", content: "{}" }).pipe(
-      Effect.flip,
-    ),
-  );
+  const { refusal, seeded, after } = await refusedDeliverAfterSeed(options, "surface-unknown-kind", {
+    kind: "action",
+    idempotencyKey: "a1",
+    content: "{}",
+  });
   expect((refusal as DeliverRefused).code).toBe("unknown_kind");
-  expect(readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length).toBe(before);
+  expect(after).toBe(seeded);
 });
 
 test("resolve replaces RequestResolve/RequestCancel: answer resolves, cancel closes, both typed", async () => {
@@ -235,56 +201,10 @@ test("resolve replaces RequestResolve/RequestCancel: answer resolves, cancel clo
 
 test("alarm(retry) replaces RetryScheduled: live attempt applies, unknown occurrence folds stale", async () => {
   const sessionId = "surface-retry";
-  await seedSession(sessionId, async ({ kernel, authority }) => {
-    const base = {
-      sessionId,
-      intent: { encodingVersion: 1 as const, value: { phase: "intent" } },
-      effect: { encodingVersion: 1 as const, value: { phase: "pending" } },
-      ts: 100,
-      irreversible: true as const,
-    };
-    const row = kernel.row(sessionId);
-    // #1254 S4: a live occurrence is one the chain armed — the retry port
-    // commits the arm row first, so the seed commits the same shape.
-    const armed = armAction({
-      parentId: "op:attempt:1",
-      sessionId,
-      purpose: "retry",
-      at: 100,
-      supersedes: null,
-      alarmId: "op:attempt:1:retry",
-      sourceKey: "retry",
-      payload: { attempt: 1, reason: "transient_error" },
-      armSeq: 1,
-      ts: 100,
-    });
-    await runAgent(
-      kernel.commit({
-        sessionId,
-        owner: authority.owner,
-        fence: authority.fence,
-        now: 100,
-        expectedRevision: row.revision,
-        actions: [
-          { ...base, id: "op", parentId: null, kind: "llm" },
-          { ...base, id: "op:attempt:1", parentId: "op", kind: "llm" },
-          armed.action,
-        ],
-        state: row.state,
-      }),
-    );
-  });
+  await seedSession(sessionId, (session) => session.commit([...retryAttemptChain(sessionId, null)]).pipe(Effect.asVoid));
   const live = await runCluster(
     options,
-    sendAlarm(sessionId, {
-      occurrenceId: Alarm.occurrenceId(sessionId, "op:attempt:1:retry", 1, "retry"),
-      purpose: "retry",
-      alarmId: "op:attempt:1:retry",
-      armSeq: 1,
-      sourceKey: "retry",
-      payload: JSON.stringify({ attempt: 1, reason: "transient_error" }),
-      fireAt: Date.now() - 1000,
-    }),
+    sendAlarm(sessionId, retryAlarmEnvelope(sessionId, Date.now() - 1000)),
   );
   expect(live.outcome).toBe("delivered");
   const stale = await runCluster(

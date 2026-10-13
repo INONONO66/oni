@@ -65,3 +65,22 @@ export function commitReceivedMessage(
     );
   });
 }
+
+/** Queues prompt `queued-${ordinal}` ("S", t=21+ordinal) on the isolated ledger behind the latest action with `delivery` mode. */
+export function queuePromptOnS(
+  kernel: SessionKernel,
+  ordinal: number,
+  content: string,
+  delivery: "steer" | "followUp",
+) {
+  return commitReceivedMessage(kernel, {
+    id: `queued-${ordinal}`,
+    sessionId: "S",
+    kind: "prompt",
+    content,
+    createdAt: 21 + ordinal,
+    origin: { encodingVersion: 1, value: {} },
+    parentActionId: kernel.latestAction("S")?.id ?? null,
+    delivery,
+  });
+}

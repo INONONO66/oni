@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Context, Effect } from "effect";
 import { z } from "zod";
-import { Delivery, Journal, type LedgerSession, type PlainValue } from "@openomni/protocol";
+import { Delivery, Journal, type PlainValue } from "@openomni/protocol";
+import { kernelOwnedRow } from "./helpers/request-fixtures";
 import { Capability, Manifest, type SeamTag } from "../src/core/capability";
 import { runTestPromise } from "./helpers/isolated";
 import { compose } from "../src/core/compose";
@@ -106,18 +107,7 @@ test("off-capability rows stay opaque with hashes intact and deliver refuses the
   // and input admission over the composed kinds refuses a pending action row.
   expect(Journal.admitInputKind(Object.keys(generationOff.kinds), "action")).toBe("unknown_kind");
   expect(Journal.admitInputKind(Object.keys(generationOn.kinds), "action")).toBe("ok");
-  const sessionRow: LedgerSession.Row = {
-    id: sessionId,
-    parentId: null,
-    role: "resident",
-    fenceOwner: "kernel",
-    fence: 1,
-    revision: 1,
-    state: "idle",
-    toolsGeneration: 1,
-    systemHash: "system",
-    policyGeneration: 1,
-  };
+  const sessionRow = kernelOwnedRow(sessionId, "idle");
   const pendingAction = Delivery.Row.parse({
     id: "in-action",
     sessionId,

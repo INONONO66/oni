@@ -1,4 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
+import { z } from "zod";
 import { canonicalDigest, type LedgerAction, type PlainValue } from "@openomni/protocol";
 import { LedgerInvariant } from "../../../src/core/store/errors";
 import * as SessionHandleStore from "../../../src/core/store/fence";
@@ -134,7 +135,7 @@ test("open turns page by original ordinal even when their latest update is beyon
   ]);
   expect(kernel.openTurnsPage("missing")).toEqual([]);
   expect(kernel.latestTurnTerminal("missing")).toBeUndefined();
-  expect(() => kernel.openTurnsPage("bounded", 0, 257)).toThrow();
+  expect(() => kernel.openTurnsPage("bounded", 0, 257)).toThrow(z.ZodError);
 });
 
 test("a full open-turn page whose tail intent cannot be re-read is a named invariant", () => {
@@ -306,7 +307,9 @@ test("operation reads exclude administrative checkpoints and reject mismatched r
     { phase: "result", terminal: "executed" },
     "llm",
   );
-  expect(() => kernel.resultFor("bounded", "llm")).toThrow();
+  expect(() => kernel.resultFor("bounded", "llm")).toThrow(
+    expect.objectContaining({ _tag: "LedgerInvariant", message: "invalid result identity: mismatched" }),
+  );
   expect(kernel.resultFor("missing", "llm")).toBeUndefined();
 });
 

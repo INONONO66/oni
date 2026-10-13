@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { z } from "zod";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -93,8 +94,8 @@ test("child session pages preserve id order and enforce a bounded page size", ()
     }
     expect(store.childSessionsPage("root", "", 2).map((row) => row.id)).toEqual(["a", "b"]);
     expect(store.childSessionsPage("root", "b", 2).map((row) => row.id)).toEqual(["c"]);
-    expect(() => store.childSessionsPage("root", "", 0)).toThrow();
-    expect(() => store.childSessionsPage("root", "", 257)).toThrow();
+    expect(() => store.childSessionsPage("root", "", 0)).toThrow(z.ZodError);
+    expect(() => store.childSessionsPage("root", "", 257)).toThrow(z.ZodError);
   } finally {
     store.close();
   }

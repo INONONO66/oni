@@ -5,30 +5,18 @@ import { isolatedLedger } from "./helpers/isolated";
 import { sessionTree } from "./helpers/session-tree";
 import { fileRequest, planeAnswer, requestPlane } from "./helpers/session-request-plane";
 import { openRequest } from "./helpers/open-request";
-import { approvalAnswer, invocationNode } from "./helpers/request-fixtures";
+import { approvalAnswer, invocationNode, kernelOwnedRow, openRequestCommand } from "./helpers/request-fixtures";
 import {
   canonicalDigest,
   PlainObjectSchema,
   type Delivery,
   type LedgerAction,
-  type LedgerSession,
   type SessionTransition,
 } from "@openomni/protocol";
 import { decideRequestTransition, requestBindingDigest } from "../src/core/request";
 import { TEST_APPROVAL_POLICY } from "./helpers/approval-policy";
 
-const row: LedgerSession.Row = {
-  id: "session",
-  parentId: null,
-  role: "resident",
-  fenceOwner: "kernel",
-  fence: 1,
-  revision: 1,
-  state: "running",
-  toolsGeneration: 1,
-  systemHash: "system",
-  policyGeneration: 1,
-};
+const row = kernelOwnedRow("session", "running");
 const original = invocationNode({
   sessionId: "session",
   parentId: null,
@@ -280,15 +268,7 @@ it("refuses approval when current domain revisions cannot be read", () => {
 
 it("proposes observed global approval count only for a new approval open", () => {
   const pending = request();
-  const command: SessionTransition.Command = {
-    version: 1,
-    sessionId: row.id,
-    inputId: "open",
-    at: 20,
-    expectedRevision: row.revision,
-    authority: { owner: "kernel", fence: 1 },
-    payload: { kind: "request.open", request: pending },
-  };
+  const command = openRequestCommand(row, pending);
   const recent = Array.from({ length: 7 }, (_, index) => ({
     ...pending,
     requestId: `other-${index}`,

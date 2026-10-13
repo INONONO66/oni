@@ -1,63 +1,14 @@
 import { expect, it } from "bun:test";
 import { Effect } from "effect";
-import type { Message } from "@openomni/protocol";
 import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
 import type { Executor } from "../../src/core/gate/decide";
+import { compactionExecutionInput, evidenceAssistant } from "../helpers/compaction-cut";
 import { isolated } from "../helpers/isolated";
 
-function assistant(id: string): Message.WithParts {
-  return {
-    info: {
-      id,
-      sessionID: "execute-cut-failure",
-      role: "assistant",
-      time: { created: 1 },
-      parentID: "",
-      modelID: "model",
-      providerID: "provider",
-      agent: "resident",
-      path: { cwd: "/", root: "/" },
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    },
-    parts: [
-      {
-        id: `${id}-tool`,
-        sessionID: "execute-cut-failure",
-        messageID: id,
-        type: "tool",
-        callID: `${id}-call`,
-        tool: "read",
-        state: {
-          status: "completed",
-          input: { path: id },
-          output: "evidence ".repeat(100),
-          title: "read",
-          metadata: {},
-          time: { start: 1, end: 2 },
-        },
-      },
-    ],
-  };
-}
+const assistant = (id: string) => evidenceAssistant("execute-cut-failure", id);
 
-function executionInput(executor: Executor, observed: string[]): Parameters<typeof executeCompaction>[0] {
-  return {
-    history: [assistant("first"), assistant("last")],
-    executor,
-    options: {
-      contextWindowTokens: 1000,
-      protectRecentMessages: 1,
-      onSummarize: () => Effect.promise(async () => "summary"),
-    },
-    identity: { traceId: "trace", sessionId: "session-1" },
-    dispatch: { trigger: "yield" },
-    events: {
-      publish(event) {
-        observed.push(event.name);
-      },
-    },
-  };
-}
+const executionInput = (executor: Executor, observed: string[]) =>
+  compactionExecutionInput(executor, observed, [assistant("first"), assistant("last")]);
 
 it("fails with a catchTag-able CompactionExecutionError when the durable output no longer matches", async () => {
   // Given: an executor that reports success with output the compaction never produced.

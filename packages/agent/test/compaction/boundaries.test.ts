@@ -4,6 +4,7 @@ import { Cause, Effect, Exit } from "effect";
 import { planAnchoredCut } from "../../src/plugins/compaction/candidate";
 import { createCompactionPlan, restoreCompactionProjection } from "../../src/plugins/compaction/durable";
 import { CompactionSession } from "../../src/plugins/compaction/speculate";
+import { AgentInvariantViolation } from "../../src/core/failure";
 import { isolated } from "../helpers/isolated";
 import { withSummarizerDeadline } from "../../src/plugins/compaction/summary";
 import { textMessage } from "../helpers/messages";
@@ -31,8 +32,8 @@ describe("compaction boundary integrity", () => {
 
   it("rejects empty or entirely retained histories", () => {
     const prior = history();
-    expect(() => createCompactionPlan([], prior, 10)).toThrow();
-    expect(() => createCompactionPlan(prior, prior, 10)).toThrow();
+    expect(() => createCompactionPlan([], prior, 10)).toThrow(AgentInvariantViolation);
+    expect(() => createCompactionPlan(prior, prior, 10)).toThrow(AgentInvariantViolation);
   });
 
   it("rejects changed revert evidence", () => {
@@ -42,7 +43,7 @@ describe("compaction boundary integrity", () => {
       ...plan.record,
       revert: { ...plan.record.revert, removedEntries: [] },
     };
-    expect(() => restoreCompactionProjection(plan.projection, changed)).toThrow();
+    expect(() => restoreCompactionProjection(plan.projection, changed)).toThrow(AgentInvariantViolation);
     expect(restoreCompactionProjection(plan.projection, plan.record)).toEqual(prior);
   });
 

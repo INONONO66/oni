@@ -13,15 +13,21 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect, Result } from "effect";
 import type { Alarm } from "@openomni/protocol";
-import { armAction, composeAlarmPurposes, firedAction, type AlarmCapability, type ArmRefused, type ArmVerb } from "../../src/core/alarm";
-import { alarmCapability, watchPurposes, WatchRefused, type WatchInstallDeps } from "../../src/plugins/alarm";
-import { openCatalogStore } from "../../src/core/store/catalog";
-import { openSessionStore } from "../../src/core/store/session-file";
-import * as SessionHandleStore from "../../src/core/store/fence";
-import { clusterTempDir, runCluster, sendAlarm, sendPrompt, sessionFileFor } from "../helpers/cluster-runtime";
+import { armAction, composeAlarmPurposes, firedAction, type AlarmCapability, type ArmRefused } from "../../src/core/alarm";
+import { alarmCapability, WatchRefused } from "../../src/plugins/alarm";
+import { liveArmRegistry, liveWatchCapability } from "../helpers/alarm-budget";
+import { clusterTempDir, runCluster, sendAlarm, sendKick, sendPrompt } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
+import {
+  fencedSession,
+  materializeSession,
+  readArmedAlarms,
+  sessionHandles,
+  withSessionHandles,
+} from "../helpers/seeded-session";
 
-const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-alarm-budget-");
+const home = clusterTempDir("w52-alarm-budget-");
+const { dir, sessionsDir, catalogFile } = home;
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -39,49 +45,25 @@ test("ctx.arm fills the budget to maxArmed, then ArmRefused{alarm_budget}; re-ar
   // Seed: one committed boot arm (purpose test.tick) whose resent occurrence
   // triggers the capability wake on activation.
   const boot = await runAgent(
-    Effect.gen(function* () {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-      const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-      yield* kernel.materialize({
-        id: sessionId,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${sessionId}:materialize`,
-        at: 1,
-      });
-      catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
-      const fence = catalog.rotateFence(sessionId);
-      yield* kernel.adoptFence({ sessionId, owner: "seeder", fence });
-      const row = kernel.row(sessionId);
-      const armed = armAction({
-        parentId: `${sessionId}:materialize`,
-        sessionId,
-        purpose: "test.tick",
-        at: 100,
-        supersedes: null,
-        alarmId: "boot",
-        sourceKey: "boot",
-        payload: BOOT_PAYLOAD,
-        armSeq: row.revision + 1,
-        ts: 100,
-      });
-      yield* kernel.commit({
-        sessionId,
-        owner: "seeder",
-        fence,
-        now: 100,
-        expectedRevision: row.revision,
-        actions: [armed.action],
-        state: row.state,
-      });
-      store.close();
-      catalog.close();
-      return armed;
-    }),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const seeded = yield* fencedSession(home, sessionId);
+        const armed = armAction({
+          parentId: `${sessionId}:materialize`,
+          sessionId,
+          purpose: "test.tick",
+          at: 100,
+          supersedes: null,
+          alarmId: "boot",
+          sourceKey: "boot",
+          payload: BOOT_PAYLOAD,
+          armSeq: seeded.kernel.row(sessionId).revision + 1,
+          ts: 100,
+        });
+        yield* seeded.commit([armed.action], 100);
+        return armed;
+      }),
+    ),
   );
 
   // The wake arms until refused; results surface through this settled promise.
@@ -172,15 +154,7 @@ test("ctx.arm fills the budget to maxArmed, then ArmRefused{alarm_budget}; re-ar
     Effect.gen(function* () {
       // Any occurrence activates the entity; activation resends the boot arm,
       // whose delivery runs the wake above.
-      yield* sendAlarm(sessionId, {
-        occurrenceId: "kick",
-        purpose: "rescan",
-        alarmId: "kick",
-        armSeq: 1,
-        sourceKey: "rescan",
-        payload: "{}",
-        fireAt: Date.now() - 1,
-      });
+      yield* sendKick(sessionId);
       return yield* Effect.promise(() => report);
     }),
   );
@@ -197,24 +171,10 @@ test("ctx.arm fills the budget to maxArmed, then ArmRefused{alarm_budget}; re-ar
   // Durable index after the wake: the boot row retired on `fired{delivered}`,
   // the 63 accepted arms remain; the wake's prompt is one `prompt` row keyed
   // by the fired occurrence with the core-fixed alarm origin.
-  const after = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => Date.now() });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), {
-        now: () => Date.now(),
-      });
-      try {
-        const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-        return {
-          armed: kernel.armedAlarms(),
-          prompt: kernel.actionById(`${outcome.fired.occurrenceId}:prompt`),
-        };
-      } finally {
-        store.close();
-        catalog.close();
-      }
-    }),
-  );
+  const after = withSessionHandles(home, sessionId, ({ kernel }) => ({
+    armed: kernel.armedAlarms(),
+    prompt: kernel.actionById(`${outcome.fired.occurrenceId}:prompt`),
+  }));
   expect(after.armed.find((row) => row.occurrenceId === boot.occurrenceId)).toBeUndefined();
   // 63 accepted arms − retired tick-1 + tick-freed; tick-0 moved to its re-arm.
   expect(after.armed).toHaveLength(MAX_ARMED - 1);
@@ -240,40 +200,14 @@ test("the app capability path arms through the live activation's budgeted entity
   const sessionId = "live-budget-session";
   // Seed: the session exists (materialized + indexed) but holds no armed rows.
   await runAgent(
-    Effect.gen(function* () {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-      const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-      yield* kernel.materialize({
-        id: sessionId,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${sessionId}:materialize`,
-        at: 1,
-      });
-      catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
-      store.close();
-      catalog.close();
-    }),
+    Effect.scoped(sessionHandles(home, sessionId).pipe(Effect.flatMap((handles) => materializeSession(handles, sessionId)))),
   );
 
   // The app-side registry shape (H3): activations hand their budgeted arm
   // verb to the composition root; the capability delegates — no app commit.
-  const liveVerbs = new Map<string, ArmVerb>();
+  const live = liveArmRegistry();
   const outcome = await runCluster(
-    {
-      sessionsDir,
-      catalogFile,
-      onLive: (id, verbs) => {
-        liveVerbs.set(id, verbs.arm);
-        return () => {
-          liveVerbs.delete(id);
-        };
-      },
-    },
+    { sessionsDir, catalogFile, onLive: live.onLive },
     Effect.gen(function* () {
       // Activation: the Deliver turn resolves and the entity stays live (idle 60s).
       yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
@@ -285,13 +219,7 @@ test("the app capability path arms through the live activation's budgeted entity
           },
         ],
         compose: composeAlarmPurposes,
-        arm: (id) => (input) =>
-          Effect.suspend(() => {
-            const verb = liveVerbs.get(id);
-            return verb === undefined
-              ? Effect.die(new Error(`no live activation for ${id}`))
-              : verb(input);
-          }),
+        arm: live.arm,
         watch: { install: () => Effect.void },
       });
       let armed = 0;
@@ -321,62 +249,25 @@ test("the app capability path arms through the live activation's budgeted entity
   expect(outcome.refusal?.code).toBe("alarm_budget");
 
   // Durable index: exactly the budget — no second committing path added rows.
-  const after = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-      try {
-        return SessionHandleStore.createSessionKernel(store, catalog).armedAlarms().length;
-      } finally {
-        store.close();
-        catalog.close();
-      }
-    }),
-  );
-  expect(after).toBe(MAX_ARMED);
+  expect(readArmedAlarms(home, sessionId)).toHaveLength(MAX_ARMED);
 });
 
 test("r2 H2: a refusal after the first committed arm retires exactly the committed chains through the real entity verb", async () => {
   const sessionId = "h2-compensation-session";
-  const liveVerbs = new Map<string, ArmVerb>();
-  const installs: string[] = [];
+  const live = liveArmRegistry();
   const timedSpec: Alarm.WatchSpec = {
     watch: { command: "true", description: "timed", timeout_ms: 60_000 },
     policyGeneration: 1,
     notificationLimit: 2,
   };
-  const makeCapability = (install: WatchInstallDeps["install"]) =>
-    alarmCapability({
-      bundles: [
-        { bundle: "monitor", purposes: watchPurposes({ close: () => undefined }) },
-      ],
-      compose: composeAlarmPurposes,
-      arm: (id) => (input) =>
-        Effect.suspend(() => {
-          const verb = liveVerbs.get(id);
-          return verb === undefined
-            ? Effect.die(new Error(`no live activation for ${id}`))
-            : verb(input);
-        }),
-      watch: { install },
-    });
   const outcome = await runCluster(
-    {
-      sessionsDir,
-      catalogFile,
-      onLive: (id, verbs) => {
-        liveVerbs.set(id, verbs.arm);
-        return () => {
-          liveVerbs.delete(id);
-        };
-      },
-    },
+    { sessionsDir, catalogFile, onLive: live.onLive },
     Effect.gen(function* () {
       yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
       // Install refused under a committed timeout chain: BOTH chains retire.
-      const refusing = yield* makeCapability(() =>
-        Effect.fail(new WatchRefused({ reason: "no machines plane" })),
-      );
+      const { definition: refusing } = yield* liveWatchCapability(live, {
+        install: () => Effect.fail(new WatchRefused({ reason: "no machines plane" })),
+      });
       const installRefused = yield* Effect.flip(
         refusing.verbs.watch({
           sessionId,
@@ -388,11 +279,7 @@ test("r2 H2: a refusal after the first committed arm retires exactly the committ
       );
       // Fill the budget to maxArmed - 1 so the timed watch's main arm takes
       // the LAST slot and its timeout arm is the typed boundary refusal.
-      const working = yield* makeCapability(({ watchId }) =>
-        Effect.sync(() => {
-          installs.push(watchId);
-        }),
-      );
+      const { definition: working, installs } = yield* liveWatchCapability(live);
       const armDirect = working.verbs.arm(sessionId, "turn-1");
       for (let index = 0; index < MAX_ARMED - 1; index += 1)
         yield* armDirect({
@@ -411,7 +298,7 @@ test("r2 H2: a refusal after the first committed arm retires exactly the committ
           now: FAR_FUTURE,
         }),
       );
-      return { installRefused, budgetRefused };
+      return { installRefused, budgetRefused, installs };
     }),
   );
   // The caller receives the ORIGINAL typed refusals, not a compensation error.
@@ -419,21 +306,10 @@ test("r2 H2: a refusal after the first committed arm retires exactly the committ
   expect((outcome.installRefused as WatchRefused).reason).toBe("no machines plane");
   expect(outcome.budgetRefused).toMatchObject({ _tag: "ArmRefused", code: "alarm_budget" });
   // The refused watch's native source was never installed.
-  expect(installs).toEqual([]);
+  expect(outcome.installs).toEqual([]);
   // Durable index: exactly the fillers — no partially created watch survives
   // (main retired after the timeout refusal; install-refused chains retired).
-  const armed = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-      try {
-        return SessionHandleStore.createSessionKernel(store, catalog).armedAlarms();
-      } finally {
-        store.close();
-        catalog.close();
-      }
-    }),
-  );
+  const armed = readArmedAlarms(home, sessionId);
   expect(armed).toHaveLength(MAX_ARMED - 1);
   expect(
     armed.filter((row) => row.alarmId.startsWith("h2-watch") || row.alarmId.startsWith("h2-install")),
@@ -442,41 +318,24 @@ test("r2 H2: a refusal after the first committed arm retires exactly the committ
 
 test("r2 H3: a fence-stale commit from a zombie activation is the typed ArmRefused stale_activation", async () => {
   const sessionId = "h3-stale-activation-session";
-  const liveVerbs = new Map<string, ArmVerb>();
+  const live = liveArmRegistry();
   const refused = await runCluster(
-    {
-      sessionsDir,
-      catalogFile,
-      onLive: (id, verbs) => {
-        liveVerbs.set(id, verbs.arm);
-        return () => {
-          liveVerbs.delete(id);
-        };
-      },
-    },
+    { sessionsDir, catalogFile, onLive: live.onLive },
     Effect.gen(function* () {
       yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
-      const verb = liveVerbs.get(sessionId);
-      if (verb === undefined) return yield* Effect.die(new Error("no live activation"));
+      const verb = yield* live.live(sessionId);
       // Sanity: the live activation commits under its pinned fence.
       yield* verb({ purpose: "h3.tick", at: FAR_FUTURE, alarmId: "h3-live", sourceKey: "t", payload: {} });
       // A successor elsewhere takes the session over: rotate + adopt the fence.
       yield* Effect.promise(() =>
         runAgent(
-          Effect.gen(function* () {
-            const catalog = openCatalogStore(catalogFile, { now: () => Date.now() });
-            const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), {
-              now: () => Date.now(),
-            });
-            try {
-              const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-              const fence = catalog.rotateFence(sessionId);
-              yield* kernel.adoptFence({ sessionId, owner: "usurper", fence });
-            } finally {
-              store.close();
-              catalog.close();
-            }
-          }),
+          Effect.scoped(
+            sessionHandles(home, sessionId, Date.now).pipe(
+              Effect.flatMap(({ catalog, kernel }) =>
+                kernel.adoptFence({ sessionId, owner: "usurper", fence: catalog.rotateFence(sessionId) }),
+              ),
+            ),
+          ),
         ),
       );
       // The zombie's next commit is a typed refusal, not a defect.
@@ -487,71 +346,48 @@ test("r2 H3: a fence-stale commit from a zombie activation is the typed ArmRefus
   );
   expect(refused).toMatchObject({ _tag: "ArmRefused", code: "stale_activation" });
   // The zombie appended nothing: only the sane pre-usurp arm is indexed.
-  const armed = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-      try {
-        return SessionHandleStore.createSessionKernel(store, catalog).armedAlarms();
-      } finally {
-        store.close();
-        catalog.close();
-      }
-    }),
-  );
-  expect(armed.map((row) => row.alarmId)).toEqual(["h3-live"]);
+  expect(readArmedAlarms(home, sessionId).map((row) => row.alarmId)).toEqual(["h3-live"]);
 });
 
 test("r2 H3: three exhausted CAS attempts on the arm commit surface the typed ArmRefused revision", async () => {
   const sessionId = "h3-revision-session";
-  const liveVerbs = new Map<string, ArmVerb>();
+  const live = liveArmRegistry();
   const contend = { active: false, bumps: 0 };
   // One REAL competing row lands through a second kernel right before each of
   // the entity's commit attempts, so every bounded attempt sees a moved
   // revision — deterministic contention, no sleeps.
-  const competingBump = Effect.gen(function* () {
-    const catalog = openCatalogStore(catalogFile, { now: () => Date.now() });
-    const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), {
-      now: () => Date.now(),
-    });
-    try {
-      const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-      const row = kernel.row(sessionId);
-      contend.bumps += 1;
-      yield* kernel.commit({
-        sessionId,
-        owner: row.fenceOwner ?? "competitor",
-        fence: row.fence,
-        now: Date.now(),
-        expectedRevision: row.revision,
-        actions: [
-          firedAction({
-            parentId: null,
-            sessionId,
-            purpose: "h3.tick",
-            alarmId: "h3-competitor",
-            occurrenceId: `h3-competitor-${contend.bumps}`,
-            outcome: "stale",
-            ts: Date.now(),
-          }),
-        ],
-        state: row.state,
-      });
-    } finally {
-      store.close();
-      catalog.close();
-    }
-  });
+  const competingBump = Effect.scoped(
+    sessionHandles(home, sessionId, Date.now).pipe(
+      Effect.flatMap(({ kernel }) => {
+        const row = kernel.row(sessionId);
+        contend.bumps += 1;
+        return kernel.commit({
+          sessionId,
+          owner: row.fenceOwner ?? "competitor",
+          fence: row.fence,
+          now: Date.now(),
+          expectedRevision: row.revision,
+          actions: [
+            firedAction({
+              parentId: null,
+              sessionId,
+              purpose: "h3.tick",
+              alarmId: "h3-competitor",
+              occurrenceId: `h3-competitor-${contend.bumps}`,
+              outcome: "stale",
+              ts: Date.now(),
+            }),
+          ],
+          state: row.state,
+        });
+      }),
+    ),
+  );
   const refused = await runCluster(
     {
       sessionsDir,
       catalogFile,
-      onLive: (id, verbs) => {
-        liveVerbs.set(id, verbs.arm);
-        return () => {
-          liveVerbs.delete(id);
-        };
-      },
+      onLive: live.onLive,
       wrapStore: (id, store) => {
         if (id !== sessionId) return store;
         const sessions = store.sessions;
@@ -571,8 +407,7 @@ test("r2 H3: three exhausted CAS attempts on the arm commit surface the typed Ar
     },
     Effect.gen(function* () {
       yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
-      const verb = liveVerbs.get(sessionId);
-      if (verb === undefined) return yield* Effect.die(new Error("no live activation"));
+      const verb = yield* live.live(sessionId);
       contend.active = true;
       const refusal = yield* Effect.flip(
         verb({ purpose: "h3.tick", at: FAR_FUTURE, alarmId: "h3-cas", sourceKey: "t", payload: {} }),
@@ -588,9 +423,7 @@ test("r2 H3: three exhausted CAS attempts on the arm commit surface the typed Ar
 
 test("r2 M2 (H5): a settled watch wakes exactly once — the exhausted hit retires both chains and the later timeout delivery lapses stale", async () => {
   const sessionId = "h5-sequence-session";
-  const liveVerbs = new Map<string, ArmVerb>();
-  const closed: string[] = [];
-  const installs: string[] = [];
+  const live = liveArmRegistry();
   // A far-future timeout: the DeliverAt door alone would release it in an
   // hour, so the TEST — not the wall clock — decides when it arrives (r3 M2).
   const TIMEOUT_MS = 3_600_000;
@@ -599,44 +432,8 @@ test("r2 M2 (H5): a settled watch wakes exactly once — the exhausted hit retir
     policyGeneration: 1,
     notificationLimit: 1,
   };
-  const capability = await runAgent(
-    alarmCapability({
-      bundles: [
-        {
-          bundle: "monitor",
-          purposes: watchPurposes({
-            close: (id) => {
-              closed.push(id);
-            },
-          }),
-        },
-      ],
-      compose: composeAlarmPurposes,
-      arm: (id) => (input) =>
-        Effect.suspend(() => {
-          const verb = liveVerbs.get(id);
-          return verb === undefined
-            ? Effect.die(new Error(`no live activation for ${id}`))
-            : verb(input);
-        }),
-      watch: {
-        install: ({ watchId }) =>
-          Effect.sync(() => {
-            installs.push(watchId);
-          }),
-      },
-    }),
-  );
-  const readArmed = Effect.sync(() => {
-    const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-    const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-    try {
-      return SessionHandleStore.createSessionKernel(store, catalog).armedAlarms();
-    } finally {
-      store.close();
-      catalog.close();
-    }
-  });
+  const { definition: capability, installs, closed } = await runAgent(liveWatchCapability(live));
+  const readArmed = Effect.sync(() => readArmedAlarms(home, sessionId));
   // r3 M2: HOLD the entity's forked DeliverAt forwards instead of racing them.
   // The explicit `sendAlarm` sends below are then the ONLY envelopes under
   // those occurrence ids, and each RPC ack — sent only after the corresponding
@@ -652,12 +449,7 @@ test("r2 M2 (H5): a settled watch wakes exactly once — the exhausted hit retir
         Effect.sync(() => {
           heldForwards.push(occurrence.alarmId);
         }),
-      onLive: (id, verbs) => {
-        liveVerbs.set(id, verbs.arm);
-        return () => {
-          liveVerbs.delete(id);
-        };
-      },
+      onLive: live.onLive,
     },
     Effect.gen(function* () {
       yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
@@ -720,24 +512,12 @@ test("r2 M2 (H5): a settled watch wakes exactly once — the exhausted hit retir
   expect(closed).toEqual(["h5"]);
   // Durable facts: zero watch-plane rows survive; exactly ONE prompt
   // committed; the late timeout delivery folded to fired{stale}.
-  const after = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-      try {
-        const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-        return {
-          armed: kernel.armedAlarms(),
-          hitPrompt: kernel.actionById(`${outcome.main.occurrenceId}:prompt`),
-          timeoutPrompt: kernel.actionById(`${outcome.timeoutRow.occurrenceId}:prompt`),
-          timeoutStale: kernel.actionById(`${outcome.timeoutRow.occurrenceId}:stale`),
-        };
-      } finally {
-        store.close();
-        catalog.close();
-      }
-    }),
-  );
+  const after = withSessionHandles(home, sessionId, ({ kernel }) => ({
+    armed: kernel.armedAlarms(),
+    hitPrompt: kernel.actionById(`${outcome.main.occurrenceId}:prompt`),
+    timeoutPrompt: kernel.actionById(`${outcome.timeoutRow.occurrenceId}:prompt`),
+    timeoutStale: kernel.actionById(`${outcome.timeoutRow.occurrenceId}:stale`),
+  }));
   // Zero watch-plane rows survive (the entity\u2019s own passivation `resume`
   // chain is loop-reserved bookkeeping, not a monitor arm).
   expect(after.armed.filter((row) => row.sourceKey === "monitor")).toEqual([]);

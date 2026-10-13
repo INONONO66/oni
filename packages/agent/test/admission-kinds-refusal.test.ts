@@ -7,7 +7,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
-import { Delivery, type LedgerSession } from "@openomni/protocol";
+import { Delivery } from "@openomni/protocol";
+import { kernelOwnedRow } from "./helpers/request-fixtures";
 import { decideSessionAdmission } from "../src/core/admission";
 import type { DeliverRefused } from "../src/core/messages";
 import { clusterTempDir, readChain, runCluster, sendDeliver, sessionFileFor } from "./helpers/cluster-runtime";
@@ -17,18 +18,7 @@ const options = { sessionsDir, catalogFile, capabilityKinds: "undeclared" as con
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const sessionRow: LedgerSession.Row = {
-  id: "s1",
-  parentId: null,
-  role: "resident",
-  fenceOwner: "kernel",
-  fence: 1,
-  revision: 1,
-  state: "idle",
-  toolsGeneration: 1,
-  systemHash: "system",
-  policyGeneration: 1,
-};
+const sessionRow = kernelOwnedRow("s1", "idle");
 
 const pendingPrompt = Delivery.Row.parse({
   id: "in-1",

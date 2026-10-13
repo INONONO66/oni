@@ -1,9 +1,10 @@
 import { Effect, Result } from "effect";
+import { afterEach, beforeEach } from "bun:test";
 import type { Delivery, LedgerAction } from "@openomni/protocol";
 import { runLedgerSync } from "./effect";
-import type { LedgerStores } from "./storage";
+import { type LedgerStores, testNow, useMemoryStores } from "./storage";
 import { adoptWriter, materializeSession } from "./session";
-import { SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
+import { openSessionStore, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
 import { deliveryActions, receivedMessageAction, turnTerminalAction } from "../../../src/core/commit";
 import { armAction } from "../../../src/core/alarm";
 import { forkSession, type ForkPorts, ForkRefused, type ForkReceipt } from "../../../src/core/fork";
@@ -15,8 +16,30 @@ export const CHILD = "child";
 
 type ChildStore = SessionStore;
 
+/**
+ * #1348: the per-test fork world every `store/*fork*`/`inspect-*` suite rides:
+ * fresh in-memory parent stores plus one in-memory child session store, both
+ * opened in `beforeEach` and closed in `afterEach`.
+ */
+export function useForkFixture() {
+  const stores = useMemoryStores();
+  let childStore: SessionStore | undefined;
+  beforeEach(() => {
+    childStore = openSessionStore(":memory:", { now: testNow });
+  });
+  afterEach(() => {
+    childStore?.close();
+    childStore = undefined;
+  });
+  const child = (): SessionStore => {
+    if (childStore === undefined) throw new Error("child store only exists inside a test");
+    return childStore;
+  };
+  return { stores, child, fixture: forkFixture(stores, child) };
+}
+
 /** One fork fixture (#1257) bound to a parent plane and a separate child store. */
-export function forkFixture(stores: LedgerStores, child: () => ChildStore) {
+function forkFixture(stores: LedgerStores, child: () => ChildStore) {
   function commit(
     authority: { sessionId: string; owner: string; fence: number },
     actions: readonly LedgerAction.Append[],

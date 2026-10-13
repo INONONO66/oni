@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { Delivery, Journal, type LedgerSession } from "@openomni/protocol";
+import { Delivery, Journal } from "@openomni/protocol";
+import { kernelOwnedRow } from "./helpers/request-fixtures";
 import { deliveryActions, inputRowKind, receivedMessageAction } from "../src/core/commit";
 import { decideSessionAdmission } from "../src/core/admission";
 
@@ -75,18 +76,7 @@ test("admission rows split the same way: prompt stays prompt, control admits as 
 });
 
 test("an input of a capability kind whose capability is off is rejected with unknown_kind", () => {
-  const sessionRow: LedgerSession.Row = {
-    id: "s1",
-    parentId: null,
-    role: "resident",
-    fenceOwner: "kernel",
-    fence: 1,
-    revision: 1,
-    state: "idle",
-    toolsGeneration: 1,
-    systemHash: "system",
-    policyGeneration: 1,
-  };
+  const sessionRow = kernelOwnedRow("s1", "idle");
   const pending = [row("action", "in-action")];
   // The composed generation registers only the built-ins: the action input is refused.
   const refused = decideSessionAdmission({ row: sessionRow, pending, capabilityKinds: ["tool", "compaction"] });

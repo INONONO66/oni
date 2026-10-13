@@ -41,6 +41,15 @@ function withCatalog<A>(run: (open: () => ReturnType<typeof openCatalogStore>) =
   }
 }
 
+/** The generation-1 kernel snapshot over `rows` with compaction mandatory, as a pinned restore compiles it. */
+const pinnedSnapshot = (...rows: Parameters<typeof atGeneration>[0][]) =>
+  compilePolicySnapshot({
+    registry: KERNEL_POLICY_REGISTRY,
+    generation: 1,
+    rows: rows.map((row) => atGeneration(row, 1)),
+    mandatory: ["compaction"],
+  });
+
 describe("permission-row migration (#1251)", () => {
   it("maps every historical kind/phase pair the kernel ever wrote to a registered point", () => {
     expect(() => assertPointGenerationRows(LEGACY_ROWS, table)).not.toThrow();
@@ -74,12 +83,7 @@ describe("permission-row migration (#1251)", () => {
 
     // Even an untouched historical generation translates at compile: the
     // pinned snapshot keeps the base-era refusal on the compaction point.
-    const snapshot = compilePolicySnapshot({
-      registry: KERNEL_POLICY_REGISTRY,
-      generation: 1,
-      rows: [atGeneration(compaction, 1), atGeneration(deny, 1)],
-      mandatory: ["compaction"],
-    });
+    const snapshot = pinnedSnapshot(compaction, deny);
     expect(snapshot.evaluate({ kind: "compaction", phase: "pre", op: "compact", value: {} }).verdict).toBe("deny");
     // The turn envelope itself is no longer governed by the converted row.
     expect(snapshot.evaluate({ kind: "turn", phase: "post", op: "finish", value: {} }).verdict).toBe("allow");
@@ -97,12 +101,7 @@ describe("permission-row migration (#1251)", () => {
     expect(converted).toMatchObject({ kind: "compaction", phase: "pre" });
     expect(converted.match.value).toEqual({ op: "restore_context_projection" });
 
-    const snapshot = compilePolicySnapshot({
-      registry: KERNEL_POLICY_REGISTRY,
-      generation: 1,
-      rows: [atGeneration(compaction, 1), atGeneration(deny, 1)],
-      mandatory: ["compaction"],
-    });
+    const snapshot = pinnedSnapshot(compaction, deny);
     expect(
       snapshot.evaluate({ kind: "compaction", phase: "pre", op: "restore_context_projection", value: {} }),
     ).toMatchObject({ verdict: "deny", reason: "pinned_projection" });
@@ -114,12 +113,7 @@ describe("permission-row migration (#1251)", () => {
     const freeze = draft("frozen", "turn", "post", { type: "deny", reason: "frozen" }, { priority: 2_000 });
     expect(translateLegacyPolicyRow(freeze)).toEqual(freeze);
 
-    const snapshot = compilePolicySnapshot({
-      registry: KERNEL_POLICY_REGISTRY,
-      generation: 1,
-      rows: [atGeneration(compaction, 1), atGeneration(freeze, 1)],
-      mandatory: ["compaction"],
-    });
+    const snapshot = pinnedSnapshot(compaction, freeze);
     for (const op of ["compact", "restore_context_projection"]) {
       expect(snapshot.evaluate({ kind: "compaction", phase: "pre", op, value: {} })).toMatchObject({
         verdict: "deny",

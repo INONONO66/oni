@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RunEvents } from "../../../src/core/turn";
 import { Operational, type PlainObject } from "@openomni/protocol";
+import { z } from "zod";
 import { createBudgetState, publishBudgetTelemetry } from "../../../src/core/budget";
 import { collector } from "../../helpers/observation-collector";
 import { TEST_BUDGET } from "../../helpers/approval-policy";
@@ -46,7 +47,7 @@ describe("RunEvents BusEvents", () => {
         turnIndex: 0,
         usage: { inputTokens: 100, outputTokens: 50 },
       }),
-    ).toThrow();
+    ).toThrow(z.ZodError);
   });
 
   test("tool execution events are not duplicated under RunEvents", () => {
@@ -98,7 +99,7 @@ describe("RunEvents BusEvents", () => {
         trigger: "manual",
         summarizer: false,
       }),
-    ).toThrow();
+    ).toThrow(z.ZodError);
   });
 
   test("CompactionCompleted parses every outcome; rejects unknown ones", () => {
@@ -129,7 +130,7 @@ describe("RunEvents BusEvents", () => {
         removedCount: 15,
         elidedChars: 0,
       }),
-    ).toThrow();
+    ).toThrow(z.ZodError);
   });
 
   /** One field at a time, or relaxing either alone still throws on the other. */
@@ -144,7 +145,7 @@ describe("RunEvents BusEvents", () => {
     };
     delete payload[field];
 
-    expect(() => RunEvents.ErrorRetry.schema.parse(payload)).toThrow();
+    expect(() => RunEvents.ErrorRetry.schema.parse(payload)).toThrow(z.ZodError);
   });
 
   test("ErrorRetry parses", () => {

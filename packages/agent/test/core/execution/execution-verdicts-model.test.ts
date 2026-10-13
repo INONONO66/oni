@@ -55,6 +55,19 @@ function harness(rows: readonly PolicyRow.Row[]) {
   return { actions, executor };
 }
 
+/** Runs the unregistered `channel.send` kind through `executor` and asserts the typed admit refusal. */
+function* refusedForeignKind(executor: ReturnType<typeof harness>["executor"], body: ReturnType<typeof okBody>) {
+  const refused = executor.run(
+    { kind: "channel.send", op: "test", intent: {}, effect: {} },
+    body,
+  );
+  expect(yield* effectFailure(refused)).toMatchObject({
+    _tag: "AgentFailure",
+    operation: "executor.admit",
+    cause: "unregistered_execution_kind:channel.send",
+  });
+}
+
 /** Body double returning the canonical success payload; call counts stay assertable. */
 function okBody() {
   return mock(() =>
@@ -125,15 +138,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
           const { actions, executor } = harness([]);
           const body = okBody();
 
-          const refused = executor.run(
-            { kind: "channel.send", op: "test", intent: {}, effect: {} },
-            body,
-          );
-          expect(yield* effectFailure(refused)).toMatchObject({
-            _tag: "AgentFailure",
-            operation: "executor.admit",
-            cause: "unregistered_execution_kind:channel.send",
-          });
+          yield* refusedForeignKind(executor, body);
           expect(body).toHaveBeenCalledTimes(0);
           expect(actions).toHaveLength(0);
         }),
@@ -150,15 +155,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
           const { actions, executor } = harness([]);
           const body = okBody();
 
-          const refused = executor.run(
-            { kind: "channel.send", op: "test", intent: {}, effect: {} },
-            body,
-          );
-          expect(yield* effectFailure(refused)).toMatchObject({
-            _tag: "AgentFailure",
-            operation: "executor.admit",
-            cause: "unregistered_execution_kind:channel.send",
-          });
+          yield* refusedForeignKind(executor, body);
 
           const admitted = yield* executor.run(
             { kind: "tool", op: "test", intent: { requested: true }, effect: { completed: false } },

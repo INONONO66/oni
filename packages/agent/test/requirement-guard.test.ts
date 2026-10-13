@@ -4,6 +4,17 @@ import { fullPointTable, gateRow } from "./helpers/gate-rows";
 
 const table = fullPointTable();
 
+/** Compiles the single tool.pre `row` over `handlers` (generation 1) and decides a null tool.pre value. */
+function decideToolPre(row: Parameters<typeof gateRow>[1], handlers: ReadonlyMap<string, GateHandler>) {
+  const gate = compileGateRows({
+    table,
+    rows: [gateRow("tool.pre", row)],
+    handlers: [...handlers.keys()],
+    generation: 1,
+  });
+  return gate.decide("tool.pre", { when: {}, value: null }, { handlers: (ref) => handlers.get(ref) }).decision;
+}
+
 describe("requirement guard (#1251)", () => {
   it("resolves a separately declared dependency from the row's requires collection (#1251 r2)", () => {
     const helper: GateHandler = () => ({ payload: { risk: "low" } });
@@ -15,19 +26,7 @@ describe("requirement guard (#1251)", () => {
       ["guard/main", main],
       ["guard/helper", helper],
     ]);
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", { how: { ref: "guard/main", requires: ["guard/helper"] } }),
-      ],
-      handlers: [...handlers.keys()],
-      generation: 1,
-    });
-    const { decision } = gate.decide(
-      "tool.pre",
-      { when: {}, value: null },
-      { handlers: (ref) => handlers.get(ref) },
-    );
+    const decision = decideToolPre({ how: { ref: "guard/main", requires: ["guard/helper"] } }, handlers);
     expect(decision.verdict).toBe("allow");
     expect(decision.facts).toEqual([]);
     expect(decision.consulted.map((entry) => entry.payload)).toEqual([
@@ -45,21 +44,9 @@ describe("requirement guard (#1251)", () => {
       ["guard/helper", () => ({ payload: {} })],
       ["other/secrets", () => ({ payload: { leaked: true } })],
     ]);
-    const gate = compileGateRows({
-      table,
-      rows: [
-        gateRow("tool.pre", {
-          id: "guard/tool.pre#9",
-          how: { ref: "guard/main", requires: ["guard/helper"] },
-        }),
-      ],
-      handlers: [...handlers.keys()],
-      generation: 1,
-    });
-    const { decision } = gate.decide(
-      "tool.pre",
-      { when: {}, value: null },
-      { handlers: (ref) => handlers.get(ref) },
+    const decision = decideToolPre(
+      { id: "guard/tool.pre#9", how: { ref: "guard/main", requires: ["guard/helper"] } },
+      handlers,
     );
     expect(decision.verdict).toBe("deny");
     expect(decision.facts).toEqual([
@@ -77,17 +64,7 @@ describe("requirement guard (#1251)", () => {
       ["guard/escaping", escaping],
       ["other/secrets", other],
     ]);
-    const gate = compileGateRows({
-      table,
-      rows: [gateRow("tool.pre", { id: "guard/tool.pre#1", how: { ref: "guard/escaping" } })],
-      handlers: [...handlers.keys()],
-      generation: 1,
-    });
-    const { decision } = gate.decide(
-      "tool.pre",
-      { when: {}, value: null },
-      { handlers: (ref) => handlers.get(ref) },
-    );
+    const decision = decideToolPre({ id: "guard/tool.pre#1", how: { ref: "guard/escaping" } }, handlers);
     expect(decision.verdict).toBe("deny");
     expect(decision.facts).toEqual([
       { rowId: "guard/tool.pre#1", ref: "other/secrets", code: "requirement_escape" },

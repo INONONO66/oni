@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { z } from "zod";
 import type { PolicyRow } from "@openomni/protocol";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 
@@ -37,7 +38,7 @@ test("policy generations select, copy and append atomically", () => {
     expect(policies.rows(2)).toEqual([]);
     expect(() =>
       policies.appendGeneration((current) => [...current, { ...second, priority: 1.5 }]),
-    ).toThrow();
+    ).toThrow(z.ZodError);
     expect(policies.rows()).toEqual(original);
     expect(() =>
       policies.appendGeneration(() => {

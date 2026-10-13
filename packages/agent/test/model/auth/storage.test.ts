@@ -148,7 +148,10 @@ describe("Auth Storage", () => {
       mkdirSync(filepath);
       await Bun.write(join(filepath, "sentinel"), "keep");
 
-      await expect(runEffect(Auth.set("anthropic", { type: "api", key: "sk-ant" }, { id: () => "tmp-ant", authFilePath: filepath }))).rejects.toThrow();
+      await expect(runEffect(Auth.set("anthropic", { type: "api", key: "sk-ant" }, { id: () => "tmp-ant", authFilePath: filepath }))).rejects.toMatchObject({
+        _tag: "TransportFailure",
+        message: expect.stringContaining("EISDIR"),
+      });
 
       expect(readdirSync(dir).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
       expect(await Bun.file(join(filepath, "sentinel")).text()).toBe("keep");

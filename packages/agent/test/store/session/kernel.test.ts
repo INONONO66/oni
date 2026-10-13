@@ -1,6 +1,7 @@
 import { sessionTree } from "../helpers/session-tree";
 import { runLedgerSync } from "../helpers/effect";
 import { Effect, Result } from "effect";
+import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { type BusEvent, type LedgerAction, type LedgerSession, L0Observation, type SessionGeneration, SessionTurn, } from "@openomni/protocol";
@@ -658,7 +659,7 @@ describe("session kernel folds", () => {
       actions: [],
       nextRevision: null,
     });
-    expect(() => kernel.historyPage("resync", { limit: 0 })).toThrow();
+    expect(() => kernel.historyPage("resync", { limit: 0 })).toThrow(z.ZodError);
     expect(() => kernel.historyPage("missing")).toThrow("session not found");
     watch.unsubscribe();
   });
