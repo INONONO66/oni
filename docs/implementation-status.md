@@ -1,5 +1,15 @@
 # Implementation Status
 
+## #1349 — three-line comment rule across packages/agent (PR #1449, base `2c3efdb0a`)
+
+- Scope: `packages/agent/src`, `packages/agent/test`, `packages/agent/bench` plus `script/check-comment-residue.ts` and its test; nothing else (`git diff --name-only 2c3efdb0a..HEAD | grep -vE '^packages/agent/|^script/check-comment-residue'` is empty — this stamp is the lead's tail commit). The rung lands alone, after #1348, because every agent file it touches is also a rebase hazard for the other rungs.
+- Rule applied: a comment survives only where it states a non-obvious invariant, a law reference or a why, in at most a few lines; narration of what the next statement does, restated signatures, `#NNNN` issue trails, `─` divider lines and JSDoc blocks over six lines are deleted or rewritten as ≤ 6 why-only lines. Every retained src comment line is ≤ 100 columns (biome `lineWidth`; r1 M3 found 140 over-width lines introduced by the rewrite and they were rewrapped).
+- Zero behavior change is verified, not asserted: every edit went through a scratch line-range applier that refuses to write unless the file's TypeScript token stream (comments stripped) is byte-identical afterwards, and the whole-lane acceptance check re-verified all 236 touched agent files token-identical to the base. The src diff has zero non-comment lines (`git diff 2c3efdb0a..HEAD -- packages/agent/src` filtered to code lines = 0). Changed test files ran green behind the shared lock (792 pass / 0 fail across four batches), and the full local gate ran green on the pre-rebase tree (`gate-1349.log`, 13 steps / 11 lanes / patch coverage exit 0); the two rebases were comment-only merges whose CI run is the verification.
+- Measured (src, `check-comment-residue --measure`): comment ratio 1426bp (3589 comment / 25168 non-blank lines) → 710bp (1659/23364); issue-number comment lines 156 → 0; `─` dividers 64 → 0; JSDoc blocks over six lines → 0 (core/entity.ts alone went 261 → 83 comment lines, 14 oversized JSDocs → 0). Test tree after: 2523 comment lines / 53606 non-blank (4.71%), issue-number lines 0, dividers 0, JSDoc>6 0.
+- Gate: `script/check-comment-residue.ts` now carries a per-file `[issueNumberLines, dividerLines]` pin table over every agent src file, a package comment-ratio ceiling and a JSDoc>6 ceiling of 0, all equal to HEAD actuals (a pin above its actual is itself a violation: shrink only, never grow). The blanket `structuralHeaders` divider exemption is replaced by `durableByteNotes`: an enumerated list of (file, exact marker, reason) entries with a budget of 10, exempt only from the issue count and never from the ratio.
+- Rebases: onto `ce36b8296` (#1347 added comments that broke the pins — trimmed to policy, not re-pinned upward: `05bf79c98`) and onto `2c3efdb0a` (#1348 split/moved eight test files — main's code taken verbatim, policy re-applied to the surviving comments), each followed by a shrink-only re-pin commit.
+- Review: r1 High 0, Medium 3 — M1 (10 issue-ref/divider lines left in test + bench) removed, M2 (`writerLoop` lost its invariant note: RPC-only enqueue, arrival order, loss-free shutdown redelivery) restored as a 5-line note, M3 (over-width lines) rewrapped; Lows carried as PR comments.
+
 ## #1458 desktop ingress ledger winning-prompt link (PR #1460, base `b3d62bbc3`)
 
 The ledger explorer links a `superseded` decision to the winning prompt using
@@ -10,6 +20,7 @@ The desktop fixture reflects those producer rows; the channels router test pins
 that a real ingest stores the superseded row with the winning session target,
 and the desktop test renders that row shape through production `LedgerRows`.
 
+||||||| parent of f1437c47a (docs: stamp #1349 three-line comment rule across packages/agent (PR #1449) (#1349))
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
 On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a`).
@@ -37,6 +48,7 @@ On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a
   across a reconnect with `createdBy: "owner"` results; the same socket without
   the bootstrap grant is refused `require_approval`.
 
+||||||| parent of ca7facfe2 (docs: stamp #1349 three-line comment rule across packages/agent (PR #1449) (#1349))
 ## #1348 — agent test dedup and bare-throw narrowing (PR #1448, base `18ca03806`)
 
 - Every positive bare `toThrow()` in `packages/agent/test` is narrowed to the class the code actually throws: 41 sites in 19 files → 0 (`rg --pcre2 -n '(?<!not\.)toThrow\(\)' -g '*.ts' packages/agent/test`). Each site was classified by running a scratch probe copy once (deleted afterwards, never committed) rather than guessed; the classification receipt is `lane-1348-throw-probe.txt` under the campaign evidence directory.
