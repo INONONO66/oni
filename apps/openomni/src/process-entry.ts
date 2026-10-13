@@ -13,7 +13,7 @@ type SessionError = Core.SessionError;
 type SessionEntryServices = Core.SessionEntryServices;
 type SessionRuntime = Core.SessionRuntime;
 import { createChannelStores, createGatewayRouter, decodeChannelFailure } from "@openomni/channels";
-import { Effect } from "effect";
+import { Effect, Logger } from "effect";
 import {
   acquireAppResource,
   channelRequests,
@@ -283,6 +283,9 @@ export async function runProcessEntry(io: {
       // Never the shared catalog: the parent's SingleRunner owns its cluster_* tables.
       clusterStoragePath: ":memory:",
       composed,
+      // stdout is the parent's JSON-lines wire (`io.log`): every Effect log goes to the
+      // inherited stderr, so an activation log can never corrupt a frame.
+      logger: Logger.layer([Logger.withConsoleError(Logger.formatLogFmt)]),
     });
     try {
       await acquireAppResource(runtime, serveProcessSession(

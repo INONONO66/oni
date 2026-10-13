@@ -24,12 +24,19 @@ import {
 const legacyIdPath = `'$.${V1_DELIVERY_FIELDS.id}'`;
 const legacyKindPath = `'$.${V1_DELIVERY_FIELDS.kind}'`;
 import { z } from "zod";
-import { CorruptRecord, CreateRefused, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
+import { CatalogVersionRefused, CorruptRecord, CreateRefused, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
 import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import type { SessionWriteAdapter } from "../services";
 import { createSqliteDecisionFacts } from "../decision.js";
 import { ActionSqlRow, ActionSqlRowSafeIntegers, decodeAction } from "../storage/sqlite-l0-rows.js";
-import { appendAction, commitSession, insertSession, selectSession } from "../storage/sqlite-l0-write.js";
+import {
+  type AppendLimits,
+  appendAction,
+  commitSession,
+  DEFAULT_ROW_BYTE_CAP,
+  insertSession,
+  selectSession,
+} from "../storage/sqlite-l0-write.js";
 import { createSessions, materializeSession } from "../storage/sqlite-l0-sessions.js";
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
@@ -121,7 +128,8 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS armed_alarms (
     alarm_id TEXT PRIMARY KEY,
     occurrence_id TEXT NOT NULL UNIQUE,
-    fire_at INTEGER NOT NULL
+    fire_at INTEGER NOT NULL,
+    strikes INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE TABLE IF NOT EXISTS tool_outputs (
     output_id TEXT PRIMARY KEY,
@@ -134,6 +142,7 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
 const pageSize = z.number().int().positive().max(256);
 const windowCount = z.number().int().nonnegative();
 const OrdinalRow = z.object({ ordinal: z.number().int().positive() }).nullable();
+const PayloadBytesRow = z.object({ bytes: z.number().int().nonnegative() });
 type Reads = Pick<
   Storage.ActionSubAdapter,
   | "priorModelAttempt"
@@ -485,12 +494,13 @@ export function createActions(
   transaction: <T>(operation: () => T) => T,
   observationSink: ObservationSink,
   onObservationFailure: ObservationFailurePort,
+  limits: AppendLimits,
 ): ProtocolStorage.ActionSubAdapter {
   return {
     ...createActionReads(db, observationSink),
     append(input, expectedRevision) {
       const parsed = LedgerAction.Append.parse(input);
-      const receipt = transaction(() => appendAction(db, parsed, expectedRevision));
+      const receipt = transaction(() => appendAction(db, parsed, expectedRevision, limits));
       if (receipt !== undefined) reportCommitted(db, observationSink, onObservationFailure, receipt);
       return receipt;
     },
@@ -519,6 +529,19 @@ export function createActions(
           .get(sessionId, throughRevision),
       );
       return row === null ? undefined : decodeAction(row);
+    },
+    payloadBytes(sessionId, afterRevision, throughRevision) {
+      // The stored TEXT columns are the exact `JSON.stringify` strings `actionPayloadBytes` measures.
+      return PayloadBytesRow.parse(
+        db
+          .query(
+            `SELECT COALESCE(SUM(
+               length(CAST(intent AS BLOB)) + length(CAST(effect AS BLOB)) + COALESCE(length(CAST(revert AS BLOB)), 0)
+             ), 0) AS bytes
+             FROM action WHERE session_id = ? AND ordinal > ? AND ordinal <= ?`,
+          )
+          .get(sessionId, afterRevision, throughRevision),
+      ).bytes;
     },
     configurationActions(sessionId, beforeRevision) {
       const rows = ActionSqlRow.array().parse(
@@ -629,15 +652,19 @@ export interface ArmedAlarmRow {
   readonly sourceKey: string;
   /** Canonical JSON of the arm's payload. */
   readonly payload: string;
+  /** Delivery attempts already consumed (schema v2). */
+  readonly strikes: number;
 }
 
 const ArmedAlarmSqlRow = z.object({
   alarm_id: z.string(),
   occurrence_id: z.string(),
   fire_at: z.number(),
+  strikes: z.number().int().nonnegative(),
   arm_id: z.string(),
   intent: z.string(),
 });
+const StrikeRow = z.object({ strikes: z.number().int().positive() }).nullable();
 
 const ArmIntentView = z.object({
   purpose: z.string().min(1),
@@ -658,17 +685,18 @@ function armSeqFromArmRowId(armRowId: string): number {
   return seq;
 }
 
-/** Read ports over the `armed_alarms` index; the index itself is written only inside the append transaction. */
-function createArmedAlarmReads(db: Database): {
+/** `armed_alarms` ports; `strikeArmedAlarm` is the one writer outside the append transaction. */
+function createArmedAlarmPorts(db: Database): {
   armedAlarms(): readonly ArmedAlarmRow[];
   armedCount(): number;
+  strikeArmedAlarm(occurrenceId: string): number | undefined;
 } {
   return {
     armedAlarms() {
       const rows = ArmedAlarmSqlRow.array().parse(
         db
           .query(`
-        SELECT aa.alarm_id, aa.occurrence_id, aa.fire_at, a.id AS arm_id, a.intent AS intent
+        SELECT aa.alarm_id, aa.occurrence_id, aa.fire_at, aa.strikes, a.id AS arm_id, a.intent AS intent
         FROM armed_alarms aa
         JOIN action a ON a.kind = 'alarm'
           AND json_extract(a.intent, '$.op') = 'arm'
@@ -686,6 +714,7 @@ function createArmedAlarmReads(db: Database): {
           armSeq: armSeqFromArmRowId(row.arm_id),
           sourceKey: intent.sourceKey,
           payload: canonicalJson(intent.payload ?? {}),
+          strikes: row.strikes,
         };
       });
     },
@@ -693,6 +722,18 @@ function createArmedAlarmReads(db: Database): {
       return ArmedCountRow.parse(
         db.query("SELECT COUNT(*) AS count FROM armed_alarms").get(),
       ).count;
+    },
+    strikeArmedAlarm(occurrenceId) {
+      return db
+        .transaction(
+          () =>
+            StrikeRow.parse(
+              db
+                .query("UPDATE armed_alarms SET strikes = strikes + 1 WHERE occurrence_id = ? RETURNING strikes")
+                .get(occurrenceId),
+            )?.strikes,
+        )
+        .immediate();
     },
   };
 }
@@ -792,22 +833,15 @@ function verifyChain(db: Database, sessionId: string): LedgerAction.ChainVerdict
 
 
 /**
- * Session-file schemaVersion (#1257): stamped into `PRAGMA user_version` when
- * this build opens the file. There is no migration plane — a session file is
- * either on this schema (and carries this marker after its first open by this
- * build) or it is a legacy file this code never reads; `Session.fork` refuses
- * a parent whose marker differs without touching the file.
+ * Session-file schemaVersion (#1257) in `PRAGMA user_version`. v1 -> v2 is the one guarded upgrade
+ * (`armed_alarms.strikes`, stamped in the same transaction); a newer-build file refuses to open (typed); fork refuses a differing marker.
  */
-export const SESSION_FILE_SCHEMA_VERSION = 1;
+export const SESSION_FILE_SCHEMA_VERSION = 2;
 
 const SessionUserVersion = z.object({ user_version: z.number().int().nonnegative() });
 
-/**
- * Read-only schemaVersion probe (#1257): opens the file `readonly` and reads
- * only `PRAGMA user_version`, so a legacy parent file is never modified (and
- * its tables are never read). A missing file probes as 0 — not this schema.
- */
-export function readSessionFileSchemaVersion(path: string): number {
+/** The `readonly` `PRAGMA user_version` read behind the probe; a missing file reads as 0. */
+function probeSessionFileSchemaVersion(path: string): number {
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
@@ -817,6 +851,18 @@ export function readSessionFileSchemaVersion(path: string): number {
   } finally {
     db?.close();
   }
+}
+
+/**
+ * SchemaVersion probe before a fork: reads only `PRAGMA user_version` through a `readonly` open,
+ * so an unstamped legacy parent (0) and a newer-build file are never modified nor their tables read.
+ * An older stamped file (1 ≤ v < this schema) upgrades through the guarded path, then re-probes. Missing: 0.
+ */
+export function readSessionFileSchemaVersion(path: string): number {
+  const version = probeSessionFileSchemaVersion(path);
+  if (version === 0 || version >= SESSION_FILE_SCHEMA_VERSION) return version;
+  closeStoreDatabase(openStampedSessionDatabase(path));
+  return probeSessionFileSchemaVersion(path);
 }
 
 // busy_timeout comes FIRST: the pragma is connection-local (it never touches
@@ -850,17 +896,39 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
   }).immediate();
 }
 
-function openStoreDatabase(path: string, schema: readonly string[]): Database {
+/** Newer-build marker: typed `CatalogVersionRefused` before any DDL, stamp or read, no handle survives; else bootstrap and upgrade. */
+function openStampedSessionDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
-  let bootstrapped = false;
+  let ready = false;
   try {
-    bootstrapStoreDatabase(db, schema);
-    bootstrapped = true;
+    const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    if (version > SESSION_FILE_SCHEMA_VERSION) {
+      throw new CatalogVersionRefused({
+        fileVersion: version,
+        codeVersion: SESSION_FILE_SCHEMA_VERSION,
+        operation: "openSessionStore",
+      });
+    }
+    bootstrapStoreDatabase(db, SESSION_FILE_SCHEMA);
+    if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db);
+    ready = true;
   } finally {
-    if (!bootstrapped) db.close();
+    if (!ready) db.close();
   }
   return db;
+}
+
+const ColumnName = z.object({ name: z.string() });
+
+/** The guarded column add and the stamp, one transaction. */
+function upgradeSessionDatabase(db: Database): void {
+  db.transaction(() => {
+    const columns = ColumnName.array().parse(db.query("PRAGMA table_info(armed_alarms)").all());
+    if (!columns.some((column) => column.name === "strikes"))
+      db.run("ALTER TABLE armed_alarms ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0");
+    db.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`);
+  }).immediate();
 }
 
 /** Folds the WAL back into the main file so a cold start reads a clean
@@ -907,23 +975,28 @@ export class SessionStore extends StoreHandle {
   /** #1254 S3: the durable armed-alarm index of this session file. */
   readonly armedAlarms: () => readonly ArmedAlarmRow[];
   readonly armedCount: () => number;
+  readonly strikeArmedAlarm: (occurrenceId: string) => number | undefined;
   /** #1305: content-addressed tool output bytes of this session file. */
   readonly toolOutputs: ToolOutputsAdapter;
   private readonly onObservationFailure: ObservationFailurePort;
+  private readonly limits: AppendLimits;
   constructor(
     db: Database,
     observationSink: ObservationSink,
     now: () => number,
     onObservationFailure: ObservationFailurePort,
+    limits: AppendLimits,
   ) {
     super(db, observationSink, now);
     this.onObservationFailure = onObservationFailure;
-    this.sessions = createSessions(db, this.transaction, observationSink, onObservationFailure);
-    this.actions = createActions(db, this.transaction, observationSink, onObservationFailure);
+    this.limits = limits;
+    this.sessions = createSessions(db, this.transaction, observationSink, onObservationFailure, limits);
+    this.actions = createActions(db, this.transaction, observationSink, onObservationFailure, limits);
     this.decisionFacts = createSqliteDecisionFacts(db);
-    const armed = createArmedAlarmReads(db);
+    const armed = createArmedAlarmPorts(db);
     this.armedAlarms = () => armed.armedAlarms();
     this.armedCount = () => armed.armedCount();
+    this.strikeArmedAlarm = (occurrenceId) => armed.strikeArmedAlarm(occurrenceId);
     this.toolOutputs = createToolOutputs(db);
   }
 
@@ -936,12 +1009,18 @@ export class SessionStore extends StoreHandle {
   fork(input: SessionForkWrite): Effect.Effect<SessionForkReceipt, LedgerError> {
     return writeEffect("session.fork", (refuse: RefuseWrite) =>
       this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
-        const created = materializeSession(this.db, materialize, refuse);
+        const created = materializeSession(this.db, materialize, this.limits, refuse);
         if (!created.created)
           return refuse(new MaterializeRefused({ sessionId: materialize.row.id, reason: "state" }));
         let receipt = created.receipt;
         for (const copy of input.copies) {
-          const appended = appendAction(this.db, LedgerAction.Append.parse(copy), receipt.revision, refuse);
+          const appended = appendAction(
+            this.db,
+            LedgerAction.Append.parse(copy),
+            receipt.revision,
+            this.limits,
+            refuse,
+          );
           if (appended === undefined)
             return refuse(new CorruptRecord({ operation: "session.fork", id: copy.id }));
           receipt = appended;
@@ -961,7 +1040,7 @@ export class SessionStore extends StoreHandle {
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
       const created = this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
-        const result = materializeSession(this.db, materialize, refuse);
+        const result = materializeSession(this.db, materialize, this.limits, refuse);
         return result.created
           ? result
           : refuse(new CreateRefused({ sessionId: materialize.row.id, reason: "duplicate" }));
@@ -1055,6 +1134,8 @@ interface OpenSessionStoreOptions {
   readonly now: () => number;
   readonly observationSink?: ObservationSink;
   readonly onObservationFailure?: ObservationFailurePort;
+  /** Row payload cap at the append boundary; defaults to `DEFAULT_ROW_BYTE_CAP`. */
+  readonly rowByteCap?: number;
 }
 
 export function openSessionStore(path: string, options: OpenSessionStoreOptions): SessionStore {
@@ -1063,16 +1144,8 @@ export function openSessionStore(path: string, options: OpenSessionStoreOptions)
     options.observationSink ?? SILENT_OBSERVATION_SINK,
     options.now,
     options.onObservationFailure ?? DROP_OBSERVATION_FAILURES,
+    { rowByteCap: options.rowByteCap ?? DEFAULT_ROW_BYTE_CAP },
   );
-}
-
-/** Opens the session file and stamps its schemaVersion marker (#1257). */
-function openStampedSessionDatabase(path: string): Database {
-  const db = openStoreDatabase(path, SESSION_FILE_SCHEMA);
-  const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-  if (version < SESSION_FILE_SCHEMA_VERSION)
-    db.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`);
-  return db;
 }
 
 /** Narrow l0 write-kernel surface (W5.2 review F6): fenced chain commits plus
@@ -1082,5 +1155,6 @@ export const L0Write = {
   insertSession,
   selectSession,
   GENESIS_PREV_HASH,
+  DEFAULT_ROW_BYTE_CAP,
   computeActionHash,
 } as const;

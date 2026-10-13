@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { Gateway, type Delivery, L0Observation, LedgerAction, type ObservationSink, SessionTransition, } from "@openomni/protocol";
 import { type ObservationPublishFailure, publishCommitted } from "../../../src/core/store/storage/sqlite-l0-observation";
-import { createActions } from "../../../src/core/store/session-file";
+import { createActions, L0Write } from "../../../src/core/store/session-file";
 import { openLedgerDatabase } from "../helpers/ledger";
 
 function action(
@@ -202,6 +202,7 @@ test("the actions adapter routes a publish failure to its observation failure po
       },
     },
     (failure) => failures.push(failure),
+    { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP },
   );
 
   const receipt = actions.append(

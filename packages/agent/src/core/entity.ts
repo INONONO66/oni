@@ -9,13 +9,13 @@ import { Cause, Context, Effect, Exit, Option, Queue, Schema, type Scope, Semaph
 import { Entity, type Envelope, type Sharding } from "effect/cluster";
 import { LeaseLost, SessionAdmissionRefused, type SessionError } from "./failure";
 import { createSessionAdmission, decideSessionAdmission } from "./admission";
-import { createSessionRecovery } from "./recovery";
+import { createSessionRecovery, logRestoredHistory } from "./recovery";
 import { type SessionAdmissionSnapshot, type SessionEntityAuthority, type SessionEntityPorts, type SessionControllerState, type ResolvedSessionRuntime, type SessionRunner, type SessionRunnerResult, createSessionTurn } from "./run";
 import { deliveryActions, receivedMessageAction } from "./commit";
 import { createRawSlots } from "./gate/decide";
 import { decideRequestTransition } from "./request";
 import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, AlarmRpc, DeadlineAlarmBody, DeliverBody, type DeliverReceipt, DeliverRefused, DeliverRpc, type ReadPage, ReadRpc, ResolveRefused, ResolveRpc } from "./messages";
-import { alarmDisposition, armAction, ArmRefused, firedAction, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
+import { alarmDisposition, armAction, ArmRefused, firedAction, MAX_OCCURRENCE_STRIKES, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
 import { isReservedAlarmPurpose } from "@openomni/protocol";
 import { renderReadModel } from "./read";
 
@@ -635,6 +635,12 @@ function alarmOccurrence(
       yield* appendFiredAlarm(handle, occurrence, "stale");
       return { outcome: "stale" as const };
     }
+    // Strike first (own transaction, no journal row); at `MAX_OCCURRENCE_STRIKES` settle unexecuted.
+    const strikes = handle.kernel.strikeArmedAlarm(occurrence.occurrenceId);
+    if (strikes !== undefined && strikes >= MAX_OCCURRENCE_STRIKES) {
+      yield* appendFiredAlarm(handle, occurrence, "exhausted");
+      return { outcome: "delivered" as const };
+    }
     if (isReservedAlarmPurpose(occurrence.purpose)) {
       if (occurrence.purpose === "deadline") yield* expireDeadline(handle, occurrence);
       yield* appendFiredAlarm(handle, occurrence, "delivered");
@@ -1230,6 +1236,7 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
         ownsTurn: (turnId) => kernel.latestOpenTurn(sessionId)?.turnId === turnId,
       });
       if (releaseLive !== undefined) yield* Effect.addFinalizer(() => Effect.sync(releaseLive));
+      yield* logRestoredHistory(kernel, sessionId, env.clock);
       // #1254 S3: restore scheduling — resend every armed occurrence (forked,
       // exactly once per activation).
       yield* resendArmedAlarms(handle);

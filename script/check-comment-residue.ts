@@ -277,7 +277,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/budget.ts", [1, 0]],
   ["packages/agent/src/core/bus.ts", [8, 0]],
   ["packages/agent/src/core/capability.ts", [6, 0]],
-  ["packages/agent/src/core/commit.ts", [16, 2]],
+  ["packages/agent/src/core/commit.ts", [15, 2]],
   ["packages/agent/src/core/compaction-ports.ts", [2, 0]],
   ["packages/agent/src/core/compaction.ts", [1, 0]],
   ["packages/agent/src/core/compose.ts", [10, 0]],
@@ -322,7 +322,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/store/index.ts", [1, 0]],
   ["packages/agent/src/core/store/json.ts", [0, 0]],
   ["packages/agent/src/core/store/services.ts", [0, 0]],
-  ["packages/agent/src/core/store/session-file/index.ts", [20, 2]],
+  ["packages/agent/src/core/store/session-file/index.ts", [18, 2]],
   ["packages/agent/src/core/store/storage/sqlite-l0-observation.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/sqlite-l0-policies.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/sqlite-l0-rows.ts", [2, 0]],
@@ -404,7 +404,7 @@ export const RESIDUE_PINS: ResiduePins = {
   // TIGHT: JSDoc blocks spanning >6 physical lines at d9800ad74. The issue's
   // 97 is not reproducible under any line-span definition; ceiling = measured
   // 126 under "spans > 6 physical lines".
-  jsdocOverSix: 126,
+  jsdocOverSix: 125,
   structuralHeaders: STRUCTURAL_HEADERS,
 };
 

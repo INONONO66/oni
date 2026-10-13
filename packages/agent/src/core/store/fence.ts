@@ -1,7 +1,7 @@
 import {
   canonicalDigest,
   type ConfigureDisabled,
-  type ConsumptionSettings,
+  ConsumptionSettings,
   Delivery,
   PlainObjectSchema,
   type PlainValue,
@@ -38,6 +38,7 @@ interface SessionKernelStores {
   readonly armed?: {
     armedAlarms(): readonly ArmedAlarmRow[];
     armedCount(): number;
+    strikeArmedAlarm(occurrenceId: string): number | undefined;
   };
   /** #1305: content-addressed tool output bytes of the session file. */
   readonly toolOutputs: ToolOutputsAdapter;
@@ -258,6 +259,24 @@ function latestGenerationForIn(
       });
     const snapshot = configurationSnapshot(action);
     if (snapshot !== undefined) return snapshot;
+    cursor = action.ordinal;
+  }
+}
+
+/** `session.configure.settings` carrier; any configure row may pin the settings. */
+const ConfigureSettingsIntent = z.object({ settings: ConsumptionSettings });
+
+/** Latest configure row with parseable `intent.settings`, newest-first over the index (read per batch). */
+function latestSettingsIn(
+  context: SessionKernelContext,
+  sessionId: string,
+): ConsumptionSettings | undefined {
+  let cursor = Number.MAX_SAFE_INTEGER;
+  for (;;) {
+    const action = requiredActionsIn(context).configurationActions(sessionId, cursor)[0];
+    if (action === undefined) return undefined;
+    const parsed = ConfigureSettingsIntent.safeParse(action.intent.value);
+    if (parsed.success) return parsed.data.settings;
     cursor = action.ordinal;
   }
 }
@@ -907,6 +926,9 @@ function makeSessionKernel(context: SessionKernelContext) {
       requiredActionsIn(context).latestAction(sessionId, throughRevision),
     latestFoldCheckpoint: (sessionId: string, throughRevision?: number) =>
       latestFoldCheckpointIn(context, sessionId, throughRevision),
+    /** Payload bytes of the rows after `afterRevision` through `throughRevision`: the writer's tail measure. */
+    payloadBytes: (sessionId: string, afterRevision: number, throughRevision: number): number =>
+      requiredActionsIn(context).payloadBytes(sessionId, afterRevision, throughRevision),
     priorModelAttempt: (sessionId: string, turnId: string) =>
       requiredActionsIn(context).priorModelAttempt(sessionId, turnId),
     generationFor: (
@@ -940,6 +962,8 @@ function makeSessionKernel(context: SessionKernelContext) {
       requiredActionsIn(context).actionById(id),
     latestGenerationFor: (sessionId: string): SessionGeneration.Snapshot =>
       latestGenerationForIn(context, sessionId),
+    latestSettings: (sessionId: string): ConsumptionSettings | undefined =>
+      latestSettingsIn(context, sessionId),
     /** inputHash is an exact persisted key, not a policy evaluation or JSON-path query API. */
     policyDecisionRuleIds: (sessionId: string, inputHash: string): string[] | undefined =>
       requiredActionsIn(context).policyDecisionRuleIds(sessionId, inputHash),
@@ -984,6 +1008,9 @@ function makeSessionKernel(context: SessionKernelContext) {
     /** #1254 S3: armed occurrences restored from the session file's durable index. */
     armedAlarms: (): readonly ArmedAlarmRow[] => requiredArmedIn(context).armedAlarms(),
     armedCount: (): number => requiredArmedIn(context).armedCount(),
+    /** One consumed delivery attempt; undefined once the row is retired. */
+    strikeArmedAlarm: (occurrenceId: string): number | undefined =>
+      requiredArmedIn(context).strikeArmedAlarm(occurrenceId),
     /** #1305: content-addressed tool output bytes — dedupe lives in the store's digest key. */
     putToolOutput: (write: ToolOutputWrite): void => context.stores().toolOutputs.put(write),
     toolOutput: (outputId: string): ToolOutputRow | undefined =>
@@ -1014,7 +1041,11 @@ export function createSessionKernel(session: SessionStore, catalog: CatalogStore
       sessions: session.sessions,
       actions: session.actions,
       policies: catalog.policies,
-      armed: { armedAlarms: session.armedAlarms, armedCount: session.armedCount },
+      armed: {
+        armedAlarms: session.armedAlarms,
+        armedCount: session.armedCount,
+        strikeArmedAlarm: session.strikeArmedAlarm,
+      },
       toolOutputs: session.toolOutputs,
     }),
     childSessionsPage: (parentId, afterId, limit) =>

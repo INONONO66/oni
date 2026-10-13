@@ -108,18 +108,18 @@ export class LedgerInvariant extends Data.TaggedError("LedgerInvariant")<{
 }> {}
 
 /**
- * Catalog schemaVersion fence (#1252): a catalog file whose `user_version`
- * marker is greater than this build's `CATALOG_SCHEMA_VERSION` was written by
- * newer code. It opens read-only: reads work, Deliver (fence rotation) and
- * fork (session indexing) are refused with this error, bytes stay untouched.
+ * SchemaVersion fence (#1252): a store file whose `user_version` marker exceeds this build's was
+ * written by newer code. A catalog opens read-only: reads work, Deliver (fence rotation) and fork
+ * (session indexing) refuse with this error. A session file refuses at `openSessionStore`: nothing read or written.
  */
 export class CatalogVersionRefused extends Data.TaggedError("CatalogVersionRefused")<{
   readonly fileVersion: number;
   readonly codeVersion: number;
-  readonly operation: "indexSession" | "rotateFence" | "markArmed";
+  readonly operation: "indexSession" | "rotateFence" | "markArmed" | "openSessionStore";
 }> {
   override get message(): string {
-    return `catalog schemaVersion ${this.fileVersion} is newer than this build (${this.codeVersion}); ${this.operation} refused — catalog is read-only`;
+    const file = this.operation === "openSessionStore" ? "session file" : "catalog";
+    return `${file} schemaVersion ${this.fileVersion} is newer than this build (${this.codeVersion}); ${this.operation} refused — ${file} is read-only`;
   }
 }
 

@@ -111,7 +111,11 @@ function rawCommit(sessionPath: string, request: LedgerSession.Commit): LedgerSe
   const db = new Database(sessionPath);
   db.run("PRAGMA busy_timeout = 5000");
   try {
-    const result = db.transaction(() => L0Write.commitSession(db, request, refuse)).immediate();
+    const result = db
+      .transaction(() =>
+        L0Write.commitSession(db, request, { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP }, refuse),
+      )
+      .immediate();
     if (result === undefined) throw new Error(`missing session row: ${request.sessionId}`);
     return result;
   } finally {
@@ -354,7 +358,7 @@ test("R8: kill inside the commit transaction leaves no partial action row", asyn
           irreversible: true, ts: 1_700_000_000_000,
         }],
         state: "idle",
-      }, (error) => { throw error; });
+      }, { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP }, (error) => { throw error; });
       console.log(JSON.stringify({ ok: result?.ok === true }));
       Bun.sleepSync(15_000); // park inside the open transaction until SIGKILL
       db.run("COMMIT");

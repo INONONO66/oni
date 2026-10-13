@@ -1,8 +1,10 @@
+import { Effect } from "effect";
 import { z } from "zod";
 import * as SessionHandleStore from "../core/store/fence";
 import type { SessionKernel } from "../core/entity";
 import { AgentInvariantViolation } from "../core/failure";
-import { canonicalDigest, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
+import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
+import { actionPayloadBytes } from "../core/store/action-hash";
 
 /**
  * Canonical model-context fold over committed actions: delivered prompts,
@@ -33,8 +35,9 @@ export function foldHistoryState(
           parents: [],
           compatibility: [],
           successorActionId: null,
+          budgetState: null,
         }
-      : structuredClone(seed);
+      : { budgetState: null, ...structuredClone(seed) };
   const parents = new Map<string, string | null>(state.parents);
   const messageTurns = new Map<string, string | null>(state.messageTurns);
   for (const action of actions) {
@@ -57,6 +60,7 @@ function applyHistoryAction(
   action: LedgerAction.Node,
 ) {
   if (action.kind === "fold.checkpoint") return;
+  chargeBudget(state, action);
   const turnId = parents.get(action.parentId ?? "");
   if (object(action.intent.value).phase === "intent") parents.set(action.id, action.parentId);
   if (opensTurn(action)) state.canonicalTurn = false;
@@ -89,6 +93,52 @@ function applyHistoryAction(
   if (terminalTurn !== undefined) parents.delete(terminalTurn);
   if (object(action.effect.value).phase === "result" && action.parentId !== null)
     parents.delete(action.parentId);
+}
+
+/** Budget counters charged as the loop does: a turn per logical `llm` intent, tokens per attempt, a call plus wall slice per settled tool. */
+function chargeBudget(state: FoldCheckpoint.State, action: LedgerAction.Node): void {
+  const intent = object(action.intent.value);
+  if (action.kind === "turn" && intent.phase === "intent") {
+    state.budgetState = {
+      startTime: action.ts, chargedAt: action.ts, turns: 0, toolCalls: 0, toolRuntimeMs: 0,
+      totalInputTokens: 0, totalOutputTokens: 0, toolsThrough: action.ts, openTools: [],
+    };
+    return;
+  }
+  const budget = state.budgetState;
+  if (budget === null || budget === undefined) return;
+  budget.chargedAt = Math.max(budget.chargedAt, action.ts);
+  if (action.kind === "llm") chargeModel(budget, action, intent);
+  if (action.kind === "tool") chargeTool(budget, action, intent);
+  if (SessionHandleStore.turnTerminal(action) !== undefined) state.budgetState = null;
+}
+
+function chargeModel(budget: FoldCheckpoint.BudgetState, action: LedgerAction.Node, intent: PlainObject): void {
+  if (intent.phase === "intent" && typeof intent.attempt !== "number") budget.turns += 1;
+  if (intent.phase !== "result") return;
+  const effect = object(action.effect.value);
+  if (effect.usageProvenance !== "reported" && effect.usageProvenance !== "estimated") return;
+  const usage = object(object(effect.evidence).usage);
+  budget.totalInputTokens += count(usage.inputTokens);
+  budget.totalOutputTokens += count(usage.outputTokens);
+}
+
+function chargeTool(budget: FoldCheckpoint.BudgetState, action: LedgerAction.Node, intent: PlainObject): void {
+  if (intent.phase === "intent") {
+    budget.openTools.push([action.id, action.ts]);
+    return;
+  }
+  if (intent.phase !== "result") return;
+  const index = budget.openTools.findIndex(([id]) => id === action.parentId);
+  if (index === -1) return;
+  const [[, startedAt]] = budget.openTools.splice(index, 1) as [[string, number]];
+  budget.toolCalls += 1;
+  budget.toolRuntimeMs += Math.max(0, action.ts - Math.max(startedAt, budget.toolsThrough));
+  budget.toolsThrough = Math.max(budget.toolsThrough, action.ts);
+}
+
+function count(value: PlainValue | undefined): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 function applyTerminal(state: FoldCheckpoint.State, action: LedgerAction.Node) {
@@ -166,6 +216,58 @@ function checkpointSeed(sessionId: string, checkpoint: LedgerAction.Node) {
   return parsed.data.result;
 }
 
+/** Core default: applies when no `session.configure{settings.checkpoint}` row pins one. */
+export const DEFAULT_CHECKPOINT_POLICY: CheckpointPolicy = {
+  everyActions: 256,
+  maxTailBytes: 4 * 1024 * 1024,
+};
+
+/** The checkpoint policy folded from the latest configure settings, never a literal. */
+export function checkpointPolicy(kernel: SessionKernel, sessionId: string): CheckpointPolicy {
+  return kernel.latestSettings(sessionId)?.checkpoint ?? DEFAULT_CHECKPOINT_POLICY;
+}
+
+/** The suffix page size: the existing `historyPage` default, not a policy value. */
+const RESTORE_PAGE_ROWS = 256;
+
+/** What one restore read after its checkpoint. */
+interface RestoreTelemetry {
+  readonly rows: number;
+  readonly bytes: number;
+  readonly pages: number;
+  readonly ms: number;
+}
+
+/** Injected clock for `RestoreTelemetry.ms`. */
+export interface RestoreOptions {
+  readonly now?: () => number;
+}
+
+/**
+ * The activation restore tail exceeded `maxTailBytes`: no partial state, the work done rides along.
+ * The writer keeps the tail under policy, so only rows appended outside `commitFoldBatch` or a lowered policy reach this.
+ */
+export const RestoreRefused = NamedError.create(
+  "RestoreRefused",
+  z
+    .object({
+      code: z.literal("budget"),
+      sessionId: z.string(),
+      revision: z.number().int().nonnegative(),
+      maxTailBytes: z.number().int().positive(),
+      telemetry: z
+        .object({
+          rows: z.number().int().nonnegative(),
+          bytes: z.number().int().nonnegative(),
+          pages: z.number().int().nonnegative(),
+          ms: z.number().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+);
+export type RestoreRefused = InstanceType<typeof RestoreRefused>;
+
 /** One committed prefix materialized as fold state, model history and compatibility rows. */
 export interface HydratedSessionHistory {
   readonly revision: number;
@@ -173,6 +275,7 @@ export interface HydratedSessionHistory {
   readonly history: Message.WithParts[];
   readonly messages: FoldCheckpoint.State["compatibility"];
   readonly nonCheckpointActions: number;
+  readonly telemetry: RestoreTelemetry;
 }
 
 /** Validate the durable seed even when a commit does not need to materialize its suffix. */
@@ -180,20 +283,25 @@ export function readHistoryCheckpoint(
   kernel: SessionKernel,
   sessionId: string,
   throughRevision?: number,
-): { nonCheckpointActions: number; hydrate: () => HydratedSessionHistory } {
+  options: RestoreOptions = {},
+): {
+  nonCheckpointActions: number;
+  /** Payload bytes from the checkpoint row (inclusive) through the revision: the restore tail. */
+  tailBytes: () => number;
+  hydrate: () => HydratedSessionHistory;
+  /** The bounded read: the page carrying the tail past `maxTailBytes` refuses with nothing folded. */
+  restore: (maxTailBytes: number) => HydratedSessionHistory | RestoreRefused;
+} {
   const { revision, checkpoint } = kernel.latestFoldCheckpoint(sessionId, throughRevision);
   const seed = checkpoint === undefined ? undefined : checkpointSeed(sessionId, checkpoint);
+  const afterRevision = seed?.revision ?? 0;
+  const initial = () => foldHistoryState(sessionId, [], seed?.state);
   return {
     nonCheckpointActions: revision - (checkpoint?.ordinal ?? 0),
-    hydrate: () =>
-      readHistorySuffix(
-        kernel,
-        sessionId,
-        revision,
-        foldHistoryState(sessionId, [], seed?.state),
-        seed?.revision ?? 0,
-        0,
-      ),
+    tailBytes: () => kernel.payloadBytes(sessionId, afterRevision, revision),
+    hydrate: () => readHistorySuffix(kernel, sessionId, revision, initial(), afterRevision, 0, options),
+    restore: (maxTailBytes) =>
+      readHistorySuffix(kernel, sessionId, revision, initial(), afterRevision, 0, options, maxTailBytes),
   };
 }
 
@@ -202,8 +310,25 @@ export function hydrateSessionHistory(
   kernel: SessionKernel,
   sessionId: string,
   throughRevision?: number,
+  options: RestoreOptions = {},
 ): HydratedSessionHistory {
-  return readHistoryCheckpoint(kernel, sessionId, throughRevision).hydrate();
+  return readHistoryCheckpoint(kernel, sessionId, throughRevision, options).hydrate();
+}
+
+/**
+ * The activation restore: the one read bound by the folded `maxTailBytes`, refused in the error
+ * channel. Shared hydrate paths stay unbounded because the writer already keeps the tail under that policy.
+ */
+export function restoreSessionHistory(
+  kernel: SessionKernel,
+  sessionId: string,
+  options: RestoreOptions = {},
+): Effect.Effect<HydratedSessionHistory, RestoreRefused> {
+  return Effect.suspend(() => {
+    const { maxTailBytes } = checkpointPolicy(kernel, sessionId);
+    const restored = readHistoryCheckpoint(kernel, sessionId, undefined, options).restore(maxTailBytes);
+    return RestoreRefused.isInstance(restored) ? Effect.fail(restored) : Effect.succeed(restored);
+  });
 }
 
 /** Recovery refresh consumes only commits newer than the runner's captured prefix. */
@@ -222,6 +347,10 @@ export function refreshSessionHistory(
   );
 }
 
+/**
+ * Folds the suffix page by page; each page's bytes count BEFORE folding, and under a `maxTailBytes`
+ * bound the page that carries the total past it refuses with nothing folded. Unbounded: the writer's invariant.
+ */
 function readHistorySuffix(
   kernel: SessionKernel,
   sessionId: string,
@@ -229,14 +358,51 @@ function readHistorySuffix(
   initial: FoldCheckpoint.State,
   afterRevision: number,
   count: number,
-): HydratedSessionHistory {
+  options: RestoreOptions,
+  maxTailBytes: number,
+): HydratedSessionHistory | RestoreRefused;
+function readHistorySuffix(
+  kernel: SessionKernel,
+  sessionId: string,
+  revision: number,
+  initial: FoldCheckpoint.State,
+  afterRevision: number,
+  count: number,
+  options?: RestoreOptions,
+): HydratedSessionHistory;
+function readHistorySuffix(
+  kernel: SessionKernel,
+  sessionId: string,
+  revision: number,
+  initial: FoldCheckpoint.State,
+  afterRevision: number,
+  count: number,
+  options: RestoreOptions = {},
+  maxTailBytes?: number,
+): HydratedSessionHistory | RestoreRefused {
+  const now = options.now ?? (() => performance.now());
+  const started = now();
   let state = initial;
   let cursor = afterRevision;
   let nonCheckpointActions = count;
+  let rows = 0;
+  let bytes = 0;
+  let pages = 0;
   while (cursor < revision) {
-    const page = kernel.historyPage(sessionId, { afterRevision: cursor, limit: 256 });
+    const page = kernel.historyPage(sessionId, { afterRevision: cursor, limit: RESTORE_PAGE_ROWS });
     const suffix = page.actions.filter((action) => action.ordinal <= revision);
     if (suffix.length === 0) throw new AgentInvariantViolation("history prefix has a revision gap");
+    pages += 1;
+    rows += suffix.length;
+    bytes += suffix.reduce((total, action) => total + actionPayloadBytes(action), 0);
+    if (maxTailBytes !== undefined && bytes > maxTailBytes)
+      return new RestoreRefused({
+        code: "budget",
+        sessionId,
+        revision,
+        maxTailBytes,
+        telemetry: { rows, bytes, pages, ms: now() - started },
+      });
     state = foldHistoryState(sessionId, suffix, state);
     nonCheckpointActions += suffix.filter((action) => action.kind !== "fold.checkpoint").length;
     cursor = suffix.at(-1)?.ordinal ?? cursor;
@@ -247,6 +413,7 @@ function readHistorySuffix(
     history: deriveHistory(state),
     messages: state.compatibility,
     nonCheckpointActions,
+    telemetry: { rows, bytes, pages, ms: now() - started },
   };
 }
 

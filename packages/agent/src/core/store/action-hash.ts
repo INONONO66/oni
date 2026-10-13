@@ -53,3 +53,11 @@ export function storedActionRow(
     ordinal,
   };
 }
+
+/** Payload bytes of one action: intent + effect + revert JSON, shared by fork copy, restore tail and row cap. */
+export function actionPayloadBytes(action: LedgerAction.Append | LedgerAction.Node): number {
+  const revert = "revert" in action ? JSON.stringify(action.revert.value) : "";
+  return Buffer.byteLength(
+    JSON.stringify(action.intent.value) + JSON.stringify(action.effect.value) + revert,
+  );
+}

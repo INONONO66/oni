@@ -151,6 +151,8 @@ export interface ObservedChatAgentConfig extends Omit<ChatAgentConfig, "budget" 
 
 export interface ChatAgentInput {
   readonly history?: readonly import("@openomni/protocol").Message.WithParts[];
+  /** The open turn's checkpointed budget counters; absent or null starts the run from zero. */
+  readonly budgetState?: import("@openomni/protocol").FoldCheckpoint.BudgetState | null;
   /**
    * Hydrated history. `partMetadata`, when present, rides onto the rebuilt
    * text part verbatim — hydration must not strip structural identity

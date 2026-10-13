@@ -137,6 +137,7 @@ describe("armed_alarms index in the append transaction", () => {
           armSeq: 1,
           sourceKey: "note",
           payload: JSON.stringify({ note: "a1@1" }),
+          strikes: 0,
         },
       ]);
       expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(true);
@@ -433,6 +434,135 @@ function firedRows(sessionId: string, occurrenceId: string): Record<string, numb
     stale: rows.filter((row) => row.id === `${occurrenceId}:stale`).length,
   };
 }
+
+/** A wake that "crashes" the attempt: a defect after the strike committed, before any fired row. */
+function crashingCapability(): AlarmCapability & { readonly attempts: () => number } {
+  let attempts = 0;
+  return {
+    purposes: ["note.due"],
+    wake: () =>
+      Effect.sync(() => {
+        attempts += 1;
+      }).pipe(Effect.andThen(Effect.die(new Error("simulated crash mid-attempt")))),
+    attempts: () => attempts,
+  };
+}
+
+/** The original occurrence of one armed row, as the cluster's DeliverAt door would send it. */
+async function armedOccurrence(sessionId: string) {
+  let fired: Parameters<typeof sendAlarm>[1] | undefined;
+  await readSession(sessionId, ({ kernel }) => {
+    const [row] = kernel.armedAlarms();
+    if (row === undefined) throw new Error(`no armed row for ${sessionId}`);
+    fired = { ...row, fireAt: row.fireAt };
+  });
+  if (fired === undefined) throw new Error("unreachable");
+  return fired;
+}
+
+describe("#1347 occurrence strikes in the session file", () => {
+  test("the strike commits before the handler, without a journal row; a re-arm resets it", async () => {
+    const sessionId = "strike-ledger";
+    await withSession(sessionId, async ({ kernel, commit }) => {
+      const first = arm(sessionId, "s1", 1, PAST_FIRE_AT);
+      expect(Result.isSuccess(await commit([first.action]))).toBe(true);
+      const revision = kernel.row(sessionId).revision;
+      const head = kernel.latestAction(sessionId)?.id;
+      expect(kernel.strikeArmedAlarm(first.occurrenceId)).toBe(1);
+      expect(kernel.strikeArmedAlarm(first.occurrenceId)).toBe(2);
+      expect(kernel.armedAlarms().map((row) => row.strikes)).toEqual([2]);
+      // No journal row and no revision moved: the strike is index state only.
+      expect(kernel.row(sessionId).revision).toBe(revision);
+      expect(kernel.latestAction(sessionId)?.id).toBe(head);
+      // An unknown or retired occurrence consumes nothing.
+      expect(kernel.strikeArmedAlarm("never-armed")).toBeUndefined();
+      // Superseding re-arm starts the new occurrence at zero strikes.
+      const second = arm(sessionId, "s1", 2, PAST_FIRE_AT + 1, first.occurrenceId);
+      expect(Result.isSuccess(await commit([second.action]))).toBe(true);
+      expect(kernel.armedAlarms().map((row) => [row.occurrenceId, row.strikes])).toEqual([[second.occurrenceId, 0]]);
+    });
+  });
+
+  test("a handler that crashes on every attempt is redelivered twice, then the third attempt folds fired{exhausted} once and runs nothing", async () => {
+    const sessionId = "strike-exhaust";
+    let occurrenceId = "";
+    await withSession(sessionId, async ({ commit }) => {
+      const armed = arm(sessionId, "due-x", 1, PAST_FIRE_AT);
+      occurrenceId = armed.occurrenceId;
+      expect(Result.isSuccess(await commit([armed.action]))).toBe(true);
+    });
+    const occurrence = await armedOccurrence(sessionId);
+    const capability = crashingCapability();
+    await runCluster(
+      { sessionsDir, catalogFile, alarmCapability: capability },
+      Effect.gen(function* () {
+        // The cluster redelivers the persisted occurrence after each entity
+        // defect; each delivery consumed one strike before the handler ran,
+        // so the third delivery settled the occurrence without executing.
+        const receipt = yield* sendAlarm(sessionId, occurrence);
+        expect(receipt.outcome).toBe("delivered");
+        expect(capability.attempts()).toBe(2);
+        // A later duplicate folds at the cluster's dedupe key: the settled
+        // receipt again, zero execution, no further strike.
+        const duplicate = yield* sendAlarm(sessionId, occurrence);
+        expect(duplicate.outcome).toBe("delivered");
+        expect(capability.attempts()).toBe(2);
+      }),
+    );
+    const chain = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
+    expect(chain.filter((row) => row.id === `${occurrenceId}:exhausted`)).toHaveLength(1);
+    expect(firedRows(sessionId, occurrenceId)).toEqual({ delivered: 0, stale: 0 });
+    await readSession(sessionId, ({ kernel, catalog }) => {
+      expect(kernel.armedCount()).toBe(0);
+      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
+    });
+  }, 30_000);
+
+  test("process death after the increment, before execution: the restart sees the strike and the resend exhausts on the third attempt", async () => {
+    const sessionId = "strike-restart";
+    let occurrenceId = "";
+    // The pre-crash world: the arm committed and one strike consumed in its
+    // own transaction — the exact durable state of a process that died
+    // between the increment and the handler (no fired row, row still armed).
+    await withSession(sessionId, async ({ kernel, commit }) => {
+      const armed = arm(sessionId, "due-r", 1, PAST_FIRE_AT);
+      occurrenceId = armed.occurrenceId;
+      expect(Result.isSuccess(await commit([armed.action]))).toBe(true);
+      expect(kernel.strikeArmedAlarm(occurrenceId)).toBe(1);
+    });
+    await readSession(sessionId, ({ kernel }) => {
+      expect(kernel.armedAlarms().map((row) => [row.occurrenceId, row.strikes])).toEqual([[occurrenceId, 1]]);
+    });
+
+    // Boot: the activation resend is attempt two (crashes), its redelivery is
+    // attempt three — exhausted before execution, one row, and the loop ends.
+    const capability = crashingCapability();
+    const signal = resendSignal();
+    await runCluster(
+      { sessionsDir, catalogFile, alarmCapability: capability, ...signal.options },
+      Effect.gen(function* () {
+        yield* sendAlarm(sessionId, {
+          occurrenceId: `${sessionId}:rescan:boot-2`,
+          purpose: "rescan",
+          alarmId: `${sessionId}:rescan`,
+          armSeq: 0,
+          sourceKey: "rescan",
+          payload: "{}",
+          fireAt: PAST_FIRE_AT,
+        });
+        yield* Effect.promise(() => signal.delivered(occurrenceId));
+      }),
+    );
+    expect(capability.attempts()).toBe(1);
+    const chain = readChain(sessionFileFor(sessionsDir, sessionId), sessionId);
+    expect(chain.filter((row) => row.id === `${occurrenceId}:exhausted`)).toHaveLength(1);
+    expect(firedRows(sessionId, occurrenceId)).toEqual({ delivered: 0, stale: 0 });
+    await readSession(sessionId, ({ kernel, catalog }) => {
+      expect(kernel.armedCount()).toBe(0);
+      expect(catalog.sessionIndex(sessionId)?.hasArmed).toBe(false);
+    });
+  }, 30_000);
+});
 
 describe("crash recovery through the cluster", () => {
   test("crash after arm, before DeliverAt: the rescan wake resends and exactly one fired{delivered} lands", async () => {

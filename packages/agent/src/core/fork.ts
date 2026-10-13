@@ -27,6 +27,7 @@ import { Data, Effect } from "effect";
 import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@openomni/protocol";
 import type { SessionKernel } from "./store/fence";
 import { configureAction } from "./store/fence";
+import { actionPayloadBytes } from "./store/action-hash";
 import { consumptionSettings } from "./commit";
 import type { LedgerError } from "./store/errors";
 import type {
@@ -144,13 +145,6 @@ function collectOutputIds(value: PlainValue, into: Set<string>): void {
   for (const entry of Object.values(value)) collectOutputIds(entry, into);
 }
 
-function copiedBytes(action: LedgerAction.Node): number {
-  const revert = "revert" in action ? JSON.stringify(action.revert.value) : "";
-  return Buffer.byteLength(
-    JSON.stringify(action.intent.value) + JSON.stringify(action.effect.value) + revert,
-  );
-}
-
 /** Remaps renamed-row references (`deliveryId`/`turnId`) inside one payload. */
 function remapPayload(
   payload: LedgerAction.Node["intent"],
@@ -262,7 +256,7 @@ function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
     if (stored !== undefined) outputs.push(stored);
   }
   const bytes =
-    eligible.reduce((total, node) => total + copiedBytes(node), 0) +
+    eligible.reduce((total, node) => total + actionPayloadBytes(node), 0) +
     outputs.reduce((total, output) => total + output.bytes.byteLength, 0);
   if (bytes > cap) return refuse("byte_cap", `copied bytes ${bytes} exceed the cap ${cap}`);
   const renames = new Map<string, string>();

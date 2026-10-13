@@ -141,10 +141,22 @@
     "sessionId",
     "status"
   ],
+  "FoldCheckpoint.BudgetState": [
+    "chargedAt",
+    "openTools",
+    "startTime",
+    "toolCalls",
+    "toolRuntimeMs",
+    "toolsThrough",
+    "totalInputTokens",
+    "totalOutputTokens",
+    "turns"
+  ],
   "FoldCheckpoint.Effect": ["phase", "result", "terminal"],
   "FoldCheckpoint.Intent": ["foldVersion", "phase", "reason", "revision"],
   "FoldCheckpoint.Result": ["foldVersion", "revision", "state", "stateHash"],
   "FoldCheckpoint.State": [
+    "budgetState",
     "canonicalTurn",
     "compatibility",
     "messages",

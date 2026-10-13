@@ -171,6 +171,12 @@ export interface AlarmDrainConfig {
   readonly sweep: AlarmSweepConfig;
 }
 
+/**
+ * Delivery attempts one occurrence may consume: the pre-execution strike reaching this count
+ * folds `fired{exhausted}` unexecuted. A core constant (poison boundary), not drain configuration.
+ */
+export const MAX_OCCURRENCE_STRIKES = 3;
+
 // ─── #1254 capability seam (frozen at S1: later steps add, never rename) ───
 
 /** The fired occurrence view a capability's `wake` receives. */
