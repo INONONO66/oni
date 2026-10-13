@@ -24,6 +24,24 @@ Five parallel implementations inside `packages/agent` collapsed to one owner eac
 
 Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `7e05bb8d1` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1344-r1.log`): build, check-types, lint, lint:tools, check-topology, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types, verify-tsconfig-inheritance, lint:docs, check-quality-python, the eight workspace test lanes, the three script lanes and patch coverage all exit 0; jscpd `packages/agent/src` 9 → 0; `check-comment-residue` OK at 1424bp. Review r1 (`review-1344-r1.md`, H0 M6 L6) fixed in full; r2 (`review-1344-r2.md`, H0 M1 L5) confirmed them and found one new Medium — a second `thrownAsError` copy in `model/model/loader.ts` — fixed by the lead before merge (loader on `core/failure`'s `thrownAsError`/`renderBodyCause`).
 
+## #1340 automation matcher, judge port, grouping and perimeter store tables (epic #1337, rung 3)
+
+On `epic1337/1340-matcher-judge-store` (2026-10-13, base `182a9fc27`, PR #1411).
+
+- `packages/channels/src/automation/`: pure matcher (`rules.ts`, `matcher.ts`)
+  turns a matching `Ingress.Input` into a prompt or action route; `judge.ts`
+  resolves `runWhen` conditions as `yes | no | unknown` before the final
+  match; `groups.ts` closes pending groups on the injected clock.
+- Every external event resolves to one recorded automation decision
+  (`matched`, `filtered`, `refused`, `deduped`, `grouped`) in the perimeter
+  automation ledger (`store/automation/`, SQLite adapter in
+  `store/sqlite/`); a redelivered already-filtered event writes no new row
+  and keeps its original reason.
+- `router/automation-rules.ts` replaces #1339's `router/ingress-filter.ts`;
+  `apps/openomni/src/gateway.ts` composes the automation groups.
+- Rule editing (`provision{automation_*}`) and desktop editor are rung 4/5
+  (#1341, #1342). Tests: channels 733 pass / 0 fail; apps/openomni 781 pass / 0 fail.
+
 ## #1339 channel drivers report facts only and emit the unified ingress input (epic #1337, rung 2)
 
 On `epic1337/1339-facts-only-drivers` (2026-10-13, base `6f9503ef1`, PR #1410).
