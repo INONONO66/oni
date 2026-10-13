@@ -63,34 +63,26 @@ export function planeOf(runtime: AppRuntime): Promise<AppLedgerPlane> {
 }
 
 /**
- * Strictly-newer fence adoption on a fixture kernel (the entity's own CAS),
- * re-read and re-decided after a lost single-increment race. Test-only: the
- * app composes no fence of its own (#1346).
+ * A fixture's fence adoption: the core's own takeover fold (the activation's
+ * CAS, re-decided after a lost increment), reached through the agent's
+ * `Testing` seam — no second copy of the product logic lives here (#1346 M6).
+ * Test-only: the app composes no fence of its own.
  */
 export function adoptTestFence(
   kernel: SessionKernel,
   sessionId: string,
   owner: string,
 ): Effect.Effect<number, LedgerError> {
-  const attempt: Effect.Effect<number, LedgerError> = Effect.suspend(() => {
-    const current = kernel.row(sessionId);
-    if (current.fenceOwner === owner) return Effect.succeed(current.fence);
-    return kernel
-      .adoptFence({ sessionId, owner, fence: current.fence + 1 })
-      .pipe(
-        Effect.map((receipt) => receipt.fence),
-        Effect.catchTag("FenceRefused", () => attempt),
-      );
-  });
-  return attempt;
+  return Testing.adoptSessionAuthority(kernel, sessionId, owner);
 }
 
 /**
  * A cluster-free delivery commit for fixtures that never boot an entity: the
- * received row lands directly on the destination chain (a running destination
- * lends its live fence, an idle one is taken over), idempotent on the row id.
- * The product path is the entity's `Deliver` RPC; this stays test-only and
- * must not back a test that claims admission behavior (#1346 M6): the
+ * core's received-message action lands on the destination chain under the
+ * core's fence fold (a running destination lends its live fence, an idle one
+ * is taken over), idempotent on the row id. The product path is the entity's
+ * `Deliver` RPC, which needs a booted cluster; this stays test-only and must
+ * not back a test that claims admission behavior (#1346 M6): the
  * `messageFixture` sender holds its turn under a local runner, so no entity
  * can own it. Admission through the entity is proven where the parent is a
  * booted app (`startOpenOmni` in process-session-e2e, session-wave-e2e).
