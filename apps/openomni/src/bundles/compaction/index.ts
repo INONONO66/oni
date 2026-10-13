@@ -32,15 +32,19 @@ export function compactionBundle(): Bundle.BundleContract<"compaction-strategy">
 /** The run options the binding hands the plugin; elision and geometry defaults are the plugin's. */
 export function compactionOptions(
   config: OpenOmniConfig,
-  sources: { readonly now: () => number; readonly id: () => string },
+  sources: {
+    readonly now: () => number;
+    readonly id: () => string;
+    readonly sessionId: string;
+    readonly system: string;
+  },
 ): Effect.Effect<Core.CompactionOptions, never, Core.Llm | Core.ObservationSink> {
   return Effect.gen(function* () {
     if (config.compactionSummarizer === false) return {};
     const transport = modelTransport(config.model);
     return {
       onSummarize: yield* createCompactionSummarizer({
-        now: sources.now,
-        id: sources.id,
+        ...sources,
         model: { ...config.model, ...(transport === undefined ? {} : { transport }) },
       }),
     };

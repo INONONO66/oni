@@ -44,7 +44,10 @@ export interface ResidentOptions {
   readonly transport?: ChatAgentConfig["transport"];
   /** The composed-generation holder (#1255 P3); absent = legacy static faces (tests). */
   readonly composed?: { readonly current: () => ComposedContext };
-  readonly compaction?: Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>,  never, Core.Llm | ObservationSink>;
+  readonly compaction?: (session: {
+    readonly sessionId: string;
+    readonly system: string;
+  }) => Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>, never, Core.Llm | ObservationSink>;
   readonly tools: ToolPorts;
   readonly sessionRuntime: SessionRuntime;
   /** The catalog's current policy generation; new sessions pin it at creation. */
@@ -109,7 +112,9 @@ export function createResident(options: ResidentOptions) {
         options.composed?.current().generation.disabled.some((entry) => entry.name === "compaction") === true;
       const compactionSeam = compactionOff ? undefined : options.sessionRuntime.compaction;
       const compaction =
-        compactionOff || options.compaction === undefined ? undefined : yield* options.compaction;
+        compactionOff || options.compaction === undefined
+          ? undefined
+          : yield* options.compaction({ sessionId: input.sessionId, system: input.system });
       const traceId = traceIdFromUuid(ports.id());
       const observation = observeComponent({
         traceId,

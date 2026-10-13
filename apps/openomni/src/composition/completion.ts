@@ -9,7 +9,7 @@ const Llm = Core.Llm;
 type Llm = Core.Llm;
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
-import { traceIdFromUuid, type Message, type PlainObject } from "@openomni/protocol";
+import { PlainValueSchema, traceIdFromUuid, type Message, type PlainObject, type PlainValue } from "@openomni/protocol";
 import { Effect } from "effect";
 import type { LlmCall } from "../bundles/tools/completion/index";
 
@@ -27,6 +27,7 @@ interface ResolvedTextCall {
   readonly messages: Message.WithParts[];
   readonly system?: string;
   readonly sessionId: string;
+  readonly purpose?: "compaction";
   readonly signal?: AbortSignal;
   readonly maxTokens?: number;
   readonly providerOptions?: PlainObject;
@@ -47,8 +48,8 @@ function textCapture(): { readonly sink: Sink; readonly text: () => string } {
   };
 }
 
-function textOutcome(outcome: Core.RunResult, text: string): Effect.Effect<{ readonly text: string }, ExecutionError> {
-  if (outcome.type === "stop") return Effect.succeed({ text });
+function textOutcome(outcome: Core.RunResult, text: string): Effect.Effect<{ readonly text: string; readonly evidence: PlainValue }, ExecutionError> {
+  if (outcome.type === "stop") return Effect.succeed({ text, evidence: PlainValueSchema.parse(outcome.evidence ?? null) });
   if (outcome.type === "error") return Effect.fail(outcome.error);
   if (outcome.type === "aborted") return Effect.fail(new Interrupted());
   return Effect.fail(new AgentFailure({ operation: "completion", cause: "sub-model returned continue" }));
@@ -77,7 +78,11 @@ export function runResolvedText(call: ResolvedTextCall): Effect.Effect<string, E
     const runAttempts = executor.runAttempts;
     if (runAttempts === undefined)
       return yield* new AgentFailure({ operation: "completion", cause: "sub-model requires session attempt authority" });
-    const intent = { provider: resolved.providerID, model: resolved.id };
+    const intent = {
+      provider: resolved.providerID,
+      model: resolved.id,
+      ...(call.purpose === undefined ? {} : { purpose: call.purpose }),
+    };
     const result = yield* executor.run({ kind: "llm", op: "text", intent, effect: {} }, (parent) => runAttempts(parent, {
       // The sub-model call reads its failures through the same port the loop does (#1352).
       classify: (failure) => llm.classifyFailure({
@@ -93,6 +98,7 @@ export function runResolvedText(call: ResolvedTextCall): Effect.Effect<string, E
           Effect.flatMap((outcome) => textOutcome(outcome, capture.text())),
         ),
       }),
+      evidence: (value) => value.evidence,
     }));
     if (result.terminal === "interrupted") return yield* new Interrupted();
     if (result.terminal !== "executed")

@@ -8,7 +8,7 @@ import { Effect, Result } from "effect";
 import type { Message, PlainObject } from "@openomni/protocol";
 import { runResolvedText } from "../../composition/completion";
 
-export type SummarizerErrorKind = "empty" | "overflow";
+export type SummarizerErrorKind = "empty" | "overflow" | "timeout";
 
 export class SummarizerError extends AgentFailure {
   readonly kind: SummarizerErrorKind;
@@ -21,6 +21,8 @@ export class SummarizerError extends AgentFailure {
 }
 
 interface SummarizerConfig {
+  readonly sessionId: string;
+  readonly system: string;
   /** Injected clock + id entropy (#1245): required, no ambient Date/crypto. */
   readonly now: () => number;
   readonly id: () => string;
@@ -37,6 +39,8 @@ const INSTRUCTION =
   "Preserve decisions, open work, identifiers, file paths, and explicit Owner instructions. " +
   "Never invent or infer facts; omit anything that is not supported by the input.";
 
+const SUMMARY_DEADLINE_MS = 60_000;
+
 function reasoningOptions(provider: string): PlainObject {
   return provider === "anthropic"
     ? { anthropic: { thinking: { type: "disabled" } } }
@@ -46,24 +50,24 @@ function reasoningOptions(provider: string): PlainObject {
 function messageWithText(
   input: Message.WithParts[],
   text: string,
-  sources: { readonly now: () => number; readonly id: () => string },
+  sources: Pick<SummarizerConfig, "now" | "id" | "sessionId">,
 ): Message.WithParts[] {
   const id = `compaction-${sources.id()}`;
   return [
+    ...input,
     {
       info: {
         id,
-        sessionID: "compaction",
+        sessionID: sources.sessionId,
         role: "user",
         time: { created: sources.now() },
         agent: "compaction",
         model: { providerID: "", modelID: "" },
       },
       parts: [
-        { id: sources.id(), sessionID: "compaction", messageID: id, type: "text", text },
+        { id: sources.id(), sessionID: sources.sessionId, messageID: id, type: "text", text },
       ],
     },
-    ...input,
   ];
 }
 
@@ -89,7 +93,9 @@ export function createCompactionSummarizer(
             now: config.now,
             id: config.id,
             messages: messageWithText(working, prompt, config),
-            sessionId: "compaction",
+            sessionId: config.sessionId,
+            system: config.system,
+            purpose: "compaction",
             signal,
             maxTokens: Math.min(
               32_768,
@@ -106,7 +112,12 @@ export function createCompactionSummarizer(
         return yield* new SummarizerError("overflow", "compaction summarizer context overflow");
       working = working.slice(1);
     }
-  });
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: SUMMARY_DEADLINE_MS,
+      orElse: () => Effect.fail(new SummarizerError("timeout", `summarizer_deadline:${SUMMARY_DEADLINE_MS}`)),
+    }),
+  );
   return summarize;
   });
 }

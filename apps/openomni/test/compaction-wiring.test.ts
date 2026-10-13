@@ -42,12 +42,12 @@ afterEach(() => {
 
 describe("compaction composition configuration", () => {
   it("wires a run-scoped summarizer by default", () => {
-    expect(runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus))).onSummarize).toBeFunction();
+    expect(runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction"), sessionId: "session", system: "system" }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus))).onSummarize).toBeFunction();
   });
 
   it("omits the summarizer when explicitly off; elision stays the plugin's default", () => {
     process.env.OPENOMNI_COMPACTION_SUMMARIZER = "off";
-    const compaction = runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus)));
+    const compaction = runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction"), sessionId: "session", system: "system" }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus)));
     expect(compaction.onSummarize).toBeUndefined();
     expect(compaction.elideToolOutputs).toBeUndefined();
   });
