@@ -2,9 +2,9 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { CommitRefused, StorageUnavailable } from "../../src/core/store/errors";
 import { openCatalogStore } from "../../src/core/store/catalog";
-import { openSessionStore } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
 import { Effect } from "effect";
+import { materializeSession as materializeUnindexed, type SessionHandles, sessionHandles } from "../helpers/seeded-session";
 import { clusterTempDir, readChain, runCluster, sendDeliver, sendPrompt, sendResolve, sessionFileFor, } from "../helpers/cluster-runtime";
 import type { ResolveRefused } from "../../src/core/messages";
 import { runAgent } from "../helpers/executor";
@@ -16,32 +16,20 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/** Materialize one UNINDEXED session file; `prepare` runs over its open handles. */
 async function materializeSession(
   sessionId: string,
-  prepare?: (input: {
-    readonly catalog: ReturnType<typeof openCatalogStore>;
-    readonly kernel: SessionHandleStore.SessionKernel;
-  }) => Promise<void>,
+  prepare?: (handles: SessionHandles) => Promise<void>,
 ): Promise<void> {
-  const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-  const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-  const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-  try {
-    await runAgent(kernel.materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: 1,
-      actionId: `${sessionId}:materialize`,
-      at: 1,
-    }));
-    await prepare?.({ catalog, kernel });
-  } finally {
-    store.close();
-    catalog.close();
-  }
+  await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handles = yield* sessionHandles(options, sessionId);
+        yield* materializeUnindexed(handles, sessionId, 1, { index: false });
+        if (prepare !== undefined) yield* Effect.promise(() => prepare(handles));
+      }),
+    ),
+  );
 }
 
 test("an unindexed session file self-heals before mailbox admission", async () => {

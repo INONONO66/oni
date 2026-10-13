@@ -18,20 +18,19 @@ import { type Cause, Deferred, Effect, Exit, Fiber, Queue, Semaphore } from "eff
 import { EntityAddress, EntityId, EntityType, Envelope, ShardId, Snowflake, type Entity } from "effect/cluster";
 import type { Rpc } from "effect/rpc";
 import { Headers } from "effect/http";
-import { openCatalogStore } from "../../src/core/store/catalog";
-import { openSessionStore } from "../../src/core/store/session-file";
-import * as SessionHandleStore from "../../src/core/store/fence";
 import { CommitRefused } from "../../src/core/store/errors";
 import { armAction, AlarmWakeError, type AlarmCapability } from "../../src/core/alarm";
 import { writerLoop, type ActivationHandle, type SessionKernel } from "../../src/core/entity";
 import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type ReadRpc, type ResolveRpc } from "../../src/core/messages";
 import type { SessionEntityPorts } from "../../src/core/run";
-import { clusterTempDir, makeTurnPort, resolvedRunner, sessionFileFor } from "../helpers/cluster-runtime";
+import { clusterTempDir, makeTurnPort, resolvedRunner } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
 import type { Delivery } from "@openomni/protocol";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
+import { fencedSession } from "../helpers/seeded-session";
 
-const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-writer-fiber-");
+const home = clusterTempDir("w52-writer-fiber-");
+const { dir } = home;
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -136,28 +135,9 @@ function makeWriterWorld(
   },
 ): Effect.Effect<WriterWorld, never, import("effect").Scope.Scope> {
   return Effect.gen(function* () {
-    const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-    const store = openSessionStore(sessionFileFor(sessionsDir, sessionId), { now: () => 1 });
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        store.close();
-        catalog.close();
-      }),
-    );
-    const baseKernel = SessionHandleStore.createSessionKernel(store, catalog);
-    yield* baseKernel.materialize({
-      id: sessionId,
-      parentId: null,
-      role: "resident",
-      tools: [],
-      system: { preset: "", blocks: [] },
-      policyGeneration: 1,
-      actionId: `${sessionId}:materialize`,
-      at: 1,
+    const { catalog, store, kernel: baseKernel, fence } = yield* fencedSession(home, sessionId, {
+      owner: "unit-writer",
     }).pipe(Effect.orDie);
-    catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: 1 });
-    const fence = catalog.rotateFence(sessionId);
-    yield* baseKernel.adoptFence({ sessionId, owner: "unit-writer", fence }).pipe(Effect.orDie);
     const kernel = options?.wrapKernel === undefined ? baseKernel : options.wrapKernel(baseKernel);
     const scope = yield* Effect.scope;
     const gate = yield* Semaphore.make(1);

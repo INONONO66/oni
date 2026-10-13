@@ -81,6 +81,8 @@ export function materializeSession(
   handles: Pick<SessionHandles, "catalog" | "kernel">,
   sessionId: string,
   at = 1,
+  /** `index: false` leaves the session file unindexed (the self-heal probes). */
+  options: { readonly index?: boolean } = {},
 ): Effect.Effect<void, LedgerError> {
   return handles.kernel
     .materialize({
@@ -96,6 +98,7 @@ export function materializeSession(
     .pipe(
       Effect.andThen(
         Effect.sync(() => {
+          if (options.index === false) return;
           handles.catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: at });
         }),
       ),
