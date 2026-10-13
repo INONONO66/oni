@@ -14,6 +14,14 @@ import {
 } from "../../src/plugins/compaction/estimate";
 import { captureBusEvents } from "../helpers/bus-event";
 import { completedToolPart, messageSequence } from "../helpers/messages";
+import { AgentFailure } from "../../src/core/failure";
+import { createRunState, recordCallContext } from "../../src/core/turn";
+import { CompactionRun } from "../../src/plugins/compaction/policy";
+import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
+import { recoveryRecording } from "../helpers/effect-g3r";
+import { runInput } from "../helpers/run-input";
+import { testMessageSource } from "../helpers/message-source";
+import { collector } from "../helpers/observation-collector";
 
 /** Compaction rewrites a run's history; the record carries that run's trace. */
 const TEST_TRACE_ID = "trace-compaction-test";
@@ -901,5 +909,76 @@ describe("Compaction", () => {
         completed.unsubscribe();
       }
     });
+  });
+});
+
+describe("CompactionRun seam", () => {
+  const WINDOW = 1000;
+  const identity = { traceId: "trace", sessionId: "seam", runId: "run", actorId: "actor" };
+
+  function seamState(measured: number) {
+    const messages = [
+      { role: "user" as const, content: "seam-user-0", id: "seam-user-0" },
+      ...Array.from({ length: 5 }, (_entry: undefined, index: number) => ({
+        role: "assistant" as const,
+        content: `evidence ${"filler ".repeat(40)}`,
+        id: `seam-assistant-${index}`,
+      })),
+      { role: "user" as const, content: "seam-user-1", id: "seam-user-1" },
+      { role: "assistant" as const, content: "tail", id: "seam-tail" },
+    ];
+    const state = createRunState(runInput(messages), testMessageSource());
+    recordCallContext(state, measured);
+    return state;
+  }
+
+  function run(events = collector()) {
+    return new CompactionRun(
+      { options: { contextWindowTokens: WINDOW, protectRecentMessages: 2 }, identity, events },
+      undefined,
+    );
+  }
+
+  it("skips the threshold reason below the window threshold with zero facts", async () => {
+    const events = collector();
+    const state = seamState(10);
+    const before = state.messages;
+    expect(await isolated(run(events).maybeCompact(state, "threshold"))).toBe("skipped");
+    expect(events.named(RunEvents.CompactionStarted.name)).toHaveLength(0);
+    expect(state.messages).toBe(before);
+    expect(state.compactionCount).toBe(0);
+  });
+
+  it("never skips the overflow reason: the same below-threshold state compacts", async () => {
+    const events = collector();
+    const state = seamState(10);
+    expect(await isolated(run(events).maybeCompact(state, "overflow"))).toBe("completed");
+    expect(state.compactionCount).toBe(1);
+    expect(state.lastCallContextTokens).toBeUndefined();
+    expect(events.named(RunEvents.CompactionStarted.name).map((data) => RunEvents.CompactionStarted.schema.parse(data).trigger))
+      .toEqual(["yield"]);
+  });
+
+  it("records a summarizer failure on the existing compaction row instead of a new fact kind", async () => {
+    const recording = recoveryRecording();
+    const result = await isolated(executeCompaction({
+      history: seamState(900).messages,
+      executor: recording.executor,
+      options: {
+        contextWindowTokens: WINDOW,
+        protectRecentMessages: 2,
+        onSummarize: () => Effect.fail(new AgentFailure({ operation: "test", cause: "summarizer unavailable" })),
+      },
+      identity,
+      events: collector(),
+      dispatch: { trigger: "threshold", measuredTokens: 900 },
+    }));
+    expect(result).toMatchObject({ compacted: true, summarizerFailed: true });
+    const rows = recording.committed.filter((action) => action.kind === "compaction");
+    expect(rows.map((action) => action.effect.value)).toMatchObject([
+      { phase: "pending" },
+      { phase: "boundary", result: { summarizerFailed: true, summary: "" } },
+      { phase: "result", terminal: "executed", result: { summarizerFailed: true, summary: "" } },
+    ]);
   });
 });

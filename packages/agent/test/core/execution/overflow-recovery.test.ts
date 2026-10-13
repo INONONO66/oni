@@ -78,9 +78,11 @@ describe("context overflow recovery", () => {
     const seen: number[] = [];
     let sawAnchor = false;
     let calls = 0;
+    const events = collector();
     const result = await isolated(
       runTestAgent(history, {
         ...effectOverflowCompactionConfig(),
+        events,
         llm: {
           resolveModel: () => Effect.succeed(model),
           run: (input, sink) =>
@@ -114,6 +116,9 @@ describe("context overflow recovery", () => {
     expect(result.compactionCount).toBe(1);
     expect(seen[1]).toBeLessThan(seen[0] ?? 0);
     expect(sawAnchor).toBe(true);
+    // One overflow is one compaction attempt: the admission check before the retry never fires a second one.
+    expect(events.named(RunEvents.CompactionStarted.name).map((data) => RunEvents.CompactionStarted.schema.parse(data).trigger))
+      .toEqual(["yield"]);
   });
 
   it.each([

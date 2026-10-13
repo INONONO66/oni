@@ -53,7 +53,7 @@ describe("compaction apply seam deferral", () => {
           const started = captureBusEvents(RunEvents.CompactionStarted);
           try {
             const outcome = yield* applyThreshold(state, config(), session);
-            expect(outcome).toBe("deferred");
+            expect(outcome).toBe("skipped");
             expect(started.events).toHaveLength(0);
           } finally {
             started.unsubscribe();
@@ -75,7 +75,7 @@ describe("compaction apply seam deferral", () => {
           try {
             const outcome = yield* applyThreshold(state, config(), session);
             yield* Effect.promise(() => started.done);
-            expect(outcome).toBe("none");
+            expect(outcome).toBe("completed");
             expect(started.events[0]?.trigger).toBe("threshold");
           } finally {
             started.unsubscribe();
