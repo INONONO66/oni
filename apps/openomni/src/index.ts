@@ -3,6 +3,7 @@ import { ThrownError } from "./thrown";
 import { AppInvariantError } from "./invariant";
 import { retryableOnce } from "./retryable-once";
 import { bootResource } from "./composition/boot";
+import { automationClock } from "./composition/automation-clock";
 import { foreignFailure } from "./composition/failure";
 import { shutdownSessions } from "./shutdown";
 import {
@@ -939,6 +940,10 @@ export async function startOpenOmni(options: StartOptions = {}) {
         },
       ),
     );
+    await runAppBoot(runtime, automationClock(gateway, services.now,
+      (error) => incident("automation window close failed", error)).pipe(
+      Effect.forkIn(appScope), Effect.asVoid,
+    ));
     // Bind the entity's composition-owned ports: turns run the Resident's
     // runner over the activation's kernel + fence; process-runner sessions
     // delegate to the child transport without committing under this fence.

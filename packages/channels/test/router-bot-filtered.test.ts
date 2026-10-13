@@ -3,6 +3,7 @@ import { Ingress } from "@openomni/protocol";
 import { ledger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { inboundIdOf } from "../src/router/inbound-id";
+import { matchPerimeterRules } from "../src/automation/rules";
 import {
   commits,
   makeRouter,
@@ -13,6 +14,17 @@ import {
 } from "./router/_router-fixture";
 
 beforeEach(resetRouterState);
+
+test("webhook bot authors are eligible while reactions remain filtered", () => {
+  const webhook = Ingress.Input.parse({
+    eventId: "webhook:event", surface: "webhook", event: "webhook",
+    channelId: "hook", author: { externalId: "automation", isBot: true },
+    dm: false, mentionsBot: false, body: "payload", receivedAt: 0,
+  });
+  expect(matchPerimeterRules(webhook, 0)).toBeUndefined();
+  expect(matchPerimeterRules({ ...webhook, event: "reaction" }, 0))
+    .toMatchObject({ reason: "reaction_unrouted" });
+});
 
 for (const [event, reason, used] of [
   ["message", "bot_author", "author.isBot"],
@@ -47,10 +59,8 @@ for (const [event, reason, used] of [
         .map((part) => encodeURIComponent(part ?? ""))
         .join(":"),
     });
-    expect(ledger().sessions.decisionFacts?.head(stream)).toMatchObject({
-      type: "route.decided",
-      data: { decision: "filtered", reason },
-    });
+    expect(ledger().sessions.decisionFacts?.head(stream)).toBeUndefined();
+    expect(ledger().stores.automations.decisions(inboundIdOf(facts))).toEqual([...routingDecisions()]);
   });
 }
 
@@ -67,15 +77,14 @@ test("redelivering an already-filtered eventId writes zero additional journal ro
     id: inboundIdOf(facts),
   });
   const first = await runEffect(makeRouter().ingest(ownerSender, facts));
-  const firstRow = ledger().sessions.decisionFacts?.head(stream);
+  const firstRows = ledger().stores.automations.decisions(inboundIdOf(facts));
   const second = await runEffect(makeRouter().ingest(ownerSender, facts));
-  const secondRow = ledger().sessions.decisionFacts?.head(stream);
+  const secondRows = ledger().stores.automations.decisions(inboundIdOf(facts));
   expect(first).toEqual({ status: "blocked_pre", reasonCode: "bot_author" });
   expect(second).toEqual({ status: "blocked_pre", reasonCode: "bot_author" });
-  // CAS first-write-wins: the redelivery's record() call is an INSERT OR
-  // IGNORE on the same key, so the stored row (its hash) is unchanged — the
-  // second ingest wrote zero journal rows, not a second row at the same key.
-  expect(firstRow?.rowHash).toBeDefined();
-  expect(secondRow?.rowHash).toEqual(firstRow?.rowHash);
+  expect(firstRows).toHaveLength(1);
+  expect(secondRows).toEqual(firstRows);
+  expect(ledger().sessions.decisionFacts?.head(stream)).toBeUndefined();
+  expect(routingDecisions()).toHaveLength(1);
   expect(commits).toHaveLength(0);
 });

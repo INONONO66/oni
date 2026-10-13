@@ -24,6 +24,35 @@ Five parallel implementations inside `packages/agent` collapsed to one owner eac
 
 Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `7e05bb8d1` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1344-r1.log`): build, check-types, lint, lint:tools, check-topology, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types, verify-tsconfig-inheritance, lint:docs, check-quality-python, the eight workspace test lanes, the three script lanes and patch coverage all exit 0; jscpd `packages/agent/src` 9 → 0; `check-comment-residue` OK at 1424bp. Review r1 (`review-1344-r1.md`, H0 M6 L6) fixed in full; r2 (`review-1344-r2.md`, H0 M1 L5) confirmed them and found one new Medium — a second `thrownAsError` copy in `model/model/loader.ts` — fixed by the lead before merge (loader on `core/failure`'s `thrownAsError`/`renderBodyCause`).
 
+## #1340 automation matcher, judge port, grouping and perimeter store tables (epic #1337, rung 3)
+
+On `epic1337/1340-matcher-judge-store` (2026-10-13, base `182a9fc27`, PR #1411).
+
+- `packages/channels/src/automation/` is pure (no router imports): `rules.ts`
+  and `matcher.ts` turn a matching `Ingress.Input` into a prompt or action
+  route; `judge.ts` resolves `runWhen` conditions as `yes | no | unknown`
+  before the final match (`unknown` never matches); `regex.ts` validates
+  patterns at `store.add` (typed refusal, 512-character cap) and caches them.
+- The router owns integration under `src/router/automation/`: one
+  `input.ts` builder serves filtering and matching; `ledger.ts` records
+  exactly one automation decision (`matched`, `filtered`, `refused`,
+  `deduped`, `grouped`) per external event and emits one observation per
+  new row; replay of any recorded kind writes no new row and returns the
+  original decision; blocked routes and request answers never enter
+  automation or groups.
+- Grouped events are durable rows (`store/automation/`, SQLite adapter in
+  `store/sqlite/`) that survive a store reopen; quiet windows close from
+  the injected clock, which `apps/openomni/src/index.ts` mounts via
+  `composition/automation-clock.ts`. Prompt and action deliveries go
+  through the ordinary dispatch path (policy gate, egress budget, event-id
+  checks, `message.admitted`).
+- `router/automation-rules.ts` replaces #1339's `router/ingress-filter.ts`;
+  bot filtering writes only the automation ledger.
+- Rule editing (`provision{automation_*}`) and the desktop editor are rungs
+  4/5 (#1341, #1342). A non-firing automation never suppresses ordinary delivery;
+  a failing group close is isolated to its group and recorded. Tests:
+  channels 770 pass / 0 fail; apps/openomni 782 pass / 0 fail.
+
 ## #1339 channel drivers report facts only and emit the unified ingress input (epic #1337, rung 2)
 
 On `epic1337/1339-facts-only-drivers` (2026-10-13, base `6f9503ef1`, PR #1410).

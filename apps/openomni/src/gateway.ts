@@ -118,7 +118,7 @@ export function toolPorts(
     readonly machines?: { readonly host: MachineHost; readonly defaultMachine: string };
     readonly cells?: ComposedCodemode;
     readonly completion: ReturnType<typeof createCompletionPort>;
-    readonly messages: GatewayRouter;
+    readonly messages: Pick<GatewayRouter, "ingest">;
     /** Injected clock + id entropy (#1245): required, no ambient Date/crypto. */
     readonly now: () => number;
     readonly id: () => string;
@@ -597,6 +597,7 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
   return {
     now,
     actorRegistry: plane.channel.actorRegistry,
+    automation: plane.channel.automation,
     blacklist: plane.channel.blacklist,
     channelGrant: plane.channel.channelGrant,
     replyGrant: plane.channel.replyGrant,

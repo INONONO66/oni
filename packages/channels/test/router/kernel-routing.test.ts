@@ -39,7 +39,10 @@ describe("GatewayRouter kernel routing", () => {
     registerOwnerDm();
     const mapped = createMappedOwnerSession();
     await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
-    expect(routingDecisions()).toHaveLength(1);
+    expect(routingDecisions()).toHaveLength(2);
+    expect(routingDecisions()[1]).toMatchObject({
+      stage: "automation", decision: "superseded", target: `session:${mapped.id}`,
+    });
     expect(routingDecisions()[0]).toMatchObject({
       inboundId: ownerEvent.id,
       stage: "surface_default",
@@ -66,7 +69,7 @@ describe("GatewayRouter kernel routing", () => {
       spy.mockRestore();
     }
   });
-  test("reads blacklist and channel facts once", async () => {
+  test("reads blacklist and channel facts for routing and the granted-direct record", async () => {
     registerOwnerDm();
     createMappedOwnerSession();
     const blacklist = spyOn(ledger().stores.blacklist, "list");

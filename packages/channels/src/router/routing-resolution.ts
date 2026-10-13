@@ -8,6 +8,7 @@ import {
   type BusEvent,
 } from "@openomni/protocol";
 import type { ChannelStores } from "./stores.js";
+import { claimGrantedDirect, grantedDirectSession } from "./automation/granted-direct.js";
 import { recordRouteDecided } from "./route-record";
 import { applyChannelGrantTreatment } from "./authority.js";
 import { matchBlacklist } from "./blacklist.js";
@@ -189,10 +190,10 @@ function blacklistState(
   };
 }
 
-function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
+export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   stores: ChannelStores,
   event: Event,
-  surfaceKey: string,
+  key: string,
   traceId: string,
   requests: GatewayRouterPorts["requests"],
   at: number,
@@ -208,7 +209,7 @@ function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   const gatheredRequest = findRequestCandidates(requests.list(), correlation);
   const request = routeRequestState(gatheredRequest);
   const target = targetKey(resolveTarget(event));
-  const surfaceSessionId = stores.surfaceKeys.lookup(surfaceKey);
+  const surfaceSessionId = grantedDirectSession(stores, event, key);
   const blacklist = blacklistState(stores, event, correlation, at);
   const channelResolution = resolveChannelGrant(stores, {
     surface: event.surface,
@@ -241,7 +242,7 @@ function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
     decision.stage === "surface_default" &&
     decision.sessionId === undefined
   ) {
-    const sessionId = stores.surfaceKeys.claim(surfaceKey, id());
+    const sessionId = claimGrantedDirect(stores, event, key, id());
     decision.sessionId = sessionId;
     decision.factsUsed = decision.factsUsed.map((fact) =>
       fact === "surface.default:new" ? `surface.default:${sessionId}` : fact,
@@ -292,14 +293,15 @@ function pinReplyGrantEndpoint(
 export function resolveAndRecordRoute<Event extends Gateway.DeliveredEvent>(
   stores: ChannelStores,
   event: Event,
-  surfaceKey: string,
+  key: string,
   traceId: string,
   publish: BusEvent.Sink["publish"],
   requests: GatewayRouterPorts["requests"],
   at: number,
   id: () => string,
+  observe = true,
 ): KernelRouteResolution<Event> {
-  const resolution = resolveKernelRoute(stores, event, surfaceKey, traceId, requests, at, id);
+  const resolution = resolveKernelRoute(stores, event, key, traceId, requests, at, id);
   const decision = Ingress.Events.RoutingDecision.schema.parse(
     pinReplyGrantEndpoint(resolution.decision, event),
   );
@@ -310,6 +312,6 @@ export function resolveAndRecordRoute<Event extends Gateway.DeliveredEvent>(
   // equivalent replay); lossy by contract, published through the injected
   // sink (channels never imports the observation channel). A divergent
   // replay publishes nothing (the gate throws above).
-  publish(Ingress.Events.RoutingDecision, effective);
+  if (observe) publish(Ingress.Events.RoutingDecision, effective);
   return { ...resolution, decision: effective };
 }

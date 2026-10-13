@@ -20,7 +20,7 @@ interface MessageContext {
   sender: Gateway.IngestSender;
   send: Gateway.SendMessage;
   prepared: Effect.Success<ReturnType<GatewayRouterPorts["prepare"]>>;
-  external: ReturnType<typeof externalMessage> | undefined;
+  external: Effect.Success<ReturnType<typeof externalMessage>> | undefined;
   ports: GatewayRouterPorts;
   messaging: ReturnType<typeof createExistingAgentMessaging> | undefined;
   messageId: string;
@@ -83,7 +83,7 @@ function deliveryAdmission(
   return {
     id: messageId,
     sessionId: prepared.target,
-    kind: send.type === "message" ? "prompt" : send.type,
+    kind: external?.automation?.kind ?? (send.type === "message" ? "prompt" : send.type),
     content,
     createdAt: commitAt,
     parentActionId: null,
@@ -111,6 +111,8 @@ function deliveryAdmission(
               actorId: external?.event.meta?.actor?.actorId ?? "",
             })),
         ...(external === undefined ? {} : { inboundTreatment: external.route.decision.inboundTreatment ?? "full_access" }),
+        ...(external?.automation?.kind === "action"
+          ? { source: external.automation.source, handlerRef: external.automation.handlerRef } : {}),
       },
     },
   };
@@ -125,6 +127,19 @@ function requestSpec(send: MessageContext["send"], intent: LedgerAction.Receipt)
   } };
 }
 
+function admitExternal(context: MessageContext, content: string) {
+  return Effect.gen(function* () {
+    const external = context.external;
+    if (external === undefined) return false;
+    const decision = requireRoutedDecision(external.route.decision);
+    yield* executeRequestRoute(context.stores, external.route, decision,
+      context.ports.requests, content, context.clock());
+    if (external.automation?.kind !== "action")
+      context.stores.surfaceKeys.claim(external.surfaceKey, context.prepared.target);
+    return external.route.requestExecution.kind === "request";
+  });
+}
+
 /** Executes an admitted message; progress survives a later grant/projection failure. */
 export function executeMessage(
   context: MessageContext,
@@ -136,7 +151,6 @@ export function executeMessage(
     sender,
     send,
     prepared,
-    external,
     ports,
     messaging,
     messageId,
@@ -146,12 +160,7 @@ export function executeMessage(
   } = context;
   const sessionResult: PlainValue = { status: "executed", handle, delivery: { kind: "session" } };
   const content = transformedContent(intent, sender, send, messageId);
-  if (external !== undefined) {
-    const decision = requireRoutedDecision(external.route.decision);
-    yield* executeRequestRoute(context.stores, external.route, decision, ports.requests, content, clock());
-    context.stores.surfaceKeys.claim(external.surfaceKey, prepared.target);
-    if (external.route.requestExecution.kind === "request") return sessionResult;
-  }
+  if (yield* admitExternal(context, content)) return sessionResult;
   if (send.to.kind === "actor") {
     if (messaging === undefined)
       return yield* Effect.die(

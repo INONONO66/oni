@@ -18,6 +18,7 @@ export {
 // #1246: the channel-facing ledger stores live here now; the app composes
 // them through this barrel instead of the retired ledger package root.
 export { createActorRegistry, type ActorRegistry } from "./store/actor/index.js";
+export { createAutomationStore, AutomationEnableRefused } from "./store/automation/index.js";
 export { createBlacklistStore } from "./store/blacklist/index.js";
 export { createChannelGrantStore, type ChannelGrantStore } from "./store/channel-grant/index.js";
 export { createReplyGrantStore } from "./store/reply-grant/index.js";
