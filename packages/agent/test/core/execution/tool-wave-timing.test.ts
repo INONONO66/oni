@@ -14,7 +14,7 @@ const sessionId = "session-wave-timing";
 const waveTurn = (config: ObservedChatAgentConfig) => readyWaveTurn(config, sessionId);
 
 /**
- * #1245: tool-wave duration is computed from the injected Effect Clock —
+ * Tool-wave duration is computed from the injected Effect Clock —
  * the wave's start/end stamps and the budget's union billing are exactly the
  * clock movement between tool start and tool end, never ambient Date.now.
  */

@@ -5,7 +5,7 @@ import { createBudgetState, evaluateBudget, publishBudgetTelemetry } from "../..
 import { testBudget } from "../helpers/approval-policy";
 
 /**
- * #1245: the wall-time budget reads only the injected clock. The ceiling is a
+ * The wall-time budget reads only the injected clock. The ceiling is a
  * closed bound — the budget expires exactly when the injected clock crosses
  * `maxWallTimeMs`, and not one millisecond before.
  */

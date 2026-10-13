@@ -8,7 +8,7 @@ import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "./message
 export type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
 
 /**
- * Timer plane over cluster DeliverAt (#1254): a persisted timer message is
+ * Timer plane over cluster DeliverAt (): a persisted timer message is
  * never cancelled in storage. Supersede = commit the winning `arm` row first;
  * a later delivery consults the chain through `alarmDisposition` and folds to
  * a recorded `fired{stale}` fact with zero execution.
@@ -40,7 +40,7 @@ export interface AlarmChainReads {
 }
 
 /**
- * The one chain guard (#1254): an occurrence is fresh iff the latest `arm`
+ * The one chain guard (): an occurrence is fresh iff the latest `arm`
  * row for its alarm still names its `occurrenceId`, the arm is not retired
  * (`at !== null`), and no accepted (`delivered|exhausted`) firing settled it.
  */
@@ -80,7 +80,7 @@ function appendAlarm(input: {
 }
 
 /**
- * One `alarm{arm}` row (#1254): mints the occurrence id from the arm's own
+ * One `alarm{arm}` row (): mints the occurrence id from the arm's own
  * journal sequence (`armSeq`) inside the committing transaction. An
  * `at: null` arm retires the chain; `supersedes` names the previous
  * occurrence this arm replaces.
@@ -119,7 +119,7 @@ export function armAction(input: {
   };
 }
 
-/** One `alarm{fired}` row (#1254); idempotent per `<occurrenceId>:<outcome>` chain key. */
+/** One `alarm{fired}` row (); idempotent per `<occurrenceId>:<outcome>` chain key. */
 export function firedAction(input: {
   readonly parentId: string | null;
   readonly sessionId: string;
@@ -146,7 +146,7 @@ export function firedAction(input: {
 }
 
 /**
- * Boot alarm sweep config (#1254 S3; nested inside `AlarmDrainConfig` at S4).
+ * Boot alarm sweep config ( S3; nested inside `AlarmDrainConfig` at S4).
  * `full: true` rescans every session at boot; `full: false` rescans
  * `has_armed` sessions plus sessions idle for at least `idleDays` days.
  * Values come from the composition root's config, never from core constants.
@@ -156,15 +156,7 @@ export interface AlarmSweepConfig {
   readonly idleDays: number;
 }
 
-/**
- * Loop consumption defaults (#1254 S4, D3): typed in core, VALUES supplied by
- * the composition root (`assumed: loop consumption defaults — steer/followUp
- * batch width all|one, alarms before prompt 4, armed-alarm cap 64,
- * passivation idle 60 s`). The writer admits at most `alarmsBeforePrompt`
- * alarm wakes before a queued prompt delivery; the `arm` verb refuses
- * `alarm_budget` at `armedCount() >= maxArmed`; the entity's `maxIdleTime`
- * is `idleMs`.
- */
+/** Loop consumption defaults ( S4, D3): typed in core, VALUES supplied by */
 export interface AlarmDrainConfig {
   readonly alarmsBeforePrompt: number;
   readonly maxArmed: number;
@@ -178,8 +170,6 @@ export interface AlarmDrainConfig {
  */
 export const MAX_OCCURRENCE_STRIKES = 3;
 
-// ─── #1254 capability seam (frozen at S1: later steps add, never rename) ───
-
 /** The fired occurrence view a capability's `wake` receives. */
 export interface AlarmFired {
   readonly occurrenceId: string;
@@ -192,14 +182,7 @@ export interface AlarmFired {
   readonly fireAt: number;
 }
 
-/**
- * Typed `arm` refusal (#1254): the body's `deny{reason: alarm_budget}` is
- * `code: "alarm_budget"`. r2 H3 adds the app-path authority codes:
- * `not_live` (no registered activation), `stale_turn` (the live activation
- * does not own the caller's turn token), `stale_activation` (the committing
- * activation lost the fence to a successor — it is no longer the writer) and
- * `revision` (the bounded three-attempt revision CAS exhausted).
- */
+/** Typed `arm` refusal (): the body's `deny{reason: alarm_budget}` is */
 export class ArmRefused extends Schema.TaggedError<ArmRefused>(
   "@openomni/agent/core/ArmRefused",
 )("ArmRefused", {
@@ -227,13 +210,7 @@ export type ArmVerb = (input: {
   ArmRefused
 >;
 
-/**
- * Typed send refusal (#1254 H2): the composed send door reports a PERMANENT
- * inability to honor an armed occurrence (an uninstallable watch spec, an
- * unparseable payload). The entity retires the chain with
- * `reason: "send_refused"`. Transient failures must stay defects: the armed
- * row stands and the next activation's resend (or the boot sweep) retries.
- */
+/** Typed send refusal ( H2): the composed send door reports a PERMANENT */
 export class AlarmSendRefused extends Schema.TaggedError<AlarmSendRefused>(
   "@openomni/agent/core/AlarmSendRefused",
 )("AlarmSendRefused", {
@@ -242,7 +219,7 @@ export class AlarmSendRefused extends Schema.TaggedError<AlarmSendRefused>(
 
 /**
  * Everything one committed `alarm{arm}` row carries, reported post-commit by
- * the entity's arm verb (#1254 H1). The composition root keeps native source
+ * the entity's arm verb ( H1). The composition root keeps native source
  * handles aligned with the chain: a re-arm moves the holder onto the new
  * occurrence at the commit, a retiring arm (`at: null`) closes it.
  */
@@ -259,7 +236,7 @@ export interface AlarmArmNotice {
 }
 
 /**
- * The accepted outcome a capability's wake returns (#1254): the core records
+ * The accepted outcome a capability's wake returns (): the core records
  * `fired{outcome: <returned>}` through `firedAction` — a capability never
  * builds an `alarm` append literal itself.
  */
@@ -288,7 +265,7 @@ export interface AlarmWakeContext {
     readonly idempotencyKey: string;
   }) => Effect.Effect<DeliverReceipt, DeliverRefused | AdmissionFailure>;
   /**
-   * #1254 S4: appends one `prompt{origin: "alarm"}` input row through the
+   *  S4: appends one `prompt{origin: "alarm"}` input row through the
    * entity's writer path; `seq` is the committed revision. The origin is
    * fixed by the core — a capability never owns a prompt write path.
    */
@@ -304,7 +281,7 @@ export interface AlarmCapability {
   readonly wake: (fired: AlarmFired, ctx: AlarmWakeContext) => Effect.Effect<AlarmWakeOutcome, AlarmWakeError>;
 }
 
-/** Typed purpose-registry compose failure (#1254): no partial activation. */
+/** Typed purpose-registry compose failure (): no partial activation. */
 export class AlarmComposeError extends Schema.TaggedError<AlarmComposeError>(
   "@openomni/agent/core/AlarmComposeError",
 )("AlarmComposeError", {
@@ -317,7 +294,7 @@ export class AlarmComposeError extends Schema.TaggedError<AlarmComposeError>(
 export type AlarmPurposeRegistry = ReadonlyMap<string, string>;
 
 /**
- * Composes the alarm purpose registry (#1254): reserved names and the
+ * Composes the alarm purpose registry (): reserved names and the
  * entity-internal `rescan` are rejected, duplicates are rejected, and the
  * core's four loop-reserved purposes are always present.
  */
@@ -345,16 +322,7 @@ export function composeAlarmPurposes(input: {
   });
 }
 
-/**
- * Durable retry schedule over the alarm chain (#1254 S4): `arm` commits one
- * `alarm{arm}` row (purpose `retry`, alarmId `<attemptActionId>:retry`,
- * armSeq `2*attempt - 1`, superseding the previous attempt's occurrence) and
- * forwards the occurrence to the composed DeliverAt sender; `settle` retires
- * the chain with an `at: null` arm (armSeq `2*attempt`) so a completed
- * attempt leaves no open alarm. `wait` keeps the live in-process residual
- * sleep; a crash inside it is woken by the redelivered occurrence, which the
- * chain guard folds exactly once.
- */
+/** Durable retry schedule over the alarm chain ( S4): `arm` commits one */
 export function createRetryAlarmPort(deps: RetryAlarmDeps): RetryAlarmPort {
   const alarmIdOf = (actionId: string) => `${actionId}:retry`;
   return {
@@ -421,7 +389,7 @@ export function createRetryAlarmPort(deps: RetryAlarmDeps): RetryAlarmPort {
 }
 
 /**
- * The alarm capability's seam (#1255 S1): the identity a declaration requiring
+ * The alarm capability's seam ( S1): the identity a declaration requiring
  * `"alarm"` resolves against at compose.
  */
 export const AlarmSeam = seam("@openomni/agent/capability/alarm");

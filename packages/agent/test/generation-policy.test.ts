@@ -25,7 +25,7 @@ function policyRow(name: string, verdict: PlainValue, priority = 100): SeedRow {
 
 /**
  * The composed `GenerationHandlers` carries product transformers/obligations
- * alongside the kernel refs (#1255: the registry is a generation service, the
+ * alongside the kernel refs (the registry is a generation service, the
  * deleted runtime bundle plane no longer provides it).
  */
 function generationFixture(rows: readonly SeedRow[], bodies: PlainValue[]) {

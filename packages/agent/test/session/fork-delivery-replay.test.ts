@@ -1,16 +1,8 @@
 /**
- * #1257 r6 H-1 — a pre-fork idempotency key must complete a REAL child turn.
- * The parent consumed input `msg-1` before the fork anchor, so its chain holds
- * the input row AND its deterministic delivery row `msg-1:delivery`
- * (core/commit.ts `deliveryActions`). The fork remaps BOTH into the
- * `fork:<parent>:` namespace; the child then re-admits the parent's old key
- * `msg-1` through the live entity's Deliver door and the turn runs to its
- * committed terminal — consumption re-mints `msg-1:delivery` for the child's
- * NEW input without colliding with the copied row.
- *
- * Determinism (#1254 pattern): the only wait is the committed-fact barrier —
- * an ObservationSink resolves on the child terminal's `ledger.action.committed`
- * event; the timeout is a failure guard, never a synchronizer.
+ * A pre-fork idempotency key must complete a REAL child turn. The parent consumed input `msg-1` before the fork
+ * anchor, so its chain holds the input row AND its deterministic delivery row `msg-1:delivery`; the fork remaps
+ * BOTH into the `fork:<parent>:` namespace, so the child can re-admit `msg-1` and the turn re-mints `msg-1:delivery`
+ * without colliding with the copied row. The only wait is an ObservationSink on the child terminal's committed event.
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

@@ -39,7 +39,7 @@ const object = (value: PlainValue) =>
 
 test("reopened SQLite hydrates exact tool-bearing assistant identities and rendered results", () => {
   const ledger = reopenableLedger("937-history-");
-  // One id source spans the reopen: persisted action ids must stay unique (#1245).
+  // One id source spans the reopen: persisted action ids must stay unique.
   const ids = entropySource("history-run");
   return isolated(
     Effect.scoped(
@@ -194,7 +194,7 @@ function compactionProbeStep(
 
 test("compaction projection and lossless revert survive SQLite reopen without deleting originals", () => {
   const ledger = reopenableLedger("937-compaction-reopen-");
-  // One id source spans the reopen: persisted action ids must stay unique (#1245).
+  // One id source spans the reopen: persisted action ids must stay unique.
   const ids = entropySource("compact-run");
   return isolated(
     Effect.scoped(

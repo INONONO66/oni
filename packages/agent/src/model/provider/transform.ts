@@ -62,16 +62,10 @@ export namespace ProviderTransform {
   const CACHE_CONTROL = { type: "ephemeral" as const, ttl: "1h" as const };
 
   /**
-   * Anthropic prompt-cache breakpoints (#532 upstream policy): last tool
-   * definition + last system message + latest user message, all 1h TTL —
-   * three of the four allowed breakpoints, placed at the stable→volatile
-   * seams so a per-turn system mutation (prompt.append_context effects)
-   * invalidates the system entry but not the tools entry. 1h over the 5m
-   * default because chat turns routinely arrive minutes apart; the 2x write
-   * premium amortizes after three reads. This function owns the message
-   * breakpoint; run.ts marks system and tools via anthropicCacheOptions
-   * (system never flows through normalizeMessages).
-   */
+     * Three of Anthropic's four breakpoints at the stable->volatile seams, so a
+     * per-turn system mutation invalidates the system entry but not tools; 1h
+     * TTL because turns arrive minutes apart. run.ts marks system and tools.
+     */
   export function applyAnthropicCaching(msgs: SDKMessage[]): SDKMessage[] {
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i]?.role !== "user") continue;
@@ -124,15 +118,10 @@ export namespace ProviderTransform {
   }
 
   /**
-   * Coerce a tool name to the provider-agnostic wire pattern
-   * `^[a-zA-Z0-9_-]{1,128}$`. Native tools are dotted (`message.send`) and MCP
-   * tools are `${server}.${name}` with arbitrary segments, but every provider
-   * SDK (the failure surfaced on an OpenAI-pattern proxy) rejects a name with a
-   * dot. This runs for ALL providers — it is NOT the Anthropic-only
-   * name-touching branch above. The internal dotted vocabulary is unchanged;
-   * only the name that crosses to the SDK is sanitized, and the SDK's
-   * key-match dispatch makes the reverse map free at execution time.
-   */
+     * Every provider SDK rejects a dotted name, so the wire name is coerced to
+     * `^[a-zA-Z0-9_-]{1,128}$` for ALL providers; the internal dotted
+     * vocabulary is unchanged and the SDK's key-match dispatch makes the reverse map free.
+     */
   export function sanitizeToolName(name: string): string {
     return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
   }

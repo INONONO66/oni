@@ -11,10 +11,8 @@ import { clonePlain, freezePlain } from "./match";
 import type { GateHandler, GateHandlerResult } from "./compose";
 
 /**
- * Named policy services (#1251): the registry of transformer/obligation
- * handlers a composition ships, the kernel's built-in registry, and the
- * wrapper that exposes a named transformer as a gate handler with a
- * digest-recorded response.
+ * The handler registry a composition ships, the kernel's built-in one, and the wrapper exposing a
+ * named transformer as a gate handler with a digest-recorded response.
  */
 
 export interface NamedTransformer {
@@ -22,7 +20,7 @@ export interface NamedTransformer {
   readonly apply: (args: PlainValue, config: PlainValue) => PlainValue;
 }
 
-/** A consulted gate guard (#1258): decides per input; invoked under the row's requires guard. */
+/** Decides per input under the row's requires guard. */
 export interface NamedGuard {
   readonly name: string;
   readonly decide: GateHandler;
@@ -32,7 +30,6 @@ interface NamedObligation {
   readonly name: string;
 }
 
-/** One asynchronous consultation request the snapshot resolves before its sync fold. */
 export interface ConsultInput {
   readonly rowId: string;
   readonly point: string;
@@ -41,10 +38,8 @@ export interface ConsultInput {
 }
 
 /**
- * An asynchronous named policy service (#1256): the compiled snapshot calls
- * it through `evaluateEffect` BEFORE the synchronous gate fold and feeds the
- * settled result in as the row's prepared handler response. A consultant
- * never fails its Effect — every failure maps to a deny-folding result.
+ * Called BEFORE the synchronous fold; its settled result is the row's prepared response. A
+ * consultant never fails its Effect — every failure maps to a deny-folding result.
  */
 export interface NamedConsultant {
   readonly name: string;
@@ -54,9 +49,9 @@ export interface NamedConsultant {
 export interface HandlerTable {
   readonly transformers: readonly NamedTransformer[];
   readonly obligations: readonly NamedObligation[];
-  /** Async consulted services; absent means none are registered. */
+  /** Absent means none are registered. */
   readonly consultants?: readonly NamedConsultant[];
-  /** Synchronous consulted handlers (#1258): a `consult` row whose ref names one decides inline. */
+  /** A `consult` row whose ref names one decides inline. */
   readonly guards?: readonly NamedGuard[];
 }
 
@@ -70,7 +65,7 @@ export const HandlerTableError = NamedError.create(
     .strict(),
 );
 
-/** Copies definitions, never freezes caller objects or exposes mutable Maps. */
+/** Never freezes caller objects or exposes mutable Maps. */
 export function createHandlerTable(input: HandlerTable): HandlerTable {
   const names = new Set<string>();
   for (const entry of [
@@ -146,7 +141,6 @@ export const KERNEL_POLICY_REGISTRY: HandlerTable = createHandlerTable({
   transformers: [{ name: "kernel/redact", apply: redact }],
   obligations: [{ name: "kernel/budget-clamp" }],
 });
-
 
 export function wrapTransformer(transformer: NamedTransformer): GateHandler {
   return (input) => {

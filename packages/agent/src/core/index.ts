@@ -1,9 +1,6 @@
-// Core namespace surface (#1276): the former kernel/ + session/ + store/
-// barrels merged — turn/gate/tool/ports/failure contracts, entity, admission,
-// requests, run, bus, and the append-only store.
 export type { ChatAgentConfig } from "./types";
 export type { AgentBudget, ResolvedAgentBudget } from "./types";
-// #1309: the approval-policy seam — product values behind one injected shape.
+// The approval-policy seam: product values behind one injected shape.
 export { ApprovalPolicySeam, type ApprovalPolicy, type ApprovalRecentOpen } from "./approval-policy";
 export { resolveAgentBudget } from "./budget";
 export { createApprovalRequest } from "./request-binding";
@@ -48,7 +45,6 @@ export { makeObservationBus, observationBusLayer, scopeObservation } from "./bus
 export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./fork";
 export { createSession, CreateRefused, type CreateSessionInput, type SessionReceipt } from "./create";
 
-// ─── journal/store surface (formerly the Journal namespace, #1276) ───
 export {
   CATALOG_SCHEMA, bootstrapStoreDatabase,
   readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION,

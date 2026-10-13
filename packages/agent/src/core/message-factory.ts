@@ -1,6 +1,6 @@
 import type { Message } from "@openomni/protocol";
 
-/** Caller-owned time and identity; the factory refuses to reach for ambient clocks or entropy. */
+/** The factory refuses to reach for ambient clocks or entropy. */
 export interface MessageSource {
   readonly now: () => number;
   readonly id: () => string;
@@ -20,7 +20,6 @@ export function createUserMessage(
   sessionID: string,
   source: MessageSource,
   partMetadata?: Message.TextPart["metadata"],
-  // Hydrated messages retain their recorded creation time.
   timeCreated?: number,
 ): Message.WithParts {
   const info: Message.UserMessage = {
@@ -74,7 +73,6 @@ function withTextPart(
   };
 }
 
-/** Preserve durable prompt/result identity when hydrating its model projection. */
 export function withMessageId(
   message: Message.WithParts,
   id: string | undefined,

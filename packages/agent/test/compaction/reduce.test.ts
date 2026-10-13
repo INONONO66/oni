@@ -141,7 +141,7 @@ describe("Compaction.compact with elision configured", () => {
   });
 
   it("also cuts in the same round when elision cannot cover the measured overage", async () => {
-    // The cut-starvation fix (#645 review MAJOR 2): under sustained tool use
+    // The cut-starvation fix: under sustained tool use
     // elision always finds a fresh aged-out output, so "cut when nothing is
     // left to elide" never fires. When the estimated net reclaim (chars/4)
     // falls short of the measured overage, the cut runs on the already-elided

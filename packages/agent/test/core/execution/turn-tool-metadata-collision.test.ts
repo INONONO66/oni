@@ -10,11 +10,10 @@ import { mockLlm, completeModel } from "../../helpers/mock-llm";
 import { runInput } from "../../helpers/run-input";
 
 /**
- * Tool metadata keys must be unambiguous (#606 re-audit): a tool named `a_b`
- * also claims the underscore-mangled alias `a.b`, so registering a second
- * tool literally named `a.b` used to silently hand the later tool's labels
- * to the earlier tool's policy lookups (last-writer-wins on a shared key).
- * The collision now refuses the run before it opens, naming both tools.
+ * Tool metadata keys must be unambiguous: a tool named `a_b` also claims the
+ * underscore-mangled alias `a.b`, so a second tool literally named `a.b` used to
+ * silently hand its labels to the earlier tool's policy lookups (last-writer-wins
+ * on a shared key). The collision now refuses the run before it opens, naming both.
  */
 function config(tools: NonNullable<ChatAgentConfig["tools"]>): ChatAgentConfig {
   return {

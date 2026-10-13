@@ -362,7 +362,7 @@ describe("T12/T13 request source x event x authority product", () => {
     expect(result.resolution).toBe("late_unknown");
     expect(result.receive).toBeUndefined();
     expect(result.request?.state).toBe("expired");
-    // #1254 S4: the terminal transition also retires the deadline alarm chain
+    // The terminal transition also retires the deadline alarm chain
     // (an `at: null` arm row) in the same decision batch.
     expect(result.actions.map((action) => action.ts)).toEqual([
       request.deadline,
@@ -460,7 +460,7 @@ describe("T01-T15 real controller transition witnesses", () => {
           const running = yield* Effect.forkScoped(handle.prompt("start"));
           yield* bounded(Deferred.await(entered));
           // Durable ingress is independent of the runner, including compaction/approval waits.
-          // #1253: a steer row is consumable at the tool.post boundary; the
+          // A steer row is consumable at the tool.post boundary; the
           // followUp row waits for turn end in every case.
           for (const [ordinal, [content, delivery]] of (
             [
@@ -477,7 +477,7 @@ describe("T01-T15 real controller transition witnesses", () => {
           expect(drained).toEqual([]);
           yield* Deferred.succeed(release, undefined);
           yield* bounded(Fiber.join(running));
-          // #1253 boundary rule: only the steer row drains mid-turn, and only
+          // Boundary rule: only the steer row drains mid-turn, and only
           // at the tool.post boundary; the followUp row waits for turn end,
           // where the leftover backlog feeds one follow-up turn.
           expect(drained).toEqual([boundary === "after_tools" ? ["one"] : [], []]);
@@ -551,7 +551,7 @@ describe("T01-T15 real controller transition witnesses", () => {
           seedPolicy();
           const runtime = fixture();
           // W5.2: the alarms table is gone; an armed alarm is an `alarm{arm}`
-          // chain row (#1254: alarmId + armSeq, capability purpose) with no
+          // chain row (alarmId + armSeq, capability purpose) with no
           // settling `fired` row for its occurrence (session-stop-evidence).
           const armed = armAction({
             parentId: null,

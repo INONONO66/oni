@@ -1,12 +1,3 @@
-/*
- * ──────────────────────────────────────────────────────────────────────────
- * The former runtime bundle plane (the imperative bundle loader and its
- * definitions service) is deleted (#1255 P3): the one loader path is
- * `Manifest.define` -> `compose(manifest) -> Generation`
- * below. Only the `GenerationHandlers` Context tag survives — it is part of
- * the live `GenerationServices` contract the app's generation Layers provide.
- * ──────────────────────────────────────────────────────────────────────────
- */
 import type { HandlerTable as PolicyRegistry, NamedConsultant } from "./gate/compile";
 import { canonicalDigest, CORE_POINT_RECORDS, type PlainValue } from "@openomni/protocol";
 import { type Clock, Context, Effect, Schema, type Scope } from "effect";
@@ -21,43 +12,23 @@ import type {
 
 export class GenerationHandlers extends Context.Service<GenerationHandlers, PolicyRegistry>()("@openomni/agent/GenerationHandlers") {}
 
-/** What a consultant factory receives at generation acquisition (#1256). */
 export interface ConsultantSeed {
-  /** The registered `how.ref` name the factory serves. */
   readonly name: string;
-  /** The composed generation's rows naming this consultant, in order. */
   readonly rows: readonly BundleGateRow[];
   /**
-   * Fire-and-forget late-result port: a payload that settles AFTER its call
-   * timed out re-enters the session through the composition's `deliver` door
-   * as an `action` row — never through this turn's decision.
+   * A payload that settles AFTER its call timed out re-enters through the composition's `deliver`
+   * door as an `action` row, never this turn's decision.
    */
   readonly late?: (payload: PlainValue) => void;
-  /**
-   * The session's journal head ordinal at call time (#1256 H-3): a late
-   * result delivers with this `after` cursor, and one older than the
-   * compaction head folds to `turn.consumed.stale` instead of a prompt.
-   */
+  /** A late result delivers with this `after` cursor; older than head folds `consumed.stale`. */
   readonly cursor?: () => number;
-  /**
-   * How many timed-out calls stay correlatable for a late result (#1256 r3);
-   * older entries evict first. Default 256.
-   */
+  /** Timed-out calls kept correlatable for a late result; oldest evict first. Default 256. */
   readonly lateWindow?: number;
-  /**
-   * The Effect Clock a consult call's deadline runs on (#1256 r5 H-2);
-   * absent = the executing fiber's clock. The composition threads a test's
-   * injected TestClock here so hook deadlines advance deterministically.
-   */
+  /** Absent = the fiber's clock; tests thread a TestClock so hook deadlines are deterministic. */
   readonly clock?: Clock.Clock;
 }
 
-/**
- * A capability `handlers` registration carrying an ASYNC consulted service
- * (#1256): the composition acquires `consult` INSIDE the generation Layer's
- * Scope (the hook PID's lifetime), and a factory failure is the typed
- * candidate failure that refuses the generation — never a partial activation.
- */
+/** `consult` is acquired INSIDE the generation Layer's Scope; a factory failure refuses it all. */
 export interface ConsultantHandler {
   readonly consultant: (
     seed: ConsultantSeed,
@@ -68,13 +39,7 @@ export function isConsultantHandler(handler: object): handler is ConsultantHandl
   return "consultant" in handler && typeof handler.consultant === "function";
 }
 
-/*
- * ──────────────────────────────────────────────────────────────────────────
- * #1255 S2: `compose(manifest) -> Generation` — the one loader path.
- * ──────────────────────────────────────────────────────────────────────────
- */
-
-/** The CLOSED compose rejection set (#1255): exactly these six, never a seventh. */
+/** The CLOSED compose rejection set: exactly these six, never a seventh. */
 export const COMPOSE_REJECTION_CODES = [
   "requires_cycle",
   "duplicate",
@@ -85,7 +50,7 @@ export const COMPOSE_REJECTION_CODES = [
 ] as const;
 export type ComposeRejection = (typeof COMPOSE_REJECTION_CODES)[number];
 
-/** Typed compose refusal: a rejection fails the boot — no partial activation. */
+/** A rejection fails the boot — no partial activation. */
 export class ComposeRefused extends Schema.TaggedError<ComposeRefused>(
   "@openomni/agent/core/ComposeRefused",
 )("ComposeRefused", {
@@ -94,39 +59,26 @@ export class ComposeRefused extends Schema.TaggedError<ComposeRefused>(
   detail: Schema.String,
 }) {}
 
-/** One intended deactivation: `because` is the root `off` name that caused it. */
+/** `because` is the root `off` name that caused it. */
 export interface DisabledEntry {
   readonly name: string;
   readonly because: string;
 }
 
-/**
- * The compiled version of the loaded set: one journaled generation. Recomputed
- * from empty state on every manifest change; never patched in place. The
- * in-flight turn finishes on the generation it captured at turn start.
- */
+/** Recomputed from empty on every manifest change; an in-flight turn finishes on its generation. */
 export interface Generation {
-  /** Canonical digest over the composed tables. */
   readonly hash: string;
-  /** Registered capability journal kinds (an off capability's kind is absent). */
+  /** An off capability's kind is absent. */
   readonly kinds: Readonly<Record<string, CapabilityKindDeclaration>>;
-  /** The merged point table: the core's sealed ids plus on-capability points. */
   readonly points: readonly string[];
-  /** `how.ref` targets, capability- and bundle-registered. */
   readonly handlers: ReadonlyMap<string, object>;
-  /** Alarm purposes, capability- and bundle-registered. */
   readonly purposes: ReadonlyMap<string, object>;
-  /** Bundle tool faces in composition order; `idempotent` preserved. */
   readonly tools: readonly BundleTool[];
-  /** Gate rows in composition order (generation number assigned at append). */
+  /** Generation number assigned at append. */
   readonly rows: readonly BundleGateRow[];
-  /** Kinds `deliver` may accept as input. */
   readonly inputs: readonly string[];
-  /** On capabilities in topological order. */
   readonly capabilities: readonly string[];
-  /** On bundles in composition order. */
   readonly bundles: readonly string[];
-  /** The off cascade, recorded in `session.configure{disabled}`. */
   readonly disabled: readonly DisabledEntry[];
 }
 
@@ -134,7 +86,7 @@ function reject(code: ComposeRejection, name: string, detail: string): never {
   throw new ComposeRefused({ code, name, detail });
 }
 
-/** Topological order of capabilities over `requires` names; cycle rejects. */
+/** Cycle rejects. */
 function orderCapabilities(
   capabilities: readonly CapabilityDefinition[],
 ): readonly CapabilityDefinition[] {
@@ -159,7 +111,7 @@ function orderCapabilities(
   return ordered;
 }
 
-/** The transitive off cascade; `because` carries the ROOT off name. */
+/** `because` carries the ROOT off name. */
 function cascadeOff(manifest: ManifestDefinition): ReadonlyMap<string, string> {
   const disabled = new Map<string, string>();
   const names = new Set([
@@ -180,7 +132,6 @@ function cascadeOff(manifest: ManifestDefinition): ReadonlyMap<string, string> {
   }
 }
 
-/** One cascade sweep over capabilities: a disabled requirement disables the dependent. */
 function sweepOffCapabilities(manifest: ManifestDefinition, disabled: Map<string, string>): boolean {
   let changed = false;
   for (const capability of manifest.capabilities) {
@@ -194,7 +145,6 @@ function sweepOffCapabilities(manifest: ManifestDefinition, disabled: Map<string
   return changed;
 }
 
-/** One cascade sweep over bundles: a disabled seam owner disables the requiring bundle. */
 function sweepOffBundles(
   manifest: ManifestDefinition,
   disabled: Map<string, string>,
@@ -216,7 +166,7 @@ function sweepOffBundles(
   return changed;
 }
 
-/** Composition order of on bundles over seam/provide availability; cycle rejects. */
+/** Cycle rejects. */
 function orderBundles(
   bundles: readonly BundleContract[],
   available: ReadonlySet<string>,
@@ -298,7 +248,6 @@ function hashProjection(
   };
 }
 
-/** Collision-guarded merge of a named handler/purpose table into the composed registry. */
 function mergeInto(
   target: Map<string, object>,
   entries: Readonly<Record<string, object>>,
@@ -311,7 +260,7 @@ function mergeInto(
   }
 }
 
-/** The merged capability-owned tables in topological order; any collision rejects. */
+/** Any collision rejects. */
 function mergeCapabilityTables(orderedCapabilities: readonly CapabilityDefinition[]): {
   kinds: Record<string, CapabilityKindDeclaration>;
   points: Set<string>;
@@ -343,7 +292,7 @@ function mergeCapabilityTables(orderedCapabilities: readonly CapabilityDefinitio
   return { kinds, points, handlers, purposes, inputs };
 }
 
-/** The merged bundle-owned tables in composition order; collisions (including against capability tables) reject. */
+/** Collisions, including against capability tables, reject. */
 function mergeBundleTables(
   orderedBundles: readonly BundleContract[],
   purposes: Map<string, object>,
@@ -368,11 +317,7 @@ function mergeBundleTables(
   return { tools, rows };
 }
 
-/**
- * `composeSync(manifest) -> Generation` (#1255): the Effect-free form of
- * `compose` for Promise-side composition roots (boot, fixtures); a refusal
- * throws the typed `ComposeRefused`. Same single implementation.
- */
+/** Effect-free form for Promise-side roots; a refusal throws the typed `ComposeRefused`. */
 export function composeSync(manifest: ManifestDefinition): Generation {
   uniqueNames(manifest);
   const disabledMap = cascadeOff(manifest);
@@ -411,12 +356,7 @@ export function composeSync(manifest: ManifestDefinition): Generation {
   });
 }
 
-/**
- * `compose(manifest) -> Generation` (#1255): topological `requires` order, one
- * merged kind/point/handler/purpose/tool/row table set, the closed six-code
- * rejection set and the transitive `off` cascade (`off` is intended
- * deactivation, distinct from the `seam_missing` rejection).
- */
+/** The one loader path; `off` is intended deactivation, not the `seam_missing` rejection. */
 export function compose(manifest: ManifestDefinition): Effect.Effect<Generation, ComposeRefused> {
   return Effect.suspend(() => {
     try {

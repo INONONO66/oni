@@ -212,8 +212,6 @@ test("a valid manifest composes one generation with merged tables and a stable h
   expect(again.hash).toBe(generation.hash);
 });
 
-// ─── deleted bundle.test.ts behaviors, re-proven on the compose path (#1255) ──
-
 const bundleTool = (name: string) => ({
   name,
   description: name,

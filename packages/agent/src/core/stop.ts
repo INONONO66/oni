@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { canonicalDigest } from "@openomni/protocol";
 
-// ─── from core/execution/stop-chain.ts (#1247) ───
 export interface StopObservation {
   readonly text: string;
   readonly toolCalls: number;
@@ -49,7 +48,7 @@ function completionEligible(observation: StopObservation): boolean {
   return observation.text.length > 0 && observation.toolCalls === 0 && !observation.continueRequested;
 }
 
-/** Fixed precedence, including policy reads. Invocation is not effect/state progress. */
+/** Invocation is not effect/state progress. */
 export function judgeStop<E, R>(
   previous: StopState,
   observation: StopObservation,

@@ -20,7 +20,7 @@ import {
   type PromptCall,
 } from "../../helpers/alarm-capability";
 
-// #1254 P1: the removable alarm capability — purpose registry through Lane
+// The removable alarm capability — purpose registry through Lane
 // 1's compose, wake dispatch, the watch handlers over the supersedes
 // lifecycle (no generation counter), and the guarded arm/watch verbs. Pure functions and
 // stubbed AlarmWakeContext; Lane 4 wires the live dispatch.

@@ -63,9 +63,8 @@ export namespace Provider {
   export function resolveModel(input: {
     readonly provider: string;
     readonly id: string;
-    /** Wall-clock source for proxy-listing cache expiry (#1245). */
     readonly now: () => number;
-    /** Credential file location, resolved once by the composition root (#1245). */
+    /** Resolved once by the composition root. */
     readonly authFilePath: string;
   }): Effect.Effect<Model, LlmError> {
     return Effect.gen(function* () {

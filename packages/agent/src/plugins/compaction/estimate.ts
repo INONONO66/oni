@@ -8,7 +8,7 @@ export const ESTIMATED_CHARS_PER_TOKEN = 4;
 const BASE64_RUN_RE = /[A-Za-z0-9+/=_-]{512,}/g;
 
 export function messageContentChars(message: Message.WithParts): number {
-  // All content weighs against the budget (review #721 M4), including tool-bulked user messages.
+  // All content weighs against the budget, including tool-bulked user messages.
   let chars = 0;
   for (const part of message.parts) {
     if (part.type === "text") chars += part.text.length;
@@ -84,7 +84,7 @@ export function prepareSummarizerInput(
     });
     return changed ? { ...message, parts } : message;
   });
-  // #1314: linear prefix drop — per-message weights summed once, byte-identical to the quadratic re-scan.
+  // Linear prefix drop: per-message weights summed once, byte-identical to the quadratic re-scan.
   const weights = elided.map(weightedMessageChars);
   let suffixChars = 0;
   for (const weight of weights) suffixChars += weight;

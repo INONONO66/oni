@@ -15,7 +15,7 @@ const ArmIntent = z.looseObject({ op: z.literal("arm"), alarmId: z.string(), at:
 const ArmEffect = z.looseObject({ occurrenceId: z.string() });
 const FiredIntent = z.looseObject({ op: z.literal("fired"), occurrenceId: z.string(), outcome: z.string() });
 
-/** The #1254 chain-guard reads, folded from one kernel's committed chain. */
+/** The chain-guard reads, folded from one kernel's committed chain. */
 function chainReads(kernel: SessionHandleStore.SessionKernel, sessionId: string): AlarmChainReads {
   const arms = new Map<string, { occurrenceId: string; at: number | null }>();
   const settled = new Set<string>();
@@ -50,7 +50,7 @@ describe("Session.fork exclusions", () => {
     expect(child().armedAlarms()).toEqual([]);
     expect(stores.session.armedAlarms().map((alarm) => alarm.alarmId)).toEqual(["alarm-1"]);
 
-    // The #1254 chain guard folds from exactly these facts: the parent
+    // The chain guard folds from exactly these facts: the parent
     // occurrence is on the latest live arm in the parent chain and has no arm
     // at all in the child chain.
     const occurrence = { alarmId: "alarm-1", occurrenceId: parent.occurrenceId };
@@ -91,7 +91,7 @@ describe("Session.fork exclusions", () => {
     expect(alarms.map((action) => FiredIntent.safeParse(action.intent.value).success)).toEqual([true]);
     // The copied orphan's parent link to the excluded arm dropped to null.
     expect(alarms[0]?.parentId).toBeNull();
-    // #1254's fold ignores a fired row with no arm: skip{unknown}, no re-run.
+    // The fold ignores a fired row with no arm: skip{unknown}, no re-run.
     expect(
       alarmDisposition(chainReads(childKernel, CHILD), {
         alarmId: "alarm-0",

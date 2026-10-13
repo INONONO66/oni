@@ -7,8 +7,7 @@ import type { GenerationHandlers } from "./compose";
 import type { GenerationRawSlots } from "./run";
 import type { ToolDispatchDefinition } from "./tool";
 
-// ─── from core/entropy.ts (#1247) ───
-/** Supplied by the composition root; package code never reads ambient crypto or random sources itself. */
+/** Package code never reads ambient crypto or random sources itself. */
 export interface EntropySource {
   readonly id: () => string;
   /** Uniform in `[0, 1)`. */
@@ -19,25 +18,21 @@ export class Entropy extends Context.Service<Entropy, EntropySource>()("@openomn
   static readonly layer = (source: EntropySource): Layer.Layer<Entropy> => Layer.succeed(Entropy, source);
 }
 
-// ─── from core/concurrency.ts (#1247) ───
-/** Shared fan-out ceiling for session close, tool waves, and approval stages: bounded, never "unbounded". */
+/** Bounded, never "unbounded". */
 export const BOUNDED_CONCURRENCY = 16;
 
-// ─── from core/interrupt-on.ts (#1247) ───
-/** Resumes with `outcome` when `signal` aborts; interrupting the waiter detaches the listener. */
+/** Interrupting the waiter detaches the listener. */
 export function onAbort<A, E = never>(signal: AbortSignal, outcome: Effect.Effect<A, E>): Effect.Effect<A, E> {
   return Effect.callback<A, E>((resume) => Effect.sync(listenForAbort(signal, () => resume(outcome))));
 }
 
-/** Interrupts the racing fiber when `signal` aborts: `work.pipe(Effect.raceFirst(interruptOn(signal)))`. */
 export function interruptOn(signal: AbortSignal): Effect.Effect<never> {
   return onAbort(signal, Effect.interrupt);
 }
 
-// ─── from services.ts (#1247) ───
 export type ProcessServices = Entropy | ObservationSink;
 export type GenerationServices = SessionLayer | ToolCatalog | ObservationSink | GenerationHandlers;
-/** The generation seed a bundle's Layer may require (#1255 P3): provided before any bundle layer acquires. */
+/** Provided before any bundle layer acquires. */
 export type BundleLayerServices = Entropy | ObservationSink | ToolCatalog | GenerationHandlers;
 export type SessionEntryServices = ProcessServices | Llm | GenerationLayers;
 export type RunnerServices = ProcessServices | SessionLayer | ToolCatalog | Llm | GenerationOwnership;
@@ -56,7 +51,6 @@ export interface GenerationLayersService {
   initialize(definitions: Readonly<Record<import("@openomni/protocol").LedgerSession.Role, readonly AnyToolDefinition[]>>): Effect.Effect<void, SessionError>;
   capture(id: SessionGeneration.Id): Effect.Effect<CapturedGeneration, SessionError, Scope.Scope>;
   configure<A>(id: SessionGeneration.Id, snapshot: SessionGeneration.Snapshot, commit: Effect.Effect<A, SessionError>): Effect.Effect<A, SessionError>;
-  /** Awaits live generation owners (detached turns unwinding) before the fail-fast `drain`. */
   readonly settle: Effect.Effect<void>;
   readonly drain: Effect.Effect<void, SessionError>;
 }

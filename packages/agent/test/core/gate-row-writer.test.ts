@@ -23,7 +23,7 @@ const GENERATION = 1;
 
 /**
  * The pre-cutover identity prefix and id shape, assembled so the sealed
- * token keeps 0 hits in source (#1319 acceptance grep) while the fixture
+ * token keeps 0 hits in source while the fixture
  * still carries the exact bytes old decision facts were written with.
  */
 const PRE_CUTOVER_PREFIX = ["legacy", ""].join("/");
@@ -89,7 +89,7 @@ test("a compiled generation mints only schema-valid current identities; same-nam
   const ids = [...generation.rowById.keys()];
   expect(ids.length).toBeGreaterThan(0);
   for (const id of ids) {
-    // The real protocol schema, not a local approximation (#1319 review L2):
+    // The real protocol schema, not a local approximation:
     // every minted id must parse as a GateRowId or decision facts refuse.
     expect(GateRowId.safeParse(id).success).toBe(true);
     expect(id.startsWith(PRE_CUTOVER_PREFIX)).toBe(false);
@@ -104,7 +104,7 @@ test("production row names (bundle ids, dotted) mint GateRowId-valid ids; the de
   // gateRowPolicySeeds-shaped rows: the live plane seeds `name: row.id` from
   // composed bundle rows (`hooks-json/tool.pre#3`) and `name: message.id`
   // (dotted). Pre-fix these minted ids violated GateRowId and the recorded
-  // evidence refused as stale_approval at re-admission (#1319 review H1).
+  // evidence refused as stale_approval at re-admission.
   const bundleSeeded: Omit<PolicyRow.Row, "generation"> = {
     name: "hooks-json/tool.pre#3",
     kind: "tool",
@@ -186,7 +186,7 @@ test("a decision fact recorded under pre-cutover ids decodes and replays without
   // rowIds, so `replays()` declines and the gate decides fresh under current
   // identities. In recoverAdmission that same non-replay surfaces as the
   // documented fail-closed `stale_approval` for approvals pending across the
-  // cutover upgrade (#1319 review M1 — accepted, recorded deviation).
+  // cutover upgrade (an accepted, recorded deviation).
   const matcherInput = {
     kind: "message",
     phase: "pre" as const,

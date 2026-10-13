@@ -61,7 +61,7 @@ export class PolicyGenerationRefused extends Data.TaggedError("PolicyGenerationR
 }
 
 /**
- * Fail-closed journal write (#1252): a row body that does not satisfy its
+ * Fail-closed journal write (): a row body that does not satisfy its
  * kind's declared schema refuses the whole commit; nothing partial lands.
  */
 /**
@@ -108,7 +108,7 @@ export class LedgerInvariant extends Data.TaggedError("LedgerInvariant")<{
 }> {}
 
 /**
- * SchemaVersion fence (#1252): a store file whose `user_version` marker exceeds this build's was
+ * SchemaVersion fence (): a store file whose `user_version` marker exceeds this build's was
  * written by newer code. A catalog opens read-only: reads work, Deliver (fence rotation) and fork
  * (session indexing) refuse with this error. A session file refuses at `openSessionStore`: nothing read or written.
  */

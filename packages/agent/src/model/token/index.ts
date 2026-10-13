@@ -27,7 +27,7 @@ export function accumulateUsage(total: Token.AgentUsage, usage: Token.ProviderUs
 }
 
 export namespace TokenTracker {
-  /** Required unusable counts remain undefined so the fold estimates them, never silently zeroes them. */
+  /** Required unusable counts stay undefined so the fold estimates them, never silently zeroes. */
   export function extractUsage(response: {
     readonly usage?: Reported;
     readonly providerMetadata?: Reported;

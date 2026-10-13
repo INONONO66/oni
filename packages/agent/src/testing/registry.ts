@@ -10,11 +10,9 @@ import { foldSessionHistory, hydrateSessionHistory } from "../inspect/history";
 import { compactionSeamService } from "../plugins/compaction";
 import { createController } from "./controller";
 
-// #1307: in a product the composition wires the compaction seam into the
-// runtime; harness-built runtimes get the real service by default so tests
-// keep exercising pin + restore. A test that wants the capability OFF sets
-// the key explicitly (`compaction: undefined`): defaulting fills only a
-// runtime that never mentions the key.
+// Harness-built runtimes get the real compaction seam by default so tests keep
+// exercising pin + restore; a test that wants it OFF sets `compaction: undefined`
+// explicitly, because defaulting fills only a runtime that never mentions the key.
 const testingCompactionSeam = compactionSeamService({
   fold: foldSessionHistory,
   hydrate: hydrateSessionHistory,
@@ -24,7 +22,6 @@ function withTestingCompaction(runtime: SessionRuntime): SessionRuntime {
   return "compaction" in runtime ? runtime : { ...runtime, compaction: testingCompactionSeam };
 }
 
-// ─── from session-handle.ts (#1247) ───
 const registries = new WeakMap<SessionRuntime, SessionRegistry>();
 
 function registryFor(runtime: SessionRuntime) {
@@ -50,7 +47,6 @@ function registryFor(runtime: SessionRuntime) {
 export function session(options: SessionCreateOptions, runtime: SessionRuntime): Effect.Effect<SessionHandle, SessionError, Scope.Scope | SessionEntryServices> {
   return registryFor(runtime).pipe(Effect.flatMap((registry) => registry.declare(options)));
 }
-
 
 class SessionRegistry {
   private readonly entries = new Map<string, RegistryEntry>();

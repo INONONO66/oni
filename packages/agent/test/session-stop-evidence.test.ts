@@ -14,7 +14,7 @@ function approvalsWith(ids: readonly string[]): ExecutionApprovals {
     answer: () => Effect.void,
   };
 }
-/** #1254 chain rows: a capability arm and the fired row that settles its occurrence. */
+/** Chain rows: a capability arm and the fired row that settles its occurrence. */
 function armed(parentId: string, ts: number) {
   return armAction({
     parentId, sessionId: "evidence", purpose: "test.tick", at: ts + 1, supersedes: null,
@@ -61,7 +61,7 @@ it("treats a retired chain (arm at: null) as settled wait evidence", () => isola
   const evidence = sessionStopEvidence(kernel, "evidence", fixture.turnId, () => undefined);
   const arm = armed(fixture.turnId, 5_000);
   yield* commitAlarm(fixture, arm.action);
-  // The retire is an `arm{at: null}` row superseding the live occurrence (#1254).
+  // The retire is an `arm{at: null}` row superseding the live occurrence.
   const retire = armAction({
     parentId: arm.action.id, sessionId: "evidence", purpose: "test.tick", at: null,
     supersedes: arm.occurrenceId, alarmId: "alarm-1", sourceKey: "test",

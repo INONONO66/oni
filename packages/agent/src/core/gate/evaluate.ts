@@ -17,10 +17,8 @@ import type { CompileErrorData, CompiledRow, PolicyCompileError } from "./row-pa
 import type { ProjectedGeneration } from "./project";
 
 /**
- * Compatibility formatting (#1251): the public `PolicyEvaluation` shape, the
- * evaluator that runs one input through the projected gate and formats its
- * decision back into that legacy shape, and the fail-closed snapshot for
- * generations that refused to compile.
+ * The legacy `PolicyEvaluation` shape, the evaluator that formats a gate decision back into it, and
+ * the fail-closed snapshot for generations that refused to compile.
  */
 
 export interface PolicyEvaluationInput {
@@ -31,11 +29,7 @@ export interface PolicyEvaluationInput {
   readonly sessionId?: string;
   readonly message?: MessagePolicyContext;
   readonly value: PlainValue;
-  /**
-   * A previously committed gate decision for this input (#1251 r3): the gate
-   * replays it verbatim — recorded responses included — without invoking
-   * handlers. Excluded from the evaluation's input identity.
-   */
+  /** Replayed verbatim, responses included, without handlers; outside the input identity. */
   readonly recorded?: GateDecision;
 }
 
@@ -59,9 +53,7 @@ export interface PolicyEvaluation {
   readonly value: PlainValue;
   readonly effects: readonly Policy.PolicyEffect[];
   readonly obligations: readonly CompiledObligation[];
-  /** The gate's replayable decision: recorded responses, rewrite output, facts. */
   readonly gate?: GateDecision;
-  /** True when `recorded` was replayed verbatim instead of re-evaluated. */
   readonly replayed?: boolean;
   readonly error?: Readonly<z.infer<typeof CompileErrorData>>;
 }
@@ -69,16 +61,11 @@ export interface PolicyEvaluation {
 export interface CompiledPolicySnapshot {
   readonly generation: number;
   readonly contentHash: string;
-  /** The merged point registration table this snapshot compiled against (#1251). */
   readonly pointTable: GatePointTable;
   evaluate(input: PolicyEvaluationInput): PolicyEvaluation;
   /**
-   * Effectful evaluation (#1256): resolves the matched rows' asynchronous
-   * consultants (the hook process) IN ROW ORDER — each consultant receives
-   * the fold's value as of its position (r5 H-1) — then runs the synchronous
-   * fold with every settled result prepared. The sync `evaluate` on a consult
-   * row has no prepared result and folds `handler_unavailable` -> deny
-   * fail-closed.
+   * Resolves async consultants IN ROW ORDER, each receiving the fold's value at its position; the
+   * sync `evaluate` on a consult row folds `handler_unavailable` -> deny.
    */
   evaluateEffect?(input: PolicyEvaluationInput): Effect.Effect<PolicyEvaluation>;
 }
@@ -97,7 +84,6 @@ const VERDICT_PRECEDENCE: Record<"deny" | "require_approval" | "allow", readonly
   allow: ["allow"],
 };
 
-/** The projected gate's `when` record for one legacy evaluation input. */
 function projectedWhenOf(input: PolicyEvaluationInput): Record<string, PlainValue> {
   const when: Record<string, PlainValue> = {};
   if (input.op !== undefined) when.op = input.op;
@@ -109,17 +95,11 @@ function projectedWhenOf(input: PolicyEvaluationInput): Record<string, PlainValu
 }
 
 /**
- * The next async consultation a fresh decision for this input would make
- * (#1256 r5 H-1): the ordered fold runs — sync rows included — up to the
- * first matched consult row whose async ref has no `prepared` result yet, and
- * that row surfaces here CARRYING THE FOLD'S VALUE AT ITS POSITION. Undefined
- * when the input refuses before the gate, the recorded decision would replay,
- * or every async row is prepared. `evaluateEffect` resolves consultations one
- * at a time through this probe so a later guard judges the value an earlier
- * rewrite actually sends to the executor.
+ * The ordered fold runs up to the first unprepared consult row, which surfaces CARRYING THE FOLD'S
+ * VALUE AT ITS POSITION; undefined when the input refuses, the recorded decision replays, or every
+ * async row is prepared.
  */
 export interface PlannedConsult extends PendingConsult {
-  /** The projected gate point the consultation addresses. */
   readonly point: string;
 }
 
@@ -233,7 +213,7 @@ export function evaluateProjected(
   });
 }
 
-/** The highest-precedence matched row's reason: deny defaults to `denied`. */
+/** Deny defaults to `denied`. */
 function projectedReason(
   verdict: "deny" | "require_approval" | "allow",
   matched: readonly CompiledRow[],
@@ -251,11 +231,7 @@ function projectedReason(
   return undefined;
 }
 
-/**
- * A consulted guard's reason (#1256): the first consulted payload carrying a
- * string `reason`, else — on a deny — the first recorded fact's code (e.g.
- * `handler_unavailable` on the sync path of an async consultant row).
- */
+/** First consulted payload with a string `reason`, else on deny the first recorded fact's code. */
 function consultedReason(decision: GateDecision): string | undefined {
   for (const entry of decision.consulted) {
     const payload = entry.payload;

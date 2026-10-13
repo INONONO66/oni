@@ -20,42 +20,34 @@ import { clonePlain } from "./match";
 export type { GateHandler, GateHandlerResult, PreparedResults } from "./fold";
 
 /**
- * Gate-row compiler and evaluator (#1251): compiles the single row contract
- * against the merged point registration table at startup or generation change
- * (rejecting fail-closed with the compose rejection codes defined in #1255)
- * and folds every matching row into one decision per point: deny beats
- * approval beats allow, every matched row id is recorded.
+ * Compiles the row contract against the merged point table, rejecting fail-closed, and folds every
+ * matching row into one decision per point: deny beats approval beats allow.
  */
 
 interface GateDecideInput<Context> {
   readonly when: Readonly<Record<string, PlainValue>>;
   readonly value: PlainValue;
-  /** Opaque consultation context for compiled per-row matchers (e.g. message rule tables). */
+  /** Opaque consultation context for compiled per-row matchers (message rule tables). */
   readonly context?: Context;
 }
 
 interface GateDecideOptions {
   readonly handlers?: (ref: string) => GateHandler | undefined;
-  /** A persisted decision for this point; same input hash replays it verbatim. */
+  /** Same input hash replays it verbatim. */
   readonly recorded?: GateDecision;
-  /** Already-consulted async handler results keyed by row id (#1256). */
   readonly prepared?: PreparedResults;
   /**
-   * Refs resolved asynchronously (#1256 r5 H-1): the fold STOPS at the first
-   * matched consult row whose ref is listed here without a prepared result
-   * and surfaces it as `GateOutcome.pending`, carrying the fold's value AT
-   * THAT ROW'S POSITION — so an async consultant sees every earlier row's
-   * rewrite, exactly like a synchronous handler would.
+   * The fold STOPS at the first matched consult row listed here without a prepared result and
+   * surfaces `GateOutcome.pending` carrying the value AT THAT ROW'S POSITION.
    */
   readonly pendingAsync?: ReadonlySet<string>;
 }
 
-/** One matched handler row an asynchronous consultant must answer before the fold proceeds. */
 export interface PendingConsult {
   readonly rowId: string;
   readonly ref: string;
   readonly params: PlainValue;
-  /** The decision value as folded by every row BEFORE this one (isolated copy). */
+  /** Folded by every row BEFORE this one (isolated copy). */
   readonly value: PlainValue;
 }
 
@@ -64,12 +56,7 @@ interface GateOutcome {
   readonly value: PlainValue;
   readonly emissions: readonly GateEmission[];
   readonly replayed: boolean;
-  /**
-   * The first unresolved async consult row (#1256 r5 H-1); present only when
-   * `pendingAsync` was supplied. A pending outcome is a PARTIAL fold: the
-   * caller must resolve the consultant, add it to `prepared` and decide again
-   * — never commit this outcome's decision.
-   */
+  /** Pending = PARTIAL fold: resolve the consultant, add to `prepared`, decide again. */
   readonly pending?: PendingConsult;
 }
 
@@ -82,18 +69,12 @@ export interface CompiledGate<Context = never> {
 export interface CompileGateRowsOptions<Context = never> {
   readonly table: GatePointTable;
   readonly rows: readonly GateRow[];
-  /** Registered service refs (`<bundle>/<service>` or auto-registered wrappers). */
   readonly handlers: readonly string[];
   readonly generation: number;
-  /**
-   * Row-id-keyed condition predicates evaluated in addition to the row's
-   * `when` equality — the compiled form of conditions the exact-equality
-   * `when` cannot express (message rule tables).
-   */
+  /** The compiled form of conditions the exact-equality `when` cannot express. */
   readonly matchers?: ReadonlyMap<string, (context: Context | undefined) => boolean>;
 }
 
-/** One admitted row with its compile-time narrowed emit kind and condition predicate. */
 interface CompiledGateRow<Context> {
   readonly row: GateRow;
   readonly emit: EmitKind | undefined;
@@ -134,10 +115,8 @@ export function compileGateRows<Context = never>(
     inputHash: string,
     recorded: GateDecision | undefined,
   ): boolean {
-    // Matcher context is a decision input: a recorded decision replays only
-    // when every context-dependent row still matches exactly as recorded.
-    // A decision is bound to its policy generation (#1251 r4): a record from
-    // another generation never replays — the current rows decide fresh.
+    // Matcher context is a decision input, and a decision is bound to its policy
+    // generation: a record from another generation never replays.
     return (
       recorded !== undefined &&
       recorded.generation === options.generation &&
@@ -151,10 +130,7 @@ export function compileGateRows<Context = never>(
     );
   }
 
-  /**
-   * The ref a consult-shaped row (handler ref, no fixed verdict, no emission)
-   * still awaits an async result for; undefined when the row folds inline.
-   */
+  /** Undefined when the row folds inline. */
   function awaitedConsultRef(
     entry: CompiledGateRow<Context>,
     pendingAsync: ReadonlySet<string> | undefined,
@@ -180,7 +156,6 @@ export function compileGateRows<Context = never>(
     const entries = byPoint.get(point) ?? [];
     const recorded = decideOptions.recorded;
     if (recorded !== undefined && replays(point, input, entries, inputHash, recorded)) {
-      // Replay restores the recorded rewrite output without invoking handlers.
       return { decision: recorded, value: recorded.output, emissions: [], replayed: true };
     }
     const state = initialFoldState(input.value);
@@ -198,8 +173,8 @@ export function compileGateRows<Context = never>(
     });
     for (const entry of entries) {
       if (!matches(entry, input)) continue;
-      // #1256 r5 H-1: an async consult row pauses the ordered fold HERE, so
-      // its consultant receives the value every earlier row already folded.
+      // An async consult row pauses the ordered fold HERE, so its consultant
+      // receives the value every earlier row already folded.
       const awaited = awaitedConsultRef(entry, decideOptions.pendingAsync, decideOptions.prepared);
       if (awaited !== undefined) {
         return {

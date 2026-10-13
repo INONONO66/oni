@@ -31,7 +31,7 @@ test("raw recorded facts reject malformed JSON and non-finite JSON numbers", () 
 });
 
 // The actor-endpoint JSON boundary case moved to
-// packages/channels/test/store/actor/endpoint-filters.test.ts with its adapter (#1317).
+// packages/channels/test/store/actor/endpoint-filters.test.ts with its adapter.
 
 test("action reads validate scalar driver columns and JSON before replay", () => {
   using db = openLedgerDatabase();
@@ -77,7 +77,7 @@ test("action reads validate scalar driver columns and JSON before replay", () =>
   expect(sessionTree("s", store.actions)).toHaveLength(1);
 });
 
-// #1344: one throwing decoder owns strict JSON reads — malformed text is the
+// One throwing decoder owns strict JSON reads — malformed text is the
 // typed `SchemaRefused{reason: json}`, while syntactically valid JSON that
 // violates the plain-value schema keeps its typed schema rejection.
 test("parsePlainJson separates malformed JSON from schema-invalid JSON", () => {
@@ -90,7 +90,7 @@ test("parsePlainJson separates malformed JSON from schema-invalid JSON", () => {
   expect(parsePlainJson('{"a":[1,null]}')).toEqual({ a: [1, null] });
 });
 
-// #1344: the degraded companion never throws — corrupt payload text reads as
+// The degraded companion never throws — corrupt payload text reads as
 // `undefined` so callers keep their existing corrupt-row/watch fallbacks.
 test("readPlainJson degrades malformed and schema-invalid payloads to undefined", () => {
   expect(readPlainJson("{")).toBeUndefined();
@@ -98,7 +98,7 @@ test("readPlainJson degrades malformed and schema-invalid payloads to undefined"
   expect(readPlainJson('"ok"')).toBe("ok");
 });
 
-// #1344 r1 M5: a body result crosses the durable boundary as an independent
+// A body result crosses the durable boundary as an independent
 // copy — mutating the body's own object after `run` resolves changes neither
 // the outcome handed back nor the committed result row.
 test("a tool result committed by the executor does not alias the body's returned object", () =>

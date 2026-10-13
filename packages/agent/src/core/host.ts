@@ -19,37 +19,33 @@ import type { LedgerHandles } from "./store/services";
 import { openSessionStore, type SessionStore } from "./store/session-file";
 import type { ObservationFailurePort } from "./store/storage/sqlite-l0-observation";
 
-/** The cluster's entity reaper never scans more often than five seconds. */
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
 type SessionKernel = SessionHandleStore.SessionKernel;
 
-/** Per-session ledger file path: the one place the layout is spelled. */
+/** The one place the layout is spelled. */
 export function sessionFilePath(sessionsDir: string, sessionId: string): string {
   return join(sessionsDir, `${sessionId}.sqlite`);
 }
 
 export interface LedgerStoreConfig {
-  /** Injected wall clock: the store plane never reads ambient time. */
+  /** The store plane never reads ambient time. */
   readonly now: () => number;
-  /** Catalog SQLite file; absent = an in-memory catalog. */
+  /** Absent = an in-memory catalog. */
   readonly catalog?: { readonly path?: string };
-  /** Per-session ledger file directory; absent = memoized in-memory stores shared with the entity. */
+  /** Absent = memoized in-memory stores shared with the entity. */
   readonly sessions?: { readonly dir?: string };
   readonly observationSink?: ObservationSink;
-  /** Where a post-commit observation publish failure is reported; absent drops it. */
+  /** Absent drops it. */
   readonly onObservationFailure?: ObservationFailurePort;
 }
 
-/** The ledger plane: one catalog handle, memoized per-session kernels and the entity's turn port. */
 export interface LedgerPlane {
   readonly catalog: CatalogStore;
-  /** The catalog's raw SQLite handle for stores that ride the same file. */
   readonly catalogDatabase: Database;
   readonly handles: LedgerHandles;
   openKernel(sessionId: string): SessionKernel;
   sessionStore(sessionId: string): SessionStore;
-  /** Durable sessions this process can open: session files merged with opened handles. */
   listSessions(): LedgerSession.Row[];
   turnPort(
     runner: SessionRunner,
@@ -68,7 +64,6 @@ export class OpenRefused extends Data.TaggedError("OpenRefused")<{
   readonly message: string;
 }> {}
 
-/** A store-opening throw as the typed refusal: the cause rides as an Error. */
 function refused<E>(code: OpenRefused["code"], path: string, cause: E): OpenRefused {
   return new OpenRefused({
     code,
@@ -79,27 +74,21 @@ function refused<E>(code: OpenRefused["code"], path: string, cause: E): OpenRefu
 }
 
 export interface LedgerConfig extends LedgerStoreConfig {
-  /** Writer identity stamped into `lease_owner` (audit only; the fence authorizes). */
+  /** Audit only; the fence authorizes. */
   readonly owner: string;
   readonly cluster: {
-    /** SQLite file holding the runner and message tables; `:memory:` isolates a process. */
+    /** `:memory:` isolates a process. */
     readonly storagePath: string;
     readonly entityIdleMs: number;
   };
-  /** Loop consumption values and the entity ports; a late-bound slot's `ready` holds activations. */
+  /** A late-bound slot's `ready` holds activations. */
   readonly drain: AlarmDrainConfig;
   readonly ports: SessionEntityPorts;
 }
 
-/** Services the host contributes beyond `Ledger` (entity client access). */
 export type ClusterServices = Layer.Success<ReturnType<typeof SingleRunner.layer>>;
 
-/**
- * The one store opener: the catalog first, then the sessions directory, so a
- * sessions refusal releases the catalog it just opened. Throws `OpenRefused`.
- * The caller owns `close`; `ledgerLayer` is the scoped caller and
- * `Testing.openLedgerPlane` the only other one (hermetic fixtures).
- */
+/** Catalog first, then sessions, so a refusal releases the catalog; caller owns `close`. */
 export function openLedgerPlane(config: LedgerStoreConfig): LedgerPlane {
   const catalogPath = config.catalog?.path ?? ":memory:";
   let catalog: CatalogStore;
@@ -188,17 +177,13 @@ function planeOver(
   };
 }
 
-/** A view of the plane's own store whose `close` is a no-op: the plane closes the store, never the entity. */
+/** `close` is a no-op: the plane closes the store, never the entity. */
 function retained(store: SessionStore): SessionStore {
   const view: SessionStore = Object.create(store, { close: { value: () => undefined } });
   return view;
 }
 
-/**
- * The store plane under a Scope: `openLedgerPlane` is the one opener and the
- * plane's `close` the one release, so the catalog closes exactly once. A
- * typed refusal fails the layer; any other throw is a defect of the opener.
- */
+/** One opener, one release; a typed refusal fails the layer, any other throw is a defect. */
 function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused> {
   return Layer.effect(
     Ledger,
@@ -215,11 +200,7 @@ function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused
   );
 }
 
-/**
- * The one host: catalog, session opener, SQLite client, single-node runner and
- * the Session entity acquired under one Scope and released once, in reverse.
- * Sharding config is pinned explicit; ambient `SHARDING_*` env never applies.
- */
+/** One Scope, released in reverse; sharding config is explicit, `SHARDING_*` env ignored. */
 export function openLedger(
   config: LedgerConfig,
 ): Layer.Layer<Ledger | ClusterServices, OpenRefused, Crypto.Crypto> {

@@ -6,10 +6,10 @@ import { adoptSessionAuthority } from "../core/run";
 import { CorruptRecord, type LedgerError } from "../core/store/errors";
 
 /**
- * A fixture's cluster-free delivery (#1346 M6): the received-message action
- * lands on the destination chain under the core's fence fold (a running
- * destination lends its live fence, an idle one is taken over), idempotent on
- * the row id. Test-only; it backs no admission claim — that is `Deliver`.
+ * A fixture's cluster-free delivery: the received-message action lands on the
+ * destination chain under the core's fence fold (a running destination lends
+ * its live fence, an idle one is taken over), idempotent on the row id.
+ * Test-only; it backs no admission claim — that is `Deliver`.
  */
 export function localDelivery(
   kernel: SessionKernel,

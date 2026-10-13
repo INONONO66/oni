@@ -10,9 +10,8 @@ import {
 import { CompactionRecord, restoreCompactionProjection } from "./durable";
 
 /**
- * The seam's restore verb (#1307): validates the compaction intent and its
- * executed record, then returns the typed `restore_context_projection`
- * request plus the restored value the kernel's executor records.
+ * Validates the compaction intent and its executed record, then returns the typed
+ * `restore_context_projection` request plus the restored value.
  */
 export function prepareCompactionRestore(
   input: CompactionRestoreInput,
@@ -31,7 +30,7 @@ export function prepareCompactionRestore(
   });
 }
 
-/** The typed compensation of one compaction; a distinct recorded action, never a mutation of the original. */
+/** The typed compensation of one compaction; a distinct recorded action, never a mutation. */
 export function restoreContextRequest(
   compactionId: string,
   predecessorProjectionHash: string,

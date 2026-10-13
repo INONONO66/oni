@@ -11,30 +11,20 @@ export const RetryReason = z.enum([
 export type RetryReason = z.infer<typeof RetryReason>;
 
 /**
- * What a terminal record may report. `aborted` is not a {@link RetryReason}:
- * an abort is an instruction to stop, never a fault to classify as retryable,
- * so it can appear on `agent.run.failed` but never on `agent.error.retry`.
+ * `aborted` is not a `RetryReason`: an abort is an instruction to stop, never a fault to classify,
+ * so it never appears on `agent.error.retry`.
  */
-/** "unclassified": the run died without attaching failure facts — an honest absence, never defaulted to a transient claim. */
+/** An honest absence, never defaulted to a transient claim. */
 export type TerminalReason = RetryReason | "aborted" | "unclassified";
 
-/**
- * The typed abort the loop throws when it observes its own signal. The name
- * is the identity {@link isAbort} checks — never the message, which tool and
- * provider errors are free to collide with.
- */
+/** The name is the identity `isAbort` checks, never the message, which other errors may share. */
 export function abortError(message = "aborted"): Error {
   const error = new Error(message);
   error.name = "AbortError";
   return error;
 }
 
-/**
- * Whether this failure is the run being told to stop. Decided by the
- * config's signal state or the typed error identity — never by message
- * substrings. An abort is non-retryable and must not emit retry-promising
- * telemetry (#audit M4).
- */
+/** Decided by signal state or typed identity, never substrings; an abort promises no retry. */
 export function isAbort(error: Error, signal?: AbortSignal): boolean {
   return (
     signal?.aborted === true ||
@@ -48,12 +38,8 @@ function asLlmFailure(error: Error): LlmRunFailure | undefined {
 }
 
 /**
- * What the run decided about the failure it is about to raise: the classified
- * reason, how many attempts were spent, and the ceiling they were spent
- * against. The loop already owns these facts for its terminal record; a host
- * that has to TELL someone why the turn produced nothing needs the same ones,
- * and re-deriving them from the error message is exactly the string matching
- * the closed vocabulary exists to avoid.
+ * A host that must TELL someone why the turn produced nothing needs these facts; re-deriving them
+ * from the message is the string matching the closed vocabulary exists to avoid.
  */
 const AgentFailureFacts = z.object({
   reason: z.enum([...RetryReason.options, "aborted"]),
@@ -63,15 +49,9 @@ const AgentFailureFacts = z.object({
 });
 type AgentFailureFacts = z.infer<typeof AgentFailureFacts>;
 
-/**
- * Carried on the error object itself rather than by wrapping it: wrapping
- * would change the identity and message every existing catcher already reads.
- * The symbol keeps the facts off enumeration (JSON, logging, structured
- * clone) so nothing serializes them by accident.
- */
+/** Carried on the error itself (wrapping changes the identity catchers read); symbol = hidden. */
 const FAILURE_FACTS = Symbol.for("openomni.agent.failureFacts");
 
-/** Stamps the decided facts onto the error the run is raising. */
 export function attachFailureFacts(error: Error, facts: AgentFailureFacts): void {
   Object.defineProperty(error, FAILURE_FACTS, {
     value: facts,
@@ -82,9 +62,8 @@ export function attachFailureFacts(error: Error, facts: AgentFailureFacts): void
 }
 
 /**
- * The facts the run decided for this error, or undefined when it did not come
- * from an agent run (or died before any decision was reached). Absent is a
- * real answer: a host must not invent an attempt count.
+ * Undefined when the error did not come from a run or died before any decision; absent is a real
+ * answer — never invent an attempt count.
  */
 export function failureFacts<T>(error: T): AgentFailureFacts | undefined {
   if (typeof error !== "object" || error === null) return undefined;

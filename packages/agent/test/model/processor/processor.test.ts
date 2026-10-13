@@ -14,7 +14,7 @@ describe("Processor processor", () => {
 
   test("fails loudly when generated part identities collide", async () => {
     // The injected id source is the collision vector: a constant id makes the
-    // second step-start fold reject (#1245).
+    // second step-start fold reject.
     const processor = createProcessor({
       id: () => "00000000-0000-4000-8000-000000000000",
       createStream: streamOf([
@@ -70,7 +70,7 @@ describe("Processor processor", () => {
 
     await processor.process({ system: "", promptText: "" });
 
-    // Boundary snapshots only (#545 T2): open part, completed part with the
+    // Boundary snapshots only: open part, completed part with the
     // full text, message.finished. Deltas emit nothing through onMessage.
     expect(capture.textTimeline).toEqual(["", "Hello World", "Hello World"]);
   });

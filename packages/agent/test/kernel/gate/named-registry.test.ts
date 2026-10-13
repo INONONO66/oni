@@ -42,7 +42,7 @@ describe("immutable named policy registry", () => {
   test.each([
     "transform",
     "obligation",
-    // #1256 r3 G-5: an unregistered CONSULT ref refuses the generation too.
+    // An unregistered CONSULT ref refuses the generation too.
     "consult",
   ] as const)("missing %s refs fail typed before execution", (type: "transform" | "obligation" | "consult") => {
     const verdict: PlainValue =
@@ -171,7 +171,7 @@ describe("immutable named policy registry", () => {
       ],
     });
     if (snapshot.evaluateEffect === undefined) throw new Error("effectful evaluation missing");
-    // Probe path (#1256 fold): the guard folds inline while the consultant is
+    // Probe path: the guard folds inline while the consultant is
     // awaited; with the REAL when (op=bash) it denies. Dropping `when` on the
     // probe path would fold allow+allow here and break this assertion.
     const denied = await runTestPromise(snapshot.evaluateEffect(input));

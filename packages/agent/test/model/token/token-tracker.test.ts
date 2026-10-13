@@ -2,11 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { TokenTracker, estimateUsage } from "../../../src/model/token";
 
 /**
- * `expected` is `[inputTokens, outputTokens, reasoningTokens, cacheReadTokens,
- * cacheWriteTokens]`. The required input/output slots are `undefined` when the
- * provider's accounting is unusable (absent, wrong-typed, or invalid-numeric):
- * that is a distinct value from a reported `0`, and the step-finish fold turns
- * it into a local estimate instead of a trusted zero (#933).
+ * `expected` is `[inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens]`. The required
+ * input/output slots are `undefined` when the provider's accounting is unusable (absent, wrong-typed, or
+ * invalid-numeric): that is a distinct value from a reported `0`, and the step-finish fold turns it into a local
+ * estimate instead of a trusted zero.
  */
 const usageCases: Array<{
   name: string;

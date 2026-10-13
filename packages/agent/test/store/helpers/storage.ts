@@ -7,7 +7,7 @@ import { openCatalogStore } from "../../../src/core/store/catalog";
 import { openSessionStore } from "../../../src/core/store/session-file";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 
-/** Fixed injected clock (#1245): ledger tests assert exact timestamps. */
+/** Fixed injected clock: ledger tests assert exact timestamps. */
 export const TEST_NOW = 1_700_000_000_000;
 export const testNow = (): number => TEST_NOW;
 

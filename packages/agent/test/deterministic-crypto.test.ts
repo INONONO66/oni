@@ -1,5 +1,5 @@
 /**
- * #1253 — the entity runner layer takes `Crypto.Crypto` as an injected
+ * The entity runner layer takes `Crypto.Crypto` as an injected
  * service, never ambient webcrypto: the cluster host refuses to build without
  * one (compile-time requirement), and a fully deterministic layer (seeded
  * xorshift bytes + real SHA digest) hosts the complete deliver round-trip.

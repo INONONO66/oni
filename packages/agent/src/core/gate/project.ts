@@ -7,19 +7,12 @@ import type { CompiledRow, Match } from "./row-parse";
 import type { HandlerTable } from "./registry";
 import { gateRowId } from "./rows";
 
-// ─── projection: historical rows onto the fourteen-point gate (#1251) ───
-
-/**
- * The compiled gate plus the row identities behind each projected gate row;
- * the gate is the single production evaluator and this metadata only formats
- * its decision back into the legacy `PolicyEvaluation` shape.
- */
+/** The gate is the single evaluator; this only formats its decision as a `PolicyEvaluation`. */
 export interface ProjectedGeneration {
   readonly gate: CompiledGate<MessagePolicyContext>;
   readonly rowById: ReadonlyMap<string, CompiledRow>;
 }
 
-/** The legacy row's condition fields, carried verbatim in the gate row's `when`. */
 function projectedWhen(match: Match): Record<string, PlainValue> {
   const when: Record<string, PlainValue> = {};
   if (match.op !== undefined) when.op = match.op;
@@ -29,7 +22,7 @@ function projectedWhen(match: Match): Record<string, PlainValue> {
   return when;
 }
 
-/** A rewrite row's real fields: the first path segments its transform touches. */
+/** The first path segments a rewrite's transform touches. */
 function transformFields(config: PlainValue | undefined): string[] {
   if (
     config === null ||
@@ -62,8 +55,8 @@ function rewriteDoHow(verdict: { readonly ref: string; readonly config?: PlainVa
 function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
   switch (row.verdict.type) {
     case "consult":
-      // A consulted guard (#1256): the named service decides; `observe: true`
-      // projects audit-only, `rewrite: true` the consulted rewrite (fields fail-closed).
+      // A consulted guard: `observe: true` projects audit-only, `rewrite: true`
+      // the consulted rewrite (fields fail-closed).
       if (row.verdict.rewrite === true) {
         if (row.verdict.observe === true)
           throw new GateComposeError({
@@ -97,12 +90,7 @@ function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
   }
 }
 
-/**
- * Every point one historical row governs. The retired v3 point mapping routed
- * compaction operations through `turn/post`, so a wildcard `turn/post` row is
- * projected onto the compaction point too; op-specific compaction rows were
- * already converted onto `compaction/pre` before parsing.
- */
+/** A wildcard `turn/post` row projects onto the compaction point too; op rows converted earlier. */
 function projectedPoints(row: CompiledRow, table: GatePointTable): PointId[] {
   const point = legacyPointOf(row.kind, row.phase);
   if (point === undefined || !table.has(point))
@@ -112,12 +100,7 @@ function projectedPoints(row: CompiledRow, table: GatePointTable): PointId[] {
   return [point];
 }
 
-/**
- * Compiles the generation's rows through the gate-row compiler — the single
- * production evaluator (#1251). Rows are ordered by legacy precedence
- * (priority descending, name ascending); conditions the exact-equality `when`
- * cannot express (message rule tables) compile to per-row matchers.
- */
+/** Legacy precedence order (priority desc, name asc); message rule tables become row matchers. */
 export function projectGeneration(
   parsed: readonly CompiledRow[],
   generation: number,

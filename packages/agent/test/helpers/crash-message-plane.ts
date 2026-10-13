@@ -39,10 +39,10 @@ export const messagePlaneProof = z.object({
 const sessionId = "crash-session";
 const watchId = "doorbell";
 const occurrenceId = `${watchId}:fired:1`;
-/** The `alarm{fired}` fact a delivered occurrence commits (#1254): `<occurrenceId>:<outcome>`. */
+/** The `alarm{fired}` fact a delivered occurrence commits: `<occurrenceId>:<outcome>`. */
 const firedFactId = `${occurrenceId}:delivered`;
 
-/** Inline watch-occurrence dedupe (#1254 S1): a committed fired fact for the occurrence no-ops. */
+/** Inline watch-occurrence dedupe: a committed fired fact for the occurrence no-ops. */
 function watchFiredDisposition(
   kernel: SessionKernel,
   occurrence: string,

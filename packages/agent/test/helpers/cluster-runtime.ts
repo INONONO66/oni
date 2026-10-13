@@ -1,22 +1,8 @@
 /**
- * W5.2 L2.4 — test cluster runtime hosting the REAL Session entity (plan §3
- * L2.1 `src/cluster/session-entity.ts`) on a SingleRunner: sql message/runner
- * storage plus the ledger catalog schema in one catalog file, per-session
- * ledger files under `sessionsDir`. Every Effect here is executed through the
- * allowlisted `runAgent` helper so the runner-site ratchet does not grow.
- *
- * The wire contract is `src/core/messages.ts` (#1253): exactly four RPCs.
- * `Deliver` payloads are `{ kind, body, source, idempotencyKey }` (body/source
- * = canonical JSON) acked with `DeliverReceipt { seq, existed }`; `Resolve`
- * settles one request; `Alarm` carries one `AlarmOccurrence` (DeliverAt =
- * fireAt) acked `delivered | stale`; `Read` serves one model page.
- *
- * The composition seam is `SessionEntityContext` (`SessionEntityEnv`): this
- * file supplies the catalog handle, the per-session store opener and a
- * minimal REAL turn port — chain-committed turn intent/resume + delivery
- * records around a pluggable `TestTurnRunner`, then the chain-committed
- * terminal — so entity tests exercise the durable protocol without the full
- * executor (which reaches the entity plane in wave 3).
+ * Test cluster runtime hosting the REAL Session entity on a SingleRunner: sql message/runner storage plus the ledger
+ * catalog schema in one catalog file, per-session ledger files under `sessionsDir`; every Effect runs through the
+ * allowlisted `runAgent` helper. Wire contract: `src/core/messages.ts` (Deliver/Resolve/Alarm/Read). Composition seam:
+ * `SessionEntityContext` — this file supplies the catalog handle, the store opener and a minimal REAL turn port around `TestTurnRunner`.
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,7 +48,7 @@ export interface TestClusterOptions {
   /** Turn execution port; defaults to a runner resolving one text result. */
   readonly runner?: TestTurnRunner;
   /**
-   * #1256 r4 H-3(a): the FULL production turn port (createSessionEntityRunTurn
+   * The FULL production turn port (createSessionEntityRunTurn
    * over a resolved runtime) instead of the minimal test port — a test builds
    * it inside its scoped program and installs it through a suspension cell.
    */
@@ -71,36 +57,36 @@ export interface TestClusterOptions {
   readonly detachTurns?: boolean;
   /** Crypto service for the cluster host; defaults to Bun webcrypto. */
   readonly crypto?: Layer.Layer<Crypto.Crypto>;
-  /** #1254 S4: D3 drain values; defaults mirror the app's (4 / 64 / idleMs). */
+  /** D3 drain values; defaults mirror the app's (4 / 64 / idleMs). */
   readonly drain?: Partial<AlarmDrainConfig>;
-  /** #1254 S4: the composed non-reserved alarm capability (absent = none). */
+  /** The composed non-reserved alarm capability (absent = none). */
   readonly alarmCapability?: AlarmCapability;
-  /** #1254 S4: keep-alive toggles observed around detached turns. */
+  /** Keep-alive toggles observed around detached turns. */
   readonly onKeepAlive?: (enabled: boolean) => void;
   /** Composition readiness gate an activation awaits before its first port call. */
   readonly ready?: Effect.Effect<void>;
   /** Fires after the entity commits one request transition. */
   readonly onRequestReady?: (sessionId: string) => void;
-  /** #1254 H3: live-activation hook handing out the entity's budgeted arm verb. */
+  /** Live-activation hook handing out the entity's budgeted arm verb. */
   readonly onLive?: SessionEntityPorts["onLive"];
-  /** #1254 H1: post-commit arm notice (native handles follow committed rows). */
+  /** Post-commit arm notice (native handles follow committed rows). */
   readonly onArmed?: SessionEntityPorts["onArmed"];
   /** Injected entity clock (byte-equality fixtures); default wall clock. */
   readonly clock?: () => number;
   /**
-   * #1255: the composed generation's deliver registrations; `"unbound"` omits
-   * the port so a case can exercise the #1313 `seam_missing` refusal.
+   * The composed generation's deliver registrations; `"unbound"` omits
+   * the port so a case can exercise the `seam_missing` refusal.
    * Default: core prompt/signal, stated explicitly (no production fallback).
    */
   readonly inputRegistrations?: readonly string[] | "unbound";
   /**
-   * #1255: the composed generation's capability kinds for input admission;
-   * `"undeclared"` omits the port so a case can exercise the #1310
+   * The composed generation's capability kinds for input admission;
+   * `"undeclared"` omits the port so a case can exercise the
    * missing-kinds refusal. Default: the built-ins.
    */
   readonly capabilityKinds?: readonly string[] | "undeclared";
   /**
-   * #1254 r5 M1: post-commit observation sink injected into every session
+   * Post-commit observation sink injected into every session
    * store this cluster opens — the store publishes `ledger.action.committed`
    * for each chain row AFTER its transaction commits, so a test subscribes to
    * the exact committed fact instead of polling the file.
@@ -112,7 +98,7 @@ export interface TestClusterOptions {
     store: ReturnType<typeof openSessionStore>,
   ) => ReturnType<typeof openSessionStore>;
   /**
-   * #1254 S3: observes each activation/rescan resend AFTER its Alarm RPC
+   * Observes each activation/rescan resend AFTER its Alarm RPC
    * replied — the deterministic "the resent occurrence was consumed" signal.
    */
   readonly onAlarmResend?: (
@@ -121,18 +107,10 @@ export interface TestClusterOptions {
     receipt: { readonly outcome: "delivered" | "stale" },
   ) => void;
   /**
-   * #1254 r3 M2: wraps the entity's forked DeliverAt forward. A test can HOLD
-   * a forwarded occurrence (return `Effect.void` instead of sending) and later
-   * release it through the explicit `sendAlarm` door — the deterministic way
-   * to order "the chain settled first, the parked occurrence arrived second"
-   * without racing the real clock.
-   *
-   * #1254 r4 M2: the wrapper also receives `sendPersisted`, the entity
-   * client's real `{discard: true}` Alarm send — the transport persistence
-   * barrier (installed Effect cluster/Runners.ts awaits `storage.saveRequest`
-   * before the discard notification returns). A fixture that only needs
-   * "the envelope is durable" forwards through it and signals on completion
-   * instead of polling the mailbox.
+   * Wraps the entity's forked DeliverAt forward. A test can HOLD a forwarded occurrence (return `Effect.void`) and
+   * later release it through the explicit `sendAlarm` door — the deterministic way to order "chain settled first,
+   * parked occurrence second" without racing the clock. The wrapper also receives `sendPersisted`, the entity client's
+   * real `{discard: true}` Alarm send, which returns only after `storage.saveRequest`: await it for "the envelope is durable" instead of polling.
    */
   readonly wrapSendAlarm?: (
     send: NonNullable<SessionEntityPorts["sendAlarm"]>,
@@ -351,12 +329,12 @@ function entityPorts(
     ...(options.alarmCapability === undefined
       ? {}
       : { alarmCapability: options.alarmCapability }),
-    // #1313: deliver refuses an unbound inputRegistrations port, so the test
+    // Deliver refuses an unbound inputRegistrations port, so the test
     // cluster states the core table explicitly unless a case unbinds it.
     ...(options.inputRegistrations === "unbound"
       ? {}
       : { inputRegistrations: options.inputRegistrations ?? ["prompt", "signal"] }),
-    // #1310: admission refuses a snapshot with no declared kinds, so the
+    // Admission refuses a snapshot with no declared kinds, so the
     // test cluster states the built-ins unless a case overrides them.
     ...(options.capabilityKinds === "undeclared"
       ? {}
@@ -378,7 +356,7 @@ function entityEnvLayer(options: TestClusterOptions) {
   return Layer.effect(
     SessionEntityContext,
     Effect.gen(function* () {
-      // #1254 S3: the activation resend door — the entity's own persisted
+      // The activation resend door — the entity's own persisted
       // Alarm RPC, exactly the production path (occurrence id = dedupe key).
       const makeClient = yield* SessionEntity.client;
       const forward: NonNullable<SessionEntityPorts["sendAlarm"]> = (sessionId, occurrence) =>
@@ -391,7 +369,7 @@ function entityEnvLayer(options: TestClusterOptions) {
             Effect.asVoid,
             Effect.orDie,
           );
-      // #1254 r4 M2: the persisted discard send — completes once the
+      // The persisted discard send — completes once the
       // occurrence envelope is durable, never awaiting the reply.
       const forwardPersisted: NonNullable<SessionEntityPorts["sendAlarm"]> = (
         sessionId,
@@ -713,12 +691,10 @@ export function sessionFence(catalogFile: string, sessionId: string): number | u
 }
 
 /**
- * Bounded observation of state behind a third-party boundary (effect/cluster's
- * message tables, SQLite WAL files) that exposes no event to subscribe to.
- * The interval is an observation cadence, never a synchronizer: the test
- * passes only when the exact predicate holds, and the timeout is a failure
- * guard. For facts our own stores commit, subscribe with `completionSignal`
- * and the `observationSink` option instead of calling this.
+ * Bounded observation of state behind a third-party boundary (effect/cluster's message tables, SQLite WAL
+ * files) that exposes no event to subscribe to. The interval is an observation cadence, never a synchronizer:
+ * the test passes only when the exact predicate holds, and the timeout is a failure guard. For facts our own
+ * stores commit, subscribe with `completionSignal` and the `observationSink` option instead of calling this.
  */
 export function waitUntil(label: string, check: () => boolean, timeoutMs = 15_000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -740,7 +716,7 @@ export function waitUntil(label: string, check: () => boolean, timeoutMs = 15_00
 }
 
 /**
- * #1254 r5 M1: completion signals replace polling. A signal is created BEFORE
+ * Completion signals replace polling. A signal is created BEFORE
  * the seam that fires it is installed (a runner's entry callback / the store's
  * post-commit observation sink) and resolved from that exact seam, so
  * completion is subscribed, never polled.
@@ -795,8 +771,6 @@ export async function readUntil(
   }
 }
 
-// ─── #1253 four-RPC send helpers ───
-
 /** One `deliver` through the four-RPC surface; body/source are canonical JSON. */
 export const sendDeliver = (
   sessionId: string,
@@ -806,7 +780,7 @@ export const sendDeliver = (
     readonly content: string;
     readonly control?: "interrupt" | "resume";
     readonly delivery?: "steer" | "followUp";
-    /** #1256 H-3: the journal cursor a deferred action's payload was computed against. */
+    /** The journal cursor a deferred action's payload was computed against. */
     readonly after?: number;
     /** Canonical JSON origin override (default: a message origin keyed by the idempotency key). */
     readonly source?: string;
@@ -862,8 +836,6 @@ export const sendAlarm = (
     const makeClient = yield* SessionEntity.client;
     return yield* makeClient(sessionId).Alarm(occurrence);
   });
-
-// ─── #1253 `read` send helper ───
 
 /** One `read` model page through the four-RPC surface. */
 export const sendRead = (

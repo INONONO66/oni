@@ -14,13 +14,9 @@ type AssistantToolCallBlock = Extract<AssistantContentBlock, { type: "tool-call"
 type ToolResultBlock = Extract<ToolMessage["content"][number], { type: "tool-result" }>;
 
 /**
- * #532 candidate 10: the provider reasoning signature is only valid for the
- * exact model that produced it, so it is resent only when the outgoing
- * request's {providerID, modelID} match the pair stored on the message. The
- * message stores no third "api" field, so this double check is the honest
- * available check. The `anthropic` providerOptions namespace is the resend
- * mechanism of @ai-sdk/anthropic (the only provider emitting signatures
- * today); other providers ignore the foreign namespace.
+ * A reasoning signature is valid only for the exact model that produced it, so it is resent only
+ * when {providerID, modelID} match the stored pair; other providers ignore the foreign `anthropic`
+ * namespace.
  */
 function buildAssistantReasoningBlock(
   part: Message.ReasoningPart,

@@ -6,11 +6,7 @@ import {
 } from "@openomni/protocol";
 import { GateComposeError, type GatePointTable } from "../points";
 
-/**
- * Gate-row admission (#1251): one row is validated against its point record
- * and the registered handler set, rejecting fail-closed with the compose
- * rejection codes defined in #1255.
- */
+/** One row validated against its point record and the handler set, rejecting fail-closed. */
 
 function reject(code: GateComposeError["data"]["code"], row: GateRow, detail?: string): never {
   throw new GateComposeError({
@@ -40,7 +36,7 @@ function validateFields(row: GateRow, record: PointRecord): void {
   }
 }
 
-/** Narrows the row's emitted kind at compile; a non-emit row carries none. */
+/** A non-emit row carries none. */
 function validateEmit(row: GateRow, record: PointRecord): EmitKind | undefined {
   if (row.do !== "emit") return undefined;
   if (record.end === true) reject("post_end_emit", row);
@@ -49,10 +45,7 @@ function validateEmit(row: GateRow, record: PointRecord): EmitKind | undefined {
   return kind;
 }
 
-/**
- * Audit-only: an observe row may name its handler, params, and requires -
- * never a verdict, obligation, rewrite field, or emission.
- */
+/** Audit-only: never a verdict, obligation, rewrite field, or emission. */
 function validateObserve(row: GateRow): void {
   if (
     row.how.ref === undefined ||
@@ -66,19 +59,17 @@ function validateObserve(row: GateRow): void {
 }
 
 /**
- * One execution mode per gate row (#1251 r5): the fold applies exactly one
- * mode, so a mixed `how` must refuse here - an admitted constant beside a
- * declared guard would execute the constant and silently bypass the guard.
+ * The fold applies exactly one mode: an admitted constant beside a declared guard would execute the
+ * constant and silently bypass the guard.
  */
 function validateGate(row: GateRow): void {
   if (row.how.metric !== undefined) {
-    // Obligation row (the historical projection): metric/limit under the
-    // projection-fixed allow; its optional ref names the obligation handler
-    // enforced at the turn boundary, never a consulted gate guard.
+    // Obligation row: metric/limit under the projection-fixed allow; its optional
+    // ref names the turn-boundary obligation handler, never a consulted guard.
     if (row.how.verdict !== "allow") reject("bad_action", row, "how");
     return;
   }
-  // A constant verdict or a consulted handler: exactly one, never both or neither.
+  // A constant verdict or a consulted handler: exactly one.
   if ((row.how.verdict !== undefined) === (row.how.ref !== undefined))
     reject("bad_action", row, "how");
 }
@@ -106,7 +97,6 @@ function validateHow(row: GateRow, handlers: ReadonlySet<string>): void {
   }
 }
 
-/** Admits one row against the registration table; returns its narrowed emit kind. */
 export function admitRow(
   row: GateRow,
   table: GatePointTable,

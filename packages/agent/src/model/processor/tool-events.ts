@@ -43,8 +43,8 @@ export function handleToolCall(
   const input = event.input ?? {};
   const callID = String(event.toolCallId);
   state.visibleOutput = true;
-  // A tool call is billed assistant output too: the model emitted the name and
-  // the serialized arguments, so the estimator must see them (#933).
+  // A tool call is billed assistant output too, so the estimator must see
+  // the name and serialized arguments.
   state.stepEmittedAssistant += `${String(event.toolName)}${JSON.stringify(input)}`;
   const part: Message.ToolPart = {
     id: context.id(),
@@ -74,9 +74,8 @@ export function handleToolResult(
   const partId = state.pendingTools.get(toolCallId);
 
   if (partId === undefined) {
-    // #532-6: a result for a call that never happened. Synthesize an error
-    // part so the anomaly is recorded; no Tool.Call/Tool.Result is emitted
-    // because no call exists to correlate with.
+    // A result for a call that never happened: synthesize an error part so the
+    // anomaly is recorded; no Tool.Call/Tool.Result because nothing correlates.
     context.note("stream.normalized", {
       anomaly: "tool-result for unknown call",
       toolCallId,
@@ -143,12 +142,9 @@ function normalizeOutputPayload(event: ProviderEvent): { output: string; isError
 }
 
 /**
- * #532 candidate 2: when a run aborts, results for tools the SDK already
- * executed may still be sitting in the stream. Recording those tools as
- * interrupted would misreport a real side effect, so before the abort is
- * surfaced the processor drains tool settlement events (only) for a bounded
- * grace window. Stops early once every pending tool is settled; never blocks
- * longer than the grace on a dead stream.
+ * On abort, results for tools the SDK already executed may still be in the stream; recording them
+ * as interrupted would misreport a real side effect, so settlement events drain for a bounded grace
+ * first.
  */
 const ABORT_SETTLE_GRACE_MS = 250;
 

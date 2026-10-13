@@ -45,7 +45,7 @@ function seedWedgedSession(sessionsDir: string, catalogFile: string) {
   });
 }
 
-// #1253 (was #1245 (3)): a refused admission is a typed `deliver` rejection,
+// A refused admission is a typed `deliver` rejection,
 // never a success ack, and it appends zero new journal facts; RPC callers
 // distinguish it from an admitted turn and from a consumed signal.
 test("deliver distinguishes an admitted turn, a consumed signal and a typed denial", async () => {
@@ -78,7 +78,7 @@ test("deliver distinguishes an admitted turn, a consumed signal and a typed deni
   }));
 });
 
-// #1344: the controller's shutdown seal reuses the entity's bounded
+// The controller's shutdown seal reuses the entity's bounded
 // `retryRevision` — a writer that conflicts on every attempt gets exactly
 // three CAS attempts and then the typed `AdmissionFailure{code: revision}`,
 // never an unbounded in-process spin.

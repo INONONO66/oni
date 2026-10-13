@@ -13,36 +13,27 @@ type SdkOptions = {
   headers?: Record<string, string>;
   name?: string;
 };
-/**
- * Operator-supplied transport config for one provider call. The package stays
- * env-free: the host resolves these values (from its own config surface) and
- * hands them down, exactly as it already hands down `Auth.Info`.
- */
+/** The package stays env-free: the host resolves these and hands them down like `Auth.Info`. */
 export interface Transport {
-  /**
-   * Replaces the catalog's provider URL. Proxy auth still outranks it: a
-   * credential minted for a proxy must not be redirected elsewhere.
-   */
+  /** Proxy auth still outranks it: a credential minted for a proxy is never redirected. */
   readonly baseUrl?: string;
-  /** Merged over the client identity default, so an operator value wins. */
+  /** An operator value wins over the client identity default. */
   readonly headers?: Record<string, string>;
 }
 
 type BundledProviderSDK = AnthropicProvider | OpenAIProvider;
 type ProviderSDK = BundledProviderSDK;
 
-// A Map keeps the lookup free of Object.prototype keys ("toString",
-// "constructor", …) that an object literal would resolve via `in`/index
-// access and invoke as SDK factories.
+// A Map keeps the lookup free of Object.prototype keys ("toString", ...)
+// that an object literal would resolve and invoke as SDK factories.
 const BUNDLED_PROVIDERS = new Map<string, (options: SdkOptions) => BundledProviderSDK>([
   ["@ai-sdk/anthropic", (options) => createAnthropic(options)],
   ["@ai-sdk/openai", (options) => createOpenAI(options)],
 ]);
 
 /**
- * What every path in this module actually produces. `LanguageModel` also
- * admits a bare gateway model id string, which nothing here returns — leaving
- * it in the signature only pushed casts onto callers.
+ * `LanguageModel` also admits a bare gateway id string nothing here returns; leaving it in the
+ * signature only pushed casts onto callers.
  */
 type ResolvedLanguageModel = Exclude<LanguageModel, string>;
 
@@ -58,9 +49,7 @@ interface CustomLoaderResult {
   options?: SdkOptions;
 }
 
-// A Map for the same reason as BUNDLED_PROVIDERS above: a plain Record
-// resolves Object.prototype keys ("toString", "constructor", …) on index
-// access and would invoke them as loaders.
+// A Map for the same reason as BUNDLED_PROVIDERS above.
 const CUSTOM_LOADERS = new Map<string, () => CustomLoaderResult>([
   [
     "anthropic",
@@ -92,18 +81,14 @@ const CUSTOM_LOADERS = new Map<string, () => CustomLoaderResult>([
   ],
 ]);
 
-// Auth material is hashed into cache keys so credentials never sit in Map
-// keys (visible in heap dumps, debugger key listings, or accidental logs).
-// SHA-256 (not a fast non-cryptographic hash): a key collision would hand
-// one credential's cached SDK instance to a different credential.
+// Auth material is hashed so credentials never sit in Map keys (heap dumps,
+// logs). SHA-256, not a fast hash: a collision would hand one credential's
+// cached SDK instance to a different credential.
 function authFingerprint(auth: Auth.Info): string {
   return createHash("sha256").update(JSON.stringify(auth)).digest("hex");
 }
 
-/**
- * Transport config participates in the cache key: two callers whose only
- * difference is a tenant header must not share one SDK instance.
- */
+/** Two callers whose only difference is a tenant header must not share one SDK instance. */
 function transportFingerprint(transport: Transport | undefined): string {
   if (transport === undefined) return "";
   const headers = transport.headers;
@@ -213,9 +198,8 @@ function getCached<T>(cache: Map<string, T>, key: string): T | undefined {
 }
 
 function setCached<T>(cache: Map<string, T>, key: string, value: T, maxEntries: number): void {
-  // Every caller first runs getCached: a hit returns immediately after moving
-  // the entry to the LRU tail, while only a miss reaches this writer. The key
-  // therefore cannot already exist here.
+  // Every caller first runs getCached, so only a miss reaches this writer:
+  // the key cannot already exist here.
   cache.set(key, value);
 
   while (cache.size > maxEntries) {

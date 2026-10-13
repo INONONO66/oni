@@ -1,5 +1,5 @@
 /**
- * #1253 boundary consumption rule: control signals drain at every boundary,
+ * Boundary consumption rule: control signals drain at every boundary,
  * `steer` rows at tool.post boundaries and turn end, `followUp` rows only at
  * turn end, with per-mode `all|one` widths read from the latest
  * `session.configure` row's `settings` — data, not code.
@@ -86,9 +86,7 @@ describe("boundaryConsumption rule", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Integrated: a real session turn obeys the rule and records turn.consumed.
-// ---------------------------------------------------------------------------
 
 const bounded = boundedBy2s;
 

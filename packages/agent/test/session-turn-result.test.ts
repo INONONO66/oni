@@ -4,7 +4,7 @@ import { runnerOutputMissingResult } from "../src/core/run";
 import { SessionPolicyRefusal } from "../src/core/run";
 import { policyRefusalResult, sessionRunnerResultValue } from "../src/core/commit";
 
-// Issue #1245 (2): absent runner output is a distinct typed failure, not a
+// Absent runner output is a distinct typed failure, not a
 // policy rejection disguised as `invalid_output`.
 test("missing runner output is a typed RunnerOutputMissing failure", () => {
   const result = runnerOutputMissingResult("turn-7");

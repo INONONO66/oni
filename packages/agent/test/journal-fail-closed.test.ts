@@ -8,7 +8,7 @@ import { adoptWriter, materializeSession } from "./store/helpers/session";
 import { withDiskStores } from "./store/helpers/storage";
 
 /**
- * #1252 fail-closed writes: the production commit path (kernel.commit →
+ * Fail-closed writes: the production commit path (kernel.commit →
  * commitSession → appendAction) validates every row body against its kind's
  * declared schema and refuses the whole commit on mismatch — the journal is
  * byte-identical afterwards (exact row count and hash head).

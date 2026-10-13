@@ -11,12 +11,7 @@ import { z } from "zod";
 import { freezePlain } from "./match";
 import type { HandlerTable, NamedTransformer } from "./registry";
 
-/**
- * Historical row decoding (#1251): the compile error contract and the parser
- * that turns one persisted policy row into its validated compiled form
- * (match, verdict, resolved named services). Projection onto the gate lives
- * in `project.ts`.
- */
+/** One persisted policy row to its validated compiled form; projection is in `project.ts`. */
 
 export const MANDATORY_RULE_NAMES = ["compaction"] as const;
 export type RuleName = (typeof MANDATORY_RULE_NAMES)[number];
@@ -31,7 +26,7 @@ const CompileErrorCode = z.enum([
   "invalid_verdict",
   "unknown_ref",
   "snapshot_load_failed",
-  /** The fourteen-point registry rejected the generation; `composeCode` carries the #1255 code. */
+  /** `composeCode` carries the compose rejection code. */
   "compose_rejected",
 ]);
 type PolicyCompileErrorCode = z.infer<typeof CompileErrorCode>;
@@ -102,10 +97,8 @@ function compileErrorMessage(options: CompileErrorOptions): string {
 }
 
 /**
- * #1315 versioned role read: durable gate rows written before the role
- * rename persist the retired role byte; compile folds it to `child` so a
- * pinned historical generation keeps compiling. Named generic preprocessor:
- * an inline callback parameter would be contextually typed `unknown`.
+ * Rows written before the role rename persist the retired byte; compile folds it to `child`. Named
+ * because an inline callback parameter would be contextually typed `unknown`.
  */
 function foldMatchRoles<Input>(input: Input) {
   if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
@@ -126,7 +119,6 @@ const FoldedRole = z
 export const Match = z
   .object({
     op: z.string().min(1).optional(),
-    /** The `operation.op` discriminator inside a multi-operation tool input. */
     operation: z.string().min(1).optional(),
     role: FoldedRole.optional(),
     sessionId: z.string().min(1).optional(),
@@ -265,7 +257,7 @@ function resolveVerdict(
         throw unknownRef(row, generation, verdict.ref);
       return Object.freeze(verdict);
     case "consult":
-      // One consulted-row vocabulary (#1256/#1258): async consultant or sync guard; unregistered refuses.
+      // One consulted-row vocabulary: async consultant or sync guard; unregistered refuses.
       if (
         !(registry.consultants ?? []).some(({ name }) => name === verdict.ref) &&
         !(registry.guards ?? []).some(({ name }) => name === verdict.ref)

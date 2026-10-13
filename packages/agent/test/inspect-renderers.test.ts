@@ -1,9 +1,8 @@
 /**
- * #1253 — the nine `read` models render all 12 public journal kinds from the
- * journal fold (an ordered fact reduction over committed actions, never the
- * observation bus), and `fold.checkpoint` stays internal: no model row ever
- * carries it. The last test drives the same projections through the entity's
- * `read` RPC against the real cluster host.
+ * The nine `read` models render all 12 public journal kinds from the journal fold (an ordered fact reduction
+ * over committed actions, never the observation bus), and `fold.checkpoint` stays internal: no model row ever
+ * carries it. The last test drives the same projections through the entity's `read` RPC against the real
+ * cluster host.
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
@@ -234,8 +233,6 @@ test("every public kind lands in exactly its owning models; none is dropped", ()
     "turn",
   ]);
 });
-
-// ─── the entity `read` RPC serves the same projections ───
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-inspect-read-");
 const options = { sessionsDir, catalogFile };

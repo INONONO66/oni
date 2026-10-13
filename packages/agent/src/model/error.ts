@@ -35,7 +35,7 @@ export function decodeLlmFailure(operation: string) {
   ]).transform((failure): LlmError => failure).parse;
 }
 
-/** Observation text for a stream-boundary failure: a string cause verbatim, else the typed message. */
+/** Observation text for a stream-boundary failure: a string cause verbatim, else the message. */
 export function failureText(error: { readonly message: string; readonly cause?: string | Error }): string {
   return typeof error.cause === "string" ? error.cause : error.message;
 }

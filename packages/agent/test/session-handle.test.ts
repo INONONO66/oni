@@ -31,8 +31,7 @@ import {
   useSessionHandleSuite,
 } from "./helpers/session-handle-suite";
 
-// ---------------------------------------------------------------------------
-// Ported to the entity plane (W5.2 #1197): handle-scoped kernels via
+// Ported to the entity plane: handle-scoped kernels via
 // `isolated()`, eager fence adoption at controller creation instead of TTL
 // leases, the SQL delivery projection (`commitReceivedMessage`/`inputMessages`)
 // instead of queue rows, and per-session `reactivateSession` instead of the
@@ -63,7 +62,6 @@ import {
 //   the injectable storage-adapter seam it hooked is deleted,
 //   and the ordering is structural now - `watchSnapshot` subscribes and takes
 //   its initial snapshot inside one store transaction.
-// ---------------------------------------------------------------------------
 
 useSessionHandleSuite();
 
@@ -100,7 +98,7 @@ describe("durable session handle: admission and turn sealing", () => {
         const result = yield* awaitSignal(handle.prompt("run once"));
 
         const actions = tree(handle.id);
-        // #1252: the delivery row shares the prompt kind; the admission row has no delivery phase.
+        // The delivery row shares the prompt kind; the admission row has no delivery phase.
         const isAdmittedPrompt = (action: (typeof actions)[number]) =>
           action.kind === "prompt" &&
           (action.effect.value as { phase?: string } | null)?.phase !== "delivery";
@@ -110,7 +108,7 @@ describe("durable session handle: admission and turn sealing", () => {
         expect(result).toEqual({ kind: "result", text: "complete" });
         expect(actions.filter(isAdmittedPrompt)).toHaveLength(1);
         expect(actions.filter((action) => action.kind === "turn")).toHaveLength(2);
-        // Prompt has no post point (#1251): the executor consults prompt.pre only.
+        // Prompt has no post point: the executor consults prompt.pre only.
         expect(decisions.map(policyHook).sort()).toEqual([
           "prompt.pre",
           "turn.post",
@@ -187,7 +185,7 @@ describe("durable session handle: admission and turn sealing", () => {
       expect(deliveries).toEqual(["consumed"]);
     }));
 
-  // Prompt has no post point (#1251): a generation carrying a prompt post row
+  // Prompt has no post point: a generation carrying a prompt post row
   // is rejected wholesale by the point registry at compile, and every
   // execution against the rejected generation fails closed.
   test("a generation with a prompt post row fails closed: the registry rejects it and no turn runs", () =>
@@ -490,7 +488,7 @@ describe("durable session handle: admission and turn sealing", () => {
           ),
         );
 
-        // #1253: the mid-turn backlog is followUp by default, so the first
+        // The mid-turn backlog is followUp by default, so the first
         // turn's boundary drains nothing and the queued prompts feed one
         // follow-up turn at turn end — still a single serialized runner.
         expect(runs).toBe(2);

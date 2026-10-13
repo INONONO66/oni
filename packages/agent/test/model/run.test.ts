@@ -180,7 +180,7 @@ describe("run", () => {
     expect(outcome.type).toBe("aborted");
     if (outcome.type !== "aborted") throw new Error("expected an aborted outcome");
     expect(outcome.error?.aborted).toBe(true);
-    // #1344: the abort source rides the failure structurally.
+    // The abort source rides the failure structurally.
     expect(outcome.error?.cause).toBe(source);
   });
 
@@ -479,7 +479,7 @@ describe("run", () => {
     ["sessionId", { traceId: "t", sessionId: "", runId: "r" }],
     // The docstring always claimed a call "that cannot name its run" is
     // refused; the guard only checked traceId/sessionId, so an empty runId
-    // sailed through into every LlmCall event (#606 re-audit).
+    // sailed through into every LlmCall event.
     ["runId", { traceId: "t", sessionId: "s", runId: "" }],
   ])("refuses an empty %s", async (_field, trace) => {
     await expect(

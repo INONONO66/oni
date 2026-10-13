@@ -11,16 +11,11 @@ import {
 import { z } from "zod";
 import { clonePlain } from "./match";
 
-/**
- * The gate's fold (#1251): how one admitted row's handler is invoked under
- * the requirement guard and how its recorded response folds into the single
- * per-point decision. The compiler in `compose.ts` owns admission, matching
- * and replay; this module owns everything a row does once it matches.
- */
+/** `compose.ts` owns admission, matching and replay; this module owns a matched row's effects. */
 
 export type HandlerResolver = ((ref: string) => GateHandler | undefined) | undefined;
 
-/** A dynamic service reference outside the row's requires; recorded as a fact at call time. */
+/** Recorded as a fact at call time. */
 const GateRequirementError = NamedError.create(
   "GateRequirementError",
   z.object({ rowId: z.string(), ref: z.string() }).strict(),
@@ -29,24 +24,21 @@ const GateRequirementError = NamedError.create(
 interface GateHandlerInput {
   readonly value: PlainValue;
   readonly params: PlainValue;
-  /** The decide input's condition fields (#1258): op/operation/role/sessionId as evaluated. */
   readonly when: Readonly<Record<string, PlainValue>>;
-  /** The row's requires collection: only `how.ref` and declared `how.requires` resolve. */
+  /** Only `how.ref` and declared `how.requires` resolve. */
   readonly service: (ref: string) => GateHandler;
 }
 
 export interface GateHandlerResult {
   readonly verdict?: GateVerdict;
   readonly value?: PlainValue;
-  /** Recorded as the consulted payload; an undefined payload is observe-only. */
+  /** An undefined payload is observe-only. */
   readonly payload?: PlainValue;
 }
 
 /**
- * Pre-consulted handler results keyed by row id (#1256): an asynchronous
- * consultant (the hook process) runs at ITS ROW'S POSITION in the ordered
- * fold (r5 H-1: the probe fold pauses there and hands it the folded value),
- * and its settled result folds here exactly like a sync handler response.
+ * An asynchronous consultant runs at ITS ROW'S POSITION in the ordered fold and its settled result
+ * folds exactly like a sync handler response.
  */
 export type PreparedResults = ReadonlyMap<string, GateHandlerResult>;
 
@@ -70,10 +62,7 @@ function plainRecord(value: PlainValue): Readonly<Record<string, PlainValue>> | 
   return value;
 }
 
-/**
- * Only the declared rewritable fields flow from the handler's output into the
- * prior value; a declared field absent from the output is removed (redaction).
- */
+/** A declared field absent from the output is removed (redaction). */
 function applyRewrite(prior: PlainValue, fields: readonly string[], output: PlainValue): PlainValue {
   const base = plainRecord(prior);
   if (base === undefined) return prior;
@@ -136,9 +125,8 @@ export function applyRow(
     });
     return;
   }
-  // Admission guarantees one execution mode per row: a verdict here is either
-  // a constant row or an obligation row's projection-fixed allow (whose ref
-  // names the turn-boundary obligation handler, never a consulted guard).
+  // Admission guarantees one execution mode per row: a verdict here is a
+  // constant row or an obligation row's projection-fixed allow.
   if (row.how.verdict !== undefined) {
     state.verdict = foldVerdict(state.verdict, row.how.verdict);
     return;
@@ -146,12 +134,7 @@ export function applyRow(
   if (row.how.ref !== undefined) consultRow(row, row.how.ref, state, handlers, when, prepared);
 }
 
-/**
- * Calls the handler under the row's requires collection — only the row's own
- * `how.ref` and its declared `how.requires` resolve; an escape throws — with
- * an isolated copy of the decision value, so in-place mutation by any handler
- * can never reach the decision.
- */
+/** An escape throws; the handler gets an isolated copy, so mutation never reaches the decision. */
 function invokeGuarded(
   row: GateRow,
   handler: GateHandler,
@@ -173,10 +156,8 @@ function invokeGuarded(
 }
 
 /**
- * Observe rows run through a constrained audit-only path (#1251): the handler
- * is invoked and its recorded payload becomes an `audit.annotate` annotation,
- * but nothing an observer returns, mutates, or throws can change the verdict
- * or value — a failure is recorded as a fact and the decision stands.
+ * Audit-only: nothing an observer returns, mutates, or throws can change the verdict or value — a
+ * failure is recorded as a fact and the decision stands.
  */
 function observeRow(
   row: GateRow,
@@ -217,7 +198,6 @@ function observeRow(
   state.annotations.push({ rowId: row.id, ref, payload: result.payload });
 }
 
-/** Calls the row's handler under the requirement guard and folds its recorded response. */
 function consultRow(
   row: GateRow,
   ref: string,
@@ -229,7 +209,6 @@ function consultRow(
   let result: GateHandlerResult;
   const consulted = prepared?.get(row.id);
   if (consulted !== undefined) {
-    // The asynchronous consultant already ran; fold its settled result.
     result = consulted;
   } else {
     const handler = handlers?.(ref);
@@ -248,7 +227,7 @@ function consultRow(
     }
   }
   if (result.payload === undefined) {
-    // Unrecorded response: observe-only; it cannot change the decision.
+    // Unrecorded response: observe-only.
     state.facts.push({ rowId: row.id, ref, code: "unrecorded_response" });
     return;
   }
@@ -256,12 +235,9 @@ function consultRow(
   if (row.do === "rewrite") {
     const fields = row.how.fields ?? [];
     if (consulted !== undefined) {
-      // #1256 r4 H-2: an ASYNC consultant's rewrite is contained fail-closed.
-      // Its response must be a plain record touching ONLY the row's declared
-      // fields; anything else (a verdict-shaped reply, an array, a field
-      // outside the declaration) is incompatible with the row: one recorded
-      // fact, deny — the sync transformer path below keeps returning the full
-      // object and is clipped to the declared fields by `applyRewrite`.
+      // An ASYNC consultant's rewrite is contained fail-closed: anything but a plain
+      // record touching ONLY the declared fields is one recorded fact, deny. The
+      // sync path below returns the full object, clipped by `applyRewrite`.
       const output = plainRecord(result.value ?? null);
       if (output === undefined || Object.keys(output).some((key) => !fields.includes(key))) {
         state.facts.push({ rowId: row.id, ref, code: "incompatible_response" });
@@ -272,11 +248,9 @@ function consultRow(
     state.value = applyRewrite(state.value, fields, result.value ?? null);
     return;
   }
-  // #1256 r3 H-3: a consulted gate row is FAIL-CLOSED. A response without a
-  // verdict (a rewrite or observe result on a command row) is incompatible
-  // with its row: one recorded fact, deny — mirroring the #1251
-  // "escape -> recorded fact + deny" pattern. Missing verdict NEVER folds
-  // to allow.
+  // A consulted gate row is FAIL-CLOSED: a response without a verdict is
+  // incompatible with its row — one recorded fact, deny. Missing verdict
+  // NEVER folds to allow.
   if (result.verdict === undefined) {
     state.facts.push({ rowId: row.id, ref, code: "incompatible_response" });
     state.verdict = foldVerdict(state.verdict, "deny");

@@ -15,7 +15,7 @@ function dispatcher(definitions: readonly import("@openomni/protocol").AnyToolDe
   return runAgentSync(createDispatcher({ executor: recordingExecutor().executor }).pipe(Effect.provide(catalogLayer(definitions))));
 }
 
-/** #1305: a dispatcher wired with in-memory tool output projection ports. */
+/** A dispatcher wired with in-memory tool output projection ports. */
 function projectingDispatcher(
   definitions: readonly import("@openomni/protocol").AnyToolDefinition[],
   budgetBytes = 32_768,

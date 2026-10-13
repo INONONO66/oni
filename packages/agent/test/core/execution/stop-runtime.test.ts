@@ -19,7 +19,7 @@ import { armAction } from "../../../src/core/alarm";
 
 /**
  * The alarm table is gone: an armed alarm is an `alarm{arm}` chain row
- * (#1254: alarmId + armSeq, capability purpose) with no settling `fired` row.
+ * (alarmId + armSeq, capability purpose) with no settling `fired` row.
  * Returns the committed action id the live-wait verdict names.
  */
 function armAlarm(alarmId: string): string {
@@ -105,7 +105,7 @@ function scenario(mode: "repeat" | "stall" | "blocked" | "wait" | "progress" | "
                   origin: { encodingVersion: 1, value: { source: "fixture" } },
                   createdAt: Date.now(),
                   parentActionId: null,
-                  // #1253: continuation input must steer to drain mid-turn.
+                  // Continuation input must steer to drain mid-turn.
                   delivery: "steer",
                 });
               request.resolve("ok");

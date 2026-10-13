@@ -19,16 +19,11 @@ import { attachFailureFacts } from "../retry";
 import { judgeStop, type StopState, type StopObservation, type StopMetric } from "../stop";
 import type * as SessionHandleStore from "../store/fence";
 import { executionPoint } from "../points";
-
-// ─── from executor-contract.ts (#1247) ───
 export interface ExecutionLedger {
   commit(action: LedgerAction.Append): Effect.Effect<LedgerAction.Receipt, LedgerError>;
-  /** #1305: resolved per-generation tool output budget; absent falls back to the core default. */
-  toolOutputBudgetBytes?(): number;
-  /** #1305: content-addressed tool output store write (idempotent on the digest key). */
-  putToolOutput?(write: { readonly outputId: string; readonly bytes: Uint8Array; readonly mediaType?: string }): void;
-  /** #1305: read one stored output back by its identifier. */
-  toolOutput?(outputId: string): { readonly outputId: string; readonly bytes: Uint8Array; readonly mediaType?: string } | undefined;
+    toolOutputBudgetBytes?(): number;
+    putToolOutput?(write: { readonly outputId: string; readonly bytes: Uint8Array; readonly mediaType?: string }): void;
+    toolOutput?(outputId: string): { readonly outputId: string; readonly bytes: Uint8Array; readonly mediaType?: string } | undefined;
   actionById?(id: string): LedgerAction.Node | undefined;
   requestById?(id: string): SessionTransition.Request | undefined;
   resultFor?(id: string): LedgerAction.Node | undefined;
@@ -59,7 +54,6 @@ interface ToolObservationIdentity {
   readonly timeoutMs?: number;
 }
 
-/** How an interrupted effect may be settled from evidence; nothing here permits a replay. */
 type RecoveryClassification =
   | "local_transactional"
   | "endpoint_idempotent"
@@ -71,21 +65,13 @@ export interface ExecutionRequest {
   readonly op: string;
   readonly intent: PlainValue;
   readonly effect: PlainValue;
-  /** Recorded on the intent so crash-open recovery classifies from durable evidence. */
-  readonly recovery?: RecoveryClassification;
+    readonly recovery?: RecoveryClassification;
   readonly message?: PolicyEvaluationInput["message"];
   readonly revert?: () => Effect.Effect<void, ExecutionError>;
-  /** Result-dependent evidence for a reversible durable projection. */
-  readonly revertData?: () => PlainValue | undefined;
-  /**
-   * Commit the settled value as a durable boundary child action (one ledger
-   * transaction) before the result commit and any publication: a crash after
-   * the boundary recovers the executed value without re-running the body.
-   */
-  readonly boundary?: boolean;
+    readonly revertData?: () => PlainValue | undefined;
+    readonly boundary?: boolean;
   readonly toolObservation?: ToolObservationIdentity;
-  /** Model-facing settlement, committed atomically with the tool's effect evidence. */
-  readonly toolResult?: (outcome: ExecutionBatchResult) => Tool.Result;
+    readonly toolResult?: (outcome: ExecutionBatchResult) => Tool.Result;
   readonly approval?: {
     readonly required: boolean;
     readonly domainRevisions: Readonly<Record<string, number>>;
@@ -112,8 +98,7 @@ export interface LlmAttempts<T extends PlainValue> {
     body(): Effect.Effect<T, ExecutionError>;
   }, ExecutionError>;
   recoverOverflow?(error: ExecutionError): Effect.Effect<boolean, ExecutionError>;
-  /** Durable attempt evidence (usage, visible-output boundary, credential handle) projected from a settled body. */
-  evidence?(value: T): PlainValue;
+    evidence?(value: T): PlainValue;
   onRetry?(decision: {
     readonly attempt: number;
     readonly maxAttempts: number;
@@ -217,11 +202,6 @@ export interface DurableExecutor extends Executor {
   ): Effect.Effect<T, ExecutionError>;
 }
 
-/**
- * Route-change evidence on a retry attempt (#1276: gate-owned; formerly the
- * model-selection plugin). A route switch is evidence on the newly admitted
- * attempt, not a rewritten selection.
- */
 function attemptRouteChange(
   previous: LedgerAction.Receipt | undefined,
   next: PlainValue,
@@ -243,17 +223,12 @@ function attemptRouteChange(
 }
 
 export interface ExecutorOptions {
-  /** Durable retry schedule port; the default commits the `retry.scheduled` chain action through the ledger (core/alarm). */
-  readonly retryAlarm?: RetryAlarmPort;
+    readonly retryAlarm?: RetryAlarmPort;
   readonly signal?: AbortSignal;
   readonly retainEffect?: (effect: Promise<void>) => void;
   readonly closeGraceMs?: number;
   readonly approvalTimeoutMs?: number;
-  /**
-   * The composed approval policy (#1309): responders, recent-open quota and
-   * the default expiry. Required — the core keeps no literal fallback.
-   */
-  readonly approvalPolicy: ApprovalPolicy;
+    readonly approvalPolicy: ApprovalPolicy;
   readonly ledger: ExecutionLedger;
   readonly identity: ExecutionIdentity;
   readonly authorizeApproval?: (
@@ -262,23 +237,18 @@ export interface ExecutorOptions {
   ) => Effect.Effect<OwnerApprovalEvidence, ExecutionError>;
 }
 
-/** Package-private resolved values; public acquisition accepts no service options. */
 export interface ResolvedExecutorOptions extends ExecutorOptions {
   readonly policy: CompiledPolicySnapshot;
   readonly observations: ObservationPort | BusEvent.Sink;
   readonly clock: () => number;
   readonly entropy: () => string;
-  /** Uniform [0,1) draw for retry jitter; injected beside clock/entropy (#1245). */
-  readonly random: () => number;
+    readonly random: () => number;
 }
-
-// ─── from executor-raw.ts (#1247) ───
 export class RawToolSlots extends Context.Service<
   RawToolSlots,
   ReturnType<typeof createRawSlots>
 >()("@openomni/agent/RawToolSlots") {}
 
-/** Slots outlive interrupted fibers; raw callbacks only settle ownership, never ledger results. */
 export function createRawSlots(retain?: (settlement: Promise<void>) => void) {
   const pending = new Map<symbol, Deferred.Deferred<void>>();
   function open() {
@@ -293,7 +263,6 @@ export function createRawSlots(retain?: (settlement: Promise<void>) => void) {
       Deferred.doneUnsafe(settled, Exit.void);
     };
   }
-  // Re-check after the snapshot drains: slots opened meanwhile must settle too.
   const awaitSettled: Effect.Effect<void> = Effect.suspend(() => pending.size === 0 ? Effect.void
     : Effect.forEach([...pending.values()], Deferred.await, { discard: true }).pipe(Effect.andThen(awaitSettled)));
   return { open, awaitSettled, pending: () => pending.size };
@@ -302,12 +271,9 @@ export function createRawSlots(retain?: (settlement: Promise<void>) => void) {
 export class GenerationRawSlots extends Context.Service<
   GenerationRawSlots, ReturnType<typeof createRawSlots>
 >()("@openomni/agent/GenerationRawSlots") {}
-
-// ─── from executor-outcome.ts (#1247) ───
 export function failureEvidence(error: ExecutionError): PlainObject {
   switch (error._tag) {
     case "LlmRunFailure": {
-      // Only the provider SDK error names itself; a transport or typed failure keeps `null`.
       const apiError = coerceApiError(error.cause);
       return {
         tag: error._tag,
@@ -360,8 +326,6 @@ function causeEvidence(cause: Cause.Cause<ExecutionError>): PlainObject {
     interrupted: Cause.hasInterrupts(cause),
   };
 }
-
-// ─── from executor-context.ts (#1247) ───
 const invocationLifetime = Symbol("invocationLifetime");
 interface InvocationLifetime {
   readonly source: InvocationFrame;
@@ -390,7 +354,6 @@ export class ExecutorContextError extends Error {
   }
 }
 
-/** The one guard over rebuilt executor context: absent context is a programmer invariant and dies. */
 export function requireExecutor<T>(value: T | undefined): T {
   if (value === undefined) throw new ExecutorContextError();
   return value;
@@ -400,7 +363,6 @@ export function currentExecutor(): Executor {
   return requireExecutor(activeInvocation.getStore()?.executor);
 }
 
-/** Re-enter only executor authority; callers must not carry unrelated ALS scopes across RPC. */
 export function withExecutor<T>(executor: Executor, body: () => T): T {
   const frame = activeInvocation.getStore();
   return activeInvocation.run(frame?.executor === executor ? frame : { executor }, body);
@@ -417,13 +379,11 @@ export function requireOpenInvocation(): InvocationFrame {
   return frame;
 }
 
-/** Transfer a live invocation's captured authority to an independently owned lifetime. */
 export function forkInvocation(tool: string) {
   const frame = requireOpenInvocation();
   return openInvocation(frame[invocationLifetime]?.source ?? frame, tool);
 }
 
-/** A turn's frame is a template; each admitted body owns a separately revocable view. */
 export function openInvocation(frame: InvocationFrame, tool: string) {
   let reason: InvocationClosed["reason"] | undefined;
   const closed = new AbortController();
@@ -475,8 +435,6 @@ export function openInvocation(frame: InvocationFrame, tool: string) {
 export function withInvocation<T>(frame: InvocationFrame, body: () => T): T {
   return activeInvocation.run({ executor: frame.executor, captured: frame }, body);
 }
-
-// ─── from executor-record.ts (#1247) ───
 type ToolObservationStatus = "success" | "error" | "timed_out";
 
 interface ActionSubject {
@@ -484,7 +442,6 @@ interface ActionSubject {
   readonly op: string;
 }
 
-/** One record-before-observe adapter over the session's existing fenced ledger port. */
 function createExecutionRecord(
   options: Pick<ResolvedExecutorOptions, "ledger" | "observations" | "identity" | "clock" | "entropy">,
 ) {
@@ -637,8 +594,6 @@ function createExecutionRecord(
     publishToolTerminal,
   };
 }
-
-// ─── from executor-approval.ts (#1247) ───
 type ApprovalDecision = "approve" | "refuse" | "timeout";
 
 function createExecutionApprovals(options: ResolvedExecutorOptions) {
@@ -744,8 +699,6 @@ function createExecutionApprovals(options: ResolvedExecutorOptions) {
   }
   return { approvals, awaitApproval };
 }
-
-// ─── from executor-attempts.ts (#1247) ───
 type RecordPort = ReturnType<typeof createExecutionRecord>;
 type Admission = PolicyEvaluation & { readonly receipt: LedgerAction.Receipt };
 type Prepared<T extends PlainValue> = Effect.Success<ReturnType<LlmAttempts<T>["prepare"]>>;
@@ -762,7 +715,6 @@ function retryableFailure(cause: Cause.Cause<ExecutionError>) {
     ? Effect.failCause(cause) : Effect.succeed(error.value);
 }
 
-/** No replay after a visible delta or an abort: the attempt is terminal. */
 function failureRequiresStop(failure: ExecutionError, signal: AbortSignal | undefined): boolean {
   if (failure._tag === "CommitFailed" || signal?.aborted === true) return true;
   return failure._tag === "LlmRunFailure" && (failure.aborted || failure.visibleOutput);
@@ -778,15 +730,6 @@ function usageProvenance(evidence: PlainValue, failure: ExecutionError | undefin
   return origin === "reported" || origin === "estimated" ? origin : "unknown";
 }
 
-/**
- * Default durable retry port over the alarm chain (#1254 S4): `arm` commits
- * the `alarm{arm}` chain row (purpose `retry`) through the session ledger and
- * forwards the minted occurrence through `send`; `settle` retires the chain
- * with an `at: null` arm. Without a cluster client there is no DeliverAt
- * sender: the chain row is the durable evidence the activation resend
- * consumes, and the live residual sleep carries the in-process wait.
- * Composition injects the sender via `ExecutorOptions.retryAlarm`.
- */
 export function createLedgerRetryAlarmPort(
   ledger: Pick<ExecutionLedger, "commit">,
   sessionId: string,
@@ -913,9 +856,6 @@ function createAttemptRunner(
     });
   };
 }
-
-// ─── from executor-stop.ts (#1247) ───
-/** Projects limits from the captured compiler; never repeats policy row names or numeric limits. */
 function createStopJudge(
   options: ResolvedExecutorOptions,
   decide: (op: string, value: PlainValue) => Effect.Effect<PolicyEvaluation, ExecutionError>,
@@ -966,8 +906,6 @@ function createStopJudge(
     return result;
   });
 }
-
-// ─── from executor-recovery.ts (#1247) ───
 type RecoveryRecordPort = Pick<ReturnType<typeof createExecutionRecord>, "appendResult">;
 type Proof = "absent" | "applied" | "indeterminate";
 
@@ -978,7 +916,6 @@ interface RecoveryVerdict {
   readonly proofReceipt: { readonly id: string; readonly digest: string } | null;
 }
 
-/** Kernel-local projections settle in the ledger transaction; everything else may have left the process. */
 function recoveryClassification(
   request: Pick<ExecutionRequest, "kind" | "recovery">,
 ): RecoveryClassification {
@@ -999,12 +936,10 @@ const classifications: readonly RecoveryClassification[] = [
   "ambiguous_no_replay",
 ];
 
-/** The classification the intent recorded, or undefined when it recorded none it can be held to. */
 function recordedClassification(value: PlainValue | undefined): RecoveryClassification | undefined {
   return classifications.find((classification) => classification === value);
 }
 
-/** The ledger itself is the read-back for a kernel-local transaction: no terminal means nothing happened. */
 function localAbsent(receipt: LedgerAction.Node): RecoveryVerdict {
   return {
     terminal: "interrupted",
@@ -1014,7 +949,6 @@ function localAbsent(receipt: LedgerAction.Node): RecoveryVerdict {
   };
 }
 
-/** Without external read-back, only an absent local transaction is decisive. */
 function crashVerdict(action: LedgerAction.Node): RecoveryVerdict {
   const classification =
     recordedClassification(object(action.intent.value).recovery) ??
@@ -1028,10 +962,6 @@ function crashVerdict(action: LedgerAction.Node): RecoveryVerdict {
   };
 }
 
-/**
- * Recovery reads the original terminal slot first and never runs a body.
- * A refused recovery commit propagates: the durable intent stays recovery-pending.
- */
 function createExecutionRecovery(options: ExecutorOptions, record: RecoveryRecordPort) {
   function terminal(intentId: string): LedgerAction.Node | undefined {
     return options.ledger.resultFor?.(intentId);
@@ -1077,16 +1007,14 @@ function createExecutionRecovery(options: ExecutorOptions, record: RecoveryRecor
     });
   }
 
-  /** The committed boundary child, when the body's transaction landed before the crash. */
-  function boundaryEvidence(intentId: string): LedgerAction.Node | undefined {
+    function boundaryEvidence(intentId: string): LedgerAction.Node | undefined {
     const action = options.ledger.actionById?.(`${intentId}:boundary`);
     return action !== undefined && object(action.effect.value).phase === "boundary"
       ? action
       : undefined;
   }
 
-  /** Settle the open intent as executed from its durable boundary, never re-running the body. */
-  function settleFromBoundary(
+    function settleFromBoundary(
     action: LedgerAction.Node,
     boundary: LedgerAction.Node,
   ): Effect.Effect<void, CommitFailed> {
@@ -1115,9 +1043,7 @@ function createExecutionRecovery(options: ExecutorOptions, record: RecoveryRecor
     );
   }
 
-  /** An open attempt or an already visible prefix cannot be proven absent.
-   * Only non-visible settled attempts leave a purely local commit to recover. */
-  function settleLlm(action: LedgerAction.Node) {
+    function settleLlm(action: LedgerAction.Node) {
     return Effect.gen(function* () {
       let ambiguous = false;
       let lastSettled: LedgerAction.Node = action;
@@ -1137,8 +1063,7 @@ function createExecutionRecovery(options: ExecutorOptions, record: RecoveryRecor
     });
   }
 
-  /** Crash-open settlement for this turn: persisted evidence only, no body, guarded waves stay with their captured dispatcher. */
-  function recover(): Effect.Effect<void, CommitFailed> {
+    function recover(): Effect.Effect<void, CommitFailed> {
     return Effect.gen(function* () {
       const turnId = options.identity.turnId ?? options.identity.parentActionId;
       if (turnId === null) return;
@@ -1176,9 +1101,6 @@ function* operationRecords(
     cursor = page.at(-1)?.ordinal ?? cursor;
   }
 }
-
-// ─── from executor.ts (#1247) ───
-/** Raw-slot settlement grace after body exit: an explicit executor-owned default (W5.2). */
 const DEFAULT_CLOSE_GRACE_MS = 30_000;
 const CORE_KINDS = new Set(["prompt", "turn", "llm", "tool", "compaction", "message"]);
 type Decision = PolicyEvaluation & { readonly receipt: LedgerAction.Receipt };
@@ -1202,8 +1124,6 @@ function combinedSignal(controller: AbortSignal, control: AbortSignal, caller: A
 }
 
 function outcomeFields(outcome: ExecutionResult, project: (value: PlainValue) => PlainValue): PlainObject {
-  // #1305: the row carries the projected value; resultHash stays the digest
-  // of the FULL value, so replay identity survives the projection.
   if (outcome.terminal === "executed") return { result: project(outcome.value), resultHash: canonicalDigest(outcome.value) };
   return outcome.terminal === "blocked_post" ? { reason: outcome.reason, disposition: outcome.disposition } : { reason: outcome.reason };
 }
@@ -1227,8 +1147,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   const { approvals, awaitApproval } = createExecutionApprovals(options);
   const recovery = createExecutionRecovery(options, record);
   const turnId = options.identity.turnId ?? options.identity.parentActionId;
-  /** #1305: tool rows commit a bounded projection; every other kind commits verbatim. */
-  const projectValue = (kind: string, value: PlainValue): PlainValue => {
+    const projectValue = (kind: string, value: PlainValue): PlainValue => {
     const put = options.ledger.putToolOutput;
     if (kind !== "tool" || put === undefined) return value;
     return projectResultValue(value, {
@@ -1237,12 +1156,10 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     });
   };
 
-  /** Registry lookup (#1251): a kind consults `<kind>.<phase>` only when that point is registered in the snapshot's composed table; there is no bypass — an extension kind without a point record fails closed. */
-  function consulted(kind: string, phase: "pre" | "post"): boolean {
+    function consulted(kind: string, phase: "pre" | "post"): boolean {
     return executionPoint(kind, phase, options.policy.pointTable) !== undefined;
   }
-  /** An unregistered point fails closed: the registration table, not the row set, defines where policy applies. */
-  function gatedByRegistry(evaluated: PolicyEvaluation, request: ExecutionRequest, phase: "pre" | "post"): PolicyEvaluation {
+    function gatedByRegistry(evaluated: PolicyEvaluation, request: ExecutionRequest, phase: "pre" | "post"): PolicyEvaluation {
     if (consulted(request.kind, phase)) return evaluated;
     return { ...evaluated, verdict: "deny", reason: "unknown_point" };
   }
@@ -1253,8 +1170,6 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
         kind: request.kind, phase, op: request.op, role: options.identity.role, sessionId: options.identity.sessionId,
         ...(request.message === undefined ? {} : { message: request.message }), value,
       };
-      // #1256: async consultants (hook rows) resolve through evaluateEffect;
-      // a snapshot without one evaluates synchronously as before.
       const evaluatedEffect = options.policy.evaluateEffect === undefined
         ? Effect.sync(() => options.policy.evaluate(input))
         : options.policy.evaluateEffect(input);
@@ -1299,8 +1214,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     });
   }
 
-  /** Denied stages record nothing; recovered stages reuse the original intent; fresh stages append one. */
-  function stageIntent<R>(stage: Omit<Stage<R>, "intent">, waveId: string): Effect.Effect<LedgerAction.Receipt | undefined, ExecutionError> {
+    function stageIntent<R>(stage: Omit<Stage<R>, "intent">, waveId: string): Effect.Effect<LedgerAction.Receipt | undefined, ExecutionError> {
     const original = stage.request.originalAction;
     if (stage.pre.verdict === "deny") return Effect.succeed(undefined);
     if (original !== undefined) return Effect.succeed({ action: original, revision: original.ordinal });
@@ -1491,8 +1405,6 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   function complete<R>(stage: Stage<R>, raw: PlainValue): Effect.Effect<ExecutionResult, ExecutionError> {
     return Effect.gen(function* () {
       const value = clonePlainValue(raw);
-      // The post decision row records the gate's `output` from the same bounded projection
-      // the tool row commits — never the full result, which would push it past the cap.
       const outcome = consulted(stage.request.kind, "post")
         ? yield* decide(stage.request, "post", { intent: stage.request.intent, effect: stage.request.effect, result: projectValue(stage.kind, value) }).pipe(
             Effect.flatMap((post) => settlePost(stage.request, post, value)))
@@ -1593,9 +1505,6 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   function runExisting<T extends PlainValue, R>(request: ExecutionRequest, body: (pre: PolicyEvaluation) => Effect.Effect<T, ExecutionError, R>) {
     return Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
       const pre = yield* decide(request, "pre", request.intent);
-      // #1256 r3 H-3: transform/obligation are allow-shaped effective verdicts
-      // (a prompt.pre rewrite must flow, not block); only deny and
-      // require_approval refuse here.
       if (pre.verdict === "deny" || pre.verdict === "require_approval")
         return { terminal: "blocked_pre", reason: pre.reason ?? "denied" } as const;
       const exit = yield* Effect.exit(restore(Effect.scoped(body(pre))));
@@ -1624,25 +1533,20 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
 function needsApproval(stage: { readonly pre: Pick<PolicyEvaluation, "verdict">; readonly request: ExecutionRequest }) {
   return stage.pre.verdict === "require_approval" || stage.request.approval?.required === true;
 }
-/** Re-admission is bound to the original persisted pre-decision identity. */
 function recordedDecision(ledger: ExecutorOptions["ledger"], original: LedgerAction.Node, decisionId: PlainValue | undefined) {
   const action = typeof decisionId === "string" ? ledger.actionById?.(decisionId) : undefined;
   return action?.sessionId === original.sessionId && action.kind === "policy.decision" && action.ordinal < original.ordinal ? action : undefined;
 }
-/** The committed policy.decision intent: the public evaluation plus the gate's replayable record (#1251 r3). */
 function decisionIntentValue(request: ExecutionRequest, phase: "pre" | "post", decision: PolicyEvaluation): PlainValue {
   return {
     hook: `${request.kind}.${phase}`, op: request.op, generation: decision.generation,
     matchedRuleIds: [...decision.matchedRuleIds], verdict: decision.verdict, inputHash: decision.inputHash,
     transforms: decision.transforms.map((transform) => ({ ...transform })),
     ...(decision.ref === undefined ? {} : { ref: decision.ref }),
-    // The gate's replayable decision (#1251 r3): recorded handler
-    // responses, rewrite output, facts — re-admission replays this.
     ...(decision.gate === undefined ? {} : { gate: decision.gate }),
   };
 }
 
-/** Re-admits a recovered request against its persisted pre-decision; any mismatch is a stale approval. */
 function recoverAdmission(
   options: { readonly ledger: ExecutorOptions["ledger"]; readonly identity: ExecutorOptions["identity"]; readonly policy: CompiledPolicySnapshot },
   request: ExecutionRequest,
@@ -1662,24 +1566,18 @@ function recoverAdmission(
   if (recorded.inputHash !== inputHash || recorded.generation !== options.policy.generation ||
       recorded.hook !== `${request.kind}.pre` || recorded.op !== request.op)
     throw new ExecutionApprovalError({ code: "stale_approval" });
-  // Re-admission replays the committed gate decision (#1251 r3): the
-  // recorded responses are the evidence, so no handler ever re-runs. Byte
-  // admission exists ONLY for truly absent pre-contract evidence; a present
-  // record that no longer parses is a corrupt decision and refuses (r4).
   const value = gate === undefined ? intent.value : replayRecordedValue(options.policy, request, options.identity, parseGateEvidence(gate));
   return { generation: recorded.generation, verdict, transforms: recorded.transforms,
     value, ...(recorded.reason === null ? {} : { reason: recorded.reason }),
     receipt: { action, revision: action.ordinal } };
 }
 
-/** Present evidence must be a well-formed decision; a malformed record refuses instead of degrading to byte admission. */
 function parseGateEvidence(gate: PlainValue): GateDecision {
   const evidence = GateDecision.safeParse(gate);
   if (!evidence.success) throw new ExecutionApprovalError({ code: "stale_approval" });
   return evidence.data;
 }
 
-/** Replays the committed gate decision through the pinned snapshot; anything but a verbatim replay is a stale approval. */
 function replayRecordedValue(
   policy: CompiledPolicySnapshot,
   request: ExecutionRequest,
@@ -1695,8 +1593,6 @@ function replayRecordedValue(
 }
 
 function recordedVerdict(verdict: PlainValue | undefined): PolicyEvaluation["verdict"] {
-  // "consult" is row vocabulary, never an evaluation outcome: a consulted row
-  // records the folded allow/deny/require_approval, so it is excluded here.
   const parsed = RowVerdictType.exclude(["consult"]).safeParse(verdict);
   if (!parsed.success) throw new ExecutionApprovalError({ code: "stale_approval" });
   return parsed.data;
@@ -1706,7 +1602,6 @@ function assertFresh(request: ExecutionRequest, captured: ReturnType<SessionHand
       canonicalDigest({ ...request.domainRevisions() }) !== canonicalDigest(captured.domainRevisions))
     throw new ExecutionApprovalError({ code: "stale_approval" });
 }
-/** Body results cross the durable boundary as canonical JSON: non-finite numbers become null. */
 function clonePlainValue(value: PlainValue): PlainValue {
   return JSON.parse(JSON.stringify(value)) as PlainValue;
 }

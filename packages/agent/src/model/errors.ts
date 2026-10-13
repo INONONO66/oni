@@ -4,8 +4,7 @@ import { AgentFailure, renderBodyCause, thrownAsError } from "../core/failure";
 export { AgentFailure };
 import { Data } from "effect";
 
-// Field shapes are compile-time only (#1259 idx 90): plain types, no
-// module-load zod schemas — nothing here ever parses. A cause is a string verbatim or the Error itself.
+// Compile-time shapes only, no module-load zod schemas: nothing here parses.
 type Diagnostic = { readonly operation: string; readonly cause: string | Error };
 type MessageFields = { readonly message: string; readonly cause?: string | Error };
 type ProviderIdentity = {
@@ -31,7 +30,7 @@ type UsageFields = {
 };
 type RunFields = ProviderIdentity & {
   readonly message: string;
-  /** The SDK error when the attempt failed at the provider, else the typed failure's own cause or the failure itself. */
+  /** The SDK error when the provider failed, else the typed failure's cause or itself. */
   readonly cause?: APICallError | Error | string;
   readonly retryAfterMs?: number;
   readonly usage: UsageFields;
@@ -49,11 +48,11 @@ export class ModelResolutionError extends Data.TaggedError("ModelResolutionError
 export class AuthInvalidFileError extends Data.TaggedError("AuthInvalidFileError")<MessageFields & { readonly path: string }> {}
 export class AuthResolutionError extends Data.TaggedError("AuthResolutionError")<MessageFields & { readonly provider: string; readonly reason: "missing_auth" | "invalid_auth" }> {}
 export class ProxyModelsError extends Data.TaggedError("ProxyModelsError")<MessageFields & { readonly url: string; readonly status?: number }> {}
-/** A model-catalog source failed (#1312): cache read/parse, remote fetch/parse, or cache write. */
+/** Cache read/parse, remote fetch/parse, or cache write. */
 export class ModelCatalogError extends Data.TaggedError("ModelCatalogError")<
   MessageFields & { readonly source: "cache" | "remote" | "cache_write"; readonly path: string }
 > {
-  /** A catalog source throw as the typed refusal: the cause rides structured, the message is its rendered text. */
+  /** A catalog source throw as the typed refusal: structured cause, rendered-text message. */
   static fromThrown<E>(source: ModelCatalogError["source"], path: string, cause: E): ModelCatalogError {
     const error = thrownAsError(cause);
     return new ModelCatalogError({ source, path, cause: error, message: renderBodyCause(error) });

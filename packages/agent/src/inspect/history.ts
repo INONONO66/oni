@@ -489,7 +489,7 @@ function openToolPart(part: Message.Part): OpenToolPart | undefined {
   return state.status === "pending" || state.status === "running" ? { ...part, state } : undefined;
 }
 
-/** The settled state a result gives an open call: its error, or its output under the tool's title. */
+/** The settled state a result gives an open call: its error, or its output under the title. */
 function settledState(part: OpenToolPart, result: Tool.Result, at: number): Tool.State {
   const time = { start: at, end: at };
   return result.isError

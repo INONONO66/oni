@@ -1,27 +1,8 @@
 /**
- * `Session.fork` (#1257): fork a session at a verifiable chain boundary into
- * a new session file with its own hash chain. The child genesis is a
- * `session.configure{operation: "fork", forkedFrom}` row pinning the parent,
- * the boundary anchor, the anchor's parent ordinal and the parent chain head
- * at fork time — so later parent appends or compactions can never alter the
- * child's verification. Eligible pre-anchor parent rows are appended after
- * genesis in parent order, rehashed on the child chain.
- *
- * Exclusions (#1254 semantics): `alarm{arm}` rows and the `armed_alarms`
- * index are never copied, so the child re-registers zero alarms while the
- * parent keeps firing; copied `alarm{fired}` rows without an arm fold to a
- * `skip{unknown}` disposition. `fold.checkpoint` accelerator rows are
- * store-internal and carry parent ordinals, so they are excluded too.
- *
- * Deduplication rebuilds only after genesis: copied input rows (the rows
- * carrying an `deliveryKind` effect, whose ids are the deliver door's
- * idempotency keys) AND their delivery rows (`<deliveryId>:delivery`, the one
- * deterministic id consumption re-mints — core/commit.ts `deliveryActions`)
- * are renamed `fork:<parentSessionId>:<id>` — the embedded parent session id
- * marks a leaked key stale — with every `deliveryId`/`turnId` reference and
- * parent pointer remapped alongside, so a pre-fork `idempotencyKey` delivered
- * to the child is admitted fresh AND completes its turn: no copied row
- * occupies an id the child's own admission or consumption will need.
+ * The child genesis pins the parent, anchor, anchor parent ordinal and chain
+ * head so later parent appends never alter the child's verification. Arms,
+ * the armed index and checkpoint rows are never copied; copied input and
+ * delivery rows are renamed `fork:<parent>:<id>` so a pre-fork key is admitted fresh.
  */
 import { Data, Effect } from "effect";
 import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@openomni/protocol";
@@ -39,10 +20,8 @@ import type {
 import { SESSION_FILE_SCHEMA_VERSION } from "./store/session-file/index.js";
 
 /**
- * Default cap on copied journal bytes. A session generation overrides it by
- * pinning `session.configure{settings.forkCopyByteCap}` (#1257); the fork
- * path reads the cap off the parent generation it runs under, never a
- * caller-supplied constant.
+ * A generation overrides this by pinning `settings.forkCopyByteCap`; the fork reads the cap off the
+ * parent generation, never a caller constant.
  */
 export const DEFAULT_FORK_COPY_BYTE_CAP = 4 * 1024 * 1024;
 
@@ -55,7 +34,7 @@ export type ForkRefusalReason =
   | "byte_cap"
   | "child_exists";
 
-/** Typed fork refusal (#1257): every fork failure path lands here. */
+/** Every fork failure path lands here. */
 export class ForkRefused extends Data.TaggedError("ForkRefused")<{
   readonly sessionId: string;
   readonly reason: ForkRefusalReason;
@@ -67,26 +46,21 @@ export class ForkRefused extends Data.TaggedError("ForkRefused")<{
 }
 
 export interface ForkInput {
-  /** Parent session id. */
   readonly from: string;
-  /** Anchor: the parent `actionHash` of a `turn{terminal}`, `prompt` or `compaction` row. */
+  /** The parent `actionHash` of a `turn{terminal}`, `prompt` or `compaction` row. */
   readonly at: string;
-  /** Caller-minted child session id (injected entropy, #1245). */
+  /** Caller-minted (injected entropy). */
   readonly childId: string;
-  /** Caller-minted child genesis action id. */
   readonly genesisActionId: string;
-  /** Injected wall-clock timestamp of the fork. */
   readonly now: number;
 }
 
 export interface ForkPorts {
-  /** Read surface over the parent's committed chain. */
   readonly parent: SessionKernel;
-  /** The parent session file's schemaVersion, probed without modifying the file. */
+  /** Probed without modifying the file. */
   readonly parentSchemaVersion: number;
-  /** Opens the child session store; called only after every parent-side check passed. */
+  /** Called only after every parent-side check passed. */
   readonly openChild: () => SessionStore;
-  /** The catalog write unit the child's index lands in, enclosing the child write. */
   readonly catalog: SessionIndexUnit;
 }
 
@@ -94,7 +68,6 @@ export interface ForkReceipt {
   readonly childId: string;
   readonly parentId: string;
   readonly forkedFrom: SessionGeneration.ForkAncestry;
-  /** Child chain head hash after genesis plus every copied row. */
   readonly head: string;
   readonly row: LedgerSession.Row;
 }
@@ -103,7 +76,7 @@ function plainObject(value: PlainValue): Record<string, PlainValue> | undefined 
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 }
 
-/** Boundary rule: only `turn{terminal}`, `prompt` and `compaction` hashes anchor a fork. */
+/** Only `turn{terminal}`, `prompt` and `compaction` hashes anchor a fork. */
 export function isForkBoundary(action: LedgerAction.Node): boolean {
   if (action.kind === "prompt" || action.kind === "compaction") return true;
   return action.kind === "turn" && plainObject(action.effect.value)?.phase === "terminal";
@@ -115,11 +88,7 @@ function isInputRow(action: LedgerAction.Node): boolean {
   return typeof plainObject(action.effect.value)?.deliveryKind === "string";
 }
 
-/**
- * Delivery rows: consumption deterministically re-mints `<deliveryId>:delivery`
- * (core/commit.ts `deliveryActions`) for a re-admitted key, so a copied one
- * must never keep that id slot on the child chain.
- */
+/** Consumption re-mints `<deliveryId>:delivery` on re-admission; a copy must not keep it. */
 function isDeliveryRow(action: LedgerAction.Node): boolean {
   if (action.kind !== "prompt" && action.kind !== "signal" && action.kind !== "action") return false;
   return plainObject(action.effect.value)?.phase === "delivery";
@@ -129,11 +98,7 @@ function isArmRow(action: LedgerAction.Node): boolean {
   return action.kind === "alarm" && plainObject(action.intent.value)?.op === "arm";
 }
 
-/**
- * Stored-output references inside one copied row (#1305): a projected tool
- * row carries `{outputId, bytes, preview}` refs in its effect payload; the
- * fork must copy those bytes so the child's `tool_output` reads resolve.
- */
+/** A projected tool row carries stored-output refs; the fork copies those bytes for the child. */
 function collectOutputIds(value: PlainValue, into: Set<string>): void {
   if (value === null || typeof value !== "object") return;
   if (Array.isArray(value)) {
@@ -202,21 +167,18 @@ function readParentPrefix(
 }
 
 /**
- * Forks `input.from` at the boundary `input.at` into the child session
- * `input.childId`. Parent-side checks run first; the child file is opened and
- * written only after they pass, in one atomic transaction; the catalog
- * `session_index.parent_id` row is written last (its separate connection
- * cannot transact with the session file).
+ * Parent-side checks first; the child is written in one transaction; the catalog `parent_id` row
+ * lands last because its connection cannot join the file transaction.
  */
 interface ForkPlan {
   readonly parentRow: ReturnType<SessionKernel["row"]>;
   readonly copies: readonly LedgerAction.Append[];
-  /** #1305: stored outputs the copied rows reference, re-stored on the child. */
+  /** Stored outputs the copied rows reference, re-stored on the child. */
   readonly outputs: readonly ToolOutputWrite[];
   readonly forkedFrom: SessionGeneration.ForkAncestry;
 }
 
-/** Parent-side fork checks and copy planning; refuses before any child write. */
+/** Refuses before any child write. */
 function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
   const refuse = (reason: ForkRefusalReason, detail: string) =>
     new ForkRefused({ sessionId: input.from, reason, detail });
@@ -243,11 +205,10 @@ function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
       `anchor ${anchor.id} is a mid-turn ${anchor.kind} row, not a turn{terminal}, prompt or compaction boundary`,
     );
   const eligible = prefix.filter((node) => node.kind !== "fold.checkpoint" && !isArmRow(node));
-  // Generation-configured cap (#1257): folded off the parent's latest
-  // `session.configure{settings}` row, exactly like the consumption widths.
+  // Folded off the parent's latest `session.configure{settings}` row, like the consumption widths.
   const cap = consumptionSettings(ports.parent, input.from).forkCopyByteCap ?? DEFAULT_FORK_COPY_BYTE_CAP;
-  // #1305: stored outputs referenced by copied rows travel with the fork and
-  // count against the same byte cap — projection must not smuggle bytes past it.
+  // Stored outputs travel with the fork and count against the same byte cap —
+  // projection must not smuggle bytes past it.
   const outputIds = new Set<string>();
   for (const node of eligible) collectOutputIds(node.effect.value, outputIds);
   const outputs: ToolOutputWrite[] = [];

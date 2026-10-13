@@ -8,30 +8,9 @@ interface ReductionResult {
 }
 
 /**
- * Deterministic, no-LLM reduction: rewrite the completed tool outputs of
- * messages older than the protected tail to a sized elision marker plus a
- * head excerpt. The model projection resends `state.output` verbatim on
- * every call, so old bulky outputs dominate the window long after anything
- * reads them again. Errored outputs are out of scope: they project as
- * `Error: <message>`, already short in the cases that matter.
- *
- * The marker carries the part's `callID`, so elision is a pointer, not a
- * dead end (compaction-design L1): the original output stays recorded in
- * the session's append-only transcript facts, which compaction never
- * rewrites — `run.replace_messages` touches only the in-run history. A
- * product-side tool resolves the id back to the recorded output; the id in
- * the marker is a fact about the elided part, not a tool name, so the core
- * stays free of domain strings.
- *
- * Termination is structural, not configurational: an output is elided only
- * when its replacement is strictly shorter, so every pass shrinks what it
- * touches and a fixed point exists for every config — including ones where
- * marker + head would not fit under `minOutputChars` (those outputs are
- * simply left alone, and adversarial review showed the alternative: marker
- * stacking that reports negative yield as positive, forever). `elidedChars`
- * is the net shrink, not the original length. Part identities are
- * preserved: this rewrites a field of the same part, it does not mint new
- * parts.
+ * Old completed tool outputs become a sized elision marker plus a head
+ * excerpt carrying the part's `callID`. Termination is structural: an output
+ * is elided only when its replacement is strictly shorter, so a fixed point exists.
  */
 export function elideToolOutputs(
   messages: readonly Message.WithParts[],
@@ -43,9 +22,8 @@ export function elideToolOutputs(
 
   const reduced = messages.map((message, index) => {
     if (index >= cutoff) return message;
-    // User-role messages are never rewritten, tool parts included: the
-    // verbatim-preservation invariant (compaction-design principle 2) is a
-    // property of the whole message, not just its text parts.
+    // User-role messages are never rewritten, tool parts included: verbatim
+    // preservation is a property of the whole message.
     if (message.info.role === "user") return message;
     let touched = false;
     const parts = message.parts.map((part) => {

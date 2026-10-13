@@ -14,11 +14,8 @@ import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type Hydr
 type RecoveryError = SessionError;
 
 /**
- * Turn recovery and context restoration (#1310): the admission module owns
- * entering a turn; this module owns re-entering one (open-turn recovery,
- * interrupted-turn resume) and rebuilding model context from a recorded
- * compaction row. Restoration reaches the compaction plugin only through the
- * composed `runtime.compaction` seam (#1307) — absent seam, typed refusal.
+ * Admission owns entering a turn; this module owns re-entering one and rebuilding context from a
+ * recorded compaction row through the composed seam only.
  */
 export function createSessionRecovery(
   kernel: SessionKernel,
@@ -43,8 +40,7 @@ export function createSessionRecovery(
       yield* awaitRetainedRunner();
       const current = kernel.row(sessionId);
       return yield* Effect.scoped(Effect.gen(function* () {
-        // #1307: restore is a compaction-owned projection — without the
-        // composed seam the restore refuses typed instead of improvising.
+        // Restore is a compaction-owned projection: without the seam it refuses typed.
         const seam = runtime.compaction;
         if (seam === undefined) return yield* new AgentFailure({ operation: "session.restore", cause: "compaction_seam_missing" });
         const plan = yield* seam.prepareRestore({

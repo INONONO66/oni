@@ -4,8 +4,7 @@ import type { ActionSqlRow } from "./storage/sqlite-l0-rows.js";
 
 export const GENESIS_PREV_HASH = "openomni:l0:genesis:v1";
 
-/** Canonical l0 chain hash over the committed action row (leaf module so the
- * session-file kernel and the SQLite write plane share it without a cycle). */
+/** Leaf module so the session-file kernel and the SQLite write plane share it without a cycle. */
 export function computeActionHash(input: Omit<ActionSqlRow, "action_hash">): string {
   return createHash("sha256")
     .update(
@@ -27,11 +26,7 @@ export function computeActionHash(input: Omit<ActionSqlRow, "action_hash">): str
     .digest("hex");
 }
 
-/**
- * The exact SQL row `appendAction` commits for one action at a chain position
- * (#1313): the single serialization both the writer and the replayed-key
- * comparison hash, so "same payload" is byte-equality of the committed row.
- */
+/** The one serialization writer and replay compare: "same payload" = byte-equal row. */
 export function storedActionRow(
   action: LedgerAction.Append,
   prevHash: string,

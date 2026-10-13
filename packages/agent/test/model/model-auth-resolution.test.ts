@@ -87,7 +87,7 @@ describe("canonical model and provider-bound credentials", () => {
       throw new Error("expected model resolution failure");
     }
     expect(failure.reason).toBe("proxy_listing_failed");
-    // #1344: the nested listing failure stays structured on the cause chain.
+    // The nested listing failure stays structured on the cause chain.
     expect(failure.cause).toMatchObject({
       _tag: "ProxyModelsError",
       message: expect.stringContaining("connection refused"),

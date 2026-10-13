@@ -47,11 +47,7 @@ export function effectiveBudgetThresholds(budget?: Actor.Profile.BudgetThreshold
 
 type BudgetStatus = "ok" | "reassurance" | "warning" | "exceeded";
 
-/**
- * The one budget resolution (#1309): the run's explicit budget wins per field;
- * anything it leaves unset reads from the injected approval policy's
- * `defaultBudget`. The core keeps no ceiling literal of its own.
- */
+/** Explicit budget wins per field; unset fields read the policy's `defaultBudget`, no literal. */
 export function resolveAgentBudget(
   defaults: ResolvedAgentBudget,
   explicit?: AgentBudget,
@@ -74,25 +70,17 @@ interface BudgetEvaluation {
   readonly exceededLimit?: ExceededLimit;
 }
 
-/**
- * The tool-call pool the budget actually enforces (-1 = unlimited). Exported
- * because the turn's step cap subtracts from this exact pool — a cap computed
- * against any other number starves or overshoots the real enforcement.
- */
+/** Exported because the turn's step cap subtracts from this exact pool (-1 = unlimited). */
 export function effectiveMaxToolCalls(budget: ResolvedAgentBudget): number {
   return budget.maxToolCalls;
 }
 
-/** The tool wall-time ceiling the budget enforces (-1 = unlimited); shared with the wave-level enforcement in tool-wave.ts. */
+/** -1 = unlimited; shared with the wave-level enforcement. */
 function effectiveMaxToolRuntimeMs(budget: ResolvedAgentBudget): number {
   return budget.maxToolRuntimeMs;
 }
 
-/**
- * Sole evaluator of the 4-state budget verdict and the facts telemetry
- * needs (reads the clock, mutates nothing, emits nothing) — see
- * {@link publishBudgetTelemetry}, the single production consumer.
- */
+/** Reads the clock, mutates nothing, emits nothing. */
 export function evaluateBudget(state: BudgetState, now: () => number, budget: ResolvedAgentBudget): BudgetEvaluation {
   const { warningThreshold: warningRatio, reassuranceThreshold: reassuranceRatio } =
     effectiveBudgetThresholds(budget);
@@ -120,14 +108,9 @@ export function evaluateBudget(state: BudgetState, now: () => number, budget: Re
   return { status: "ok", elapsedMs, maxRatio };
 }
 
-/**
- * Command: emit the budget observability telemetry once and return the status
- * for the caller to act on. Invoked from the per-turn lifecycle check so the
- * event fires exactly once per turn, never once per policy that reads it.
- */
+/** Invoked from the per-turn lifecycle check so the event fires once per turn, not per policy. */
 export function publishBudgetTelemetry(
   state: BudgetState,
-  /** The run being reported on. Structural: this needs a trace and a session. */
   run: { readonly traceId: string; readonly sessionId: string },
   events: BusEvent.Sink,
   now: () => number,

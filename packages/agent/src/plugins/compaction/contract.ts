@@ -1,9 +1,8 @@
 import type { Message } from "@openomni/protocol";
 import type { CompactionRecord } from "./durable";
 
-// #1307: the option/budget shapes are seam types the kernel reads from
-// `core/compaction-ports`; this module keeps its old names as re-exports so
-// the mechanism files stay put.
+// The option/budget shapes are seam types in `core/compaction-ports`; the
+// old names stay as re-exports so the mechanism files stay put.
 export type {
   CompactionOptions,
   ResolvedCompactionOptions,

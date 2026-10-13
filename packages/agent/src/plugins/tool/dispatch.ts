@@ -1,10 +1,6 @@
 /**
- * The tool dispatcher (#1316): moved verbatim from `core/tool.ts` so the
- * `plugins/tool` band owns dispatcher construction. The core keeps the
- * `Dispatcher` contract, tool definition, body execution and the three tool
- * projections; this file owns how calls are prepared, admitted through the
- * executor and finished into model/cell results, plus the per-turn
- * executor+dispatcher composition (`createTurnDispatcher`).
+ * The core keeps the `Dispatcher` contract, tool definition, body execution and projections; this
+ * band owns how calls are prepared, admitted and finished, plus the per-turn composition.
  */
 import { Effect } from "effect";
 import { z } from "zod";
@@ -29,7 +25,7 @@ import {
 
 const NEVER_ABORTED = new AbortController().signal;
 
-/** D5 bound: typed data rides structuredContent only when it fits the protocol JSON bound. */
+/** Typed data rides structuredContent only when it fits the protocol JSON bound. */
 const BoundedResultJson = toolResultJsonSchema();
 
 function invalidInputReason(error: z.ZodError): string {
@@ -42,7 +38,7 @@ function invalidInputReason(error: z.ZodError): string {
       : `${path}: ${issue.message}`;
 }
 
-/** Non-executed terminals map to a failed result; a cell-door refusal throws. */
+/** A cell-door refusal throws. */
 function finishResult(
   call: Tool.Call,
   definition: AnyToolDefinition,
@@ -85,7 +81,7 @@ function finishResult(
     return failed(call, `${definition.name} produced invalid output`, "invalid_output");
   }
   if (door === "cell") {
-    // The cell door stays render-free: typed data only.
+    // The cell door stays render-free.
     return {
       toolCallId: call.id,
       id: call.id,
@@ -93,11 +89,9 @@ function finishResult(
       structuredContent: output.data,
     } satisfies CellToolDispatchResult;
   }
-  // Typed data rides structuredContent only when it fits the protocol bound;
   // content stays the authoritative model text either way.
   const structured = BoundedResultJson.safeParse(output.data);
-  // #1305: over-budget renders are stored once and projected — the model
-  // reads a bounded preview plus the identifier, never a destructive cut.
+  // Over-budget renders are stored once and projected, never destructively cut.
   const rendered = definition.render(inputData, output.data);
   const projected = toolOutput === undefined ? { content: rendered } : projectToolOutput(rendered, toolOutput);
   return {
@@ -139,13 +133,9 @@ export function createDispatcher(
 
 function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options?: DispatcherOptions, invocation?: () => InvocationFrame): Dispatcher {
   /**
-   * The cell door builds its dispatcher at tool-definition time, well ahead of every
-   * execution context exists, so the ambient executor is resolved per dispatch:
-   * an explicitly injected executor wins, otherwise the enclosing execution's
-   * executor is inherited (nested cell tools), otherwise the dispatch fails
-   * closed. Resolving once at construction would permanently capture
-   * `undefined`; a definition-keyed cache would leak a stale executor from an
-   * unrelated prior session into a context-less cell dispatch.
+   * Resolved per dispatch: resolving once at construction would capture `undefined` (the cell door
+   * builds before any execution context exists) and a definition-keyed cache would leak a stale
+   * executor from an unrelated session.
    */
   const resolveExecutor = (): Executor | undefined =>
     options?.executor ?? activeInvocation.getStore()?.executor;
@@ -350,12 +340,7 @@ function buildDispatcher(definitions: readonly ToolDispatchDefinition[], options
   };
 }
 
-/**
- * The per-turn identity and lease under which a dispatcher's tools commit.
- * Mirrors the fields both the resident and child runners already pin on their
- * {@link SessionRunnerInput}, so composing the executor+dispatcher has one owner
- * instead of being copied per role.
- */
+/** Mirrors the fields both runners pin on `SessionRunnerInput`; the composition has one owner. */
 interface TurnDispatchInput {
   readonly signal?: AbortSignal;
   readonly sessionId: string;
@@ -423,21 +408,16 @@ function recoverableWaves(actions: readonly LedgerAction.Node[], turnId: string 
   return groups;
 }
 
-/** The runtime clock/entropy/observation sink shared across a session's turns. */
 interface TurnDispatchRuntime {
   readonly closeGraceMs?: ExecutorOptions["closeGraceMs"];
   readonly retryAlarm?: ExecutorOptions["retryAlarm"];
   readonly approvalTimeoutMs?: ExecutorOptions["approvalTimeoutMs"];
-  /** The composed approval policy (#1309); required, the executor keeps no fallback. */
+  /** Required: the executor keeps no fallback. */
   readonly approvalPolicy: ExecutorOptions["approvalPolicy"];
   readonly authorizeApproval?: ExecutorOptions["authorizeApproval"];
 }
 
-/**
- * Compose the per-turn executor and dispatcher for a prepared runner turn. Both
- * the resident and child runners build this identically; keeping it here makes
- * "how a turn's tools commit durably" a single owner.
- */
+/** Both runners build this identically, so "how a turn's tools commit" has a single owner. */
 export function createTurnDispatcher(
   input: TurnDispatchInput,
   runtime: TurnDispatchRuntime,
@@ -479,8 +459,8 @@ export function createTurnDispatcher(
     pinnedNames === undefined
       ? definitions
       : definitions.filter((definition) => pinnedNames.has(definition.name));
-  // #1305: the per-turn dispatcher projects over-budget renders through the
-  // ledger-backed output store under the generation's resolved budget.
+  // Over-budget renders project through the ledger-backed output store under
+  // the generation's resolved budget.
   const putToolOutput = input.ledger.putToolOutput;
   const toolOutput: ToolOutputPorts | undefined = putToolOutput === undefined ? undefined : {
     budgetBytes: input.ledger.toolOutputBudgetBytes?.() ?? DEFAULT_TOOL_OUTPUT_BUDGET_BYTES,
@@ -512,7 +492,6 @@ export function createTurnDispatcher(
   });
 }
 
-
 function executionContext(call: Tool.Call, context: DispatchContext): ToolExecutionContext {
   return {
     sessionId: context.sessionId,
@@ -539,4 +518,3 @@ function failed(call: Tool.Call, content: string, errorKind: ToolErrorKind): Too
     details: { errorKind },
   };
 }
-

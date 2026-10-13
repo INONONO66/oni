@@ -22,7 +22,7 @@ import {
 } from "../src/core/api";
 import { runAgent } from "./helpers/executor";
 
-// #1254 S1: one chain guard replaces the four per-purpose delivery guards
+// One chain guard replaces the four per-purpose delivery guards
 // (retry/deadline/watch). A delivered occurrence is fresh iff the
 // latest arm row still names it, the arm is not retired, and no accepted
 // firing settled it; everything else folds to a recorded skip.
@@ -179,7 +179,7 @@ describe("composeAlarmPurposes registry", () => {
   });
 });
 
-// #1254 S1 seam pin over core/api.ts (the plugin import surface): these names
+// Seam pin over core/api.ts (the plugin import surface): these names
 // are frozen at S1 — later steps add, never rename. A capability's wake
 // settles the accepted outcome through the core's firedAction — it returns
 // the outcome, never an alarm literal.

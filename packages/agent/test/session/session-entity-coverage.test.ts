@@ -46,7 +46,7 @@ test("an unindexed session file self-heals before mailbox admission", async () =
         content: "consume while idle",
         control: "interrupt",
       });
-      // #1253: a cancel against a missing request is a typed `unknown_request`
+      // A cancel against a missing request is a typed `unknown_request`
       // rejection with zero new facts, not a folded "rejected" resolution.
       const cancellation = yield* sendResolve(sessionId, {
         requestId: "missing-request",

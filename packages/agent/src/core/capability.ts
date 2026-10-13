@@ -12,36 +12,22 @@ import type { SessionError } from "./failure";
 import type { BundleLayerServices } from "./ports";
 
 /**
- * The three #1255 declaration contracts: `Capability.define` (removable
- * built-in plugins: alarm, action, hook, compaction, tool), `Bundle.define`
- * (product compositions) and `Manifest.define` (the list of what is on).
- * Only capabilities declare journal kinds, points and loop steps; bundles
- * consume capability verbs through seams and never declare kinds — compose
- * (#1255 S2) rejects `product_declares_kind`. Declarations are plain frozen
- * data; `compose(manifest)` turns them into one journaled generation.
+ * Only capabilities declare journal kinds, points and loop steps; bundles consume capability verbs
+ * through seams and never declare kinds.
  */
 
 /**
- * A seam identity: what a capability publishes and a declaration's `requires`
- * resolves against at compose. A seam is a KEY, deliberately not a
- * `Context.Service`: no composed context provides or reads one today, and the
- * boundary gate refuses an unread service tag (R9). Promotion to a live
- * service is additive — an Effect `Context.Service` class carries the same
- * `key` field, so one may stand where a `SeamTag` is expected.
+ * A seam is a KEY, deliberately not a `Context.Service`: nothing reads one today and the boundary
+ * gate refuses an unread tag. A service class carrying `key` may stand in.
  */
 export interface SeamTag {
   readonly key: string;
 }
 
-/** `@openomni/<owner>/<Name>` — the key law the boundary gate holds Context tags to (R4). */
+/** `@openomni/<owner>/<Name>` — the key law the boundary gate holds Context tags to. */
 const SEAM_KEY = /^@openomni\/[a-z][a-z0-9-]*\/[A-Za-z][\w/-]*$/;
 
-/**
- * Typed define-time refusal: `namespace` (a malformed name — the former
- * `BundleError{code: namespace}` moved here), `capability_declares_tools`
- * (model tools are bundle-owned) and `duplicate` (a repeated declaration
- * inside one contract).
- */
+/** `capability_declares_tools`: model tools are bundle-owned. */
 export class DefineRefused extends Schema.TaggedError<DefineRefused>(
   "@openomni/agent/core/DefineRefused",
 )("DefineRefused", {
@@ -50,7 +36,6 @@ export class DefineRefused extends Schema.TaggedError<DefineRefused>(
   detail: Schema.String,
 }) {}
 
-/** Typed failure a capability's `onInput`/`onWake`/`step` hook reports. */
 export class CapabilityHookError extends Schema.TaggedError<CapabilityHookError>(
   "@openomni/agent/core/CapabilityHookError",
 )("CapabilityHookError", {
@@ -59,10 +44,8 @@ export class CapabilityHookError extends Schema.TaggedError<CapabilityHookError>
 }) {}
 
 /**
- * One journal kind a capability owns: its body schema, payload version and
- * fold reducer. The kind set stays closed (#1252); a capability's kind is
- * only registered while its owner is composed — rows of an off capability
- * stay opaque in the fold and reject as `deliver` input with `unknown_kind`.
+ * A kind is registered only while its owner is composed: rows of an off capability stay opaque in
+ * the fold and reject as `deliver` input.
  */
 export interface CapabilityKindDeclaration {
   readonly schema: z.ZodType;
@@ -70,26 +53,19 @@ export interface CapabilityKindDeclaration {
   readonly reduce: (state: PlainValue, row: PlainValue) => PlainValue;
 }
 
-/**
- * The core context handed to a loaded capability's hooks (#1255). Frozen at
- * S1: later steps add fields, never rename.
- */
 export interface CapabilityCore {
-  /** The session the hook runs for. */
   readonly sessionId: string;
-  /** Epoch-ms clock injected by the composition root. */
+  /** Injected by the composition root. */
   readonly now: () => number;
 }
 
-/** The committed input row view a capability's `onInput` receives. */
 export interface CapabilityInputRow {
   readonly kind: string;
   readonly seq: number;
-  /** Canonical JSON of the committed row body. */
   readonly body: string;
 }
 
-/** The loop steps a capability may own; today only the tool step exists. */
+/** Today only the tool step exists. */
 export interface CapabilityStep {
   readonly tool?: (
     core: CapabilityCore,
@@ -117,21 +93,16 @@ export interface CapabilityInput<
   Handler = object,
 > extends CapabilityHooks {
   readonly name: Name;
-  /** Other capabilities' seam NAMES — resolution is by name, never by import. */
+  /** Resolution is by NAME, never by import. */
   readonly requires: readonly string[];
   readonly kinds?: Readonly<Record<string, CapabilityKindDeclaration>>;
-  /** Journal kinds `deliver` may accept as input (action capability only). */
   readonly inputs?: readonly string[];
   readonly points?: readonly PointId[];
-  /** Alarm purposes this capability registers (the alarm capability owns the registry). */
   readonly purposes?: Readonly<Record<string, Purpose>>;
-  /** `how.ref` targets this capability registers. */
   readonly handlers?: Readonly<Record<string, Handler>>;
-  /** The seam services other declarations consume via `requires`. */
   readonly verbs: Verbs;
-  /** The Context tag others receive when they require this capability. */
   readonly seam: Seam;
-  /** Model tools are bundle-owned; a capability declaring them refuses at define time. */
+  /** Model tools are bundle-owned; declaring them refuses at define time. */
   readonly tools?: never;
 }
 
@@ -176,7 +147,7 @@ function checkSeam(tag: SeamTag, name: string): void {
   if (!SEAM_KEY.test(tag.key)) refuse("namespace", name, tag.key);
 }
 
-/** `Bundle.seam(key)` — the one seam constructor; a key outside the `@openomni/<owner>/` law refuses `namespace`. */
+/** A key outside the `@openomni/<owner>/` law refuses `namespace`. */
 export function seam(key: string): SeamTag {
   checkSeam({ key }, key);
   return Object.freeze({ key });
@@ -215,35 +186,29 @@ function defineCapability<
   });
 }
 
-/** `Capability.define` — the one way a removable built-in declares what it owns. */
 export const Capability = Object.freeze({ define: defineCapability });
 
 /**
- * A bundle's acquisition Layer (#1255 P3): acquired inside the generation's
- * Scope over the seed services, failing only with the typed session errors
- * the generation's `configure`/`capture` unwind on — anything else is a defect.
+ * Acquired inside the generation's Scope; fails only with the typed session errors the generation
+ * unwinds on — anything else is a defect.
  */
 type BundleLayer = Layer.Layer<never, SessionError, BundleLayerServices>;
 
-/** One bundle tool face; `idempotent` survives into the generation tool table. */
 export type BundleTool = AnyToolDefinition & { readonly idempotent?: boolean };
 
-/** One gate row a bundle contributes (#1251 row contract; generation assigned at compose). */
+/** Generation assigned at compose. */
 export type BundleGateRow = Omit<GateRow, "generation">;
 
 export interface BundleContractInput<Name extends string, Handler, Purpose> {
   readonly name: Name;
-  /** Capability seam tags or other bundles' provides tags. */
   readonly requires: readonly SeamTag[];
-  /** Services published for later bundles. */
   readonly provides?: readonly SeamTag[];
-  /** Implementation of `provides`. */
   readonly layer?: BundleLayer;
   readonly tools?: readonly BundleTool[];
   readonly rows?: readonly BundleGateRow[];
-  /** `how.ref` targets (requires the action capability). */
+  /** Requires the action capability. */
   readonly handlers?: Readonly<Record<string, Handler>>;
-  /** Alarm purposes (requires the alarm capability). */
+  /** Requires the alarm capability. */
   readonly purposes?: Readonly<Record<string, Purpose>>;
   /** Kinds, points and loop steps are capability-owned (`product_declares_kind`). */
   readonly kinds?: never;
@@ -267,7 +232,6 @@ export interface BundleContract<
   readonly purposes: Readonly<Record<string, Purpose>>;
 }
 
-/** `Bundle.define` — the product-side contract; never kinds, points or steps. */
 export function defineBundle<const Name extends string, Handler = object, Purpose = object>(
   input: BundleContractInput<Name, Handler, Purpose>,
 ): BundleContract<Name, Handler, Purpose> {
@@ -293,11 +257,10 @@ export function defineBundle<const Name extends string, Handler = object, Purpos
 export interface ManifestInput {
   readonly capabilities: readonly CapabilityDefinition[];
   readonly bundles: readonly BundleContract[];
-  /** Capability or bundle names turned off; compose cascades transitively. */
+  /** Compose cascades transitively. */
   readonly off?: readonly string[];
 }
 
-/** The single product list of what is on — plain data consumed by compose. */
 export interface ManifestDefinition {
   readonly capabilities: readonly CapabilityDefinition[];
   readonly bundles: readonly BundleContract[];
@@ -320,5 +283,5 @@ function defineManifest(input: ManifestInput): ManifestDefinition {
   });
 }
 
-/** `Manifest.define` — plain data; boot is config → manifest → compose → runtime. */
+/** Boot is config → manifest → compose → runtime. */
 export const Manifest = Object.freeze({ define: defineManifest });

@@ -2,31 +2,17 @@ import { z } from "zod";
 import { BusEvent, Token } from "@openomni/protocol";
 import { RetryReason } from "./retry";
 
-// ─── from core/execution/events.ts (#1247) ───
 const AgentBase = z.object({
   traceId: z.string(),
   sessionId: z.string(),
   agentId: z.string().optional(),
   runId: z.string().optional(),
-  /**
-   * The run's audit attribution (run.ts `agentBase.actorId` — today actor ≡
-   * runId until a validated principal lane exists, #606). Every publisher
-   * emits it; optional only so rows recorded before the field existed still
-   * parse (upcast-on-read, same precedent as `CompactionCompleted.anchored`).
-   */
+  /** Optional only so rows recorded before the field existed still parse (upcast-on-read). */
   actorId: z.string().optional(),
   time: z.number(),
 });
 
-/**
- * #499 observation descriptors — loop-run events published via Bus.
- *
- * #500 C1: moved here from protocol's `Run.Events` — every publisher lives in
- * this package (run-events.ts, compaction/compact.ts), so the descriptors
- * live with them (precedent: openomni messaging defines its own descriptors).
- * The persisted event names stay the historical `agent.*` strings (frozen —
- * ledger rows and downstream category derivation key on them byte-for-byte).
- */
+/** Persisted names stay the historical `agent.*` strings: ledger rows key on them byte-for-byte. */
 export const RunEvents = {
   TurnStart: BusEvent.define(
     "agent.turn.start",
@@ -44,22 +30,15 @@ export const RunEvents = {
     { visibility: "llm_reason" },
   ),
   /**
-   * The compaction lock bracket. `started` is published before any
-   * compaction work; `completed` is the operation's last record on every
-   * exit path, a summarizer throw included (`outcome: "failed"`). A started
-   * row without a completed row therefore diagnoses a run that died inside
-   * compaction — previously indistinguishable from an unexplained
-   * fail-closed deny.
+   * `completed` is the last record on every exit path (a summarizer throw included), so a started
+   * row without one diagnoses a run that died inside compaction.
    */
   CompactionStarted: BusEvent.define(
     "agent.compaction.started",
     AgentBase.extend({
       messagesBefore: z.number(),
-      /** Provider-measured context of the last call; absent when unmeasured. */
       contextTokens: z.number().optional(),
-      /** What fired the seam: the threshold gate or the loop's window yield. */
       trigger: z.enum(["threshold", "yield"]),
-      /** Whether a summarizer is configured — the crash-risk half. */
       summarizer: z.boolean(),
     }),
     { visibility: "internal" },
@@ -73,14 +52,10 @@ export const RunEvents = {
       removedCount: z.number(),
       elidedChars: z.number(),
       /**
-       * Cut outcomes only: whether an anchor render heads the kept window.
-       * An unanchored cut drops assistant/tool context with no checkpoint —
-       * legal (preserved users still head the window) but a different loss
-       * class than an anchored cut, so it must not masquerade as one.
-       * Upcast-on-read: absent on rows recorded before the field existed.
+       * An unanchored cut is a different loss class than an anchored one and must not masquerade as
+       * it; absent on rows recorded before the field existed.
        */
       anchored: z.boolean().optional(),
-      /** Estimated structural yield used by the next adaptive threshold. */
       savedTokens: z.number().optional(),
       tokensBefore: z.number().optional(),
       ineffective: z.boolean().optional(),
@@ -94,9 +69,7 @@ export const RunEvents = {
       attempt: z.number(),
       maxAttempts: z.number(),
       error: z.string(),
-      /** Why the error was judged retryable — see the canonical LLM decision. */
       reason: RetryReason,
-      /** How long the run waits before the next attempt. */
       backoffMs: z.number(),
     }),
     { visibility: "llm_reason" },

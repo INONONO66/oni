@@ -1,10 +1,8 @@
 /**
- * #1253 — the four-entity-RPC surface replaces the nine old RPCs. Each
- * scenario below exercises one replaced path through `deliver`, `resolve` or
- * `alarm` against the REAL Session entity on a single-node cluster host, and
- * asserts exact chain states: appended row ids, typed rejection codes with
- * zero new facts, and stale alarm occurrences recorded as
- * `alarm{fired, outcome: stale}` facts that never wake the loop.
+ * The four-entity-RPC surface replaces the nine old RPCs. Each scenario exercises one replaced path through
+ * `deliver`, `resolve` or `alarm` against the REAL Session entity on a single-node cluster host, and asserts
+ * exact chain states: appended row ids, typed rejection codes with zero new facts, and stale alarm occurrences
+ * recorded as `alarm{fired, outcome: stale}` facts that never wake the loop.
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
@@ -239,7 +237,7 @@ test("alarm(deadline) replaces Deadline: open request applies, unknown request f
     options,
     Effect.gen(function* () {
       const open = yield* sendAlarm(sessionId, {
-        // #1254 S4: the open decision armed the deadline chain; the live
+        // The open decision armed the deadline chain; the live
         // occurrence is the one that arm minted.
         occurrenceId: Alarm.occurrenceId(sessionId, "req-deadline:deadline", 1, "deadline"),
         purpose: "deadline",
@@ -267,7 +265,7 @@ test("alarm(deadline) replaces Deadline: open request applies, unknown request f
 });
 
 test("alarm(watch.*) purposes are capability-dispatched: unbound occurrences fold stale, idempotently", async () => {
-  // #1254 S4: the interim watch timer folds are deleted — watch purposes are
+  // The interim watch timer folds are deleted — watch purposes are
   // plugin capability purposes (the alarm-plane merge binds them). With no
   // capability bound, a watch occurrence folds to a recorded stale fact.
   const sessionId = "surface-watch";

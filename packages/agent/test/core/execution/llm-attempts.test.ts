@@ -12,7 +12,6 @@ import { runChatAttempts } from "../../helpers/effect-g1";
 import { compiledPolicy } from "../../helpers/compiled-policy";
 import { LedgerAction, type PlainObject, type PlainValue, type SessionTransition } from "@openomni/protocol";
 
-
 const usage = {
   inputTokens: 17,
   outputTokens: 2,
@@ -61,7 +60,7 @@ function attemptResults(actions: readonly LedgerAction.Append[], terminal: strin
 }
 
 /**
- * #1252: logical llm actions and physical attempts share the `llm` kind; an
+ * Logical llm actions and physical attempts share the `llm` kind; an
  * attempt intent is the row that pins its attempt ordinal in the intent.
  */
 function intents(actions: readonly LedgerAction.Append[], which: "logical" | "attempt") {
@@ -343,7 +342,7 @@ test("the default retry port commits the retry.scheduled alarm before the wait a
   const actions = sessionTree(isolatedLedger().kernel, recording.identity.sessionId);
   const attemptIntents = intents(actions, "attempt");
   expect(attemptIntents).toHaveLength(2);
-  // #1254 S4: the chain-backed retry port arms `<attemptId>:retry` (arm:1)
+  // The chain-backed retry port arms `<attemptId>:retry` (arm:1)
   // before the wait; the settled attempt retires the chain (arm:2, at: null).
   const alarmId = `${attemptIntents[0]?.id}:retry`;
   const armed = LedgerAction.Node.parse(actions.find((action: LedgerAction.Node) => action.id === `${alarmId}:arm:1`));

@@ -54,7 +54,7 @@ describe("model barrel public surface", () => {
     const publicKeys = Object.keys(root).sort();
 
     // Then: only package-level namespaces and entry points are exposed.
-    // #500 C1: `Run` (Outcome vocabulary) moved here from protocol; `Sink` is type-only.
+    // `Run` (Outcome vocabulary) moved here from protocol; `Sink` is type-only.
     expect(publicKeys).toEqual([
       "APIError",
       "AgentFailure",
@@ -93,10 +93,9 @@ describe("model barrel public surface", () => {
       "Processor",
       "Tool",
       "toModelMessages",
-      // Unexported by the #audit dead-surface pass: no production consumer
+      // Unexported by the dead-surface audit: no production consumer
       // imported these from the root barrel (internals still use them —
-      // e.g. the stream fold reaches TokenTracker by deep import, per the
-      // #606 re-audit).
+      // e.g. the stream fold reaches TokenTracker by deep import).
       "NamedError",
       "TokenTracker",
     ] as const;

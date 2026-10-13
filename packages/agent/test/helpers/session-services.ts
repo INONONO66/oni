@@ -16,11 +16,10 @@ import { entropySource, fixedClock } from "./time";
 import type { SessionRunnerResult } from "../../src/core/run";
 
 /**
- * Seam stub for `SessionRuntime.settleChild` (#1308/#1311): core fixtures
- * exercise the settlement SEAM only. The shipped delegation-policy fold lives
- * in apps/openomni/src/bundles/delegation-policy and is tested from
- * apps/openomni/test; this stub answers the last parent-origin input with a
- * minimal settled reply and never claims to mirror the shipped policy.
+ * Seam stub for `SessionRuntime.settleChild`: core fixtures exercise the settlement SEAM only. The shipped
+ * delegation-policy fold lives in apps/openomni/src/bundles/delegation-policy and is tested from
+ * apps/openomni/test; this stub answers the last parent-origin input with a minimal settled reply and never
+ * claims to mirror the shipped policy.
  */
 function fixtureSettleChild(
   kernel: SessionKernel,
@@ -81,8 +80,8 @@ export const boundedBy2s = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.p
 
 /** A runtime kernel plane over one explicit kernel handle (crash children own their stores). */
 export function kernelRuntime(kernel: () => SessionKernel): Pick<SessionRuntime, "openKernel" | "listSessions" | "settleChild" | "compaction" | "approvalPolicy"> {
-  // #1308: child settlements are composition-injected; fixtures ride a seam stub.
-  // #1307: the compaction seam too. #1309: and the approval policy.
+  // Child settlements are composition-injected; fixtures ride a seam stub.
+  // The compaction seam and the approval policy ride stubs too.
   return { openKernel: () => kernel(), listSessions: () => kernel().listRows(), settleChild: fixtureSettleChild, compaction: fixtureCompactionSeam, approvalPolicy: TEST_APPROVAL_POLICY };
 }
 

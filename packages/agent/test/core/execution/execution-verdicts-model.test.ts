@@ -149,7 +149,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
     isolated(
       Effect.scoped(
         Effect.gen(function* () {
-          // #1344: the executor's kind table is the real registered set; a
+          // The executor's kind table is the real registered set; a
           // foreign kind is refused typed before policy or body, and there is
           // no production option that widens the table for tests.
           const { actions, executor } = harness([]);
@@ -309,7 +309,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
       ),
     ));
 
-  // #1344: a structured Error cause on the typed body failure journals as the
+  // A structured Error cause on the typed body failure journals as the
   // stable `name: message` text — the Error object never reaches the journal.
   it("renders a structured Error body-failure cause as stable journal text", () =>
     isolated(
@@ -385,10 +385,9 @@ describe("the single L2 executor's four-kind verdict model", () => {
           }),
         ),
       ));
-
   }
 
-  // Prompt has no registered post point (#1251): a generation carrying a
+  // Prompt has no registered post point: a generation carrying a
   // prompt post row cannot even compile — the registry rejects it fail-closed.
   it("prompt: a post deny row rejects at compose — the post point is not registered", () => {
     expect(() => postDenyHarness("prompt")).toThrow(

@@ -97,7 +97,7 @@ describe("createTurnDispatcher", () => {
 });
 
 describe("wave settlement", () => {
-  // #1344: no injection option — settlement is observable through the real
+  // No injection option — settlement is observable through the real
   // dispatch path. `boom` rejects at once; `ok` parks on a gate the test opens
   // only on a later macrotask, after every microtask an early-resolving wave
   // could have queued has drained. The settlement log therefore places the
@@ -242,8 +242,8 @@ describe("tool body outcomes", () => {
     expect(result).toMatchObject({ isError: true, errorKind: "invalid_output" });
   });
 
-  // #1344 r1 M1: a body that throws a non-Error, or an Error with an empty
-  // message, keeps the pre-#1344 `String(thrown)` bytes on BOTH the committed
+  // A body that throws a non-Error, or an Error with an empty
+  // message, keeps the original `String(thrown)` bytes on BOTH the committed
   // result-row evidence and the model-facing error text. The structured-cause
   // path must not re-render them (`Error: 42`, `Error: ` were the regressions).
   it("renders non-Error and empty-message throws byte-identically to String(thrown)", async () => {

@@ -164,7 +164,7 @@ test("createSessionKernel serves session facts from the session file and policy 
     expect(kernel.policyRows()).toHaveLength(1);
     expect(kernel.currentPolicyGeneration()).toBe(1);
 
-    // The input-queue-table plane is gone (W5.2 #1197): pending work is a pure
+    // The input-queue-table plane is gone: pending work is a pure
     // projection over undelivered prompt actions, and a fresh file has none.
     expect(kernel.pendingMessages("s1")).toEqual([]);
   });

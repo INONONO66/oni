@@ -1,7 +1,7 @@
 import type { ProviderEvent } from "./event-schema";
 import type { StreamEventContext, StreamEventState } from "./stream-events";
 
-/** Repair block ordering before facts enter the fold; duplicate ends never advance a closed part. */
+/** Repair block ordering before facts enter the fold; duplicate ends never advance a part. */
 export function normalizeEvent(
   event: ProviderEvent,
   state: StreamEventState,

@@ -1,5 +1,5 @@
 /**
- * #1310 — a session admission snapshot that declares NO capability kinds is a
+ * A session admission snapshot that declares NO capability kinds is a
  * typed `missing_capability_kinds` refusal, never a silent built-in list. The
  * pure decision names the reason; through the real entity's `deliver` door the
  * refusal is the sealed typed rejection with ZERO new journal facts.

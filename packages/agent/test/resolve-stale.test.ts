@@ -1,9 +1,7 @@
 /**
- * #1253 — stale `resolve`: a missing request is a typed `unknown_request`, a
- * settled one a typed `already_resolved`; both append zero journal facts, so
- * the approval tray can simply re-read requests. A redelivered `inputId`
- * replays the recorded resolution through the pure request authority's dedup
- * instead of refusing.
+ * Stale `resolve`: a missing request is a typed `unknown_request`, a settled one a typed `already_resolved`;
+ * both append zero journal facts, so the approval tray can simply re-read requests. A redelivered `inputId`
+ * replays the recorded resolution through the pure request authority's dedup instead of refusing.
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

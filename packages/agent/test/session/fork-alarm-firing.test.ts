@@ -1,16 +1,8 @@
 /**
- * #1257 r3 M-1 — fork alarm exclusion against the REAL entity plane: a parent
- * arms an alarm BEFORE the fork anchor, the fork copies the pre-anchor chain,
- * and then real activations deliver. The parent's occurrence fires exactly
- * once (a duplicate delivery of the settled occurrence folds to the recorded
- * `stale` fact), and the forked child registers and receives ZERO alarms —
- * its activation rescan finds an empty armed index and resends nothing.
- *
- * Determinism (#1254 pattern): the injected entity clock — not the wall clock
- * — supplies every instant; the arm's `fireAt` is already due, so the
- * DeliverAt door releases immediately; the only waits are the committed-fact
- * barriers (`onAlarmResend` fires AFTER the delivery's Alarm RPC replied, and
- * each explicit `sendAlarm` ack follows its committed fired fact).
+ * Fork alarm exclusion against the REAL entity plane: a parent arms an alarm BEFORE the fork anchor, the fork
+ * copies the pre-anchor chain, and then real activations deliver. The parent's occurrence fires exactly once (a
+ * duplicate delivery folds to the recorded `stale` fact) and the forked child receives ZERO alarms. The injected
+ * entity clock supplies every instant; the only waits are committed-fact barriers (`onAlarmResend`, `sendAlarm` acks).
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

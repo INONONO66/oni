@@ -14,7 +14,7 @@ import { recordingLedger } from "../../helpers/g0-effect";
 import { runInput } from "../../helpers/run-input";
 import { TEST_BUDGET } from "../../helpers/approval-policy";
 
-// Message has no registered post point (#1251): a message post row cannot even
+// Message has no registered post point: a message post row cannot even
 // compile — the registry rejects the generation fail-closed at compose.
 test("a message post transform row rejects at compose: message has no post point", () => {
   expect(() =>

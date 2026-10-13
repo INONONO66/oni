@@ -63,7 +63,6 @@ function deferCompaction(measuredTokens: number | undefined, compaction: Compact
   return measuredTokens !== undefined && compaction?.inFlight() === true && measuredTokens < graceTokens;
 }
 
-/** A threshold trigger without a measurement, or one below the seam's line, is a skip. */
 function thresholdNotReached(
   seam: Pick<CompactionSeamService, "shouldCompact">,
   state: RunState,
@@ -76,7 +75,6 @@ function thresholdNotReached(
   );
 }
 
-/** Folds the execution outcome into run state; the caller already owns the trigger. */
 function settleCompactionResult(
   state: RunState,
   compaction: CompactionSessionPort | undefined,
@@ -102,8 +100,7 @@ export function applyCompaction(
   trigger: "threshold" | "yield",
 ): Effect.Effect<CompactionApplyResult, ExecutionError, Entropy> {
   return Effect.gen(function* () {
-  // No seam = the compaction capability is off: the kernel skips the seam
-  // and records nothing new; it never falls back to a built-in copy (#1307).
+  // No seam = the capability is off: the kernel skips and records nothing new.
   const seam = config.compactionSeam;
   if (seam === undefined) return "none";
   const options = resolvedCompaction(state, config);
@@ -134,9 +131,8 @@ export function applyCompaction(
 
 function replaceRunMessages(state: RunState, messages: Message.WithParts[]): void {
   state.messages = messages;
-  // The measurement described the window this rewrite just changed. Clearing
-  // it makes the next completion check skip-and-record rather than re-fire
-  // compaction on a number about history that no longer exists.
+  // The measurement described the window this rewrite just changed; clearing it
+  // stops the next check re-firing on a number about history that no longer exists.
   state.lastCallContextTokens = undefined;
 }
 

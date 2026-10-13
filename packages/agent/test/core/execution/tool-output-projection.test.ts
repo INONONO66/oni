@@ -1,9 +1,8 @@
 /**
- * #1305 end-to-end projection: a tool result far over the budget commits as a
- * bounded row referencing stored bytes; the full output reads back whole
- * through the kernel and `Inspect.toolOutput`; the budget folds from
- * `session.configure{settings.toolOutputBudgetBytes}` with the core default
- * when absent.
+ * End-to-end projection: a tool result far over the budget commits as a bounded
+ * row referencing stored bytes; the full output reads back whole through the
+ * kernel and `Inspect.toolOutput`; the budget folds from
+ * `session.configure{settings.toolOutputBudgetBytes}` with the core default when absent.
  */
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
@@ -151,7 +150,7 @@ describe("tool output projection through the durable gate (#1305)", () => {
         // what a page/stream consumer receives for this row.
         const eventBefore = Buffer.byteLength(JSON.stringify(baselineRow), "utf8");
         const eventAfter = Buffer.byteLength(JSON.stringify(row), "utf8");
-        // #1305 evidence: the measured byte pairs the PR quotes.
+        // The measured byte pairs the PR quotes.
         console.log(`row bytes before projection: ${beforeBytes}; after: ${afterBytes}`);
         console.log(`event bytes before projection: ${eventBefore}; after: ${eventAfter}`);
         expect(afterBytes).toBeLessThan(DEFAULT_TOOL_OUTPUT_BUDGET_BYTES);
@@ -234,7 +233,7 @@ describe("tool output projection through the durable gate (#1305)", () => {
         const verbatim = resultRows().at(-1);
         expect(plainObject(plainObject(verbatim?.effect.value).result)).toEqual(smallValue);
 
-        // Pin a 200-byte budget through the configure settings row (#1253 fold).
+        // Pin a 200-byte budget through the configure settings row.
         const parentId = stores.kernel.latestAction(SESSION)?.id ?? null;
         yield* kernelLedger(authority).commit(
           configureAction({

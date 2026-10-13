@@ -12,11 +12,10 @@ function retryableError(headers?: Record<string, string>) {
 }
 
 /**
- * The backoff ladder is jittered by `1 - random*RETRY_JITTER_RATIO`, so every
- * assertion about a LADDER delay pins the injected draw instead of allowing a
- * range: a draw of 0 is the full ladder value, which is exactly what these
- * cases are about. Header-directed delays are never jittered and need no pin.
- * The injected clock is pinned to FIXED_RETRY_NOW (#1245).
+ * The backoff ladder is jittered by `1 - random*RETRY_JITTER_RATIO`, so every assertion about a LADDER delay
+ * pins the injected draw instead of allowing a range: a draw of 0 is the full ladder value, which is exactly
+ * what these cases are about. Header-directed delays are never jittered and need no pin. The injected clock is
+ * pinned to FIXED_RETRY_NOW.
  */
 function decideWithoutJitter<E>(attempt: number, error: E): Retry.Decision {
   return Retry.decide(attempt, error, sources());

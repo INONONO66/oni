@@ -1,4 +1,4 @@
-// #1346: one creation door. `Core.createSession` writes the genesis configure
+// One creation door. `Core.createSession` writes the genesis configure
 // row and the catalog index inside one enclosed write unit: a fault after
 // genesis preparation but before the session file commits rolls the catalog
 // index back with it, a duplicate id refuses typed without rewriting genesis,
@@ -65,7 +65,7 @@ test("createSession writes genesis and catalog index together and preserves the 
     expect(receipt.genesis.action.id).toBe("s-1:genesis");
     expect(receipt.genesis.action.kind).toBe("session.configure");
     expect(receipt.genesis.action.ts).toBe(17);
-    // #1346 M4: the index stamp is the caller's genesis time, not the catalog clock.
+    // The index stamp is the caller's genesis time, not the catalog clock.
     expect(plane.catalog.sessionIndex("s-1")).toMatchObject({ id: "s-1", parentId: null, role: "resident", createdAt: 17 });
 
     const kernel = plane.openKernel("s-1");
@@ -121,7 +121,7 @@ test("an orphan index row (no session file) refuses typed as orphan_index before
       createSession(plane, { id: "s-indexed", parentId: null, role: "resident", genesis }),
     ));
     expect(Result.isFailure(exit)).toBe(true);
-    // #1346 M3: distinct from `duplicate` — a caller treating duplicates as
+    // Distinct from `duplicate` — a caller treating duplicates as
     // the idempotent outcome must not continue against a session with no genesis.
     expect(Result.isFailure(exit) ? exit.failure : undefined).toMatchObject({
       _tag: "CreateRefused",

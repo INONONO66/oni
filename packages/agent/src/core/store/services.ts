@@ -17,11 +17,7 @@ export interface SessionWriteAdapter
   commit(input: LedgerSession.Commit): Effect.Effect<CommitReceipt, LedgerError>;
 }
 
-/**
- * The handle plane one process composes over (W5.2 F1): the shared catalog
- * store plus an opener for per-session ledger files. Entity activations own
- * the lifecycle of the stores they open.
- */
+/** Entity activations own the lifecycle of the stores they open. */
 export interface LedgerHandles {
   readonly catalog: CatalogStore;
   readonly openSession: (sessionId: string) => SessionStore;

@@ -1,23 +1,8 @@
 /**
- * W5.2 L2.4 — entity-crash child process (W5.1 check2 ported to the real
- * Session entity). Usage:
- *
- *   bun test/helpers/cluster-crash-child.ts <sessionsDir> <catalogFile> <sessionId> crash|restart
- *
- * crash:   boots the cluster runtime with a turn runner that reports entry and
- *          then blocks forever. The entity's `deliver` handler has already
- *          committed the received chain action when the runner starts, so the
- *          child prints "APPENDED turn=<id>" and keeps the envelope
- *          unacknowledged until the parent SIGKILLs this process.
- * restart: boots the runtime on the SAME files with a completing runner. The
- *          crashed envelope is redelivered from SqlMessageStorage; the chain
- *          dedupes it (action.id = messageId, plan D3). Prints REDELIVERED
- *          (dedupe evidence), SHAPES (real turn action kinds, F12 chain-level
- *          proxy), and DELIVER_AT (the recorded stale alarm fact's commit
- *          clock time against the occurrence's armed clock time — not-before
- *          evidence from recorded facts, never elapsed wall time).
- *
- * All Effects run through the allowlisted `runAgent` helper.
+ * Entity-crash child process (args: sessionsDir catalogFile sessionId crash|restart). `crash` boots the
+ * runtime with a runner that reports entry then blocks forever, prints "APPENDED turn=<id>" and leaves the
+ * envelope unacknowledged until the parent SIGKILLs it. `restart` boots on the SAME files with a completing
+ * runner and prints REDELIVERED (chain dedupe), SHAPES (real turn kinds) and DELIVER_AT (recorded clocks, never wall time).
  */
 import { L0Observation } from "@openomni/protocol";
 import { Clock, Effect } from "effect";
@@ -75,7 +60,7 @@ if (mode === "crash") {
   );
 } else {
   // Signals are created BEFORE the sink that fires them is installed and
-  // resolved from the exact committed fact (#1254 r5 M1 pattern).
+  // resolved from the exact committed fact.
   const turnSealed = completionSignal();
   await runCluster(
     {
@@ -121,7 +106,7 @@ if (mode === "crash") {
       console.log(`CHAIN_OK ${verifyChain(sessionFile, sessionId)}`);
 
       // 4. DeliverAt: a deadline occurrence for an unknown request folds to a
-      //    recorded stale alarm fact (#1253), but must not be handed to the
+      //    recorded stale alarm fact, but must not be handed to the
       //    entity before its not-before instant. The Alarm RPC replies only
       //    after the fold, so the recorded fact exists here; its commit clock
       //    time is the fired instant — no elapsed-time measurement.

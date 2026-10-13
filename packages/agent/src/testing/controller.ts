@@ -214,8 +214,8 @@ export function createController(
           pending: kernel.pendingMessages(sessionId),
           open: kernel.latestOpenTurn(sessionId),
           terminal: kernel.latestTurnTerminal(sessionId),
-          // #1310: the testing controller composes exactly the built-in
-          // capabilities; admission refuses a snapshot that declares none.
+          // The testing controller composes exactly the built-in capabilities;
+          // admission refuses a snapshot that declares none.
           capabilityKinds: ["tool", "compaction"],
         });
         switch (decision.kind) {
@@ -263,7 +263,8 @@ export function createController(
 
     // The revision is read before the scan so any executor terminal that lands after
     // the read refuses this commit's CAS; the fresh rescan then sees that terminal.
-    // Each rescan needs a foreign commit under a closed session; the bounded `retryRevision` caps shutdown (exhaustion = `AdmissionFailure{code: revision}`).
+    // Each rescan needs a foreign commit under a closed session; the bounded `retryRevision` caps
+    // shutdown (exhaustion = `AdmissionFailure{code: revision}`).
     function sealUnknown(): Effect.Effect<void, SessionError> {
       return retryRevision(() => Effect.gen(function* () {
         const current = kernel.row(sessionId);

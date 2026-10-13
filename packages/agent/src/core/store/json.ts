@@ -2,7 +2,7 @@ import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
 import { SchemaRefused } from "./errors";
 
-/** Throwing decode: malformed text is `SchemaRefused{reason: json}` with the parser's diagnostic as `detail`. */
+/** Malformed text is `SchemaRefused{reason: json}`. */
 export function parsePlainJson(text: string): PlainValue {
   try {
     return PlainValueSchema.parse(JSON.parse(text));
@@ -12,7 +12,7 @@ export function parsePlainJson(text: string): PlainValue {
   }
 }
 
-/** Degraded decode: corrupt rows and malformed payloads read as `undefined`, never a throw. */
+/** Corrupt rows read as `undefined`, never a throw. */
 export function readPlainJson(text: string): PlainValue | undefined {
   try {
     return parsePlainJson(text);
@@ -29,5 +29,4 @@ export const SqliteCount = sqliteNumeric(
   z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 );
 
-// Wall-clock instants mirror protocol EpochMs: finite, non-negative, fractional allowed.
 export const SqliteEpochMs = sqliteNumeric(z.number(), z.number().finite().nonnegative());

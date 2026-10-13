@@ -10,21 +10,15 @@ const DEFAULT_SUMMARIZER_DEADLINE_MS = 60_000;
 const ANCHOR_HEADER = "[Conversation Summary]\n";
 
 /**
- * Time carriage (#737): the one fixed grammar a marker may wear. The whole
- * design leans on this being a closed shape — the L7 byte guard exempts
- * marker parts from the multiset check BECAUSE a 21-char `[recorded date]`
- * line cannot smuggle paraphrased user speech.
+ * The one closed grammar a marker may wear: the L7 byte guard exempts marker parts BECAUSE a
+ * 21-char `[recorded date]` line cannot smuggle paraphrased user speech.
  */
 const TIME_MARKER_RE = /^\[recorded \d{4}-\d{2}-\d{2}\]$/;
 
 /**
- * One-line legend riding the anchor render whenever markers were stamped
- * (review #741 F1): the bench's responder is told what markers mean, so
- * production models must be told too — a measurement the product does not
- * ship is a primed-reader artifact. Render-only: never enters `anchorBody`,
- * so merge threading and the record are untouched. The literal
- * "YYYY-MM-DD" does not match the marker grammar, so the legend can never
- * be mistaken for a marker by the guard or by extraction.
+ * Production models must be told what markers mean, like the bench responder is. Render-only, never
+ * in `anchorBody`; the literal "YYYY-MM-DD" cannot match the marker grammar, so the guard never
+ * mistakes it for one.
  */
 const MARKER_LEGEND =
   "(Messages marked [recorded YYYY-MM-DD] carry the date each message was recorded, in UTC.)";
@@ -44,11 +38,7 @@ export function withSummarizerDeadline(
   });
 }
 
-/**
- * Structural marker identity, shared with the L7 byte guard: metadata tags
- * AND the closed grammar. A part wearing the tags around free text is NOT a
- * marker — it stays plain user speech and fails the byte check if new.
- */
+/** Shared with the L7 byte guard: tags around free text are NOT a marker; it is user speech. */
 function isTimeCarriageMarkerPart(part: Message.Part): boolean {
   return (
     part.type === "text" &&
@@ -58,15 +48,12 @@ function isTimeCarriageMarkerPart(part: Message.Part): boolean {
   );
 }
 
-/** UTC calendar date by design: deterministic across hosts and resumes. The
- * anchor render's legend states the convention (review #741 F3) — a
- * host-local render would re-date the same record per machine. */
+/** UTC calendar date by design: a host-local render would re-date the same record per machine. */
 function renderTimeMarker(createdMs: number): string {
   return `[recorded ${new Date(createdMs).toISOString().slice(0, 10)}]`;
 }
 
-/** At least one text part that is neither policy-injected nor an anchor
- * render — i.e. the message actually carries user speech worth dating. */
+/** The message actually carries user speech worth dating. */
 function carriesUserSpeech(message: Message.WithParts): boolean {
   return message.parts.some(
     (part) =>
@@ -77,14 +64,9 @@ function carriesUserSpeech(message: Message.WithParts): boolean {
 }
 
 /**
- * Temporal grounding for the preserved-verbatim lane (#737): the bench
- * showed temporal QA collapsing to 4.8% of the full-history ceiling because
- * preserved user text says "yesterday" and nothing in the window says when
- * that was. The marker is REGENERATED from `info.time.created` at every cut
- * (any stale marker part is replaced, never accumulated — the #722 stacking
- * class), rides beside the user text as a policy-injected part, and never
- * enters the record: the replacement record carries the structured `time`
- * instead, so resume re-derives markers rather than replaying them.
+ * Preserved user text says "yesterday" and nothing in the window says when that was. The marker is
+ * REGENERATED from `info.time.created` at every cut (never accumulated) and never enters the
+ * record: resume re-derives it from the structured `time`.
  */
 function stampTimeMarker(message: Message.WithParts, id: () => string): Message.WithParts {
   const marker: Message.TextPart = {
@@ -195,12 +177,7 @@ export function attemptAnchoredCut(
   });
 }
 
-/**
- * Newest-first selection under the budget, returned in original order. The
- * newest user message is taken unconditionally: a budget that silently
- * dropped ALL user text would violate the invariant the budget exists to
- * serve.
- */
+/** Newest-first under budget, returned in original order; newest user message unconditional. */
 function selectPreservedUsers(
   span: readonly Message.WithParts[],
   budgetChars: number,
@@ -219,7 +196,6 @@ function selectPreservedUsers(
   return kept;
 }
 
-/** Summary-only render of an anchor: fixed header, summarizer body, optional marker legend. */
 export function renderAnchorText(anchorBody: string, withMarkerLegend: boolean): string {
   return `${ANCHOR_HEADER}${anchorBody}${withMarkerLegend ? `\n\n${MARKER_LEGEND}` : ""}`;
 }
@@ -253,14 +229,9 @@ function buildAnchorMessage(
     metadata: {
       compactionAnchor: true,
       anchorBody,
-      // Ordered window selection after this anchor — the durable
-      // replacement record (#702). Content-borne: hydration flattens to
-      // role/content and re-mints ids, so an id record would resolve to
-      // nothing (#722 review). Size expectation: one copy of the preserve
-      // budget (default 80k chars) plus the protected tail per cut, in an
-      // append-only store — linear per record, and the newest-user
-      // unconditional rule means one oversized user message can ride into
-      // every subsequent record by design (user tokens are irreplaceable).
+      // Content-borne: hydration flattens to role/content and re-mints ids, so an
+      // id record would resolve to nothing. One oversized user message can ride
+      // into every subsequent record by design — user tokens are irreplaceable.
       keptWindow,
     },
   };

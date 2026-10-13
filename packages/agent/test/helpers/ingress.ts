@@ -12,7 +12,7 @@ export interface ReceivedMessageInput {
   readonly origin: Delivery.Origin;
   readonly createdAt: number;
   readonly parentActionId: string | null;
-  /** Loop-consumption mode (#1253); absent folds to `followUp`. */
+  /** Loop-consumption mode; absent folds to `followUp`. */
   readonly delivery?: "steer" | "followUp";
 }
 

@@ -6,7 +6,7 @@ import { sessionTree } from "./helpers/session-tree";
 import { planeAnswer, requestPlane } from "./helpers/session-request-plane";
 
 /**
- * #1252: answers are the `answered` phase of the one `request` kind — no row
+ * Answers are the `answered` phase of the one `request` kind — no row
  * is ever written with the retired `reply` kind, and SQL correlation selects
  * answered requests by `kind = 'request' AND phase = 'answered'`.
  */

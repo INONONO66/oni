@@ -77,7 +77,7 @@ describe("Session.fork", () => {
     expect(childKernel.pendingMessages(CHILD)).toEqual([]);
 
     // The catalog projects the ancestry edge, stamped with the fork's `now`
-    // (#1346 M4: the injected clock, never the catalog's own).
+    // (the injected clock, never the catalog's own).
     expect(stores.catalog.sessionIndex(CHILD)).toMatchObject({ parentId: PARENT, createdAt: 100 });
     expect(stores.catalog.childSessionsPage(PARENT, "", 10).map((row) => row.id)).toEqual([CHILD]);
 
