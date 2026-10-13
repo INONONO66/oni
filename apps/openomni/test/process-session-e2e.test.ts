@@ -216,6 +216,8 @@ test("process entry logs committed sessions and disposes its runtime", async () 
       "delegation-policy",
       "approval-policy",
       "send-message",
+      "compaction-summarizer",
+      "compaction-strategy",
     ]);
     return runtime;
   });

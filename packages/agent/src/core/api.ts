@@ -40,12 +40,13 @@ export {
   type DispatcherOptions, type ToolDispatchDefinition, type ToolDispatchResult,
   type ToolErrorKind,
 } from "./tool";
-// Compaction seam: the one contract the compaction plugin implements.
+// Compaction seam: the four operations the core consumes and the binding that yields them.
 export {
   CompactionSeam,
-  type CompactionCandidate, type CompactionExecutionInput, type CompactionExecutionOutcome,
-  type CompactionGeometry, type CompactionGeometryInput, type CompactionOptions,
-  type CompactionRestoreInput, type CompactionRestorePlan, type CompactionSeamService,
-  type CompactionSessionConfig, type CompactionSessionPort, type CompactionYield,
-  type ResolvedCompactionOptions, type SummarizationBudget, type ToolOutputElision,
+  type CompactionOptions, type CompactionOutcome, type CompactionPort, type CompactionReason,
+  type CompactionRestoreInput, type CompactionRestorePlan, type CompactionRunBinding,
+  type CompactionSeamService, type CompactionWindow, type CompactionYield,
+  type PinCompactionAction, type PrepareCompactionRestore, type SummarizationBudget,
+  type ToolOutputElision,
 } from "./compaction-ports";
+export type { RunState } from "./turn";

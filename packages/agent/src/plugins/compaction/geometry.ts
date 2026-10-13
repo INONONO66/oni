@@ -1,10 +1,9 @@
-// The geometry shapes are core-owned seam types; this module implements against them.
 import type {
   CompactionGeometry,
   CompactionGeometryInput as CompactionGeometryOptions,
-} from "../../core/api";
+} from "./contract";
 
-export type { CompactionYield } from "../../core/api";
+export type { CompactionYield } from "./contract";
 
 const MIN_THRESHOLD_RATIO = 0.4;
 const MAX_THRESHOLD_RATIO = 0.85;

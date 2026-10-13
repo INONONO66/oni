@@ -6,17 +6,13 @@ import * as SessionHandleStore from "../core/store/fence";
 import { toolSnapshot } from "../core/commit";
 import { resolveSessionRuntime, installSessionHandlePlane, type SessionRuntime, type ResolvedSessionRuntime, type SessionCreateOptions, type SessionHandle, type SessionController, type SessionControllerLifecycle, type SessionRunner, type SessionSystem, type RegistryEntry } from "../core/run";
 import type { SessionKernel } from "../core/entity";
-import { foldSessionHistory, hydrateSessionHistory } from "../inspect/history";
-import { compactionSeamService } from "../plugins/compaction";
+import { compactionCapability } from "../bundle";
 import { createController } from "./controller";
 
 // Harness-built runtimes get the real compaction seam by default so tests keep
 // exercising pin + restore; a test that wants it OFF sets `compaction: undefined`
 // explicitly, because defaulting fills only a runtime that never mentions the key.
-const testingCompactionSeam = compactionSeamService({
-  fold: foldSessionHistory,
-  hydrate: hydrateSessionHistory,
-});
+const testingCompactionSeam = compactionCapability().verbs;
 
 function withTestingCompaction(runtime: SessionRuntime): SessionRuntime {
   return "compaction" in runtime ? runtime : { ...runtime, compaction: testingCompactionSeam };

@@ -1,16 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Exit } from "effect";
 import { CompactionSeam } from "../../src/core/api";
-import { applyCompaction } from "../../src/core/compaction";
 import { commitFoldBatch } from "../../src/core/commit";
 import { AgentFailure, AgentInvariantViolation } from "../../src/core/failure";
 import { createRunState } from "../../src/core/turn";
 import { foldSessionHistory, hydrateSessionHistory } from "../../src/inspect/history";
-import { Compaction, compactionCapability, compactionSeamService } from "../../src/plugins/compaction";
-import { estimateMessagesTokens } from "../../src/plugins/compaction/estimate";
-import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
-import { resolveCompactionGeometry } from "../../src/plugins/compaction/geometry";
-import { measuredContextTokens } from "../../src/plugins/compaction/measure";
+import { compactionCapability, compactionSeamService } from "../../src/plugins/compaction";
 import { prepareCompactionRestore } from "../../src/plugins/compaction/restore";
 import { collector } from "../helpers/observation-collector";
 import { fixtureCompactionSeam } from "../helpers/fixture-compaction";
@@ -18,8 +13,6 @@ import { fencedTurnFixture } from "../helpers/fenced-writer";
 import { isolated, runTestPromise } from "../helpers/isolated";
 import { testMessageSource } from "../helpers/message-source";
 import { runInput } from "../helpers/run-input";
-import { fixtureStopEvidence } from "../helpers/chat-services";
-import { TEST_BUDGET } from "../helpers/approval-policy";
 
 const history = { fold: foldSessionHistory, hydrate: hydrateSessionHistory };
 
@@ -35,40 +28,41 @@ describe("compaction capability contract (#1307)", () => {
     expect(definition.seam).toBe(CompactionSeam);
   });
 
-  it("publishes exactly the module exports the kernel used to import, frozen", () => {
+  it("publishes the two run-free operations plus the binding, frozen; the binding yields the four operations", async () => {
     const service = compactionSeamService(history);
     expect(Object.isFrozen(service)).toBe(true);
-    expect(service.geometry).toBe(resolveCompactionGeometry);
-    expect(service.measure).toBe(measuredContextTokens);
-    expect(service.estimate).toBe(estimateMessagesTokens);
-    expect(service.shouldCompact).toBe(Compaction.shouldCompact);
-    expect(service.execute).toBe(executeCompaction);
+    expect(Object.keys(service).sort()).toEqual(["bind", "pinAction", "prepareRestore"]);
     expect(service.prepareRestore).toBe(prepareCompactionRestore);
-    expect(service.protectRecent).toBe(6);
+    const port = await isolated(
+      Effect.scoped(
+        service.bind({ options: undefined, identity: { traceId: "t", sessionId: "s" }, events: collector() }),
+      ),
+    );
+    expect(Object.keys(port).sort()).toEqual(["maybeCompact", "pinAction", "prepareRestore", "window"]);
+    expect(port.pinAction).toBe(service.pinAction);
+    expect(port.prepareRestore).toBe(service.prepareRestore);
   });
 });
 
 describe("compaction disabled: the kernel skips and records nothing new (#1307)", () => {
-  it("applyCompaction without a seam returns none and publishes no event", async () => {
+  it("a bound port with no compaction options skips the automatic trigger and publishes no event", async () => {
     const events = collector();
     const state = createRunState(runInput([{ role: "user", content: "hi" }]), testMessageSource());
     state.lastCallContextTokens = 999_999;
     const outcome = await isolated(
-      applyCompaction(
-        state,
-        {
-          events,
-          model: { provider: "p", id: "m" },
-          stopEvidence: fixtureStopEvidence,
-          budget: TEST_BUDGET,
-          compaction: { contextWindowTokens: 100, onSummarize: () => Effect.succeed("s") },
-        },
-        { traceId: "t", sessionId: state.sessionId, runId: "r", actorId: "a" },
-        undefined,
-        "threshold",
+      Effect.scoped(
+        Effect.gen(function* () {
+          const port = yield* compactionSeamService(history).bind({
+            options: undefined,
+            identity: { traceId: "t", sessionId: state.sessionId, runId: "r", actorId: "a" },
+            events,
+          });
+          expect(port.window(state)).toBeUndefined();
+          return yield* port.maybeCompact(state, "threshold");
+        }),
       ),
     );
-    expect(outcome).toBe("none");
+    expect(outcome).toBe("skipped");
     expect(events.events.length).toBe(0);
   });
 

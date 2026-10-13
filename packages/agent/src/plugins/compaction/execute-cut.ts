@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { CompactionExecutionError, type CompactionExecutionInput, type ExecutionError, RunEvents, type Entropy } from "../../core/api";
-import type { CompactionResult } from "./contract";
-import { canonicalDigest, PlainValueSchema, type BusEvent } from "@openomni/protocol";
+import { CompactionExecutionError, type ExecutionError, RunEvents, type Entropy } from "../../core/api";
+import type { CompactionExecutionInput, CompactionResult } from "./contract";
+import { canonicalDigest, PlainValueSchema, type BusEvent, type PlainValue } from "@openomni/protocol";
 import { Compaction } from "./compact";
 
 /** Execute the existing strategy under admission; only the receipt releases observations. */
@@ -43,24 +43,26 @@ export function executeCompaction(input: CompactionExecutionInput): Effect.Effec
       },
       () => Effect.gen(function* () {
         result = yield* calculate();
-        return PlainValueSchema.parse(
-          result.record === undefined ? null : { ...result.record, projection: result.messages },
-        );
+        return recordedValue(result);
       }),
     );
     if (execution.terminal !== "executed")
       return yield* new CompactionExecutionError({ reason: execution.reason });
-    if (
-      result === undefined ||
-      canonicalDigest(execution.value) !==
-        canonicalDigest(
-          result.record === undefined ? null : { ...result.record, projection: result.messages },
-        )
-    ) {
+    if (result === undefined || canonicalDigest(execution.value) !== canonicalDigest(recordedValue(result))) {
       return yield* new CompactionExecutionError({ reason: "invalid_output" });
     }
   }
   for (const publish of completed) publish();
   return result;
+  });
+}
+
+/** The row's result value; a summarizer failure that fell back to a plain cut is recorded on it. */
+function recordedValue(result: CompactionResult): PlainValue {
+  if (result.record === undefined) return null;
+  return PlainValueSchema.parse({
+    ...result.record,
+    projection: result.messages,
+    ...(result.summarizerFailed === true ? { summarizerFailed: true } : {}),
   });
 }

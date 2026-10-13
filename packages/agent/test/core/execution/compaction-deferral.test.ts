@@ -9,6 +9,8 @@ import { Bus } from "../../helpers/bus";
 import { captureBusEvents } from "../../helpers/bus-event";
 import { isolated } from "../../helpers/isolated";
 import { textMessage } from "../../helpers/messages";
+import { CompactionRun } from "../../../src/plugins/compaction/policy";
+import { collector } from "../../helpers/observation-collector";
 
 const WINDOW = 1000;
 
@@ -22,11 +24,15 @@ function config(): ChatAgentConfig {
 
 function inFlightSession(
   started: Promise<void>,
+  onSummarize?: () => void,
 ): Effect.Effect<CompactionSession, never, Scope.Scope> {
   return Effect.gen(function* () {
     const session = new CompactionSession({
       protectRecentMessages: 1,
-      summarize: () => Effect.promise(() => started).pipe(Effect.as("summary")),
+      summarize: () => Effect.sync(() => onSummarize?.()).pipe(
+        Effect.andThen(Effect.promise(() => started)),
+        Effect.as("summary"),
+      ),
     });
     yield* session.prepare(
       [
@@ -42,6 +48,33 @@ function inFlightSession(
 }
 
 describe("compaction apply seam deferral", () => {
+  it.each(["yield", "overflow"] as const)("defers %s while speculation is below grace without a second summarizer", (reason) =>
+    isolated(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const release = Promise.withResolvers<void>();
+          const entered = Promise.withResolvers<void>();
+          let summaries = 0;
+          const session = yield* inFlightSession(release.promise, () => { summaries += 1; entered.resolve(); });
+          yield* Effect.promise(() => entered.promise).pipe(Effect.timeout("5 seconds"));
+          const state = stateAtGrace(WINDOW, -1);
+          const events = collector();
+          try {
+            const outcome = yield* new CompactionRun(
+              { options: config().compaction, identity: { traceId: "trace", sessionId: state.sessionId }, events },
+              session,
+            ).maybeCompact(state, reason);
+            expect(outcome).toBe("skipped");
+            expect(summaries).toBe(1);
+            expect(events.named(RunEvents.CompactionStarted.name)).toHaveLength(0);
+          } finally {
+            release.resolve();
+            yield* session.settled();
+          }
+        }),
+      ),
+    ));
+
   it("defers the threshold trigger while a speculative cut is in flight below grace", () =>
     isolated(
       Effect.scoped(
@@ -53,7 +86,7 @@ describe("compaction apply seam deferral", () => {
           const started = captureBusEvents(RunEvents.CompactionStarted);
           try {
             const outcome = yield* applyThreshold(state, config(), session);
-            expect(outcome).toBe("deferred");
+            expect(outcome).toBe("skipped");
             expect(started.events).toHaveLength(0);
           } finally {
             started.unsubscribe();
@@ -75,7 +108,7 @@ describe("compaction apply seam deferral", () => {
           try {
             const outcome = yield* applyThreshold(state, config(), session);
             yield* Effect.promise(() => started.done);
-            expect(outcome).toBe("none");
+            expect(outcome).toBe("completed");
             expect(started.events[0]?.trigger).toBe("threshold");
           } finally {
             started.unsubscribe();

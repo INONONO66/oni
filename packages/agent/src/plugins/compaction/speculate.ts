@@ -4,9 +4,8 @@ import { prepareSummarizerInput } from "./estimate";
 import { withSummarizerDeadline } from "./summary";
 import type { CompactionOptions } from "./compact";
 
-// The candidate shape is a core-owned seam type; this module re-exports the old name.
-export type { CompactionCandidate } from "../../core/api";
-import type { CompactionCandidate, CompactionSessionConfig, CompactionSessionPort } from "../../core/api";
+export type { CompactionCandidate } from "./contract";
+import type { CompactionCandidate, CompactionSessionConfig, CompactionSessionPort } from "./contract";
 
 const MAX_PREPARE_FAILURES = 2;
 

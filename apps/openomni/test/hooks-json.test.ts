@@ -304,7 +304,10 @@ test("H-2: a command entry with do:rewrite compiles the consulted rewrite row an
 
 test("no hooks config composes the bundle with zero rows and the action input admitted", async () => {
   const generation = await composed();
-  expect(generation.bundles).toEqual(["monitor", "cron", "hooks-json", "delegation-policy", "approval-policy", "send-message"]);
+  expect(generation.bundles).toEqual([
+    "monitor", "cron", "hooks-json", "delegation-policy", "approval-policy", "send-message",
+    "compaction-summarizer", "compaction-strategy",
+  ]);
   expect(generation.rows.filter((row) => row.id.startsWith("hooks-json/"))).toEqual([]);
   expect(generation.inputs).toEqual(["action"]);
   expect(Object.keys(generation.kinds)).toEqual(["action"]);
@@ -371,7 +374,10 @@ test("off cascades: action roots hook and hooks-json off; hook roots hooks-json 
     { name: "hook", because: "hook" },
     { name: "hooks-json", because: "hook" },
   ]);
-  expect(offHook.bundles).toEqual(["monitor", "cron", "delegation-policy", "approval-policy", "send-message"]);
+  expect(offHook.bundles).toEqual([
+    "monitor", "cron", "delegation-policy", "approval-policy", "send-message",
+    "compaction-summarizer", "compaction-strategy",
+  ]);
 });
 
 test("without the hook capability the bundle refuses at compose as seam_missing", () => {
@@ -539,7 +545,9 @@ async function offCascadeConfigureRows(prefix: string) {
   const sessionId = sessions[0]?.id ?? "";
   // The adopted generation dropped the cascaded bundle.
   const adopted = plane.openKernel(sessionId).latestGenerationFor(sessionId);
-  expect([...adopted.bundles].sort()).toEqual(["approval-policy", "cron", "delegation-policy", "monitor", "send-message"]);
+  expect([...adopted.bundles].sort()).toEqual([
+    "approval-policy", "compaction-strategy", "compaction-summarizer", "cron", "delegation-policy", "monitor", "send-message",
+  ]);
   if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
   const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), {
     readonly: true,

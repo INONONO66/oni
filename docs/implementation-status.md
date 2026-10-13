@@ -1,5 +1,14 @@
 # Implementation Status
 
+## #1353 — compaction four core ports with a plugin-owned policy (PR #1470, base `91eb15949`)
+
+- Port: `packages/agent/src/core/compaction-ports.ts` declares the four operations the turn loop needs and nothing else (132 formatter-canonical lines, 172 before; the issue's ~70-100 guide is noted as a follow-up). `core/turn.ts` reaches compaction through exactly one `maybeCompact(` call; the old tokens (`applyCompaction`, `prepareCompactionAfterContinue`, `createCompactionSession`, `geometry`, `shouldCompact`, `createSession`, `thresholdTokens`) go 11 → 0 in turn.ts.
+- Policy: compaction policy, speculation and tool-output elision defaults move into `packages/agent/src/plugins/compaction/policy.ts`. `CompactionReason = prepare | threshold | yield | overflow` (`prepare` only starts speculation after a tool-call continuation and never executes); `overflow` is recorded as the existing `trigger: "yield"` row value, so no recorded journal byte changes (goldens and conformance snapshots untouched). The plugin imports only `core/api.ts`; `Bun.spawn` in the plugin stays 0.
+- Deletions: `packages/agent/src/core/compaction.ts` (144 lines) and `apps/openomni/src/compaction/strategy.ts` (30) are gone; core and `testing/registry.ts` imports of `plugins/compaction` 1 → 0; app `configuredCompaction` 3 → 0. The app `compactionBundle` only makes composition refuse when no summarizer is composed.
+- Regression caught by the full agent suite: speculative preparation was torn down before the settle-abort finalizer could grant its start tick; fixed by forking a child scope in `bindCompactionRun` before registering the finalizer (finalizer order unchanged: abort still runs before the child's fibers are torn down).
+- Review r1: High 1 — the tool-call continue path called `compact("threshold")` and could execute a compaction where main only prepared; prepare-only semantics restored through the port with a test proving a continue step above threshold writes zero `compaction` rows while end-of-turn still compacts. Medium 5 — M1 the speculative-grace deferral applies to `yield` again (a window yield with a speculative summary in flight defers instead of launching a second summarizer), M2 the yield point is armed from the model window only, M3 `compaction-off.test.ts` now fails the second call as a real context overflow and asserts zero compaction rows: the first turn stops normally and the second settles with the original typed provider failure (a successful second turn is impossible under the no-retry contract with compaction off), M4 `DEFAULT_TOOL_OUTPUT_ELISION` is no longer exported and elision is tested by behavior, M5 this stamp and this section replace the stale `applyCompaction` description. Lows carried as PR comments.
+- Verification: packages/agent 1441 pass / 0 fail (217 files), apps/openomni 846 / 0 (117 files); check-types, lint, lint:tools, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types and check-comment-residue exit 0; the full local gate (`gate-1353.log`) exits 0 on the reviewed head. Four app bundle-list pins gained the shipped `compaction-summarizer` / `compaction-strategy` bundles (test-only).
+
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
 On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `e7677bbad`, PR #1461).
@@ -800,31 +809,27 @@ by timing luck.
   check; each names its invariant in a header comment.
   `knip-baseline.json` still reads `"grandfathered": []`.
 
-## #1307 compaction behind a core seam, declared in the manifest (epic #1303, rung 1)
+## #1307 and #1353 compaction capability behind four core ports
 
-On `stab/1-compaction-plugin-ownership` (2026-10-07, base `c73bc03b3`). The
-kernel reaches compaction only through the composed `CompactionSeam`
-(`packages/agent/src/core/compaction-ports.ts`, exported via `core/api.ts`):
-`core/{compaction,turn,commit,mailbox,types,index}.ts` have zero
-`plugins/compaction` lines, and `plugins/compaction/successor.ts` reads
-history through injected `CompactionHistoryPorts` instead of
-`inspect/history` (both greps print nothing; `script/check-deps.ts` pins the
-former core→compaction edges at 0 so a reintroduced import fails closed).
-`plugins/compaction/index.ts` exports `compactionCapability()` — a
-`Capability.define` contract named `compaction` whose verbs are one frozen
-`CompactionSeamService` (`geometry`/`measure`/`estimate`/`shouldCompact`/
-`execute`/`createSession`/`pinAction`/`prepareRestore`/`protectRecent`) —
-and `packages/agent/src/bundle.ts` wires the history ports for the app.
-`appManifest` (`apps/openomni/src/manifest.ts`) lists the capability, so
-`off: ["compaction"]` flows through `cascadeOff` and records the typed
-`{ name: "compaction", because: "compaction" }` disabled entry; with the
-seam absent the kernel skips compaction (`applyCompaction` → `"none"`, no
-event) and a compaction append dies typed
-(`compaction append without a composed compaction seam`) — never a silent
-built-in fallback. No new journal kind, tool, or gate point; durable bytes
-unchanged. Tests: `packages/agent/test/compaction/capability.test.ts`,
-compaction-off cases in `packages/agent/test/compose-off-cascade.test.ts`
-and `apps/openomni/test/manifest.test.ts`.
+The composed `CompactionSeam` in `packages/agent/src/core/compaction-ports.ts`
+binds one run-scoped `CompactionPort` with exactly four operations:
+`maybeCompact`, `window`, `pinAction`, and `prepareRestore`.
+`maybeCompact(state, reason)` owns threshold checks, prepare-only continuation,
+speculative candidate lifetime and execution in `plugins/compaction/policy.ts`;
+`window(state)` reads the model window for yield admission without executing.
+`core/turn.ts` calls `maybeCompact` at one site, with `"prepare"` on tool-loop
+continuation, `"threshold"` at turn end, and `"yield"`/`"overflow"` at the
+respective recovery boundaries. An in-flight speculative cut below grace
+defers execution. `plugins/compaction/successor.ts` reads history through
+injected `CompactionHistoryPorts`, wired by `packages/agent/src/bundle.ts`.
+`appManifest` lists the capability; composing it off skips compaction without
+writing a `compaction` row, while an unpinnable compaction append fails closed.
+`core/compaction.ts` and the app strategy wrapper are deleted; the plugin owns
+the default 4000-character tool-output elision with a 500-character head.
+No new journal kind, schema version, tool, or gate point. Tests:
+`packages/agent/test/compaction/{compact,capability}.test.ts`,
+`packages/agent/test/core/execution/{compaction-deferral,compaction-off,overflow-recovery}.test.ts`,
+and `apps/openomni/test/compaction-composition.test.ts`.
 
 ## #1316 tool plugin owns tool dispatch, monitor requires the tool seam (epic #1303)
 

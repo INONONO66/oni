@@ -10,3 +10,6 @@ import { Bundle } from "@openomni/agent";
 
 /** The tool capability's seam; `bundles/send-message` requires it. */
 export const ToolCapabilitySeam = Bundle.seam("@openomni/openomni/ToolCapabilitySeam");
+
+/** The compaction summarizer provider's seam; `bundles/compaction` requires it next to the capability's. */
+export const CompactionSummarizerSeam = Bundle.seam("@openomni/openomni/CompactionSummarizerSeam");

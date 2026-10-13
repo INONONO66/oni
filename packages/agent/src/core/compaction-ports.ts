@@ -1,10 +1,17 @@
 import type { Effect, Scope } from "effect";
-import type { BusEvent, FoldCheckpoint, LedgerAction, Message, PlainValue } from "@openomni/protocol";
+import type {
+  BusEvent,
+  FoldCheckpoint,
+  LedgerAction,
+  Message,
+  PlainValue,
+} from "@openomni/protocol";
 import { seam, type SeamTag } from "./capability";
 import type { SessionKernel } from "./entity";
 import type { AgentFailure, ContextRestoreError, ExecutionError } from "./failure";
 import type { ExecutionRequest, Executor } from "./gate/decide";
 import type { Entropy } from "./ports";
+import type { RunState } from "./turn";
 
 /**
  * The ONE core-owned contract to the removable compaction plugin; with no service wired the kernel
@@ -17,28 +24,12 @@ export interface CompactionYield {
   readonly tokensBefore: number;
 }
 
-export interface CompactionGeometryInput {
-  readonly contextWindowTokens: number;
-  readonly reserveTokens?: number;
-  readonly previousYield?: CompactionYield;
-}
-
-export interface CompactionGeometry {
-  readonly thresholdRatio: number;
-  readonly thresholdTokens: number;
-  readonly reserveTokens: number;
-  readonly leadTokens: number;
-  readonly prepareTokens: number;
-  readonly graceTokens: number;
-}
-
 export interface SummarizationBudget {
   readonly maxInputTokens: number;
   readonly maxOutputTokens: number;
   readonly contextWindowTokens: number;
 }
 
-/** Strategy data, so they arrive as config. */
 export interface ToolOutputElision {
   readonly minOutputChars: number;
   readonly keepHeadChars: number;
@@ -49,10 +40,7 @@ export interface CompactionOptions {
   contextWindowTokens?: number;
   reserveTokens?: number;
   protectRecentMessages?: number;
-  /**
-   * The summarizer merges the newly cut span into the previous anchor body; it never regenerates.
-   * The mechanism owns the exclusions and threading.
-   */
+  /** Merges the newly cut span into the previous anchor body; it never regenerates. */
   onSummarize?: (
     messages: Message.WithParts[],
     previousAnchor: string | undefined,
@@ -61,76 +49,36 @@ export interface CompactionOptions {
   ) => Effect.Effect<string, ExecutionError>;
   /** The newest user message is always kept, even alone over budget: it is irreplaceable. */
   preserveUserMessageChars?: number;
-  /** Old tool outputs elide first; the lossy cut joins when the estimated reclaim cannot cover. */
+  /** Old tool outputs elide first; absent, the plugin applies its own defaults. */
   elideToolOutputs?: ToolOutputElision;
-  /**
-   * Meaningful only with `onSummarize`: the summary runs in the background past the prepare ratio
-   * and promotes with zero model calls while its span is live.
-   */
+  /** Meaningful only with `onSummarize`: the summary runs in the background past the prepare ratio. */
   speculate?: false;
   /** Deterministic fallback after this. */
   summarizerDeadlineMs?: number;
 }
 
-/** The mechanism never guesses the window. */
-export type ResolvedCompactionOptions = CompactionOptions & { contextWindowTokens: number };
+/**
+ * `prepare` only starts speculation after a continuation; `threshold` is the after-turn check;
+ * `yield` is the window yield and `overflow` the declared overflow. A pending speculative cut
+ * can defer execution below grace for any execution reason.
+ */
+export type CompactionReason = "prepare" | "threshold" | "yield" | "overflow";
 
-/** Pinned to the cut anchor, not to later appends. */
-export interface CompactionCandidate {
-  readonly prefixIds: readonly string[];
-  readonly prefixFingerprint: string;
-  readonly firstKeptId: string;
-  readonly compactionAnchorId: string | undefined;
-  readonly anchorBody: string;
+/** `completed` settles the outcome into the run state; a rewrite shows as `compactionCount` growth. */
+export type CompactionOutcome = "skipped" | "completed" | { readonly failed: ExecutionError };
+
+/** Read-only window facts for yielding: where to yield and how to size a history without running. */
+export interface CompactionWindow {
+  readonly yieldAt: number;
+  readonly measure: (messages: readonly Message.WithParts[]) => number;
 }
 
-export interface CompactionSessionPort {
-  prepare(
-    messages: readonly Message.WithParts[],
-    contextTokens: number,
-    prepareTokens: number,
-    contextWindowTokens: number,
-    onFailure?: (error: Error, failureStreak: number) => void,
-  ): Effect.Effect<void, never, Scope.Scope>;
-  candidate(): CompactionCandidate | undefined;
-  inFlight(): boolean;
-  consume(): void;
-  disable(): Effect.Effect<void>;
-  settleAbort(): Effect.Effect<void>;
-}
-
-export interface CompactionSessionConfig {
-  readonly protectRecentMessages: number;
-  readonly summarize: NonNullable<CompactionOptions["onSummarize"]>;
-  readonly summarizerDeadlineMs?: number;
-}
-
-export interface CompactionExecutionInput {
-  readonly history: Message.WithParts[];
-  readonly options: ResolvedCompactionOptions;
-  readonly identity: {
-    readonly traceId: string;
-    readonly sessionId: string;
-    readonly runId?: string;
-    readonly actorId?: string;
-  };
-  readonly events: BusEvent.Sink;
-  readonly executor?: Executor;
-  readonly signal?: AbortSignal;
-  readonly dispatch: {
-    readonly trigger: "threshold" | "yield";
-    readonly measuredTokens?: number;
-    readonly candidate?: CompactionCandidate;
-  };
-}
-
-export interface CompactionExecutionOutcome {
-  compacted: boolean;
-  messages: Message.WithParts[];
-  summarizerFailed?: boolean;
-  yield?: CompactionYield;
-  ineffective?: boolean;
-}
+export type PinCompactionAction = (
+  kernel: SessionKernel,
+  action: LedgerAction.Append,
+  state: FoldCheckpoint.State,
+  sourceRevision: number,
+) => LedgerAction.Append;
 
 export interface CompactionRestoreInput {
   readonly sessionId: string;
@@ -145,28 +93,41 @@ export interface CompactionRestorePlan {
   readonly restored: PlainValue;
 }
 
-/** Every member is the same function the plugin modules export. */
+export type PrepareCompactionRestore = (
+  input: CompactionRestoreInput,
+) => Effect.Effect<CompactionRestorePlan, ContextRestoreError | AgentFailure>;
+
+/** The four operations the core consumes; everything else about compaction is the plugin's. */
+export interface CompactionPort {
+  readonly maybeCompact: (
+    state: RunState,
+    reason: CompactionReason,
+  ) => Effect.Effect<CompactionOutcome, never, Entropy | Scope.Scope>;
+  readonly window: (state: RunState) => CompactionWindow | undefined;
+  readonly pinAction: PinCompactionAction;
+  readonly prepareRestore: PrepareCompactionRestore;
+}
+
+/** What one run hands the plugin when binding its port. */
+export interface CompactionRunBinding {
+  readonly options: CompactionOptions | undefined;
+  readonly identity: {
+    readonly traceId: string;
+    readonly sessionId: string;
+    readonly runId?: string;
+    readonly actorId?: string;
+  };
+  readonly events: BusEvent.Sink;
+  readonly executor?: Executor;
+  readonly signal?: AbortSignal;
+}
+
+/** The composed seam: the two run-free operations plus the binding that yields a run's port. */
 export interface CompactionSeamService {
-  readonly protectRecent: number;
-  readonly geometry: (input: CompactionGeometryInput) => CompactionGeometry;
-  readonly measure: (message: Message.WithParts) => number | undefined;
-  readonly estimate: (messages: readonly Message.WithParts[]) => number;
-  readonly shouldCompact: (
-    totalTokens: number,
-    options: ResolvedCompactionOptions,
-    previousYield?: CompactionYield,
-  ) => boolean;
-  readonly execute: (
-    input: CompactionExecutionInput,
-  ) => Effect.Effect<CompactionExecutionOutcome, ExecutionError, Entropy>;
-  readonly createSession: (config: CompactionSessionConfig) => CompactionSessionPort;
-  readonly pinAction: (
-    kernel: SessionKernel,
-    action: LedgerAction.Append,
-    state: FoldCheckpoint.State,
-    sourceRevision: number,
-  ) => LedgerAction.Append;
-  readonly prepareRestore: (
-    input: CompactionRestoreInput,
-  ) => Effect.Effect<CompactionRestorePlan, ContextRestoreError | AgentFailure>;
+  readonly pinAction: PinCompactionAction;
+  readonly prepareRestore: PrepareCompactionRestore;
+  /** Speculation lives in the run Scope; closing it settles the abort before the run returns. */
+  readonly bind: (
+    binding: CompactionRunBinding,
+  ) => Effect.Effect<CompactionPort, never, Scope.Scope>;
 }
