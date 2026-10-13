@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress, type ToolExecutionContext } from "@openomni/protocol";
 import { createProvisionTool, ProvisionInput } from "../src/tools/provision";
 import { executeAutomation } from "../src/provisioning/automation";
+import { executeProvision } from "../src/provisioning/execution";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
@@ -37,6 +38,20 @@ test("Owner provisioning round trips the record and all mutations share the same
     .toMatchObject({ result: { record: { enabled: true } } });
   expect(executeAutomation(automations, { op: "automation_remove", args: { id: "rule" } }, "owner"))
     .toEqual({ op: "automation_remove", result: { id: "rule" } });
+});
+
+test("the provision tool lists, disables, and removes as the calling session without approval", async () => {
+  const { port, automations } = fixture();
+  executeAutomation(automations, { op: "automation_add", args: { record: record() } }, "owner");
+  const execute = executeProvision(port, () => 100);
+  const context = { sessionId: "agent" } as ToolExecutionContext;
+  expect(await execute({ operation: { op: "automation_list", args: {} } }, context))
+    .toEqual({ op: "automation_list", result: { records: [record()] } });
+  expect(await execute({ operation: { op: "automation_disable", args: { id: "rule" } } }, context))
+    .toEqual({ op: "automation_disable", result: { record: { ...record(), enabled: false } } });
+  expect(await execute({ operation: { op: "automation_remove", args: { id: "rule" } } }, context))
+    .toEqual({ op: "automation_remove", result: { id: "rule" } });
+  expect(automations.store.list()).toEqual([]);
 });
 
 test("session creation cannot forge authority and every direct enable requests approval", () => {

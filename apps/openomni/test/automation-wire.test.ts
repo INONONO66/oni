@@ -67,6 +67,17 @@ test("invalid records produce correlated schema issues without a store write", a
   expect(f.stores.automations.list()).toEqual([]);
 });
 
+test("a request the socket parse missed is refused with its schema issues, never thrown", async () => {
+  const f = await automationFixture(suite);
+  const wire = automationWire({ id: () => "new-id", store: f.stores.automations });
+  const malformed = { type: "automation_remove", requestId: "malformed", id: 42 } as unknown as Ingress.AutomationRequest;
+  expect(await runEffect(wire(malformed, "owner"))).toMatchObject({
+    type: "automation_remove_refused", requestId: "malformed", reason: "invalid_record",
+    issues: [expect.objectContaining({ path: ["args", "id"], code: "invalid_type" })],
+  });
+  expect(f.stores.automations.list()).toEqual([]);
+});
+
 test("a store failure yields a correlated refusal frame instead of an unanswered request", async () => {
   const f = await automationFixture(suite);
   const wire = automationWire({
