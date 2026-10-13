@@ -49,8 +49,9 @@ On `epic1337/1340-matcher-judge-store` (2026-10-13, base `182a9fc27`, PR #1411).
 - `router/automation-rules.ts` replaces #1339's `router/ingress-filter.ts`;
   bot filtering writes only the automation ledger.
 - Rule editing (`provision{automation_*}`) and the desktop editor are rungs
-  4/5 (#1341, #1342). Tests: channels 761 pass / 0 fail; apps/openomni 782
-  pass / 0 fail.
+  4/5 (#1341, #1342). A non-firing automation never suppresses ordinary delivery;
+  a failing group close is isolated to its group and recorded. Tests:
+  channels 770 pass / 0 fail; apps/openomni 782 pass / 0 fail.
 
 ## #1339 channel drivers report facts only and emit the unified ingress input (epic #1337, rung 2)
 
