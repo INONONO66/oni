@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { captureOutput, expectExitViolation } from "./capture-output.test-helper";
 import { main } from "./lint-side-effects";
 
-const hotFile = "packages/agent/src/model/processor/index.ts";
+const hotFile = "packages/llm/src/processor/index.ts";
 
 test("side-effect lint accepts the shipped processor in-process", async () => {
   const cwd = process.cwd();

@@ -33,11 +33,11 @@ test("#1276 check a: a core file importing plugins/ fails", () => {
   expect(found[0]).toContain("core/ may not import plugins/");
 });
 
-test("#1276 check a: a core file importing model/, inspect/ or testing/ fails", () => {
+test("#1276 check a: a core file importing plugins/, inspect/ or testing/ fails", () => {
   const found = agentBandViolations(
     "packages/agent/src/core/evil.ts",
     [
-      'import { m } from "../model/errors";',
+      'import { m } from "../plugins/compaction/restore";',
       'import { h } from "../inspect/history";',
       'import { t } from "../testing/registry";',
     ].join("\n"),
@@ -113,21 +113,21 @@ test("#1276 check b: a plugin importing the package root barrel fails (review r2
 test("#1276 check b: a plugin importing a band root barrel fails", () => {
   const found = agentBandViolations(
     "packages/agent/src/plugins/alarm/review-probe.ts",
-    'import { M } from "../../model";\nimport { barrel } from "../..";',
+    'import { I } from "../../inspect";\nimport { barrel } from "../..";',
   );
   expect(found).toHaveLength(2);
-  expect(found[0]).toContain("plugins/alarm/ may not import model/");
+  expect(found[0]).toContain("plugins/alarm/ may not import inspect/");
   expect(found[1]).toContain("may not import the package root barrel");
 });
 
 test("#1276 (r2): a core file importing a band root barrel fails (review r2 probe)", () => {
   const found = agentBandViolations(
     "packages/agent/src/core/review-probe.ts",
-    'import { Model } from "../model";',
+    'import { Inspect } from "../inspect";',
   );
   expect(found).toHaveLength(1);
   expect(found[0]).toBe(
-    "VIOLATION: packages/agent/src/core/review-probe.ts:1 imports ../model — #1247 bands: core/ may not import model/",
+    "VIOLATION: packages/agent/src/core/review-probe.ts:1 imports ../inspect — #1247 bands: core/ may not import inspect/",
   );
 });
 
@@ -233,14 +233,14 @@ test("#1276 (r3): a forbidden import in a formerly-pinned, now-clean file fails 
 });
 
 test("#1276 (r3): a pin above the actual count fails closed", async () => {
-  // core/retry.ts is pinned at 1; a scratch tree where it is clean must fail.
+  // core/commit.ts is pinned at 1; a scratch tree where it is clean must fail.
   const root = scratchAgentTree({
-    "core/retry.ts": "export const clean = true;\n",
+    "core/commit.ts": "export const clean = true;\n",
   });
   try {
     const violations = await validateAgentBands(root);
     expect(violations).toContain(
-      "VIOLATION: packages/agent/src/core/retry.ts pin exceeds actual (1 > 0): lower the pin",
+      "VIOLATION: packages/agent/src/core/commit.ts pin exceeds actual (1 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

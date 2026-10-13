@@ -7,6 +7,7 @@ import { fixtureStopEvidence, prepareChatFixture } from "../../../packages/agent
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices, } from "../../../packages/agent/test/helpers/session-services";
 import { KERNEL_POLICY_REGISTRY } from "../../../packages/agent/src/core/gate/compile";
 import { Cause, Effect, Exit } from "effect";
+import type { LlmSink, RunInput } from "../../../packages/agent/src/core/llm";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
 import { providerFailure } from "../../../packages/agent/test/helpers/mock-llm";
 import { seedPolicy } from "../../../packages/agent/test/helpers/seed-policy";
@@ -21,7 +22,7 @@ import type { SessionHandle, SessionRunnerInput } from "../../../packages/agent/
 import { session } from "../../../packages/agent/src/testing/registry";
 import { turnExecutor, nullRetryAlarm, foreign } from "../../../packages/agent/test/helpers/effect-g2";
 import { recordingChatRunner } from "../../../packages/agent/test/helpers/session-chat";
-import { completeModel, createMockLlmConfig, createStopOutcome, type MockLlmFn, mockProviderData, mockProviderModel, } from "../../../packages/agent/test/helpers/mock-llm";
+import { completeModel, createStopOutcome, mockLlm, type MockLlmFn, mockProviderModel } from "../../../packages/agent/test/helpers/mock-llm";
 
 const policy = compilePolicySnapshot({
   registry: KERNEL_POLICY_REGISTRY,
@@ -119,11 +120,7 @@ function config(run: MockLlmFn, executor: Executor = testExecutor(), fallbacks?:
     model: { provider: "anthropic", id: mockProviderModel.id },
     ...(fallbacks === undefined ? {} : { modelFallbacks: fallbacks }),
     llm: {
-      ...createMockLlmConfig({
-        getModels: async () => mockProviderData,
-        fromModelsDevModel: () => mockProviderModel,
-        run,
-      }),
+      ...mockLlm(run),
       // With fallbacks, echo the selected ref so the recorded chat names the model that answered.
       ...(fallbacks === undefined ? {} : { resolveModel: echoModel }),
     },
@@ -344,7 +341,7 @@ describe("session chat runner", () => {
           let calls = 0;
 
           const { actions, deliveryIds } = yield* runDurably(
-            async (input: import("../../../packages/agent/src/model").RunInput, sink: import("../../../packages/agent/src/model").Sink) => {
+            async (input: RunInput, sink: LlmSink) => {
               calls += 1;
               return calls === 1 ? { type: "continue" } : completeModel(input, sink);
             },
@@ -407,10 +404,10 @@ describe("session chat runner", () => {
           let calls = 0;
 
           const { actions } = yield* runDurably(
-            async (input: import("../../../packages/agent/src/model").RunInput, sink: import("../../../packages/agent/src/model").Sink) => {
+            async (input: RunInput, sink: LlmSink) => {
               calls += 1;
               return calls === 1
-                ? { type: "error", error: providerFailure("transient provider outage") }
+                ? { type: "error", error: providerFailure("transient provider outage", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) }
                 : completeModel(input, sink);
             },
           );
@@ -457,10 +454,10 @@ describe("session chat runner", () => {
           const answered: string[] = [];
 
           const { actions } = yield* runDurably(
-            async (input: import("../../../packages/agent/src/model").RunInput, sink: import("../../../packages/agent/src/model").Sink) => {
+            async (input: RunInput, sink: LlmSink) => {
               answered.push(input.model.id);
               return answered.length === 1
-                ? { type: "error", error: providerFailure("transient provider outage") }
+                ? { type: "error", error: providerFailure("transient provider outage", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) }
                 : completeModel(input, sink);
             },
             { prompts: 2, fallbacks: [fallback] },

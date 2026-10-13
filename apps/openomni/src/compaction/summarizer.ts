@@ -1,9 +1,9 @@
-import { Core, type Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
 type ObservationSink = Core.ObservationSink;
 const AgentFailure = Core.AgentFailure;
 type CompactionOptions = Core.CompactionOptions;
-type Llm = Model.Llm;
-type RunInput = Model.RunInput;
+type Llm = Core.Llm;
+type RunInput = Core.RunInput;
 import { Effect, Result } from "effect";
 import type { Message, PlainObject } from "@openomni/protocol";
 import { runResolvedText } from "../composition/completion";

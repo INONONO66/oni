@@ -53,7 +53,8 @@ openomni/
 │   └── desktop/         # Electron console: shell/build pipeline plus app-owned AI SDK chat state
 ├── packages/
 │   ├── protocol/        # Zod schemas and cross-package contracts
-│   ├── agent/           # durable sessions, stateless runAgent loop, executor, policy gate, stores, model
+│   ├── agent/           # durable sessions, stateless runAgent loop, executor, policy gate, stores, llm port
+│   ├── llm/             # model-call layer: providers, stream processor, accounting, failure classifier
 │   ├── machines/        # raw list/get/fs/exec/runCode/pty WHERE endpoint + ipc transport
 │   ├── codemode/        # code facade, machine handles, per-tenant interpreter runner
 │   ├── channels/        # channel drivers and perimeter gateway router
@@ -71,8 +72,9 @@ openomni/
 Read `X <- Y` as Y may depend on X.
 
 ```text
-protocol <- agent, machines, codemode, channels, apps/openomni, apps/desktop
+protocol <- agent, llm, machines, codemode, channels, apps/openomni, apps/desktop
 agent <- channels, apps/openomni
+llm <- apps/openomni
 machines <- codemode, apps/openomni
 codemode <- apps/openomni
 channels <- apps/openomni
@@ -83,10 +85,11 @@ ui <- apps/desktop
 | --- | --- |
 | `protocol` | none |
 | `agent` | protocol |
+| `llm` | protocol |
 | `machines` | protocol |
 | `codemode` | protocol, machines |
 | `channels` | protocol, agent |
-| `apps/openomni` | protocol, channels, agent, machines, codemode |
+| `apps/openomni` | protocol, channels, agent, llm, machines, codemode |
 | `ui` | none |
 | `apps/desktop` | protocol, ui |
 <!-- END GENERATED TOPOLOGY -->
@@ -98,7 +101,8 @@ ui <- apps/desktop
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `packages/protocol` | Schemas, wire contracts, pure folds | I/O, storage, product decisions |
-| `packages/agent` | Generic durable-session mechanics over its store facts, stateless loop, and compaction; the generic policy gate (`src/core/gate/`); handle-scoped catalog/session-file stores, action hash chain, decision facts, and activation fence CAS (`src/core/store/`); provider behavior and model accounting (`src/model/`); bus and scoped observation (`src/observation/`) | Product-specific session identity, routing, lifecycle policy, or authority decisions |
+| `packages/agent` | Generic durable-session mechanics over its store facts, stateless loop, and compaction; the generic policy gate (`src/core/gate/`); handle-scoped catalog/session-file stores, action hash chain, decision facts, and activation fence CAS (`src/core/store/`); the model-call port and retry decision (`src/core/llm.ts`, `src/core/retry.ts`); bus and scoped observation (`src/observation/`) | Product-specific session identity, routing, lifecycle policy, or authority decisions; provider adapters or the `ai` SDK (that is `packages/llm`'s) |
+| `packages/llm` | The model-call layer behind the core port: provider resolution and adapters over `ai@7.0.93`, one streaming attempt per `run`, stream-event processing, usage accounting, credential storage, the pure `classifyFailure` | Retry scheduling, attempt caps, fallback, compaction, or any `@openomni/agent` import |
 | `packages/machines` | Machine attachment, confined fs, exec and injected code wire; framing and bidirectional transport (`src/ipc/`); the structural host/daemon contracts code mode consumes | Enrollment policy, kernel policy, model rendering or product judgment |
 | `packages/codemode` | Code facade (`createCodemode`), machine object handles, per-tenant Python interpreter and cell `run/peek/stop` lifecycle, code-mode prelude, codemode errors and call routing | Kernel policy, ledger state, model rendering, machine transport or enrollment |
 | `packages/channels` | Drivers plus perimeter routing, physical request correlation, and admission; the channel-facing perimeter stores (`src/store/`) | Session content or product execution |
@@ -113,7 +117,7 @@ ui <- apps/desktop
 | Shared schema or event | `packages/protocol/src/` |
 | Session/store behavior | `packages/agent/src/core/store/` |
 | Policy mechanism | `packages/agent/src/core/gate/` |
-| Model/provider behavior | `packages/agent/src/model/` |
+| Model/provider behavior | `packages/llm/src/` (port: `packages/agent/src/core/llm.ts`) |
 | Session loop, executor, and compaction | `packages/agent/src/core/run.ts`, `packages/agent/src/core/turn.ts`, `packages/agent/src/core/gate/decide.ts`, `packages/agent/src/plugins/compaction/` |
 | Channel driver or perimeter route | `packages/channels/src/` |
 | Raw machine endpoints | `packages/machines/src/` |

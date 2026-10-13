@@ -6,8 +6,7 @@ import { failure } from "../../helpers/effect-g1";
 import { providerFailure } from "../../helpers/mock-llm";
 import { createTestAgent } from "../../helpers/effect-g1";
 import { describe, expect, it } from "bun:test";
-import type { Provider, Sink } from "../../../src/model";
-import { toModelMessages } from "../../../src/model/message";
+import type { LlmSink as Sink, ResolvedModel } from "../../../src/core/llm";
 import type { Message } from "@openomni/protocol";
 import { RunEvents } from "../../../src/core/turn";
 import { createAssistantMessage } from "../../../src/core/message-factory";
@@ -16,12 +15,11 @@ import { createStopOutcome, type MockLlmFn } from "../../helpers/mock-llm";
 import { runInput } from "../../helpers/run-input";
 import { stepFinish } from "../../helpers/messages";
 
-const providerModel = {
+const providerModel: ResolvedModel = {
   id: "claude-3-haiku-20240307",
   name: "Claude 3 Haiku",
   providerID: "anthropic",
-  api: { npm: "@ai-sdk/anthropic" },
-} satisfies Provider.Model;
+};
 
 function toolSnapshot(id: string, text: string, reason: "tool-calls" | "stop"): Message.WithParts {
   const base = createAssistantMessage(text, "", "session", messageSource);
@@ -88,21 +86,13 @@ describe("tool-bearing history", () => {
     expect(result.finishReason).toBe("stop");
     const second = inputs[1] ?? [];
     const assistant = second.find((message) => message.info.id === "first");
-    expect(assistant?.parts.some((part) => part.type === "tool")).toBe(true);
-    const provider = toModelMessages(second, providerModel);
-    const toolCalls = provider
-      .filter((message) => message.role === "assistant")
-      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
-      .filter((part) => part.type === "tool-call");
-    const toolResults = provider
-      .filter((message) => message.role === "tool")
-      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
-      .filter((part) => part.type === "tool-result");
-    expect(toolCalls).toHaveLength(1);
-    expect(toolCalls.map((part) => part.toolCallId)).toEqual(["call-1"]);
-    expect(toolResults).toHaveLength(1);
-    expect(toolResults.map((part) => part.toolCallId)).toEqual(["call-1"]);
-    expect(toolResults[0]?.output).toEqual({ type: "text", value: "42" });
+    // The port receives the completed tool part with its call id and output
+    // intact; rendering that part as provider tool-call/tool-result blocks is
+    // the call layer's and is tested beside it in packages/llm (#1352).
+    const toolParts = (assistant?.parts ?? []).filter((part): part is Message.ToolPart => part.type === "tool");
+    expect(toolParts).toHaveLength(1);
+    expect(toolParts.map((part) => part.callID)).toEqual(["call-1"]);
+    expect(toolParts[0]?.state).toMatchObject({ status: "completed", output: "42" });
   });
 
   it("preserves accumulated tool history and usage across an agent retry", async () => {
@@ -122,7 +112,7 @@ describe("tool-bearing history", () => {
             sink.onMessage(toolSnapshot("first", "answer", "tool-calls"));
             return createStopOutcome();
           }
-          if (calls === 2) return { type: "error", error: providerFailure("transient failure") };
+          if (calls === 2) return { type: "error", error: providerFailure("transient failure", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) };
           sink.onMessage(createAssistantMessage("done", "", "session", messageSource));
           return createStopOutcome();
         },

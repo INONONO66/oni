@@ -1,12 +1,12 @@
 import { Effect } from "effect";
-import { Core, Model } from "@openomni/agent";
-const LlmLive = Model.LlmLive;
+import { Core } from "@openomni/agent";
+import { LlmLive } from "../src/runtime";
 const ObservationSink = Core.ObservationSink;
 import { Bus, newTraceId } from "./helpers/bus";
 import { runSyncEffect } from "./helpers/effect";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-type RunInput = Model.RunInput;
-type Sink = Model.Sink;
+type RunInput = Core.RunInput;
+type Sink = Core.LlmSink;
 import { loadConfig } from "../src/config";
 import { configuredCompaction } from "../src/compaction/strategy";
 import { assistantMessage } from "./helpers/assistant-message";

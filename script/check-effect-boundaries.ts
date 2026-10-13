@@ -15,6 +15,7 @@ const RUNNER_OWNERS = new Set([
   "apps/openomni/test/helpers/effect.ts",
   "packages/agent/test/helpers/isolated.ts",
   "packages/channels/test/helpers/effect.ts",
+  "packages/llm/test/helpers/runner.ts",
   "packages/machines/test/helpers/effect.ts",
   "packages/machines/test/ipc/helpers/effects.ts",
   "packages/agent/bench/turns.ts",
@@ -358,6 +359,7 @@ function enclosingName(node: ts.Node): string {
   }
   return names.join("/") || "<module>";
 }
+
 const sitePrinter = ts.createPrinter({ removeComments: true });
 class BoundarySites {
   readonly findings: BoundaryFinding[] = [];
@@ -598,6 +600,7 @@ function readAllowlist(worktree: string): { readonly entries: readonly string[];
     return { entries: [], findings: [finding("R2_INVALID_ALLOWLIST", allowlistPath)] };
   }
 }
+
 function analyze(worktree: string, files: readonly string[]): Analysis {
   const program = ts.createProgram(files.filter(sourcePath).map((file: string) => join(worktree, file)), { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.Preserve, noResolve: true, noLib: true });
   const diagnostics = program.getSyntacticDiagnostics();

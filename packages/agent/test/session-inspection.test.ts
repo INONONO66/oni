@@ -1,4 +1,3 @@
-import { APICallError } from "ai";
 import { sessionTree } from "./helpers/session-tree";
 import type { ResolvedExecutorOptions } from "../src/core/gate/decide";
 import { turnTestLayer, catalogLayer } from "./helpers/service-layers";
@@ -12,7 +11,8 @@ import { OutcomeUnknown, CommitFailed } from "../src/core/failure";
 import { seedPolicy } from "./helpers/seed-policy";
 import { approveWriteRow } from "./helpers/compiled-policy";
 import * as SessionHandleStore from "../src/core/store/fence";
-import { LlmRunFailure, type Run } from "../src/model";
+import { LlmRunFailure } from "../src/core/llm";
+import { FakeProviderError } from "./helpers/fake-llm";
 import { Alarm, L0Observation, type PolicyRow, type SessionHistory } from "@openomni/protocol";
 import { closeSessions, type SessionRunner } from "../src/core/run";
 import { createTurnDispatcher } from "../src/plugins/tool";
@@ -93,7 +93,7 @@ const rows: readonly Omit<PolicyRow.Row, "generation">[] = [
   approveWriteRow,
 ];
 
-function providerFailure(): Run.Failure {
+function providerFailure(): LlmRunFailure {
   return new LlmRunFailure({
     message: "overloaded",
     aborted: false,
@@ -106,9 +106,9 @@ function providerFailure(): Run.Failure {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
     },
-    cause: new APICallError({
-      message: "overloaded", url: "https://provider.test/v1/messages", requestBodyValues: {},
-      statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
+    cause: new FakeProviderError({
+      message: "overloaded", statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
+      failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false },
     }),
   });
 }

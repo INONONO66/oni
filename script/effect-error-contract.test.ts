@@ -3,9 +3,10 @@ import { Effect, Result } from "effect";
 import ts from "typescript";
 import { runSyncEffect } from "../apps/openomni/test/helpers/effect";
 import * as Agent from "../packages/agent/src/core/failure";
-import * as Model from "../packages/agent/src/model/errors";
+import * as Llm from "../packages/llm/src/errors";
+import * as CoreLlm from "../packages/agent/src/core/llm";
 import * as Store from "../packages/agent/src/core/store/errors";
-import { sdkError } from "../packages/agent/test/model/helpers/retry";
+import { sdkError } from "../packages/llm/test/helpers/retry";
 import * as Channels from "../packages/channels/src/errors";
 import * as Code from "../packages/codemode/src/errors";
 import * as Machines from "../packages/machines/src/errors";
@@ -14,19 +15,20 @@ const diagnostic = { operation: "fixture", cause: "foreign diagnostic" };
 const message = { message: "fixture" };
 const usage = { inputTokens: 1, outputTokens: 2, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 const agentFailure = new Agent.AgentFailure(diagnostic);
-// #1246: llm folded into the agent model plane; AgentFailure is the one carrier.
-const model = {
-  AgentFailure: agentFailure,
-  APIError: new Model.APIError({ cause: sdkError({ ...message, isRetryable: true, statusCode: 429 }), provider: "provider", model: "model" }),
-  LlmRunFailure: new Model.LlmRunFailure({ ...message, usage, aborted: false, contextOverflow: false, visibleOutput: true }),
-  ModelResolutionError: new Model.ModelResolutionError({ ...message, provider: "provider", model: "model", reason: "model_not_found" }),
-  AuthInvalidFileError: new Model.AuthInvalidFileError({ ...message, path: "auth.json" }),
-  AuthResolutionError: new Model.AuthResolutionError({ ...message, provider: "provider", reason: "missing_auth" }),
-  ModelCatalogError: new Model.ModelCatalogError({ ...message, source: "cache", path: "models.json" }),
-  ProxyModelsError: new Model.ProxyModelsError({ ...message, url: "https://fixture.invalid" }),
-  TransportFailure: new Model.TransportFailure({ ...diagnostic, ...message }),
-  InvalidProviderData: new Model.InvalidProviderData({ ...diagnostic, ...message }),
-} satisfies { [K in Model.LlmError["_tag"]]: Extract<Model.LlmError, { _tag: K }> };
+// #1352: the model-call layer is its own package; LlmOperationFailure is its carrier.
+const llmCarrier = new Llm.LlmOperationFailure(diagnostic);
+const llm = {
+  LlmOperationFailure: llmCarrier,
+  APIError: new Llm.APIError({ cause: sdkError({ ...message, isRetryable: true, statusCode: 429 }), provider: "provider", model: "model" }),
+  LlmRunFailure: new Llm.LlmRunFailure({ ...message, usage, aborted: false, contextOverflow: false, visibleOutput: true }),
+  ModelResolutionError: new Llm.ModelResolutionError({ ...message, provider: "provider", model: "model", reason: "model_not_found" }),
+  AuthInvalidFileError: new Llm.AuthInvalidFileError({ ...message, path: "auth.json" }),
+  AuthResolutionError: new Llm.AuthResolutionError({ ...message, provider: "provider", reason: "missing_auth" }),
+  ModelCatalogError: new Llm.ModelCatalogError({ ...message, source: "cache", path: "models.json" }),
+  ProxyModelsError: new Llm.ProxyModelsError({ ...message, url: "https://fixture.invalid" }),
+  TransportFailure: new Llm.TransportFailure({ ...diagnostic, ...message }),
+  InvalidProviderData: new Llm.InvalidProviderData({ ...diagnostic, ...message }),
+} satisfies { [K in Llm.LlmError["_tag"]]: Extract<Llm.LlmError, { _tag: K }> };
 // #1246: ipc folded into machines; MachinesFailure is the one carrier.
 const ipc = {
   MachinesFailure: new Machines.MachinesFailure(diagnostic),
@@ -64,10 +66,10 @@ const store = {
   SchemaRefused: new Store.SchemaRefused({ sessionId: "session", actionId: "action", kind: "prompt", reason: "fixture" }),
   CatalogVersionRefused: new Store.CatalogVersionRefused({ fileVersion: 99, codeVersion: 1, operation: "indexSession" }),
 } satisfies { [K in Store.LedgerError["_tag"]]: Extract<Store.LedgerError, { _tag: K }> };
-// Agent.SessionError absorbs Store.LedgerError and Model.LlmRunFailure, so those fixtures are members too.
+// Agent.SessionError absorbs Store.LedgerError and the core port's LlmRunFailure (#1352), so those fixtures are members too.
 const agent = {
   ...store,
-  LlmRunFailure: model.LlmRunFailure,
+  LlmRunFailure: new CoreLlm.LlmRunFailure({ ...message, usage, aborted: false, contextOverflow: false, visibleOutput: true }),
   AgentFailure: agentFailure,
   PolicyDenied: new Agent.PolicyDenied({ phase: "pre", ruleIds: [] }),
   ToolBodyFailed: new Agent.ToolBodyFailed({ tool: "fixture", cause: "foreign" }),
@@ -111,7 +113,7 @@ type Failure =
   | Code.CodeError
   | Ipc.IpcError
   | Store.LedgerError
-  | Model.LlmError
+  | Llm.LlmError
   | Machines.MachineError;
 type ErrorClass = abstract new (...args: never) => Error;
 interface PackageEntry {
@@ -140,7 +142,7 @@ const carrierOwners: Readonly<Record<string, object>> = {
 const packages: readonly PackageEntry[] = [
   { name: "agent", path: "agent/src/core/failure", module: Agent, union: "SessionError", carrier: "AgentFailure", carrierPath: "agent/src/core/failure", failures: agent, thrown: [Agent.AgentInvariantViolation, Agent.SessionCommitError] },
   { name: "agent store", path: "agent/src/core/store/errors", module: Store, union: "LedgerError", carrier: "AgentFailure", carrierPath: "agent/src/core/store/errors", failures: store, thrown: [Store.LedgerInvariant] },
-  { name: "agent model", path: "agent/src/model/errors", module: Model, union: "LlmError", carrier: "AgentFailure", carrierPath: "agent/src/model/errors", failures: model, thrown: [] },
+  { name: "llm", path: "llm/src/errors", module: Llm, union: "LlmError", carrier: "LlmOperationFailure", carrierPath: "llm/src/errors", failures: llm, thrown: [] },
   { name: "channels", path: "channels/src/errors", module: Channels, union: "ChannelError", carrier: "ChannelsFailure", carrierPath: "channels/src/errors", failures: channels, thrown: [] },
   { name: "machines", path: "machines/src/errors", module: Machines, union: "MachineError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: machines, thrown: [] },
   { name: "machines ipc", path: "machines/src/ipc/errors", module: Ipc, union: "IpcError", carrier: "MachinesFailure", carrierPath: "machines/src/errors", failures: ipc, thrown: [] },

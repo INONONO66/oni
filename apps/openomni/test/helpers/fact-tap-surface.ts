@@ -5,11 +5,11 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Core, Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
+import { run } from "@openomni/llm";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
 import { Bus, newTraceId } from "./bus";
-const run = Model.run;
 import { LlmCall, type Message, type Tool } from "@openomni/protocol";
 import { z } from "zod";
 import { appFixture, testToolsBundle } from "./app-fixture";
@@ -83,7 +83,7 @@ const provider = Bun.serve({
   },
 });
 const providerPort = provider.port;
-const model: Model.Provider.Model = {
+const model: Core.ResolvedModel = {
   id: "fixture",
   name: "fixture",
   providerID: "anthropic",

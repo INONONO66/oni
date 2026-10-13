@@ -172,7 +172,7 @@ for (const projected of [false, true]) {
       "const sink = createProjectedSink(events, configuredSink, sessionID, trace.traceId);";
     put(
       root,
-      "packages/agent/src/model/processor/index.ts",
+      "packages/llm/src/processor/index.ts",
       projected
         ? `function emit() { ${bind} sink.onMessage(message); }`
         : `function unrelated() { ${bind} } function emit(sink) { sink.onMessage(message); }`,

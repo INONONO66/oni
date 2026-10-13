@@ -5,14 +5,14 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { interpreterWitness } from "./helpers/interpreter-witness";
-import { Core, type Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
 const currentInvocation = Core.currentInvocation;
 type InvocationFrame = Core.InvocationFrame;
 import { Bus, newTraceId } from "./helpers/bus";
 import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { planeOf } from "./helpers/ledger";
-type RunInput = Model.RunInput;
-type Sink = Model.Sink;
+type RunInput = Core.RunInput;
+type Sink = Core.LlmSink;
 import {
   attachMachineDaemon as attachDaemon,
   createMachineHost as createHost,

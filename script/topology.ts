@@ -31,10 +31,13 @@ export interface WorkspaceTopology {
  * #1246 merged ten packages into five: ipc and codemode folded into machines,
  * policy/ledger/llm folded into agent, and the channel-facing stores moved
  * into channels. #1272 extracted code mode back out as the sixth package.
- * The import direction (right imports left) is:
- * protocol <- agent, machines, channels, apps/openomni, apps/desktop;
- * agent <- channels, apps/openomni; machines <- codemode, apps/openomni;
- * codemode <- apps/openomni; channels <- apps/openomni; ui <- apps/desktop.
+ * #1352 extracted the model-call layer as `@openomni/llm`; the agent core
+ * declares the port and only the app binds the package. The import direction
+ * (right imports left) is:
+ * protocol <- agent, llm, machines, channels, apps/openomni, apps/desktop;
+ * agent <- channels, apps/openomni; llm <- apps/openomni;
+ * machines <- codemode, apps/openomni; codemode <- apps/openomni;
+ * channels <- apps/openomni; ui <- apps/desktop.
  */
 export const TOPOLOGY = [
   {
@@ -60,6 +63,20 @@ export const TOPOLOGY = [
     tsconfigVerify: true,
     extraSourceRoots: ["bench"],
     ciTestCommand: "bun run test:ci",
+  },
+  {
+    key: "llm",
+    displayName: "llm",
+    dir: "packages/llm",
+    packageName: "@openomni/llm",
+    // The model-call layer (#1352): provider adapters, stream processing and
+    // accounting over the ai SDK. It knows protocol only; the agent core
+    // declares the port it satisfies and never imports it.
+    allowedDeps: ["@openomni/protocol"],
+    testLane: true,
+    coverageLane: true,
+    knipWorkspace: true,
+    tsconfigVerify: true,
   },
   {
     key: "machines",
@@ -108,6 +125,7 @@ export const TOPOLOGY = [
       "@openomni/protocol",
       "@openomni/channels",
       "@openomni/agent",
+      "@openomni/llm",
       "@openomni/machines",
       "@openomni/codemode",
     ],

@@ -67,8 +67,8 @@ describe("run budget terminal facts", () => {
             toolExecutor,
             llm: mockLlm(
               async (
-                input: import("../../../src/model").RunInput,
-                sink: import("../../../src/model").Sink,
+                input: import("../../../src/core/llm").RunInput,
+                sink: import("../../../src/core/llm").LlmSink,
               ) => {
                 modelCalls += 1;
                 input.shouldYield?.();

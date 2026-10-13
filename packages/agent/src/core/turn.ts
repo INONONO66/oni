@@ -5,14 +5,15 @@ import { RunEvents } from "./run-events";
 export { stopState } from "./stop";
 export type { StopObservation, StopVerdict } from "./stop";
 export { RunEvents } from "./run-events";
-import { accumulateUsage, type RunInput, type Sink, type LlmError, Llm, Retry as LlmRetry, LlmRunFailure, observeRetry, selectModel } from "../model";
+import { accumulateUsage, type RunInput, type LlmSink as Sink, type LlmFailure, Llm, type LlmPort, isLlmRunFailure, LlmRunFailure, type AttemptEvidence, type ResolvedModel, type RunResult } from "./llm";
+import { selectModel } from "./model-select";
 import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, restoreBudgetState, type BudgetState, effectiveMaxToolCalls, publishBudgetTelemetry, evaluateBudget } from "./budget";
 import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "./failure";
 import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfig, ObservedChatAgentConfig } from "./types";
 import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "./message-factory";
 import type { CompactionSessionPort, CompactionYield } from "./compaction-ports";
 import * as Retry from "./retry";
-import { type RetryReason, type TerminalReason, failureFacts } from "./retry";
+import { type RetryReason, type TerminalReason, failureFacts, MAX_ATTEMPTS, observeRetry } from "./retry";
 import { buildSystemPrompt, prepareTurnTools, settleModelTools, assertToolExecutor, assertUnambiguousToolMetadata } from "./tool";
 import { Entropy, ObservationSink } from "./ports";
 import { applyCompaction, prepareCompactionAfterContinue } from "./compaction";
@@ -747,11 +748,11 @@ export function runAgent(
     const error = Cause.squash(cause);
     const facts = failureFacts(error);
     const interrupted = Cause.hasInterrupts(cause) || error instanceof Interrupted ||
-      (error instanceof LlmRunFailure && error.aborted);
+      (isLlmRunFailure(error) && error.aborted);
     emitRunFailed(config.events, base, error instanceof Error ? renderBodyCause(error) : thrownAsError(error).message, {
       reason: interrupted ? "aborted" : facts?.reason ?? "unclassified",
       attempt: facts?.attempt ?? state.attempt,
-      maxAttempts: facts?.maxAttempts ?? LlmRetry.MAX_ATTEMPTS,
+      maxAttempts: facts?.maxAttempts ?? MAX_ATTEMPTS,
     }, now);
   })), (effect) => compaction === undefined ? effect : Effect.ensuring(effect, compaction.settleAbort()));
 
@@ -772,7 +773,7 @@ function runModelStep(
   base: AgentRunBase,
   compaction: CompactionSessionPort | undefined,
   durableExecutor: Executor,
-  llm: Context.Service.Shape<typeof Llm>,
+  llm: LlmPort,
   source: MessageSource,
   entropy: Context.Service.Shape<typeof Entropy>,
 ): Effect.Effect<AgentResult | undefined, ExecutionError, Scope.Scope | Entropy> {
@@ -785,7 +786,7 @@ function runModelStep(
     recordRunAttempt(state, attempt);
     const chain = [config.model, ...(config.modelFallbacks ?? [])].slice(state.modelChainStart);
     const selected = selectModel(chain, [...priorFailures, ...failures]);
-    const model = yield* llm.resolveModel({ ...selected.model, now: source.now }).pipe(Effect.mapError(modelFailure));
+    const model = yield* llm.resolveModel(selected.model, source.now).pipe(Effect.mapError(modelFailure));
     const modelKey = `${model.providerID}/${model.id}`;
     if (state.modelKey !== undefined && state.modelKey !== modelKey) resetModelWindowGuards(state);
     state.modelKey = modelKey;
@@ -837,16 +838,7 @@ function runModelStep(
       }),
       body: () => Effect.suspend(() => llm.run(prepared.runInput, prepared.trackingSink)).pipe(
         Effect.mapError(modelFailure),
-        Effect.flatMap((result) => {
-          if (result.type === "aborted") return Effect.fail(result.error ?? new Interrupted());
-          if (result.type === "error") return Effect.fail(result.error);
-          return Effect.succeed({
-            type: successfulOutcome({ type: result.type }),
-            evidence: PlainValueSchema.parse(
-              result.type === "stop" ? (result.evidence ?? null) : null,
-            ),
-          });
-        }),
+        Effect.flatMap((result) => settleAttempt(llm, model, result)),
       ),
     };
   }).pipe(Effect.provideService(Entropy, entropy));
@@ -868,13 +860,19 @@ function runModelStep(
           state.overflowCompactionAttempted = true;
           return (yield* applyCompaction(state, config, base, compaction, "yield")) === "compacted";
         }).pipe(Effect.provideService(Entropy, entropy)),
+        classify: (failure) => llm.classifyFailure({
+          error: failure,
+          now: source.now(),
+          ...(isLlmRunFailure(failure) ? { usage: failure.usage } : {}),
+          ...(state.contextWindowTokens === undefined ? {} : { contextWindow: state.contextWindowTokens }),
+        }),
         onRetry: (decision) => {
           state.modelFailureReasons.push(decision.reason);
           emitErrorRetry(config.events, base, {
             attempt: decision.attempt,
             maxAttempts: decision.maxAttempts,
             error: decision.error.message,
-            reason: LlmRetry.attemptReason(decision.error),
+            reason: decision.reason,
             backoffMs: decision.delayMs,
           }, source.now);
           if (decision.reason !== "context_overflow" && decision.decision.retry)
@@ -904,9 +902,46 @@ function runModelStep(
   });
 }
 
-function modelFailure(error: LlmError): ExecutionError {
-  return error instanceof LlmRunFailure ? error : new AgentFailure({
+/** One attempt's result as the executor sees it; a stop whose usage proves the window was exceeded is an overflow the provider did not name and enters the same recovery path. */
+function settleAttempt(
+  llm: LlmPort,
+  model: ResolvedModel,
+  result: RunResult,
+): Effect.Effect<{ readonly type: "stop" | "continue"; readonly evidence: PlainValue }, ExecutionError> {
+  if (result.type === "aborted") return Effect.fail(result.error ?? new Interrupted());
+  if (result.type === "error") return Effect.fail(result.error);
+  if (result.type === "stop" && result.evidence !== undefined && stopOverflows(llm, model, result.evidence))
+    return Effect.fail(overflowStop(model, result.evidence));
+  return Effect.succeed({
+    type: successfulOutcome({ type: result.type }),
+    evidence: PlainValueSchema.parse(result.type === "stop" ? (result.evidence ?? null) : null),
+  });
+}
+
+function modelFailure(error: LlmFailure): ExecutionError {
+  return isLlmRunFailure(error) ? error : new AgentFailure({
     operation: "llm", cause: error.message,
+  });
+}
+
+/** The port's overflow verdict over a stop that showed nothing; a visible stop is the answer and is never replayed. */
+function stopOverflows(llm: LlmPort, model: ResolvedModel, evidence: AttemptEvidence): boolean {
+  const contextWindow = model.limit?.context;
+  if (evidence.visibleOutput || contextWindow === undefined || contextWindow <= 0) return false;
+  return llm.classifyFailure({ usage: evidence.usage, finishReason: evidence.finishReason, contextWindow }).kind === "overflow";
+}
+
+/** The declared overflow the attempt loop recovers from, built from the stop's own evidence. */
+function overflowStop(model: ResolvedModel, evidence: AttemptEvidence): LlmRunFailure {
+  return new LlmRunFailure({
+    message: `context window exceeded: ${evidence.usage.inputTokens + evidence.usage.cacheReadTokens} input tokens against ${model.limit?.context ?? 0}`,
+    provider: model.providerID,
+    model: model.id,
+    usage: evidence.usage,
+    usageProvenance: evidence.usageProvenance,
+    aborted: false,
+    contextOverflow: true,
+    visibleOutput: evidence.visibleOutput,
   });
 }
 

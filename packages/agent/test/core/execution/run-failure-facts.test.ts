@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { LlmRunFailure } from "../../../src/model";
+import type { LlmRunFailure } from "../../../src/core/llm";
 import { isolated } from "../../helpers/isolated";
 import { failure as failed } from "../../helpers/g0-signals";
 import { describe, expect, it } from "bun:test";
@@ -32,7 +32,7 @@ async function failedRun(failure: LlmRunFailure) {
 
 describe("terminal failure facts", () => {
   it("carries canonical classification, spent attempts and ceiling", async () => {
-    const failure = providerFailure("opaque failure");
+    const failure = providerFailure("opaque failure", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } });
     const { result, calls } = await failedRun(failure);
     expect(result).toBe(failure);
     expect(calls).toBe(3);
@@ -45,7 +45,7 @@ describe("terminal failure facts", () => {
   });
   it("keeps nonretryable provider failures at one attempt", async () => {
     const { result, calls } = await failedRun(
-      providerFailure("invalid request", { retryable: false, statusCode: 400 }),
+      providerFailure("invalid request", { retryable: false, statusCode: 400, failureClass: { kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 400 } }),
     );
     expect(calls).toBe(1);
     expect(failureFacts(result)).toEqual({
@@ -56,7 +56,7 @@ describe("terminal failure facts", () => {
     });
   });
   it("does not add enumerable provenance or change the provider error identity", async () => {
-    const failure = providerFailure("failure");
+    const failure = providerFailure("failure", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } });
     const original = JSON.stringify(failure);
     expect((await failedRun(failure)).result).toBe(failure);
     expect(JSON.stringify(failure)).toBe(original);

@@ -44,7 +44,7 @@ export interface ResidentOptions {
   readonly transport?: ChatAgentConfig["transport"];
   /** The composed-generation holder (#1255 P3); absent = legacy static faces (tests). */
   readonly composed?: { readonly current: () => ComposedContext };
-  readonly compaction?: Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>,  never, import("@openomni/agent").Model.Llm | ObservationSink>;
+  readonly compaction?: Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>,  never, Core.Llm | ObservationSink>;
   readonly tools: ToolPorts;
   readonly sessionRuntime: SessionRuntime;
   /** The catalog's current policy generation; new sessions pin it at creation. */

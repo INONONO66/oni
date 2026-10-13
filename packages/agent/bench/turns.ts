@@ -7,7 +7,7 @@ import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } fro
 import { openCatalogStore } from "../src/core/store/catalog";
 import { openSessionStore } from "../src/core/store/session-file";
 import * as SessionHandleStore from "../src/core/store/fence";
-import { accumulateUsage, Llm } from "../src/model";
+import { accumulateUsage, Llm } from "../src/core/llm";
 import type { Token } from "@openomni/protocol";
 import { Entropy, ObservationSink } from "../src/core/ports";
 import { allowAllPolicy } from "../test/helpers/compiled-policy";

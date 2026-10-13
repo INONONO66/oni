@@ -70,8 +70,8 @@ test("reopened SQLite hydrates exact tool-bearing assistant identities and rende
           definitions,
           () => runtime,
           async (
-            request: import("../../../src/model").RunInput,
-            sink: import("../../../src/model").Sink,
+            request: import("../../../src/core/llm").RunInput,
+            sink: import("../../../src/core/llm").LlmSink,
             input: import("../../../src/core/run").SessionRunnerInput,
           ) => {
             inputs.push(structuredClone(request.messages));
@@ -165,8 +165,8 @@ interface CompactionProbe {
 function compactionProbeStep(
   probe: CompactionProbe,
   sessionId: string,
-  request: import("../../../src/model").RunInput,
-  sink: import("../../../src/model").Sink,
+  request: import("../../../src/core/llm").RunInput,
+  sink: import("../../../src/core/llm").LlmSink,
 ): { type: "stop" } {
   probe.calls += 1;
   if (probe.calls === 3) probe.nextBoundary = structuredClone(request.messages);
@@ -240,8 +240,8 @@ test("compaction projection and lossless revert survive SQLite reopen without de
                         limit: { context: 10000 },
                       }),
                     run: (
-                      request: import("../../../src/model").RunInput,
-                      sink: import("../../../src/model").Sink,
+                      request: import("../../../src/core/llm").RunInput,
+                      sink: import("../../../src/core/llm").LlmSink,
                     ) =>
                       Effect.sync(() => compactionProbeStep(probe, input.sessionId, request, sink)),
                   },

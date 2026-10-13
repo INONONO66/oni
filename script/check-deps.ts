@@ -716,7 +716,8 @@ async function validateChannelsIntraPackageBanding(): Promise<string[]> {
 const AGENT_SRC_PREFIX = "packages/agent/src/";
 
 /**
- * #1276 agent responsibility bands (five-band table, issue #1276). Key =
+ * #1276 agent responsibility bands (four bands since #1352 moved `model/`
+ * out to `@openomni/llm`; the core declares the llm port itself). Key =
  * directory under packages/agent/src; `internal` = sibling bands a file may
  * relative-import; `externalBans` = module-specifier prefixes refused
  * outright; `tokenBans` = ambient authority tokens the band may not name.
@@ -737,11 +738,10 @@ const AGENT_BANDS: Record<string, {
     tokenBans: [/\bDate\.now\b/, /\bMath\.random\b/, /\bcrypto\.randomUUID\b/, /\bprocess\.env\b/],
   },
   plugins: { internal: new Set(["plugins"]), externalBans: [], tokenBans: [] },
-  model: { internal: new Set(["model"]), externalBans: [], tokenBans: [] },
   // inspect/ folds durable reads; it keeps full core access (pre-#1276 it read
   // kernel/session/store) but may never touch the live bus (core/bus).
   inspect: { internal: new Set(["inspect", "core"]), externalBans: [], tokenBans: [] },
-  testing: { internal: new Set(["testing", "core", "model", "plugins", "inspect"]), externalBans: [], tokenBans: [] },
+  testing: { internal: new Set(["testing", "core", "plugins", "inspect"]), externalBans: [], tokenBans: [] },
 };
 
 /** inspect/ may import session reads but never the live bus (issue table 1). */
@@ -903,21 +903,13 @@ export function agentBandViolations(filePath: string, source: string): string[] 
  */
 const AGENT_BAND_RATCHET: ReadonlyMap<string, number> = new Map([
   // #1307 moved every core -> plugins/compaction edge behind the compaction
-  // seam and inverted the plugin -> inspect/history edge; the remaining pins
-  // are core -> inspect/history and core/model edges (#1255 owns those).
+  // seam and inverted the plugin -> inspect/history edge; #1352 moved the
+  // model band out of the package, so the remaining pins are the
+  // core -> inspect/history edges (#1255 owns those).
   ["packages/agent/src/core/commit.ts", 1],
-  ["packages/agent/src/core/failure.ts", 1],
-  ["packages/agent/src/core/gate/decide.ts", 2],
   // #1310 split mailbox.ts; its grandfathered inspect/history edge moved to recovery.ts.
   ["packages/agent/src/core/recovery.ts", 1],
-  ["packages/agent/src/core/ports.ts", 1],
-  // pre-existing value import (instanceof LlmRunFailure); undercounted by the
-  // slash-only classifier before #1276 (r2 addendum measurement correction).
-  ["packages/agent/src/core/retry.ts", 1],
   ["packages/agent/src/core/run.ts", 2],
-  ["packages/agent/src/core/turn.ts", 1],
-  ["packages/agent/src/core/types.ts", 1],
-  ["packages/agent/src/model/errors.ts", 1],
 ]);
 
 
@@ -1394,7 +1386,7 @@ export async function validateAppsSessionWrites(
 
 /**
  * #1247 S8 perimeter pin: `packages/agent/src/index.ts` exports exactly
- * the five namespaces plus at most these six named exports consumed by
+ * the four namespaces (#1352 retired `Model`) plus at most these six named exports consumed by
  * `packages/channels` (legal channels -> agent band edges). Shrink-only:
  * removals are fine, any new name or any other export form fails. No epic
  * child owns retiring the named list; retirement is a separate decision.
@@ -1402,7 +1394,6 @@ export async function validateAppsSessionWrites(
 const AGENT_INDEX_NAMESPACES: ReadonlySet<string> = new Set([
   "Core",
   "Bundle",
-  "Model",
   "Inspect",
   "Testing",
 ]);
@@ -1429,7 +1420,7 @@ function perimeterLine(sourceFile: ts.SourceFile, node: ts.Node): number {
 }
 
 function perimeterFormViolation(sourceFile: ts.SourceFile, node: ts.Node): string {
-  return `VIOLATION: ${AGENT_INDEX_PATH}:${perimeterLine(sourceFile, node)} uses an export form outside the #1276 surface (five namespaces + pinned S8 names only)`;
+  return `VIOLATION: ${AGENT_INDEX_PATH}:${perimeterLine(sourceFile, node)} uses an export form outside the #1276 surface (four namespaces + pinned S8 names only)`;
 }
 
 function scanNamedExports(sourceFile: ts.SourceFile, clause: ts.NamedExports, scan: PerimeterScan): void {
@@ -1922,18 +1913,11 @@ function selfTest(): number {
       ).length === 0,
     ],
     [
-      "#1276: model/ may not deep-import the core",
+      "#1352: a core file importing the llm port stays inside its own band",
       agentBandViolations(
-        "packages/agent/src/model/errors.ts",
-        'import { fail } from "../core/failure";',
-      ).length === 1,
-    ],
-    [
-      "#1276 (r2): model/ may not import the core band root barrel either",
-      agentBandViolations(
-        "packages/agent/src/model/errors.ts",
-        'import { Core } from "../core";',
-      ).length === 1,
+        "packages/agent/src/core/retry.ts",
+        'import { LlmRunFailure } from "./llm";',
+      ).length === 0,
     ],
     [
       "#1276: testing/ may import anything in the package",

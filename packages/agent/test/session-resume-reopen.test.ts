@@ -4,7 +4,7 @@ import { sessionTree } from "./helpers/session-tree";
 import { testTurnDispatcher } from "./helpers/service-layers";
 import { prepareChatFixture } from "./helpers/chat-services";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices, } from "./helpers/session-services";
-import type { RunInput, Sink } from "../src/model";
+import type { RunInput, LlmSink as Sink } from "../src/core/llm";
 import type { LedgerAction } from "@openomni/protocol";
 import { Effect } from "effect";
 import { isolated, isolatedLedger } from "./helpers/isolated";

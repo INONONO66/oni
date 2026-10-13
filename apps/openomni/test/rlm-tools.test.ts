@@ -4,7 +4,8 @@ import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { catalogDefinitions } from "../src/tools/core/catalog";
-import { Core, Model as AgentModel } from "@openomni/agent";
+import { Core } from "@openomni/agent";
+import { Auth, makeLlmService, ModelsDev } from "@openomni/llm";
 /** The lint's full spec surface (#1255 S3): widen the cell-only door for projection alone. */
 const toolSpec = (tool: import("@openomni/protocol").AnyToolDefinition) => {
   const widened = tool.visibility.model.length > 0
@@ -16,7 +17,7 @@ const toolSpec = (tool: import("@openomni/protocol").AnyToolDefinition) => {
 };
 type Executor = Core.Executor;
 import { completionFixture as completionPort } from "./helpers/completion-fixture";
-type RunInput = AgentModel.RunInput;
+type RunInput = Core.RunInput;
 
 import { assistantMessage } from "./helpers/assistant-message";
 import { providerFailure } from "./helpers/provider-failure";
@@ -215,11 +216,12 @@ describe("the completion tool", () => {
         },
       },
     };
-    spyOn(AgentModel.ModelsDev, "get").mockReturnValue(Effect.succeed(catalog));
-    spyOn(AgentModel.Auth, "get").mockReturnValue(Effect.succeed(undefined));
+    spyOn(ModelsDev, "get").mockReturnValue(Effect.succeed(catalog));
+    spyOn(Auth, "get").mockReturnValue(Effect.succeed(undefined));
+    const resolveModel = makeLlmService(ABSENT_AUTH_FILE).resolveModel;
     const run = mock(() => Effect.succeed({ type: "stop" as const }));
     expect(
-      await runEffect(AgentModel.Provider.resolveModel({ authFilePath: ABSENT_AUTH_FILE, provider: "anthropic", id: "listed", now: () => 0 })),
+      await runEffect(resolveModel({ provider: "anthropic", id: "listed" }, () => 0)),
     ).toMatchObject({
       id: "listed",
       providerID: "anthropic",
@@ -234,7 +236,7 @@ describe("the completion tool", () => {
       ).rejects.toMatchObject({
         _tag: "AgentFailure",
         operation: "completion.resolve",
-        cause: String(await runEffect(Effect.flip(AgentModel.Provider.resolveModel({ authFilePath: ABSENT_AUTH_FILE, provider, id, now: () => 0 })))),
+        cause: String(await runEffect(Effect.flip(resolveModel({ provider, id }, () => 0)))),
       });
     }
     expect(run).not.toHaveBeenCalled();

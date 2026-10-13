@@ -2,7 +2,7 @@ import { testTurnDispatcher } from "./service-layers";
 import { fixtureConfigHead, fixtureTraceContext, prepareChatFixture } from "./chat-services";
 import type { SessionFixture as SessionRuntime } from "./session-services";
 import { Effect } from "effect";
-import type { RunInput, Sink } from "../../src/model";
+import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
 import type { SessionRunnerInput, SessionRunner } from "../../src/core/run";
 import { createSessionChatRunner } from "../../src/core/run";
 import type { ExecutionError } from "../../src/core/failure";

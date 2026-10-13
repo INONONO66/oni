@@ -1,11 +1,12 @@
-import { Llm, LlmLive } from "../../src/model";
-import { type Context, Effect, Layer } from "effect";
+import { Llm, type LlmPort } from "../../src/core/llm";
+import { Effect, Layer } from "effect";
 import type { ChatAgentConfig, ObservedChatAgentConfig } from "../../src/core/types";
 import type { createSessionChatRunner } from "../../src/core/run";
 import { ObservationSink } from "../../src/core/ports";
 import { fixtureCompactionSeam } from "./fixture-compaction";
 import { observationService } from "./service-layers";
 import { TEST_BUDGET } from "./approval-policy";
+import { fakeLlm } from "./fake-llm";
 
 export { fixtureCompactionSeam } from "./fixture-compaction";
 
@@ -26,16 +27,13 @@ export interface ChatFixture
   extends Omit<ObservedChatAgentConfig, "stopEvidence" | "budget">,
     Partial<Pick<ObservedChatAgentConfig, "stopEvidence">>,
     Partial<Pick<ChatAgentConfig, "budget" | "defaultBudget">> {
-  readonly llm?: Partial<Context.Service.Shape<typeof Llm>>;
+  readonly llm?: Partial<LlmPort>;
 }
 
 export function chatServices(fixture: ChatFixture) {
   return Layer.mergeAll(
     Layer.succeed(ObservationSink, observationService(fixture.events)),
-    Layer.effect(
-      Llm,
-      Effect.map(Llm, (service) => ({ ...service, ...fixture.llm })),
-    ).pipe(Layer.provide(LlmLive)),
+    Layer.succeed(Llm, fakeLlm(fixture.llm)),
   );
 }
 

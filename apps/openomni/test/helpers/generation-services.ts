@@ -1,11 +1,11 @@
-import { Core, Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
 type SessionRuntime = Core.SessionRuntime;
 import { AgentProcessLive } from "../../src/agent-layers";
 import { Bus } from "./bus";
-const Llm = Model.Llm;
-const LlmLive = Model.LlmLive;
+const Llm = Core.Llm;
+import { LlmLive } from "../../src/runtime";
 import type { AnyToolDefinition, LedgerSession } from "@openomni/protocol";
 import { Effect, Layer, Scope, type Context } from "effect";
 import { AppLedger, type AppLedgerPlane } from "../../src/composition/cluster-runtime";

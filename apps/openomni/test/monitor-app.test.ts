@@ -2,7 +2,7 @@ import { sessionTree } from "../../../packages/agent/test/store/helpers/session-
 import { Effect } from "effect";
 import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
-import type { Model } from "@openomni/agent";
+import type { Core } from "@openomni/agent";
 import { Bus, newTraceId } from "./helpers/bus";
 import { L0Observation, type Tool } from "@openomni/protocol";
 import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
@@ -21,7 +21,7 @@ function monitorConfig(prefix: string) {
   return suite.config(prefix, { wsToken: "monitor-test", compactionSummarizer: false });
 }
 
-function monitorTurn(input: Model.RunInput, sink: Model.Sink, call: number, request: Tool.Call, reply: string) {
+function monitorTurn(input: Core.RunInput, sink: Core.LlmSink, call: number, request: Tool.Call, reply: string) {
   if (call === 1) requestToolStep(input, sink, request);
   else sink.onMessage(assistantMessage(input, { text: reply }));
   return { type: "stop" as const };

@@ -1,4 +1,4 @@
-import type { RunInput, Sink } from "../../src/model";
+import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
 import { isolated } from "../helpers/isolated";
 import { failure } from "../helpers/g0-signals";
 import { providerFailure } from "../helpers/mock-llm";
@@ -72,7 +72,7 @@ describe("run terminal message result contract", () => {
         failure(
           agent(async () => ({
             type: "error",
-            error: providerFailure("validation failed", { retryable: false, statusCode: 400 }),
+            error: providerFailure("validation failed", { retryable: false, statusCode: 400, failureClass: { kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 400 } }),
           })).run(runInput([{ role: "user", content: "hello" }])),
         ),
       ),

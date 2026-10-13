@@ -1,5 +1,6 @@
 import { AppInvariantError } from "./invariant";
-import { Core, Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
+import { makeLlmService } from "@openomni/llm";
 type Entropy = Core.Entropy;
 type EntropySource = Core.EntropySource;
 const ObservationSink = Core.ObservationSink;
@@ -9,8 +10,9 @@ type SessionError = Core.SessionError;
 type GenerationLayers = Core.GenerationLayers;
 import { AgentProcessLive } from "./agent-layers";
 type LedgerError = Core.LedgerError;
-const LlmLive = Model.LlmLive;
-type Llm = Model.Llm;
+type Llm = Core.Llm;
+/** The composition root binds the call layer to the core port (#1352): the core declares `Llm`, `@openomni/llm` answers it. */
+export const LlmLive = Layer.sync(Core.Llm, () => makeLlmService());
 import { pid } from "node:process";
 import { type Clock, Context, Data, Effect, Layer, type ManagedRuntime, type Scope, flow } from "effect";
 import { BunCrypto } from "./composition/cluster-crypto";

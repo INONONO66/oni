@@ -1,12 +1,12 @@
 import { messageSource } from "./message-source";
-import { APICallError } from "ai";
 import type { ChatFixture as ChatAgentConfig } from "./chat-services";
-import { LlmRunFailure, type Run, type RunInput, type Sink } from "../../src/model";
+import { LlmRunFailure, type FailureClass, type LlmSink as Sink, type RunInput, type RunResult } from "../../src/core/llm";
 import { Effect } from "effect";
 import type {} from "../../src/core/types";
 import { createAssistantMessage } from "../../src/core/message-factory";
+import { FakeProviderError, fakeClassifyFailure, fakeResolvedModel } from "./fake-llm";
 
-export type MockLlmFn = (input: RunInput, sink: Sink) => Promise<Run.Outcome>;
+export type MockLlmFn = (input: RunInput, sink: Sink) => Promise<RunResult>;
 
 // Explicit terminal provider behavior, never injected into another mock's output.
 export const completeModel: MockLlmFn = async (input, sink) => {
@@ -16,7 +16,7 @@ export const completeModel: MockLlmFn = async (input, sink) => {
   return { type: "stop" };
 };
 
-export function createStopOutcome(): Run.Outcome {
+export function createStopOutcome(): RunResult {
   return { type: "stop" };
 }
 
@@ -38,18 +38,19 @@ export function providerFailure(
     statusCode?: number;
     contextOverflow?: boolean;
     aborted?: boolean;
+    failureClass?: FailureClass;
   } = {},
-): Run.Failure {
-  const cause = new APICallError({
+): LlmRunFailure {
+  const cause = new FakeProviderError({
     message,
-    url: "https://provider.test/v1/messages",
-    requestBodyValues: {},
     statusCode: options.statusCode ?? 529,
     responseHeaders: { "retry-after-ms": "0" },
     isRetryable: options.retryable ?? true,
+    failureClass: options.failureClass,
   });
   return new LlmRunFailure({
       cause,
+      providerErrorName: cause.name,
       retryAfterMs: 0,
       message,
       aborted: options.aborted ?? false,
@@ -65,56 +66,7 @@ export function providerFailure(
   });
 }
 
-export const mockProviderData = {
-  anthropic: {
-    id: "anthropic",
-    name: "Anthropic",
-    env: ["ANTHROPIC_API_KEY"],
-    npm: "@ai-sdk/anthropic",
-    models: {
-      "claude-3-haiku-20240307": {
-        id: "claude-3-haiku-20240307",
-        name: "Claude 3 Haiku",
-      },
-    },
-  },
-  openai: {
-    id: "openai",
-    name: "OpenAI",
-    env: ["OPENAI_API_KEY"],
-    npm: "@ai-sdk/openai",
-    models: {
-      "gpt-4o": {
-        id: "gpt-4o",
-        name: "GPT-4o",
-      },
-      "gpt-5.1-codex-max": {
-        id: "gpt-5.1-codex-max",
-        name: "GPT-5.1 Codex Max",
-      },
-    },
-  },
-};
-
-export const mockProviderModel = {
-  id: "claude-3-haiku-20240307",
-  name: "Claude 3 Haiku",
-  providerID: "anthropic",
-};
-
-export function createMockLlmConfig(options: {
-  readonly getModels: () => Promise<typeof mockProviderData>;
-  readonly fromModelsDevModel: () => typeof mockProviderModel;
-  readonly run: MockLlmFn;
-}): NonNullable<ChatAgentConfig["llm"]> {
-  return {
-    run: (input, sink) => Effect.promise(() => options.run(input, sink)),
-    resolveModel: () => Effect.promise(async () => {
-      await options.getModels();
-      return options.fromModelsDevModel();
-    }),
-  };
-}
+export const mockProviderModel = fakeResolvedModel;
 
 /** An llm config whose resolved "provider/model" advertises a `context`-token window. */
 export function windowedLlm(run: MockLlmFn, context = 1000): ChatAgentConfig["llm"] {
@@ -126,14 +78,15 @@ export function windowedLlm(run: MockLlmFn, context = 1000): ChatAgentConfig["ll
       limit: { context, output: 100 },
     }),
     run: (input, sink) => Effect.promise(() => run(input, sink)),
+    classifyFailure: fakeClassifyFailure,
   };
 }
 
-/** The catalog-resolved anthropic haiku mock with `run` as its provider behavior. */
+/** The port fake resolving to the anthropic haiku fixture with `run` as its provider behavior. */
 export function mockLlm(run: MockLlmFn): NonNullable<ChatAgentConfig["llm"]> {
-  return createMockLlmConfig({
-    getModels: async () => mockProviderData,
-    fromModelsDevModel: () => mockProviderModel,
-    run,
-  });
+  return {
+    resolveModel: () => Effect.succeed(mockProviderModel),
+    run: (input, sink) => Effect.promise(() => run(input, sink)),
+    classifyFailure: fakeClassifyFailure,
+  };
 }

@@ -17,6 +17,7 @@
     "@openomni/agent": "workspace:*",
     "@openomni/channels": "workspace:*",
     "@openomni/codemode": "workspace:*",
+    "@openomni/llm": "workspace:*",
     "@openomni/machines": "workspace:*",
     "@openomni/protocol": "workspace:*",
     "effect": "4.0.0-rc.118",

@@ -1,29 +1,19 @@
-import type { RunInput } from "../../src/model";
+import type { RunInput } from "../../src/core/llm";
 import type { Message } from "@openomni/protocol";
 import { Effect } from "effect";
 import { isolated } from "../helpers/isolated";
 import { createTestAgent } from "../helpers/g0-effect";
-import { describe, expect, it, mock } from "bun:test";
-import type { Sink } from "../../src/model";
+import { describe, expect, it } from "bun:test";
+import type { LlmSink as Sink } from "../../src/core/llm";
 import type { Tool } from "@openomni/protocol";
-import {
-  createStopOutcome,
-  createMockLlmConfig,
-  mockProviderData,
-  mockProviderModel,
-  type MockLlmFn,
-} from "../helpers/mock-llm";
+import { createStopOutcome, type MockLlmFn, mockLlm as portFake } from "../helpers/mock-llm";
 import { runInput } from "../helpers/run-input";
 import { Bus } from "../helpers/bus";
 import { streamingAssistantInfo } from "../helpers/messages";
 
 let mockRunFn: MockLlmFn = async () => createStopOutcome();
 
-const mockLlm = createMockLlmConfig({
-  getModels: mock(async () => mockProviderData),
-  fromModelsDevModel: mock(() => mockProviderModel),
-  run: (input: RunInput, sink: Sink) => mockRunFn(input, sink),
-});
+const mockLlm = portFake((input: RunInput, sink: Sink) => mockRunFn(input, sink));
 
 const defaultConfig = {
   events: Bus,

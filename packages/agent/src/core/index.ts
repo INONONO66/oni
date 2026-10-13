@@ -4,7 +4,13 @@ export type { AgentBudget, ResolvedAgentBudget } from "./types";
 export { ApprovalPolicySeam, type ApprovalPolicy, type ApprovalRecentOpen } from "./approval-policy";
 export { resolveAgentBudget } from "./budget";
 export { createApprovalRequest } from "./request-binding";
-export { failureFacts } from "./retry";
+export { failureFacts, MAX_ATTEMPTS } from "./retry";
+export {
+  Llm, LlmRunFailure, isLlmRunFailure, accumulateUsage,
+  type LlmPort, type LlmSink, type RunInput, type RunResult, type ResolvedModel, type LlmCredential, type LlmTransport,
+  type AttemptEvidence, type AttemptUsage, type UsageProvenance, type FailureFacts, type FailureClass, type LlmFailure,
+  type ProviderReason, type RetryableProviderReason,
+} from "./llm";
 export * from "./failure";
 export * from "./ports";
 export * from "./alarm-ports";

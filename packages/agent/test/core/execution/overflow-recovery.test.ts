@@ -3,10 +3,10 @@ import { isolated } from "../../helpers/isolated";
 import { completeModel, providerFailure } from "../../helpers/mock-llm";
 import { describe, expect, it } from "bun:test";
 import { runTestAgent } from "../../helpers/effect-g1";
-import { Retry } from "../../../src/model";
 import { collector } from "../../helpers/observation-collector";
 import { runInput } from "../../helpers/run-input";
 import { overflowCompactionConfig } from "../../helpers/run-config";
+import { RunEvents } from "../../../src/core/turn";
 
 const model = {
   id: "model",
@@ -50,26 +50,9 @@ async function expectSquashedCause<A, E>(
 }
 
 describe("context overflow recovery", () => {
-  it("classifies provider overflow text without matching rate limits", () => {
-    for (const message of [
-      "context_length_exceeded",
-      "This model's maximum context length is 8192 tokens",
-      "prompt is too long: 210000 tokens",
-      "Request exceeds the context window",
-      "too many tokens",
-      "The input token count exceeds the maximum number of tokens allowed.",
-      "Input is too long for requested model.",
-    ]) {
-      expect(Retry.isContextOverflow(new Error(message))).toBe(true);
-    }
-    expect(
-      Retry.isContextOverflow(new Error("exceeded token rate limit of your current tier")),
-    ).toBe(false);
-    expect(Retry.isContextOverflow(new Error("context deadline exceeded"))).toBe(false);
-  });
-
   it("does not blindly retry when compaction is unavailable and preserves the failure", async () => {
     const original = providerFailure("prompt is too long", {
+      failureClass: { kind: "overflow" },
       contextOverflow: true,
       retryable: false,
     });
@@ -115,6 +98,7 @@ describe("context overflow recovery", () => {
                 ? {
                     type: "error",
                     error: providerFailure("prompt is too long", {
+                      failureClass: { kind: "overflow" },
                       contextOverflow: true,
                       retryable: false,
                     }),
@@ -132,12 +116,57 @@ describe("context overflow recovery", () => {
     expect(sawAnchor).toBe(true);
   });
 
+  it.each([
+    { finishReason: "stop", inputTokens: 9_800, cacheReadTokens: 300 },
+    { finishReason: "length", inputTokens: 9_900, cacheReadTokens: 0 },
+  ])("recovers a silent $finishReason stop on the same model without fallback", async ({ finishReason, inputTokens, cacheReadTokens }) => {
+    const events = collector();
+    const seenModels: string[] = [];
+    let compactedHistory = false;
+    const result = await isolated(runTestAgent(history, {
+      ...effectOverflowCompactionConfig(),
+      events,
+      llm: {
+        resolveModel: () => Effect.succeed(model),
+        run: (input, sink) => Effect.promise(async () => {
+          seenModels.push(`${input.model.providerID}/${input.model.id}`);
+          if (seenModels.length === 1) return {
+            type: "stop" as const,
+            evidence: {
+              usage: { inputTokens, cacheReadTokens, outputTokens: 0, reasoningTokens: 0, cacheWriteTokens: 0 },
+              visibleOutput: false,
+              finishReason,
+              credential: null,
+            },
+          };
+          compactedHistory = input.messages.some((message) => message.parts.some(
+            (part) => part.type === "text" && part.text.includes("overflow checkpoint"),
+          ));
+          return completeModel(input, sink);
+        }),
+        classifyFailure: (facts) => {
+          if (facts.error || facts.finishReason === finishReason) return { kind: "overflow" };
+          return { kind: "terminal", reason: "transient_error", providerReason: "non_retryable" };
+        },
+      },
+    }));
+
+    expect(result.finishReason).toBe("stop");
+    expect(result.compactionCount).toBe(1);
+    expect(seenModels).toEqual(["provider/model", "provider/model"]);
+    expect(compactedHistory).toBe(true);
+    expect(events.named(RunEvents.ErrorRetry.name).map((data) => RunEvents.ErrorRetry.schema.parse(data)))
+      .toMatchObject([{ attempt: 1, reason: "context_overflow" }]);
+  });
+
   it("stops after the one compacting retry and preserves the second overflow", async () => {
     const first = providerFailure("prompt is too long on first call", {
+      failureClass: { kind: "overflow" },
       contextOverflow: true,
       retryable: false,
     });
     const second = providerFailure("prompt is too long on second call", {
+      failureClass: { kind: "overflow" },
       contextOverflow: true,
       retryable: false,
     });

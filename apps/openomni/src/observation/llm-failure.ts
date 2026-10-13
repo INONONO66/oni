@@ -1,6 +1,7 @@
 /** Channel rendering of kernel-classified failures; raw provider details stay private. */
 
-import { Core, Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
+import { classifyFailure } from "@openomni/llm";
 const failureFacts = Core.failureFacts;
 import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
@@ -10,8 +11,8 @@ type ThrownValue = z.input<typeof ThrownValue>;
 
 /** How the classified failure reads to the person who asked for the turn. */
 export interface ClassifiedFailure {
-  /** The closed llm-package class this failure was decided to be. */
-  readonly reason: Model.Retry.Reason;
+  /** The closed provider class this failure was decided to be. */
+  readonly reason: Core.ProviderReason;
   /** The channel-visible message. */
   readonly text: string;
 }
@@ -36,7 +37,7 @@ function attemptClause(error: object | undefined): string {
 export function classifyTurnFailure(error: ThrownValue): ClassifiedFailure {
   const parsed = ThrownValue.safeParse(error);
   const failure: Error | PlainValue = parsed.success ? parsed.data : null;
-  const reason = Model.Retry.classifyFailure(failure);
+  const reason = providerReason(failure);
   const objectError = typeof failure === "object" && failure !== null ? failure : undefined;
   switch (reason) {
     case "rate_limit":
@@ -69,6 +70,16 @@ export function classifyTurnFailure(error: ThrownValue): ClassifiedFailure {
         text: unclassifiedText(objectError),
       };
   }
+}
+
+/**
+ * The call layer's pure classification (#1352), read for its provider
+ * vocabulary: an abort or overflow that still reached the channel carries no
+ * provider class, so it reads as the unclassified residue.
+ */
+function providerReason(failure: Error | PlainValue): Core.ProviderReason {
+  const classified = classifyFailure({ error: failure });
+  return classified.kind === "retryable" || classified.kind === "terminal" ? classified.providerReason : "non_retryable";
 }
 
 /**

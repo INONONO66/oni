@@ -1,6 +1,6 @@
-import { Model, Bundle } from "@openomni/agent";
-const Llm = Model.Llm;
-const LlmLive = Model.LlmLive;
+import { Core, Bundle } from "@openomni/agent";
+const Llm = Core.Llm;
+import { LlmLive } from "../../src/runtime";
 import { type Clock, Context, Effect, Layer } from "effect";
 import { composedHolderOf, alarmPortsSlot, type ComposedHolder } from "../../src/composition/composed";
 import { createWatchPlane } from "../../src/composition/watch-plane";

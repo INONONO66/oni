@@ -1,7 +1,7 @@
 import { attemptIntentIds, isAttemptRow, isLogicalLlm } from "../../../packages/agent/test/helpers/llm-rows";
 import { expect, test } from "bun:test";
-import { APICallError } from "ai";
-import { LlmRunFailure } from "../../../packages/agent/src/model";
+import { LlmRunFailure, type FailureFacts } from "../../../packages/agent/src/core/llm";
+import { FakeProviderError } from "../../../packages/agent/test/helpers/fake-llm";
 import { PlainObjectSchema, type LedgerAction } from "@openomni/protocol";
 import { Effect } from "effect";
 import { restoreModelSelection } from "../src/composition/model-selection";
@@ -18,15 +18,17 @@ const primary = { provider: "a", id: "primary" };
 const fallback = { provider: "b", id: "fallback" };
 
 function retryFailure() {
+  const cause = new FakeProviderError({
+    message: "overloaded", statusCode: 503, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
+  });
   return new LlmRunFailure({
     message: "overloaded", aborted: false, contextOverflow: false, visibleOutput: false,
     usage: { inputTokens: 1, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
-    cause: new APICallError({
-      message: "overloaded", url: "https://provider.test/v1/messages", requestBodyValues: {},
-      statusCode: 503, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
-    }),
+    cause, providerErrorName: cause.name,
   });
 }
+
+const classify = (_error: FailureFacts["error"]) => ({ kind: "retryable" as const, reason: "transient_error" as const, providerReason: "server_error" as const, afterMs: 0, directed: true, instant: false });
 
 function attemptIntents(actions: readonly LedgerAction.Node[]) {
   return actions.filter((action) => isAttemptRow(action, attemptIntentIds(actions)) &&
@@ -40,6 +42,7 @@ test("route transitions are committed attempt metadata and switching back does n
   const entered: string[] = [];
   const result = yield* Effect.result(executor.run({ kind: "llm", op: "chat", intent: {}, effect: {} },
     (parent) => executor.runAttempts(parent, {
+      classify,
       prepare: (attempt) => {
         const model = attempt === 2 ? fallback : primary;
         return Effect.succeed({
@@ -71,6 +74,7 @@ test("restoration honors a caller-captured pre-switch parent and appends a new b
   const options = { ...recording, policy: compiledPolicy(), observations: { publish: () => undefined } };
   const executor = testExecutor(options);
   yield* executor.run({ kind: "llm", op: "chat", intent: {}, effect: {} }, (parent) => executor.runAttempts(parent, {
+    classify,
     prepare: (attempt) => {
       const model = attempt === 1 ? primary : fallback;
       return Effect.succeed({

@@ -61,6 +61,7 @@
         "@openomni/agent": "workspace:*",
         "@openomni/channels": "workspace:*",
         "@openomni/codemode": "workspace:*",
+        "@openomni/llm": "workspace:*",
         "@openomni/machines": "workspace:*",
         "@openomni/protocol": "workspace:*",
         "effect": "4.0.0-rc.118",
@@ -75,11 +76,8 @@
       "name": "@openomni/agent",
       "version": "0.1.0",
       "dependencies": {
-        "@ai-sdk/anthropic": "4.0.49",
-        "@ai-sdk/openai": "4.0.60",
         "@effect/sql-sqlite-bun": "4.0.0-rc.118",
         "@openomni/protocol": "workspace:*",
-        "ai": "7.0.93",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
       },
@@ -113,6 +111,21 @@
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5",
+      },
+    },
+    "packages/llm": {
+      "name": "@openomni/llm",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ai-sdk/anthropic": "4.0.49",
+        "@ai-sdk/openai": "4.0.60",
+        "@openomni/protocol": "workspace:*",
+        "ai": "7.0.93",
+        "effect": "4.0.0-rc.118",
+        "zod": "^4.5.4",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
       },
     },
     "packages/machines": {
@@ -377,6 +390,8 @@
     "@openomni/codemode": ["@openomni/codemode@workspace:packages/codemode"],
 
     "@openomni/desktop": ["@openomni/desktop@workspace:apps/desktop"],
+
+    "@openomni/llm": ["@openomni/llm@workspace:packages/llm"],
 
     "@openomni/machines": ["@openomni/machines@workspace:packages/machines"],
 
@@ -1074,6 +1089,8 @@
 
     "@openomni/desktop/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
 
+    "@openomni/llm/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
     "@openomni/machines/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
     "@openomni/ui/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
@@ -1123,6 +1140,8 @@
     "@openomni/codemode/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "@openomni/desktop/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
+
+    "@openomni/llm/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "@openomni/machines/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
