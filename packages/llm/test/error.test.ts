@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Result } from "effect";
 import { coerceApiError, decodeLlmFailure } from "../src/error";
-import { LlmOperationFailure } from "../src/errors";
+import { LlmOperationFailure, ModelCatalogError } from "../src/errors";
 import { apiError, sdkError } from "./helpers/retry";
 import { runSyncEffect } from "./helpers/native";
 
@@ -45,5 +45,24 @@ describe("provider failure decoder", () => {
     const error = decodeLlmFailure("provider.decode")(value);
     expect(error).toBeInstanceOf(LlmOperationFailure);
     expect(error.cause).toBe(String(value));
+  });
+});
+
+describe("ModelCatalogError.fromThrown", () => {
+  // A revoked Proxy throws on `instanceof` and on `String()`, so the thrown value
+  // itself is unrepresentable; the refusal still carries a bounded diagnostic.
+  const revoked = Proxy.revocable({}, {});
+  revoked.revoke();
+  test.each([
+    ["an Error", new Error("disk full"), "Error: disk full"],
+    ["a string", "ENOENT", "Error: ENOENT"],
+    ["a revoked Proxy", revoked.proxy, "Error: sink threw an unrepresentable object"],
+  ])("renders %s as one typed cache refusal", (_case, thrown, message) => {
+    const error = ModelCatalogError.fromThrown("cache", "/tmp/models.json", thrown);
+    expect(error._tag).toBe("ModelCatalogError");
+    expect(error.source).toBe("cache");
+    expect(error.path).toBe("/tmp/models.json");
+    expect(error.cause).toBeInstanceOf(Error);
+    expect(error.message).toBe(message);
   });
 });
