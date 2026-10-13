@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { validateSideEffectRules } from "../lint-side-effects";
 
-const processorPath = "packages/agent/src/model/processor/index.ts";
+const processorPath = "packages/llm/src/processor/index.ts";
 
 describe("side-effect ordering gate", () => {
   const bind =

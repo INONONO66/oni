@@ -10,7 +10,7 @@ interface SideEffectViolation {
   readonly message: string;
 }
 
-const hotFiles = ["packages/agent/src/model/processor/index.ts"];
+const hotFiles = ["packages/llm/src/processor/index.ts"];
 
 export async function main(): Promise<void> {
   const violations: SideEffectViolation[] = [];

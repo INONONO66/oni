@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 // Fetch the models.dev catalog and retain only metadata consumed by the agent model plane.
-import { CatalogModel } from "../packages/agent/src/model/model/schema.js";
+import { CatalogModel } from "../packages/llm/src/model/schema.js";
 import { PlainValueSchema, type PlainObject } from "../packages/protocol/src/json.js";
 import { z } from "zod";
 
 const BUNDLED_PROVIDERS = ["anthropic", "openai"] as const;
-const SNAPSHOT_PATH = "packages/agent/src/model/model/models-snapshot.json";
+const SNAPSHOT_PATH = "packages/llm/src/model/models-snapshot.json";
 const SourceModel = CatalogModel.extend({
   release_date: z.string().optional(),
   status: z.string().optional(),

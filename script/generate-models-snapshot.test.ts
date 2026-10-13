@@ -69,7 +69,7 @@ test("projects the bundled providers of the models.dev catalog into the snapshot
     server.stop(true);
   }
   const written = PlainValueSchema.parse(JSON.parse(
-    readFileSync(join(root, "packages/agent/src/model/model/models-snapshot.json"), "utf8"),
+    readFileSync(join(root, "packages/llm/src/model/models-snapshot.json"), "utf8"),
   ));
   expect(written).toEqual({
     anthropic: {
@@ -99,7 +99,7 @@ test("projects the bundled providers of the models.dev catalog into the snapshot
     },
   });
   expect(logs).toEqual([
-    "[generate-models-snapshot] wrote packages/agent/src/model/model/models-snapshot.json (2 providers)",
+    "[generate-models-snapshot] wrote packages/llm/src/model/models-snapshot.json (2 providers)",
   ]);
 });
 
@@ -119,7 +119,7 @@ test.each([
     const [exitCode, stderr] = await Promise.all([result.exited, new Response(result.stderr).text()]);
     expect(exitCode).toBe(1);
     expect(stderr).toContain(message);
-    expect(await Bun.file(join(root, "packages/agent/src/model/model/models-snapshot.json")).exists()).toBe(false);
+    expect(await Bun.file(join(root, "packages/llm/src/model/models-snapshot.json")).exists()).toBe(false);
   } finally {
     server.stop(true);
   }
@@ -144,7 +144,7 @@ test.each([
     const { main } = await import("./generate-models-snapshot");
     expect(await main()).toBe(1);
     expect(errors.join("")).toContain(message);
-    expect(await Bun.file(join(root, "packages/agent/src/model/model/models-snapshot.json")).exists()).toBe(false);
+    expect(await Bun.file(join(root, "packages/llm/src/model/models-snapshot.json")).exists()).toBe(false);
   } finally {
     error.mockRestore();
     process.chdir(cwd);
