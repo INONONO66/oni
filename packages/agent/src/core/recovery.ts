@@ -2,14 +2,14 @@ import { Effect } from "effect";
 import * as SessionHandleStore from "./store/fence";
 import type { CommitReceipt } from "./store/services";
 import type { LedgerError } from "./store/errors";
-import type { SessionGeneration, Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
 import { createExecutor, type ExecutionLedger, type ExecutionResult } from "./gate/decide";
 import { AgentFailure, type SessionError } from "./failure";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
 import type { SessionKernel } from "./entity";
 import { turnIntentAction, turnResumeAction, deliveryActions, generationForOpen } from "./commit";
 import type { SessionTurnPorts } from "./admission";
-import { hydrateSessionHistory } from "../inspect/history";
+import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../inspect/history";
 
 type RecoveryError = SessionError;
 
@@ -114,4 +114,39 @@ export function createSessionRecovery(
   }
 
   return { resumeTurn, resumeInterrupted, restoreContextProjection };
+}
+
+/** The four restore log annotations: the telemetry's only consumer (#1347). */
+function restoreAnnotations(telemetry: HydratedSessionHistory["telemetry"]) {
+  return {
+    restoreRows: telemetry.rows,
+    restoreBytes: telemetry.bytes,
+    restorePages: telemetry.pages,
+    restoreMs: telemetry.ms,
+  };
+}
+
+/**
+ * The activation restore (#1347): fold the suffix after the latest checkpoint
+ * under `maxTailBytes` once and log the cost. The typed budget refusal arrives
+ * in the error channel and still logs the work done; the activation proceeds,
+ * since the writer bounds every tail it appends and the runner's own reads
+ * are unbounded. Any other failure is logged, as before, never fatal here.
+ */
+export function logRestoredHistory(kernel: SessionKernel, sessionId: string, now: () => number): Effect.Effect<void> {
+  return restoreSessionHistory(kernel, sessionId, { now }).pipe(
+    Effect.flatMap(({ telemetry }) =>
+      Effect.annotateLogs(
+        Effect.logInfo(`session restored: ${sessionId}`),
+        restoreAnnotations(telemetry),
+      ),
+    ),
+    Effect.catchIf(RestoreRefused.isInstance, (refused) =>
+      Effect.annotateLogs(
+        Effect.logWarning(`session restore refused (${refused.data.code}): ${sessionId}`),
+        restoreAnnotations(refused.data.telemetry),
+      ),
+    ),
+    Effect.catchCause((cause) => Effect.logError(`session restore failed: ${sessionId}`, cause)),
+  );
 }

@@ -9,7 +9,7 @@ import { Cause, Context, Effect, Exit, Option, Queue, Schema, type Scope, Semaph
 import { Entity, type Envelope, type Sharding } from "effect/cluster";
 import { LeaseLost, SessionAdmissionRefused, type SessionError } from "./failure";
 import { createSessionAdmission, decideSessionAdmission } from "./admission";
-import { createSessionRecovery } from "./recovery";
+import { createSessionRecovery, logRestoredHistory } from "./recovery";
 import { type SessionAdmissionSnapshot, type SessionEntityAuthority, type SessionEntityPorts, type SessionControllerState, type ResolvedSessionRuntime, type SessionRunner, type SessionRunnerResult, createSessionTurn } from "./run";
 import { deliveryActions, receivedMessageAction } from "./commit";
 import { createRawSlots } from "./gate/decide";
@@ -18,7 +18,6 @@ import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, AlarmRpc, De
 import { alarmDisposition, armAction, ArmRefused, firedAction, MAX_OCCURRENCE_STRIKES, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
 import { isReservedAlarmPurpose } from "@openomni/protocol";
 import { renderReadModel } from "./read";
-import { restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../inspect/history";
 
 // ─── from cluster/kernel-registry.ts (#1247) ───
 /**
@@ -851,42 +850,6 @@ function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
   ).pipe(Effect.asVoid);
 }
 
-/** The four restore log annotations: the telemetry's only consumer (#1347). */
-function restoreAnnotations(telemetry: HydratedSessionHistory["telemetry"]) {
-  return {
-    restoreRows: telemetry.rows,
-    restoreBytes: telemetry.bytes,
-    restorePages: telemetry.pages,
-    restoreMs: telemetry.ms,
-  };
-}
-
-/**
- * The activation restore (#1347): fold the suffix after the latest checkpoint
- * under `maxTailBytes` once and log the cost. The typed budget refusal arrives
- * in the error channel and still logs the work done; the activation proceeds,
- * since the writer bounds every tail it appends and the runner's own reads
- * are unbounded. Any other failure is logged, as before, never fatal here.
- */
-function logRestoredHistory(handle: ActivationHandle): Effect.Effect<void> {
-  const { kernel, authority, env } = handle;
-  return restoreSessionHistory(kernel, authority.sessionId, { now: env.clock }).pipe(
-    Effect.flatMap(({ telemetry }) =>
-      Effect.annotateLogs(
-        Effect.logInfo(`session restored: ${authority.sessionId}`),
-        restoreAnnotations(telemetry),
-      ),
-    ),
-    Effect.catchIf(RestoreRefused.isInstance, (refused) =>
-      Effect.annotateLogs(
-        Effect.logWarning(`session restore refused (${refused.data.code}): ${authority.sessionId}`),
-        restoreAnnotations(refused.data.telemetry),
-      ),
-    ),
-    Effect.catchCause((cause) => Effect.logError(`session restore failed: ${authority.sessionId}`, cause)),
-  );
-}
-
 /**
  * `read` (#1253): one model page from the journal fold. A pure, bounded
  * projection over committed history — it appends nothing and never wakes the
@@ -1273,7 +1236,7 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
         ownsTurn: (turnId) => kernel.latestOpenTurn(sessionId)?.turnId === turnId,
       });
       if (releaseLive !== undefined) yield* Effect.addFinalizer(() => Effect.sync(releaseLive));
-      yield* logRestoredHistory(handle);
+      yield* logRestoredHistory(kernel, sessionId, env.clock);
       // #1254 S3: restore scheduling — resend every armed occurrence (forked,
       // exactly once per activation).
       yield* resendArmedAlarms(handle);
