@@ -4,10 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import ts from "typescript";
-import { aggregateFiles, type Audit, type Finding, findingTotals } from "./quality-audit";
+import { type Audit, type Finding, findingTotals } from "./quality-audit";
 import {
-  capFiles,
-  fileBody,
   ghCommand,
   planIssues,
   previousAudit,
@@ -434,7 +432,7 @@ function issue(title: string, number = 1, body = "", state: "open" | "closed" = 
 }
 function summary(previous = audit()) {
   const plan = planIssues({ ...previous, head: "a".repeat(40) }, []);
-  return issue("quality: audit summary", 99, plan.operations[0]?.body ?? "");
+  return issue("quality: audit summary", 99, plan.operation.body);
 }
 function fakeGh(issues: Issue[]) {
   const calls: { args: readonly string[]; input?: string }[] = [];
@@ -448,80 +446,55 @@ function fakeGh(issues: Issue[]) {
   return { calls, run };
 }
 
-test("first run produces only the summary and round-trippable totals", () => {
+test("first run creates only the summary with round-trippable totals and no comparison", () => {
   const current = audit([finding()]);
   const plan = planIssues(current, []);
   expect(plan.firstRun).toBe(true);
-  expect(plan.skipped).toEqual(["script/a.ts"]);
-  expect(plan.operations.map((row) => [row.action, row.title])).toEqual([
-    ["create", "quality: audit summary"],
+  expect([plan.operation.action, plan.operation.title, plan.operation.number]).toEqual([
+    "create",
+    "quality: audit summary",
+    undefined,
   ]);
-  expect(previousAudit(plan.operations[0]?.body ?? "")).toEqual({
+  expect(plan.operation.body).toContain("| types | - | 1 |");
+  expect(plan.operation.body).toContain("No previous audit to compare against.");
+  expect(previousAudit(plan.operation.body)).toEqual({
     version: 1,
     head: current.head,
     totals: current.totals,
   });
 });
 
-test("summary-only bootstrap holds even when unrelated or legacy per-file issues exist", () => {
-  expect(planIssues(audit([finding()]), [issue("quality: script/old.ts")]).operations).toHaveLength(
-    1,
-  );
-});
-
-test("cap prioritizes highest counts with deterministic path ties", () => {
-  const findings = Array.from({ length: 55 }, (_: undefined, index) =>
-    finding(`script/${String(index).padStart(2, "0")}.ts`, index + 1),
-  );
-  const capped = capFiles(audit(findings), []);
-  expect(capped.selected).toHaveLength(50);
-  expect(capped.selected[0]?.path).toBe("script/54.ts");
-  expect(capped.skipped).toEqual([
-    "script/04.ts",
-    "script/03.ts",
-    "script/02.ts",
-    "script/01.ts",
-    "script/00.ts",
-  ]);
-  expect(capFiles(audit([finding("b.ts"), finding("a.ts")]), [], 1).selected[0]?.path).toBe("a.ts");
-});
-
-test("existing open findings retain their slots, resolved issues free slots", () => {
-  const current = audit([finding("old.ts"), finding("worst.ts", 100), finding("skip.ts", 10)]);
-  const result = capFiles(current, [issue("quality: old.ts"), issue("quality: resolved.ts", 2)], 2);
-  expect(result.selected.map((row) => row.path)).toEqual(["old.ts", "worst.ts"]);
-  expect(result.skipped).toEqual(["skip.ts"]);
-});
-
-test("upsert updates existing issues, replaces kind labels and preserves manual labels", () => {
-  const existing = issue("quality: script/a.ts");
-  existing.labels.push({ name: "quality:clones" }, { name: "triaged" });
-  const plan = planIssues(audit([finding()]), [summary(), existing]);
-  const update = plan.operations.find((row) => row.number === 1);
-  expect(update?.action).toBe("update");
-  expect(update?.labels).toEqual(["triaged", "quality-debt", "quality:types"]);
-  expect(plan.operations.at(-1)?.title).toBe("quality: audit summary");
-});
-
-test("resolved per-file issues close, summary and regression issues do not", () => {
-  const plan = planIssues(audit(), [
+test("per-file and regression issues are never created, updated, reopened or closed", () => {
+  const plan = planIssues(audit([finding(), finding("script/b.ts", 3)]), [
     summary(),
-    issue("quality: script/a.ts"),
-    issue("quality: regression a..b", 2),
+    issue("quality: script/a.ts", 1),
+    issue("quality: script/gone.ts", 2),
+    issue("quality: script/b.ts", 3, "", "closed"),
+    issue("quality: regression a..b", 4),
   ]);
-  expect(plan.operations.filter((row) => row.action === "close").map((row) => row.number)).toEqual([
-    1,
-  ]);
+  expect(plan.firstRun).toBe(false);
+  expect([plan.operation.action, plan.operation.number]).toEqual(["update", 99]);
+  expect(plan.operation.body).toContain("| script/b.ts | 3 |");
 });
 
-test("closed file issue is reopened rather than duplicated", () => {
-  const plan = planIssues(audit([finding()]), [
-    summary(),
-    issue("quality: script/a.ts", 1, "", "closed"),
-  ]);
-  expect(plan.operations.find((row) => row.title === "quality: script/a.ts")?.action).toBe(
-    "update",
-  );
+test("summary update preserves manual labels and adds quality-debt once", () => {
+  const existing = summary();
+  existing.labels.push({ name: "triaged" });
+  const plan = planIssues(audit([finding()]), [existing]);
+  expect(plan.operation.labels).toEqual(["quality-debt", "triaged"]);
+});
+
+test("closed summary is reopened rather than duplicated, open one wins over closed", () => {
+  const closed = summary();
+  closed.state = "closed";
+  expect(planIssues(audit(), [closed]).operation).toMatchObject({ action: "update", number: 99 });
+  const open = { ...summary(), number: 7 };
+  expect(planIssues(audit(), [closed, open]).operation.number).toBe(7);
+});
+
+test("summary escapes a path that would break the findings table", () => {
+  const body = planIssues(audit([finding("script/a|b.ts")]), []).operation.body;
+  expect(body).toContain("| script/a\\|b.ts | 1 |");
 });
 
 test("regression detection is per kind, including when the total sum shrinks", () => {
@@ -569,29 +542,21 @@ test("dimensions absent from history are not previously measured: no regression,
   expect(regressions(previous, current)).toEqual([]);
   const plan = planIssues(current, [issue("quality: audit summary", 99, legacyBody())]);
   expect(plan.firstRun).toBe(false);
-  expect(plan.operations.some((row) => row.title.startsWith("quality: regression "))).toBe(false);
-  const advanced = previousAudit(plan.operations.at(-1)?.body ?? "");
-  expect(advanced.totals.cyclomatic).toBe(1);
+  expect(plan.operation.body).toContain("| cyclomatic | - | 1 |");
+  expect(plan.operation.body).toContain(
+    "Regressions since 5b925d12bbfa154c40c84ddaed3652c999984251: none.",
+  );
+  expect(previousAudit(plan.operation.body).totals.cyclomatic).toBe(1);
 });
 
-test("a version-1 dimension regression still fires against the legacy footer", () => {
+test("a version-1 dimension regression renders inside the summary, never as its own issue", () => {
   const current = audit([finding("script/a.ts", 2780)]);
   const plan = planIssues(current, [issue("quality: audit summary", 99, legacyBody())]);
-  const regression = plan.operations.find((row) => row.title.startsWith("quality: regression "));
-  expect(regression?.title).toBe(
-    `quality: regression 5b925d12bbfa154c40c84ddaed3652c999984251..${current.head}`,
+  expect(plan.operation.title).toBe("quality: audit summary");
+  expect(plan.operation.body).toContain("| types | 2779 | 2780 |");
+  expect(plan.operation.body).toContain(
+    "Regressions since 5b925d12bbfa154c40c84ddaed3652c999984251: types 2779 -> 2780.",
   );
-  expect(regression?.body).toContain("| types | 2779 | 2780 |");
-});
-
-test("regression issue is named by base and head and not duplicated on retry", () => {
-  const current = audit([finding()]);
-  const title = `quality: regression ${"a".repeat(40)}..${current.head}`;
-  const plan = planIssues(current, [summary()]);
-  expect(plan.operations.filter((row) => row.title === title)).toHaveLength(1);
-  expect(
-    planIssues(current, [summary(), issue(title)]).operations.some((row) => row.title === title),
-  ).toBe(false);
 });
 
 test("history corruption is an error, not a new first run", () => {
@@ -600,38 +565,22 @@ test("history corruption is an error, not a new first run", () => {
   expect(() => planIssues(audit(), [issue("quality: audit summary")])).toThrow();
 });
 
-test("file body contains machine values, escapes table cells and bounds finding groups", () => {
-  const current = audit(Array.from({ length: 101 }, () => finding()));
-  const body = aggregateFiles(current.findings)
-    .map((file) => fileBody(file, current))
-    .join("");
+test("summary bounds the findings table to fifty files and stays under the issue body limit", () => {
+  const current = audit(
+    Array.from({ length: 60 }, (_: undefined, index) => finding(`script/${index}.ts`, index + 1)),
+  );
+  const body = planIssues(current, []).operation.body;
   expect(body).toContain(current.runUrl);
-  const rows = body.split("\n").filter((line) => line.startsWith("| types |"));
-  expect(rows).toHaveLength(100);
-  expect(
-    rows[0]
-      ?.split(/(?<!\\)\|/)
-      .map((part) => part.trim())
-      .slice(1, 4),
-  ).toEqual(["types", "2", "1"]);
+  expect(body.split("\n").filter((line) => line.startsWith("| script/"))).toHaveLength(50);
   expect(body.length).toBeLessThan(65_536);
 });
 
-test("fake gh first run creates labels and only one issue via JSON", async () => {
+test("fake gh first run creates one label and only one issue via JSON", async () => {
   const fake = fakeGh([]);
   const result = await publishAudit(audit([finding()]), fake.run, "owner/repo");
   expect(result.firstRun).toBe(true);
   expect(fake.calls.filter((call) => call.args[0] === "label").map((call) => call.args[2])).toEqual(
-    [
-      "quality-debt",
-      "quality:coverage",
-      "quality:complexity",
-      "quality:cyclomatic",
-      "quality:halstead",
-      "quality:crap",
-      "quality:clones",
-      "quality:types",
-    ],
+    ["quality-debt"],
   );
   expect(fake.calls.filter((call) => call.input)).toHaveLength(1);
   const body = z
@@ -641,24 +590,17 @@ test("fake gh first run creates labels and only one issue via JSON", async () =>
   expect(previousAudit(body.body).totals.types).toBe(1);
 });
 
-test("fake gh pagination, comment-before-close, reopening and summary-last execute together", async () => {
-  const fake = fakeGh([
-    summary(),
-    issue("quality: gone.ts", 1),
-    issue("quality: script/a.ts", 2, "", "closed"),
-  ]);
+test("fake gh pagination finds the closed summary on page two and reopens it as the only write", async () => {
+  const closed = summary();
+  closed.state = "closed";
+  const fake = fakeGh([issue("quality: gone.ts", 1), closed, issue("quality: script/a.ts", 2)]);
   await publishAudit(audit([finding()]), fake.run, "owner/repo");
   const writes = fake.calls.filter((call) => call.input);
-  expect(writes[0]?.args).toContain("repos/owner/repo/issues/1/comments");
-  expect(writes[1]?.args).toContain("repos/owner/repo/issues/1");
-  expect(z.object({ state: z.string() }).parse(JSON.parse(writes[1]?.input ?? "null")).state).toBe(
-    "closed",
-  );
-  expect(writes[2]?.args).toContain("repos/owner/repo/issues/2");
-  expect(z.object({ state: z.string() }).parse(JSON.parse(writes[2]?.input ?? "null")).state).toBe(
+  expect(writes).toHaveLength(1);
+  expect(writes[0]?.args).toContain("repos/owner/repo/issues/99");
+  expect(z.object({ state: z.string() }).parse(JSON.parse(writes[0]?.input ?? "null")).state).toBe(
     "open",
   );
-  expect(writes.at(-1)?.args).toContain("repos/owner/repo/issues/99");
 });
 
 test("fake gh failures and incomplete evidence never advance summary history", async () => {
@@ -706,18 +648,6 @@ test("gh process boundary sends JSON stdin and surfaces nonzero exits", async ()
   await expect(
     ghCommand(["-e", "console.error('denied');process.exit(3)"], undefined, process.execPath),
   ).rejects.toThrow("exited 3");
-});
-
-test("cap refuses an already-overfull managed set instead of opening more", () => {
-  const current = audit([finding("a.ts"), finding("b.ts")]);
-  const existing = [issue("quality: a.ts"), issue("quality: b.ts", 2)];
-  expect(() => capFiles(current, existing, 1)).toThrow();
-  const plan = planIssues(current, [
-    summary(),
-    issue("quality: a.ts", 3, "", "closed"),
-    ...existing,
-  ]);
-  expect(plan.operations.find((row) => row.title === "quality: a.ts")?.number).toBe(1);
 });
 
 // The sweep's only editable test file also covers the metrics and tsconfig

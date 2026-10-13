@@ -427,12 +427,12 @@ test("CLI dry-run prints schema-valid JSON and operations without invoking gh", 
       audit: auditSchema,
       issuePlan: z.object({
         firstRun: z.boolean(),
-        operations: z.array(z.object({ title: z.string() })),
+        operation: z.object({ action: z.literal("create"), title: z.string() }),
       }),
     })
     .parse(JSON.parse(output[0] ?? ""));
   expect(preview.audit.complete).toBe(false);
-  expect(preview.issuePlan.operations.map((row) => row.title)).toEqual(["quality: audit summary"]);
+  expect(preview.issuePlan.operation.title).toBe("quality: audit summary");
   expect(auditSchema.parse(JSON.parse(writes[0] ?? "")).totals).toEqual(current.totals);
   await expect(auditMain(["--publish", "--dry-run"], io)).rejects.toThrow();
   await expect(auditMain([], io)).rejects.toThrow();
