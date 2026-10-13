@@ -1,5 +1,6 @@
 import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
+import { z } from "zod";
 import { runLedgerSync } from "../helpers/effect";
 import { expect, test } from "bun:test";
 import { z } from "zod";
@@ -16,12 +17,15 @@ test("raw recorded facts reject malformed JSON and non-finite JSON numbers", () 
   using db = openLedgerDatabase();
   const facts = createSqliteDecisionFacts(db);
   facts.record({ key: "boundary", type: "test", data: {}, timeCreated: 1 });
-  for (const corrupt of ["{", "1e999"]) {
+  // Malformed text is the typed json refusal; "1e999" is valid JSON that the
+  // plain-value schema rejects, so its boundary is the native parser error.
+  const malformed = expect.objectContaining({ _tag: "SchemaRefused", reason: "json" });
+  for (const [corrupt, refusal] of [["{", malformed], ["1e999", z.ZodError]] as const) {
     db.query("UPDATE decision_fact SET data = ? WHERE key = ?").run(corrupt, "boundary");
-    expect(() => facts.head("boundary")).toThrow();
+    expect(() => facts.head("boundary")).toThrow(refusal);
     expect(() =>
       facts.record({ key: "boundary", type: "test", data: {}, timeCreated: 2 }),
-    ).toThrow();
+    ).toThrow(refusal);
   }
   db.query("UPDATE decision_fact SET data = ? WHERE key = ?").run('{"valid":[1,null]}', "boundary");
   expect(facts.head("boundary")?.data).toEqual({ valid: [1, null] });
@@ -66,10 +70,10 @@ test("action reads validate scalar driver columns and JSON before replay", () =>
   );
   db.run("PRAGMA ignore_check_constraints = ON");
   db.run("UPDATE action SET irreversible = 2");
-  expect(() => sessionTree("s", store.actions)).toThrow();
-  expect(() => store.actions.range("s", 0, 10)).toThrow();
+  expect(() => sessionTree("s", store.actions)).toThrow(z.ZodError);
+  expect(() => store.actions.range("s", 0, 10)).toThrow(z.ZodError);
   db.run("UPDATE action SET irreversible = 1, intent = '1e999'");
-  expect(() => sessionTree("s", store.actions)).toThrow();
+  expect(() => sessionTree("s", store.actions)).toThrow(z.ZodError);
   db.run("UPDATE action SET intent = '{}'");
   expect(sessionTree("s", store.actions)).toHaveLength(1);
 });

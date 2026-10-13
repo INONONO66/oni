@@ -239,10 +239,10 @@ test("in-process reconstruction uses capped suffix reads and rejects a stale see
           recoveryUnchanged: true,
         });
         expect(exited).toEqual([0, 0]);
-        await expect(reconstructionProcessMain([], emit, exit)).rejects.toThrow();
+        await expect(reconstructionProcessMain([], emit, exit)).rejects.toThrow(z.ZodError);
         await expect(
           reconstructionProcessMain(["read", `${dbPath}.other`], emit, exit),
-        ).rejects.toThrow();
+        ).rejects.toThrow("reconstruction main dbPath mismatch");
         const adapter = isolation.session.actions;
         const range = adapter.range.bind(adapter);
         const limits: number[] = [];

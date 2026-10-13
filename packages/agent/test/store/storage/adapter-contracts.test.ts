@@ -139,7 +139,9 @@ describe("SQLite adapter contract guards", () => {
     expect(fact.kind).toBe("recorded");
     inspection.query("UPDATE decision_fact SET data = ? WHERE key = ?").run("{", fact.fact.key);
 
-    expect(() => stores.session.decisionFacts.head(fact.fact.key)).toThrow();
+    expect(() => stores.session.decisionFacts.head(fact.fact.key)).toThrow(
+      expect.objectContaining({ _tag: "SchemaRefused", reason: "json" }),
+    );
   });
 
   test("fresh session files omit retired lifecycle tables", () => {

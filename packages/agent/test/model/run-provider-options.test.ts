@@ -31,7 +31,7 @@ describe("run provider options", () => {
   test("rejects non-object provider namespaces before invoking the SDK", async () => {
     const outcome = await capture.run({ providerOptions: { anthropic: false } });
     expect(outcome.type).toBe("error");
-    expect(() => capture.args).toThrow();
+    expect(() => capture.args).toThrow("streamText was not called");
   });
 
   test("reports SDK errors only through the injected event sink", async () => {

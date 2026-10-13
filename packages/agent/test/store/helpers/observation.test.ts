@@ -26,7 +26,7 @@ test("fanout validates and transforms once before matching and delivery", async 
 test("invalid publications reject synchronously without poisoning delivery", async () => {
   const received: number[] = [];
   Bus.subscribe(event, (data) => received.push(data.value));
-  expect(() => Bus.publish(event, { sessionId: "session", value: Number.NaN })).toThrow();
+  expect(() => Bus.publish(event, { sessionId: "session", value: Number.NaN })).toThrow(z.ZodError);
   Bus.publish(event, { sessionId: "session", value: 1 });
   await Bus.flush();
   expect(received).toEqual([1]);

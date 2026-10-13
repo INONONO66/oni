@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { ProviderEvent } from "../../../src/model/processor/event-schema";
 import { useProcessor, capturingSink, processorInfo, streamOf } from "../helpers/processor";
 import type { StreamEvent } from "../../../src/model/processor/stream-events";
@@ -30,7 +31,9 @@ describe("processor ingress", () => {
         { type: "tool-result", toolCallId: "bad", output: { output: "x", isError: "yes" } },
       ]),
     });
-    await expect(processor.process({ system: "", promptText: "" })).rejects.toThrow();
+    await expect(processor.process({ system: "", promptText: "" })).rejects.toMatchObject({
+      _tag: "TransportFailure", cause: expect.any(z.ZodError),
+    });
     expect(capture.finalParts().filter((part) => part.type === "tool")).toMatchObject([
       { callID: "bad", state: { status: "error", error: "Processing was interrupted" } },
     ]);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { canonicalDigest, emittedRowKey, type PlainValue } from "@openomni/protocol";
 import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
+import { GateComposeError } from "../src/core/points";
 import { fullPointTable, gateRow } from "./helpers/gate-rows";
 
 const table = fullPointTable();
@@ -107,7 +108,7 @@ describe("gate decision fold (#1251)", () => {
         handlers: ["guard/check"],
         generation: 1,
       }),
-    ).toThrow();
+    ).toThrow(GateComposeError);
     expect(calls).toBe(1);
   });
 
