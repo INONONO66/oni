@@ -21,6 +21,8 @@ export interface AutomationAdapter {
   decisions(inboundId: string): Ingress.RoutingDecisionPayload[];
   ledger(query: Ingress.AutomationLedgerFilter): Ingress.RoutingDecisionPayload[];
   delivered(inboundId: string, sessionId: string, actionSeq: number): void;
+  /** A matched event whose delivery the app refused; the delivery is terminal, never retried. */
+  refused(inboundId: string, reason: string): void;
   pendingDelivery(inboundId: string): MatchDecision["route"];
   completeDelivery(inboundId: string): void;
   groups(): StoredGroup[];
@@ -105,6 +107,7 @@ export function createAutomationStore(source: { readonly automation?: Automation
     ledger: (query: Ingress.AutomationLedgerFilter) => adapter().ledger(query),
     delivered: (inboundId: string, sessionId: string, actionSeq: number) =>
       adapter().delivered(inboundId, sessionId, actionSeq),
+    refused: (inboundId: string, reason: string) => adapter().refused(inboundId, reason),
     pendingDelivery: (inboundId: string) => adapter().pendingDelivery(inboundId),
     completeDelivery: (inboundId: string) => adapter().completeDelivery(inboundId),
     groups: () => adapter().groups(),

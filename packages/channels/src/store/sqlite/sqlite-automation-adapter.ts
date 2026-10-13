@@ -93,6 +93,16 @@ export function createSqliteAutomationAdapter(db: Database, now: () => number): 
         }
       }).immediate();
     },
+    refused(inboundId, reason) {
+      db.transaction(() => {
+        db.query(`UPDATE automation_ledger SET decision = 'refused',
+            data = json_set(data, '$.decision', 'refused', '$.reason', ?)
+          WHERE inbound_id = ? AND decision = 'matched'`).run(reason, inboundId);
+        db.query(`UPDATE automation_group_close SET data = json_set(data, '$.decision', 'refused', '$.reason', ?)
+          WHERE inbound_id = ? AND json_extract(data, '$.decision') = 'matched'`).run(reason, inboundId);
+        db.query("UPDATE automation_delivery SET completed = 1 WHERE inbound_id = ?").run(inboundId);
+      }).immediate();
+    },
     completeDelivery(inboundId) {
       db.query("UPDATE automation_delivery SET completed = 1 WHERE inbound_id = ?").run(inboundId);
     },

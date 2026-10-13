@@ -125,3 +125,14 @@ test("an Owner DM wins over an automation and delivers one prompt", async () => 
     decision: "superseded", by: "automation/build",
   }));
 });
+
+test("a missing session target records a refused ledger row instead of a dangling match", async () => {
+  const f = await automationFixture(suite);
+  f.stores.automations.add(automationRecord({ target: "session:missing" }));
+  const before = f.plane.listSessions().map((row) => row.id);
+  await f.ingest().then(() => undefined, () => undefined);
+  expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
+  expect(f.stores.automations.decisions("discord::room:event")).toEqual([expect.objectContaining({
+    decision: "refused", reason: "target_not_found",
+  })]);
+});

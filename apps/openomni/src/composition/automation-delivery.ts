@@ -34,8 +34,14 @@ export function createAutomationDelivery(
       const parsed = AutomationOrigin.safeParse(input.origin.value);
       if (!parsed.success) return yield* deliver(input);
       const { automation } = parsed.data;
-      if (!automation.newSession && !deps.plane.listSessions().some((row) => row.id === input.sessionId))
+      if (!automation.newSession && !deps.plane.listSessions().some((row) => row.id === input.sessionId)) {
+        // The app records the refusal through the channels store; channels never learns why.
+        yield* Effect.try({
+          try: () => store.refused(input.id, "target_not_found"),
+          catch: (error) => new Core.AgentFailure({ operation: "automation.receipt", cause: String(error) }),
+        });
         return yield* new Core.AgentFailure({ operation: "automation.deliver", cause: "target_not_found" });
+      }
       yield* materializeDeliveryTarget(deps.plane, input, deps.clock);
       const instructions = automation.newSession ? automation.instructions : undefined;
       if (instructions !== undefined && input.kind === "action") {
