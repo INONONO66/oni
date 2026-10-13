@@ -10,7 +10,7 @@ import { planeOf } from "./ledger";
 import { nextResidentTurn } from "./resident-turn";
 import { nextFrame } from "./ws";
 
-export const automationSender = { kind: "external", surface: "discord", externalId: "source" } as const;
+const automationSender = { kind: "external", surface: "discord", externalId: "source" } as const;
 export const automationFacts = Gateway.IngressFacts.parse({
   eventId: "event", surface: "discord", channelId: "room", dm: false, addressees: [],
   author: { externalId: "source", isBot: false }, payload: {}, render: "BUILD_SENTINEL",

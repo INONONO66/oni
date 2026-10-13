@@ -60,3 +60,21 @@ test("provider refusal and failure never become yes", async () => {
   const judge = await runEffect(judgeWith(() => Effect.succeed({ type: "aborted" as const })));
   expect(await runEffect(judge("ready?", event))).toBe("unknown");
 });
+
+test.each(["length", "content-filter", "tool-calls"] as const)(
+  "a yes prefix ending with %s is not a completed verdict", async (finishReason) => {
+    const judge = await runEffect(judgeWith((input, sink) => Effect.sync(() => {
+      sink.onMessage(assistantMessage(input, { text: "yes" }));
+      return { type: "stop" as const, evidence: {
+        finishReason, visibleOutput: true, credential: null,
+        usage: { inputTokens: 1, outputTokens: 1, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      } };
+    })));
+    expect(await runEffect(judge("ready?", event))).toBe("unknown");
+  },
+);
+
+test("provider call failure is a non-firing unknown verdict", async () => {
+  const judge = await runEffect(judgeWith(() => Effect.die(new Error("provider unavailable"))));
+  expect(await runEffect(judge("ready?", event))).toBe("unknown");
+});

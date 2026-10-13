@@ -20,6 +20,7 @@ describe("loadConfig reads the injected env record, not the ambient process", ()
     const config = loadConfig(home, {
       OPENOMNI_MODEL_PROVIDER: "fake",
       OPENOMNI_MODEL_ID: "owner-test",
+      OPENOMNI_FAST_MODEL_ID: "judge-test",
       OPENOMNI_MODEL_API_KEY: "test-key",
       OPENOMNI_WS_HOST: "127.0.0.2",
       OPENOMNI_WS_PORT: "4123",
@@ -29,7 +30,7 @@ describe("loadConfig reads the injected env record, not the ambient process", ()
     expect(config.host).toBe("127.0.0.2");
     expect(config.wsPort).toBe(4123);
     expect(config.wsToken).toBe("owner-token");
-    expect(config.model).toMatchObject({ provider: "fake", id: "owner-test" });
+    expect(config.model).toMatchObject({ provider: "fake", id: "owner-test", fastId: "judge-test" });
     // The kek is resolved exactly once, here: boot wiring and provisioning
     // consume `config.kek` and never resolve the environment again.
     expect(config.kek.kind).toBe("ok");

@@ -320,13 +320,13 @@ export async function startOpenOmni(options: StartOptions = {}) {
         ? Effect.fail({ reason: "outbound cancel door is not composed" })
         : cancelDoor(input),
   };
-    let alarmIngress: AlarmIngress | undefined;
-    const watchPlane = createWatchPlane({
-      delegation: delegationDeadline,
-      ingress: (fired, ctx, input) => alarmIngress === undefined
-        ? Effect.fail(new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "automation ingress is not composed" }))
-        : alarmIngress(fired, ctx, input),
-    });
+  let alarmIngress: AlarmIngress | undefined;
+  const watchPlane = createWatchPlane({
+    delegation: delegationDeadline,
+    ingress: (fired, ctx, input) => alarmIngress === undefined
+      ? Effect.fail(new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "automation ingress is not composed" }))
+      : alarmIngress(fired, ctx, input),
+  });
   // #1256: the hooks file is config compiled once per boot; a bad file is a
   // typed refusal thrown here, before any listener exists.
   const hooks = config.hooksPath === undefined ? undefined : readHooksJson(config.hooksPath);
