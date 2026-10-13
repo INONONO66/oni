@@ -8,6 +8,16 @@ import type { ChannelStores } from "../stores.js";
 
 type External = Effect.Success<ReturnType<typeof externalMessage>>;
 
+export function recordAutomationDuplicate(stores: ChannelStores, sink: GatewayRouterPorts["sink"],
+  original: Ingress.RoutingDecisionPayload) {
+  if (original.stage !== "automation" ||
+      (original.decision !== "matched" && original.decision !== "superseded" && original.decision !== "deduped"))
+    return;
+  const deduped = { ...original, decision: "deduped" as const, reason: "event_id_dedupe" };
+  stores.automations.record(deduped);
+  sink(Ingress.Events.RoutingDecision, deduped);
+}
+
 export function automationReplay(stores: ChannelStores, eventId: string): Gateway.IngestResult | undefined {
   const recorded = stores.automations.decisions(eventId)[0];
   if (recorded?.stage !== "automation") return undefined;

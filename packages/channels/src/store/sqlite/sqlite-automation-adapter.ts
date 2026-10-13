@@ -105,14 +105,16 @@ export function createSqliteAutomationAdapter(db: Database, now: () => number): 
         const closed = db.query("UPDATE automation_group SET closed_at = ?, matched = ? WHERE id = ? AND closed_at IS NULL")
           .run(at, Number(matched), id);
         if (closed.changes === 0) return [];
+        const firing = decisions.find((decision) => decision.stage === "automation" && decision.decision === "matched");
+        const receipt = firing === undefined ? null : DecisionRow.nullable().parse(db.query(
+          "SELECT data FROM automation_ledger WHERE inbound_id = ? AND json_extract(data, '$.actionSeq') IS NOT NULL LIMIT 1",
+        ).get(firing.inboundId));
+        const delivered = receipt === null ? undefined : Ingress.Events.RoutingDecision.schema.parse(JSON.parse(receipt.data));
         const rows = decisions.map((decision) => {
-          const receipt = DecisionRow.nullable().parse(db.query(
-            "SELECT data FROM automation_ledger WHERE inbound_id = ? AND json_extract(data, '$.actionSeq') IS NOT NULL LIMIT 1",
-          ).get(decision.inboundId));
-          const delivered = receipt === null ? undefined : Ingress.Events.RoutingDecision.schema.parse(JSON.parse(receipt.data));
           return Ingress.Events.RoutingDecision.schema.parse({
             ...decision,
-            ...(delivered?.stage === "automation" && decision.stage === "automation" && decision.decision === "matched"
+            ...(delivered?.stage === "automation" && decision.stage === "automation" &&
+              (decision.decision === "matched" || decision.decision === "grouped")
               ? { target: delivered.target, sessionId: delivered.sessionId, actionSeq: delivered.actionSeq } : {}),
           });
         });

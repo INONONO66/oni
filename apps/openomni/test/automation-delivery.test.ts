@@ -74,7 +74,32 @@ test("a grouped firing uses the injected clock and backfills the delivered actio
   expect(fired.actionSeq).toBe(f.plane.openKernel(fired.sessionId).actionById(fired.inboundId)?.ordinal);
   expect(rows).toContainEqual(expect.objectContaining({
     inboundId: "discord::room:event", reason: "firing:discord::room:second",
+    target: fired.target, sessionId: fired.sessionId, actionSeq: fired.actionSeq,
   }));
+});
+
+test("ordinary granted ambient traffic can materialize its first session", async () => {
+  const f = await automationFixture(suite);
+  f.stores.actors.registerIdentity({ id: "source", kind: "human", trustTier: "owner" });
+  f.stores.channelGrants.put({
+    id: "grant", surface: "discord", channel: "room", kind: "trusted_channel", createdBy: "owner",
+  });
+  const result = await f.ingest();
+  expect(result.status).toBe("executed");
+  if (result.status !== "executed") throw new Error("granted delivery refused");
+  expect(f.plane.openKernel(result.handle.target).actionById(result.handle.messageId)?.kind).toBe("prompt");
+});
+
+test("a generated direct record never promotes an observer grant", async () => {
+  const f = await automationFixture(suite);
+  f.stores.channelGrants.put({
+    id: "grant", surface: "discord", channel: "room", kind: "trusted_channel", createdBy: "owner",
+  });
+  const before = f.plane.listSessions().map((row) => row.id);
+  expect(await f.ingest()).toMatchObject({
+    status: "blocked_pre", reasonCode: "message.external.grant_tier",
+  });
+  expect(f.plane.listSessions().map((row) => row.id)).toEqual(before);
 });
 
 test.each(["identity", "blacklist"] as const)("a matched record never bypasses the %s denial", async (denial) => {

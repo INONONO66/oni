@@ -10,6 +10,7 @@ import { resolveChannelGrant } from "./channel-grant";
 import { resolveIngressActor } from "./actor-resolver";
 import { isAuthorizedTopLevelActor } from "./authority-actor";
 import { resolveAndRecordRoute, resolveKernelRoute } from "./routing-resolution";
+import { recordAutomationDuplicate } from "./automation/ledger.js";
 import type { GatewayRouterPorts } from "./message-ports";
 import { evaluateSocialBudget } from "./messaging/social-budget";
 import type { IngressFacts } from "../automation/facts.js";
@@ -183,8 +184,10 @@ export function externalMessage(
     const message = buildMessage(route, identities, addressed, egressBudget);
     const automation = route.decision.outcome === "route" && route.requestExecution.kind !== "request"
       ? outcome.route : undefined;
+    const automationGrant = automation?.automationId !== undefined &&
+      !automation.automationId.startsWith("granted-direct:");
     return { route, event, target, surfaceKey,
-      message: { ...message, grantTier: message.grantTier || automation?.automationId !== undefined }, facts,
+      message: { ...message, grantTier: message.grantTier || automationGrant }, facts,
       content: automation?.kind === "action" ? JSON.stringify(automation.body)
         : automation?.origin.body ?? facts.render,
       pending: outcome.pending,
@@ -194,7 +197,7 @@ export function externalMessage(
   });
 }
 
-/** Replays validate frozen authority but never re-evaluate the automation or append a decision. */
+/** Replays retain the frozen route; completed deliveries append only a dedupe observation. */
 export function replayExternal(stores: ChannelStores,
   sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: IngressFacts,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
@@ -204,7 +207,10 @@ export function replayExternal(stores: ChannelStores,
     if (record?.stage === "automation" && record.by.startsWith("automation/"))
       resolveIngress(stores, sender, facts, ports, at, input, false, false);
     const retry = stores.automations.pendingDelivery(input.input.eventId);
-    if (retry === undefined) return undefined;
+    if (retry === undefined) {
+      if (record !== undefined) recordAutomationDuplicate(stores, ports.sink, { ...record, time: at });
+      return undefined;
+    }
     return yield* externalMessage(stores, sender, facts, ports, at, budgets, [], input, retry);
   });
 }

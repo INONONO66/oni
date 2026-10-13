@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Gateway, Ingress } from "@openomni/protocol";
+import { Gateway } from "@openomni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -148,15 +148,6 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       if (replay !== undefined) {
         const external = yield* replayExternal(stores, sender, facts, ports, at,
           messagingPorts?.budgets?.() ?? [], input);
-        if (external === undefined && replay.status === "blocked_pre" &&
-            replay.reasonCode === "message.external.event_id_dedupe") {
-          const original = stores.automations.decisions(input.input.eventId)[0];
-          if (original?.stage === "automation") {
-            const deduped = { ...original, time: at, decision: "deduped" as const, reason: "event_id_dedupe" };
-            stores.automations.record(deduped);
-            ports.sink(Ingress.Events.RoutingDecision, deduped);
-          }
-        }
         return { external, filtered: external === undefined ? replay : undefined };
       }
       const filtered = filterAutomationRules(stores, input.input, ports.sink, at);
