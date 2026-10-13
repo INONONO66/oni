@@ -1,6 +1,6 @@
 # Implementation Status
 
-## #1353 — compaction four core ports with a plugin-owned policy (PR #1470, base `dab3904ab`)
+## #1353 — compaction four core ports with a plugin-owned policy (PR #1470, base `91eb15949`)
 
 - Port: `packages/agent/src/core/compaction-ports.ts` declares the four operations the turn loop needs and nothing else (132 formatter-canonical lines, 172 before; the issue's ~70-100 guide is noted as a follow-up). `core/turn.ts` reaches compaction through exactly one `maybeCompact(` call; the old tokens (`applyCompaction`, `prepareCompactionAfterContinue`, `createCompactionSession`, `geometry`, `shouldCompact`, `createSession`, `thresholdTokens`) go 11 → 0 in turn.ts.
 - Policy: compaction policy, speculation and tool-output elision defaults move into `packages/agent/src/plugins/compaction/policy.ts`. `CompactionReason = prepare | threshold | yield | overflow` (`prepare` only starts speculation after a tool-call continuation and never executes); `overflow` is recorded as the existing `trigger: "yield"` row value, so no recorded journal byte changes (goldens and conformance snapshots untouched). The plugin imports only `core/api.ts`; `Bun.spawn` in the plugin stays 0.
