@@ -9,7 +9,7 @@ import {
 import type { ChannelStores } from "./stores.js";
 import { targetsOfRequest, responderCandidates, ingressEvidence } from "./request/matcher.js";
 import type { GatewayRouterPorts } from "./message-ports.js";
-import type { resolveAndRecordRoute } from "./routing-resolution.js";
+import type { resolveKernelRoute } from "./routing-resolution.js";
 import { IngressRoutingError } from "../errors";
 
 // A rejected request-correlated delivery records a correction without changing
@@ -80,7 +80,7 @@ export function requireRoutedDecision(decision: Ingress.RoutingDecisionPayload):
 
 export function executeRequestRoute<Event extends Gateway.DeliveredEvent>(
   stores: ChannelStores,
-  resolution: ReturnType<typeof resolveAndRecordRoute<Event>>,
+  resolution: ReturnType<typeof resolveKernelRoute<Event>>,
   decision: RoutedDecision,
   requests: GatewayRouterPorts["requests"],
   content: string,

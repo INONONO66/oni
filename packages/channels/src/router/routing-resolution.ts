@@ -217,7 +217,7 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
     ...(event.userId === undefined ? {} : { sender: event.userId }),
   });
   const channel = channelState(channelResolution, event.meta?.inboundTreatment === "evidence_only");
-  const surfaceSessionId = channel === undefined ? stores.surfaceKeys.lookup(key) : grantedDirectSession(stores, event, key);
+  const surfaceSessionId = channel === undefined ? undefined : grantedDirectSession(stores, event, key);
   const actor = actorState(event);
   const decision = resolveRoute(
     {
@@ -291,18 +291,14 @@ function pinReplyGrantEndpoint(
 // appended route.decided fact, its published RoutingDecision projection, and
 // the typed route_ambiguous rejection — candidates are never mutated on
 // lookup.
-export function resolveAndRecordRoute<Event extends Gateway.DeliveredEvent>(
+export function recordKernelRoute<Event extends Gateway.DeliveredEvent>(
   stores: ChannelStores,
-  event: Event,
-  key: string,
-  traceId: string,
+  resolution: KernelRouteResolution<Event>,
   publish: BusEvent.Sink["publish"],
-  requests: GatewayRouterPorts["requests"],
   at: number,
-  id: () => string,
   observe = true,
 ): KernelRouteResolution<Event> {
-  const resolution = resolveKernelRoute(stores, event, key, traceId, requests, at, id);
+  const event = resolution.event;
   const decision = Ingress.Events.RoutingDecision.schema.parse(
     pinReplyGrantEndpoint(resolution.decision, event),
   );

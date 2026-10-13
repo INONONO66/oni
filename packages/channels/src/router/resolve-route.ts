@@ -168,14 +168,6 @@ function resolveChannelRoute(
 ): Ingress.RoutingDecisionPayload {
   const channel = state.channel;
   if (channel === undefined) {
-    // A record may grant an identified sender, but never invent identity.
-    // Table A still refuses this route unless a record actually matches.
-    if (state.actor !== undefined) return {
-      ...common, stage: "surface_default", outcome: "route", target: inbound.target,
-      actorId: state.actor.id, trustTier: state.actor.trustTier,
-      reason: "Identified inbound awaits an automation grant",
-      factsUsed: [...waitFacts, "channel:missing", `actor:${state.actor.id}`],
-    };
     return {
       ...common,
       stage: "channel_ceiling",

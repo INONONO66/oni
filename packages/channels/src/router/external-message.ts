@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { ChannelStores } from "./stores.js";
 import type { PolicyEvaluationInput } from "@openomni/agent";
-import { Channel, type Gateway } from "@openomni/protocol";
+import { Channel, type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@openomni/protocol";
 import { judgeAndMatch } from "../automation/judge.js";
 import type { MatchDecision, PendingGroup } from "../automation/matcher.js";
 import type { ingressInput } from "./automation/input.js";
@@ -9,7 +9,7 @@ import { newTraceId } from "../support/trace";
 import { resolveChannelGrant } from "./channel-grant";
 import { resolveIngressActor } from "./actor-resolver";
 import { isAuthorizedTopLevelActor } from "./authority-actor";
-import { resolveAndRecordRoute, resolveKernelRoute } from "./routing-resolution";
+import { recordKernelRoute, resolveKernelRoute } from "./routing-resolution";
 import { recordAutomationDuplicate } from "./automation/ledger.js";
 import type { GatewayRouterPorts } from "./message-ports";
 import { evaluateSocialBudget } from "./messaging/social-budget";
@@ -35,8 +35,7 @@ function admitWebSocketOwner(
 function resolveIngress(
   stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
   facts: IngressFacts, ports: GatewayRouterPorts, at: number,
-  ingress: ReturnType<typeof ingressInput>, closing: boolean,
-  observe = true,
+  ingress: ReturnType<typeof ingressInput>,
 ) {
   const surfaceKey = Channel.SurfaceKey.fromChannel({
     surface: facts.surface, namespace: facts.workspaceId ?? facts.surface,
@@ -61,11 +60,26 @@ function resolveIngress(
       },
     },
   }, at);
-  const route = closing
-    ? resolveKernelRoute(stores, event, surfaceKey, event.traceId, ports.requests, at, ports.id)
-    : resolveAndRecordRoute(stores, event, surfaceKey, event.traceId,
-        ports.sink, ports.requests, at, ports.id, observe);
+  const route = resolveKernelRoute(stores, event, surfaceKey, event.traceId, ports.requests, at, ports.id);
   return { surfaceKey, existing, event: route.event, route, ...ingress };
+}
+
+function automationActor(route: ReturnType<typeof resolveKernelRoute>) {
+  const actor = route.event.meta?.actor;
+  return route.decision.outcome === "block" && route.decision.stage === "channel_ceiling" &&
+    route.decision.factsUsed.includes("channel:missing") &&
+    actor?.actorId !== undefined && actor.trustTier !== undefined ? actor : undefined;
+}
+
+function grantAutomation(route: ReturnType<typeof resolveKernelRoute>, automationId?: string) {
+  const actor = automationActor(route);
+  if (actor === undefined || automationId === undefined) return route;
+  return { ...route, decision: Ingress.Events.RoutingDecision.schema.parse({
+    ...route.decision, outcome: "route", stage: "surface_default",
+    target: targetKey(eventTarget(route.event)), actorId: actor.actorId, trustTier: actor.trustTier,
+    reason: "Matched automation grants the identified inbound",
+    factsUsed: [...route.decision.factsUsed, `actor:${actor.actorId}`, `automation:${automationId}`],
+  }) };
 }
 
 function matchIngress(
@@ -74,11 +88,14 @@ function matchIngress(
 ) {
   return Effect.gen(function* () {
     const { route, addressed, existing, input, surfaceKey } = resolved;
-    if (route.decision.outcome !== "route" || route.requestExecution.kind === "request")
+    if ((route.decision.outcome !== "route" && automationActor(route) === undefined) ||
+        route.requestExecution.kind === "request")
       return { rows: [], pending } satisfies MatchDecision;
     const record = route.decision.outcome === "route" && route.decision.stage === "surface_default"
       ? stores.automations.get(`granted-direct:${surfaceKey}`)?.record : undefined;
-    const records = stores.automations.list().map((entry) => entry.record);
+    const records = stores.automations.list()
+      .filter((entry) => entry.approved || entry.record.createdBy === "owner")
+      .map((entry) => entry.record);
     const userRecords = records.filter((candidate) => candidate.id !== record?.id &&
       !candidate.id.startsWith("granted-direct:"));
     const options = {
@@ -105,7 +122,7 @@ function projectDisposition(
   outcome: Effect.Success<ReturnType<typeof matchIngress>>,
   eventId: string,
 ) {
-  if (route.requestExecution.kind === "request" || route.decision.outcome !== "route") return undefined;
+  if (route.requestExecution.kind === "request") return undefined;
   if (outcome.route !== undefined) return undefined;
   return outcome.pending.some((group) => group.inputs.some((member) => member.eventId === eventId))
     ? "grouped" : undefined;
@@ -151,7 +168,7 @@ function buildMessage(
   return {
     sender: "external",
     ...(route.decision.trustTier === undefined ? {} : { senderTier: route.decision.trustTier }),
-    addressee, identity: route.decision.outcome === "route",
+    addressee, identity: route.decision.outcome === "route" || automationActor(route) !== undefined,
     grantTier: route.decision.outcome === "route" &&
       (route.requestExecution.kind === "request" ||
         (!route.decision.factsUsed.includes("channel:missing") && isAuthorizedTopLevelActor(route.event))),
@@ -173,11 +190,14 @@ export function externalMessage(
   closingRoute?: NonNullable<MatchDecision["route"]>,
 ) {
   return Effect.gen(function* () {
-    const resolved = resolveIngress(stores, sender, facts, ports, at, ingress, closingRoute !== undefined);
-    const { event, route, identities, addressed, surfaceKey } = resolved;
+    const resolved = resolveIngress(stores, sender, facts, ports, at, ingress);
+    const { event, identities, addressed, surfaceKey } = resolved;
     const outcome: MatchDecision = closingRoute === undefined
       ? yield* matchIngress(stores, ports, at, pending, resolved)
       : { route: closingRoute, rows: [], pending };
+    const granted = grantAutomation(resolved.route, outcome.route?.automationId);
+    const route = closingRoute === undefined
+      ? recordKernelRoute(stores, granted, ports.sink, at) : granted;
     const disposition = projectDisposition(route, outcome, event.id);
     const target = resolveTarget(route, outcome, resolved.existing ?? ports.id(), ports.id);
     const egressBudget = resolveEgressBudget(route, budgets, stores, event.meta?.actor?.actorId, target, at);
@@ -204,8 +224,14 @@ export function replayExternal(stores: ChannelStores,
   input: ReturnType<typeof ingressInput>) {
   return Effect.gen(function* () {
     const record = stores.automations.decisions(input.input.eventId)[0];
-    if (record?.stage === "automation" && record.by.startsWith("automation/"))
-      resolveIngress(stores, sender, facts, ports, at, input, false, false);
+    if (record?.stage === "automation" && record.by.startsWith("automation/")) {
+      const resolved = resolveIngress(stores, sender, facts, ports, at, input);
+      const fact = stores.decisionFacts.port()?.head(Ingress.routeStreamId(resolved.event));
+      const original = fact === undefined ? undefined : Ingress.recordedRoutingDecision(fact.data);
+      const grant = original?.factsUsed.find((value) => value.startsWith("automation:"));
+      recordKernelRoute(stores, grantAutomation(resolved.route, grant?.slice("automation:".length)),
+        ports.sink, at, false);
+    }
     const retry = stores.automations.pendingDelivery(input.input.eventId);
     if (retry === undefined) {
       if (record !== undefined) recordAutomationDuplicate(stores, ports.sink, { ...record, time: at });
