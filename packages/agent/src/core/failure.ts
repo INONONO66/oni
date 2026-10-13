@@ -2,7 +2,7 @@ import { Data, Cause, Option } from "effect";
 import type { StopVerdict } from "./turn";
 import type { LedgerError } from "./store/errors";
 import { AdmissionFailure } from "./messages";
-import type { LlmRunFailure } from "../model";
+import type { LlmRunFailure } from "./llm";
 import type { LedgerSession } from "@openomni/protocol";
 
 /** Machine stop verdicts are typed execution failures, never defects. */

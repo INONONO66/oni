@@ -1,7 +1,7 @@
-import { APICallError } from "ai";
 import { expect, test } from "bun:test";
 import { LedgerAction } from "@openomni/protocol";
-import { LlmRunFailure, run } from "../src/model";
+import { type AttemptEvidence, LlmRunFailure } from "../src/core/llm";
+import { FakeProviderError } from "./helpers/fake-llm";
 import { Effect } from "effect";
 import { testExecutor } from "./helpers/executor";
 import { allowAllPolicy } from "./helpers/compiled-policy";
@@ -12,6 +12,8 @@ import { attemptUsage, toolWallMs } from "../src/core/metrics";
 import { createTestAgent, recordingExecutor } from "./helpers/effect-g2";
 import { mockProviderModel } from "./helpers/mock-llm";
 import { runInput } from "./helpers/run-input";
+import { createAssistantMessage } from "../src/core/message-factory";
+import { messageSource } from "./helpers/message-source";
 
 function result(id: string, parentId: string, evidence: LedgerAction.Node["effect"]["value"],
   usageProvenance: "reported" | "estimated" | "unknown" = "unknown") {
@@ -82,9 +84,8 @@ test("a real committed failed attempt contributes billed usage once", () =>
       if (attempts === 1) return yield* new LlmRunFailure({
         message: "overloaded", aborted: false, contextOverflow: false,
         visibleOutput: false, retryAfterMs: 0,
-        cause: new APICallError({
-          message: "overloaded", url: "https://provider.test/v1/messages", requestBodyValues: {},
-          statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
+        cause: new FakeProviderError({
+          message: "overloaded", statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
         }),
         usageProvenance: "reported",
         usage: {
@@ -105,8 +106,24 @@ test("a real committed failed attempt contributes billed usage once", () =>
     expect(entries.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(7);
   })));
 
+/**
+ * The port's attempt evidence per provenance (#1352): the call layer decides
+ * `reported | estimated | unknown` beside its stream decoder (tested in
+ * packages/llm); the core records whatever the port states, never a default.
+ */
+function evidenceOf(provenance: "reported" | "estimated" | "unknown"): AttemptEvidence {
+  const counts = provenance === "estimated" ? { inputTokens: 5, outputTokens: 2 } : { inputTokens: 0, outputTokens: 0 };
+  return {
+    usage: { ...counts, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    usageProvenance: provenance,
+    visibleOutput: true,
+    finishReason: "stop",
+    credential: null,
+  };
+}
+
 test.each(["reported", "estimated", "unknown"] as const)(
-  "a provider stream records %s usage through the agent and executor",
+  "a port stop records %s usage through the agent and executor",
   (provenance) => isolated(Effect.gen(function* () {
     const { executor, committed } = recordingExecutor();
     const agent = createTestAgent({
@@ -116,17 +133,9 @@ test.each(["reported", "estimated", "unknown"] as const)(
       execution: executor,
       llm: {
         resolveModel: () => Effect.succeed(mockProviderModel),
-        run: (input, sink) => run({ ...input, authFilePath: "/nonexistent/openomni-test/auth.json" }, sink, {
-          createStream: () => Effect.succeed({
-            fullStream: (async function* () {
-              yield { type: "text-start", id: "text" };
-              yield { type: "text-delta", id: "text", text: "answer" };
-              if (provenance !== "unknown") yield {
-                type: "step-finish", finishReason: "stop",
-                ...(provenance === "reported" ? { usage: { inputTokens: 0, outputTokens: 0 } } : {}),
-              };
-            })(),
-          }),
+        run: (input, sink) => Effect.sync(() => {
+          sink.onMessage(createAssistantMessage("answer", input.messages.at(-1)?.info.id ?? "", input.trace.sessionId, messageSource));
+          return { type: "stop", evidence: evidenceOf(provenance) };
         }),
       },
     });

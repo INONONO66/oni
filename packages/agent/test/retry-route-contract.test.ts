@@ -1,10 +1,9 @@
 import { attemptIntentIds, isAttemptRow } from "./helpers/llm-rows";
-import { APICallError } from "ai";
 import { expect, test } from "bun:test";
-import { APIError, Retry, run as runLlm, type RunInput } from "../src/model";
+import { LlmRunFailure, type RunInput, type LlmSink } from "../src/core/llm";
+import { RETRY_HEADER_DELAY_CAP } from "../src/core/retry";
 import { PlainObjectSchema, type LedgerAction, type Model } from "@openomni/protocol";
 import { Effect } from "effect";
-import type { StreamEvent } from "../src/model/processor/stream-events";
 import { runAgent } from "../src/core/turn";
 import { AgentFailure } from "../src/core/store/errors";
 import { isolated } from "./helpers/isolated";
@@ -14,30 +13,38 @@ import { compiledPolicy } from "./helpers/compiled-policy";
 import { chatServices, fixtureStopEvidence, type ChatFixture } from "./helpers/chat-services";
 import { runInput } from "./helpers/run-input";
 import { TEST_BUDGET } from "./helpers/approval-policy";
+import { FakeProviderError } from "./helpers/fake-llm";
+import { createAssistantMessage } from "../src/core/message-factory";
+import { messageSource } from "./helpers/message-source";
 
 const primary = { provider: "route-a", id: "model-a" };
 const fallback = { provider: "route-b", id: "model-b" };
 const usage = { inputTokens: 17, outputTokens: 2 };
 type Prefix = "none" | "reasoning" | "text" | "tool";
 
-function providerFailure(floor: number) {
-  return new APIError({
-    cause: new APICallError({
-      message: "overloaded", url: "https://provider.test/v1/messages", requestBodyValues: {},
-      statusCode: 529, responseHeaders: { "retry-after-ms": String(floor) }, isRetryable: true,
-    }),
+/**
+ * The port's typed attempt failure (#1352): what the call layer states about
+ * the attempt — billed usage, whether any output reached the Owner, and the
+ * provider's wait floor — is the whole input to the loop's route decision.
+ */
+function providerFailure(prefix: Prefix, floor: number): LlmRunFailure {
+  const cause = new FakeProviderError({
+    message: "overloaded", statusCode: 529, isRetryable: true, responseHeaders: { "retry-after-ms": String(floor) },
+  });
+  return new LlmRunFailure({
+    message: "overloaded", cause, providerErrorName: cause.name, retryAfterMs: floor,
+    usage: { ...usage, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    aborted: false, contextOverflow: false,
+    visibleOutput: prefix === "text" || prefix === "tool",
   });
 }
 
-function stream(prefix: Prefix, failed: boolean, floor: number): AsyncIterable<StreamEvent> {
-  return (async function* (): AsyncGenerator<StreamEvent, void, void> {
-    if (prefix === "reasoning") yield { type: "reasoning-delta", id: "r", text: "private" };
-    if (prefix === "text" || !failed) yield { type: "text-delta", text: "answer" };
-    if (prefix === "tool") yield { type: "tool-call", toolCallId: "call", toolName: "write", input: {} };
-    yield { type: "step-finish", finishReason: "stop", usage };
-    if (failed) throw providerFailure(floor);
-    yield { type: "finish", finishReason: "stop" };
-  })();
+function portRun(prefix: Prefix, failed: boolean, floor: number, input: RunInput, sink: LlmSink) {
+  return Effect.sync(() => {
+    if (failed) return { type: "error" as const, error: providerFailure(prefix, floor) };
+    sink.onMessage(createAssistantMessage("answer", input.messages.at(-1)?.info.id ?? "", input.trace.sessionId, messageSource));
+    return { type: "stop" as const };
+  });
 }
 
 function scenario(prefix: Prefix, floor = 0, veto = false) {
@@ -65,16 +72,14 @@ function scenario(prefix: Prefix, floor = 0, veto = false) {
       model: primary, modelFallbacks: [fallback], executor, execution: executor,
       events: { publish: () => undefined },
       llm: {
-        resolveModel: ({ now: _now, ...model }) => Effect.sync(() => {
+        resolveModel: (model) => Effect.sync(() => {
           resolved.push(model);
           return { id: model.id, name: model.id, providerID: model.provider };
         }),
-        run: (input: RunInput, sink) => runLlm({ ...input, authFilePath: "/nonexistent/openomni-test/auth.json" }, sink, {
-          createStream: () => Effect.sync(() => {
-            providers.push(input.model.providerID);
-            return { fullStream: stream(prefix, !veto && providers.length === 1, floor) };
-          }),
-        }),
+        run: (input, sink) => {
+          providers.push(input.model.providerID);
+          return portRun(prefix, !veto && providers.length === 1, floor, input, sink);
+        },
       },
     };
     const { events: _events, llm: _llm, ...config } = fixture;
@@ -143,6 +148,6 @@ test("a canonical assistant write refusal vetoes fallback after a successful pro
 })));
 
 test("a provider floor beyond the retry header budget stops without scheduling an early retry", () => isolated(Effect.gen(function* () {
-  const value = yield* scenario("none", Retry.RETRY_HEADER_DELAY_CAP + 1);
+  const value = yield* scenario("none", RETRY_HEADER_DELAY_CAP + 1);
   expectFailedPrimaryAttempt(value);
 })));

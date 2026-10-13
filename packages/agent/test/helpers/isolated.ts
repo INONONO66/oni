@@ -9,7 +9,7 @@ import {
   makeObservationBus,
   scopeObservation,
 } from "../../src/core/bus";
-import { LlmLive } from "../../src/model";
+import { FakeLlmLive as LlmLive } from "./fake-llm";
 import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, compilePolicySnapshot } from "../../src/core/gate/compile";
 import { Entropy, GenerationOwnership, ObservationSink, SessionLayer, ToolCatalog, type GenerationServices, type RunnerServices } from "../../src/core/ports";
 import { GenerationHandlers } from "../../src/core/compose";

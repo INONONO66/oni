@@ -1,4 +1,4 @@
-import { LlmLive } from "../../src/model";
+import { FakeLlmLive as LlmLive } from "./fake-llm";
 import { createPolicyCompiler, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { canonicalDigest, Delivery, LedgerAction, SessionTransition, type LedgerSession, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
 import { Clock, type Context, Effect, Layer, Scope, Semaphore } from "effect";

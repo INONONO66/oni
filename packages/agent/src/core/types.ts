@@ -12,7 +12,7 @@ import type {
   Token,
   Tool,
 } from "@openomni/protocol";
-import type { RunInput } from "../model";
+import type { RunInput } from "./llm";
 import type { CompactionOptions, CompactionSeamService } from "./compaction-ports";
 import type { Executor } from "./gate/decide";
 

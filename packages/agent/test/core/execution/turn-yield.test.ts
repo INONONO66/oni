@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { isolated } from "../../helpers/isolated";
 import { failure } from "../../helpers/effect-g3";
 import { describe, expect, it } from "bun:test";
-import type { Run, RunInput, Sink } from "../../../src/model";
+import type { RunInput, RunResult, LlmSink as Sink } from "../../../src/core/llm";
 import type { Message } from "@openomni/protocol";
 import { runTestAgent } from "../../helpers/effect-g3";
 import { collector } from "../../helpers/observation-collector";
@@ -41,7 +41,7 @@ function assistantWithReasons(reasons: readonly string[], inputTokens = 900): Me
   );
 }
 
-function steeringLlm(run: (input: RunInput, sink: Sink) => Effect.Effect<Run.Outcome>) {
+function steeringLlm(run: (input: RunInput, sink: Sink) => Effect.Effect<RunResult>) {
   return {
     resolveModel: () => Effect.promise(async () => ({ id: "model", name: "model", providerID: "provider" })),
     run,

@@ -1,7 +1,7 @@
 import { Context, Layer, Effect, type Scope } from "effect";
 import { listenForAbort, type AnyToolDefinition, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
 import type { CompiledPolicySnapshot } from "./gate/compile";
-import type { Llm } from "../model";
+import type { Llm } from "./llm";
 import type { SessionError } from "./failure";
 import type { GenerationHandlers } from "./compose";
 import type { GenerationRawSlots } from "./run";

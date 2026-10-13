@@ -4,7 +4,7 @@ import { Effect, Fiber } from "effect";
 import { isolated } from "../helpers/isolated";
 import { createTestAgent, runUserMessage, failure } from "../helpers/effect-g2";
 import { describe, expect, it } from "bun:test";
-import type { RunInput, Sink } from "../../src/model";
+import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
 import type { Model } from "@openomni/protocol";
 import { RunEvents } from "../../src/core/turn";
 import type { RunnerServices } from "../../src/core/ports";
@@ -20,7 +20,7 @@ const fallback = { provider: "openai", id: "fallback-model" };
 function fallbackHarness(errorMessage: string) {
   const resolved: Model.Ref[] = [];
   let calls = 0;
-  const run: MockLlmFn = async (_input: import("../../src/model").RunInput, sink: Sink) => {
+  const run: MockLlmFn = async (_input: import("../../src/core/llm").RunInput, sink: Sink) => {
     calls += 1;
     if (calls === 1)
       return {

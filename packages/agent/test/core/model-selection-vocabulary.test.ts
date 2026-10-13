@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { selectModel } from "../../src/model";
+import { selectModel } from "../../src/core/model-select";
 import type { RetryReason } from "../../src/core/retry";
 
 const REASONS = [

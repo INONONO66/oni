@@ -4,7 +4,7 @@ import { Effect, Cause, Exit } from "effect";
 
 import { runAgent } from "../../src/core/turn";
 import type { ChatAgentInput } from "../../src/core/types";
-import type { Sink } from "../../src/model";
+import type { LlmSink as Sink } from "../../src/core/llm";
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
 import type { PolicyRow } from "@openomni/protocol";
 import { recordingExecutor } from "./effect-g3-recording";

@@ -11,14 +11,14 @@ import type { SessionFixture as SessionRuntime } from "./session-services";
 import { createSessionChatRunner } from "../../src/core/run";
 import { createTurnDispatcher } from "../../src/plugins/tool";
 import type { AnyToolDefinition } from "@openomni/protocol";
-import type { Run, RunInput } from "../../src/model";
+import type { RunInput, RunResult } from "../../src/core/llm";
 import type {} from "../../src/core/run";
 import type { SessionRunnerInput, SessionRunnerResult } from "../../src/core/run";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import type { LedgerAction, SessionTransition } from "@openomni/protocol";
 import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
 import type { ChatAgentInput } from "../../src/core/types";
-import type { Sink } from "../../src/model";
+import type { LlmSink as Sink } from "../../src/core/llm";
 import type { ExecutorOptions, DurableExecutor } from "../../src/core/gate/decide";
 import type { SessionHandle } from "../../src/core/run";
 import { AgentFailure, CommitFailed } from "../../src/core/failure";
@@ -135,7 +135,7 @@ export function answerThenCompact(executor: DurableExecutor, input: SessionRunne
 export function dispatchingRunner(
   definitions: readonly AnyToolDefinition[],
   runtime: () => SessionRuntime,
-  model: (request: RunInput, sink: Sink, input: SessionRunnerInput) => Promise<Run.Outcome>,
+  model: (request: RunInput, sink: Sink, input: SessionRunnerInput) => Promise<RunResult>,
 ) {
   return createSessionChatRunner({
     prepare: (input: SessionRunnerInput) =>

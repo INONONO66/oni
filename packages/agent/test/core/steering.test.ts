@@ -1,4 +1,4 @@
-import type { RunInput, Sink } from "../../src/model";
+import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
 import { isolated } from "../helpers/isolated";
 import { bounded } from "../helpers/bounded";
 import { providerFailure } from "../helpers/mock-llm";

@@ -2,9 +2,9 @@ import { messageSource } from "./helpers/message-source";
 import { Effect } from "effect";
 import { isolated } from "./helpers/isolated";
 import { createTestAgent, failure } from "./helpers/effect-g3";
-import { describe, expect, it, mock, spyOn, test } from "bun:test";
-import { Auth, LlmRunFailure } from "../src/model";
-import { sdkError } from "./model/helpers/retry";
+import { describe, expect, it, test } from "bun:test";
+import { LlmRunFailure } from "../src/core/llm";
+import { FakeProviderError } from "./helpers/fake-llm";
 import type { Tool } from "@openomni/protocol";
 import { createAssistantMessage } from "../src/core/message-factory";
 import { RunEvents } from "../src/core/turn";
@@ -56,8 +56,9 @@ test("LlmRunFailure evidence names a provider error and nothing else", () => {
   expect(failureEvidence(new LlmRunFailure({ ...attempt, cause: transport })))
     .toEqual({ ...common, providerErrorName: null, cause: "TypeError: fetch failed" });
 
-  const provider = sdkError({ message: "overloaded", statusCode: 529, isRetryable: true });
-  expect(failureEvidence(new LlmRunFailure({ ...attempt, cause: provider })))
+  // The port names the provider error (#1352): the core copies the name it was handed and never inspects the cause.
+  const provider = new FakeProviderError({ message: "overloaded", statusCode: 529, isRetryable: true });
+  expect(failureEvidence(new LlmRunFailure({ ...attempt, cause: provider, providerErrorName: provider.name })))
     .toEqual({ ...common, providerErrorName: provider.name, cause: "overloaded" });
   expect(provider.name).not.toBe("TypeError");
 
@@ -131,26 +132,9 @@ describe("ChatAgent public run contract", () => {
     expect(calls).toBe(0);
   });
 
-  it("passes the configured abort signal through the LLM tool bridge", async () => {
+  it("passes the configured abort signal through the tool bridge", async () => {
     let capturedContext: Tool.ExecutionContext | undefined;
     let providerSteps = 0;
-    mock.module("ai", () => ({
-      jsonSchema: (schema: object) => ({ jsonSchema: schema }),
-      isStepCount: () => () => false,
-      streamText: () => ({
-        fullStream: (async function* (): AsyncGenerator<object, void, void> {
-          providerSteps += 1;
-          if (providerSteps === 1)
-            yield { type: "tool-call", toolCallId: "call-1", toolName: "lookup", input: {} };
-          else {
-            yield { type: "text-start" };
-            yield { type: "text-delta", text: "completed" };
-            yield { type: "text-end" };
-          }
-          yield { type: "finish" };
-        })(),
-      }),
-    }));
     const controller = new AbortController();
     await isolated(createTestAgent({
       events: Bus,
@@ -169,7 +153,25 @@ describe("ChatAgent public run contract", () => {
         capturedContext = context;
         return { id: "result-1", toolCallId: call.id, output: "found" };
       }),
-      llm: { resolveModel: () => Effect.promise(async () => mockProviderModel) },
+      llm: mockLlm(async (input, sink) => {
+        providerSteps += 1;
+        const parentID = input.messages.at(-1)?.info.id ?? "";
+        if (providerSteps === 1) {
+          const call = { id: "call-1", tool: "lookup", input: {} };
+          sink.onToolCall(call);
+          const message = createAssistantMessage("", parentID, input.trace.sessionId, messageSource);
+          sink.onMessage({
+            ...message,
+            parts: [{
+              id: "tool-part", sessionID: input.trace.sessionId, messageID: message.info.id,
+              type: "tool", callID: call.id, tool: call.tool, state: { status: "pending", input: call.input },
+            }],
+          });
+          return { type: "continue" };
+        }
+        sink.onMessage(createAssistantMessage("completed", parentID, input.trace.sessionId, messageSource));
+        return { type: "stop" };
+      }),
     }).run(runInput([{ role: "user", content: "hello" }])));
 
     expect(capturedContext?.signal).toBe(controller.signal);
@@ -252,39 +254,25 @@ describe("ChatAgent provider boundary failures", () => {
     expect(await isolated(Effect.flip(malformed.run(runInput([{ role: "user", content: "malformed" }]))))).toBeInstanceOf(Error);
   });
 
-  it("reports a missing default provider", async () => {
-    expect(await isolated(Effect.flip(createTestAgent({
-        events: Bus,
-        model: { provider: "missing-provider", id: "missing-model" },
-      }).run(runInput([{ role: "user", content: "lookup" }]))))).toMatchObject({
-      _tag: "AgentFailure", operation: "llm",
-    });
-  });
-
-  it("reports a non-Error proxy listing failure", async () => {
-    const auth = spyOn(Auth, "get").mockReturnValue(Effect.succeed({
-      type: "proxy",
-      baseURL: "https://agent-missing-proxy.example",
-    }));
-    const listing = spyOn(globalThis, "fetch").mockRejectedValue("proxy offline");
-    try {
-      expect(await isolated(Effect.flip(createTestAgent({
-          events: Bus,
-          model: { provider: "anthropic", id: "missing-proxy-model" },
-        }).run(runInput([{ role: "user", content: "lookup" }]))))).toMatchObject({
-        _tag: "AgentFailure", operation: "llm",
-      });
-    } finally {
-      listing.mockRestore();
-      auth.mockRestore();
-    }
-  });
-
-  it("reports a missing model in a known provider", async () => {
+  it("reports a port resolution refusal as an llm failure, keeping only its text", async () => {
+    const refusal = { _tag: "ModelResolutionError", message: "model missing-model not found in provider anthropic" };
     expect(await isolated(Effect.flip(createTestAgent({
         events: Bus,
         model: { provider: "anthropic", id: "missing-model" },
-      }).run(runInput([{ role: "user", content: "lookup" }]))))).toMatchObject({ _tag: "AgentFailure", operation: "llm" });
+        llm: { resolveModel: () => Effect.fail(refusal) },
+      }).run(runInput([{ role: "user", content: "lookup" }]))))).toMatchObject({
+      _tag: "AgentFailure", operation: "llm", cause: refusal.message,
+    });
+  });
+
+  it("reports a port run refusal that is not an attempt failure the same way", async () => {
+    expect(await isolated(Effect.flip(createTestAgent({
+        events: Bus,
+        model: { provider: "anthropic", id: "proxy-model" },
+        llm: { run: () => Effect.fail({ _tag: "ProxyModelsError", message: "proxy offline" }) },
+      }).run(runInput([{ role: "user", content: "lookup" }]))))).toMatchObject({
+      _tag: "AgentFailure", operation: "llm", cause: "proxy offline",
+    });
   });
 
   it("resolves a known model through the default provider path", async () => {

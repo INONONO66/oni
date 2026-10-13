@@ -1,4 +1,3 @@
-import { APICallError } from "ai";
 import { sessionTree } from "../../helpers/session-tree";
 import { testExecutor } from "../../helpers/executor";
 import type { ResolvedExecutorOptions } from "../../../src/core/gate/decide";
@@ -7,7 +6,8 @@ import { isolated, isolatedLedger } from "../../helpers/isolated";
 import { expect, test } from "bun:test";
 import { requestLedger, turnExecutor, failure } from "../../helpers/effect-g1";
 import { AgentFailure } from "../../../src/core/failure";
-import { LlmRunFailure } from "../../../src/model";
+import { LlmRunFailure } from "../../../src/core/llm";
+import { fakeClassifyFailure, FakeProviderError } from "../../helpers/fake-llm";
 import { runChatAttempts } from "../../helpers/effect-g1";
 import { compiledPolicy } from "../../helpers/compiled-policy";
 import { LedgerAction, type PlainObject, type PlainValue, type SessionTransition } from "@openomni/protocol";
@@ -27,9 +27,8 @@ function providerFailure(visibleOutput = false) {
       visibleOutput,
       usage,
       retryAfterMs: 0,
-      cause: new APICallError({
-        message: "overloaded", url: "https://provider.test/v1/messages", requestBodyValues: {},
-        statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
+      cause: new FakeProviderError({
+        message: "overloaded", statusCode: 529, responseHeaders: { "retry-after-ms": "0" }, isRetryable: true,
       }),
   });
 }
@@ -81,6 +80,7 @@ test("executor admits ordered retry children and retains every failed billed usa
   let calls = 0;
   const result = yield* executor.run({ kind: "llm", op: "chat", intent: {}, effect: {} }, (parent: LedgerAction.Receipt) =>
     executor.runAttempts(parent, {
+      classify: (error) => fakeClassifyFailure({ error }),
       prepare: (attempt: number) => Effect.succeed({
         request: { op: "chat", intent: { attempt }, effect: {} },
         admit: () => Effect.sync(() => { admissions.push(attempt); }),
@@ -200,6 +200,7 @@ test("retry re-evaluates policy and context before admitting another child", () 
     expect(yield* failure(
       executor.run({ kind: "llm", op: "chat", intent: {}, effect: {} }, (parent: LedgerAction.Receipt) =>
         executor.runAttempts(parent, {
+          classify: (error) => fakeClassifyFailure({ error }),
           prepare: (attempt: number) => Effect.succeed({
             request: { op: attempt === 1 ? "chat" : "retry", intent: {}, effect: {} },
             admit: () => attempt > 1 ? Effect.fail(new AgentFailure({ operation: "context.admit", cause: "denied" })) : Effect.void,
@@ -281,6 +282,7 @@ test.each([
   let prepared = 0;
   const running = executor.run({ kind: "llm", op: "chat", intent: {}, effect: {} }, (parent: LedgerAction.Receipt) =>
     executor.runAttempts(parent, {
+      classify: (error) => fakeClassifyFailure({ error }),
       prepare: (attempt: number) => Effect.sync(() => {
         prepared += 1;
         return {

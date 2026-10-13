@@ -14,8 +14,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { onAbort, type CapturedGeneration, BOUNDED_CONCURRENCY, Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports";
 import { createApprovalRequest } from "../request-binding";
 import type { ApprovalPolicy } from "../approval-policy";
-import { Retry, coerceApiError } from "../../model";
-import { attachFailureFacts } from "../retry";
+import { attachFailureFacts, attemptReason, decide as decideRetry, isInstantFailure, MAX_ATTEMPTS, type Decision as RetryDecision, type RetryReason } from "../retry";
+import type { FailureClass } from "../llm";
 import { judgeStop, type StopState, type StopObservation, type StopMetric } from "../stop";
 import type * as SessionHandleStore from "../store/fence";
 import { executionPoint } from "../points";
@@ -98,14 +98,21 @@ export interface LlmAttempts<T extends PlainValue> {
     body(): Effect.Effect<T, ExecutionError>;
   }, ExecutionError>;
   recoverOverflow?(error: ExecutionError): Effect.Effect<boolean, ExecutionError>;
-    evidence?(value: T): PlainValue;
+  /**
+   * The closed classification of a failed attempt: the port's pure classifier
+   * applied to the failure. The loop decides retry, overflow recovery,
+   * fallback and caps over this value and never reads the error.
+   */
+  classify(error: ExecutionError): FailureClass;
+  /** Durable attempt evidence (usage, visible-output boundary, credential handle) projected from a settled body. */
+  evidence?(value: T): PlainValue;
   onRetry?(decision: {
     readonly attempt: number;
     readonly maxAttempts: number;
     readonly delayMs: number;
-    readonly decision: import("../../model").Retry.Decision;
-    readonly error: Error;
-    readonly reason: string;
+    readonly decision: RetryDecision;
+    readonly error: ExecutionError;
+    readonly reason: RetryReason;
   }): void;
 }
 
@@ -274,17 +281,20 @@ export class GenerationRawSlots extends Context.Service<
 export function failureEvidence(error: ExecutionError): PlainObject {
   switch (error._tag) {
     case "LlmRunFailure": {
-      const apiError = coerceApiError(error.cause);
+      // Only the provider SDK error names itself; a transport or typed failure keeps `null`.
+      const providerErrorName = error.providerErrorName ?? null;
       return {
         tag: error._tag,
         message: error.message,
-        providerErrorName: apiError?.name ?? null,
+        providerErrorName,
         retryAfterMs: error.retryAfterMs ?? null,
         usage: error.usage,
         aborted: error.aborted,
         contextOverflow: error.contextOverflow,
         visibleOutput: error.visibleOutput,
-        cause: apiError !== undefined ? apiError.message : error.cause === undefined ? null : renderBodyCause(error.cause),
+        cause: error.cause === undefined ? null
+          : providerErrorName !== null && typeof error.cause !== "string" ? error.cause.message
+          : renderBodyCause(error.cause),
       };
     }
     case "PolicyDenied":
@@ -703,9 +713,10 @@ type RecordPort = ReturnType<typeof createExecutionRecord>;
 type Admission = PolicyEvaluation & { readonly receipt: LedgerAction.Receipt };
 type Prepared<T extends PlainValue> = Effect.Success<ReturnType<LlmAttempts<T>["prepare"]>>;
 
-function terminalFailure(failure: ExecutionError, attempt: number) {
+function terminalFailure(failure: ExecutionError, attempt: number, classified: FailureClass | undefined) {
   if (failure._tag === "LlmRunFailure") attachFailureFacts(failure, {
-    reason: failure.aborted ? "aborted" : Retry.attemptReason(failure), attempt, maxAttempts: Retry.MAX_ATTEMPTS, llm: true,
+    reason: failure.aborted || classified === undefined || classified.kind === "aborted" ? "aborted" : attemptReason(classified),
+    attempt, maxAttempts: MAX_ATTEMPTS, llm: true,
   });
   return Effect.fail(failure);
 }
@@ -719,7 +730,7 @@ function failureRequiresStop(failure: ExecutionError, signal: AbortSignal | unde
   if (failure._tag === "CommitFailed" || signal?.aborted === true) return true;
   return failure._tag === "LlmRunFailure" && (failure.aborted || failure.visibleOutput);
 }
-function retryDelay(recover: boolean, decision: ReturnType<typeof Retry.decide>): number {
+function retryDelay(recover: boolean, decision: RetryDecision): number {
   return !recover && decision.retry ? decision.delayMs : 0;
 }
 
@@ -781,7 +792,7 @@ function createAttemptRunner(
           Effect.flatMap(() => record.appendIntent({
             kind: "llm", op: prepared.request.op, parentId: parent.action.id, value: prepared.request.intent,
             invocation: {
-              effectHash: canonicalDigest(prepared.request.effect), attempt, maxAttempts: Retry.MAX_ATTEMPTS,
+              effectHash: canonicalDigest(prepared.request.effect), attempt, maxAttempts: MAX_ATTEMPTS,
               retryReason: failures.at(-1) ?? null,
               routeChange: attemptRouteChange(previous, prepared.request.intent),
             },
@@ -809,17 +820,17 @@ function createAttemptRunner(
       ),
     );
   }
-  function scheduleRetry<T extends PlainValue>(attempts: LlmAttempts<T>, failure: ExecutionError, attempt: number, instantFailures: number, prepared: Prepared<T>, intent: LedgerAction.Receipt) {
+  function scheduleRetry<T extends PlainValue>(attempts: LlmAttempts<T>, failure: ExecutionError, classified: FailureClass, attempt: number, instantFailures: number, prepared: Prepared<T>, intent: LedgerAction.Receipt) {
     return Effect.gen(function* () {
-      if (failureRequiresStop(failure, options.signal)) return yield* terminalFailure(failure, attempt);
-      const overflow = Retry.isContextOverflow(failure);
-      const decision = Retry.decide(attempt, failure, { now: options.clock, random: options.random }, instantFailures, prepared.fallbackAvailable);
-      if (attempt >= Retry.MAX_ATTEMPTS) return yield* terminalFailure(failure, attempt);
+      if (failureRequiresStop(failure, options.signal) || classified.kind === "aborted") return yield* terminalFailure(failure, attempt, classified);
+      const overflow = classified.kind === "overflow";
+      const decision = decideRetry(attempt, classified, options.random, instantFailures, prepared.fallbackAvailable);
+      if (attempt >= MAX_ATTEMPTS) return yield* terminalFailure(failure, attempt, classified);
       const recover = overflow && (yield* attempts.recoverOverflow?.(failure) ?? Effect.succeed(false));
-      if (!recover && (overflow || !decision.retry)) return yield* terminalFailure(failure, attempt);
+      if (!recover && (overflow || !decision.retry)) return yield* terminalFailure(failure, attempt, classified);
       const delayMs = retryDelay(recover, decision);
-      const reason = recover ? "context_overflow" : Retry.attemptReason(failure);
-      attempts.onRetry?.({ attempt, maxAttempts: Retry.MAX_ATTEMPTS, delayMs, decision, error: failure, reason });
+      const reason = recover ? "context_overflow" : attemptReason(classified);
+      attempts.onRetry?.({ attempt, maxAttempts: MAX_ATTEMPTS, delayMs, decision, error: failure, reason });
       const id = intent.action.id;
       const fireAt = options.clock() + delayMs;
       yield* retryAlarm.arm({ id, attempt, reason, fireAt });
@@ -841,8 +852,9 @@ function createAttemptRunner(
           return executeAttempt(prepared, attempts, intent).pipe(Effect.flatMap((outcome) => {
             if (Exit.isSuccess(outcome)) return Effect.succeed(outcome.value);
             return retryableFailure(outcome.cause).pipe(Effect.flatMap((failure: ExecutionError): Effect.Effect<T, ExecutionError> => {
-              instantFailures = Retry.isInstantTransportFailure(failure, options.clock() - started) ? instantFailures + 1 : 0;
-              return scheduleRetry(attempts, failure, attempt, instantFailures, prepared, intent).pipe(
+              const classified = attempts.classify(failure);
+              instantFailures = isInstantFailure(classified, options.clock() - started) ? instantFailures + 1 : 0;
+              return scheduleRetry(attempts, failure, classified, attempt, instantFailures, prepared, intent).pipe(
                 Effect.flatMap((reason) => {
                   failures.push(reason);
                   return loop(attempt + 1);

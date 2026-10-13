@@ -3,7 +3,6 @@ import { isolated } from "../../helpers/isolated";
 import { completeModel, providerFailure } from "../../helpers/mock-llm";
 import { describe, expect, it } from "bun:test";
 import { runTestAgent } from "../../helpers/effect-g1";
-import { Retry } from "../../../src/model";
 import { collector } from "../../helpers/observation-collector";
 import { runInput } from "../../helpers/run-input";
 import { overflowCompactionConfig } from "../../helpers/run-config";
@@ -50,24 +49,6 @@ async function expectSquashedCause<A, E>(
 }
 
 describe("context overflow recovery", () => {
-  it("classifies provider overflow text without matching rate limits", () => {
-    for (const message of [
-      "context_length_exceeded",
-      "This model's maximum context length is 8192 tokens",
-      "prompt is too long: 210000 tokens",
-      "Request exceeds the context window",
-      "too many tokens",
-      "The input token count exceeds the maximum number of tokens allowed.",
-      "Input is too long for requested model.",
-    ]) {
-      expect(Retry.isContextOverflow(new Error(message))).toBe(true);
-    }
-    expect(
-      Retry.isContextOverflow(new Error("exceeded token rate limit of your current tier")),
-    ).toBe(false);
-    expect(Retry.isContextOverflow(new Error("context deadline exceeded"))).toBe(false);
-  });
-
   it("does not blindly retry when compaction is unavailable and preserves the failure", async () => {
     const original = providerFailure("prompt is too long", {
       contextOverflow: true,
