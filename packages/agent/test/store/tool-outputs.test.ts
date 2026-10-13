@@ -1,28 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { LedgerAction } from "@openomni/protocol";
-import { useMemoryStores, testNow } from "./helpers/storage";
-import { CHILD, PARENT, forkFixture } from "./helpers/fork-fixture";
+import { CHILD, PARENT, useForkFixture } from "./helpers/fork-fixture";
 import * as SessionHandleStore from "../../src/core/store/fence";
-import { openSessionStore, type SessionStore } from "../../src/core/store/session-file";
 
-const stores = useMemoryStores();
-let childStore: SessionStore | undefined;
-
-beforeEach(() => {
-  childStore = openSessionStore(":memory:", { now: testNow });
-});
-
-afterEach(() => {
-  childStore?.close();
-  childStore = undefined;
-});
-
-function child(): SessionStore {
-  if (childStore === undefined) throw new Error("child store only exists inside a test");
-  return childStore;
-}
-
-const fixture = forkFixture(stores, child);
+const { stores, child, fixture } = useForkFixture();
 
 const OUTPUT_ID = `sha256:${"ab".repeat(32)}`;
 const OTHER_ID = `sha256:${"cd".repeat(32)}`;

@@ -1,84 +1,32 @@
 import { sessionTree } from "./helpers/session-tree";
-import { allowConfigure, isolatedRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { Effect, Exit } from "effect";
 import { expect, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { canonicalDigest, type LedgerAction } from "@openomni/protocol";
-import { createSessionRequests } from "../src/core/request";
+import {
+  appendSourceInvocation,
+  gatewayPort,
+  materializeSource,
+  messageIntent,
+  openingRequest as opening,
+} from "./helpers/request-port";
 
 const setup = Effect.gen(function* () {
-  (yield* isolatedLedger().kernel.materialize({
-          id: "source",
-          parentId: null,
-          role: "resident",
-          tools: [],
-          system: { preset: "", blocks: [] },
-          policyGeneration: 0,
-          actionId: "configure",
-          at: 1,
-        }));
-  const actions = isolatedLedger().session.actions;
-  for (const id of ["first", "second"]) {
-    actions.append(
-      {
-        id,
-        sessionId: "source",
-        parentId: "configure",
-        kind: "message",
-        intent: {
-          encodingVersion: 1,
-          value: { phase: "intent", value: { messageId: id }, effectHash: canonicalDigest({}) },
-        },
-        effect: { encodingVersion: 1, value: { phase: "pending" } },
-        irreversible: true,
-        ts: 1,
-      },
-      isolatedLedger().kernel.row("source").revision,
-    );
-  }
+  yield* materializeSource;
+  for (const id of ["first", "second"]) appendSourceInvocation(id, messageIntent(id));
 });
-
-
-const opening = (requestId: string) => ({
-  requestId,
-  sessionId: "source",
-  expectedResponders: ["peer"],
-  correlation: {},
-  allowedActions: ["report_result" as const],
-  resolution: "first" as const,
-  threshold: 1,
-  deadline: 200,
-  at: 100,
-});
-
-/** A request port over a fresh fixture runtime with the canonical clock and silent sink. */
-function gatewayPort() {
-  return Effect.gen(function* () {
-    const fixture: SessionFixture = {
-      clock: () => 100,
-      observations: { publish: () => undefined },
-      authorizeConfigure: allowConfigure,
-      ...isolatedRuntime(),
-    };
-    return yield* withSessionServices(createSessionRequests(fixture), fixture);
-  });
-}
 
 test("gateway request port commits physical bindings and receiving intake without a live controller", () => isolated(Effect.gen(function* () {
   yield* setup;
   const received: string[] = [];
-  const port = (yield* Effect.gen(function* () { const fixture: SessionFixture = {
-    clock: () => 100,
-    observations: { publish: () => undefined },
-    authorizeConfigure: allowConfigure,
-    ...isolatedRuntime(),
+  const port = yield* gatewayPort({
     onDeliveryCommitted: (ids) => {
       // No release plane: the gateway's fenced intake leaves its adopted owner durable.
       expect(isolatedLedger().kernel.row("source").fenceOwner).not.toBeNull();
       received.push(...ids);
     },
-  }; return yield* withSessionServices(createSessionRequests(fixture), fixture); }));
+  });
   const opened = yield* port.open(opening("first"));
   const request = yield* port.receipt({
     inputId: "physical",
@@ -119,12 +67,7 @@ test("gateway request port commits physical bindings and receiving intake withou
 test("gateway timeout resolves the original action without creating conversational input", () => isolated(Effect.gen(function* () {
   yield* setup;
   let now = 100;
-  const port = (yield* Effect.gen(function* () { const fixture: SessionFixture = {
-    clock: () => now,
-    observations: { publish: () => undefined },
-    authorizeConfigure: allowConfigure,
-    ...isolatedRuntime(),
-  }; return yield* withSessionServices(createSessionRequests(fixture), fixture); }));
+  const port = yield* gatewayPort({ clock: () => now });
   yield* port.open(opening("first"));
   yield* port.timeout("first", 199);
   expect(port.list()[0]?.state).toBe("open");

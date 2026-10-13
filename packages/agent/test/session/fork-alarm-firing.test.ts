@@ -17,15 +17,13 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { z } from "zod";
 import { armAction, type AlarmCapability } from "../../src/core/alarm";
-import { turnTerminalAction } from "../../src/core/commit";
-import { forkSession } from "../../src/core/fork";
-import { openCatalogStore } from "../../src/core/store/catalog";
-import { openSessionStore, SESSION_FILE_SCHEMA_VERSION } from "../../src/core/store/session-file";
-import * as SessionHandleStore from "../../src/core/store/fence";
-import { clusterTempDir, runCluster, sendAlarm, sendPrompt, sessionFileFor } from "../helpers/cluster-runtime";
+import { clusterTempDir, runCluster, sendAlarm, sendPrompt } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
+import { boundaryTerminal, forkAtAction } from "../helpers/fork-seed";
+import { fencedSession, withSessionHandles } from "../helpers/seeded-session";
 
-const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-fork-alarm-firing-");
+const home = clusterTempDir("w52-fork-alarm-firing-");
+const { dir, sessionsDir, catalogFile } = home;
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -47,82 +45,28 @@ test("the parent's pre-anchor alarm fires exactly once and the forked child regi
   // Seed the parent: materialize, then ONE commit with the arm BEFORE the
   // boundary anchor (`turn-1:terminal`) the fork uses.
   const seeded = await runAgent(
-    Effect.gen(function* () {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, PARENT_ID), { now: () => 1 });
-      const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-      yield* kernel.materialize({
-        id: PARENT_ID,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${PARENT_ID}:materialize`,
-        at: 1,
-      });
-      catalog.indexSession({ id: PARENT_ID, parentId: null, role: "resident", createdAt: 1 });
-      const fence = catalog.rotateFence(PARENT_ID);
-      yield* kernel.adoptFence({ sessionId: PARENT_ID, owner: "seeder", fence });
-      const row = kernel.row(PARENT_ID);
-      const armed = armAction({
-        parentId: `${PARENT_ID}:materialize`,
-        sessionId: PARENT_ID,
-        purpose: "cron.tick",
-        at: FIRE_AT,
-        supersedes: null,
-        alarmId: "cron-1",
-        sourceKey: "cron",
-        payload: {},
-        armSeq: row.revision + 1,
-        ts: 2,
-      });
-      const terminal = turnTerminalAction({
-        id: "turn-1:terminal",
-        parentId: armed.action.id,
-        sessionId: PARENT_ID,
-        turnId: "turn-1",
-        result: { kind: "result", text: "done" },
-        resumeCount: 0,
-        boundaryActionId: null,
-        at: 3,
-      });
-      yield* kernel.commit({
-        sessionId: PARENT_ID,
-        owner: "seeder",
-        fence,
-        now: 3,
-        expectedRevision: row.revision,
-        actions: [armed.action, terminal],
-        state: row.state,
-      });
-      const anchor = kernel
-        .historyPage(PARENT_ID, { afterRevision: 0, limit: 50 })
-        .actions.find((action) => action.id === "turn-1:terminal");
-      if (anchor === undefined) throw new Error("terminal anchor missing");
-      // Fork at the boundary: the arm precedes the anchor, yet is excluded.
-      const child = openSessionStore(sessionFileFor(sessionsDir, CHILD_ID), { now: () => 1 });
-      const receipt = yield* forkSession(
-        {
-          parent: kernel,
-          parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION,
-          openChild: () => child,
-          catalog,
-        },
-        {
-          from: PARENT_ID,
-          at: anchor.actionHash,
-          childId: CHILD_ID,
-          genesisActionId: `${CHILD_ID}:genesis`,
-          now: 10,
-        },
-      );
-      const childArmed = child.armedAlarms();
-      child.close();
-      store.close();
-      catalog.close();
-      return { occurrenceId: armed.occurrenceId, armSeq: row.revision + 1, receipt, childArmed };
-    }),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const parent = yield* fencedSession(home, PARENT_ID);
+        const row = parent.kernel.row(PARENT_ID);
+        const armed = armAction({
+          parentId: `${PARENT_ID}:materialize`,
+          sessionId: PARENT_ID,
+          purpose: "cron.tick",
+          at: FIRE_AT,
+          supersedes: null,
+          alarmId: "cron-1",
+          sourceKey: "cron",
+          payload: {},
+          armSeq: row.revision + 1,
+          ts: 2,
+        });
+        yield* parent.commit([armed.action, boundaryTerminal(PARENT_ID, armed.action.id)], 3);
+        // Fork at the boundary: the arm precedes the anchor, yet is excluded.
+        const { receipt, child } = yield* forkAtAction(home, parent, { childId: CHILD_ID, anchorId: "turn-1:terminal" });
+        return { occurrenceId: armed.occurrenceId, armSeq: row.revision + 1, receipt, childArmed: child.armedAlarms() };
+      }),
+    ),
   );
   // The durable registration fact: the child's armed-alarm index is empty.
   expect(seeded.childArmed).toEqual([]);
@@ -194,39 +138,20 @@ test("the parent's pre-anchor alarm fires exactly once and the forked child regi
 
   // Durable facts: one delivered fired row in the parent; the child chain
   // holds NO alarm rows at all and its armed index stayed empty.
-  const after = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const parentStore = openSessionStore(sessionFileFor(sessionsDir, PARENT_ID), { now: () => 1 });
-      const childStore = openSessionStore(sessionFileFor(sessionsDir, CHILD_ID), { now: () => 1 });
-      try {
-        const parentKernel = SessionHandleStore.createSessionKernel(parentStore, catalog);
-        const childKernel = SessionHandleStore.createSessionKernel(childStore, catalog);
-        const deliveredFired = parentKernel
-          .historyPage(PARENT_ID, { afterRevision: 0, limit: 256 })
-          .actions.filter((action) => {
-            if (action.kind !== "alarm") return false;
-            const fired = FiredIntent.safeParse(action.intent.value);
-            return (
-              fired.success &&
-              fired.data.occurrenceId === seeded.occurrenceId &&
-              fired.data.outcome === "delivered"
-            );
-          });
-        const childAlarmRows = childKernel
-          .historyPage(CHILD_ID, { afterRevision: 0, limit: 256 })
-          .actions.filter((action) => action.kind === "alarm");
-        return {
-          deliveredFired: deliveredFired.length,
-          childAlarmRows: childAlarmRows.length,
-          childArmed: childStore.armedAlarms(),
-        };
-      } finally {
-        parentStore.close();
-        childStore.close();
-        catalog.close();
-      }
-    }),
+  const after = withSessionHandles(home, PARENT_ID, (parent) =>
+    withSessionHandles(home, CHILD_ID, (child) => ({
+      deliveredFired: parent.kernel
+        .historyPage(PARENT_ID, { afterRevision: 0, limit: 256 })
+        .actions.filter((action) => {
+          if (action.kind !== "alarm") return false;
+          const fired = FiredIntent.safeParse(action.intent.value);
+          return fired.success && fired.data.occurrenceId === seeded.occurrenceId && fired.data.outcome === "delivered";
+        }).length,
+      childAlarmRows: child.kernel
+        .historyPage(CHILD_ID, { afterRevision: 0, limit: 256 })
+        .actions.filter((action) => action.kind === "alarm").length,
+      childArmed: child.store.armedAlarms(),
+    })),
   );
   expect(after.deliveredFired).toBe(1);
   expect(after.childAlarmRows).toBe(0);

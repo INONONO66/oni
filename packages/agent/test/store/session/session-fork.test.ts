@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { Effect, Result } from "effect";
 import { createHash } from "node:crypto";
@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { PlainValueSchema, SessionGeneration, type LedgerAction } from "@openomni/protocol";
-import { useMemoryStores, testNow } from "../helpers/storage";
-import { CHILD, PARENT, forkFixture } from "../helpers/fork-fixture";
+import { testNow } from "../helpers/storage";
+import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
-import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
+import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION } from "../../../src/core/store/session-file";
 import { receivedMessageAction } from "../../../src/core/commit";
 import { forkSession, isForkBoundary } from "../../../src/core/fork";
 import { createAssistantMessage } from "../../../src/core/message-factory";
@@ -23,24 +23,7 @@ import { sessionTree } from "../../helpers/session-tree";
 import { runLedgerSync } from "../helpers/effect";
 import { CatalogVersionRefused } from "../../../src/core/store/errors";
 
-const stores = useMemoryStores();
-let childStore: SessionStore | undefined;
-
-beforeEach(() => {
-  childStore = openSessionStore(":memory:", { now: testNow });
-});
-
-afterEach(() => {
-  childStore?.close();
-  childStore = undefined;
-});
-
-function child(): SessionStore {
-  if (childStore === undefined) throw new Error("child store only exists inside a test");
-  return childStore;
-}
-
-const fixture = forkFixture(stores, child);
+const { stores, child, fixture } = useForkFixture();
 
 /** The child genesis pin, parsed with the protocol's `ForkAncestry` schema. */
 const ForkGenesisIntent = z.looseObject({

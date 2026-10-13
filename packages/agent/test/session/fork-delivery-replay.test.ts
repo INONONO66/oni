@@ -16,21 +16,15 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { z } from "zod";
-import {
-  type BusEvent,
-  type Delivery,
-  L0Observation,
-  type ObservationSink,
-} from "@openomni/protocol";
-import { deliveryActions, receivedMessageAction, turnTerminalAction } from "../../src/core/commit";
-import { forkSession } from "../../src/core/fork";
-import { openCatalogStore } from "../../src/core/store/catalog";
-import { openSessionStore, SESSION_FILE_SCHEMA_VERSION } from "../../src/core/store/session-file";
-import * as SessionHandleStore from "../../src/core/store/fence";
+import { type BusEvent, L0Observation, type ObservationSink } from "@openomni/protocol";
+import { deliveryActions, receivedMessageAction } from "../../src/core/commit";
 import { clusterTempDir, runCluster, sendPrompt, sessionFileFor, verifyChain } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
+import { boundaryTerminal, forkAtAction, pendingPromptRow } from "../helpers/fork-seed";
+import { fencedSession, withSessionHandles } from "../helpers/seeded-session";
 
-const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-fork-delivery-replay-");
+const home = clusterTempDir("w52-fork-delivery-replay-");
+const { dir, sessionsDir, catalogFile } = home;
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -44,103 +38,34 @@ const DeliveryEffect = z.looseObject({ phase: z.literal("delivery"), deliveryId:
 const TerminalEffect = z.looseObject({ phase: z.literal("terminal") });
 const InputEffect = z.looseObject({ deliveryKind: z.string() });
 
-function parentDeliveryRow(content: string, createdAt: number): Delivery.Row {
-  return {
-    id: KEY,
-    sessionId: PARENT_ID,
-    kind: "prompt",
-    content,
-    origin: { encodingVersion: 1, value: { source: "test" } },
-    status: "pending",
-    consumedBy: null,
-    consumedAt: null,
-    createdAt,
-    ordinal: 1,
-  };
-}
-
 test("a pre-fork key re-admits AND completes a real child turn; msg-1:delivery belongs to the child's new input", async () => {
   // Seed the parent: one consumed input (`msg-1` + its `msg-1:delivery`
   // record) sealed by the boundary terminal the fork anchors at.
   const seeded = await runAgent(
-    Effect.gen(function* () {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const store = openSessionStore(sessionFileFor(sessionsDir, PARENT_ID), { now: () => 1 });
-      const kernel = SessionHandleStore.createSessionKernel(store, catalog);
-      yield* kernel.materialize({
-        id: PARENT_ID,
-        parentId: null,
-        role: "resident",
-        tools: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 1,
-        actionId: `${PARENT_ID}:materialize`,
-        at: 1,
-      });
-      catalog.indexSession({ id: PARENT_ID, parentId: null, role: "resident", createdAt: 1 });
-      const fence = catalog.rotateFence(PARENT_ID);
-      yield* kernel.adoptFence({ sessionId: PARENT_ID, owner: "seeder", fence });
-      const row = kernel.row(PARENT_ID);
-      const input = receivedMessageAction({
-        id: KEY,
-        sessionId: PARENT_ID,
-        kind: "prompt",
-        content: "first",
-        origin: { encodingVersion: 1, value: { source: "test" } },
-        parentActionId: `${PARENT_ID}:materialize`,
-        at: 2,
-      });
-      const [delivery] = deliveryActions(
-        [parentDeliveryRow("first", 2)],
-        { kind: "turn", turnId: "turn-1" },
-        "before_llm",
-        input.id,
-      );
-      if (delivery === undefined) throw new Error("delivery action missing");
-      const terminal = turnTerminalAction({
-        id: "turn-1:terminal",
-        parentId: delivery.id,
-        sessionId: PARENT_ID,
-        turnId: "turn-1",
-        result: { kind: "result", text: "done" },
-        resumeCount: 0,
-        boundaryActionId: null,
-        at: 3,
-      });
-      yield* kernel.commit({
-        sessionId: PARENT_ID,
-        owner: "seeder",
-        fence,
-        now: 3,
-        expectedRevision: row.revision,
-        actions: [input, delivery, terminal],
-        state: row.state,
-      });
-      const anchor = kernel
-        .historyPage(PARENT_ID, { afterRevision: 0, limit: 50 })
-        .actions.find((action) => action.id === "turn-1:terminal");
-      if (anchor === undefined) throw new Error("terminal anchor missing");
-      const child = openSessionStore(sessionFileFor(sessionsDir, CHILD_ID), { now: () => 1 });
-      const receipt = yield* forkSession(
-        {
-          parent: kernel,
-          parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION,
-          openChild: () => child,
-          catalog,
-        },
-        {
-          from: PARENT_ID,
-          at: anchor.actionHash,
-          childId: CHILD_ID,
-          genesisActionId: `${CHILD_ID}:genesis`,
-          now: 10,
-        },
-      );
-      child.close();
-      store.close();
-      catalog.close();
-      return { receipt };
-    }),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const parent = yield* fencedSession(home, PARENT_ID);
+        const input = receivedMessageAction({
+          id: KEY,
+          sessionId: PARENT_ID,
+          kind: "prompt",
+          content: "first",
+          origin: { encodingVersion: 1, value: { source: "test" } },
+          parentActionId: `${PARENT_ID}:materialize`,
+          at: 2,
+        });
+        const [delivery] = deliveryActions(
+          [pendingPromptRow(PARENT_ID, KEY, "first", 2)],
+          { kind: "turn", turnId: "turn-1" },
+          "before_llm",
+          input.id,
+        );
+        if (delivery === undefined) throw new Error("delivery action missing");
+        yield* parent.commit([input, delivery, boundaryTerminal(PARENT_ID, delivery.id)], 3);
+        const { receipt } = yield* forkAtAction(home, parent, { childId: CHILD_ID, anchorId: "turn-1:terminal" });
+        return { receipt };
+      }),
+    ),
   );
   expect(seeded.receipt.forkedFrom.copied).toBe(4);
 
@@ -173,28 +98,18 @@ test("a pre-fork key re-admits AND completes a real child turn; msg-1:delivery b
 
   // Durable facts: the copied rows live in the fork namespace; the parent's
   // old key now names the child's OWN input, delivery and sealed turn.
-  const after = await runAgent(
-    Effect.sync(() => {
-      const catalog = openCatalogStore(catalogFile, { now: () => 1 });
-      const childStore = openSessionStore(sessionFileFor(sessionsDir, CHILD_ID), { now: () => 1 });
-      try {
-        const kernel = SessionHandleStore.createSessionKernel(childStore, catalog);
-        const byId = (id: string) => kernel.actionById(id);
-        return {
-          state: kernel.row(CHILD_ID).state,
-          copiedInput: byId(`fork:${PARENT_ID}:${KEY}`),
-          copiedDelivery: byId(`fork:${PARENT_ID}:${KEY}:delivery`),
-          newInput: byId(KEY),
-          newDelivery: byId(`${KEY}:delivery`),
-          terminal: byId(childTerminalId),
-          chainLength: verifyChain(sessionFileFor(sessionsDir, CHILD_ID), CHILD_ID),
-        };
-      } finally {
-        childStore.close();
-        catalog.close();
-      }
-    }),
-  );
+  const after = withSessionHandles(home, CHILD_ID, ({ kernel }) => {
+    const byId = (id: string) => kernel.actionById(id);
+    return {
+      state: kernel.row(CHILD_ID).state,
+      copiedInput: byId(`fork:${PARENT_ID}:${KEY}`),
+      copiedDelivery: byId(`fork:${PARENT_ID}:${KEY}:delivery`),
+      newInput: byId(KEY),
+      newDelivery: byId(`${KEY}:delivery`),
+      terminal: byId(childTerminalId),
+      chainLength: verifyChain(sessionFileFor(sessionsDir, CHILD_ID), CHILD_ID),
+    };
+  });
   // The turn completed: a committed terminal, and the session settled idle.
   expect(after.terminal?.kind).toBe("turn");
   expect(TerminalEffect.safeParse(after.terminal?.effect.value).success).toBeTrue();
