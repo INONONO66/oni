@@ -28,19 +28,29 @@ Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `
 
 On `epic1337/1340-matcher-judge-store` (2026-10-13, base `182a9fc27`, PR #1411).
 
-- `packages/channels/src/automation/`: pure matcher (`rules.ts`, `matcher.ts`)
-  turns a matching `Ingress.Input` into a prompt or action route; `judge.ts`
-  resolves `runWhen` conditions as `yes | no | unknown` before the final
-  match; `groups.ts` closes pending groups on the injected clock.
-- Every external event resolves to one recorded automation decision
-  (`matched`, `filtered`, `refused`, `deduped`, `grouped`) in the perimeter
-  automation ledger (`store/automation/`, SQLite adapter in
-  `store/sqlite/`); a redelivered already-filtered event writes no new row
-  and keeps its original reason.
+- `packages/channels/src/automation/` is pure (no router imports): `rules.ts`
+  and `matcher.ts` turn a matching `Ingress.Input` into a prompt or action
+  route; `judge.ts` resolves `runWhen` conditions as `yes | no | unknown`
+  before the final match (`unknown` never matches); `regex.ts` validates
+  patterns at `store.add` (typed refusal, 512-character cap) and caches them.
+- The router owns integration under `src/router/automation/`: one
+  `input.ts` builder serves filtering and matching; `ledger.ts` records
+  exactly one automation decision (`matched`, `filtered`, `refused`,
+  `deduped`, `grouped`) per external event and emits one observation per
+  new row; replay of any recorded kind writes no new row and returns the
+  original decision; blocked routes and request answers never enter
+  automation or groups.
+- Grouped events are durable rows (`store/automation/`, SQLite adapter in
+  `store/sqlite/`) that survive a store reopen; quiet windows close from
+  the injected clock, which `apps/openomni/src/index.ts` mounts via
+  `composition/automation-clock.ts`. Prompt and action deliveries go
+  through the ordinary dispatch path (policy gate, egress budget, event-id
+  checks, `message.admitted`).
 - `router/automation-rules.ts` replaces #1339's `router/ingress-filter.ts`;
-  `apps/openomni/src/gateway.ts` composes the automation groups.
-- Rule editing (`provision{automation_*}`) and desktop editor are rung 4/5
-  (#1341, #1342). Tests: channels 733 pass / 0 fail; apps/openomni 781 pass / 0 fail.
+  bot filtering writes only the automation ledger.
+- Rule editing (`provision{automation_*}`) and the desktop editor are rungs
+  4/5 (#1341, #1342). Tests: channels 761 pass / 0 fail; apps/openomni 782
+  pass / 0 fail.
 
 ## #1339 channel drivers report facts only and emit the unified ingress input (epic #1337, rung 2)
 
