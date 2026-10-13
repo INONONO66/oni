@@ -51,7 +51,7 @@ export { createSession, CreateRefused, type CreateSessionInput, type SessionRece
 // ─── journal/store surface (formerly the Journal namespace, #1276) ───
 export {
   CATALOG_SCHEMA, bootstrapStoreDatabase,
-  readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, upgradeSessionFileSchema,
+  readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION,
   createDecisionFactPort, SessionHandleStore,
   CommitRefused, CorruptRecord, requireSubAdapter, withStoreTimestamps,
 } from "./store";

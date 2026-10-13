@@ -15,7 +15,7 @@ import { deliveryActions, receivedMessageAction } from "./commit";
 import { createRawSlots } from "./gate/decide";
 import { decideRequestTransition } from "./request";
 import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, AlarmRpc, DeadlineAlarmBody, DeliverBody, type DeliverReceipt, DeliverRefused, DeliverRpc, type ReadPage, ReadRpc, ResolveRefused, ResolveRpc } from "./messages";
-import { alarmDisposition, armAction, ArmRefused, firedAction, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
+import { alarmDisposition, armAction, ArmRefused, firedAction, MAX_OCCURRENCE_STRIKES, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
 import { isReservedAlarmPurpose } from "@openomni/protocol";
 import { renderReadModel } from "./read";
 import { hydrateSessionHistory, RestoreRefused } from "../inspect/history";
@@ -636,9 +636,9 @@ function alarmOccurrence(
       yield* appendFiredAlarm(handle, occurrence, "stale");
       return { outcome: "stale" as const };
     }
-    // Strike first (own transaction, no journal row); at `maxStrikes` settle unexecuted.
+    // Strike first (own transaction, no journal row); at `MAX_OCCURRENCE_STRIKES` settle unexecuted.
     const strikes = handle.kernel.strikeArmedAlarm(occurrence.occurrenceId);
-    if (strikes !== undefined && strikes >= handle.drain.maxStrikes) {
+    if (strikes !== undefined && strikes >= MAX_OCCURRENCE_STRIKES) {
       yield* appendFiredAlarm(handle, occurrence, "exhausted");
       return { outcome: "delivered" as const };
     }

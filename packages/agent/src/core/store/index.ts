@@ -1,6 +1,6 @@
 // Journal namespace surface (#1247): the append-only store and its ports.
 export { CATALOG_SCHEMA } from "./catalog";
-export { bootstrapStoreDatabase, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, upgradeSessionFileSchema } from "./session-file";
+export { bootstrapStoreDatabase, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION } from "./session-file";
 export type { ObservationFailurePort, ObservationPublishFailure } from "./storage/sqlite-l0-observation";
 export { createDecisionFactPort } from "./decision";
 export * as SessionHandleStore from "./handle";

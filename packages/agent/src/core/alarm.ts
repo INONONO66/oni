@@ -167,11 +167,17 @@ export interface AlarmSweepConfig {
 export interface AlarmDrainConfig {
   readonly alarmsBeforePrompt: number;
   readonly maxArmed: number;
-  /** Delivery attempts per occurrence; the one reaching it folds `fired{exhausted}` unexecuted. */
-  readonly maxStrikes: number;
   readonly idleMs: number;
   readonly sweep: AlarmSweepConfig;
 }
+
+/**
+ * Delivery attempts one occurrence may consume (#1347): the pre-execution
+ * strike that reaches this count folds `fired{exhausted}` without running the
+ * occurrence. A core constant, not drain configuration — the issue fixes the
+ * poison boundary at three and no composition root tunes it.
+ */
+export const MAX_OCCURRENCE_STRIKES = 3;
 
 // ─── #1254 capability seam (frozen at S1: later steps add, never rename) ───
 

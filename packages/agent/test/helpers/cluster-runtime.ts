@@ -445,7 +445,6 @@ function testDrainConfig(options: TestClusterOptions): AlarmDrainConfig {
   return {
     alarmsBeforePrompt: 4,
     maxArmed: 64,
-    maxStrikes: 3,
     idleMs: options.idleMs ?? 60_000,
     sweep: { full: false, idleDays: 7 },
     ...options.drain,

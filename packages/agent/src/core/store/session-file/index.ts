@@ -827,12 +827,8 @@ export const SESSION_FILE_SCHEMA_VERSION = 2;
 
 const SessionUserVersion = z.object({ user_version: z.number().int().nonnegative() });
 
-/**
- * Read-only schemaVersion probe (#1257): opens the file `readonly` and reads
- * only `PRAGMA user_version`, so a legacy parent file is never modified (and
- * its tables are never read). A missing file probes as 0 — not this schema.
- */
-export function readSessionFileSchemaVersion(path: string): number {
+/** The `readonly` `PRAGMA user_version` read behind the probe; a missing file reads as 0. */
+function probeSessionFileSchemaVersion(path: string): number {
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
@@ -844,12 +840,19 @@ export function readSessionFileSchemaVersion(path: string): number {
   }
 }
 
-/** Upgrades an older STAMPED file in place before a fork probes it; legacy and newer files are untouched. */
-export function upgradeSessionFileSchema(path: string): number {
-  const version = readSessionFileSchemaVersion(path);
+/**
+ * SchemaVersion probe before a fork (#1257, #1347): reads only
+ * `PRAGMA user_version` through a `readonly` open, so an unstamped legacy
+ * parent (0) and a newer-build file are never modified and their tables are
+ * never read. An older STAMPED file (1 ≤ v < this schema) first upgrades
+ * through the guarded path, then re-probes, so a version-1 parent forks. A
+ * missing file probes as 0 — not this schema.
+ */
+export function readSessionFileSchemaVersion(path: string): number {
+  const version = probeSessionFileSchemaVersion(path);
   if (version === 0 || version >= SESSION_FILE_SCHEMA_VERSION) return version;
   closeStoreDatabase(openStampedSessionDatabase(path));
-  return readSessionFileSchemaVersion(path);
+  return probeSessionFileSchemaVersion(path);
 }
 
 // busy_timeout comes FIRST: the pragma is connection-local (it never touches

@@ -10,7 +10,7 @@ import { PlainValueSchema, SessionGeneration, type LedgerAction } from "@openomn
 import { useMemoryStores, testNow } from "../helpers/storage";
 import { CHILD, PARENT, forkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
-import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore, upgradeSessionFileSchema } from "../../../src/core/store/session-file";
+import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
 import { receivedMessageAction } from "../../../src/core/commit";
 import { forkSession, isForkBoundary } from "../../../src/core/fork";
 import { createAssistantMessage } from "../../../src/core/message-factory";
@@ -334,13 +334,22 @@ describe("Session.fork", () => {
       v1.run("INSERT INTO armed_alarms VALUES ('alarm-1', 'occ-1', 500)");
       v1.run("PRAGMA user_version = 1");
       v1.close();
-      expect(readSessionFileSchemaVersion(v1Path)).toBe(1);
+      const rawUserVersion = () => {
+        const raw = new Database(v1Path, { readonly: true });
+        try {
+          return z.object({ user_version: z.number() }).parse(raw.query("PRAGMA user_version").get()).user_version;
+        } finally {
+          raw.close();
+        }
+      };
+      expect(rawUserVersion()).toBe(1);
 
-      // The guarded upgrade adds the column inside the stamping transaction;
-      // the probe then sees the current marker and the fork admits the parent.
-      const probed = upgradeSessionFileSchema(v1Path);
+      // The probe the fork executor calls upgrades a stamped older file through
+      // the guarded path (column added inside the stamping transaction), then
+      // reports the current marker, so the fork admits the parent.
+      const probed = readSessionFileSchemaVersion(v1Path);
       expect(probed).toBe(SESSION_FILE_SCHEMA_VERSION);
-      expect(readSessionFileSchemaVersion(v1Path)).toBe(2);
+      expect(rawUserVersion()).toBe(2);
       const upgraded = new Database(v1Path, { readonly: true });
       const Column = z.object({ name: z.string() });
       expect(Column.array().parse(upgraded.query("PRAGMA table_info(armed_alarms)").all()).map((c) => c.name)).toEqual(["alarm_id", "occurrence_id", "fire_at", "strikes"]);
@@ -348,8 +357,11 @@ describe("Session.fork", () => {
       upgraded.close();
       expect(Result.getOrThrowWith(fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: probed }), (error) => error).forkedFrom.copied).toBe(4);
 
-      // Idempotent: a second pass is a pure read-only probe.
-      expect(upgradeSessionFileSchema(v1Path)).toBe(SESSION_FILE_SCHEMA_VERSION);
+      // Idempotent: a second probe is a pure read-only read of the stamp.
+      const sha256 = () => createHash("sha256").update(readFileSync(v1Path)).digest("hex");
+      const settled = sha256();
+      expect(readSessionFileSchemaVersion(v1Path)).toBe(SESSION_FILE_SCHEMA_VERSION);
+      expect(sha256()).toBe(settled);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -368,7 +380,7 @@ describe("Session.fork", () => {
 
       // Neither the upgrade helper nor a full open touches a newer file; the
       // open yields a query-only store (no DDL, no stamp) and the fork refuses.
-      expect(upgradeSessionFileSchema(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
+      expect(readSessionFileSchemaVersion(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
       const store = openSessionStore(newerPath, { now: testNow });
       expect(store.armedCount).toThrow(/no such table: armed_alarms/);
       store.close();
