@@ -1,6 +1,5 @@
 import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
-import { z } from "zod";
 import { runLedgerSync } from "../helpers/effect";
 import { expect, test } from "bun:test";
 import { z } from "zod";
