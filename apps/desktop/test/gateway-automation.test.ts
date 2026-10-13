@@ -49,7 +49,7 @@ test("correlates simultaneous automation replies and rejects invalid requests be
   const fixture = createAutomationFixture();
   const [listed, ledger] = await Promise.all([fixture.transport.automationList(), fixture.transport.automationLedger()]);
   expect(listed.records).toEqual([automationRecord]);
-  expect(ledger.rows.length).toBe(7);
+  expect(ledger.rows.length).toBe(6);
   expect(listed.requestId).not.toBe(ledger.requestId);
   const count = fixture.requests.length;
   await expect(fixture.transport.automationAdd({ ...automationRecord, triggers: [] })).rejects.toThrow();

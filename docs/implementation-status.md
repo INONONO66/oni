@@ -1,5 +1,15 @@
 # Implementation Status
 
+## #1458 desktop ingress ledger winning-prompt link (PR #1460, base `b3d62bbc3`)
+
+The ledger explorer links a `superseded` decision to the winning prompt using
+that stored automation row's `target: "session:<id>"`. The automation ledger
+returns only automation and group-close decisions; no separate routing row is
+required or displayed. A row without a winning session has no prompt link.
+The desktop fixture reflects those producer rows; the channels router test pins
+that a real ingest stores the superseded row with the winning session target,
+and the desktop test renders that row shape through production `LedgerRows`.
+
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
 On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a`).

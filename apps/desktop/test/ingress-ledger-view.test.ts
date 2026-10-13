@@ -1,8 +1,21 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { IngressLedgerView } from "../src/renderer/ingress-ledger/view";
+import { LedgerRows } from "../src/renderer/ingress-ledger/rows";
 import { automationRenderer } from "./helpers/automation-renderer";
 import { createAutomationFixture, ledgerRows } from "./helpers/automation-wire";
+
+test("stored superseded decision links to the winning prompt from its own target", async () => {
+  const rows = ledgerRows.filter((row) => row.stage === "automation" && row.decision === "superseded");
+  expect(rows).toEqual([expect.objectContaining({ target: "session:prompt-winner" })]);
+  const ui = automationRenderer();
+  const opened: string[] = [];
+  try {
+    await ui.render(createElement(LedgerRows, { rows, related: rows, now: 1000, onOpenSession: (id) => opened.push(id) }));
+    await ui.click("Winning prompt · prompt-winner");
+    expect(opened).toEqual(["prompt-winner"]);
+  } finally { await ui.close(); }
+});
 
 test("renders six decisions, evidence, distinct judge verdicts and related event links", async () => {
   const fixture = createAutomationFixture();
@@ -43,7 +56,7 @@ test("filters through wire queries rather than evaluating records locally", asyn
     expect(fixture.requests.at(-1)).toMatchObject({ type: "automation_ledger", surface: "discord" });
     expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(1);
     await ui.click("Clear");
-    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(7);
+    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(6);
   } finally { await ui.close(); }
 });
 
@@ -69,17 +82,15 @@ test("filtered relationship views retain original events and winning sessions", 
   } finally { await ui.close(); }
 });
 
-test("superseded evidence never labels a blocked route as the winning prompt", async () => {
-  const fixture = createAutomationFixture([], [
-    { traceId: "blocked", inboundId: "conversation", time: 700, surface: "discord", mode: "direct", stage: "channel_ceiling", outcome: "block", sessionId: "wrong-session", reason: "blocked", factsUsed: [] },
-    ...ledgerRows,
-  ]);
+test("superseded evidence without a winning session offers no prompt link", async () => {
+  const fixture = createAutomationFixture([], ledgerRows.map((row) =>
+    row.stage === "automation" && row.decision === "superseded" ? { ...row, target: undefined } : row));
   const ui = automationRenderer();
   const opened: string[] = [];
   try {
     await ui.render(createElement(IngressLedgerView, { transport: fixture.transport, now: 1000, onOpenSession: (id) => opened.push(id) }));
-    await ui.click("Winning prompt · prompt-winner");
-    expect(opened).toEqual(["prompt-winner"]);
+    expect(ui.host.querySelector('[data-decision="superseded"] button')).toBeNull();
+    expect(opened).toEqual([]);
   } finally { await ui.close(); }
 });
 
@@ -95,7 +106,7 @@ test("disconnected and refused ledger reads expose no fabricated rows and can re
     expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain("store_unconfigured");
     fixture.refuse(null);
     await ui.click("Retry");
-    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(7);
+    expect(ui.host.querySelectorAll("[data-decision]")).toHaveLength(6);
   } finally { await ui.close(); }
 });
 

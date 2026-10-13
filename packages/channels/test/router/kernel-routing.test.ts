@@ -43,6 +43,10 @@ describe("GatewayRouter kernel routing", () => {
     expect(routingDecisions()[1]).toMatchObject({
       stage: "automation", decision: "superseded", target: `session:${mapped.id}`,
     });
+    // The stored row is what the desktop ledger explorer links from (#1458).
+    expect(ledger().stores.automations.ledger({ limit: 20 })).toEqual([
+      expect.objectContaining({ stage: "automation", decision: "superseded", target: `session:${mapped.id}` }),
+    ]);
     expect(routingDecisions()[0]).toMatchObject({
       inboundId: ownerEvent.id,
       stage: "surface_default",
