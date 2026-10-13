@@ -14,12 +14,6 @@ import { coerceApiError, decodeLlmFailure, errorFacts } from "./error";
 import { adaptStream, streamArguments } from "./provider/stream";
 import { Retry } from "./retry";
 
-/**
- * Input for the run() function.
- *
- * The function resolves auth credentials for the configured model
- * and calls the real provider SDK.
- */
 export interface RunInput {
   messages: Message.WithParts[];
   tools: Tool.Spec[];
@@ -27,79 +21,46 @@ export interface RunInput {
   signal?: AbortSignal;
   model: Provider.Model;
   auth?: Auth.Info;
-  /** Provider to which the explicit credential belongs; absent binds it to model. */
+  /** Absent binds the explicit credential to the model. */
   authProvider?: string;
-  /**
-   * Operator-supplied endpoint and headers for this call. Resolved by the
-   * host from its own config surface and handed down like `auth`, so this
-   * package reads no environment of its own. Absent keeps the catalog's URL
-   * and the default client identity.
-   */
+  /** Resolved by the host and handed down like `auth`, so this package reads no environment. */
   transport?: Transport;
   allowAuthFallback?: boolean;
   toolChoice?: "auto" | "required" | "none";
-  /** Maximum generated tokens for this call; absent leaves the provider default. */
   maxTokens?: number;
   /** Call-owned sampling temperature; absent leaves the provider default. */
   temperature?: number;
   /**
-   * Step-boundary yield: stop the step loop once the last finished step's
-   * input tokens (the ai SDK's cache-inclusive prompt total) reach this.
-   * The loop ends gracefully at a step boundary — tool pairs complete, the
-   * message finishes with the model's own finishReason — so the caller can
-   * compact history at its deterministic seam and re-enter. Absent = never.
+   * Stops the step loop gracefully once the last finished step's cache-inclusive input tokens reach
+   * this, so the caller compacts at a deterministic seam.
    */
   yieldAtInputTokens?: number;
-  /**
-   * Step-boundary steering yield (#751): stop the step loop at the next step
-   * boundary while this host-injected check returns true — e.g. a mid-turn
-   * injection is pending for the run. Evaluated beside the step cap and the
-   * window yield, so the loop still ends gracefully: tool pairs complete and
-   * the message finishes with the model's own finishReason. Absent = never.
-   */
+  /** Stops the step loop at the next boundary while this host check is true (injection pending). */
   shouldYield?: () => boolean;
-  /** Provider namespaces forwarded verbatim to the SDK; the shape is the provider's, the values are JSON. */
+  /** The shape is the provider's; forwarded verbatim. */
   providerOptions?: PlainObject;
-  /**
-   * Wall-clock source for every timestamp this call emits. Required: the
-   * host injects it so identical runs are reproducible (#1245).
-   */
+  /** Required: the host injects it so identical runs are reproducible. */
   now: () => number;
-  /**
-   * Unique-id source for the assistant message identity. Required for the
-   * same reason as `now` (#1245).
-   */
+  /** Required for the same reason as `now`. */
   id: () => string;
   /**
-   * The run this call belongs to. Required, and not defaulted: a model round
-   * trip that cannot name its run and session produces an assistant message
-   * detached from the conversation it is part of, and telemetry that
-   * correlates to nothing.
+   * Not defaulted: a round trip that cannot name its run and session yields a detached assistant
+   * message and telemetry correlating to nothing.
    */
   trace: { traceId: string; sessionId: string; runId: string };
-  /**
-   * Where observation goes. See `Processor.ProcessorOptions.events` — the port exists so
-   * `llm` reports what it did without reaching for a process-wide singleton.
-   */
+  /** Reports what the call did without a process-wide singleton. */
   events: BusEvent.Sink;
 }
 
 interface RunDependencies {
-  /** Overrides provider stream creation for an isolated caller or test harness. */
+  /** For an isolated caller or test harness. */
   createStream?: Processor.ProcessorOptions["createStream"];
 }
 
-/**
- * #500 C1: the loop-run result vocabulary, moved here from protocol — this
- * package's `run()` is the sole producer and the consumers (agent core) all
- * depend on llm already. The `Run.Outcome` name is kept: llm hosted no `Run`
- * namespace, so there is no collision (`run` the function and `Run` the
- * namespace are distinct identifiers).
- */
+/** `run()` is the sole producer of this outcome vocabulary. */
 export namespace Run {
   export type Failure = LlmRunFailure;
 
-  /** Billed usage, the visible-output boundary and the credential handle of one provider attempt. */
   export interface AttemptEvidence {
     readonly usage: LlmRunFailure["usage"];
     readonly usageProvenance?: LlmRunFailure["usageProvenance"];
@@ -116,17 +77,9 @@ export namespace Run {
 }
 
 /**
- * Assign each tool spec its wire name — the provider-pattern-safe key it takes
- * in the `tools` object crossing to the SDK — and the reverse map back to the
- * internal dotted name.
- *
- * The native catalog (`message.send`, `engagement.open`, …) is collision-free
- * under plain `.`→`_`, but MCP tool names are `${server}.${name}` with
- * arbitrary segments, so two distinct originals can sanitize to the same key.
- * A silent overwrite of one advertised tool by another loses invocation
- * identity, so a taken key is disambiguated with a deterministic
- * `_2`/`_3`/… suffix (truncated to keep the 128-char bound). The reverse map
- * lets the transcript record the dotted internal name instead of the wire name.
+ * MCP tool names are `${server}.${name}` with arbitrary segments, so two
+ * originals can sanitize to the same wire key; a taken key gets a
+ * deterministic `_2`/`_3` suffix and the reverse map restores the dotted name.
  */
 function assignWireToolNames(tools: Tool.Spec[]): {
   wireNames: string[];
@@ -149,11 +102,8 @@ function assignWireToolNames(tools: Tool.Spec[]): {
 }
 
 /**
- * The call's prompt as one text blob, for the local usage estimator (#933).
- * Everything the provider is charged input tokens for: the system message, the
- * model-shaped conversation, and the advertised tool schemas. Serialization
- * shape only has to be deterministic and proportional to the real prompt — the
- * estimate is a substitute for missing provider accounting, not a tokenizer.
+ * The prompt as one text blob for the local usage estimator: deterministic and proportional to the
+ * real prompt, a substitute for missing provider accounting, not a tokenizer.
  */
 function serializePrompt(system: string, input: RunInput, model: Provider.Model): string {
   return JSON.stringify({
@@ -179,10 +129,7 @@ function attemptUsage(totals: Transcript.Usage): Run.AttemptEvidence["usage"] {
 
 export function run(
   input: RunInput & {
-    /**
-     * Credential file location, resolved once by the composition root
-     * (#1245): this function never reads the environment for it.
-     */
+    /** Resolved once by the composition root; never read from the environment here. */
     readonly authFilePath: string;
   },
   sink: Sink,
@@ -247,8 +194,7 @@ export function run(
   const modelId = model.id;
 
   const processor = Processor.create({
-    // Call-local injection keeps test and embedding harnesses isolated from
-    // Bun's process-wide module mocks without changing production behavior.
+    // Call-local injection keeps harnesses isolated from Bun's process-wide module mocks.
     createStream: dependencies.createStream ?? createStream,
     events: input.events,
     assistantMessage,

@@ -1,4 +1,3 @@
-
 import * as SessionHandleStore from "./store/fence";
 import { computeActionHash, storedActionRow } from "./store/action-hash";
 import { CommitRefused, FenceRefused, SessionNotFound, type LedgerError } from "./store/errors";
@@ -19,28 +18,13 @@ import { alarmDisposition, armAction, ArmRefused, firedAction, MAX_OCCURRENCE_ST
 import { isReservedAlarmPurpose } from "@openomni/protocol";
 import { renderReadModel } from "./read";
 
-// ─── from cluster/kernel-registry.ts (#1247) ───
-/**
- * The handle-scoped kernel as a declaration-nameable interface: the ledger
- * alias is a `ReturnType` projection whose parameter types stay private to the
- * ledger, so exported types here must reference it through this name.
- *
- * NOTE (W5.2 #1197 plan §3): the `SessionKernelService` Context tag over this
- * shape lands together with its first production reader (the handle plane,
- * wave 3) - the boundary law refuses tags nothing reads (R9), and every
- * wave-2 consumer receives the kernel explicitly from the entity activation.
- */
 export interface SessionKernel extends SessionHandleStore.SessionKernel {}
 
-// ─── from cluster/session-entity.ts (#1247) ───
-/** Store-handle types by position on the public kernel factory (the ledger index re-export lands with wave 3). */
 type SessionStoreHandle = Parameters<typeof SessionHandleStore.createSessionKernel>[0];
 type CatalogStoreHandle = Parameters<typeof SessionHandleStore.createSessionKernel>[1];
 
-/** What one runner process provides to every Session activation. */
 export interface SessionEntityEnv {
-  /** Stable writer identity this runner stamps into `lease_owner` (audit only; the fence authorizes). */
-  readonly owner: string;
+    readonly owner: string;
   readonly clock: () => number;
   readonly catalog: CatalogStoreHandle;
   readonly openSession: (sessionId: string) => SessionStoreHandle;
@@ -57,36 +41,19 @@ type SessionRpcs = typeof DeliverRpc | typeof ResolveRpc | typeof AlarmRpc | typ
 type SessionRequest = Envelope.Request<SessionRpcs>;
 type SessionReplier = Entity.Replier<SessionRpcs>;
 
-/** Exported for the writer-fiber unit tests; composed only by `createSessionEntityLayer`. */
 export interface ActivationHandle {
   readonly env: SessionEntityEnv;
   readonly kernel: SessionKernel;
   readonly authority: SessionEntityAuthority;
-  /** Loop consumption + passivation values (D3); supplied by the composition root. */
   readonly drain: AlarmDrainConfig;
-  /** The activation's scope: detached turn remainders fork here. */
   readonly scope: Scope.Scope;
-  /** Serializes journal appends between the writer fiber and a detached turn's continuation. */
-  readonly gate: Semaphore.Semaphore;
-  /** Token of the currently detached turn; set before the fork, cleared when its body exits. */
-  readonly live: { current: object | undefined };
-  /** Set by the first-run close finalizer: no new fibers fork past it. */
-  readonly closing: { current: boolean };
-  /** Toggles the cluster keep-alive latch around a detached turn. */
+    readonly gate: Semaphore.Semaphore;
+    readonly live: { current: object | undefined };
+    readonly closing: { current: boolean };
   readonly keepAlive: (enabled: boolean) => Effect.Effect<void>;
-  /**
-   * Persist-and-return send through the entity's own Alarm door
-   * (`discard: true`): completes once the occurrence envelope is durable,
-   * never awaiting the reply — the one send a CLOSING activation may make.
-   */
-  readonly resumeSend?: (occurrence: AlarmFired) => Effect.Effect<void>;
+    readonly resumeSend?: (occurrence: AlarmFired) => Effect.Effect<void>;
 }
 
-/**
- * Rotates the catalog fence for this activation (F5). An unindexed but
- * materialized session file self-heals into the catalog from its own row;
- * a session absent from both planes stays a typed refusal.
- */
 function rotateActivationFence(env: SessionEntityEnv, kernel: SessionKernel, sessionId: string): number {
   try {
     return env.catalog.rotateFence(sessionId);
@@ -98,11 +65,6 @@ function rotateActivationFence(env: SessionEntityEnv, kernel: SessionKernel, ses
   }
 }
 
-/**
- * Adopts the rotated catalog fence into the session file (F5): the file CAS
- * accepts only a strictly newer fence. A file fence at or beyond the target
- * means a later activation won: this one is stale.
- */
 function adoptFence(kernel: SessionKernel, authority: SessionEntityAuthority): Effect.Effect<void, LedgerError> {
   const { sessionId, owner, fence } = authority;
   return Effect.suspend(() => {
@@ -120,11 +82,6 @@ function adoptFence(kernel: SessionKernel, authority: SessionEntityAuthority): E
   });
 }
 
-/**
- * Re-read the session row after a competing writer wins the revision CAS
- * (#1254 S4): bounded to three attempts, then the typed
- * `AdmissionFailure{code: revision}` — never an unbounded in-process spin.
- */
 export function retryRevision<A, E>(attempt: () => Effect.Effect<A, E>): Effect.Effect<A, E | AdmissionFailure> {
   const refused = (error: E): error is E & CommitRefused =>
     error instanceof CommitRefused && error.reason === "revision";
@@ -134,18 +91,12 @@ export function retryRevision<A, E>(attempt: () => Effect.Effect<A, E>): Effect.
   );
 }
 
-/** One received-message envelope on its way to the journal (#1313). */
 interface ReceivedEnvelope {
   readonly messageId: string;
   readonly content: string;
   readonly origin: string;
 }
 
-/**
- * The exact journal action `appendReceived` would commit for one envelope at
- * `at` (#1256 H-3: a deferred input's `after` cursor rides the row INTENT —
- * the protocol `action` declaration — so it merges into the origin object).
- */
 function receivedActionFor(
   sessionId: string,
   kind: Delivery.Kind,
@@ -171,14 +122,6 @@ function receivedActionFor(
   });
 }
 
-/**
- * The one replayed-key check (#1313). A key already on the journal replays as
- * the existing receipt only when the envelope would commit the same row bytes
- * — the candidate is hashed at the stored row's chain position (its
- * `prevHash`/`ts`/`ordinal` belong to the original commit, not the payload)
- * with the writer's own digest. A differing payload is the typed
- * `idempotency_conflict`; neither outcome appends anything.
- */
 function replayedReceived(
   handle: ActivationHandle,
   kind: Delivery.Kind,
@@ -201,7 +144,6 @@ function replayedReceived(
   });
 }
 
-/** Idempotent receive (F4): a redelivered envelope resolves to its existing chain action; a conflicting one is the typed `idempotency_conflict` (#1313). */
 function appendReceived(
   handle: ActivationHandle,
   kind: Delivery.Kind,
@@ -216,8 +158,6 @@ function appendReceived(
     const row = kernel.row(authority.sessionId);
     const now = env.clock();
     const action = receivedActionFor(authority.sessionId, kind, message, now, delivery, after);
-    // The interrupt row carries the writer-owned `running -> interrupted`
-    // transition; any other state drains the control as a no-op delivery.
     const committed = yield* commitIn(handle, {
       sessionId: authority.sessionId,
       owner: authority.owner,
@@ -234,14 +174,6 @@ function appendReceived(
   }));
 }
 
-/**
- * The entity's one commit door (#1254 S4): every append the activation itself
- * makes goes through here, and each committed `alarm{arm}` with a live `at`
- * is forwarded to the composed DeliverAt door as its minted occurrence
- * (daemon-forked: the persisted send's reply arrives at `fireAt`, long after
- * this activation may have passivated). Detached turn bodies commit through
- * the same wrapped kernel handed to the turn port.
- */
 function commitIn(
   handle: ActivationHandle,
   input: Parameters<SessionKernel["commit"]>[0],
@@ -251,20 +183,6 @@ function commitIn(
   );
 }
 
-/**
- * One armed-occurrence send with the H2 refusal contract (#1254). A typed
- * `AlarmSendRefused` is permanent: on the activation RESEND walk nobody else
- * can answer it, so the chain retires with `reason: "send_refused"` (the
- * post-commit notice closes any native handle). On the fresh-arm FORWARD the
- * committing wave's verb OWNS the refusal (#1254 r2 H2): the watch verb
- * awaits its own install and, on any refusal after its first committed arm
- * (a refused timeout arm, a refused install), retires exactly the chains it
- * committed — and the retiring arm's post-commit notice closes any native
- * handle this forward's install created in the meantime. Retiring here too
- * would double-retire the chain, so the forward drops the refusal. Any other failure
- * is logged and the armed row stands: the durable index plus the boot sweep
- * is the recovery of last resort. A refused RETIRE is a wiring defect and dies.
- */
 function sendArmedOccurrence(
   handle: ActivationHandle,
   send: NonNullable<SessionEntityPorts["sendAlarm"]>,
@@ -290,7 +208,6 @@ function sendArmedOccurrence(
   );
 }
 
-/** Reconstructs the minted occurrence from a committed arm append and forwards it. */
 function forwardArmedOccurrences(
   handle: ActivationHandle,
   actions: readonly LedgerAction.Append[],
@@ -302,15 +219,12 @@ function forwardArmedOccurrences(
     return fired === undefined ? [] : [fired];
   });
   if (occurrences.length === 0) return Effect.void;
-  // Scoped to the activation: the envelope persists before the reply wait,
-  // so a passivation interrupting the waiting fiber never loses the send.
   return Effect.forkIn(
     Effect.forEach(occurrences, (fired) => sendArmedOccurrence(handle, send, fired, "ignore"), { discard: true }),
     handle.scope,
   ).pipe(Effect.asVoid);
 }
 
-/** A live arm append (`at: null` retires the chain and forwards nothing). */
 const ArmAppendIntent = z.object({
   op: z.literal("arm"),
   at: z.number(),
@@ -354,7 +268,6 @@ function admissionSnapshot(handle: ActivationHandle): SessionAdmissionSnapshot {
   };
 }
 
-/** Commits `<id>:delivery` no-op records so consumed interrupts/resumes leave the fold. */
 function consumePending(handle: ActivationHandle, items: readonly Delivery.Row[]): Effect.Effect<void, LedgerError> {
   const { kernel, authority, env } = handle;
   const row = kernel.row(authority.sessionId);
@@ -370,15 +283,6 @@ function consumePending(handle: ActivationHandle, items: readonly Delivery.Row[]
   }).pipe(Effect.asVoid);
 }
 
-/**
- * Detached turn remainder (W5.2 S4): the port hands back the post-boundary
- * body; it forks under the activation scope so the delivering RPC acks at
- * the durable boundary. The continuation re-enters the drain when the turn
- * ends, picking up backlog that arrived after the turn's last boundary.
- * While the turn is live the cluster keep-alive latch is held (#1254 S4):
- * a running model/tool step never passivates; a turn parked at
- * `turn{terminal: waiting}` releases the latch and may passivate.
- */
 function detachTurn(handle: ActivationHandle, body: Effect.Effect<void, SessionError>): Effect.Effect<void, SessionError> {
   return Effect.gen(function* () {
     const token = {};
@@ -391,9 +295,6 @@ function detachTurn(handle: ActivationHandle, body: Effect.Effect<void, SessionE
           handle.live.current = undefined;
           return handle.keepAlive(false);
         })),
-        // A detached turn's failure has no awaiting RPC to surface through;
-        // log it loud (a stale fence here means another authority took the
-        // session over — the chain recovers on the next activation).
         Effect.onError((cause) =>
           Cause.hasInterruptsOnly(cause)
             ? Effect.void
@@ -418,26 +319,15 @@ function detachTurn(handle: ActivationHandle, body: Effect.Effect<void, SessionE
   });
 }
 
-/** What one backlog drain resolved to; `refused` carries the typed refusal fact (issue #1245). */
 export type SessionDrainOutcome =
   | { readonly kind: "stop" }
   | { readonly kind: "refused"; readonly refusal: SessionAdmissionRefused }
   | { readonly kind: "turn" };
 
-/**
- * Backlog drain (F4): consume-decisions are folded here; the first admitted
- * turn decision is handed to the composition-owned turn port, which reaches
- * its own durable boundary before the caller's ack; the remainder of the
- * turn runs detached (see `detachTurn`). While a detached turn is live the
- * drain is a no-op — the turn's own boundaries consume fresh backlog and
- * its continuation re-drains at the end.
- */
 function drain(handle: ActivationHandle): Effect.Effect<SessionDrainOutcome, LedgerError | SessionError> {
   const { authority, kernel, env } = handle;
   const detach = (body: Effect.Effect<void, SessionError>) => detachTurn(handle, body);
   return handle.gate.withPermits(1)(Effect.gen(function* () {
-    // #1253 turn end consumption: after a turn seals, the loop re-decides so a
-    // pending `followUp` backlog starts its follow-up turn before the ack.
     let ranTurn = false;
     for (;;) {
       if (handle.live.current !== undefined) return { kind: "turn" as const };
@@ -470,7 +360,6 @@ function drain(handle: ActivationHandle): Effect.Effect<SessionDrainOutcome, Led
 const decodeDeliverBody = Schema.decodeUnknownSync(DeliverBody);
 const decodeDeadlineBody = Schema.decodeUnknownSync(DeadlineAlarmBody);
 
-/** The admission-shaped row one `deliver` proposes; never persisted as-is. */
 function deliverCandidate(
   handle: ActivationHandle,
   payload: { readonly source: string; readonly idempotencyKey: string },
@@ -494,16 +383,6 @@ function deliverCandidate(
   });
 }
 
-/**
- * `deliver` (#1253, #1313): the one input door. The kind is checked against
- * the composed `inputRegistrations` port (unbound is the typed `seam_missing`,
- * never a core fallback), a replayed `idempotencyKey` resolves to the existing
- * seq as success with zero new facts only when its payload matches the stored
- * row (a differing payload is the typed `idempotency_conflict`), and a refused
- * admission is a typed rejection (`unknown_kind | missing_key | closed |
- * denied | idempotency_conflict | seam_missing`), never a success ack. An
- * admitted input is appended as its own journal row and the loop wakes.
- */
 function deliver(
   handle: ActivationHandle,
   payload: {
@@ -521,11 +400,6 @@ function deliver(
     if (registered === undefined) return yield* new DeliverRefused({ code: "seam_missing" });
     if (!registered.includes(payload.kind))
       return yield* new DeliverRefused({ code: "unknown_kind" });
-    // Unguarded by construction: every activation already read this row
-    // (rotateActivationFence / adoptFence) and no API deletes one, so a
-    // session absent from both planes never reaches this handler — it dies at
-    // activation (pinned by rpc-surface "absent from both planes"). `closed`
-    // stays a reserved refusal code for the wire contract.
     const row = kernel.row(authority.sessionId);
     const body = decodeDeliverBody(parsePlainJson(payload.body));
     const deliveryKind: Delivery.Kind =
@@ -574,12 +448,6 @@ function deliver(
   });
 }
 
-/**
- * `resolve` (#1253): settle one open request. A missing request is
- * `unknown_request`, a settled one `already_resolved` — both typed, both with
- * zero new journal facts. A redelivered `inputId` replays through the pure
- * request authority's dedup instead of refusing.
- */
 function resolveCommand(
   handle: ActivationHandle,
   payload: {
@@ -609,24 +477,12 @@ function resolveCommand(
   });
 }
 
-/**
- * `alarm` (#1254 S4): one occurrence through the chain-guarded fold, then
- * purpose dispatch. The four loop-reserved purposes are consumed by the loop
- * itself (`retry`/`resume` wake the drain; `deadline` expires its request iff
- * still open; `step_watchdog` is reserved — no step budget exists today, so
- * nothing arms it and a delivered one only wakes the drain). Any other
- * purpose dispatches to the composed alarm capability; an unregistered
- * purpose folds to a recorded `fired{stale}` fact with zero execution.
- */
 function alarmOccurrence(
   handle: ActivationHandle,
   occurrence: AlarmOccurrence,
   promptReceived: () => void,
 ): Effect.Effect<AlarmReceipt, AdmissionFailure> {
   return Effect.gen(function* () {
-    // #1254 S3: `rescan` is entity-internal — activating the entity already
-    // resent every armed occurrence exactly once; the occurrence itself
-    // appends no fact and is never a registrable purpose.
     if (occurrence.purpose === "rescan") return { outcome: "delivered" as const };
     const disposition =
       handle.kernel.actionById(`${occurrence.alarmId}:arm:${occurrence.armSeq}`) === undefined
@@ -636,7 +492,6 @@ function alarmOccurrence(
       yield* appendFiredAlarm(handle, occurrence, "stale");
       return { outcome: "stale" as const };
     }
-    // Strike first (own transaction, no journal row); at `MAX_OCCURRENCE_STRIKES` settle unexecuted.
     const strikes = handle.kernel.strikeArmedAlarm(occurrence.occurrenceId);
     if (strikes !== undefined && strikes >= MAX_OCCURRENCE_STRIKES) {
       yield* appendFiredAlarm(handle, occurrence, "exhausted");
@@ -655,7 +510,6 @@ function alarmOccurrence(
   ));
 }
 
-/** Deadline wake (#1254 S4): expires the named request iff it is still open. */
 function expireDeadline(
   handle: ActivationHandle,
   occurrence: AlarmOccurrence,
@@ -671,13 +525,6 @@ function expireDeadline(
   });
 }
 
-/**
- * Capability wake dispatch (#1254 S4): a registered purpose runs with chain
- * reads, the budgeted `arm` verb and the core-owned `prompt` verb, then the
- * loop records `fired{outcome: <returned>}` and — for `delivered` — wakes the
- * drain. An unregistered purpose or a typed wake failure folds to a recorded
- * `fired{stale}` fact.
- */
 function capabilityWake(
   handle: ActivationHandle,
   occurrence: AlarmOccurrence,
@@ -715,7 +562,6 @@ function capabilityWake(
   });
 }
 
-/** The wake context one capability dispatch receives (#1254 S4). */
 function wakeContext(handle: ActivationHandle, occurrence: AlarmOccurrence, promptReceived: () => void): AlarmWakeContext {
   return {
     sessionId: handle.authority.sessionId,
@@ -745,12 +591,6 @@ function wakeContext(handle: ActivationHandle, occurrence: AlarmOccurrence, prom
   };
 }
 
-/**
- * The budgeted arm verb (#1254 S4, D3): refuses reserved purposes and refuses
- * `alarm_budget` once the durable armed index holds `maxArmed` rows. The arm
- * commits through the entity's one commit door, which forwards the minted
- * occurrence to the DeliverAt sender.
- */
 function entityArmVerb(handle: ActivationHandle): ArmVerb {
   const { kernel, authority, env, drain: config } = handle;
   return (input) =>
@@ -759,9 +599,6 @@ function entityArmVerb(handle: ActivationHandle): ArmVerb {
         return yield* new ArmRefused({ code: "reserved_purpose" });
       const alarmId = input.alarmId ?? `${authority.sessionId}:${input.purpose}`;
       const latest = armedChainReads(handle).latestArm(alarmId);
-      // The budget bounds the index, so only an arm that ADDS a row consults
-      // it: a retire (`at: null`) deletes, a re-arm of an armed chain upserts.
-      // A full budget must never pin a chain that wants to retire or move.
       if (input.at !== null && latest === undefined && kernel.armedCount() >= config.maxArmed)
         return yield* new ArmRefused({ code: "alarm_budget" });
       const row = kernel.row(authority.sessionId);
@@ -788,9 +625,6 @@ function entityArmVerb(handle: ActivationHandle): ArmVerb {
         actions: [action],
         state: row.state,
       });
-      // #1254 H1: post-commit notice — the composition root moves its native
-      // source handle onto this arm BEFORE any next hit can resend the old,
-      // now-superseded occurrence (which would fold stale in the dedupe).
       env.ports.onArmed?.({
         sessionId: authority.sessionId,
         purpose: input.purpose,
@@ -806,10 +640,6 @@ function entityArmVerb(handle: ActivationHandle): ArmVerb {
     })).pipe(Effect.catchIf(
       (error): error is Exclude<LedgerError | AdmissionFailure, never> => !(error instanceof ArmRefused),
       (error) => {
-        // #1254 r2 H3: the bounded revision CAS exhausting and a fence-stale
-        // commit (a successor took the session over — this activation is no
-        // longer the writer) are typed refusals the caller must see. Schema
-        // refusals and unknown ledger errors stay invariants and die.
         if (error instanceof AdmissionFailure && error.code === "revision")
           return Effect.fail(new ArmRefused({ code: "revision" }));
         if (
@@ -822,7 +652,6 @@ function entityArmVerb(handle: ActivationHandle): ArmVerb {
     ));
 }
 
-/** Chain reads over the durable `armed_alarms` index (#1254 S3). */
 function armedChainReads(handle: ActivationHandle): AlarmChainReads {
   const { kernel } = handle;
   return {
@@ -836,14 +665,6 @@ function armedChainReads(handle: ActivationHandle): AlarmChainReads {
   };
 }
 
-/**
- * Activation resend (#1254 S3/S4): every row of the durable `armed_alarms`
- * index goes back out as its ORIGINAL occurrence through the composed
- * DeliverAt door — the occurrence id is the cluster dedupe key, so a live
- * duplicate folds there. Forked, and bounded to exactly once per activation:
- * the rescan RPC that may have woken this entity does NOT resend again, so a
- * resend can never re-trigger itself under load.
- */
 function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
   const send = handle.env.ports.sendAlarm;
   if (send === undefined || handle.closing.current) return Effect.void;
@@ -856,11 +677,6 @@ function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
   ).pipe(Effect.asVoid);
 }
 
-/**
- * `read` (#1253): one model page from the journal fold. A pure, bounded
- * projection over committed history — it appends nothing and never wakes the
- * loop. Pagination follows the chain's own revision cursor.
- */
 function readProjection(
   handle: ActivationHandle,
   payload: { readonly model: Parameters<typeof renderReadModel>[0]; readonly cursor: number },
@@ -875,7 +691,6 @@ function readProjection(
   });
 }
 
-/** The recorded firing fact (#1254); idempotent on `<occurrenceId>:<outcome>`. */
 function appendFiredAlarm(
   handle: ActivationHandle,
   occurrence: AlarmOccurrence,
@@ -911,12 +726,6 @@ function appendFiredAlarm(
   );
 }
 
-
-/**
- * One request command through the pure request authority (C3). The command's
- * `inputId` is the durable idempotency key; a reply intake from the decision
- * is committed as a received-message chain action in the same batch.
- */
 function requestSnapshot(
   handle: ActivationHandle,
   requestId: string,
@@ -982,9 +791,6 @@ function requestCommand(
   return Effect.gen(function* () {
     const result = yield* retryRevision(attempt);
     if (result.committed) {
-      // A turn recovered by this activation may be parked on the request
-      // (it read `open` before this commit); ring it before the drain, which
-      // defers to that live turn.
       handle.env.ports.onRequestReady?.(handle.authority.sessionId);
       yield* drain(handle);
     }
@@ -995,14 +801,6 @@ function requestCommand(
   ));
 }
 
-/**
- * Passivation boundary (#1254 S4): with unconsumed input left behind, the
- * closing activation arms the reserved `resume` purpose — alarmId
- * `<sessionId>:resume`, `at = now + idleMs`, superseding the previous resume
- * occurrence — so the session durably re-wakes and continues the same open
- * turn from the journal. Commit failures are logged, never thrown: the
- * durable armed index plus the boot sweep is the recovery of last resort.
- */
 function armResumeOnPassivation(handle: ActivationHandle): Effect.Effect<void> {
   return Effect.suspend(() => {
     const { kernel, authority, env, drain: config } = handle;
@@ -1031,9 +829,6 @@ function armResumeOnPassivation(handle: ActivationHandle): Effect.Effect<void> {
         actions: [action],
         state: row.state,
       }).pipe(
-        // The activation scope is closing: no fork can outlive it, so this
-        // one send goes through the discard door — it returns once the
-        // occurrence envelope is durable and never awaits the reply.
         Effect.flatMap(() => {
           const armed = kernel.armedAlarms().find((armedRow) => armedRow.occurrenceId === occurrenceId);
           if (handle.resumeSend === undefined || armed === undefined) return Effect.void;
@@ -1048,22 +843,10 @@ function armResumeOnPassivation(handle: ActivationHandle): Effect.Effect<void> {
   });
 }
 
-// ─── #1254 S4: the single writer fiber ───
-
 const isPromptDeliver = (request: SessionRequest): boolean =>
   request.tag === "Deliver" &&
   (request as Envelope.Request<typeof DeliverRpc>).payload.kind === "prompt";
 
-/**
- * The admission writer (#1254 S4): ONE fiber owns admission and every journal
- * append the entity itself makes. RPC handlers only enqueue envelopes; this
- * loop serves them in arrival order, with one D3 consumption rule — after
- * `alarmsBeforePrompt` consecutive alarm wakes, a queued prompt delivery is
- * served first. `read` never blocks the writer: it forks as a pure
- * projection. At scope close the loop's finalizer answers every queued
- * request with `AdmissionFailure{code: shutdown}` — the persisted envelopes
- * redeliver to the next activation.
- */
 export function writerLoop(
   handle: ActivationHandle,
   queue: Queue.Dequeue<SessionRequest>,
@@ -1076,9 +859,6 @@ export function writerLoop(
     const head = buffer.shift();
     return head === undefined ? Queue.take(queue) : Effect.succeed(head);
   });
-
-  // D3: an alarm at the head with the alarm budget spent yields to the first
-  // queued prompt delivery, if one is already waiting.
   const select: Effect.Effect<SessionRequest> = next.pipe(
     Effect.flatMap((request) => {
       if (request.tag !== "Alarm" || alarmsSincePrompt < handle.drain.alarmsBeforePrompt)
@@ -1123,7 +903,6 @@ export function writerLoop(
         );
       }
       case "Read": {
-        // Off the writer path: a pure projection never queues behind appends.
         const req = request as Envelope.Request<typeof ReadRpc>;
         return Effect.forkIn(
           readProjection(handle, req.payload).pipe(
@@ -1167,20 +946,10 @@ export function writerLoop(
   return loop.pipe(Effect.ensuring(drainOnClose)) as Effect.Effect<never>;
 }
 
-/**
- * One activation per session (plan §3): open the per-session store, rotate the
- * catalog fence, adopt it into the file lease, resend the armed-alarm index
- * exactly once, and run the single writer fiber over the entity's envelope
- * queue (#1254 S4). A refused rotation means a later activation exists; dying
- * hands the mailbox back to the cluster. `maxIdleTime` is D3's `idleMs`: an
- * idle activation passivates, arming `resume` when unconsumed input remains.
- */
 export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
   return SessionEntity.toLayerQueue(
     Effect.gen(function* () {
       const env = yield* SessionEntityContext;
-      // A redelivered message can activate a session before the composition
-      // root bound the real ports; hold the activation until it has.
       yield* env.ports.ready ?? Effect.void;
       const address = yield* Entity.CurrentAddress;
       const sessionId = address.entityId;
@@ -1216,35 +985,18 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
         resumeSend: (occurrence) =>
           client.Alarm(occurrence, { discard: true }).pipe(
             Effect.provideContext(clusterServices),
-            // Persistence refusals are logged, never thrown: the armed index
-            // plus the boot sweep is the recovery of last resort.
             Effect.catchCause((cause) =>
               Effect.logError(`resume occurrence send failed: ${sessionId}`, cause),
             ),
           ),
       };
-      // #1254 S4 passivation boundary: arm `resume` for unconsumed input.
-      // Registered before the writer's own finalizer never runs — finalizers
-      // are LIFO, so this runs after the queue drain and before store close.
       yield* Effect.addFinalizer(() => armResumeOnPassivation(handle));
-      // #1254 H3: hand this activation's budgeted arm verb to the composition
-      // root — the ONE committing arm path the app's capability verbs
-      // delegate to. Registered before the armed resend so a send-refusal
-      // retire never races the registration window; released at passivation.
-      // The turn token (#1254 r2 H3): the activation owns exactly the turn
-      // currently open in its journal. The token is NOT activation-unique —
-      // recovery retains `open.turnId`, so a successor owns the same token as
-      // the activation it replaced (#1254 r3 H1); the registry binds each
-      // tool-facing verb to the activation live at its creation and refuses
-      // `stale_activation` once this registration is replaced.
       const releaseLive = env.ports.onLive?.(sessionId, {
         arm: entityArmVerb(handle),
         ownsTurn: (turnId) => kernel.latestOpenTurn(sessionId)?.turnId === turnId,
       });
       if (releaseLive !== undefined) yield* Effect.addFinalizer(() => Effect.sync(releaseLive));
       yield* logRestoredHistory(kernel, sessionId, env.clock);
-      // #1254 S3: restore scheduling — resend every armed occurrence (forked,
-      // exactly once per activation).
       yield* resendArmedAlarms(handle);
       yield* drain(handle).pipe(Effect.orDie);
       return (queue: Queue.Dequeue<SessionRequest>, replier: SessionReplier) =>
@@ -1254,17 +1006,6 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
   );
 }
 
-/**
- * The real turn port for the Session entity (W5.2 F6): one admitted decision
- * runs through the same admission/turn machinery the in-process controller
- * uses, against the activation's kernel and pinned fence. The entity already
- * owns receipt, dedupe and authority; this port only reaches the durable turn
- * boundary and never re-adopts the fence. The admission paths commit that
- * boundary (deliveries + turn envelope, state `running`) before invoking the
- * turn runner, so the runner handed to the admission detaches its body via
- * `input.detach` (W5.2 S4): the delivering RPC acks at the boundary and the
- * model/tool remainder runs under the activation scope instead.
- */
 export function createSessionEntityRunTurn(
   runner: SessionRunner,
   runtime: ResolvedSessionRuntime,
@@ -1284,8 +1025,6 @@ export function createSessionEntityRunTurn(
       consumePolicyBlockedDeliveries: (...args) => admission.consumePolicyBlockedDeliveries(...args),
       hibernate: () => Effect.void,
     });
-    // The synthetic result never persists: seals ride the detached body, and
-    // every entity admission path returns the runner result to a void sink.
     const detachedRunTurn: typeof runTurn = (turnInput) =>
       input.detach(runTurn(turnInput).pipe(Effect.asVoid)).pipe(
         Effect.as<SessionRunnerResult>({ kind: "waiting", reason: "live_wait", alarmIds: [], text: "" }),
