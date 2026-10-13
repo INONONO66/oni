@@ -22,7 +22,20 @@ import { desktopBridge } from "./desktop-bridge";
 export const queryKeys = {
   gatewayEndpoint: ["gateway", "endpoint"] as const,
   session: (sessionId: string) => ["gateway", "session", sessionId] as const,
+  automations: ["gateway", "automations"] as const,
 };
+
+export function automationListOptions(transport: GatewayChatTransport | null) {
+  return queryOptions({
+    queryKey: queryKeys.automations,
+    enabled: transport !== null,
+    retry: false,
+    queryFn: async () => {
+      if (transport === null) throw new GatewayUnavailableError("gateway not configured");
+      return (await transport.automationList()).records;
+    },
+  });
+}
 
 /**
  * Reject delayed pages so a sealed terminal cannot become running again, and

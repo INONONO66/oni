@@ -20,6 +20,7 @@ import { dispatchShellCommand } from "./shell/commands";
 import { jumpFrom } from "./shell/history";
 import { placeIcon } from "./shell/place-icon";
 import { SessionList } from "./shell/session-list";
+import { AutomationView } from "./automation/view";
 import { sessionGlyphProps } from "./shell/session-glyph";
 import { SessionTree } from "./shell/session-tree";
 import { shellShortcut } from "./shell/shortcuts";
@@ -40,7 +41,6 @@ import {
   navigate,
   newSessionTab,
   openTab,
-  type Route,
   type SessionId,
   setSidebarFloating,
   setSidebarOpen,
@@ -268,12 +268,12 @@ export function App({ platform, storage, host }: AppEnvironment) {
   );
   const session = place?.kind === "session" ? byId.get(place.sessionId) : undefined;
   const content =
-    session === undefined ? (
+    place?.kind === "route" && place.route === "automations" ? (
+      <AutomationView key={tab?.id} transport={transport} sessions={localSessions} id={host.id} />
+    ) : session === undefined ? (
       <ConsoleContent
         emptyLabel={
-          place?.kind === "route" && place.route !== "sessions"
-            ? ROUTE_EMPTY[place.route]
-            : "Select or create a session"
+          "Select or create a session"
         }
         key={tab?.id ?? "empty"}
       >
@@ -373,7 +373,3 @@ function isEditing(target: EventTarget | null): boolean {
     target.tagName === "SELECT"
   );
 }
-
-const ROUTE_EMPTY = {
-  automations: "No automations yet.",
-} as const satisfies Record<Exclude<Route, "sessions">, string>;
