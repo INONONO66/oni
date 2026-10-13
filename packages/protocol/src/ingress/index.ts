@@ -10,6 +10,7 @@ import { SessionTransition } from "../ledger/session-transition.js";
 import * as RouteRecord from "./route-record.js";
 import { Input as InputSchema } from "./input.js";
 import * as AutomationSchemas from "./automation.js";
+import * as AutomationWire from "./automation-wire.js";
 
 /**
  * #500 A6: every production-written actor key is declared (`runId` and
@@ -116,6 +117,16 @@ export namespace Ingress {
   export type Conditions = z.infer<typeof Conditions>;
   export const Automation = AutomationSchemas.Automation;
   export type Automation = z.infer<typeof Automation>;
+  export const AutomationRequest = AutomationWire.Request;
+  export type AutomationRequest = AutomationWire.Request;
+  export const AutomationResponse = AutomationWire.Response;
+  export type AutomationResponse = AutomationWire.Response;
+  export const AutomationRefused = AutomationWire.Refused;
+  export type AutomationRefused = AutomationWire.Refused;
+  export const AutomationRefusalReason = AutomationWire.RefusalReason;
+  export type AutomationRefusalReason = AutomationWire.RefusalReason;
+  export const AutomationLedgerFilter = AutomationWire.LedgerFilter;
+  export type AutomationLedgerFilter = AutomationWire.LedgerFilter;
   export const TriggerContext = AutomationSchemas.TriggerContext;
   export type TriggerContext = z.infer<typeof TriggerContext>;
 
