@@ -1,6 +1,6 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
-import { listenForAbort, parseJson, SessionFork, SessionRead } from "@openomni/protocol";
-import { GatewayUnavailableError, TransportCapabilityError } from "../errors";
+import { Ingress, listenForAbort, parseJson, SessionFork, SessionRead } from "@openomni/protocol";
+import { AutomationRefusedError, GatewayUnavailableError, TransportCapabilityError } from "../errors";
 import { z } from "zod";
 
 /** The subset of `WebSocket` this transport uses, so a test can serve its own. */
@@ -30,9 +30,16 @@ interface GatewayChatTransportOptions {
   /** Injected in tests. Defaults to the platform `WebSocket`. */
   readonly WebSocketImpl?: SocketConstructor;
   readonly onSessionBound?: (chatId: string, sessionId: string) => void;
+  /** One deadline for opening the socket and receiving an automation reply. */
+  readonly automationTimeoutMs?: number;
 }
 
 const serverFrameSchema = z.union([
+  Ingress.AutomationResponse,
+  // A correlated but malformed reply must reject its waiter, not disappear or reach chat.
+  z.object({ requestId: z.string() }).transform(({ requestId }) => ({
+    type: "invalid_automation_response" as const, requestId,
+  })),
   SessionRead.Response,
   SessionRead.Receipt,
   SessionRead.Bound,
@@ -106,6 +113,12 @@ export class SessionReadSupersessionError extends Error {
 }
 
 export interface GatewayChatTransport extends ChatTransport<UIMessage> {
+  automationList(): Promise<AutomationReply<"automation_listed">>;
+  automationAdd(record: Extract<z.input<typeof Ingress.AutomationRequest>, { type: "automation_add" }>["record"]): Promise<AutomationReply<"automation_added">>;
+  automationRemove(id: string): Promise<AutomationReply<"automation_removed">>;
+  automationEnable(id: string): Promise<AutomationReply<"automation_enabled">>;
+  automationDisable(id: string): Promise<AutomationReply<"automation_disabled">>;
+  automationLedger(filter?: Partial<Ingress.AutomationLedgerFilter>): Promise<AutomationReply<"automation_ledger_read">>;
   readSession(sessionId: string, cursor?: SessionRead.Cursor): Promise<SessionRead.Page>;
   subscribeSession(listener: (page: SessionRead.Page) => void): () => void;
   /**
@@ -114,6 +127,19 @@ export interface GatewayChatTransport extends ChatTransport<UIMessage> {
    * only on transport failure (socket drain, no gateway).
    */
   forkSession(request: Omit<SessionFork.Request, "type">): Promise<SessionFork.Response>;
+}
+
+type AutomationReply<Type extends Ingress.AutomationResponse["type"]> =
+  Extract<Ingress.AutomationResponse, { type: Type }>;
+type AutomationInput = {
+  [Type in Ingress.AutomationRequest["type"]]: Omit<Extract<z.input<typeof Ingress.AutomationRequest>, { type: Type }>, "requestId">;
+}[Ingress.AutomationRequest["type"]];
+
+function isAutomationReply<Type extends Ingress.AutomationResponse["type"]>(
+  frame: Ingress.AutomationResponse,
+  type: Type,
+): frame is AutomationReply<Type> {
+  return frame.type === type;
 }
 
 function emptyStream(): ReadableStream<UIMessageChunk> {
@@ -143,6 +169,13 @@ export function createGatewayChatTransport(
     }
   >();
   const listeners = new Set<(page: SessionRead.Page) => void>();
+  const automations = new Map<string, {
+    readonly socket: SocketLike;
+    readonly waiters: {
+      readonly resolve: (frame: Ingress.AutomationResponse) => void;
+      readonly reject: (error: Error) => void;
+    }[];
+  }>();
   /** FIFO fork waiters keyed by the PARENT session id (#1257). */
   const forks = new Map<
     string,
@@ -200,7 +233,22 @@ export function createGatewayChatTransport(
     options.onSessionBound?.(chatId, result.handle.target);
   }
 
+  function settleAutomation(source: SocketLike, frame: Extract<ServerFrame, { requestId: string }>): void {
+    const entry = automations.get(frame.requestId);
+    if (entry?.socket !== source) return;
+    automations.delete(frame.requestId);
+    if (frame.type === "invalid_automation_response") {
+      rejectWaiters(entry.waiters, new GatewayUnavailableError("Invalid automation response"));
+    } else {
+      for (const waiter of entry.waiters) waiter.resolve(frame);
+    }
+  }
+
   function settle(source: SocketLike, frame: ServerFrame): void {
+    if ("requestId" in frame) {
+      settleAutomation(source, frame);
+      return;
+    }
     if (
       frame.type === "session_snapshot" ||
       frame.type === "session_page" ||
@@ -277,6 +325,7 @@ export function createGatewayChatTransport(
 
   /** Every in-flight turn on one socket ends when that socket does. */
   function drain(source: SocketLike, errorText?: string): void {
+    drainEntries(automations, source, new GatewayUnavailableError(errorText ?? "gateway socket closed"));
     drainEntries(reads, source, new Error(errorText ?? "gateway socket closed"));
     drainEntries(forks, source, new Error(errorText ?? "gateway socket closed"));
     for (let index = pending.length - 1; index >= 0; index -= 1) {
@@ -293,7 +342,43 @@ export function createGatewayChatTransport(
 
   const { closeSocket, connectUntilAborted } = createConnection(options, settle, drain);
 
+  async function automation<Type extends Ingress.AutomationResponse["type"]>(
+    input: AutomationInput,
+    responseType: Type,
+  ): Promise<AutomationReply<Type>> {
+    const request = Ingress.AutomationRequest.parse({ ...input, requestId: options.id() });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new GatewayUnavailableError("Automation request timed out")), options.automationTimeoutMs ?? 15_000);
+    });
+    try {
+      const live = await Promise.race([connectUntilAborted(undefined), deadline]);
+      if (live === undefined) throw new GatewayUnavailableError("gateway socket unavailable");
+      const reply = new Promise<Ingress.AutomationResponse>((resolve, reject) => {
+        automations.set(request.requestId, { socket: live, waiters: [{ resolve, reject }] });
+        live.send(JSON.stringify(request));
+      });
+      const response = await Promise.race([reply, deadline]);
+      if ("reason" in response) throw new AutomationRefusedError(response);
+      if (!isAutomationReply(response, responseType)) {
+        throw new GatewayUnavailableError(`Unexpected automation response: ${response.type}`);
+      }
+      return response;
+    } catch (error) {
+      throw error instanceof Error ? error : new GatewayUnavailableError(String(error));
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      automations.delete(request.requestId);
+    }
+  }
+
   return {
+    automationList: () => automation({ type: "automation_list" }, "automation_listed"),
+    automationAdd: (record) => automation({ type: "automation_add", record }, "automation_added"),
+    automationRemove: (id) => automation({ type: "automation_remove", id }, "automation_removed"),
+    automationEnable: (id) => automation({ type: "automation_enable", id }, "automation_enabled"),
+    automationDisable: (id) => automation({ type: "automation_disable", id }, "automation_disabled"),
+    automationLedger: (filter = {}) => automation({ ...filter, type: "automation_ledger" }, "automation_ledger_read"),
     async readSession(sessionId, cursor) {
       const live = await connectUntilAborted(undefined);
       if (live === undefined) throw new GatewayUnavailableError("gateway socket unavailable");

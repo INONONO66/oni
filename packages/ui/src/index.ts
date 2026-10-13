@@ -6,6 +6,7 @@
    fails on any name here that the app does not import. */
 
 export { Console, ConsoleContent } from "./console";
+export { ActionButton, Field, Input, Select, Textarea } from "./form";
 export type ConsoleShell = import("./console").ConsoleShell;
 export type ConsoleStrip = import("./console").ConsoleStrip;
 export { relativeTime } from "./history-menu";

@@ -1,4 +1,4 @@
-import type { SessionRead } from "@openomni/protocol";
+import type { Ingress, SessionRead } from "@openomni/protocol";
 import { GatewayUnavailableError } from "../errors";
 import { queryOptions, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -22,7 +22,40 @@ import { desktopBridge } from "./desktop-bridge";
 export const queryKeys = {
   gatewayEndpoint: ["gateway", "endpoint"] as const,
   session: (sessionId: string) => ["gateway", "session", sessionId] as const,
+  automations: ["gateway", "automations"] as const,
+  automationLedger: (filter: Partial<Ingress.AutomationLedgerFilter>) => ["gateway", "automation-ledger", filter] as const,
 };
+
+export function automationListOptions(transport: GatewayChatTransport | null) {
+  return queryOptions({
+    queryKey: queryKeys.automations,
+    enabled: transport !== null,
+    retry: false,
+    queryFn: async () => {
+      if (transport === null) throw new GatewayUnavailableError("gateway not configured");
+      return (await transport.automationList()).records;
+    },
+  });
+}
+
+export function automationLedgerOptions(transport: GatewayChatTransport | null, filter: Partial<Ingress.AutomationLedgerFilter>) {
+  return queryOptions({
+    queryKey: queryKeys.automationLedger(filter),
+    enabled: transport !== null,
+    retry: false,
+    queryFn: async () => {
+      if (transport === null) throw new GatewayUnavailableError("gateway not configured");
+      const rows = (await transport.automationLedger(filter)).rows;
+      // Decision/record filters hide the original event and winning prompt.
+      // Read their context over the same wire, never infer a routing outcome.
+      const { decision, recordId, ...contextFilter } = filter;
+      const related = decision === undefined && recordId === undefined
+        ? rows
+        : (await transport.automationLedger(contextFilter)).rows;
+      return { rows, related };
+    },
+  });
+}
 
 /**
  * Reject delayed pages so a sealed terminal cannot become running again, and

@@ -13,6 +13,11 @@
  * inside all of them.
  */
 export const UI_NAMES = {
+  Field: "Field",
+  Input: "Input",
+  Select: "Select",
+  Textarea: "Textarea",
+  ActionButton: "ActionButton",
   /** A tonal surface — the window, a column, a recessed region. */
   Panel: "Panel",
   /** The window's top row: the controls zone, the one tab, the create control. */

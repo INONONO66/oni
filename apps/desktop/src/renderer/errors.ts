@@ -1,3 +1,5 @@
+import type { Ingress } from "@openomni/protocol";
+
 /**
  * The renderer's named failures (#1244). The desktop app is not an Effect
  * package, so expected-but-unactionable conditions and violated invariants
@@ -18,4 +20,14 @@ export class TransportCapabilityError extends Error {
 /** A renderer invariant broke (missing boot element, unhandled reducer effect): a programmer error. */
 export class RendererInvariantError extends Error {
   override readonly name = "RendererInvariantError";
+}
+
+export class AutomationRefusedError extends Error {
+  override readonly name = "AutomationRefusedError";
+  constructor(readonly refusal: Ingress.AutomationRefused) {
+    super([
+      `${refusal.reason}: ${refusal.detail}`,
+      ...(refusal.issues ?? []).map((issue) => `${issue.path.join(".")}: ${issue.message}`),
+    ].join("\n"));
+  }
 }
