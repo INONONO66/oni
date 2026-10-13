@@ -1,8 +1,8 @@
 /**
- * #1343 comment-residue gate: discriminating fixtures. Every case builds a
- * scratch agent tree plus its own pin table, so a new hit, a stale pin, an
- * unpinned file, JSDoc growth, and ratio growth each fail with the typed
- * message, while the exact structural-header exemption stays narrow.
+ * Comment-residue gate: discriminating fixtures. Every case builds a scratch
+ * agent tree plus its own pin table, so a new hit, a stale pin, an unpinned
+ * file, JSDoc growth, ratio growth, and a stale or over-budget allow-list each
+ * fail with the typed message, while the exact listed note stays exempt.
  */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -34,7 +34,7 @@ function pinsOf(
     files: new Map(Object.entries(files).map(([k, v]) => [`packages/agent/src/${k}`, v])),
     ratioBasisPoints: 10_000,
     jsdocOverSix: 0,
-    structuralHeaders: [],
+    durableByteNotes: [],
     ...overrides,
   };
 }
@@ -69,6 +69,26 @@ test("#1343 classifier: comment-only issue lines, dividers, and JSDoc >6 lines a
   expect(residue.dividerLines).toBe(1);
   expect(residue.jsdocOverSix).toBe(1);
   expect(residue.commentLines).toBe(9);
+});
+
+test("#1349 classifier: a divider inside a block comment or JSDoc is still a divider; a trailing one after code is not", () => {
+  const residue = classifyResidue(
+    [
+      "/*",
+      " ─── bare run in a block ───",
+      " */",
+      "/**",
+      " * ─── section ───",
+      " * prose",
+      " */",
+      "/* ─── one-line block ─── */",
+      "// ── two glyphs are prose, not a divider",
+      "export const a = 1; /* ─── trailing after code ─── */",
+    ].join("\n"),
+  );
+  expect(residue.dividerLines).toBe(3);
+  expect(residue.commentLines).toBe(9);
+  expect(residue.nonblankLines).toBe(10);
 });
 
 test("#1343 classifier: a block opened after code counts its continuation lines; template text is code", () => {
@@ -216,54 +236,118 @@ test("#1343: the JSDoc>6 count is a tight pin — a ceiling above the actual fai
   }
 });
 
-// ─── structural-header exemption: exact marker only, issue residue still counts ───
+// ─── durable-byte allow-list: exact line only, budget and staleness enforced ───
 
-test("#1343: an exact exempted marker skips the divider count; a neighboring marker and its issue token still count", async () => {
+const BYTE_NOTE = "// #1305: pre-rename session files persist the retired role byte.";
+
+test("#1349: a listed durable-byte note is excluded from the issue count; an unlisted neighbor still fails", async () => {
   const root = scratchTree({
-    "inspect/index.ts": [
-      "// ─── #1305: stored tool output read-back ───",
-      "// ─── neighboring marker ───",
-      "export const i = 1;",
-    ].join("\n"),
+    "core/store/catalog.ts": [BYTE_NOTE, "// #1234 unlisted provenance", "export const c = 1;"].join("\n"),
   });
+  const note = {
+    file: "packages/agent/src/core/store/catalog.ts",
+    marker: BYTE_NOTE,
+    reason: "the role byte is persisted; the number names the migration that froze it",
+  };
   try {
     const violations = await checkCommentResidue(
       root,
-      pinsOf(
-        { "inspect/index.ts": [0, 1] },
-        {
-          ratioBasisPoints: 6_666,
-          structuralHeaders: [
-            {
-              file: "packages/agent/src/inspect/index.ts",
-              marker: "// ─── #1305: stored tool output read-back ───",
-            },
-          ],
-        },
-      ),
+      pinsOf({ "core/store/catalog.ts": [0, 0] }, { ratioBasisPoints: 6_666, durableByteNotes: [note] }),
     );
-    // The exempted line's #1305 token still counts: pin [0, 1] fails on issues.
     expect(violations).toEqual([
-      "VIOLATION [comment-residue] packages/agent/src/inspect/index.ts: issue-number comment lines 1 > pin 0 — shrink only, never grow",
+      "VIOLATION [comment-residue] packages/agent/src/core/store/catalog.ts: issue-number comment lines 1 > pin 0 — shrink only, never grow",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("#1343: an over-budget structural-header allow-list is itself a violation", async () => {
+test("#1349: the exact allow-list passes with zero pins; a pattern-shaped near miss does not qualify", async () => {
+  const root = scratchTree({
+    "core/store/catalog.ts": [BYTE_NOTE, "export const c = 1;"].join("\n"),
+  });
+  const note = {
+    file: "packages/agent/src/core/store/catalog.ts",
+    marker: BYTE_NOTE,
+    reason: "the role byte is persisted; the number names the migration that froze it",
+  };
+  try {
+    expect(
+      await checkCommentResidue(
+        root,
+        pinsOf({ "core/store/catalog.ts": [0, 0] }, { ratioBasisPoints: 5_000, durableByteNotes: [note] }),
+      ),
+    ).toEqual([]);
+    const nearMiss = { ...note, marker: "// #1305: pre-rename session files persist the retired role byte" };
+    expect(
+      await checkCommentResidue(
+        root,
+        pinsOf({ "core/store/catalog.ts": [0, 0] }, { ratioBasisPoints: 5_000, durableByteNotes: [nearMiss] }),
+      ),
+    ).toEqual([
+      "VIOLATION [comment-residue] packages/agent/src/core/store/catalog.ts: issue-number comment lines 1 > pin 0 — shrink only, never grow",
+      'VIOLATION [comment-residue] packages/agent/src/core/store/catalog.ts: listed durable-byte note "// #1305: pre-rename session files persist the retired role byte" is absent: retire the entry',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1349: a listed note whose line was deleted is stale and fails closed", async () => {
+  const root = scratchTree({ "core/store/catalog.ts": "export const c = 1;\n" });
+  try {
+    const violations = await checkCommentResidue(
+      root,
+      pinsOf(
+        { "core/store/catalog.ts": [0, 0] },
+        {
+          ratioBasisPoints: 0,
+          durableByteNotes: [
+            { file: "packages/agent/src/core/store/catalog.ts", marker: BYTE_NOTE, reason: "gone" },
+          ],
+        },
+      ),
+    );
+    expect(violations).toEqual([
+      `VIOLATION [comment-residue] packages/agent/src/core/store/catalog.ts: listed durable-byte note ${JSON.stringify(BYTE_NOTE)} is absent: retire the entry`,
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1349: an over-budget durable-byte allow-list is itself a violation", async () => {
   const root = scratchTree({ "core/a.ts": "export const a = 1;\n" });
-  const headers = Array.from({ length: 11 }, (_, i) => ({
+  const notes = Array.from({ length: 11 }, (_, i) => ({
     file: "packages/agent/src/core/a.ts",
-    marker: `// ─── header ${i} ───`,
+    marker: `// #${1000 + i} byte note ${i}`,
+    reason: `note ${i}`,
   }));
   try {
     const violations = await checkCommentResidue(
       root,
-      pinsOf({ "core/a.ts": [0, 0] }, { structuralHeaders: headers }),
+      pinsOf({ "core/a.ts": [0, 0] }, { durableByteNotes: notes }),
+    );
+    expect(violations[0]).toBe(
+      "VIOLATION [comment-residue] durable-byte notes 11 > budget 10: retire notes instead of adding them",
+    );
+    expect(violations).toHaveLength(12);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1349: one file growing an issue comment fails its per-file pin while the package ratio stays under 8%", async () => {
+  const code = Array.from({ length: 19 }, (_, i) => `export const v${i} = ${i};`);
+  // 1 comment line / 20 nonblank lines = 500bp, under the 800bp rule.
+  const root = scratchTree({ "core/a.ts": ["// #1234 grew here", ...code].join("\n") });
+  try {
+    const violations = await checkCommentResidue(
+      root,
+      pinsOf({ "core/a.ts": [0, 0] }, { ratioBasisPoints: 800 }),
     );
     expect(violations).toEqual([
-      "VIOLATION [comment-residue] structural-header exemptions 11 > budget 10: retire exemptions instead of adding them",
+      "VIOLATION [comment-residue] packages/agent/src/core/a.ts: issue-number comment lines 1 > pin 0 — shrink only, never grow",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -318,7 +402,7 @@ test("#1343 main: the pinned baseline passes through the OK branch", async () =>
     expect(process.exitCode).toBe(previousExitCode);
     expect(err).toEqual([]);
     expect(out.join("")).toBe(
-      `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight)\n`,
+      `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight), durable-byte notes ${RESIDUE_PINS.durableByteNotes.length}/10\n`,
     );
   } finally {
     process.exitCode = previousExitCode ?? 0;
