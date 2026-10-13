@@ -556,6 +556,22 @@ export const sendDeadline = (sessionId: string, requestId: string, deadlineAt: n
     fireAt: deadlineAt,
   });
 
+/**
+ * One loop-reserved `rescan` wake (#1254 S3): the sweep's boot occurrence that
+ * activates the entity so its activation resend re-fires every armed row.
+ * `occurrenceId` is the cluster dedupe key, so each boot names its own.
+ */
+export const sendRescan = (sessionId: string, occurrenceId: string, fireAt: number) =>
+  sendAlarm(sessionId, {
+    occurrenceId,
+    purpose: "rescan",
+    alarmId: `${sessionId}:rescan`,
+    armSeq: 0,
+    sourceKey: "rescan",
+    payload: "{}",
+    fireAt,
+  });
+
 export function sessionFileFor(sessionsDir: string, sessionId: string): string {
   return `${sessionsDir}/${sessionId}.sqlite`;
 }
