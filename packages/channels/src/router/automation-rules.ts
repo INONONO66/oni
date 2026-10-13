@@ -34,5 +34,5 @@ export function filterAutomationRules(
     stores.automations.record(effective);
     sink(Ingress.Events.RoutingDecision, effective);
   }
-  return { status: "blocked_pre", reasonCode: replay ? "message.external.event_id_dedupe" : decision.reason };
+  return { status: "blocked_pre", reasonCode: decision.reason };
 }
