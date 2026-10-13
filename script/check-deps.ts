@@ -1211,7 +1211,7 @@ interface AppsSessionWriteSite {
  * Moving a line re-pins it here; a second write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1231, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/index.ts", line: 1237, receiver: "kernel", member: "commit" },
   { file: "apps/openomni/src/composition/ingress-executor.ts", line: 58, receiver: "Core", member: "adoptedExecutionLedger" },
 ];
 
@@ -1263,54 +1263,83 @@ export function appsSessionWriteSites(source: string, filePath: string): AppsSes
     true,
     filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
-  const found: { readonly position: number; readonly site: AppsSessionWriteSite }[] = [];
-  const site = (node: ts.Node, receiver: string, member: string): void => {
-    const position = node.getStart(sourceFile);
-    found.push({
-      position,
-      site: { file: filePath, line: sourceFile.getLineAndCharacterOfPosition(position).line + 1, receiver, member },
-    });
+  const walk = new SessionWriteWalk(sourceFile, filePath);
+  walk.visit(sourceFile);
+  return walk.sites();
+}
+
+/** The one-file walk behind {@link appsSessionWriteSites}: direct sites plus the paired `commit` value forms. */
+class SessionWriteWalk {
+  private readonly found: { readonly position: number; readonly site: AppsSessionWriteSite }[] = [];
+  /** `commit` value forms, paired after the walk: bindings by bound name, bare calls by callee name. */
+  private readonly commitBindings: { readonly node: ts.Node; readonly receiver: string; readonly bound: string }[] = [];
+  private readonly bareCalls: ts.Identifier[] = [];
+
+  constructor(
+    private readonly sourceFile: ts.SourceFile,
+    private readonly filePath: string,
+  ) {}
+
+  visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) this.call(node);
+    else if (ts.isVariableDeclaration(node)) this.alias(node);
+    else if (ts.isBindingElement(node)) this.destructure(node);
+    ts.forEachChild(node, this.visit);
   };
-  // `commit` value forms, paired after the walk: bindings by bound name, bare calls by callee name.
-  const commitBindings: { readonly node: ts.Node; readonly receiver: string; readonly bound: string }[] = [];
-  const bareCalls: ts.Identifier[] = [];
-  const valueForm = (member: { readonly name: string; readonly node: ts.Node }, receiver: string, bound: string): void => {
-    if (member.name === "commit") commitBindings.push({ node: member.node, receiver, bound });
-    else site(member.node, receiver, member.name);
-  };
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
-        const banned = bannedSessionWriteMember(callee);
-        if (banned !== undefined) site(banned.node, receiverName(callee.expression) ?? "<expression>", banned.name);
-      } else if (ts.isIdentifier(callee)) {
-        if (APPS_SESSION_WRITE_MEMBERS.has(callee.text) && callee.text !== "commit") site(callee, "<bare>", callee.text);
-        else bareCalls.push(callee);
-      }
-    } else if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer !== undefined &&
-      (ts.isPropertyAccessExpression(node.initializer) || ts.isElementAccessExpression(node.initializer))
-    ) {
-      const banned = bannedSessionWriteMember(node.initializer);
-      if (banned !== undefined) valueForm(banned, "<alias>", node.name.text);
-    } else if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
-      const property = node.propertyName ?? node.name;
-      const name = ts.isIdentifier(property) ? property.text : ts.isStringLiteral(property) ? property.text : undefined;
-      if (name !== undefined && (APPS_SESSION_WRITE_MEMBERS.has(name) || APPS_SESSION_STORE_UNIT_MEMBERS.has(name)))
-        valueForm({ name, node: property }, "<destructure>", node.name.text);
+
+  sites(): AppsSessionWriteSite[] {
+    const called = this.commitBindings.filter((binding) => this.bareCalls.some((call) => call.text === binding.bound));
+    for (const binding of called) this.site(binding.node, binding.receiver, "commit");
+    for (const call of this.bareCalls) {
+      if (called.some((binding) => binding.bound === call.text)) this.site(call, "<bare>", "commit");
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  const calledBindings = commitBindings.filter((binding) => bareCalls.some((call) => call.text === binding.bound));
-  for (const binding of calledBindings) site(binding.node, binding.receiver, "commit");
-  for (const call of bareCalls) {
-    if (calledBindings.some((binding) => binding.bound === call.text)) site(call, "<bare>", "commit");
+    return this.found.sort((a, b) => a.position - b.position).map((entry) => entry.site);
   }
-  return found.sort((a, b) => a.position - b.position).map((entry) => entry.site);
+
+  private site(node: ts.Node, receiver: string, member: string): void {
+    const position = node.getStart(this.sourceFile);
+    this.found.push({
+      position,
+      site: { file: this.filePath, line: this.sourceFile.getLineAndCharacterOfPosition(position).line + 1, receiver, member },
+    });
+  }
+
+  private valueForm(member: { readonly name: string; readonly node: ts.Node }, receiver: string, bound: string): void {
+    if (member.name === "commit") this.commitBindings.push({ node: member.node, receiver, bound });
+    else this.site(member.node, receiver, member.name);
+  }
+
+  private call(node: ts.CallExpression): void {
+    const callee = node.expression;
+    if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+      const banned = bannedSessionWriteMember(callee);
+      if (banned !== undefined) this.site(banned.node, receiverName(callee.expression) ?? "<expression>", banned.name);
+      return;
+    }
+    if (!ts.isIdentifier(callee)) return;
+    if (APPS_SESSION_WRITE_MEMBERS.has(callee.text) && callee.text !== "commit") this.site(callee, "<bare>", callee.text);
+    else this.bareCalls.push(callee);
+  }
+
+  private alias(node: ts.VariableDeclaration): void {
+    const initializer = node.initializer;
+    if (
+      !ts.isIdentifier(node.name) ||
+      initializer === undefined ||
+      !(ts.isPropertyAccessExpression(initializer) || ts.isElementAccessExpression(initializer))
+    )
+      return;
+    const banned = bannedSessionWriteMember(initializer);
+    if (banned !== undefined) this.valueForm(banned, "<alias>", node.name.text);
+  }
+
+  private destructure(node: ts.BindingElement): void {
+    if (!ts.isIdentifier(node.name)) return;
+    const property = node.propertyName ?? node.name;
+    const name = ts.isIdentifier(property) || ts.isStringLiteral(property) ? property.text : undefined;
+    if (name !== undefined && (APPS_SESSION_WRITE_MEMBERS.has(name) || APPS_SESSION_STORE_UNIT_MEMBERS.has(name)))
+      this.valueForm({ name, node: property }, "<destructure>", node.name.text);
+  }
 }
 
 /**
