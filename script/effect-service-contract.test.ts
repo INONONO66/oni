@@ -15,11 +15,7 @@ test("store write receipts are the ok arms of the protocol results", () => {
   // alarm/inbox planes are deleted; the session port is the write authority).
   // A drift fails to compile.
   const okArm: CommitReceipt["ok"] = true;
-  const sessionKeys: ReadonlyArray<keyof SessionWriteAdapter> = [
-    "create",
-    "materialize",
-    "commit",
-  ];
+  const sessionKeys: ReadonlyArray<keyof SessionWriteAdapter> = ["materialize", "commit"];
   const serverKeys: ReadonlyArray<keyof IpcServer> = ["socketPath", "call", "notify", "useConnection", "close"];
   void okArm;
   void sessionKeys;

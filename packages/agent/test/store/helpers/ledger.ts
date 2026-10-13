@@ -61,7 +61,7 @@ export function observedL0Adapters(db: Database): {
 }
 
 /** The genesis `session.configure` row every materialized session opens with. */
-export function genesisAction(sessionId: string, ts = 0): LedgerAction.Append {
+function genesisAction(sessionId: string, ts = 0): LedgerAction.Append {
   return {
     id: `${sessionId}:configure`,
     parentId: null,
