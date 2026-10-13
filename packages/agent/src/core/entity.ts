@@ -18,7 +18,7 @@ import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, AlarmRpc, De
 import { alarmDisposition, armAction, ArmRefused, firedAction, MAX_OCCURRENCE_STRIKES, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type AlarmWakeContext, AlarmWakeError, type ArmVerb } from "./alarm";
 import { isReservedAlarmPurpose } from "@openomni/protocol";
 import { renderReadModel } from "./read";
-import { hydrateSessionHistory, RestoreRefused } from "../inspect/history";
+import { restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../inspect/history";
 
 // ─── from cluster/kernel-registry.ts (#1247) ───
 /**
@@ -851,36 +851,40 @@ function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
   ).pipe(Effect.asVoid);
 }
 
+/** The four restore log annotations: the telemetry's only consumer (#1347). */
+function restoreAnnotations(telemetry: HydratedSessionHistory["telemetry"]) {
+  return {
+    restoreRows: telemetry.rows,
+    restoreBytes: telemetry.bytes,
+    restorePages: telemetry.pages,
+    restoreMs: telemetry.ms,
+  };
+}
+
 /**
- * Fold the suffix after the latest checkpoint under `maxTailBytes` once and
- * log the cost: the telemetry's only consumer. A refusal still logs the work done.
+ * The activation restore (#1347): fold the suffix after the latest checkpoint
+ * under `maxTailBytes` once and log the cost. The typed budget refusal arrives
+ * in the error channel and still logs the work done; the activation proceeds,
+ * since the writer bounds every tail it appends and the runner's own reads
+ * are unbounded. Any other failure is logged, as before, never fatal here.
  */
 function logRestoredHistory(handle: ActivationHandle): Effect.Effect<void> {
   const { kernel, authority, env } = handle;
-  return Effect.suspend(() => {
-    try {
-      const { telemetry } = hydrateSessionHistory(kernel, authority.sessionId, undefined, { now: env.clock });
-      return Effect.annotateLogs(Effect.logInfo(`session restored: ${authority.sessionId}`), {
-        restoreRows: telemetry.rows,
-        restoreBytes: telemetry.bytes,
-        restorePages: telemetry.pages,
-        restoreMs: telemetry.ms,
-      });
-    } catch (error) {
-      if (!RestoreRefused.isInstance(error))
-        return Effect.logError(`session restore failed: ${authority.sessionId}`, error);
-      const { telemetry } = error.data;
-      return Effect.annotateLogs(
-        Effect.logWarning(`session restore refused (${error.data.code}): ${authority.sessionId}`),
-        {
-          restoreRows: telemetry.rows,
-          restoreBytes: telemetry.bytes,
-          restorePages: telemetry.pages,
-          restoreMs: telemetry.ms,
-        },
-      );
-    }
-  });
+  return restoreSessionHistory(kernel, authority.sessionId, { now: env.clock }).pipe(
+    Effect.flatMap(({ telemetry }) =>
+      Effect.annotateLogs(
+        Effect.logInfo(`session restored: ${authority.sessionId}`),
+        restoreAnnotations(telemetry),
+      ),
+    ),
+    Effect.catchIf(RestoreRefused.isInstance, (refused) =>
+      Effect.annotateLogs(
+        Effect.logWarning(`session restore refused (${refused.data.code}): ${authority.sessionId}`),
+        restoreAnnotations(refused.data.telemetry),
+      ),
+    ),
+    Effect.catchCause((cause) => Effect.logError(`session restore failed: ${authority.sessionId}`, cause)),
+  );
 }
 
 /**

@@ -15,9 +15,9 @@ import { createRunState } from "../src/core/turn";
 import { evaluateBudget } from "../src/core/budget";
 import { testBudget } from "./helpers/approval-policy";
 import { runInput } from "./helpers/run-input";
-import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused } from "../src/inspect/history";
+import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
 import { actionPayloadBytes } from "../src/core/store/action-hash";
-import { deliveryActions } from "../src/core/commit";
+import { deliveryActions, turnTerminalAction } from "../src/core/commit";
 import { bounded } from "./helpers/bounded";
 import { effectOf, intentOf } from "./helpers/crash-matrix";
 import { commitReceivedMessage } from "./helpers/ingress";
@@ -221,7 +221,7 @@ test("#1347 restore reports rows, bytes, pages and elapsed ms from the injected 
   expect(loaded.revision).toBe(tree.length);
 }));
 
-test("#1347 a suffix past `maxTailBytes` on a later page refuses typed with the work done and no partial state", () => isolatedRun((ledger) => {
+test("#1347 an activation restore past `maxTailBytes` on a later page refuses typed in the error channel with the work done and no partial state", () => isolatedRun((ledger) => {
   const id = "bounded-restore";
   const kernel = ledger.kernel;
   // Pinned at genesis: page one (256 rows) fits under 10_000 bytes, page two carries the total past it.
@@ -251,15 +251,16 @@ test("#1347 a suffix past `maxTailBytes` on a later page refuses typed with the 
     read.push(cursor);
     return pages(sessionId, cursor, limit);
   };
-  let refused: unknown;
+  let refused: RestoreRefused;
   try {
-    hydrateSessionHistory(kernel, id, undefined, { now: steppingClock(5) });
-  } catch (error) {
-    refused = error;
+    // The activation restore is the one bounded read: its refusal is a typed failure, never a throw.
+    refused = runTestSync(Effect.flip(restoreSessionHistory(kernel, id, { now: steppingClock(5) })));
+    // The runner's own reads stay unbounded: the same tail hydrates whole.
+    expect(hydrateSessionHistory(kernel, id).revision).toBe(revision);
   } finally {
     ledger.session.actions.range = pages;
   }
-  if (!RestoreRefused.isInstance(refused)) throw new Error(`expected RestoreRefused, got ${String(refused)}`);
+  expect(RestoreRefused.isInstance(refused)).toBe(true);
   expect(refused.data).toEqual({
     code: "budget",
     sessionId: id,
@@ -267,11 +268,89 @@ test("#1347 a suffix past `maxTailBytes` on a later page refuses typed with the 
     maxTailBytes,
     telemetry: { rows: 512, bytes: pageBytes(0) + pageBytes(256), pages: 2, ms: 5 },
   });
-  // The second page was counted, then refused before folding: the read stopped there.
-  expect(read).toEqual([0, 256]);
+  // The second page was counted, then refused before folding: the bounded read stopped there; the unbounded one read all three pages.
+  expect(read).toEqual([0, 256, 0, 256, 512]);
   // Nothing durable changed; the same chain restores whole once the budget allows it.
   expect(kernel.row(id).revision).toBe(revision);
   expect(kernel.verifyChain(id)).toMatchObject({ kind: "intact", length: revision });
+}));
+
+/** One settled tool call whose result is `bytes` long: two executor-shaped rows, each under the row cap. */
+function toolCallRows(sessionId: string, turnId: string, call: number, bytes: number): LedgerAction.Append[] {
+  const tool = `${sessionId}:tool:${call}`;
+  const result = "x".repeat(bytes);
+  return [
+    LedgerActionAppend({
+      id: tool, sessionId, parentId: turnId, kind: "tool", ts: 160 + call, irreversible: true,
+      intent: { encodingVersion: 1, value: { phase: "intent", op: "echo", value: { text: "x" } } },
+      effect: { encodingVersion: 1, value: { phase: "pending" } },
+    }),
+    LedgerActionAppend({
+      id: `${tool}:result`, sessionId, parentId: tool, kind: "tool", ts: 190 + call, irreversible: true,
+      intent: { encodingVersion: 1, value: { phase: "result", op: "echo" } },
+      effect: { encodingVersion: 1, value: { phase: "result", terminal: "executed", result, resultHash: canonicalDigest(result) } },
+    }),
+  ];
+}
+
+test("#1347 the writer keeps the restore tail under `maxTailBytes`: 4 MiB of rows inside fewer than 256 actions keeps committing, running turns and restoring", () => isolatedRun((ledger) => {
+  const recording = requestLedger();
+  const id = recording.identity.sessionId;
+  const turnId = recording.identity.turnId;
+  const kernel = ledger.kernel;
+  const { maxTailBytes } = checkpointPolicy(kernel, id);
+  expect(maxTailBytes).toBe(4 * 1024 * 1024);
+  const tail = () => {
+    const { revision, checkpoint } = kernel.latestFoldCheckpoint(id);
+    return kernel.payloadBytes(id, checkpoint === undefined ? 0 : checkpoint.ordinal - 1, revision);
+  };
+  const payload = (actions: readonly LedgerAction.Node[]) => actions.reduce((total, action) => total + actionPayloadBytes(action), 0);
+  // The review's probe: five tool calls of 1_000_000-byte results through the executor's ledger, each row under the cap.
+  for (let call = 0; call < 5; call += 1) {
+    for (const action of toolCallRows(id, turnId, call, 1_000_000)) {
+      const receipt = runAgentSync(recording.ledger.commit(action));
+      // Only the result that carries the tail past the budget is followed by a checkpoint row.
+      expect(kernel.row(id).revision - receipt.revision).toBe(action.id === `${id}:tool:4:result` ? 1 : 0);
+    }
+    expect(tail()).toBeLessThanOrEqual(maxTailBytes);
+    // The runner's turn-entry read keeps working after every commit.
+    expect(expectReplay(id).revision).toBe(kernel.row(id).revision);
+  }
+  const tree = sessionTree(kernel, id);
+  expect(tree.length).toBeLessThan(256);
+  expect(payload(tree)).toBeGreaterThan(maxTailBytes);
+  // The interval checkpoint landed on bytes, not on `everyActions`: right after the result that carried the tail past the budget.
+  const checkpoint = nth(tree.filter((action) => action.kind === "fold.checkpoint"), 0);
+  expect(checkpoint.parentId).toBe(`${id}:tool:4:result`);
+  expect(FoldCheckpoint.Intent.parse(checkpoint.intent.value).reason).toBe("interval");
+  expect(payload(tree.slice(0, checkpoint.ordinal - 1))).toBeGreaterThan(maxTailBytes);
+  expect(payload(tree.slice(0, checkpoint.ordinal - 2))).toBeLessThanOrEqual(maxTailBytes);
+  // Turns keep running: the terminal and the next turn intent (a projection commit) both land.
+  expect(recording.commitBatch([
+    turnTerminalAction({
+      id: `${id}:result`, parentId: turnId, sessionId: id, turnId,
+      result: { kind: "result", text: "done" }, resumeCount: 0, boundaryActionId: null, at: 200,
+    }),
+  ]).ok).toBe(true);
+  const generation = kernel.latestGenerationFor(id);
+  expect(recording.commitBatch([
+    LedgerActionAppend({
+      id: `${id}:turn:2`, sessionId: id, parentId: `${id}:result`, kind: "turn", ts: 201, irreversible: true,
+      intent: { encodingVersion: 1, value: {
+        phase: "intent", resultId: `${id}:result:2`, deliveryIds: [], resumeCount: 0, boundaryActionId: null,
+        toolsGeneration: generation.generation, toolsHash: generation.toolsHash, systemHash: generation.systemHash, policyGeneration: 1,
+      } },
+      effect: { encodingVersion: 1, value: { phase: "pending" } },
+    }),
+  ]).ok).toBe(true);
+  // The activation restore folds the bounded tail and reports only the rows after the checkpoint.
+  const restored = runTestSync(restoreSessionHistory(kernel, id, { now: steppingClock(1) }));
+  expect(restored.revision).toBe(kernel.row(id).revision);
+  expect(restored.telemetry).toMatchObject({ rows: restored.revision - checkpoint.ordinal + 1, pages: 1 });
+  expect(restored.telemetry.bytes).toBeLessThanOrEqual(maxTailBytes);
+  expect(canonicalDigest(PlainValueSchema.parse(restored.state))).toBe(
+    canonicalDigest(PlainValueSchema.parse(foldHistoryState(id, sessionTree(kernel, id)))),
+  );
 }));
 
 test("legacy genesis paging fixes a high-water revision, then checkpoints under the existing fence", () => isolatedRun((ledger) => {

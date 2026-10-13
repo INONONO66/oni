@@ -12,6 +12,8 @@ export namespace Storage {
     actionById(id: string): LedgerAction.Node | undefined;
     latestAction(sessionId: string, throughRevision: number): LedgerAction.Node | undefined;
     latestFoldCheckpoint(sessionId: string, throughRevision: number): LedgerAction.Node | undefined;
+    /** Payload bytes (intent + effect + revert JSON) of the rows after `afterRevision` through `throughRevision`. */
+    payloadBytes(sessionId: string, afterRevision: number, throughRevision: number): number;
     priorModelAttempt(sessionId: string, turnId: string): LedgerAction.Node | undefined;
     generationFor(sessionId: string, generation: number): LedgerAction.Node | undefined;
     turnTerminalFor(sessionId: string, turnId: string): LedgerAction.Node | undefined;

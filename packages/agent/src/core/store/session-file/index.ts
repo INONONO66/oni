@@ -142,6 +142,7 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
 const pageSize = z.number().int().positive().max(256);
 const windowCount = z.number().int().nonnegative();
 const OrdinalRow = z.object({ ordinal: z.number().int().positive() }).nullable();
+const PayloadBytesRow = z.object({ bytes: z.number().int().nonnegative() });
 type Reads = Pick<
   Storage.ActionSubAdapter,
   | "priorModelAttempt"
@@ -528,6 +529,19 @@ export function createActions(
           .get(sessionId, throughRevision),
       );
       return row === null ? undefined : decodeAction(row);
+    },
+    payloadBytes(sessionId, afterRevision, throughRevision) {
+      // The stored TEXT columns are the exact `JSON.stringify` strings `actionPayloadBytes` measures.
+      return PayloadBytesRow.parse(
+        db
+          .query(
+            `SELECT COALESCE(SUM(
+               length(CAST(intent AS BLOB)) + length(CAST(effect AS BLOB)) + COALESCE(length(CAST(revert AS BLOB)), 0)
+             ), 0) AS bytes
+             FROM action WHERE session_id = ? AND ordinal > ? AND ordinal <= ?`,
+          )
+          .get(sessionId, afterRevision, throughRevision),
+      ).bytes;
     },
     configurationActions(sessionId, beforeRevision) {
       const rows = ActionSqlRow.array().parse(

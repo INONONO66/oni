@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { z } from "zod";
 import * as SessionHandleStore from "../core/store/fence";
 import type { SessionKernel } from "../core/entity";
@@ -245,7 +246,11 @@ export interface RestoreOptions {
   readonly now?: () => number;
 }
 
-/** The restore tail exceeded `maxTailBytes`: no partial state, the work done rides along. */
+/**
+ * The activation restore tail exceeded `maxTailBytes`: no partial state, the
+ * work done rides along. The writer keeps the tail under policy (#1347), so
+ * only rows appended outside `commitFoldBatch` or a lowered policy reach this.
+ */
 export const RestoreRefused = NamedError.create(
   "RestoreRefused",
   z
@@ -265,6 +270,7 @@ export const RestoreRefused = NamedError.create(
     })
     .strict(),
 );
+export type RestoreRefused = InstanceType<typeof RestoreRefused>;
 
 /** One committed prefix materialized as fold state, model history and compatibility rows. */
 export interface HydratedSessionHistory {
@@ -282,21 +288,24 @@ export function readHistoryCheckpoint(
   sessionId: string,
   throughRevision?: number,
   options: RestoreOptions = {},
-): { nonCheckpointActions: number; hydrate: () => HydratedSessionHistory } {
+): {
+  nonCheckpointActions: number;
+  /** Payload bytes from the checkpoint row (inclusive) through the revision: the restore tail. */
+  tailBytes: () => number;
+  hydrate: () => HydratedSessionHistory;
+  /** The bounded read: the page carrying the tail past `maxTailBytes` refuses with nothing folded. */
+  restore: (maxTailBytes: number) => HydratedSessionHistory | RestoreRefused;
+} {
   const { revision, checkpoint } = kernel.latestFoldCheckpoint(sessionId, throughRevision);
   const seed = checkpoint === undefined ? undefined : checkpointSeed(sessionId, checkpoint);
+  const afterRevision = seed?.revision ?? 0;
+  const initial = () => foldHistoryState(sessionId, [], seed?.state);
   return {
     nonCheckpointActions: revision - (checkpoint?.ordinal ?? 0),
-    hydrate: () =>
-      readHistorySuffix(
-        kernel,
-        sessionId,
-        revision,
-        foldHistoryState(sessionId, [], seed?.state),
-        seed?.revision ?? 0,
-        0,
-        options,
-      ),
+    tailBytes: () => kernel.payloadBytes(sessionId, afterRevision, revision),
+    hydrate: () => readHistorySuffix(kernel, sessionId, revision, initial(), afterRevision, 0, options),
+    restore: (maxTailBytes) =>
+      readHistorySuffix(kernel, sessionId, revision, initial(), afterRevision, 0, options, maxTailBytes),
   };
 }
 
@@ -308,6 +317,23 @@ export function hydrateSessionHistory(
   options: RestoreOptions = {},
 ): HydratedSessionHistory {
   return readHistoryCheckpoint(kernel, sessionId, throughRevision, options).hydrate();
+}
+
+/**
+ * The activation restore (#1347): the one read bound by the folded
+ * `maxTailBytes`, refused in the error channel. Shared hydrate paths stay
+ * unbounded because the writer already keeps the tail under that policy.
+ */
+export function restoreSessionHistory(
+  kernel: SessionKernel,
+  sessionId: string,
+  options: RestoreOptions = {},
+): Effect.Effect<HydratedSessionHistory, RestoreRefused> {
+  return Effect.suspend(() => {
+    const { maxTailBytes } = checkpointPolicy(kernel, sessionId);
+    const restored = readHistoryCheckpoint(kernel, sessionId, undefined, options).restore(maxTailBytes);
+    return RestoreRefused.isInstance(restored) ? Effect.fail(restored) : Effect.succeed(restored);
+  });
 }
 
 /** Recovery refresh consumes only commits newer than the runner's captured prefix. */
@@ -327,8 +353,9 @@ export function refreshSessionHistory(
 }
 
 /**
- * Folds the suffix page by page; each page's bytes count BEFORE folding, and the
- * page that carries the total past `maxTailBytes` refuses with nothing folded.
+ * Folds the suffix page by page; each page's bytes count BEFORE folding, and
+ * under a `maxTailBytes` bound the page that carries the total past it refuses
+ * with nothing folded. Without a bound the read is the writer's own invariant.
  */
 function readHistorySuffix(
   kernel: SessionKernel,
@@ -337,11 +364,30 @@ function readHistorySuffix(
   initial: FoldCheckpoint.State,
   afterRevision: number,
   count: number,
+  options: RestoreOptions,
+  maxTailBytes: number,
+): HydratedSessionHistory | RestoreRefused;
+function readHistorySuffix(
+  kernel: SessionKernel,
+  sessionId: string,
+  revision: number,
+  initial: FoldCheckpoint.State,
+  afterRevision: number,
+  count: number,
+  options?: RestoreOptions,
+): HydratedSessionHistory;
+function readHistorySuffix(
+  kernel: SessionKernel,
+  sessionId: string,
+  revision: number,
+  initial: FoldCheckpoint.State,
+  afterRevision: number,
+  count: number,
   options: RestoreOptions = {},
-): HydratedSessionHistory {
+  maxTailBytes?: number,
+): HydratedSessionHistory | RestoreRefused {
   const now = options.now ?? (() => performance.now());
   const started = now();
-  const { maxTailBytes } = checkpointPolicy(kernel, sessionId);
   let state = initial;
   let cursor = afterRevision;
   let nonCheckpointActions = count;
@@ -355,8 +401,8 @@ function readHistorySuffix(
     pages += 1;
     rows += suffix.length;
     bytes += suffix.reduce((total, action) => total + actionPayloadBytes(action), 0);
-    if (bytes > maxTailBytes)
-      throw new RestoreRefused({
+    if (maxTailBytes !== undefined && bytes > maxTailBytes)
+      return new RestoreRefused({
         code: "budget",
         sessionId,
         revision,

@@ -17,6 +17,7 @@ import {
   type PlainValue,
 } from "@openomni/protocol";
 import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../inspect/history";
+import { actionPayloadBytes } from "./store/action-hash";
 import type { CompactionSeamService } from "./compaction-ports";
 import type * as SessionHandleStore from "./store/fence";
 import { z } from "zod";
@@ -59,7 +60,13 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
   );
 }
 
-/** Synchronous decoration preserves durable admission's existing suspension schedule. */
+/**
+ * Synchronous decoration preserves durable admission's existing suspension schedule.
+ * The writer keeps the restore tail under policy (#1347): an interval checkpoint
+ * lands when the non-checkpoint count reaches `everyActions` OR the tail bytes
+ * (checkpoint row inclusive) would pass `maxTailBytes`, so no restore ever meets
+ * a tail this writer let grow past the budget.
+ */
 export function commitFoldBatch(
   kernel: SessionKernel,
   input: LedgerSession.Commit,
@@ -69,14 +76,21 @@ export function commitFoldBatch(
   seam?: Pick<CompactionSeamService, "pinAction">,
 ): Effect.Effect<CommitReceipt, LedgerError> {
   return Effect.gen(function* () {
-    const { everyActions } = checkpointPolicy(kernel, input.sessionId);
+    const { everyActions, maxTailBytes } = checkpointPolicy(kernel, input.sessionId);
     const checkpoint = readHistoryCheckpoint(kernel, input.sessionId, input.expectedRevision);
     const incoming = input.actions.filter((action) => action.kind !== "fold.checkpoint").length;
-    if (checkpoint.nonCheckpointActions + incoming < everyActions && !input.actions.some(needsProjection))
+    const incomingBytes = input.actions.reduce((total, action) => total + actionPayloadBytes(action), 0);
+    const tailBytes = checkpoint.tailBytes();
+    if (
+      checkpoint.nonCheckpointActions + incoming < everyActions &&
+      tailBytes + incomingBytes <= maxTailBytes &&
+      !input.actions.some(needsProjection)
+    )
       return yield* kernel.commit(input);
     const hydrated = checkpoint.hydrate();
     let state = hydrated.state;
     let count = hydrated.nonCheckpointActions;
+    let bytes = tailBytes;
     const actions: LedgerAction.Append[] = [];
     for (const draft of input.actions) {
       const sourceRevision = input.expectedRevision + actions.length;
@@ -90,21 +104,22 @@ export function commitFoldBatch(
         state,
       );
       if (action.kind !== "fold.checkpoint") count += 1;
+      bytes += actionPayloadBytes(action);
       const compaction = executedCompactionResult(action);
-      if (count < everyActions && !compaction) continue;
-      actions.push(
-        foldCheckpointAction({
-          sessionId: input.sessionId,
-          parentId: action.id,
-          revision: ordinal,
-          at: input.now,
-          reason: compaction ? "compaction" : "interval",
-          state,
-        }),
-      );
+      if (count < everyActions && bytes <= maxTailBytes && !compaction) continue;
+      const interval = foldCheckpointAction({
+        sessionId: input.sessionId,
+        parentId: action.id,
+        revision: ordinal,
+        at: input.now,
+        reason: compaction ? "compaction" : "interval",
+        state,
+      });
+      actions.push(interval);
       count = 0;
+      bytes = actionPayloadBytes(interval);
     }
-    if (actions.length === 0 && count >= everyActions) {
+    if (actions.length === 0 && (count >= everyActions || bytes > maxTailBytes)) {
       actions.push(
         foldCheckpointAction({
           sessionId: input.sessionId,
