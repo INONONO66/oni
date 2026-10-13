@@ -8,7 +8,7 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect, Result } from "effect";
 import type { Alarm } from "@openomni/protocol";
-import { armAction, composeAlarmPurposes, firedAction, type AlarmCapability, type ArmRefused } from "../../src/core/alarm";
+import { armAction, firedAction, type AlarmCapability, type ArmRefused } from "../../src/core/alarm";
 import { alarmCapability, WatchRefused } from "../../src/plugins/alarm";
 import { liveArmRegistry, liveWatchCapability } from "../helpers/alarm-budget";
 import { clusterTempDir, runCluster, sendAlarm, sendKick, sendPrompt } from "../helpers/cluster-runtime";
@@ -213,7 +213,6 @@ test("the app capability path arms through the live activation's budgeted entity
             purposes: [{ name: "test.tick", handler: () => Effect.succeed("delivered" as const) }],
           },
         ],
-        compose: composeAlarmPurposes,
         arm: live.arm,
         watch: { install: () => Effect.void },
       });

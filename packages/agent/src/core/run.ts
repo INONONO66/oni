@@ -9,8 +9,9 @@ export { GenerationRawSlots } from "./gate/decide";
 
 import * as SessionHandleStore from "./store/fence";
 import type { SessionKernel } from "./entity";
+import { foldAlarmChains, openAlarmIds } from "./alarm-read";
 import type { InspectRequest, InspectionPage } from "../inspect";
-import { Delivery, isReservedAlarmPurpose, type LedgerAction, type LedgerSession, type Model, type ObservationSink, type SessionGeneration, type ConfigureDisabled, type SessionHistory, type SessionTurn, SessionTransition, canonicalDigest, PlainValueSchema, BusEvent, type PlainValue, type TraceContext } from "@openomni/protocol";
+import { Delivery, AlarmOp, type LedgerAction, type LedgerSession, type Model, type ObservationSink, type SessionGeneration, type ConfigureDisabled, type SessionHistory, type SessionTurn, SessionTransition, canonicalDigest, PlainValueSchema, BusEvent, type PlainValue, type TraceContext } from "@openomni/protocol";
 import type { ChatAgentConfig, AgentResult } from "./types";
 import type { decideSessionAdmission } from "./admission";
 import type { Generation } from "./compose";
@@ -121,10 +122,12 @@ export type SessionRunner = (input: SessionRunnerInput) => Effect.Effect<Session
 export interface SessionRuntime {
   /** Absent = compaction is off: a compaction append is a defect and a restore refuses typed. */
   readonly compaction?: CompactionSeamService;
+  /** Dispatches a committed source obligation through gateway admission; `ledger` is the source turn's fenced door. */
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
     readonly ledger: Pick<ExecutionLedger, "commit">;
   }) => Effect.Effect<LedgerAction.Receipt, ExecutionError, RunnerServices>;
+  /** Direct post-commit doorbells, independent of the lossy observation bus. */
   readonly onDeliveryCommitted?: (sessionIds: readonly string[]) => void;
   /** App-injected child settlement at turn seal; absent = a child never writes to its parent. */
   readonly settleChild?: (
@@ -140,7 +143,7 @@ export interface SessionRuntime {
   }) => Effect.Effect<readonly { actionId: string; kind: "message" | "approval" }[], ExecutionError>;
   readonly retryAlarm?: ExecutorOptions["retryAlarm"];
   readonly approvalTimeoutMs?: ExecutorOptions["approvalTimeoutMs"];
-  /** The product bundle owns the approval values; required — the core has no fallback. */
+  /** The request authority reads its recent-open quota here; required — no in-core literal. */
   readonly approvalPolicy: ApprovalPolicy;
   readonly processId?: string;
   /** Required pinned pre-policy authority for `session.configure`; there is no allow fallback. */
@@ -156,6 +159,7 @@ export interface SessionRuntime {
      * runner MUST honour aborts promptly: its late result is discarded.
      */
   readonly openKernel: (sessionId: string) => SessionKernel;
+  /** Catalog-backed enumeration of durable sessions this process can open. */
   readonly listSessions: () => LedgerSession.Row[];
   readonly onHibernate?: (sessionId: string) => Effect.Effect<void, ExecutionError>;
   /**
@@ -238,7 +242,9 @@ export interface SessionHandle {
   restoreContext(compactionId: string): Effect.Effect<ExecutionResult, SessionError>;
   get(options?: SessionGetOptions): SessionTurn.Snapshot;
   watch(options?: SessionGetOptions): SessionTurn.Watch;
+  /** Bounded revision page of committed actions; the resynchronization read after a `watch` gap. */
   history(request?: SessionHistory.PageRequest): SessionHistory.Page;
+  /** Redacted causal projection over this session and the sessions it commissioned. */
   inspect(request?: InspectRequest): InspectionPage;
   close(): Effect.Effect<void, SessionError>;
 }
@@ -287,10 +293,11 @@ export interface SessionEntityTurnInput {
 }
 
 export interface SessionEntityPorts {
-  /** The request authority reads its recent-open quota here; required — no in-core literal. */
+  /** The product bundle owns the approval values; required — the core has no fallback. */
   readonly approvalPolicy: ApprovalPolicy;
   /** Redelivery can activate before boot bound the ports; the gate holds it. Absent = ready. */
   readonly ready?: Effect.Effect<void>;
+  /** Runs one admitted decision to a durable boundary; the ack follows its commits. */
   readonly runTurn: (input: SessionEntityTurnInput) => Effect.Effect<void, SessionError>;
   /**
    * A turn recovered in this activation and parked on a still-open request re-reads it through this
@@ -308,6 +315,7 @@ export interface SessionEntityPorts {
   readonly inputRegistrations?: readonly string[];
   /** Absent refuses every admission with a typed `missing_capability_kinds` decision. */
   readonly capabilityKinds?: readonly string[];
+  /** Optional domain-revision capture for request bindings, as on `SessionRuntime`. */
   readonly requestDomainRevisions?: (
     request: SessionTransition.Request,
   ) => Readonly<Record<string, number>>;
@@ -465,6 +473,7 @@ export interface GenerationBundle {
   readonly id: SessionGeneration.Id;
   readonly snapshot: SessionGeneration.Snapshot;
   readonly layer: Layer.Layer<GenerationServices, SessionError>;
+  /** Infallible synchronous gate flip, only after durable selection commits. */
   readonly activate: Effect.Effect<void>;
 }
 
@@ -717,7 +726,7 @@ export function dispatchSessionOutbound(
 }
 
 export function sessionStopEvidence(
-  kernel: SessionKernel,
+  kernel: Pick<SessionKernel, "row" | "actionById" | "historyPage">,
   sessionId: string,
   turnId: string,
   approvals: () => ExecutionApprovals | undefined,
@@ -744,73 +753,17 @@ export function sessionStopEvidence(
     return {
       progress, blocked,
       openIntent: [...obligations.map((intent) => intent.actionId), ...pending.map((approval) => approval.id)],
-      alarmIds: openAlarmIds(kernel, sessionId, start, revision),
+      alarmIds: openAlarmIds(foldAlarmChains(kernel, sessionId, { afterRevision: start, throughRevision: revision })),
     };
   });
 }
 
-/**
- * Per `alarmId`, an `arm` with an `at` arms the chain, `arm{at: null}` retires
- * it, and a `fired` for the armed occurrence settles it; every capability chain
- * still armed at the window's end is live-wait evidence. Loop-reserved purposes park nothing.
- */
-const AlarmFoldRow = z.discriminatedUnion("op", [
-  z.object({
-    op: z.literal("arm"),
-    alarmId: z.string().min(1),
-    purpose: z.string().min(1),
-    at: z.number().nullable(),
-  }),
-  z.object({ op: z.literal("fired"), alarmId: z.string().min(1), occurrenceId: z.string().min(1) }),
-]);
-const ArmFoldEffect = z.object({ occurrenceId: z.string().min(1) });
-
-function alarmFoldRow(action: LedgerAction.Node): z.infer<typeof AlarmFoldRow> | undefined {
-  if (action.kind !== "alarm") return undefined;
-  const row = AlarmFoldRow.safeParse(action.intent.value);
-  return row.success ? row.data : undefined;
-}
-
 function alarmOp(action: LedgerAction.Node): "arm" | "fired" | undefined {
-  return alarmFoldRow(action)?.op;
-}
-
-type ArmedChains = Map<string, { readonly id: string; readonly occurrenceId: string }>;
-
-function foldAlarmChain(armed: ArmedChains, action: LedgerAction.Node): void {
-  const row = alarmFoldRow(action);
-  if (row === undefined) return;
-  if (row.op === "fired") {
-    if (armed.get(row.alarmId)?.occurrenceId === row.occurrenceId) armed.delete(row.alarmId);
-    return;
-  }
-  if (isReservedAlarmPurpose(row.purpose)) return;
-  if (row.at === null) {
-    armed.delete(row.alarmId);
-    return;
-  }
-  const effect = ArmFoldEffect.safeParse(action.effect.value);
-  if (effect.success) armed.set(row.alarmId, { id: action.id, occurrenceId: effect.data.occurrenceId });
-}
-
-function openAlarmIds(
-  kernel: SessionKernel,
-  sessionId: string,
-  start: number,
-  revision: number,
-): string[] {
-  const armed: ArmedChains = new Map();
-  let cursor = start;
-  while (cursor < revision) {
-    const page = kernel.historyPage(sessionId, { afterRevision: cursor, limit: 256 });
-    for (const action of page.actions) {
-      if (action.ordinal > revision) break;
-      cursor = action.ordinal;
-      foldAlarmChain(armed, action);
-    }
-    if (page.nextRevision === null) break;
-  }
-  return [...armed.values()].map((chain) => chain.id);
+  if (action.kind !== "alarm") return undefined;
+  const intent = action.intent.value;
+  if (intent === null || typeof intent !== "object" || Array.isArray(intent)) return undefined;
+  const parsed = AlarmOp.safeParse(intent.op);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function effectBlocked(action: LedgerAction.Node): boolean {

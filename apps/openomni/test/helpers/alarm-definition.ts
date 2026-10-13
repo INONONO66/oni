@@ -1,4 +1,4 @@
-import { Bundle, Core } from "@openomni/agent";
+import { Bundle } from "@openomni/agent";
 import { Effect } from "effect";
 import { runEffect } from "./effect";
 
@@ -6,7 +6,6 @@ import { runEffect } from "./effect";
 export async function alarmDefinition(): Promise<Bundle.CapabilityDefinition<"alarm">> {
   const capability = await runEffect(Bundle.alarmCapability({
     bundles: [],
-    compose: Core.composeAlarmPurposes,
     arm: () => () => Effect.die(new Error("unused arm")),
     watch: { install: () => Effect.void },
   }));

@@ -495,8 +495,9 @@ test("a deadline-bearing external send opens and arms its live request", async (
 
 test("a terminal watch to an unknown machine is refused at create and its chains are retired", async () => {
   let calls = 0;
+  const config = suite.config("index-watch-refused-db-", { wsToken: "index-refused-token" });
   const app = await suite.boot({
-    config: suite.config("index-watch-refused-db-", { wsToken: "index-refused-token" }),
+    config,
     llm: {
       resolveModel: fakeProviderModel,
       run: (input, sink) =>
@@ -546,6 +547,17 @@ test("a terminal watch to an unknown machine is refused at create and its chains
   const main = chains.find((chain) => !chain.alarmId.endsWith(":timeout"));
   if (main === undefined) throw new Error("no main watch chain");
   expect(watchStateOf(main, session.id)).toMatchObject({ kind: "watch", status: "cancelled", fireAt: null });
+  const before = sessionTree(session.id, plane.sessionStore(session.id).actions)
+    .filter((action) => action.kind === "alarm" && action.id.endsWith(":delivered")).length;
+  await app.stop();
+  const restarted = await restartApp(config);
+  const recovered = restarted.openKernel(session.id);
+  const retired = foldAlarmChains(recovered, session.id).get(main.alarmId);
+  if (retired === undefined) throw new Error("retired watch lost on restart");
+  expect(watchStateOf(retired, session.id)).toMatchObject({ status: "cancelled", fireAt: null });
+  expect(recovered.armedCount()).toBe(0);
+  expect(sessionTree(session.id, restarted.sessionStore(session.id).actions)
+    .filter((action) => action.kind === "alarm" && action.id.endsWith(":delivered"))).toHaveLength(before);
 });
 
 test("boot rescan wakes armed idle sessions and skips ghost catalog rows and native chains", async () => {

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   AlarmSeam,
   AlarmWakeError,
@@ -6,6 +6,7 @@ import {
   Capability,
   RESERVED_PURPOSES,
   type AlarmCapability,
+  type AlarmPurposeRegistry,
   type ArmVerb,
   type CapabilityDefinition,
   type SeamTag,
@@ -46,23 +47,41 @@ export {
 } from "./watch";
 
 /** Imports only its plugin and `core/api.ts`; arming is always the injected `ArmVerb`. */
-
 export interface AlarmBundlePurposes {
   readonly bundle: string;
   readonly purposes: readonly AlarmPurposeDeclaration[];
 }
 
-/** Injected because a plugin may import only `core/api.ts`. */
-export type ComposePurposesVerb<E> = (input: {
-  readonly capabilities: readonly {
-    readonly bundle: string;
-    readonly purposes: readonly string[];
-  }[];
-}) => Effect.Effect<ReadonlyMap<string, string>, E>;
+/** Typed purpose-registry compose failure: no partial activation. */
+export class AlarmComposeError extends Schema.TaggedError<AlarmComposeError>(
+  "@openomni/agent/core/AlarmComposeError",
+)("AlarmComposeError", {
+  code: Schema.Literals(["reserved_purpose", "duplicate_purpose"]),
+  purpose: Schema.String,
+  bundle: Schema.String,
+}) {}
 
-export interface AlarmCapabilityOptions<E> {
+/** The sole purpose-registry assembler; the four loop purposes belong to core. */
+export function composeAlarmPurposes(input: {
+  readonly capabilities: readonly { readonly bundle: string; readonly purposes: readonly string[] }[];
+}): Effect.Effect<AlarmPurposeRegistry, AlarmComposeError> {
+  return Effect.suspend(() => {
+    const registry = new Map<string, string>(RESERVED_PURPOSES.map((purpose) => [purpose, "core"] as const));
+    for (const capability of input.capabilities) {
+      for (const purpose of capability.purposes) {
+        if ((RESERVED_PURPOSES as readonly string[]).includes(purpose) || purpose === "rescan")
+          return Effect.fail(new AlarmComposeError({ code: "reserved_purpose", purpose, bundle: capability.bundle }));
+        if (registry.has(purpose))
+          return Effect.fail(new AlarmComposeError({ code: "duplicate_purpose", purpose, bundle: capability.bundle }));
+        registry.set(purpose, capability.bundle);
+      }
+    }
+    return Effect.succeed(registry);
+  });
+}
+
+export interface AlarmCapabilityOptions {
   readonly bundles: readonly AlarmBundlePurposes[];
-  readonly compose: ComposePurposesVerb<E>;
   /** Scoped to the session AND the calling turn; the capability only guards and delegates. */
   readonly arm: (sessionId: string, turnId: string) => ArmVerb;
   readonly watch: WatchInstallDeps;
@@ -73,7 +92,7 @@ export interface AlarmCapabilityDefinition extends AlarmCapability {
   readonly name: "alarm";
   readonly points: readonly ["alarm.fired"];
   /** The core's reserved purposes map to "core". */
-  readonly registry: ReadonlyMap<string, string>;
+  readonly registry: AlarmPurposeRegistry;
   readonly verbs: {
     readonly arm: (sessionId: string, turnId: string) => ArmVerb;
     readonly watch: WatchVerb;
@@ -83,10 +102,7 @@ export interface AlarmCapabilityDefinition extends AlarmCapability {
 /** Reserved and unregistered purposes are typed refusals, never appends. */
 function guardArm(registry: ReadonlyMap<string, string>, raw: ArmVerb): ArmVerb {
   return (input) => {
-    if (
-      (RESERVED_PURPOSES as readonly string[]).includes(input.purpose) ||
-      input.purpose === "rescan"
-    )
+    if ((RESERVED_PURPOSES as readonly string[]).includes(input.purpose) || input.purpose === "rescan")
       return Effect.fail(new ArmRefused({ code: "reserved_purpose" }));
     if (!registry.has(input.purpose))
       return Effect.fail(new ArmRefused({ code: "unknown_purpose" }));
@@ -117,11 +133,10 @@ export function alarmContract(input: {
  * Reserved/`rescan`/duplicate purposes refuse with no partial activation; an unregistered purpose
  * is a typed wake failure with zero handler execution.
  */
-export function alarmCapability<E>(
-  options: AlarmCapabilityOptions<E>,
-): Effect.Effect<AlarmCapabilityDefinition, E> {
-  return options
-    .compose({
+export function alarmCapability(
+  options: AlarmCapabilityOptions,
+): Effect.Effect<AlarmCapabilityDefinition, AlarmComposeError> {
+  return composeAlarmPurposes({
       capabilities: options.bundles.map((declaration) => ({
         bundle: declaration.bundle,
         purposes: declaration.purposes.map((purpose) => purpose.name),
@@ -136,18 +151,11 @@ export function alarmCapability<E>(
         const wake: AlarmCapability["wake"] = (fired, ctx) => {
           const handler = handlers.get(fired.purpose);
           return handler === undefined
-            ? Effect.fail(
-                new AlarmWakeError({ purpose: fired.purpose, reason: "unregistered_purpose" }),
-              )
+            ? Effect.fail(new AlarmWakeError({ purpose: fired.purpose, reason: "unregistered_purpose" }))
             : handler({ fired, ctx });
         };
-        const arm = (sessionId: string, turnId: string) =>
-          guardArm(registry, options.arm(sessionId, turnId));
-        const definition = alarmContract({
-          purposes: Object.fromEntries(handlers),
-          arm,
-          watch: options.watch,
-        });
+        const arm = (sessionId: string, turnId: string) => guardArm(registry, options.arm(sessionId, turnId));
+        const definition = alarmContract({ purposes: Object.fromEntries(handlers), arm, watch: options.watch });
         return {
           definition,
           name: definition.name,

@@ -21,7 +21,6 @@ async function composedCapability(): Promise<Bundle.AlarmCapabilityDefinition> {
   return await runEffect(
     Bundle.alarmCapability({
       bundles: [monitorPurposes({ close: () => undefined }), cronPurposes()],
-      compose: Core.composeAlarmPurposes,
       arm: () => () => Effect.die(new Error("unused arm")),
       watch: { install: () => Effect.void },
     }),

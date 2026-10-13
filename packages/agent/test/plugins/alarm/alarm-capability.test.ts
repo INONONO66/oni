@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { runTestSync } from "../../helpers/isolated";
 import { Effect, Logger } from "effect";
 import type { Alarm } from "@openomni/protocol";
-import { AlarmComposeError, composeAlarmPurposes } from "../../../src/core/alarm";
+import { AlarmComposeError } from "../../../src/plugins/alarm";
 import { AlarmWakeError, ArmRefused, type ArmVerb } from "../../../src/core/api";
 import { alarmCapability, MONITOR_HIT, MONITOR_SOURCE, MONITOR_TIMEOUT, watchPurposes, WatchRefused } from "../../../src/plugins/alarm";
 import {
@@ -34,7 +34,6 @@ describe("purpose registry through composeAlarmPurposes", () => {
           purposes: [{ name: "retry", handler: () => Effect.succeed("delivered" as const) }],
         },
       ],
-      compose: composeAlarmPurposes,
       arm: () => stubArm([]),
       watch: { install: () => Effect.void },
     });
@@ -56,7 +55,6 @@ describe("purpose registry through composeAlarmPurposes", () => {
           purposes: [{ name: MONITOR_HIT, handler: () => Effect.succeed("delivered" as const) }],
         },
       ],
-      compose: composeAlarmPurposes,
       arm: () => stubArm([]),
       watch: { install: () => Effect.void },
     });
