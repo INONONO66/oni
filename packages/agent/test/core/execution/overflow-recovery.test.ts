@@ -6,6 +6,7 @@ import { runTestAgent } from "../../helpers/effect-g1";
 import { collector } from "../../helpers/observation-collector";
 import { runInput } from "../../helpers/run-input";
 import { overflowCompactionConfig } from "../../helpers/run-config";
+import { RunEvents } from "../../../src/core/turn";
 
 const model = {
   id: "model",
@@ -111,6 +112,49 @@ describe("context overflow recovery", () => {
     expect(result.compactionCount).toBe(1);
     expect(seen[1]).toBeLessThan(seen[0] ?? 0);
     expect(sawAnchor).toBe(true);
+  });
+
+  it.each([
+    { finishReason: "stop", inputTokens: 9_800, cacheReadTokens: 300 },
+    { finishReason: "length", inputTokens: 9_900, cacheReadTokens: 0 },
+  ])("recovers a silent $finishReason stop on the same model without fallback", async ({ finishReason, inputTokens, cacheReadTokens }) => {
+    const events = collector();
+    const seenModels: string[] = [];
+    let compactedHistory = false;
+    const result = await isolated(runTestAgent(history, {
+      ...effectOverflowCompactionConfig(),
+      events,
+      llm: {
+        resolveModel: () => Effect.succeed(model),
+        run: (input, sink) => Effect.promise(async () => {
+          seenModels.push(`${input.model.providerID}/${input.model.id}`);
+          if (seenModels.length === 1) return {
+            type: "stop" as const,
+            evidence: {
+              usage: { inputTokens, cacheReadTokens, outputTokens: 0, reasoningTokens: 0, cacheWriteTokens: 0 },
+              visibleOutput: false,
+              finishReason,
+              credential: null,
+            },
+          };
+          compactedHistory = input.messages.some((message) => message.parts.some(
+            (part) => part.type === "text" && part.text.includes("overflow checkpoint"),
+          ));
+          return completeModel(input, sink);
+        }),
+        classifyFailure: (facts) => {
+          if (facts.error || facts.finishReason === finishReason) return { kind: "overflow" };
+          return { kind: "terminal", reason: "transient_error", providerReason: "non_retryable" };
+        },
+      },
+    }));
+
+    expect(result.finishReason).toBe("stop");
+    expect(result.compactionCount).toBe(1);
+    expect(seenModels).toEqual(["provider/model", "provider/model"]);
+    expect(compactedHistory).toBe(true);
+    expect(events.named(RunEvents.ErrorRetry.name).map((data) => RunEvents.ErrorRetry.schema.parse(data)))
+      .toMatchObject([{ attempt: 1, reason: "context_overflow" }]);
   });
 
   it("stops after the one compacting retry and preserves the second overflow", async () => {
