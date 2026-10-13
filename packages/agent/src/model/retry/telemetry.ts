@@ -12,7 +12,6 @@ export function observeRetry(
     readonly attempt: number;
     readonly maxAttempts: number;
     readonly decision: Extract<Retry.Decision, { retry: true }>;
-    /** Wall-clock source for the emitted fact timestamps (#1245). */
     readonly now: () => number;
   },
 ): void {

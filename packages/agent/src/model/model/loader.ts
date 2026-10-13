@@ -9,11 +9,7 @@ import { Catalog, RemoteCatalog } from "./schema";
 const DEFAULT_CACHE_PATH = join(homedir(), ".openomni", "models.json");
 const REMOTE_TIMEOUT_MS = 10_000;
 
-/**
- * The llm package's one environment owner (#1245): the credential file
- * location is resolved here, in the model loading Layer, and injected into
- * `auth/storage`, which performs no environment reads of its own.
- */
+/** The package's one environment owner: the credential file location is resolved here and injected into `auth/storage`. */
 export function resolveAuthFilePath(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
@@ -26,7 +22,7 @@ async function snapshot(): Promise<Catalog> {
 function catalogError(source: "cache" | "remote" | "cache_write", path: string) {
   return <E>(cause: E) => ModelCatalogError.fromThrown(source, path, cause);
 }
-/** A missing cache file is `undefined`; a present file that cannot be read or decoded is a typed `cache` refusal (#1312). */
+/** A missing cache file is `undefined`; a present file that cannot be read or decoded is a typed `cache` refusal. */
 function readCache(path: string): Effect.Effect<Catalog | undefined, LlmError> {
   return Effect.gen(function* () {
     const file = Bun.file(path);
@@ -48,7 +44,7 @@ function fetchRemote(): Effect.Effect<Catalog, LlmError> {
     Effect.flatMap((raw) => Effect.try({ try: () => RemoteCatalog.parse(raw), catch: catalogError("remote", url) })),
   );
 }
-/** A cache write that fails is reported as a typed `cache_write` refusal, never dropped (#1312). */
+/** A failed cache write is a typed `cache_write` refusal, never dropped. */
 function writeCache(path: string, catalog: Catalog): Effect.Effect<void, LlmError> {
   return Effect.tryPromise({ try: () => mkdir(dirname(path), { recursive: true }), catch: catalogError("cache_write", path) }).pipe(
     Effect.andThen(Effect.tryPromise({ try: () => Bun.write(path, JSON.stringify(catalog)), catch: catalogError("cache_write", path) })),
@@ -61,9 +57,8 @@ function loadCatalog(loadSnapshot: () => Promise<Catalog>): Effect.Effect<Catalo
     const cached = yield* readCache(path);
     if (cached !== undefined && Object.keys(cached).length > 0) return cached;
     if (!process.env.OPENOMNI_DISABLE_MODELS_FETCH) {
-      // The loader's one explicit source decision (#1312): a typed `remote`
-      // refusal continues to the bundled snapshot; `cache` and `cache_write`
-      // refusals propagate to the caller untouched.
+      // A typed `remote` refusal continues to the bundled snapshot; `cache` and
+      // `cache_write` refusals propagate untouched.
       const remote = yield* fetchRemote().pipe(
         Effect.map((catalog): Catalog | undefined => catalog),
         Effect.catchIf(

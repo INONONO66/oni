@@ -12,32 +12,17 @@ export type StreamEventContext = {
   readonly messageID: string;
   readonly attemptId: string;
   readonly sink: Sink;
-  /**
-   * Records one transcript fact: folds it into the processor's attempt state
-   * (loud-throw on rejection — a bad fact order is a recording defect) and
-   * emits the part-boundary snapshot when the fact is a boundary.
-   */
+  /** Loud-throws on rejection — a bad fact order is a recording defect. */
   readonly record: (fact: Transcript.Fact) => void;
-  /** Debug note for normalized-away provider anomalies (#532-6). */
+  /** Debug note for normalized-away provider anomalies. */
   readonly note: (msg: string, data?: PlainObject) => void;
-  /**
-   * Wire tool name → internal dotted name. The provider echoes the sanitized
-   * wire name on stream events; this restores the dotted internal name on the
-   * recorded part so the transcript keeps the native vocabulary. Absent =
-   * record the name verbatim.
-   */
+  /** Restores the dotted internal name the provider's sanitized wire name stands for; absent records verbatim. */
   readonly toolNames?: ReadonlyMap<string, string>;
   readonly externalTools?: boolean;
-  /**
-   * The step's prompt text as it crossed to the provider. The local estimator's
-   * input-token source when the provider's own input count is unusable (#933).
-   */
+  /** The local estimator's input source when the provider's count is unusable. */
   readonly promptText: string;
-  /** Local usage estimator for steps whose provider accounting is unusable (#933). */
   readonly estimateUsage: EstimateUsage;
-  /** Wall-clock source for part timestamps (#1245). */
   readonly now: () => number;
-  /** Unique-id source for part identities (#1245). */
   readonly id: () => string;
 };
 
@@ -53,11 +38,7 @@ export type StreamEventState = {
   pendingTools: Map<string, string>;
   usage: Transcript.Usage;
   usageProvenance: "reported" | "estimated" | "unknown";
-  /**
-   * Assistant output this step emitted — text, reasoning, and tool-call JSON —
-   * the local estimator's output-token source. Reset at each step-finish so
-   * per-step estimates stay additive with the per-step provider counts (#933).
-   */
+  /** Reset at each step-finish so per-step estimates stay additive with per-step provider counts. */
   stepEmittedAssistant: string;
   finishReason?: string;
   visibleOutput: boolean;
@@ -74,14 +55,7 @@ export function createStreamEventState(): StreamEventState {
   };
 }
 
-/**
- * Provider finish reason → transcript finish vocabulary, mapped exactly
- * (#532-7): length and content-filter/error finishes are never rewritten to
- * "stop". The transcript vocabulary has no content-filter value, so a
- * filtered turn closes as "error" — abnormal stays abnormal. The step-finish
- * part stores the ai-unified finishReason (e.g. "tool-calls"), not the raw
- * provider string — the agent's yield detector reads exactly that vocabulary.
- */
+/** Exact mapping: length and content-filter/error finishes never rewrite to "stop"; a filtered turn closes as "error". Stores the ai-unified finishReason the yield detector reads. */
 export function mapFinishReason(reason: string | undefined): Transcript.FinishReason {
   switch (reason) {
     case "length":
@@ -314,8 +288,8 @@ function handleStepFinish(
     },
   };
 
-  // #532-7: a length-truncated step cannot have completed its tool calls —
-  // fail every non-terminal tool part now, no salvage.
+  // A length-truncated step cannot have completed its tool calls: fail every
+  // non-terminal tool part now, no salvage.
   if (mapFinishReason(finishReason) === "length") {
     const at = context.now();
     for (const [callID, partId] of state.pendingTools) {
@@ -357,14 +331,9 @@ function handleStepFinish(
 }
 
 /**
- * Closes everything the attempt left open, as facts, before the attempt's
- * message.finished. Text and reasoning close as completed with whatever
- * partial output the buffer holds — "interrupted" is tool-only vocabulary in
- * T1. Tools follow the #543 grace-settle semantics: after the abort grace
- * expires they advance to interrupted (the tool may have produced a real
- * side effect we can no longer observe); on every other unsettled exit
- * (clean stream end after isStepCount, retryable failure, non-retryable
- * error) they advance to error.
+ * Text and reasoning close as completed with their partial output. After the
+ * abort grace tools advance to interrupted (a side effect may have happened);
+ * on every other unsettled exit they advance to error.
  */
 export function settleAttempt(
   state: StreamEventState,

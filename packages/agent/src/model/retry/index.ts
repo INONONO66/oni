@@ -38,7 +38,6 @@ export namespace Retry {
     return OVERFLOW_PATTERNS.some((pattern) => message.includes(pattern));
   }
 
-  /** Existing placement/agent machine vocabulary, derived beside provider classification. */
   export function attemptReason(
     error: Error,
   ): "timeout" | "transient_error" | "validation_error" | "context_overflow" {
@@ -58,22 +57,10 @@ export namespace Retry {
   export const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
   export const RETRY_MAX_DELAY = 2_147_483_647;
 
-  /**
-   * Server-directed waits above this cap fail fast instead of silently
-   * stalling a run mid-flight: the headless backoff already tops out at 30s,
-   * so a server asking for more than twice that budget surfaces as a visible
-   * failure whose retry policy belongs to the caller.
-   */
+  /** A server-directed wait above twice the 30s backoff cap fails fast; its retry policy belongs to the caller. */
   export const RETRY_HEADER_DELAY_CAP = 60_000;
 
-  /**
-   * Backoff exists to relieve an overloaded endpoint; it cannot help one
-   * refusing connections outright. A retryable failure that carries no HTTP
-   * status and dies under this window is the signature of the latter, so a
-   * streak of them retries on the short probe delay and then declines,
-   * instead of burning the exponential ladder in silence. A failure at or
-   * above the window (a slow timeout) keeps the full backoff budget.
-   */
+  /** A retryable failure with no HTTP status dying under this window signals refused connections, which backoff cannot relieve: a streak retries on the short probe delay then declines. */
   export const INSTANT_FAILURE_WINDOW_MS = 2000;
   export const INSTANT_FAILURE_PROBE_DELAY_MS = 250;
   export const INSTANT_FAILURE_STREAK_LIMIT = 3;
@@ -84,12 +71,11 @@ export namespace Retry {
     return providerError !== undefined && answeredByTransport(providerError);
   }
 
-  /** A status code or response headers prove the endpoint answered: HTTP, not transport. */
+  /** HTTP, not transport. */
   function answeredByTransport(data: ApiFailure): boolean {
     return data.isRetryable && data.statusCode === undefined && data.responseHeaders === undefined;
   }
 
-  /** Consumers branch on this closed vocabulary, never on detail prose. */
   export type Reason =
     | "rate_limit"
     | "overloaded"
@@ -110,11 +96,7 @@ export namespace Retry {
       }
     | { readonly retry: false; readonly reason: Reason; readonly detail?: string };
 
-  /**
-   * Terminal classification precedes probes, headers and backoff. `sources`
-   * injects the wall clock (header-relative waits) and the jitter draw so the
-   * decision is reproducible (#1245).
-   */
+  /** Terminal classification precedes probes, headers and backoff; `sources` injects the clock and jitter draw for reproducibility. */
   export function decide<E>(
     attempt: number,
     error: E,
@@ -164,7 +146,7 @@ export namespace Retry {
     );
   }
 
-  /** A 400 with a fallback candidate is worth one immediate re-route; nothing else is. */
+  /** Only a 400 with a fallback candidate earns an immediate re-route. */
   function nonRetryable(
     providerError: ApiFailure | undefined,
     fallbackAvailable: boolean,
@@ -210,10 +192,7 @@ export namespace Retry {
   /** Jitter subtracts at most one quarter of the ladder delay. */
   export const RETRY_JITTER_RATIO = 0.25;
 
-  /**
-   * Jitter applies to the ladder only, never to a server-directed wait: a
-   * provider that named a delay gets exactly that delay.
-   */
+  /** Ladder only: a provider that named a delay gets exactly that delay. */
   function backoffDelayMs(attempt: number, random: () => number): number {
     const ladder = Math.min(
       RETRY_INITIAL_DELAY * RETRY_BACKOFF_FACTOR ** (attempt - 1),
@@ -222,16 +201,14 @@ export namespace Retry {
     return Math.round(ladder * (1 - random() * RETRY_JITTER_RATIO));
   }
 
-  /** Provider-directed delay retained on the terminal typed failure. */
   export function retryAfterMs<E>(error: E, now: () => number): number | undefined {
     return headerDelay(coerceApiError(error), now)?.ms;
   }
 
-  /** Bound traversal even for cyclic cause chains. */
+  /** Bounded for cyclic cause chains. */
   const MAX_CAUSE_DEPTH = 8;
   const Caused = z.object({ cause: z.instanceof(Object) });
 
-  /** Host-facing classification shares the retry decision's provider decoder. */
   export function classifyFailure<E>(error: E): Reason {
     return classify(apiCause(error));
   }
@@ -265,22 +242,13 @@ export namespace Retry {
     return data.isRetryable ? undefined : "non_retryable";
   }
 
-  /**
-   * Status is the fallback when the payload has no recognized signal: 429 is a
-   * rate limit; 5xx plus the residue the provider marked retryable (408/409,
-   * x-should-retry, network failures) share the server_error bucket since no
-   * consumer distinguishes them.
-   */
+  /** Status is the fallback: 429 is a rate limit; 5xx and the provider-marked retryable residue share server_error since no consumer distinguishes them. */
   function retryableClass(data: ApiFailure): RetryableReason {
     const sniffed = classifyErrorPayload(data.message) ?? classifyErrorPayload(data.responseBody);
     return sniffed ?? (data.statusCode === 429 ? "rate_limit" : "server_error");
   }
 
-  /**
-   * Balance exhaustion must be unambiguous: these signals identify a spent
-   * account, unlike a provider's billing service outage or a per-minute quota.
-   * The check precedes retryability because no wait restores a spent balance.
-   */
+  /** Only unambiguous spent-account signals, checked before retryability: no wait restores a spent balance. */
   const BILLING_PATTERNS = [
     "insufficient_quota",
     "out of budget",
@@ -294,17 +262,12 @@ export namespace Retry {
     if (!payload) return false;
     const haystack = payload.toLowerCase();
     if (BILLING_PATTERNS.some((pattern) => haystack.includes(pattern))) return true;
-    // "You exceeded your current quota" and "You exceeded your monthly quota"
-    // name an account limit. Do not accept bare "quota exceeded": it can name
-    // a short-lived per-minute limit.
+    // Bare "quota exceeded" can name a per-minute limit, so only the
+    // "exceeded your current/monthly quota" forms count as an account limit.
     return /exceeded\s+your\s+(?:current|monthly)\s+(?:usage\s+)?quota/.test(haystack);
   }
 
-  /**
-   * Moderation verdicts, as the providers name them. Scoped to 4xx: a 5xx
-   * merely MENTIONING a content policy (a docs service outage, a moderation
-   * backend that fell over) is a server fault and must keep its retries.
-   */
+  /** Scoped to 4xx: a 5xx merely mentioning a content policy is a server fault and keeps its retries. */
   const CONTENT_POLICY_PATTERNS = [
     "content_policy_violation",
     "content_filter",

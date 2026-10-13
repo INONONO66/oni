@@ -12,8 +12,7 @@ const Info = z.discriminatedUnion("type", [
   z.object({ type: z.literal("proxy"), baseURL: z.string(), apiKey: z.string().optional() }),
 ]);
 const AuthFile = z.record(z.string(), z.json());
-// The credential file location is injected by the composition root (#1245):
-// storage itself reads no environment and resolves no paths.
+// Storage reads no environment and resolves no paths; the location is injected.
 
 function readAuthFile(filepath: string): Record<string, Auth.Info> {
   if (!existsSync(filepath)) return {};
@@ -63,11 +62,7 @@ export namespace Auth {
   export function all(authFilePath: string): Effect.Effect<Record<string, Info>, LlmError> {
     return Effect.try({ try: () => readAuthFile(authFilePath), catch: decodeLlmFailure("auth.read") });
   }
-  /**
-   * One synchronous read/atomic rename boundary: concurrent effects cannot
-   * lose credentials. The temp-file suffix comes from the injected `id`
-   * source (#1245), never ambient entropy.
-   */
+  /** One synchronous read/atomic rename boundary so concurrent effects cannot lose credentials; the temp suffix comes from the injected `id`, never ambient entropy. */
   export function set(
     key: string,
     info: Info,

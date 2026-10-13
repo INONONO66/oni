@@ -4,11 +4,7 @@ import { Provider } from "./provider";
 import { run } from "./run";
 import { Llm } from "./services";
 
-/**
- * The credential file location is resolved once, when the Layer is built, and
- * closed over here (#1245): a later environment change cannot redirect the
- * credential reads and writes of a running service.
- */
+/** Resolved once when the Layer is built: a later environment change cannot redirect a running service's credential I/O. */
 export const LlmLive = Layer.sync(Llm, () => {
   const authFilePath = resolveAuthFilePath();
   return {

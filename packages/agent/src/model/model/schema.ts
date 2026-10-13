@@ -32,12 +32,7 @@ export const CatalogProvider = z.object({
 export const Catalog = z.record(z.string(), CatalogProvider);
 export type Catalog = z.infer<typeof Catalog>;
 
-/**
- * Typed catalog decode (#1312): a malformed entry under a supported SDK is a
- * parse failure the caller sees, never a silently dropped record. Providers
- * without a bundled SDK and prototype-polluting keys are the two explicit
- * filters that remain.
- */
+/** A malformed entry under a supported SDK is a parse failure the caller sees, never a silently dropped record. */
 export const RemoteCatalog = z
   .record(z.string(), SdkCandidate)
   .transform((providers, ctx): Catalog => {

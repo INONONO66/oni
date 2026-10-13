@@ -53,9 +53,7 @@ export namespace Processor {
     estimateUsage?: EstimateUsage;
     sink?: Sink;
     events: BusEvent.Sink;
-    /** Wall-clock source for every transcript timestamp (#1245). */
     now: () => number;
-    /** Unique-id source for stream-born part identities (#1245). */
     id: () => string;
     createStream: (input: StreamInput) => Effect.Effect<Stream, LlmError>;
     toolNames?: ReadonlyMap<string, string>;

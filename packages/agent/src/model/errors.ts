@@ -4,8 +4,7 @@ import { AgentFailure, renderBodyCause, thrownAsError } from "../core/failure";
 export { AgentFailure };
 import { Data } from "effect";
 
-// Field shapes are compile-time only (#1259 idx 90): plain types, no
-// module-load zod schemas — nothing here ever parses. A cause is a string verbatim or the Error itself.
+// Compile-time shapes only, no module-load zod schemas: nothing here parses.
 type Diagnostic = { readonly operation: string; readonly cause: string | Error };
 type MessageFields = { readonly message: string; readonly cause?: string | Error };
 type ProviderIdentity = {
@@ -49,7 +48,7 @@ export class ModelResolutionError extends Data.TaggedError("ModelResolutionError
 export class AuthInvalidFileError extends Data.TaggedError("AuthInvalidFileError")<MessageFields & { readonly path: string }> {}
 export class AuthResolutionError extends Data.TaggedError("AuthResolutionError")<MessageFields & { readonly provider: string; readonly reason: "missing_auth" | "invalid_auth" }> {}
 export class ProxyModelsError extends Data.TaggedError("ProxyModelsError")<MessageFields & { readonly url: string; readonly status?: number }> {}
-/** A model-catalog source failed (#1312): cache read/parse, remote fetch/parse, or cache write. */
+/** Cache read/parse, remote fetch/parse, or cache write. */
 export class ModelCatalogError extends Data.TaggedError("ModelCatalogError")<
   MessageFields & { readonly source: "cache" | "remote" | "cache_write"; readonly path: string }
 > {

@@ -2,7 +2,7 @@ import type { ApiFailure } from "../error";
 
 type Delay = { ms: number; directive: boolean };
 
-/** Explicit directives outrank inferred reset buckets. `now` is injected so header-relative waits are reproducible (#1245). */
+/** Explicit directives outrank inferred reset buckets; `now` is injected so header-relative waits are reproducible. */
 export function headerDelay(error: ApiFailure | undefined, now: () => number): Delay | undefined {
   const raw = error?.responseHeaders;
   if (raw === undefined) return undefined;
