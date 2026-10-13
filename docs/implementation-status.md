@@ -2,7 +2,7 @@
 
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
-On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `2c3efdb0a`, PR #1461).
+On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `b3d62bbc3`, PR #1461).
 Webhook deliveries now emit `event: "webhook"` and the stored `secretRef`
 that verified their HMAC. GitHub deliveries emit `event: "github"` and a
 `githubEvent` key such as `pull_request.opened`. Both optional facts are
@@ -59,7 +59,7 @@ and the desktop test renders that row shape through production `LedgerRows`.
 
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
-On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a`).
+On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `b3d62bbc3`).
 
 - The desktop connects with URL + token and no actor declaration; the upgrade
   mints `connection:<uuid>`. Chat already admits that sender as the Owner from
