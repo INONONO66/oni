@@ -150,7 +150,7 @@ describe("provider retry ownership", () => {
     );
     expect(thrown).toMatchObject({ _tag: "LlmRunFailure" });
     expect(callsByAttempt).toEqual([1, 1, 1]);
-    expect(failureFacts(thrown)).toMatchObject({ reason: "server_error", attempt: 3 });
+    expect(failureFacts(thrown)).toMatchObject({ reason: "transient_error", attempt: 3, maxAttempts: 3 });
   });
 });
 

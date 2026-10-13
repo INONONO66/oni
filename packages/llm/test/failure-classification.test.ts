@@ -42,7 +42,7 @@ describe("classifyFailure: overflow", () => {
   test("a typed failure that declares no overflow does not fall back to its text", () => {
     // The provider's verdict is authoritative once given: `contextOverflow:false`
     // on a run failure whose message happens to mention the window is not overflow.
-    expect(classifyFailure({ error: runFailure({ message: "prompt is too long for the context window", contextOverflow: false }) }).kind).toBe("retryable");
+    expect(classifyFailure({ error: runFailure({ message: "prompt is too long for the context window", contextOverflow: false }) }).kind).toBe("terminal");
   });
 
   test.each([
@@ -143,18 +143,18 @@ describe("classifyFailure: retryable", () => {
     expect(classifyFailure({ error: sdkError({ message: "fetch failed", isRetryable: true }) })).toMatchObject({ kind: "retryable", providerReason: "server_error", instant: true });
   });
 
-  test("an unknown non-SDK error is retryable and not instant", () => {
+  // Without an SDK cause nothing proves the endpoint is worth another call:
+  // the pre-#1352 `Retry.decide` refused these too (`non_retryable`).
+  test("an unknown non-SDK error is terminal, never speculated retryable", () => {
     expect(classifyFailure({ error: new Error("socket hang up") })).toEqual({
-      kind: "retryable",
+      kind: "terminal",
       reason: "transient_error",
-      providerReason: "server_error",
-      afterMs: undefined,
-      directed: undefined,
-      instant: false,
+      providerReason: "non_retryable",
+      status: undefined,
     });
   });
 
-  test("no facts at all is a retryable transient failure", () => {
-    expect(classifyFailure({})).toMatchObject({ kind: "retryable", reason: "transient_error" });
+  test("no facts at all is terminal", () => {
+    expect(classifyFailure({})).toMatchObject({ kind: "terminal", reason: "transient_error", providerReason: "non_retryable" });
   });
 });

@@ -909,7 +909,8 @@ function settleAttempt(
   result: RunResult,
 ): Effect.Effect<{ readonly type: "stop" | "continue"; readonly evidence: PlainValue }, ExecutionError> {
   if (result.type === "aborted") return Effect.fail(result.error ?? new Interrupted());
-  if (result.type === "error") return Effect.fail(result.error);
+  if (result.type === "error")
+    return Effect.fail(isLlmRunFailure(result.error) ? result.error : new AgentFailure({ operation: "llm", cause: thrownAsError(result.error) }));
   if (result.type === "stop" && result.evidence !== undefined && stopOverflows(llm, model, result.evidence))
     return Effect.fail(overflowStop(model, result.evidence));
   return Effect.succeed({
@@ -924,10 +925,10 @@ function modelFailure(error: LlmFailure): ExecutionError {
   });
 }
 
-/** The port's usage-derived overflow verdict over a successful stop; absent window or usage never speculates. */
+/** The port's overflow verdict over a stop that showed nothing; a visible stop is the answer and is never replayed. */
 function stopOverflows(llm: LlmPort, model: ResolvedModel, evidence: AttemptEvidence): boolean {
   const contextWindow = model.limit?.context;
-  if (contextWindow === undefined || contextWindow <= 0) return false;
+  if (evidence.visibleOutput || contextWindow === undefined || contextWindow <= 0) return false;
   return llm.classifyFailure({ usage: evidence.usage, finishReason: evidence.finishReason, contextWindow }).kind === "overflow";
 }
 

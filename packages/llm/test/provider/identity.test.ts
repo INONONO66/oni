@@ -81,7 +81,7 @@ describe("clientIdentity", () => {
   test("reports the package manifest's version", async () => {
     const manifest = z
       .object({ version: z.string() })
-      .parse(await Bun.file(new URL("../../../package.json", import.meta.url)).json());
+      .parse(await Bun.file(new URL("../../package.json", import.meta.url)).json());
 
     expect(clientIdentity.version).toBe(manifest.version);
   });

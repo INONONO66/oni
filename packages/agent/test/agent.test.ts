@@ -167,13 +167,15 @@ describe("ChatAgent public run contract", () => {
               type: "tool", callID: call.id, tool: call.tool, state: { status: "pending", input: call.input },
             }],
           });
-          return { type: "continue" };
+          // The core settles pending tool parts on a stop and runs the next turn itself.
+          return { type: "stop" };
         }
         sink.onMessage(createAssistantMessage("completed", parentID, input.trace.sessionId, messageSource));
         return { type: "stop" };
       }),
     }).run(runInput([{ role: "user", content: "hello" }])));
 
+    expect(providerSteps).toBe(2);
     expect(capturedContext?.signal).toBe(controller.signal);
   });
 

@@ -55,7 +55,9 @@ export function fakeClassifyFailure(facts: FailureFacts): FailureClass {
   const cause = providerCause(error);
   const status = cause?.statusCode;
   const reason = status === 408 ? "timeout" : cause === undefined || cause.isRetryable ? "transient_error" : "validation_error";
-  if (cause !== undefined && !cause.isRetryable) {
+  // Mirrors the real classifier: a failure without a provider cause is terminal, never a retry input.
+  if (cause === undefined) return { kind: "terminal", reason, providerReason: "non_retryable", status: undefined };
+  if (!cause.isRetryable) {
     const providerReason = status === 402 ? "billing" : "non_retryable";
     return { kind: "terminal", reason, providerReason, status };
   }
@@ -66,7 +68,7 @@ export function fakeClassifyFailure(facts: FailureFacts): FailureClass {
     providerReason: status === 429 ? "rate_limit" : "server_error",
     afterMs: after === undefined ? undefined : Number(after),
     directed: after === undefined ? undefined : true,
-    instant: cause !== undefined && status === undefined && cause.responseHeaders === undefined,
+    instant: status === undefined && cause.responseHeaders === undefined,
   };
 }
 

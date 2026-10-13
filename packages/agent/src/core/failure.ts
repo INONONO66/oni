@@ -2,7 +2,7 @@ import { Data, Cause, Option } from "effect";
 import type { StopVerdict } from "./turn";
 import type { LedgerError } from "./store/errors";
 import { AdmissionFailure } from "./messages";
-import type { LlmRunFailure } from "./llm";
+import { LlmRunFailure } from "./llm";
 import type { LedgerSession } from "@openomni/protocol";
 
 /** Machine stop verdicts are typed execution failures, never defects. */
@@ -174,7 +174,7 @@ export type ExecutionError =
   | AgentStopError;
 
 export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError | AdmissionFailure;
-export { AdmissionFailure };
+export { AdmissionFailure, LlmRunFailure };
 
 export function fromCause<E, F>(cause: Cause.Cause<E>, synthesize: (pretty: string) => F): E | F {
   return Option.getOrElse(Cause.findErrorOption(cause), () => synthesize(pretty(cause)));

@@ -18,6 +18,7 @@ import { runInput } from "../helpers/run-input";
 import { FakeProviderError } from "../helpers/fake-llm";
 import { createAssistantMessage } from "../../src/core/message-factory";
 import { messageSource } from "../helpers/message-source";
+import { failureFacts } from "../../src/core/retry";
 
 /**
  * The reversed dependency (#1352): the core declares the `Llm` port and
@@ -39,6 +40,7 @@ interface Scripted {
 function scriptedPort(
   verdict: FailureClass,
   failing: (call: number) => boolean,
+  stop: (call: number) => { readonly visibleOutput: boolean } | undefined = () => undefined,
 ): { port: LlmPort; observed: Scripted } {
   const observed: Scripted = { facts: [], calls: 0, retries: [] };
   const port: LlmPort = {
@@ -47,6 +49,16 @@ function scriptedPort(
     run: (input: RunInput, sink: LlmSink) =>
       Effect.sync(() => {
         observed.calls += 1;
+        const evidence = stop(observed.calls);
+        if (evidence !== undefined) {
+          const parentID = input.messages.at(-1)?.info.id ?? "";
+          const message = createAssistantMessage(evidence.visibleOutput ? "shown" : "", parentID, input.trace.sessionId, messageSource);
+          sink.onMessage(evidence.visibleOutput ? message : { ...message, parts: [] });
+          return {
+            type: "stop" as const,
+            evidence: { usage: { ...usage, inputTokens: CONTEXT_WINDOW + 1 }, visibleOutput: evidence.visibleOutput, finishReason: "stop", credential: null },
+          };
+        }
         if (failing(observed.calls)) {
           const cause = new FakeProviderError({ message: "provider said no", statusCode: 529, isRetryable: true });
           return {
@@ -111,7 +123,8 @@ describe("the core llm port", () => {
       (call) => call === 1,
     );
     await run(port, observed).succeed();
-    expect(observed.retries).toEqual([{ reason: "rate_limit", backoffMs: 7000 }]);
+    // The run event carries the attempt reason; the provider reason stays inside the decision.
+    expect(observed.retries).toEqual([{ reason: "transient_error", backoffMs: 7000 }]);
   });
 
   it("stops on the port's terminal verdict without a second call, whatever the error object claims", async () => {
@@ -126,10 +139,31 @@ describe("the core llm port", () => {
     expect(observed.retries).toEqual([]);
   });
 
-  it("records the port's overflow verdict as a context_overflow retry", async () => {
-    const { port, observed } = scriptedPort({ kind: "overflow" }, (call) => call === 1);
-    await run(port, observed).succeed();
-    expect(observed.retries.map((retry) => retry.reason)).toEqual(["context_overflow"]);
-    expect(observed.calls).toBe(2);
+  it("asks the port about a stop that showed nothing and treats its overflow verdict as a context_overflow failure", async () => {
+    const { port, observed } = scriptedPort({ kind: "overflow" }, () => false, () => ({ visibleOutput: false }));
+    const error = await run(port, observed).fail();
+    expect(error).toBeInstanceOf(LlmRunFailure);
+    expect(observed.calls).toBe(1);
+    // First the stop's own facts without an error, then the failure it became when the attempt settled.
+    expect(observed.facts[0]).toEqual({ usage: { ...usage, inputTokens: CONTEXT_WINDOW + 1 }, finishReason: "stop", contextWindow: CONTEXT_WINDOW });
+    expect(observed.facts[1]?.error).toBe(error);
+    expect(failureFacts(error)).toMatchObject({ reason: "context_overflow", attempt: 1 });
+  });
+
+  it("never replays a stop that already showed output, whatever its usage says", async () => {
+    const { port, observed } = scriptedPort({ kind: "overflow" }, () => false, () => ({ visibleOutput: true }));
+    const result = await run(port, observed).succeed();
+    expect(result.finishReason).toBe("stop");
+    expect(observed.calls).toBe(1);
+    expect(observed.facts).toEqual([]);
+  });
+
+  it("routes the port's overflow verdict to compaction, never the retry ladder: without a producer it is terminal after one call", async () => {
+    const { port, observed } = scriptedPort({ kind: "overflow" }, () => true);
+    const error = await run(port, observed).fail();
+    expect(error).toBeInstanceOf(LlmRunFailure);
+    expect(observed.calls).toBe(1);
+    expect(observed.retries).toEqual([]);
+    expect(failureFacts(error)).toMatchObject({ reason: "context_overflow", attempt: 1 });
   });
 });

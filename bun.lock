@@ -115,7 +115,7 @@
     },
     "packages/llm": {
       "name": "@openomni/llm",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/anthropic": "4.0.49",
         "@ai-sdk/openai": "4.0.60",
