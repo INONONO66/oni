@@ -13,6 +13,7 @@ export function ingressInput(stores: ChannelStores,
   const addressed = facts.dm || identities.some((identity) => identity.kind === "resident");
   const input = Ingress.Input.parse({
     eventId: inboundIdOf(facts), surface: facts.surface, event: facts.event ?? "message",
+    secretRef: facts.secretRef, githubEvent: facts.githubEvent,
     channelId: facts.channelId, threadId: facts.reply?.threadId, workspaceId: facts.workspaceId,
     author: facts.author ?? { externalId: sender.externalId, isBot: false },
     dm: facts.dm, mentionsBot: addressed, body: facts.render, receivedAt: at,

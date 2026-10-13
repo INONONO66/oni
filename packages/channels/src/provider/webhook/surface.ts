@@ -55,7 +55,8 @@ export class WebhookAdapter implements Channel.Surface {
       facts: {
         eventId: createHash("sha256").update(body).digest("hex"),
         surface: "webhook",
-        event: "message",
+        event: "webhook",
+        secretRef: this.credentials.secretRef,
         author: { externalId: this.credentials.secretRef, isBot: true },
         channelId: this.credentials.id,
         addressees: [],

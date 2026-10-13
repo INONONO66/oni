@@ -3,7 +3,7 @@ import { BusEvent } from "../bus/index.js";
 import { Actor } from "../actor/index.js";
 import { LedgerSession, SessionTurn } from "../ledger/l0.js";
 import { EpochMs } from "../time.js";
-import { Author } from "../ingress/input.js";
+import { Author, Input } from "../ingress/input.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 
 const Id = z.string().min(1);
@@ -68,7 +68,9 @@ const IngressFacts = z
   .object({
     eventId: Id,
     surface: Id,
-    event: z.enum(["message", "reaction", "mention"]).optional(),
+    event: Input.shape.event.optional(),
+    secretRef: Input.shape.secretRef,
+    githubEvent: Input.shape.githubEvent,
     author: Author.optional(),
     workspaceId: Id.optional(),
     channelId: Id,

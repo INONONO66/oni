@@ -209,9 +209,11 @@
     "dm",
     "event",
     "eventId",
+    "githubEvent",
     "payload",
     "render",
     "reply",
+    "secretRef",
     "surface",
     "workspaceId"
   ],
@@ -593,8 +595,10 @@
     "dm",
     "event",
     "eventId",
+    "githubEvent",
     "mentionsBot",
     "receivedAt",
+    "secretRef",
     "surface",
     "threadId",
     "workspaceId"

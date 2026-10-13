@@ -257,7 +257,8 @@ export class GitHubAdapter implements Channel.Surface {
       sender: { kind: "external", surface: "github", externalId: content.sender },
       facts: {
         eventId: deliveryId,
-        event: "message",
+        event: "github",
+        githubEvent: eventKey,
         author: { externalId: content.sender, isBot: content.isBot },
         surface: "github",
         workspaceId: content.repo,
