@@ -1105,7 +1105,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         sessionsDir: config.sessionsDir,
         now: services.now,
         id: services.entropy.id,
-      }), automationWire(provisioningPort.automations));
+      }), { respond: automationWire(provisioningPort.automations), actors: channelStores.actors });
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,

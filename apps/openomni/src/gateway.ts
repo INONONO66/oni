@@ -4,6 +4,7 @@ import type { ToolPorts } from "./tools/core/catalog";
 import type { createCompletionPort } from "./composition/completion";
 import {
   type ChannelDeliveryRoute,
+  type ChannelStores,
   createGatewayRouter,
   type GatewayRouter,
   type WebSocketHandler,
@@ -357,8 +358,11 @@ export function webSocketCallbacks(
   sink: Context.Service.Shape<typeof ObservationSink>,
   openSession?: (sessionId: string) => Core.SessionHandleStore.SessionKernel | undefined,
   fork?: (request: SessionFork.Request) => Effect.Effect<SessionFork.Response>,
-  automation?: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
-    Effect.Effect<Ingress.AutomationResponse>,
+  automation?: {
+    readonly respond: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
+      Effect.Effect<Ingress.AutomationResponse>;
+    readonly actors: Pick<ChannelStores["actors"], "resolveEndpoint">;
+  },
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -422,7 +426,9 @@ export function webSocketCallbacks(
                      outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
                      outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
                   return Effect.map(
-                    automation?.(outcome, ws.data.sessionId === undefined ? "owner" : `session:${ws.data.sessionId}`) ??
+                    automation?.respond(outcome, !ws.data.authenticated ||
+                      automation.actors.resolveEndpoint("ws", ws.data.externalId)?.identity.trustTier === "owner"
+                      ? "owner" : `session:ws:${ws.data.externalId}`) ??
                       Effect.succeed<Ingress.AutomationResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,
                         reason: "store_unconfigured", detail: "Automation store is not configured",

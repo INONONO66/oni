@@ -42,8 +42,6 @@ export interface WebSocketConfig {
 }
 
 export interface WsConnectionData {
-  /** Trusted session binding, set by the host, never decoded from a client frame. */
-  sessionId?: string;
   surfaceKey: string;
   authenticated: boolean;
   /** Declared actor address or a connection-local deliverable address. */

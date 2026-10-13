@@ -62,7 +62,11 @@ export async function automationFixture(suite: ResidentSuite, judgeText = "yes")
       return runAppEffect(app.runtime, Effect.scoped(Core.SessionEntity.client));
     },
     async socket() {
-      return suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "owner-token"]);
+      stores.actors.registerIdentity({ id: "automation-owner", kind: "human", trustTier: "owner" });
+      stores.actors.registerEndpoint({
+        id: "ws:automation-owner", actorId: "automation-owner", channel: "ws", externalId: "automation-owner",
+      });
+      return suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=automation-owner`, ["auth", "owner-token"]);
     },
   };
 }

@@ -6,6 +6,20 @@ import { nextFrame } from "./helpers/ws";
 
 const suite = residentSuite();
 
+test("a declared peer socket requires approval to add or enable an automation", async () => {
+  const f = await automationFixture(suite);
+  f.stores.actors.registerIdentity({ id: "peer", kind: "human", trustTier: "collaborator" });
+  f.stores.actors.registerEndpoint({ id: "ws:peer", actorId: "peer", channel: "ws", externalId: "peer" });
+  const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws?actor=peer`, ["auth", "owner-token"]);
+  expect(await automationRequest(socket, { type: "automation_add", requestId: "peer-add", record: automationRecord() }))
+    .toMatchObject({ type: "automation_add_refused", requestId: "peer-add", reason: "require_approval" });
+  expect(await automationRequest(socket, { type: "automation_enable", requestId: "peer-enable", id: "build" }))
+    .toMatchObject({ type: "automation_enable_refused", requestId: "peer-enable", reason: "require_approval" });
+  expect(f.stores.automations.get("build")).toMatchObject({
+    approved: false, record: { enabled: false, createdBy: "session:ws:peer" },
+  });
+});
+
 test("the real socket provisions, lists, disables, enables, and removes records with request correlation", async () => {
   const f = await automationFixture(suite);
   const socket = await f.socket();
