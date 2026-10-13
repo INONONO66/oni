@@ -235,6 +235,18 @@ export interface SessionLivePlane {
   wrapRunner(sessionId: string, runner: SessionRunner): SessionRunner;
 }
 
+type EntityClient = Effect.Effect.Success<typeof Core.SessionEntity.client>;
+type InterruptFailure =
+  | Effect.Effect.Error<ReturnType<ReturnType<EntityClient>["Deliver"]>>
+  | Core.ExecutionError;
+
+/** The facade interrupt's failure cause: a typed door refusal as `tag:code`, anything else stringified. */
+export function interruptFailureCause(error: InterruptFailure): string {
+  return error._tag === "DeliverRefused" || error._tag === "AdmissionFailure"
+    ? `${error._tag}:${error.code}`
+    : String(error);
+}
+
 export function createSessionLivePlane(): SessionLivePlane {
   const entries = new Map<string, LiveTurnEntry>();
   return {

@@ -22,6 +22,7 @@ import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { waveTool } from "./helpers/session-wave";
 import { testToolsBundle } from "./helpers/app-fixture";
+import { testIds } from "./helpers/test-entropy";
 import { nextFrame } from "./helpers/ws";
 import { approvalPolicy } from "./helpers/approval-policy";
 import { materializeResident } from "./helpers/resident-materialize";
@@ -49,11 +50,12 @@ async function restartApp(config: ReturnType<typeof suite.config>) {
 }
 
 /** A held fake model: the test owns when the turn's one model call returns. */
-async function heldTurnApp(prefix: string) {
+async function heldTurnApp(prefix: string, entropy?: () => string) {
   const entered = Promise.withResolvers<string>();
   const release = Promise.withResolvers<void>();
   const app = await suite.boot({
     config: suite.config(prefix, { wsToken: "interrupt-token" }),
+    ...(entropy === undefined ? {} : { sessionRuntime: { entropy } }),
     llm: {
       resolveModel: fakeProviderModel,
       run: (input) => Effect.gen(function* () {
@@ -135,6 +137,34 @@ test("two concurrent facade interrupts serialize at the entity door: both land, 
     }
     expect(kernel.pendingMessages(sessionId)).toEqual([]);
     expect(kernel.row(sessionId).state).toBe("interrupted");
+  } finally {
+    release.resolve();
+  }
+});
+
+test("facade interrupt surfaces the entity door's typed refusal as its code", async () => {
+  // The interrupt's idempotency key is minted from the app's entropy; an
+  // empty key is the door's `missing_key` refusal, which the facade reports
+  // as `tag:code` with no row committed and the held turn left intact.
+  const ids = testIds("index-interrupt-refused");
+  let blank = false;
+  const { plane, sessionId, handle, release } = await heldTurnApp(
+    "index-interrupt-refused-",
+    () => (blank ? "" : ids()),
+  );
+  const kernel = plane.openKernel(sessionId);
+  try {
+    const before = kernel.row(sessionId);
+    blank = true;
+    const failure = await bounded(runEffect(Effect.flip(handle.interrupt())));
+    blank = false;
+    expect(failure).toMatchObject({
+      _tag: "AgentFailure",
+      operation: "session.interrupt",
+      cause: "DeliverRefused:missing_key",
+    });
+    expect(signalRows(plane, sessionId)).toEqual([]);
+    expect(kernel.row(sessionId)).toMatchObject({ state: "running", revision: before.revision });
   } finally {
     release.resolve();
   }

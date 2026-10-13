@@ -90,6 +90,7 @@ import {
 import {
   AppLedger,
   createSessionLivePlane,
+  interruptFailureCause,
   requestAuthorityKernel,
   rescanOccurrences,
   sessionFilePath,
@@ -1176,13 +1177,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
               .pipe(
                 Effect.flatMap(() => entry.boundary("before_llm")),
                 Effect.mapError(
-                  (error) =>
-                    new AgentFailure({
-                      operation: "session.interrupt",
-                      cause: error._tag === "DeliverRefused" || error._tag === "AdmissionFailure"
-                        ? `${error._tag}:${error.code}`
-                        : String(error),
-                    }),
+                  (error) => new AgentFailure({ operation: "session.interrupt", cause: interruptFailureCause(error) }),
                 ),
                 Effect.ensuring(Effect.sync(release)),
               );

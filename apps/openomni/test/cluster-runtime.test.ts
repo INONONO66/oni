@@ -14,7 +14,8 @@ type ObservationPublishFailure = Core.ObservationPublishFailure;
 import type { Delivery, ObservationSink } from "@openomni/protocol";
 import { Effect, Fiber } from "effect";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
-import { createSessionEntityPortsSlot } from "../src/composition/cluster-runtime";
+import { createSessionEntityPortsSlot, interruptFailureCause } from "../src/composition/cluster-runtime";
+import { AdmissionFailure, DeliverRefused } from "../../../packages/agent/src/core/messages";
 import { createAppLedger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { requestFixture } from "../../../packages/agent/test/store/helpers/request";
@@ -342,4 +343,12 @@ test("late-bound entity ports refuse early use and forward after one binding", a
   } finally {
     plane.close();
   }
+});
+
+test("the facade interrupt names a typed door refusal by its code and stringifies anything else", () => {
+  expect(interruptFailureCause(new DeliverRefused({ code: "missing_key" }))).toBe("DeliverRefused:missing_key");
+  expect(interruptFailureCause(new AdmissionFailure({ code: "revision" }))).toBe("AdmissionFailure:revision");
+  const boundary = new Core.AgentFailure({ operation: "session.prompt", cause: "denied" });
+  expect(interruptFailureCause(boundary)).toBe(String(boundary));
+  expect(interruptFailureCause(boundary)).not.toContain(":denied");
 });

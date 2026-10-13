@@ -102,6 +102,7 @@ test("a duplicate id refuses typed without rewriting genesis or touching the ind
     const error = Result.isFailure(again) ? again.failure : undefined;
     expect(error).toBeInstanceOf(CreateRefused);
     expect(error).toMatchObject({ sessionId: "s-dup", reason: "duplicate" });
+    expect(error?.message).toBe("session creation refused (duplicate): s-dup");
     const kernel = plane.openKernel("s-dup");
     expect(kernel.row("s-dup").revision).toBe(1);
     expect(kernel.latestAction("s-dup")?.id).toBe(first.genesis.action.id);
