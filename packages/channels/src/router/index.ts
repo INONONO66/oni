@@ -149,7 +149,6 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           messagingPorts?.budgets?.() ?? [], input);
         return { external, filtered: external === undefined ? replay : undefined };
       }
-      yield* advance(at);
       const filtered = filterAutomationRules(stores, input.input, ports.sink, at);
       const external = filtered === undefined
         ? yield* externalMessage(stores, sender, facts, ports, at,
@@ -204,7 +203,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
   }
 
   function advance(now = clock()) {
-    return advanceAutomationGroups(stores, now, (group, route) => Effect.gen(function* () {
+    return advanceAutomationGroups(stores, now, ports.sink, (group, route) => Effect.gen(function* () {
       const input = ingressInput(stores, group.sender, group.facts, now);
       const external = yield* externalMessage(stores, group.sender, group.facts, ports, now,
         messagingPorts?.budgets?.() ?? [], [], input, { ...route, target: group.target });
@@ -226,7 +225,6 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       if (inbound.filtered !== undefined) return inbound.filtered;
       const external = inbound.external;
       if (external?.disposition !== undefined) {
-        yield* advance(startedAt);
         return { status: "blocked_pre" as const, reasonCode: external.disposition };
       }
       return yield* dispatchMessage(sender, envelope, external, startedAt);

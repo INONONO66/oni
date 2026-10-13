@@ -30,7 +30,7 @@ function heldGroup(stores: ChannelStores, ports: GatewayRouterPorts,
     group.inputs.some((member) => member.eventId === external.event.id));
   if (pending === undefined) return undefined;
   const previous = stores.automations.groups().find((group) =>
-    group.pending.automationId === pending.automationId && group.pending.key === pending.key);
+    group.pending.inputs[0]?.eventId === pending.inputs[0]?.eventId);
   const target = stores.automations.get(pending.automationId)?.record.target;
   return {
     id: JSON.stringify([pending.automationId, pending.key, pending.inputs[0]?.eventId]),

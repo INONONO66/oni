@@ -33,7 +33,7 @@ test.each([0, 10] as const)("blocked routing cannot enter a %s-second automation
 });
 
 test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
-  "%s replay retains exactly one original decision and observation", async (decision) => {
+  "%s replay preserves original and close facts without another observation", async (decision) => {
     registerOwnerDm();
     trigger(decision === "filtered" ? { conditions: { contains: ["missing"] } }
       : decision === "refused" ? { limits: { maxRunsPerDay: 1 } }
@@ -48,9 +48,12 @@ test.each(["matched", "filtered", "refused", "grouped", "superseded"] as const)(
     const router = makeRouter();
     const event = decision === "superseded" ? ownerFacts : facts;
     const original = await runEffect(router.ingest(ownerSender, event));
-    const rows = ledger().stores.automations.decisions(id);
-    expect(rows).toEqual([expect.objectContaining({ decision })]);
+    const originalRows = ledger().stores.automations.decisions(id);
+    expect(originalRows).toEqual([expect.objectContaining({ decision })]);
     if (decision === "grouped") await runEffect(router.advance(10_001));
+    const rows = ledger().stores.automations.decisions(id);
+    expect(rows[0]).toEqual(originalRows[0]);
+    expect(rows).toHaveLength(decision === "grouped" ? 2 : 1);
     const before = commits.length;
     const replay = await runEffect(router.ingest(ownerSender, event));
     if (original.status === "blocked_pre") expect(replay).toEqual(original);
@@ -81,6 +84,14 @@ test.each(["action", "prompt"] as const)("a restored %s group uses gated dispatc
   expect(observations.map((observation) => observation.kind))
     .toEqual(["message.sent", "message.admitted", "message.committed"]);
   expect(ledger().stores.automations.groups()).toEqual([]);
+  expect(ledger().stores.automations.decisions(id)).toEqual([
+    expect.objectContaining({ decision: "grouped" }),
+    expect.objectContaining({ decision: "grouped", reason: `firing:${commits[0]?.id}` }),
+  ]);
+  expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:second")).toEqual([
+    expect.objectContaining({ decision: "grouped" }),
+    expect.objectContaining({ decision: "matched" }),
+  ]);
 });
 
 test.each([0, 10] as const)("the event-id gate refuses %s-second automation delivery", async (windowSeconds) => {
@@ -100,6 +111,10 @@ test.each([0, 10] as const)("the event-id gate refuses %s-second automation deli
   expect(observations).toContainEqual(expect.objectContaining({
     kind: "message.rejected", matchedRuleIds: ["message.external.event_id_dedupe"],
   }));
+  if (windowSeconds === 10) expect(ledger().stores.automations.decisions(id)).toEqual([
+    expect.objectContaining({ decision: "grouped" }),
+    expect.objectContaining({ decision: "refused", reason: "message.external.event_id_dedupe" }),
+  ]);
 });
 
 test("revoked admission cannot be revived by closing an existing group", async () => {
@@ -133,7 +148,10 @@ test("a grouped new target and all members survive closing and reopening SQLite"
     expect(JSON.parse(commits[0]?.content ?? "{}").event.messages).toHaveLength(2);
     expect(ledger().stores.automations.matchedToday("admission", 10_000)).toBe(1);
     await runEffect(resumed.ingest(ownerSender, facts));
-    expect(ledger().stores.automations.decisions(id)).toHaveLength(1);
+    expect(ledger().stores.automations.decisions(id)).toEqual([
+      expect.objectContaining({ decision: "grouped" }),
+      expect.objectContaining({ decision: "grouped", reason: `firing:${commits[0]?.id}` }),
+    ]);
     expect(commits).toHaveLength(1);
   } finally {
     resetLedger();
@@ -160,7 +178,13 @@ test.each(["disabled", "removed", "limited"] as const)("a %s group closes withou
   await runEffect(router.advance(10_000));
   expect(commits).toEqual([]);
   expect(store.groups()).toEqual([]);
-  expect(store.decisions(id)).toEqual([expect.objectContaining({ decision: "grouped" })]);
+  expect(store.decisions(id)).toEqual([
+    expect.objectContaining({ decision: "grouped", reason: "grouped" }),
+    expect.objectContaining({
+      decision: state === "limited" ? "refused" : "filtered",
+      reason: state === "limited" ? "limit" : state,
+    }),
+  ]);
 });
 
 test("a request created after grouping cannot acquire the held event", async () => {
@@ -175,6 +199,10 @@ test("a request created after grouping cannot acquire the held event", async () 
   await runEffect(router.advance(10_000));
   expect(commits).toEqual([]);
   expect(ledger().kernel.requestById("late")?.state).toBe("open");
+  expect(ledger().stores.automations.decisions(id)).toEqual([
+    expect.objectContaining({ decision: "grouped" }),
+    expect.objectContaining({ decision: "refused", reason: "request_correlation" }),
+  ]);
 });
 
 test.each([0, 10] as const)("egress denial also governs %s-second automation delivery", async (windowSeconds) => {
@@ -190,4 +218,8 @@ test.each([0, 10] as const)("egress denial also governs %s-second automation del
   if (windowSeconds === 0) expect(result).toMatchObject({ reasonCode: "message.external.egress_budget" });
   await runEffect(router.advance(10_000));
   expect(commits).toEqual([]);
+  if (windowSeconds === 10) expect(ledger().stores.automations.decisions(id)).toEqual([
+    expect.objectContaining({ decision: "grouped" }),
+    expect.objectContaining({ decision: "refused", reason: "message.external.egress_budget" }),
+  ]);
 });

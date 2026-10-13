@@ -134,6 +134,13 @@ const CHANNEL_STORE_DDL: readonly string[] = [
     closed_at INTEGER,
     matched INTEGER NOT NULL DEFAULT 0
   )`,
+  `CREATE TABLE IF NOT EXISTS automation_group_close (
+    group_id TEXT NOT NULL REFERENCES automation_group(id),
+    inbound_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (group_id, inbound_id)
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_automation_group_close_inbound ON automation_group_close(inbound_id)",
 ];
 
 const QueryOnlyRow = z.object({ query_only: z.number().int() });

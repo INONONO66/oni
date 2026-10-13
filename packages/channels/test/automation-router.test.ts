@@ -139,7 +139,12 @@ test("a grouped window closes once on injected clock advance without member jour
   expect(JSON.parse(groupedCommit.content).event.messages).toHaveLength(3);
   for (const eventId of ["one", "two", "three"]) {
     expect(ledger().stores.automations.decisions(`discord:owner-workspace:owner-dm:${eventId}`))
-      .toEqual([expect.objectContaining({ decision: "grouped" })]);
+      .toEqual([
+        expect.objectContaining({ decision: "grouped", reason: "grouped" }),
+        expect.objectContaining(eventId === "three"
+          ? { decision: "matched", target: "session:worker" }
+          : { decision: "grouped", reason: `firing:${groupedCommit.id}` }),
+      ]);
   }
   time.now = 20000;
   await runEffect(router.advance());

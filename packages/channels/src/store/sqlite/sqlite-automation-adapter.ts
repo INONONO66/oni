@@ -53,7 +53,11 @@ export function createSqliteAutomationAdapter(db: Database, now: () => number): 
       }).immediate();
     },
     decisions(inboundId) {
-      return DecisionRow.array().parse(db.query("SELECT data FROM automation_ledger WHERE inbound_id = ? ORDER BY seq").all(inboundId))
+      return DecisionRow.array().parse(db.query(`
+        SELECT data, 0 AS phase, seq AS position FROM automation_ledger WHERE inbound_id = ?
+        UNION ALL
+        SELECT data, 1 AS phase, 0 AS position FROM automation_group_close WHERE inbound_id = ?
+        ORDER BY phase, position`).all(inboundId, inboundId))
         .map((row) => Ingress.Events.RoutingDecision.schema.parse(JSON.parse(row.data)));
     },
     pendingDelivery(inboundId) {
@@ -69,9 +73,18 @@ export function createSqliteAutomationAdapter(db: Database, now: () => number): 
       return DecisionRow.array().parse(db.query("SELECT data FROM automation_group WHERE closed_at IS NULL ORDER BY id").all())
         .map((row) => StoredGroup.parse(JSON.parse(row.data)));
     },
-    closeGroup(id, at, matched) {
-      db.query("UPDATE automation_group SET closed_at = ?, matched = ? WHERE id = ?")
-        .run(at, Number(matched), id);
+    closeGroup(id, at, matched, decisions) {
+      return db.transaction(() => {
+        const closed = db.query("UPDATE automation_group SET closed_at = ?, matched = ? WHERE id = ? AND closed_at IS NULL")
+          .run(at, Number(matched), id);
+        if (closed.changes === 0) return [];
+        const rows = decisions.map((decision) => Ingress.Events.RoutingDecision.schema.parse(decision));
+        for (const row of rows) {
+          db.query("INSERT INTO automation_group_close (group_id, inbound_id, data) VALUES (?, ?, ?)")
+            .run(id, row.inboundId, JSON.stringify(row));
+        }
+        return rows;
+      }).immediate();
     },
     matchedSince(id, start, end) {
       return CountRow.parse(db.query(`SELECT

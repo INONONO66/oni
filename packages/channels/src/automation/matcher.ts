@@ -136,7 +136,8 @@ function collectGroup(record: Ingress.Automation, trigger: Ingress.Trigger, inpu
   if (grouping === undefined || grouping.windowSeconds === 0)
     return { inputs: [input], held: false, rows: [] };
   const key = groupKey(grouping.by, input);
-  const index = pending.findIndex((item) => item.automationId === record.id && item.key === key);
+  const index = pending.findIndex((item) => item.automationId === record.id && item.key === key &&
+    item.inputs.length < 64 && at - item.openedAt < item.windowSeconds * 1000);
   const previous = index < 0 ? undefined : pending[index];
   if (index >= 0) pending.splice(index, 1);
   const inputs = [...(previous?.inputs ?? []), input];
@@ -209,11 +210,12 @@ export function advanceGroups(records: readonly Ingress.Automation[], pending: r
     const latest = group.inputs.at(-1);
     if (latest === undefined) continue;
     const active = record?.enabled === true;
+    const inactiveReason = record === undefined ? "removed" : "disabled";
     const rows = group.inputs.slice(0, -1).map((member) =>
       ledger(member, now, group.automationId, active ? "grouped" : "filtered",
-        active ? `firing:${latest.eventId}` : "disabled", ["grouping"], group.runWhen));
+        active ? `firing:${latest.eventId}` : inactiveReason, ["grouping"], group.runWhen));
     rows.push(ledger(latest, now, group.automationId, active ? "matched" : "filtered",
-      active ? "matched" : "disabled", ["grouping"], group.runWhen));
+      active ? "matched" : inactiveReason, ["grouping"], group.runWhen));
     const route: Route | undefined = record?.enabled !== true ? undefined
       : record.kind === "prompt"
         ? { kind: "prompt", target: record.target,

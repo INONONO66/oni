@@ -6,6 +6,7 @@ import { openChannelStore } from "../src/store/sqlite/index.js";
 import { AutomationConfigurationError } from "../src/errors.js";
 import { compiledPattern } from "../src/automation/regex.js";
 import { effectFailure } from "./helpers/effect-failure.js";
+import { StoredGroup } from "../src/store/automation/group.js";
 
 const record = Ingress.Automation.parse({
   id: "daily", name: "Daily", enabled: false, createdBy: "session:x",
@@ -95,5 +96,40 @@ test("owner approval and enable disable remove operations retain their stored st
     expect(store.enable(record.id).record.enabled).toBe(true);
     expect(store.remove(record.id)).toBe(true);
     expect(store.remove(record.id)).toBe(false);
+  } finally { db.close(); }
+});
+
+test("group closure records member facts atomically and cannot close twice", () => {
+  const { db, store } = fixture();
+  const held = Ingress.Events.RoutingDecision.schema.parse({
+    traceId: "member", time: 0, inboundId: "member", surface: "telegram", mode: "direct",
+    stage: "automation", outcome: "record", decision: "grouped", by: "automation/daily",
+    reason: "grouped", factsUsed: ["grouping"], factsDigest: "digest",
+  });
+  const group = StoredGroup.parse({
+    id: "group", target: "session:x", sender: { kind: "external", surface: "telegram", externalId: "owner" },
+    facts: { eventId: "member", surface: "telegram", channelId: "room", addressees: [],
+      dm: false, payload: "hello", render: "hello" },
+    pending: { automationId: "daily", key: "room", openedAt: 0, windowSeconds: 10,
+      trigger: { type: "message", surface: "telegram", event: "message" },
+      inputs: [{ eventId: "member", surface: "telegram", event: "message", channelId: "room",
+        author: { externalId: "owner", isBot: false }, dm: false, mentionsBot: false,
+        body: "hello", receivedAt: 0 }] },
+  });
+  const closed = Ingress.Events.RoutingDecision.schema.parse({
+    ...held, time: 10_000, decision: "filtered", reason: "disabled",
+  });
+  try {
+    store.record(held, group);
+    db.exec("CREATE TRIGGER fail_close BEFORE INSERT ON automation_group_close BEGIN SELECT RAISE(ABORT, 'close unavailable'); END");
+    expect(() => store.closeGroup(group.id, 10_000, false, [closed])).toThrow("close unavailable");
+    expect(store.groups()).toEqual([group]);
+    expect(store.decisions("member")).toEqual([held]);
+    db.exec("DROP TRIGGER fail_close");
+    expect(store.closeGroup(group.id, 10_000, false, [closed])).toEqual([closed]);
+    expect(store.closeGroup(group.id, 20_000, true, [closed])).toEqual([]);
+    expect(store.groups()).toEqual([]);
+    expect(store.decisions("member")).toEqual([held, closed]);
+    expect(store.matchedToday("daily", 20_000)).toBe(0);
   } finally { db.close(); }
 });

@@ -22,7 +22,8 @@ export interface AutomationAdapter {
   pendingDelivery(inboundId: string): MatchDecision["route"];
   completeDelivery(inboundId: string): void;
   groups(): StoredGroup[];
-  closeGroup(id: string, at: number, matched: boolean): void;
+  closeGroup(id: string, at: number, matched: boolean,
+    decisions: readonly Ingress.RoutingDecisionPayload[]): Ingress.RoutingDecisionPayload[];
   matchedSince(id: string, start: number, end: number): number;
 }
 
@@ -102,7 +103,8 @@ export function createAutomationStore(source: { readonly automation?: Automation
     pendingDelivery: (inboundId: string) => adapter().pendingDelivery(inboundId),
     completeDelivery: (inboundId: string) => adapter().completeDelivery(inboundId),
     groups: () => adapter().groups(),
-    closeGroup: (id: string, at: number, matched: boolean) => adapter().closeGroup(id, at, matched),
+    closeGroup: (id: string, at: number, matched: boolean,
+      decisions: readonly Ingress.RoutingDecisionPayload[]) => adapter().closeGroup(id, at, matched, decisions),
     matchedToday(id: string, at: number): number {
       const start = Math.floor(at / 86_400_000) * 86_400_000;
       return adapter().matchedSince(id, start, start + 86_400_000);
