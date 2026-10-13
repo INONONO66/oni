@@ -519,6 +519,7 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
     const violations = await validateAppsSessionWrites(root, silent);
     expect(violations).toEqual([
       expect.stringContaining("apps/openomni/src/index.ts:1219 no longer names kernel.commit"),
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:59 no longer names Core.adoptedExecutor"),
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -530,5 +531,47 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
     expect(notices).toHaveLength(1);
   } finally {
     rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+/** The two pinned writes on their exact lines: the tools.add commit at index.ts:1219, the ingress adoption at ingress-executor.ts:59. */
+function pinnedWritesTree(ingressLine: number, extra: string = ""): string {
+  return scratchAppsTree(
+    {
+      "index.ts": `${"\n".repeat(1218)}kernel.commit(action);\n`,
+      "composition/ingress-executor.ts": `${"\n".repeat(ingressLine - 1)}const executor = Core.adoptedExecutor(kernel, id, owner, clock, {});\n${extra}`,
+    },
+    "file",
+  );
+}
+
+test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned to its exact line", async () => {
+  expect(
+    appsSessionWriteSites("Core.adoptedExecutor(kernel,id,owner,clock,{})", "apps/openomni/src/probe.ts").map(
+      (site) => [site.line, site.receiver, site.member],
+    ),
+  ).toEqual([[1, "Core", "adoptedExecutor"]]);
+  const pinned = pinnedWritesTree(59);
+  try {
+    expect(await validateAppsSessionWrites(pinned, silent)).toEqual([]);
+  } finally {
+    rmSync(pinned, { recursive: true, force: true });
+  }
+  const moved = pinnedWritesTree(60);
+  try {
+    expect(await validateAppsSessionWrites(moved, silent)).toEqual([
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:60 names Core.adoptedExecutor"),
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:59 no longer names Core.adoptedExecutor"),
+    ]);
+  } finally {
+    rmSync(moved, { recursive: true, force: true });
+  }
+  const second = pinnedWritesTree(59, "const again = Core.adoptedExecutor(kernel, id, owner, clock, {});\n");
+  try {
+    expect(await validateAppsSessionWrites(second, silent)).toEqual([
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:60 names Core.adoptedExecutor"),
+    ]);
+  } finally {
+    rmSync(second, { recursive: true, force: true });
   }
 });

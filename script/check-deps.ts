@@ -1188,6 +1188,7 @@ const APPS_SESSION_WRITE_MEMBERS: ReadonlySet<string> = new Set([
   "adoptFence",
   "adoptedExecutionLedger",
   "fencedExecutionLedger",
+  "adoptedExecutor",
 ]);
 const APPS_SESSION_STORE_UNIT_MEMBERS: ReadonlySet<string> = new Set(["create"]);
 
@@ -1200,15 +1201,18 @@ interface AppsSessionWriteSite {
 }
 
 /**
- * #1346: the one app-side session-store write that survives the cutover, by
- * exact source line — the deferred `tools.add` `session.configure` commit
- * (its input contract is parent-owned; it is not converted into a signal).
- * Moving the line re-pins it here; a second write anywhere fails. The
- * perimeter ingress executor adopts no fence and holds no ledger: the core's
- * `adoptedExecutor` owns both (review-1346-r1 M1).
+ * #1346: the two app-side session-store writes that survive the cutover, by
+ * exact source line. One is the deferred `tools.add` `session.configure`
+ * commit (its input contract is parent-owned; it is not converted into a
+ * signal). The other is the perimeter ingress executor's `Core.adoptedExecutor`
+ * call: it DOES adopt a fence (`adoptSessionAuthority` inside the core) for
+ * the request's writer and commits gate rows through the core's fenced door,
+ * so it is counted here as the second scoped exception (review-1346-r2 M1).
+ * Moving either line re-pins it here; any other write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
   { file: "apps/openomni/src/index.ts", line: 1219, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 59, receiver: "Core", member: "adoptedExecutor" },
 ];
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
