@@ -6,7 +6,7 @@ import { judgeAndMatch } from "../automation/judge.js";
 import type { MatchDecision, PendingGroup } from "../automation/matcher.js";
 import type { ingressInput } from "./automation/input.js";
 import { newTraceId } from "../support/trace";
-import { resolveChannelGrant } from "./channel-grant";
+import { webSocketSenderTier } from "./channel-grant";
 import { resolveIngressActor } from "./actor-resolver";
 import { isAuthorizedTopLevelActor } from "./authority-actor";
 import { recordKernelRoute, resolveKernelRoute } from "./routing-resolution";
@@ -22,8 +22,7 @@ function admitWebSocketOwner(
   if (
     sender.surface !== "ws" ||
     stores.actors.resolveEndpoint("ws", sender.externalId) !== undefined ||
-    resolveChannelGrant(stores, { surface: "ws", sender: sender.externalId })?.grant.defaultTier !==
-      "owner"
+    webSocketSenderTier(stores, sender.externalId) !== "owner"
   )
     return;
   const actorId = `ws:owner:${sender.externalId}`;

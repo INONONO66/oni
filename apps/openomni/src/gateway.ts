@@ -6,8 +6,8 @@ import {
   type ChannelDeliveryRoute,
   type ChannelStores,
   createGatewayRouter,
-  resolveChannelGrant,
   type GatewayRouter,
+  webSocketSenderTier,
   type WebSocketHandler,
   type WsConnection,
 } from "@openomni/channels";
@@ -427,11 +427,9 @@ export function webSocketCallbacks(
                      outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
                      outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
                   return Effect.map(
-                    // Reuse chat's ws bootstrap grant without registering a chat actor.
-                    automation?.respond(outcome, (automation.stores.actors.resolveEndpoint("ws", ws.data.externalId)?.identity.trustTier ??
-                      (ws.data.declaredActor === undefined
-                        ? resolveChannelGrant(automation.stores, { surface: "ws", sender: ws.data.externalId })?.grant.defaultTier
-                        : undefined)) === "owner"
+                    // #1456: the same fact chat admits the Owner by (registered
+                    // identity, else the ws bootstrap grant), without registering one.
+                    automation?.respond(outcome, webSocketSenderTier(automation.stores, ws.data.externalId) === "owner"
                       ? "owner" : `session:ws:${ws.data.externalId}`) ??
                       Effect.succeed<Ingress.AutomationResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,

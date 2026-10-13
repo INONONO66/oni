@@ -7,7 +7,7 @@ export type { EffectRunner } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";
 export { createWebhookProvider } from "./provider/webhook/provider.js";
 export { createGatewayRouter } from "./router/index.js";
-export { resolveChannelGrant } from "./router/channel-grant.js";
+export { resolveChannelGrant, webSocketSenderTier } from "./router/channel-grant.js";
 export type { ChannelDeliveryRoute, GatewayRouter } from "./router/index.js";
 export {
   createChannelStores,

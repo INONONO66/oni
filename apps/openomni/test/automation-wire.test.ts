@@ -31,18 +31,6 @@ test("a fresh token-authenticated desktop can add, enable, and list automations 
   }
 });
 
-test.each(["unregistered-peer", "connection:peer"])("an unregistered declared socket %s still requires approval", async (actor) => {
-  const f = await automationFixture(suite);
-  const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws?actor=${actor}`, ["auth", "owner-token"]);
-  expect(await automationRequest(socket, { type: "automation_add", requestId: "add", record: automationRecord() }))
-    .toMatchObject({ type: "automation_add_refused", reason: "require_approval" });
-  expect(await automationRequest(socket, { type: "automation_enable", requestId: "enable", id: "build" }))
-    .toMatchObject({ type: "automation_enable_refused", reason: "require_approval" });
-  expect(f.stores.automations.get("build")).toMatchObject({
-    approved: false, record: { enabled: false, createdBy: `session:ws:${actor}` },
-  });
-});
-
 test("a token-authenticated desktop without the chat bootstrap grant requires approval", async () => {
   const f = await automationFixture(suite);
   f.stores.channelGrants.remove("openomni-resident-ws");
