@@ -95,6 +95,11 @@ export interface AppRuntimeOptions {
   readonly hookClock?: Clock.Clock;
   readonly observations?: Context.Service.Shape<typeof ObservationSink>;
   readonly llm?: Layer.Layer<Llm>;
+  /**
+   * Effect logger provided under every runtime layer, so fibers the cluster host forks at
+   * construction inherit it too; absent = the default console logger on stdout.
+   */
+  readonly logger?: Layer.Layer<never>;
   /** The composed-generation holder (#1255 P3): boot composes the manifest and injects it — THE one composition root. */
   readonly composed: Context.Service.Shape<typeof ComposedGeneration>;
   /** The capability registrations this composition selects (#1251); absent = every built-in this app ships. */
@@ -180,7 +185,8 @@ function wiredLayer(
     binding,
     pointTable,
   ).pipe(Layer.provideMerge(ledger));
-  return options.now === undefined ? app : Layer.mergeAll(app, wallClockLayer(now));
+  const root = options.now === undefined ? app : Layer.mergeAll(app, wallClockLayer(now));
+  return options.logger === undefined ? root : root.pipe(Layer.provideMerge(options.logger));
 }
 
 export type AppServices =
