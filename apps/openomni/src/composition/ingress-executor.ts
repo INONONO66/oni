@@ -2,7 +2,6 @@ import { Effect, Semaphore } from "effect";
 import { messageDecisionRules } from "./message-decision";
 import { APPROVAL_POLICY } from "../bundles/approval-policy";
 import { Core } from "@openomni/agent";
-const adoptedExecutionLedger = Core.adoptedExecutionLedger;
 const createExecutor = Core.createExecutor;
 const Entropy = Core.Entropy;
 const GenerationLayers = Core.GenerationLayers;
@@ -35,7 +34,8 @@ export function createIngressExecutor(plane: AppLedgerPlane): Effect.Effect<Nati
     const kernel = plane.openKernel(id);
     // #1346: the perimeter session is created through the one core creation
     // door (genesis row + catalog index in one write); an existing session
-    // from an earlier boot is the idempotent outcome.
+    // from an earlier boot is the idempotent outcome, while an orphan index
+    // row with no genesis file fails boot typed (#1346 M3).
     yield* Core.createSession(plane, {
       id, parentId: null, role: "resident",
       genesis: {
@@ -51,9 +51,11 @@ export function createIngressExecutor(plane: AppLedgerPlane): Effect.Effect<Nati
       const row = kernel.row(id);
       const owner = nextId();
       const captured = yield* generations.capture({ sessionId: id, generation: row.toolsGeneration }).pipe(Effect.mapError((error) => new AgentFailure({ operation: "ingress.capture", cause: String(error) })));
-      // The perimeter has no live turn: the core adopts the fence for this
-      // request's writer and owns every revision the executor commits at.
-      const ledger = yield* adoptedExecutionLedger(kernel, id, owner, clock).pipe(
+      // The perimeter has no live turn and no entity activation: the core
+      // adopts the fence for this request's writer and owns every revision
+      // the executor commits at. The one counted app-side fence adoption —
+      // pinned by exact line in script/check-deps.ts (#1346 M1).
+      const ledger = yield* Core.adoptedExecutionLedger(kernel, id, owner, clock).pipe(
         Effect.mapError((error) => new CommitFailed({ error })),
       );
       const work = Effect.gen(function* () {

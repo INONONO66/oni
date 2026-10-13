@@ -456,6 +456,44 @@ test("#1346: session-store write calls are found by AST, wrapped or chained, nev
   ]);
 });
 
+test("#1346 r1 M2: every spelling of a write door counts — element access, destructuring, aliasing, bare and renamed calls, sessionStore create", () => {
+  const sites = appsSessionWriteSites(
+    [
+      'kernel["commit"]({});',
+      "const { commit } = kernel; commit({});",
+      "const { materialize: seed } = source;",
+      "const adopt = Core.adoptedExecutionLedger; adopt(kernel, id, owner, clock);",
+      "Core.fencedExecutionLedger(kernel, id, owner, fence);",
+      "plane.sessionStore(id).create({});",
+      "ports.create(x); provider.create(y); NamedError.create(z);",
+      "const read = kernel.row(id); const { row } = kernel;",
+      "const key = input.commit.id; const { commit: payload, deliver } = frame; send({ payload, deliver });",
+      "const local = commitDeliverPayload(deps); local(input, payload);",
+    ].join("\n"),
+    "apps/openomni/src/x.ts",
+  );
+  // Line 9-10: `commit` as a payload field read, an uncalled destructure and
+  // an unrelated local never count; line 2 counts because the destructured
+  // `commit` is then called bare.
+  expect(sites.map((site) => [site.line, site.receiver, site.member])).toEqual([
+    [1, "kernel", "commit"],
+    [2, "<destructure>", "commit"],
+    [2, "<bare>", "commit"],
+    [3, "<destructure>", "materialize"],
+    [4, "<alias>", "adoptedExecutionLedger"],
+    [5, "Core", "fencedExecutionLedger"],
+    [6, "sessionStore", "create"],
+  ]);
+  expect(
+    appsSessionWriteSites("const c = kernel.commit; c(x); const { commit: m } = store; m(y);", "apps/openomni/src/y.ts").map(
+      (site) => [site.receiver, site.member],
+    ),
+  ).toEqual([
+    ["<alias>", "commit"],
+    ["<destructure>", "commit"],
+  ]);
+});
+
 test("#1346: a session write outside the exact allow-list line fails; the contacts materialize port is excluded", async () => {
   const root = scratchAppsTree(
     {
@@ -466,7 +504,7 @@ test("#1346: a session write outside the exact allow-list line fails; the contac
   );
   try {
     const violations = await validateAppsSessionWrites(root, silent);
-    expect(violations.filter((line) => line.includes("composition/x.ts:1 calls kernel.commit("))).toHaveLength(1);
+    expect(violations.filter((line) => line.includes("composition/x.ts:1 names kernel.commit"))).toHaveLength(1);
     expect(violations.some((line) => line.includes("contacts.ts"))).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -478,7 +516,8 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
   try {
     const violations = await validateAppsSessionWrites(root, silent);
     expect(violations).toEqual([
-      expect.stringContaining("apps/openomni/src/index.ts:1218 no longer calls kernel.commit("),
+      expect.stringContaining("apps/openomni/src/index.ts:1231 no longer names kernel.commit"),
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:58 no longer names Core.adoptedExecutionLedger"),
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });

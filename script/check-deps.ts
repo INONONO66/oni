@@ -1098,6 +1098,8 @@ const APPS_AGENT_KERNEL_MEMBERS: ReadonlySet<string> = new Set([
 function receiverName(expression: ts.Expression): string | undefined {
   if (ts.isIdentifier(expression)) return expression.text;
   if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) return expression.name.text;
+  // A called receiver (`plane.sessionStore(id).create`) is named by its callee.
+  if (ts.isCallExpression(expression)) return receiverName(expression.expression);
   return undefined;
 }
 
@@ -1171,13 +1173,23 @@ export async function validateAppsAgentTokens(
   return violations;
 }
 
-/** #1346: the session-store write members no app call may name, on any receiver. */
+/**
+ * #1346: the session-store write members no app source may name, on any
+ * receiver and in any form — member call, element-access call, destructuring
+ * or aliasing read, bare call of a destructured/aliased name. `create` is the
+ * session-file unit's own door and counts only off a `sessionStore(...)`
+ * receiver: `ports.create`, `provider.create` and `NamedError.create` are
+ * unrelated same-named ports.
+ */
 const APPS_SESSION_WRITE_MEMBERS: ReadonlySet<string> = new Set([
   "commit",
   "materialize",
   "indexSession",
   "adoptFence",
+  "adoptedExecutionLedger",
+  "fencedExecutionLedger",
 ]);
+const APPS_SESSION_STORE_UNIT_MEMBERS: ReadonlySet<string> = new Set(["create"]);
 
 interface AppsSessionWriteSite {
   readonly file: string;
@@ -1188,13 +1200,19 @@ interface AppsSessionWriteSite {
 }
 
 /**
- * #1346: the ONE app-side session-store write that survives the cutover, by
+ * #1346: the app-side session-store writes that survive the cutover, by
  * exact source line — the deferred `tools.add` `session.configure` commit
- * (its input contract is parent-owned; it is not converted into a signal).
- * Moving the line re-pins it here; a second write anywhere fails.
+ * (its input contract is parent-owned; it is not converted into a signal),
+ * and the perimeter ingress executor's fence adoption (`Core.adoptedExecutionLedger`):
+ * the gateway-ingress session has no live turn and no entity activation, so
+ * its tool-request executor adopts the fence for the request's writer. The
+ * second is a counted exception (review-1346-r1 M1), not an invisible door;
+ * retiring it means routing perimeter requests through the Session entity.
+ * Moving a line re-pins it here; a second write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1218, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/index.ts", line: 1231, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 58, receiver: "Core", member: "adoptedExecutionLedger" },
 ];
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
@@ -1202,11 +1220,40 @@ const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">
   { file: "apps/openomni/src/provisioning/contacts.ts", receiver: "port", member: "materialize" },
 ];
 
+/** The banned member a property or element access names, if any (`create` only off `sessionStore(...)`). */
+function bannedSessionWriteMember(
+  access: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+): { readonly name: string; readonly node: ts.Node } | undefined {
+  const named = ts.isPropertyAccessExpression(access)
+    ? ts.isIdentifier(access.name) ? { name: access.name.text, node: access.name } : undefined
+    : ts.isStringLiteral(access.argumentExpression)
+      ? { name: access.argumentExpression.text, node: access.argumentExpression }
+      : undefined;
+  if (named === undefined) return undefined;
+  if (APPS_SESSION_WRITE_MEMBERS.has(named.name)) return named;
+  if (
+    APPS_SESSION_STORE_UNIT_MEMBERS.has(named.name) &&
+    ts.isCallExpression(access.expression) &&
+    receiverName(access.expression.expression) === "sessionStore"
+  )
+    return named;
+  return undefined;
+}
+
 /**
- * Every direct call of a session-store write member in one app source, by AST
- * walk: `kernel.commit(...)`, `source.commit(...)`, `plane.catalog.indexSession(...)`
- * and their line-wrapped forms all count (the receiver is the member chain's
- * final name); comments, strings and template text never do.
+ * Every naming of a session-store write member in one app source, by AST
+ * walk. Counted on any receiver: the member call (`kernel.commit(...)`,
+ * `source.commit(...)`, `plane.catalog.indexSession(...)`, line-wrapped
+ * forms), the element-access call (`kernel["commit"](...)`), the aliasing
+ * read (`const adopt = Core.adoptedExecutionLedger`), the destructuring
+ * (`const { materialize: seed } = source`) and the bare call of a banned name
+ * (`adoptedExecutionLedger(...)`). `commit` is also an ordinary payload field
+ * name (`input.commit.id`, `const { commit, deliver } = frame`), so its
+ * value forms count only as a pair: a `commit` bound from a destructuring or
+ * alias AND called bare in the same file (`const { commit } = kernel;
+ * commit(...)`). The receiver is the member chain's final name, `<bare>` for
+ * a bare call, `<destructure>` for a binding, `<alias>` for an aliasing read;
+ * comments, strings and template text never count. Sites are in source order.
  */
 export function appsSessionWriteSites(source: string, filePath: string): AppsSessionWriteSite[] {
   const sourceFile = ts.createSourceFile(
@@ -1216,26 +1263,54 @@ export function appsSessionWriteSites(source: string, filePath: string): AppsSes
     true,
     filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
-  const sites: AppsSessionWriteSite[] = [];
+  const found: { readonly position: number; readonly site: AppsSessionWriteSite }[] = [];
+  const site = (node: ts.Node, receiver: string, member: string): void => {
+    const position = node.getStart(sourceFile);
+    found.push({
+      position,
+      site: { file: filePath, line: sourceFile.getLineAndCharacterOfPosition(position).line + 1, receiver, member },
+    });
+  };
+  // `commit` value forms, paired after the walk: bindings by bound name, bare calls by callee name.
+  const commitBindings: { readonly node: ts.Node; readonly receiver: string; readonly bound: string }[] = [];
+  const bareCommitCalls: ts.Identifier[] = [];
+  const valueForm = (member: { readonly name: string; readonly node: ts.Node }, receiver: string, bound: string): void => {
+    if (member.name === "commit") commitBindings.push({ node: member.node, receiver, bound });
+    else site(member.node, receiver, member.name);
+  };
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.name) &&
-      APPS_SESSION_WRITE_MEMBERS.has(node.expression.name.text)
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+        const banned = bannedSessionWriteMember(callee);
+        if (banned !== undefined) site(banned.node, receiverName(callee.expression) ?? "<expression>", banned.name);
+      } else if (ts.isIdentifier(callee) && APPS_SESSION_WRITE_MEMBERS.has(callee.text)) {
+        if (callee.text === "commit") bareCommitCalls.push(callee);
+        else site(callee, "<bare>", callee.text);
+      }
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      (ts.isPropertyAccessExpression(node.initializer) || ts.isElementAccessExpression(node.initializer))
     ) {
-      const name = node.expression.name;
-      sites.push({
-        file: filePath,
-        line: sourceFile.getLineAndCharacterOfPosition(name.getStart(sourceFile)).line + 1,
-        receiver: receiverName(node.expression.expression) ?? "<expression>",
-        member: name.text,
-      });
+      const banned = bannedSessionWriteMember(node.initializer);
+      if (banned !== undefined) valueForm(banned, "<alias>", node.name.text);
+    } else if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
+      const property = node.propertyName ?? node.name;
+      const name = ts.isIdentifier(property) ? property.text : ts.isStringLiteral(property) ? property.text : undefined;
+      if (name !== undefined && (APPS_SESSION_WRITE_MEMBERS.has(name) || APPS_SESSION_STORE_UNIT_MEMBERS.has(name)))
+        valueForm({ name, node: property }, "<destructure>", node.name.text);
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return sites;
+  const calledBindings = commitBindings.filter((binding) => bareCommitCalls.some((call) => call.text === binding.bound));
+  for (const binding of calledBindings) site(binding.node, binding.receiver, "commit");
+  for (const call of bareCommitCalls) {
+    if (calledBindings.some((binding) => binding.bound === call.text)) site(call, "<bare>", "commit");
+  }
+  return found.sort((a, b) => a.position - b.position).map((entry) => entry.site);
 }
 
 /**
@@ -1270,7 +1345,7 @@ export async function validateAppsSessionWrites(
         continue;
       }
       violations.push(
-        `VIOLATION: ${site.file}:${site.line} calls ${site.receiver}.${site.member}( — #1346: session writes ride Core.createSession or the Session entity RPCs; only the allow-listed tools.add configure commit may commit directly`,
+        `VIOLATION: ${site.file}:${site.line} names ${site.receiver}.${site.member} — #1346: session writes ride Core.createSession or the Session entity RPCs; only the exact allow-listed sites may write directly`,
       );
     }
   }
@@ -1278,7 +1353,7 @@ export async function validateAppsSessionWrites(
     for (const entry of APPS_SESSION_WRITE_ALLOW_LIST) {
       if (!used.has(entry)) {
         violations.push(
-          `VIOLATION: ${entry.file}:${entry.line} no longer calls ${entry.receiver}.${entry.member}( — #1346: the allow-listed configure commit moved or disappeared; re-pin the exact line or drop the entry`,
+          `VIOLATION: ${entry.file}:${entry.line} no longer names ${entry.receiver}.${entry.member} — #1346: the allow-listed write moved or disappeared; re-pin the exact line or drop the entry`,
         );
       }
     }

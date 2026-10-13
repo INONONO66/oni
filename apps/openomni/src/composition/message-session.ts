@@ -89,7 +89,8 @@ export function materializeDeliveryTarget(
         at: clock(),
       },
     }).pipe(
-      // A concurrent creator winning the same id is the idempotent outcome.
+      // A concurrent creator winning the same id is the idempotent outcome;
+      // an orphan index row (no genesis file) fails typed below (#1346 M3).
       Effect.catchIf((error) => error.reason === "duplicate", () => Effect.void),
       Effect.mapError(
         (error) => new AgentFailure({ operation: "message.create", cause: error._tag }),

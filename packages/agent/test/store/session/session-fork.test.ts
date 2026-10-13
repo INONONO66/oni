@@ -95,8 +95,9 @@ describe("Session.fork", () => {
     // Consumption still folds: the copied, delivered input is not pending again.
     expect(childKernel.pendingMessages(CHILD)).toEqual([]);
 
-    // The catalog projects the ancestry edge.
-    expect(stores.catalog.sessionIndex(CHILD)?.parentId).toBe(PARENT);
+    // The catalog projects the ancestry edge, stamped with the fork's `now`
+    // (#1346 M4: the injected clock, never the catalog's own).
+    expect(stores.catalog.sessionIndex(CHILD)).toMatchObject({ parentId: PARENT, createdAt: 100 });
     expect(stores.catalog.childSessionsPage(PARENT, "", 10).map((row) => row.id)).toEqual([CHILD]);
 
     // A later parent append is independent: the pinned child chain still verifies.

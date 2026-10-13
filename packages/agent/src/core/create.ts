@@ -60,7 +60,7 @@ export function createSession(
     );
     const created = yield* plane
       .sessionStore(id)
-      .create({ materialize, index: plane.catalog })
+      .create({ materialize, index: plane.catalog, createdAt: genesis.at })
       .pipe(Effect.mapError(refuse));
     return { row: created.row, genesis: created.receipt };
   });

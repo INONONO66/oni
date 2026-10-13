@@ -935,7 +935,7 @@ export class SessionStore extends StoreHandle {
    */
   fork(input: SessionForkWrite): Effect.Effect<SessionForkReceipt, LedgerError> {
     return writeEffect("session.fork", (refuse: RefuseWrite) =>
-      this.indexed(input.index, input.materialize, refuse, (materialize) => {
+      this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
         const created = materializeSession(this.db, materialize, refuse);
         if (!created.created)
           return refuse(new MaterializeRefused({ sessionId: materialize.row.id, reason: "state" }));
@@ -959,11 +959,13 @@ export class SessionStore extends StoreHandle {
 
   /**
    * One atomic creation write: genesis configure row and catalog index land
-   * together; a duplicate on either plane refuses typed with zero new facts.
+   * together; a duplicate on either plane refuses typed with zero new facts
+   * (`duplicate` when the session file already holds the id, `orphan_index`
+   * when only a catalog row does).
    */
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
-      const created = this.indexed(input.index, input.materialize, refuse, (materialize) => {
+      const created = this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
         const result = materializeSession(this.db, materialize, refuse);
         return result.created
           ? result
@@ -977,19 +979,30 @@ export class SessionStore extends StoreHandle {
   /**
    * The catalog's write lock encloses the session-file transaction: the index
    * row inserts first (a lost race refuses before any session write) and a
-   * thrown session write unwinds both.
+   * thrown session write unwinds both. The index row's `createdAt` is the
+   * caller's time (#1346 M4: the injected clock, never the catalog's own), so
+   * a fork child's index stamp equals the fork's `now`. An index row the
+   * insert collides with is a `duplicate` only when this session file holds
+   * the id too; a catalog row with no session file is an `orphan_index` the
+   * caller must not treat as the idempotent outcome (#1346 M3).
    */
   private indexed<T>(
     index: SessionIndexUnit,
     input: LedgerSession.Materialize,
+    createdAt: number,
     refuse: RefuseWrite,
     write: (materialize: LedgerSession.Materialize) => T,
   ): T {
     const materialize = LedgerSession.Materialize.parse(input);
     return index.transaction(() => {
       const { id, parentId, role } = materialize.row;
-      if (!index.indexSession({ id, parentId, role, createdAt: index.now() }))
-        return refuse(new CreateRefused({ sessionId: id, reason: "duplicate" }));
+      if (!index.indexSession({ id, parentId, role, createdAt }))
+        return refuse(
+          new CreateRefused({
+            sessionId: id,
+            reason: selectSession(this.db, id) === undefined ? "orphan_index" : "duplicate",
+          }),
+        );
       return this.transaction(() => write(materialize));
     });
   }
@@ -1004,13 +1017,14 @@ export interface SessionIndexUnit {
     readonly role: LedgerSession.Role;
     readonly createdAt: number;
   }) => boolean;
-  readonly now: () => number;
 }
 
 /** The atomic genesis-plus-index write `createSession` hands the store. */
 export interface SessionCreateWrite {
   readonly materialize: LedgerSession.Materialize;
   readonly index: SessionIndexUnit;
+  /** The index row's creation stamp: the caller's clock (the genesis `at`). */
+  readonly createdAt: number;
 }
 
 export interface SessionCreateReceipt {
@@ -1023,6 +1037,8 @@ interface SessionForkWrite {
   readonly materialize: LedgerSession.Materialize;
   /** The catalog unit the child's index row lands in, enclosing the child write. */
   readonly index: SessionIndexUnit;
+  /** The child's index creation stamp: the fork's `now`. */
+  readonly createdAt: number;
   /** Eligible pre-anchor parent rows, already remapped for the child chain. */
   readonly copies: readonly LedgerAction.Append[];
   /** #1305: stored outputs the copied rows reference, copied under the same identifiers. */

@@ -65,7 +65,8 @@ test("createSession writes genesis and catalog index together and preserves the 
     expect(receipt.genesis.action.id).toBe("s-1:genesis");
     expect(receipt.genesis.action.kind).toBe("session.configure");
     expect(receipt.genesis.action.ts).toBe(17);
-    expect(plane.catalog.sessionIndex("s-1")).toMatchObject({ id: "s-1", parentId: null, role: "resident" });
+    // #1346 M4: the index stamp is the caller's genesis time, not the catalog clock.
+    expect(plane.catalog.sessionIndex("s-1")).toMatchObject({ id: "s-1", parentId: null, role: "resident", createdAt: 17 });
 
     const kernel = plane.openKernel("s-1");
     const stored = kernel.latestGenerationFor("s-1");
@@ -104,14 +105,14 @@ test("a duplicate id refuses typed without rewriting genesis or touching the ind
     const kernel = plane.openKernel("s-dup");
     expect(kernel.row("s-dup").revision).toBe(1);
     expect(kernel.latestAction("s-dup")?.id).toBe(first.genesis.action.id);
-    expect(plane.catalog.sessionIndex("s-dup")?.createdAt).toBe(testNow());
+    expect(plane.catalog.sessionIndex("s-dup")?.createdAt).toBe(17);
     expect(plane.listSessions()).toHaveLength(1);
   } finally {
     close();
   }
 });
 
-test("an index row that already exists refuses before any session file write", () => {
+test("an orphan index row (no session file) refuses typed as orphan_index before any session file write", () => {
   const { plane, close } = openPlane();
   try {
     plane.catalog.indexSession({ id: "s-indexed", parentId: null, role: "resident", createdAt: 1 });
@@ -119,9 +120,11 @@ test("an index row that already exists refuses before any session file write", (
       createSession(plane, { id: "s-indexed", parentId: null, role: "resident", genesis }),
     ));
     expect(Result.isFailure(exit)).toBe(true);
+    // #1346 M3: distinct from `duplicate` — a caller treating duplicates as
+    // the idempotent outcome must not continue against a session with no genesis.
     expect(Result.isFailure(exit) ? exit.failure : undefined).toMatchObject({
       _tag: "CreateRefused",
-      reason: "duplicate",
+      reason: "orphan_index",
     });
     expect(plane.sessionStore("s-indexed").sessions.get("s-indexed")).toBeUndefined();
     expect(plane.listSessions()).toHaveLength(0);
@@ -152,7 +155,7 @@ test("a fault after genesis preparation but before commit leaves neither the ind
       initialAction: { ...materialize.initialAction, sessionId: "s-other" },
     };
     const store = plane.sessionStore("s-fault");
-    const exit = runLedgerSync(Effect.result(store.create({ materialize: faulty, index: plane.catalog })));
+    const exit = runLedgerSync(Effect.result(store.create({ materialize: faulty, index: plane.catalog, createdAt: 1 })));
     expect(Result.isFailure(exit)).toBe(true);
     expect(Result.isFailure(exit) ? exit.failure : undefined).toBeInstanceOf(MaterializeRefused);
     expect(plane.catalog.sessionIndex("s-fault")).toBeUndefined();

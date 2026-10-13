@@ -327,6 +327,7 @@ export function forkSession(
         }),
       },
       index: ports.catalog,
+      createdAt: input.now,
       copies,
       outputs,
     });
