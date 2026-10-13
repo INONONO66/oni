@@ -5,20 +5,18 @@ import { recordRouteDecided } from "./route-record.js";
 import { inboundIdOf } from "./inbound-id.js";
 import type { GatewayRouterPorts } from "./message-ports.js";
 
-/** Reads one dotted fact path (e.g. "author.isBot") off the facts object. */
-function readFact(facts: Gateway.IngressFacts, path: string): unknown {
-  return path
-    .split(".")
-    .reduce<unknown>(
-      (value, segment) => (value as Record<string, unknown> | undefined)?.[segment],
-      facts,
-    );
-}
+/** The fact paths a filter rule may cite; each reads its typed value off the facts object. */
+const factReaders = {
+  "author.isBot": (facts: Gateway.IngressFacts) => facts.author?.isBot,
+  event: (facts: Gateway.IngressFacts) => facts.event,
+} as const;
+type FactPath = keyof typeof factReaders;
+type FactValue = ReturnType<(typeof factReaders)[FactPath]>;
 
 /** sha256 over a canonical (sorted-key) encoding of exactly the facts named in `factsUsed`. */
-function factsDigestOf(facts: Gateway.IngressFacts, factsUsed: readonly string[]): string {
-  const subset: Record<string, unknown> = {};
-  for (const path of [...factsUsed].sort()) subset[path] = readFact(facts, path);
+function factsDigestOf(facts: Gateway.IngressFacts, factsUsed: readonly FactPath[]): string {
+  const subset: Partial<Record<FactPath, FactValue>> = {};
+  for (const path of [...factsUsed].sort()) subset[path] = factReaders[path](facts);
   return createHash("sha256").update(JSON.stringify(subset)).digest("hex");
 }
 
@@ -42,7 +40,7 @@ export function filterIngress(
         : undefined;
   if (reason === undefined) return undefined;
   const inboundId = inboundIdOf(facts);
-  const factsUsed = [reason === "bot_author" ? "author.isBot" : "event"];
+  const factsUsed: readonly FactPath[] = [reason === "bot_author" ? "author.isBot" : "event"];
   const decision = Ingress.Events.RoutingDecision.schema.parse({
     traceId: id(),
     time: at,
