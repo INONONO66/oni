@@ -146,7 +146,7 @@ describe("the core llm port", () => {
     expect(observed.calls).toBe(1);
     // First the stop's own facts without an error, then the failure it became when the attempt settled.
     expect(observed.facts[0]).toEqual({ usage: { ...usage, inputTokens: CONTEXT_WINDOW + 1 }, finishReason: "stop", contextWindow: CONTEXT_WINDOW });
-    expect(observed.facts[1]?.error).toBe(error);
+    expect(observed.facts[1]).toMatchObject({ error });
     expect(failureFacts(error)).toMatchObject({ reason: "context_overflow", attempt: 1 });
   });
 

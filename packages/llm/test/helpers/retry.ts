@@ -1,4 +1,6 @@
+import { PlainValueSchema } from "@openomni/protocol";
 import { APICallError } from "ai";
+import { z } from "zod";
 import { classifyFailure } from "../../src/classify";
 import { APIError } from "../../src/error";
 import type { FailureClass, ProviderReason } from "../../src/port";
@@ -33,9 +35,11 @@ export function rateLimitError(headers?: Record<string, string>) {
 /** The pinned clock header-relative waits are measured against. */
 export const FIXED_RETRY_NOW = Date.parse("2030-01-01T00:00:00.000Z");
 
+const ProviderError = z.union([z.instanceof(Error), PlainValueSchema]).optional();
+
 /** Classify one error at the pinned clock. */
 export function classifyError<E>(error: E, now = FIXED_RETRY_NOW): FailureClass {
-  return classifyFailure({ error, now });
+  return classifyFailure({ error: ProviderError.parse(error), now });
 }
 
 /** The provider reason of a classified call failure; abort and overflow carry none. */
