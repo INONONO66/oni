@@ -2,13 +2,6 @@ import type { BusEvent, Message, Model, PlainObject, Token, Tool } from "@openom
 import { Context, Data, type Effect } from "effect";
 import { z } from "zod";
 
-/**
- * The model-call port (#1352): the core declares the request, event and
- * failure vocabulary a call layer must speak and the composition root binds
- * the llm workspace to the {@link Llm} tag. Nothing here names an SDK type.
- */
-
-/** The streaming callback contract of one call: the producer side of every durable message. */
 export interface LlmSink {
   onMessage: (message: Message.WithParts) => void;
   /** Every onToolResult pairs with a preceding onToolCall; interruptions settle as error results. */
@@ -16,7 +9,6 @@ export interface LlmSink {
   onToolResult: (result: Tool.Result) => void;
 }
 
-/** A catalog-resolved model: the protocol reference plus the facts the loop reads (window, provider identity). */
 export interface ResolvedModel {
   readonly id: string;
   readonly providerID: string;
@@ -30,18 +22,15 @@ export interface ResolvedModel {
   readonly limit?: { readonly context: number } | undefined;
 }
 
-/** An explicit credential the host hands down for one call. */
 export type LlmCredential =
   | { readonly type: "api"; readonly key: string }
   | { readonly type: "proxy"; readonly baseURL: string; readonly apiKey?: string | undefined };
 
-/** Operator-supplied endpoint and headers for one call; absent keeps the catalog's URL. */
 export interface LlmTransport {
   readonly baseUrl?: string;
   readonly headers?: Record<string, string>;
 }
 
-/** One call's request value. The loop builds it; the call layer never reads an environment of its own. */
 export interface RunInput {
   messages: Message.WithParts[];
   tools: Tool.Spec[];
