@@ -1,13 +1,8 @@
 /**
- * Fork ancestry projections (#1257). The `forkedFrom` pin on a forked child's
- * genesis configure is projected here for inspect surfaces only: the ancestry
- * tree and the history-only aside text. Nothing in this module feeds model
- * context — `foldSessionHistory` never reads `session.configure` intents into
- * messages, and compaction folds over that same history — so the aside is
- * invisible to the model unless an opt-in `prompt.pre` transformer named
- * `FORK_ASIDE_REF` is registered in a composition's handler table and an
- * explicit `prompt.pre` policy row (`verdict {type: "transform", ref: "inspect/fork-aside"}`)
- * promotes it through the compiled gate.
+ * Fork ancestry projections for inspect surfaces only: the ancestry tree and
+ * the history-only aside text. Nothing here feeds model context — history
+ * folds never read `session.configure` intents — unless a composition opts
+ * in through the `FORK_ASIDE_REF` transformer and a matching `prompt.pre` row.
  */
 import { SessionGeneration } from "@openomni/protocol";
 import type { SessionKernel } from "../core/entity";
@@ -82,11 +77,9 @@ export function inspectTree(
 }
 
 /**
- * Opt-in promotion (#1257): the `prompt.pre` transformer name a composition
- * registers to prepend the fork aside to a string prompt value. Registered
- * nowhere by default — only a composition that puts a transformer with this
- * name in the handler table AND commits a policy row
- * `{type: "transform", ref: "inspect/fork-aside"}` on `prompt.pre` moves the
- * aside into model context.
+ * Opt-in promotion: the `prompt.pre` transformer name a composition registers
+ * to prepend the fork aside to a string prompt. Registered nowhere by default;
+ * it also needs a committed `{type: "transform", ref: "inspect/fork-aside"}`
+ * policy row on `prompt.pre` before the aside reaches model context.
  */
 export const FORK_ASIDE_REF = "inspect/fork-aside";

@@ -29,15 +29,9 @@ function inspectActions(
   ancestorWindow: (afterRevision: number) => readonly LedgerAction.Node[],
 ): Omit<SessionHistory.Inspection, "children"> {
   const turns = new Map<string, string | null>();
-  // Review F4 (r1): a slice's first actions may descend from turns committed
-  // on earlier pages, so ancestry is resolved outside the page and memoized.
-  // Review F5 (r2): that resolution is bounded. Ancestors are read through
-  // descending 256-action history windows (one indexed range read per 256
-  // chain links), never one point read per link, so a one-action page over a
-  // long preceding chain costs O(chain/256) page reads instead of O(chain)
-  // point reads - and attribution stays exact: a turn-less chain reports null
-  // because the walk reached the root, never because a budget truncated it
-  // (truncation would reintroduce the r1 attribution bug).
+  // A slice's first actions may descend from turns on earlier pages, so ancestry
+  // is resolved outside the page through 256-action history windows: O(chain/256)
+  // range reads, and a turn-less chain reports null only when the walk hits root.
   const ancestralTurnId = (child: LedgerAction.Node): string | null => {
     const trail: string[] = [];
     let turnId: string | null = null;
@@ -109,14 +103,10 @@ function inspectActions(
 }
 
 /**
- * Authoritative inspection of a stored session and, to `depth`, the sessions it
- * commissioned. Traversal follows the ledger's own `parentId` authority only; a
- * session reachable merely as an outbound destination is named by its id in the
- * transition and never read. The limit bounds the aggregate action count and,
- * independently, the descendant visits: the mandatory root response never
- * consumes the descendant budget, so a limit of 1 still advances one child
- * when the root page is empty. Resume root history with nextCursor; when children remain,
- * use cursor=headRevision plus nextChildrenCursor, or page a returned child by id.
+ * Authoritative inspection of a stored session and, to `depth`, the sessions
+ * it commissioned, following only the ledger's `parentId` authority. The limit
+ * bounds aggregate actions and descendant visits independently: the mandatory
+ * root response never consumes the descendant budget.
  */
 export function inspectSession(
   kernel: SessionKernel,
@@ -263,8 +253,7 @@ function causeOf(
   action: LedgerAction.Node,
   effect: PlainObject,
 ): SessionHistory.Cause {
-  // #1254 S5: the dedicated alarm-cause variant is gone; occurrence-chain
-  // alarm rows surface through the `alarms` read model, so history causes
+  // Alarm rows surface through the `alarms` read model, so history causes
   // fall through to delivery/lineage.
   return deliveryCause(action, effect) ?? lineageCause(action);
 }
@@ -465,8 +454,6 @@ function text(value: PlainValue | undefined): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-// ─── #1305: stored tool output read-back ───
-
 /** One stored tool output resolved for a reader, or the typed unknown. */
 export type ToolOutputInspection =
   | {
@@ -480,9 +467,9 @@ export type ToolOutputInspection =
   | { readonly kind: "unknown_output"; readonly outputId: string };
 
 /**
- * Resolves a projected row's `outputRef` back to the full stored output
- * (#1305). Pure read over the session file's `tool_outputs` table; an
- * unknown identifier answers typed instead of throwing.
+ * Resolves a projected row's `outputRef` back to the full stored output: a
+ * pure read over the session file's `tool_outputs` table; an unknown
+ * identifier answers typed instead of throwing.
  */
 export function toolOutput(
   kernel: SessionHandleStore.SessionKernel,
@@ -499,8 +486,6 @@ export function toolOutput(
   };
 }
 
-// Inspect metrics surface (#1247).
 export { attemptUsage, toolWallMs } from "../core/metrics";
 
-// Fork ancestry projections (#1257).
 export { FORK_ASIDE_REF, forkAncestryOf, forkAside, inspectTree, type InspectTreeRequest, type SessionTreeNode } from "./tree";
