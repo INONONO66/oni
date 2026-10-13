@@ -9,50 +9,18 @@ import { createLiveArmRegistry, type LiveArmRegistry } from "./alarm-plane";
 import type { WatchSources } from "./watch-sources";
 import type { AlarmIngress } from "./automation-alarm";
 
-/**
- * The native-source alarm plane (#1255 P3): everything that knows WHICH
- * bundles register alarm purposes and WHICH purpose rides a native source
- * instead of a time delivery lives here — `index.ts` composes through this
- * bundle-neutral seam and never names a bundle.
- *
- * Two alarm capability instances exist on purpose:
- * - `contract` carries NO purposes — the manifest's bundle contracts declare
- *   theirs, and `compose` rejects a duplicate purpose registration.
- * - `capabilityFor(onBundles)` is the LIVE wake router/arm guard, registering
- *   exactly the on-bundles' purposes (recomputed on every recompose).
- */
+/** The native-source alarm plane and its per-activation capability. */
 export interface WatchPlane {
-  /** The purpose-free `Capability.define` contract the manifest lists. */
   readonly contract: Bundle.CapabilityDefinition<"alarm">;
-  /** Wake deps the bundle contracts close over (late-bound to the live sources). */
   readonly wake: Bundle.WatchWakeDeps;
-  /** #1254 H3: activations register their budgeted arm verbs here. */
   readonly arms: LiveArmRegistry;
-  /** Binds the live native sources once boot creates them. */
   readonly bind: (sources: WatchSources) => void;
-  /** Builds the live capability for one composed on-set. */
   readonly capabilityFor: (
     onBundles: readonly string[],
-  ) => Effect.Effect<Bundle.AlarmCapabilityDefinition, Core.AlarmComposeError>;
-  /**
-   * #1254 S3/H2: resends one armed occurrence. A native-source purpose's send
-   * is the source (re)install, never a time delivery; everything else goes
-   * through the injected persisted DeliverAt door.
-   */
+  ) => Effect.Effect<Bundle.AlarmCapabilityDefinition, Bundle.AlarmComposeError>;
   readonly sendOccurrence: (
-    deliver: (
-      sessionId: string,
-      occurrence: AlarmOccurrence,
-    ) => Effect.Effect<void, Core.AlarmSendRefused>,
-  ) => (
-    sessionId: string,
-    occurrence: AlarmOccurrence,
-  ) => Effect.Effect<void, Core.AlarmSendRefused>;
-  /**
-   * #1254 H1: post-commit arm notices — a native-source re-arm moves the live
-   * handle onto the new occurrence; a retiring arm closes it. Other purposes
-   * are time-delivered and take no native action.
-   */
+    deliver: (sessionId: string, occurrence: AlarmOccurrence) => Effect.Effect<void, Core.AlarmSendRefused>,
+  ) => (sessionId: string, occurrence: AlarmOccurrence) => Effect.Effect<void, Core.AlarmSendRefused>;
   readonly onArmed: (notice: Core.AlarmArmNotice) => void;
 }
 
@@ -82,8 +50,6 @@ export function createWatchPlane(
   const declared: readonly Bundle.AlarmBundlePurposes[] = [
     monitorPurposes(wake),
     cronPurposes(deps.ingress),
-    // #1258: the delegation deadline purpose; the cancel door is injected by
-    // the boot (entity deliver), fail-closed until bound.
     delegationPurposes(
       deps.delegation ?? {
         cancel: () => Effect.fail({ reason: "outbound cancel door is not composed" }),
@@ -102,18 +68,11 @@ export function createWatchPlane(
   const capabilityFor = (onBundles: readonly string[]) =>
     Bundle.alarmCapability({
       bundles: declared.filter((declaration) => onBundles.includes(declaration.bundle)),
-      compose: Core.composeAlarmPurposes,
+      compose: Bundle.composeAlarmPurposes,
       watch,
       arm: arms.arm,
     });
-  // The manifest's contract is purpose-free (bundles declare theirs) and
-  // needs no registry: the raw arm verb is the live activation's own guard.
   const contract = Bundle.alarmContract({ purposes: {}, arm: arms.arm, watch });
-  // #1254 H2: a `monitor.hit` send (activation resend or fresh-arm forward)
-  // is the native-source plane's (re)install, never a time delivery: a live
-  // holder adopts the occurrence; a missing one is installed from the
-  // committed arm payload. An uninstallable or unparseable spec is the typed
-  // PERMANENT refusal the entity answers by retiring the chain.
   const installFromOccurrence = (
     sessionId: string,
     occurrence: AlarmOccurrence,
@@ -178,12 +137,7 @@ export function createWatchPlane(
   };
 }
 
-/**
- * A stable `AlarmCapabilityDefinition` face over a recomposable holder: the
- * monitor tool ports and the entity's capability port are wired once at boot,
- * while `provision{bundle_enable|bundle_disable}` swaps the composed instance
- * underneath (#1255 P4).
- */
+/** A stable capability face over a recomposable holder. */
 export function alarmCapabilityView(holder: {
   current: Bundle.AlarmCapabilityDefinition;
 }): Bundle.AlarmCapabilityDefinition {
