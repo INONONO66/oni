@@ -99,9 +99,10 @@ test("pending approval is explicit and Owner approval rereads enabled state", as
   try {
     await ui.render(createElement(AutomationView, { transport: fixture.transport, sessions: [], id: () => "new" }));
     expect(ui.host.querySelector('[data-record-id="alerts"]')?.textContent).toContain("Pending approval");
+    expect([...ui.host.querySelectorAll("button")].find((button) => button.textContent === "Approve and enable")?.disabled).toBe(false);
     await ui.click("Edit");
     expect(ui.host.querySelector('[aria-label="Approval required"]')).not.toBeNull();
-    expect(ui.host.querySelector('input[type="checkbox"]')).toBeNull();
+    expect([...ui.host.querySelectorAll("button")].some((button) => button.textContent === "Approve and enable")).toBe(false);
     await ui.click("Cancel");
     await ui.click("Approve and enable");
     expect(fixture.requests.map((request) => request.type)).toEqual(["automation_list", "automation_enable", "automation_list"]);
