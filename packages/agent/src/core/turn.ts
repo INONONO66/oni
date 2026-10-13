@@ -11,12 +11,12 @@ import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, re
 import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "./failure";
 import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfig, ObservedChatAgentConfig } from "./types";
 import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "./message-factory";
-import type { CompactionSessionPort, CompactionYield } from "./compaction-ports";
+import type { CompactionPort, CompactionReason, CompactionYield } from "./compaction-ports";
 import * as Retry from "./retry";
 import { type RetryReason, type TerminalReason, failureFacts, MAX_ATTEMPTS, observeRetry } from "./retry";
 import { buildSystemPrompt, prepareTurnTools, settleModelTools, assertToolExecutor, assertUnambiguousToolMetadata } from "./tool";
 import { Entropy, ObservationSink } from "./ports";
-import { applyCompaction, prepareCompactionAfterContinue } from "./compaction";
+import { measuredContextTokens } from "./measure";
 import { ExecutorContext, type Executor } from "./gate/decide";
 
 function toMessagesWithParts(
@@ -82,7 +82,7 @@ function nonEmptyString<T>(value: T): string | undefined {
 }
 
 /** The runner builds one run identity from a trace it refused to mint; nothing else may. */
-export interface AgentRunBase {
+interface AgentRunBase {
   readonly traceId: string;
   readonly sessionId: string;
   readonly runId: string;
@@ -386,7 +386,6 @@ function createTrackingSink(
   sink: Sink | undefined,
   turnUsage: TokenUsage,
   turnAssistant: TurnArtifacts["turnAssistant"],
-  measure: ((message: Message.WithParts) => number | undefined) | undefined,
 ): Sink {
   let prevInputTokens = 0;
   let prevOutputTokens = 0;
@@ -422,7 +421,7 @@ function createTrackingSink(
         ) {
           accumulateUsage(turnUsage, delta);
           recordAssistantTokenDelta(state, delta);
-          const measured = measure?.(message);
+          const measured = measuredContextTokens(message);
           if (measured !== undefined) recordCallContext(state, measured);
         }
       }
@@ -459,6 +458,7 @@ export function buildTurn(
   trace: RunTrace,
   source: MessageSource,
   sink?: Sink,
+  compaction?: CompactionPort,
 ): BuildTurnResult {
   recordRunTurn(state);
   if (config.signal?.aborted) throw Retry.abortError();
@@ -478,24 +478,11 @@ export function buildTurn(
     toolCallPool === -1
       ? Number.MAX_SAFE_INTEGER
       : Math.max(1, toolCallPool - state.budgetState.toolCalls);
-  // No compaction seam = the capability is off: the window-yield arm and the
-  // measured-context recording are compaction concerns and skip with it.
-  const compactionSeam = config.compactionSeam;
+  // No compaction port = the capability is off: the window-yield arm skips with it.
   const yieldAtInputTokens =
-    state.contextWindowTokens === undefined ||
-    state.windowYieldDisarmed === true ||
-    compactionSeam === undefined
-      ? undefined
-      : Math.floor(
-          compactionSeam.geometry({
-            contextWindowTokens: state.contextWindowTokens,
-            ...(state.lastCompactionYield === undefined
-              ? {}
-              : { previousYield: state.lastCompactionYield }),
-          }).thresholdTokens,
-        );
+    state.windowYieldDisarmed === true ? undefined : compaction?.window(state)?.yieldAt;
   const turnAssistant: TurnArtifacts["turnAssistant"] = {};
-  const trackingSink = createTrackingSink(state, sink, turnUsage, turnAssistant, compactionSeam?.measure);
+  const trackingSink = createTrackingSink(state, sink, turnUsage, turnAssistant);
   // The host check is wrapped so the turn records WHY the loop stopped: without
   // the flag a steering yield below the step cap would terminate as "max-steps".
   const steering: TurnArtifacts["steering"] = { requested: false };
@@ -584,7 +571,7 @@ function handleStop(
   execution: NonNullable<ObservedChatAgentConfig["execution"]>,
   agentBase: AgentRunBase,
   turn: TurnArtifacts,
-  compaction: CompactionSessionPort | undefined,
+  compact: Compact,
 ): Effect.Effect<StopOutcome, ExecutionError, Scope.Scope | Entropy> {
   return Effect.gen(function* () {
   const now = yield* Clock.clockWith(Effect.succeed).pipe(
@@ -613,17 +600,10 @@ function handleStop(
   if (config.onStepFinish) yield* config.onStepFinish(step);
   const assistantMessage = turn.turnAssistant.message ?? initialAssistant;
   state.messages[assistantIndex] = assistantMessage;
-  yield* prepareCompactionAfterContinue(state, config, compaction);
 
   const yielded = toolCalls > 0 ? null : turnYield(turn, assistantMessage);
-  const compacted = yield* applyCompaction(
-    state,
-    config,
-    agentBase,
-    compaction,
-    yielded === "window" ? "yield" : "threshold",
-  );
-  if (yielded === "window" && (compacted === "none" || state.lastCompactionIneffective))
+  const compacted = yield* compact(yielded === "window" ? "yield" : "threshold");
+  if (yielded === "window" && (!compacted || state.lastCompactionIneffective))
     disarmWindowYield(state);
   const evidence = yield* config.stopEvidence();
   const judgment = yield* execution.judgeStop(state.stop, {
@@ -722,7 +702,6 @@ export function runAgent(
     runId: trace.runId,
     actorId: nonEmptyString(trace.agentName) ?? trace.runId,
   };
-  const compaction = createCompactionSession(config);
   emitRunStarted(config.events, trace, config.model.id, now);
   const needsExecutorContext = (config.tools?.length ?? 0) > 0 ||
     config.toolExecutor !== undefined || config.toolWave !== undefined;
@@ -730,6 +709,8 @@ export function runAgent(
     ? Context.make(ExecutorContext, durableExecutor).pipe(Context.add(Scope.Scope, scope))
     : Context.make(Scope.Scope, scope);
   return Effect.gen(function* () {
+    const compaction = yield* bindCompaction(config, base, durableExecutor);
+    const compact = compactWith(state, compaction, scope, entropy);
     state.modelChainStart = yield* config.restoreModelSelection?.(durableExecutor, config.pinnedModel, [
       config.model,
       ...(config.modelFallbacks ?? []),
@@ -741,7 +722,7 @@ export function runAgent(
       ) {
         return yield* new AgentStopError({ reason: "budget" });
       }
-      const result = yield* runModelStep(state, config, execution, sink, trace, base, compaction, durableExecutor, llm, source, entropy);
+      const result = yield* runModelStep(state, config, execution, sink, trace, base, compaction, compact, durableExecutor, llm, source, entropy);
       if (result !== undefined) return finish(result);
     }
   }).pipe(Effect.provide(runContext), Effect.onError((cause) => Effect.sync(() => {
@@ -754,7 +735,7 @@ export function runAgent(
       attempt: facts?.attempt ?? state.attempt,
       maxAttempts: facts?.maxAttempts ?? MAX_ATTEMPTS,
     }, now);
-  })), (effect) => compaction === undefined ? effect : Effect.ensuring(effect, compaction.settleAbort()));
+  })));
 
   function finish(result: AgentResult): AgentResult {
     emitRunCompleted(config.events, state, base, result.finishReason, now);
@@ -771,7 +752,8 @@ function runModelStep(
   sink: Sink | undefined,
   trace: RunTrace,
   base: AgentRunBase,
-  compaction: CompactionSessionPort | undefined,
+  compaction: CompactionPort | undefined,
+  compact: Compact,
   durableExecutor: Executor,
   llm: LlmPort,
   source: MessageSource,
@@ -792,16 +774,9 @@ function runModelStep(
     state.modelKey = modelKey;
     provider = model.providerID;
     recordRunWindow(state, model.limit?.context ?? 0);
-    const estimate = config.compactionSeam?.estimate;
-    if (
-      estimate !== undefined &&
-      state.contextWindowTokens !== undefined &&
-      estimate(state.messages) > state.contextWindowTokens
-    ) {
-      yield* applyCompaction(state, config, base, compaction, "yield");
-    }
+    if (overflowsWindow(state, compaction)) yield* compact("yield");
     emitTurnStart(config.events, state, base, source.now);
-    const built = buildTurn(state, config, model, config.toolChoice, trace, source, sink);
+    const built = buildTurn(state, config, model, config.toolChoice, trace, source, sink, compaction);
     if (built.type !== "ready") return yield* new AgentFailure({ operation: "agent.turn", cause: "not_ready" });
     turn = built.turn;
     const prepared = turn;
@@ -827,13 +802,7 @@ function runModelStep(
           ).status === "exceeded"
         )
           return Effect.fail(new AgentStopError({ reason: "budget" }));
-        if (
-          estimate !== undefined &&
-          state.contextWindowTokens !== undefined &&
-          estimate(state.messages) > state.contextWindowTokens
-        ) {
-          return Effect.fail(new ContextAdmissionError());
-        }
+        if (overflowsWindow(state, compaction)) return Effect.fail(new ContextAdmissionError());
         return Effect.void;
       }),
       body: () => Effect.suspend(() => llm.run(prepared.runInput, prepared.trackingSink)).pipe(
@@ -858,7 +827,7 @@ function runModelStep(
         recoverOverflow: () => Effect.gen(function* () {
           if (state.overflowCompactionAttempted) return false;
           state.overflowCompactionAttempted = true;
-          return (yield* applyCompaction(state, config, base, compaction, "yield")) === "compacted";
+          return yield* compact("overflow");
         }).pipe(Effect.provideService(Entropy, entropy)),
         classify: (failure) => llm.classifyFailure({
           error: failure,
@@ -894,10 +863,10 @@ function runModelStep(
   const type = successfulOutcome(outcome.value);
   if (type === "continue") {
     handleContinue(config.events, state, base, turn.turnUsage, source.now);
-    yield* prepareCompactionAfterContinue(state, config, compaction);
+    yield* compact("threshold");
     return undefined;
   }
-  const result = yield* handleStop(state, config, execution, base, turn, compaction);
+  const result = yield* handleStop(state, config, execution, base, turn, compact);
   return result === "continue" ? undefined : result;
   });
 }
@@ -957,14 +926,37 @@ function successfulOutcome(value: PlainValue): "stop" | "continue" {
   throw new AgentInvariantViolation("invalid llm execution result");
 }
 
-function createCompactionSession(config: ChatAgentConfig): CompactionSessionPort | undefined {
-  const options = config.compaction;
+/** True when a rewrite happened; a typed failure from the plugin fails the step like any execution error. */
+type Compact = (reason: CompactionReason) => Effect.Effect<boolean, ExecutionError>;
+
+function bindCompaction(
+  config: ObservedChatAgentConfig,
+  identity: AgentRunBase,
+  executor: Executor,
+): Effect.Effect<CompactionPort | undefined, never, Scope.Scope> {
   const seam = config.compactionSeam;
-  if (seam === undefined || options?.onSummarize === undefined || options.speculate === false)
-    return undefined;
-  return seam.createSession({
-    protectRecentMessages: options.protectRecentMessages ?? seam.protectRecent,
-    summarize: options.onSummarize,
-    summarizerDeadlineMs: options.summarizerDeadlineMs,
-  });
+  if (seam === undefined) return Effect.succeed(undefined);
+  return seam.bind({ options: config.compaction, identity, events: config.events, executor, signal: config.signal });
+}
+
+/** The one place the loop asks the plugin to compact; with no port bound nothing happens. */
+function compactWith(
+  state: RunState,
+  compaction: CompactionPort | undefined,
+  scope: Scope.Scope,
+  entropy: Context.Service.Shape<typeof Entropy>,
+): Compact {
+  return (reason) => Effect.gen(function* () {
+    if (compaction === undefined) return false;
+    const before = state.compactionCount;
+    const outcome = yield* compaction.maybeCompact(state, reason);
+    if (typeof outcome === "object") return yield* Effect.fail(outcome.failed);
+    return state.compactionCount > before;
+  }).pipe(Effect.provideService(Entropy, entropy), Effect.provideService(Scope.Scope, scope));
+}
+
+function overflowsWindow(state: RunState, compaction: CompactionPort | undefined): boolean {
+  const window = compaction?.window(state);
+  return window !== undefined && state.contextWindowTokens !== undefined &&
+    window.measure(state.messages) > state.contextWindowTokens;
 }

@@ -19,7 +19,7 @@ import {
 } from "./runtime";
 import { timingSafeEqual } from "node:crypto";
 import { statSync } from "node:fs";
-import { configuredCompaction } from "./bundles/compaction/strategy";
+import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { APPROVAL_POLICY } from "./bundles/approval-policy/index";
 import { gateRowPolicySeeds, seedKernelPolicyRows } from "./bundles/core-policy/index";
@@ -714,7 +714,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         ? {}
         : { toolOutputBudgetBytes: resolveToolOutput(config).budgetBytes }),
       ...residentModelOptions(config.model, transport),
-      compaction: configuredCompaction(config, { now: services.now, id: services.entropy.id }),
+      compaction: compactionOptions(config, { now: services.now, id: services.entropy.id }),
       composed: { current: services.composed.current },
       tools: {
         ...tools,

@@ -6,7 +6,7 @@ import { ToolCapabilitySeam } from "../src/bundles/seams";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import { runEffect } from "./helpers/effect";
 
-test("the manifest is THE product list: tool/action/hook/compaction/alarm capabilities, six bundles, empty off by default", async () => {
+test("the manifest is THE product list: tool/action/hook/compaction/alarm capabilities, eight bundles, empty off by default", async () => {
   const manifest = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
@@ -26,6 +26,8 @@ test("the manifest is THE product list: tool/action/hook/compaction/alarm capabi
     "send-message",
     "delegation-policy",
     "approval-policy",
+    "compaction-summarizer",
+    "compaction-strategy",
   ]);
   expect(manifest.off).toEqual([]);
 });

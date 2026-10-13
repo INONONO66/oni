@@ -96,7 +96,10 @@ const ROWS: readonly OffRow[] = [
     name: "compaction",
     off: ["compaction"],
     probeKind: "compaction",
-    disabled: [{ name: "compaction", because: "compaction" }],
+    disabled: [
+      { name: "compaction", because: "compaction" },
+      { name: "compaction-strategy", because: "compaction" },
+    ],
     absentPoints: ["compaction.pre", "compaction.post"],
     absentCapabilities: ["compaction"],
   },

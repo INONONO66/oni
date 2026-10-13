@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
 import { loadConfig } from "../src/config";
-import { configuredCompaction } from "../src/bundles/compaction/strategy";
+import { compactionOptions } from "../src/bundles/compaction/index";
+import { Bundle } from "@openomni/agent";
 import { assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
@@ -42,14 +43,15 @@ afterEach(() => {
 
 describe("compaction composition configuration", () => {
   it("wires a run-scoped summarizer by default", () => {
-    expect(runSyncEffect(configuredCompaction(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus))).onSummarize).toBeFunction();
+    expect(runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus))).onSummarize).toBeFunction();
   });
 
-  it("omits the summarizer when explicitly off while preserving deterministic reduction", () => {
+  it("omits the summarizer when explicitly off; elision stays the plugin's default", () => {
     process.env.OPENOMNI_COMPACTION_SUMMARIZER = "off";
-    const compaction = runSyncEffect(configuredCompaction(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus)));
+    const compaction = runSyncEffect(compactionOptions(loadConfig(), { now: () => 1000, id: testIds("compaction") }).pipe(Effect.provide(LlmLive), Effect.provideService(ObservationSink, Bus)));
     expect(compaction.onSummarize).toBeUndefined();
-    expect(compaction.elideToolOutputs).toEqual({ minOutputChars: 4000, keepHeadChars: 500 });
+    expect(compaction.elideToolOutputs).toBeUndefined();
+    expect(Bundle.DEFAULT_TOOL_OUTPUT_ELISION).toEqual({ minOutputChars: 4000, keepHeadChars: 500 });
   });
   it("passes configured compaction through the production Resident root", async () => {
     const config = suite.config("openomni-root-compaction-", {

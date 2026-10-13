@@ -1,6 +1,7 @@
 import { Bundle } from "@openomni/agent";
 import { approvalPolicyBundle } from "./bundles/approval-policy/index";
 import { cronBundle } from "./bundles/alarms/cron/index";
+import { compactionBundle, compactionSummarizerBundle } from "./bundles/compaction/index";
 import { delegationPolicyBundle } from "./bundles/delegation-policy/index";
 import { hooksJsonBundle, type HooksJsonInput } from "./bundles/hooks-json/index";
 import { monitorBundle } from "./bundles/alarms/monitor/index";
@@ -72,6 +73,9 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
       delegationPolicyBundle(),
       // #1309: the approval/budget product values; `send-message` requires its seam.
       approvalPolicyBundle(),
+      // The binding requires the summarizer; dropping the provider refuses `seam_missing`.
+      compactionSummarizerBundle(),
+      compactionBundle(),
     ],
     off: input.off ?? [],
   });
