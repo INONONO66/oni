@@ -6,12 +6,10 @@ const ROOT = join(import.meta.dir, "..");
 const AGENT_SRC_GLOB = "packages/agent/src/**/*.ts";
 
 /**
- * #1343 comment-residue gate for packages/agent production sources: per-file,
- * shrink-only pins for issue-number comment lines and `// ───` dividers, plus
- * a package-wide comment-ratio CEILING and a tight JSDoc>6 pin. Per-file pins
- * are tight (pin === HEAD actual): growth fails AND slack fails, so cleanup
- * (#1344) lowers the matching pin in the same PR. `--measure` prints the
- * current tree as a pin table for exactly that purpose.
+ * Comment-residue gate for packages/agent sources: tight per-file pins (pin
+ * === HEAD actual, so growth and slack both fail) for unlisted issue-number
+ * lines and decorative dividers, a package comment-ratio CEILING, a tight
+ * JSDoc>6 pin, and an enumerated issue-number allow-list.
  */
 export interface FileResidue {
   readonly issueLines: number;
@@ -19,15 +17,26 @@ export interface FileResidue {
   readonly commentLines: number;
   readonly nonblankLines: number;
   readonly jsdocOverSix: number;
+  /** Allow-listed markers found as comment-only lines, so stale entries fail closed. */
+  readonly listedNotes: readonly string[];
+}
+
+/** One issue-number comment line exempted from the unlisted-hit count. */
+export interface DurableByteNote {
+  readonly file: string;
+  /** The exact trimmed comment line; a pattern never qualifies. */
+  readonly marker: string;
+  /** Why durable byte compatibility needs the number, not a general exemption. */
+  readonly reason: string;
 }
 
 export interface ResiduePins {
-  /** file -> [issue-number comment lines, divider lines], sorted, explicit zeroes. */
+  /** file -> [unlisted issue-number comment lines, divider lines], sorted, explicit zeroes. */
   readonly files: ReadonlyMap<string, readonly [number, number]>;
   /**
    * Package comment-to-nonblank ratio CEILING in basis points: only growth
    * fails. Slack passes, because adding plain code lowers the ratio and must
-   * not fail the gate; #1344 lowers the ceiling deliberately.
+   * not fail the gate; a cleanup lowers the ceiling deliberately.
    */
   readonly ratioBasisPoints: number;
   /**
@@ -36,34 +45,30 @@ export interface ResiduePins {
    * is edited, never when plain code is added.
    */
   readonly jsdocOverSix: number;
-  /** Exact structural-header exemptions: the marker line is not a divider hit. */
-  readonly structuralHeaders: readonly { readonly file: string; readonly marker: string }[];
+  /** Enumerated issue-number notes (<= DURABLE_BYTE_NOTE_BUDGET), each with a path and reason. */
+  readonly durableByteNotes: readonly DurableByteNote[];
 }
 
-/** Hard budget for structural-header exemptions, enforced by the gate itself. */
-const STRUCTURAL_HEADER_BUDGET = 10;
+/** Hard budget for durable-byte-contract notes, enforced by the gate itself. */
+const DURABLE_BYTE_NOTE_BUDGET = 10;
 
 const ISSUE_TOKEN = /#\d{3,4}/;
-const DIVIDER = /^\/\/ ───/;
+/** A comment-only line whose text, past any `//`, `/*` or `*` prefix, opens with a box-drawing run. */
+const DIVIDER = /^(?:\/\/|\/\*+|\*+)?\s*─{3,}/;
 const WHITESPACE = /\s/;
 
 /**
- * Comment lines come from TypeScript comment-trivia ranges, not line-prefix
- * heuristics: the file is parsed with `ts.createSourceFile` (so template
- * literals and regexes lex correctly) and every token's leading and trailing
- * trivia yield its `SingleLineCommentTrivia`/`MultiLineCommentTrivia` ranges. A nonblank
- * line is a comment line only when every one of its non-whitespace characters
- * sits inside comment trivia: trailing comments on code lines are code, the
- * continuation lines of a block opened after code are comments, and
- * template-literal text that looks like `//` is code. The JSDoc>6 count
- * derives from MultiLineCommentTrivia ranges whose text starts with `/**` and
- * spans more than six physical lines.
+ * Comment lines come from TypeScript comment trivia, never line-prefix
+ * heuristics: a nonblank line is a comment line only when every non-whitespace
+ * character sits inside a comment range, so trailing comments and template
+ * text that looks like `//` are code. `allowedNotes` are exact trimmed lines.
  */
 export function classifyResidue(
   source: string,
-  exemptMarkers: ReadonlySet<string> = new Set(),
+  allowedNotes: ReadonlySet<string> = new Set(),
 ): FileResidue {
   const { commentMask, jsdocOverSix } = commentTrivia(source);
+  const listedNotes: string[] = [];
   const tally = { issueLines: 0, dividerLines: 0, commentLines: 0, nonblankLines: 0, jsdocOverSix };
   let offset = 0;
   for (const raw of source.split("\n")) {
@@ -72,13 +77,16 @@ export function classifyResidue(
       tally.nonblankLines += 1;
       if (isCommentOnly(raw, offset, commentMask)) {
         tally.commentLines += 1;
-        if (ISSUE_TOKEN.test(trimmed)) tally.issueLines += 1;
-        if (DIVIDER.test(raw) && !exemptMarkers.has(trimmed)) tally.dividerLines += 1;
+        if (ISSUE_TOKEN.test(trimmed)) {
+          if (allowedNotes.has(trimmed)) listedNotes.push(trimmed);
+          else tally.issueLines += 1;
+        }
+        if (DIVIDER.test(trimmed)) tally.dividerLines += 1;
       }
     }
     offset += raw.length + 1;
   }
-  return tally;
+  return { ...tally, listedNotes };
 }
 
 /** Character mask of comment trivia plus the JSDoc>6 count, from the parsed file's tokens. */
@@ -132,11 +140,11 @@ async function scanAgentSources(
   root: string,
   pins: ResiduePins,
 ): Promise<Map<string, FileResidue>> {
-  const markersByFile = new Map<string, Set<string>>();
-  for (const entry of pins.structuralHeaders) {
-    const set = markersByFile.get(entry.file) ?? new Set<string>();
+  const notesByFile = new Map<string, Set<string>>();
+  for (const entry of pins.durableByteNotes) {
+    const set = notesByFile.get(entry.file) ?? new Set<string>();
     set.add(entry.marker);
-    markersByFile.set(entry.file, set);
+    notesByFile.set(entry.file, set);
   }
   const results = new Map<string, FileResidue>();
   for await (const filePath of new Bun.Glob(AGENT_SRC_GLOB).scan({
@@ -145,7 +153,7 @@ async function scanAgentSources(
     followSymlinks: false,
   })) {
     const source = await Bun.file(join(root, filePath)).text();
-    results.set(filePath, classifyResidue(source, markersByFile.get(filePath)));
+    results.set(filePath, classifyResidue(source, notesByFile.get(filePath)));
   }
   return results;
 }
@@ -190,18 +198,19 @@ function compareCategory(
   }
 }
 
-/** Fail-closed comparison: growth, slack, unpinned files, stale pins, ceilings. */
+/** Fail-closed comparison: growth, slack, unpinned files, stale pins, stale notes, ceilings. */
 export async function checkCommentResidue(
   root: string = ROOT,
   pins: ResiduePins = RESIDUE_PINS,
 ): Promise<string[]> {
   const violations: string[] = [];
-  if (pins.structuralHeaders.length > STRUCTURAL_HEADER_BUDGET) {
+  if (pins.durableByteNotes.length > DURABLE_BYTE_NOTE_BUDGET) {
     violations.push(
-      `VIOLATION [comment-residue] structural-header exemptions ${pins.structuralHeaders.length} > budget ${STRUCTURAL_HEADER_BUDGET}: retire exemptions instead of adding them`,
+      `VIOLATION [comment-residue] durable-byte notes ${pins.durableByteNotes.length} > budget ${DURABLE_BYTE_NOTE_BUDGET}: retire notes instead of adding them`,
     );
   }
-  const totals = aggregateResidue(await scanAgentSources(root, pins));
+  const actuals = await scanAgentSources(root, pins);
+  const totals = aggregateResidue(actuals);
   for (const [file, residue] of totals.entries) {
     const pinned = pins.files.get(file);
     if (pinned === undefined) {
@@ -217,6 +226,13 @@ export async function checkCommentResidue(
     if (!totals.entries.some(([actualFile]) => actualFile === file)) {
       violations.push(
         `VIOLATION [comment-residue] ${file} is pinned but absent: remove the stale pin`,
+      );
+    }
+  }
+  for (const note of pins.durableByteNotes) {
+    if (!actuals.get(note.file)?.listedNotes.includes(note.marker)) {
+      violations.push(
+        `VIOLATION [comment-residue] ${note.file}: listed durable-byte note ${JSON.stringify(note.marker)} is absent: retire the entry`,
       );
     }
   }
@@ -237,6 +253,7 @@ export async function checkCommentResidue(
   return violations;
 }
 
+/** The current tree as a pin table, so a cleanup lowers pins in the same PR. */
 async function measure(root: string, pins: ResiduePins): Promise<string> {
   const totals = aggregateResidue(await scanAgentSources(root, pins));
   const rows = totals.entries.map(
@@ -249,163 +266,152 @@ async function measure(root: string, pins: ResiduePins): Promise<string> {
 }
 
 /**
- * Structural-header allow-list (<=10 exact entries, budget enforced by the
- * gate). An entry exempts exactly one marker line from the divider count in
- * exactly one file; it never exempts issue-number residue — the `#1305` token
- * on the exempted line below still counts against the file's issue-line pin.
+ * Durable-byte-contract allow-list (<= 10 entries, budget enforced by the
+ * gate). An entry exempts exactly one comment-only line in exactly one file
+ * from the unlisted issue-number count, never from the comment ratio. The
+ * cleanup pass needed none: every persisted-byte note reads without a number.
  */
-const STRUCTURAL_HEADERS: readonly { readonly file: string; readonly marker: string }[] = [
-  {
-    // The inspect barrel's read-back section header is a navigation aid for a
-    // 500+ line module, kept until #1344 splits the file.
-    file: "packages/agent/src/inspect/index.ts",
-    marker: "// ─── #1305: stored tool output read-back ───",
-  },
-];
+const DURABLE_BYTE_NOTES: readonly DurableByteNote[] = [];
 
-/**
- * #1343 baseline pins measured at d9800ad74 (identical under packages/agent
- * to the issue's pin 2321f1aff): tight per-file actuals, explicit zeroes.
- */
+/** Tight per-file actuals after the cleanup pass, explicit zeroes. */
 const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Map([
-  ["packages/agent/src/bundle.ts", [6, 0]],
-  ["packages/agent/src/core/admission.ts", [10, 0]],
-  ["packages/agent/src/core/alarm-ports.ts", [2, 0]],
-  ["packages/agent/src/core/alarm.ts", [16, 1]],
-  ["packages/agent/src/core/api.ts", [7, 0]],
-  ["packages/agent/src/core/approval-policy.ts", [1, 0]],
-  ["packages/agent/src/core/budget.ts", [1, 0]],
-  ["packages/agent/src/core/bus.ts", [8, 0]],
-  ["packages/agent/src/core/capability.ts", [6, 0]],
-  ["packages/agent/src/core/commit.ts", [15, 2]],
-  ["packages/agent/src/core/compaction-ports.ts", [2, 0]],
-  ["packages/agent/src/core/compaction.ts", [1, 0]],
-  ["packages/agent/src/core/compose.ts", [10, 0]],
+  ["packages/agent/src/bundle.ts", [0, 0]],
+  ["packages/agent/src/core/admission.ts", [0, 0]],
+  ["packages/agent/src/core/alarm-ports.ts", [0, 0]],
+  ["packages/agent/src/core/alarm.ts", [0, 0]],
+  ["packages/agent/src/core/api.ts", [0, 0]],
+  ["packages/agent/src/core/approval-policy.ts", [0, 0]],
+  ["packages/agent/src/core/budget.ts", [0, 0]],
+  ["packages/agent/src/core/bus.ts", [0, 0]],
+  ["packages/agent/src/core/capability.ts", [0, 0]],
+  ["packages/agent/src/core/commit.ts", [0, 0]],
+  ["packages/agent/src/core/compaction-ports.ts", [0, 0]],
+  ["packages/agent/src/core/compaction.ts", [0, 0]],
+  ["packages/agent/src/core/compose.ts", [0, 0]],
   ["packages/agent/src/core/create.ts", [0, 0]],
-  ["packages/agent/src/core/entity.ts", [37, 3]],
-  ["packages/agent/src/core/failure.ts", [4, 2]],
-  ["packages/agent/src/core/fork.ts", [9, 0]],
-  ["packages/agent/src/core/gate/admit.ts", [3, 0]],
-  ["packages/agent/src/core/gate/compile.ts", [5, 0]],
-  ["packages/agent/src/core/gate/compose.ts", [7, 0]],
-  ["packages/agent/src/core/gate/decide.ts", [25, 10]],
-  ["packages/agent/src/core/gate/evaluate.ts", [6, 0]],
-  ["packages/agent/src/core/gate/fold.ts", [7, 0]],
+  ["packages/agent/src/core/entity.ts", [0, 0]],
+  ["packages/agent/src/core/failure.ts", [0, 0]],
+  ["packages/agent/src/core/fork.ts", [0, 0]],
+  ["packages/agent/src/core/gate/admit.ts", [0, 0]],
+  ["packages/agent/src/core/gate/compile.ts", [0, 0]],
+  ["packages/agent/src/core/gate/compose.ts", [0, 0]],
+  ["packages/agent/src/core/gate/decide.ts", [0, 0]],
+  ["packages/agent/src/core/gate/evaluate.ts", [0, 0]],
+  ["packages/agent/src/core/gate/fold.ts", [0, 0]],
   ["packages/agent/src/core/gate/match.ts", [0, 0]],
-  ["packages/agent/src/core/gate/migrate.ts", [4, 0]],
-  ["packages/agent/src/core/gate/project.ts", [3, 1]],
-  ["packages/agent/src/core/gate/registry.ts", [4, 0]],
-  ["packages/agent/src/core/gate/row-parse.ts", [4, 0]],
-  ["packages/agent/src/core/gate/rows.ts", [1, 0]],
+  ["packages/agent/src/core/gate/migrate.ts", [0, 0]],
+  ["packages/agent/src/core/gate/project.ts", [0, 0]],
+  ["packages/agent/src/core/gate/registry.ts", [0, 0]],
+  ["packages/agent/src/core/gate/row-parse.ts", [0, 0]],
+  ["packages/agent/src/core/gate/rows.ts", [0, 0]],
   ["packages/agent/src/core/host.ts", [0, 0]],
-  ["packages/agent/src/core/index.ts", [3, 1]],
+  ["packages/agent/src/core/index.ts", [0, 0]],
   ["packages/agent/src/core/message-factory.ts", [0, 0]],
-  ["packages/agent/src/core/messages.ts", [11, 1]],
-  ["packages/agent/src/core/metrics.ts", [1, 0]],
-  ["packages/agent/src/core/points.ts", [2, 0]],
-  ["packages/agent/src/core/ports.ts", [5, 4]],
-  ["packages/agent/src/core/read.ts", [1, 0]],
+  ["packages/agent/src/core/messages.ts", [0, 0]],
+  ["packages/agent/src/core/metrics.ts", [0, 0]],
+  ["packages/agent/src/core/points.ts", [0, 0]],
+  ["packages/agent/src/core/ports.ts", [0, 0]],
+  ["packages/agent/src/core/read.ts", [0, 0]],
   ["packages/agent/src/core/reason-codes.ts", [0, 0]],
-  ["packages/agent/src/core/recovery.ts", [3, 0]],
+  ["packages/agent/src/core/recovery.ts", [0, 0]],
   ["packages/agent/src/core/request-binding.ts", [0, 0]],
-  ["packages/agent/src/core/request.ts", [4, 2]],
+  ["packages/agent/src/core/request.ts", [0, 0]],
   ["packages/agent/src/core/retry.ts", [0, 0]],
-  ["packages/agent/src/core/run-events.ts", [4, 1]],
-  ["packages/agent/src/core/run.ts", [40, 9]],
-  ["packages/agent/src/core/stop.ts", [1, 1]],
-  ["packages/agent/src/core/store/action-hash.ts", [1, 0]],
-  ["packages/agent/src/core/store/catalog.ts", [15, 0]],
+  ["packages/agent/src/core/run-events.ts", [0, 0]],
+  ["packages/agent/src/core/run.ts", [0, 0]],
+  ["packages/agent/src/core/stop.ts", [0, 0]],
+  ["packages/agent/src/core/store/action-hash.ts", [0, 0]],
+  ["packages/agent/src/core/store/catalog.ts", [0, 0]],
   ["packages/agent/src/core/store/decision.ts", [0, 0]],
-  ["packages/agent/src/core/store/errors.ts", [2, 0]],
-  ["packages/agent/src/core/store/fence.ts", [17, 0]],
+  ["packages/agent/src/core/store/errors.ts", [0, 0]],
+  ["packages/agent/src/core/store/fence.ts", [0, 0]],
   ["packages/agent/src/core/store/handle.ts", [0, 0]],
-  ["packages/agent/src/core/store/index.ts", [1, 0]],
+  ["packages/agent/src/core/store/index.ts", [0, 0]],
   ["packages/agent/src/core/store/json.ts", [0, 0]],
   ["packages/agent/src/core/store/services.ts", [0, 0]],
-  ["packages/agent/src/core/store/session-file/index.ts", [18, 2]],
+  ["packages/agent/src/core/store/session-file/index.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/sqlite-l0-observation.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/sqlite-l0-policies.ts", [0, 0]],
-  ["packages/agent/src/core/store/storage/sqlite-l0-rows.ts", [2, 0]],
+  ["packages/agent/src/core/store/storage/sqlite-l0-rows.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/sqlite-l0-sessions.ts", [0, 0]],
-  ["packages/agent/src/core/store/storage/sqlite-l0-write.ts", [8, 1]],
+  ["packages/agent/src/core/store/storage/sqlite-l0-write.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/timestamped-store.ts", [0, 0]],
   ["packages/agent/src/core/store/storage/write-effect.ts", [0, 0]],
-  ["packages/agent/src/core/tool-output.ts", [2, 0]],
-  ["packages/agent/src/core/tool.ts", [7, 4]],
-  ["packages/agent/src/core/turn.ts", [17, 5]],
-  ["packages/agent/src/core/types.ts", [10, 0]],
-  ["packages/agent/src/index.ts", [1, 1]],
+  ["packages/agent/src/core/tool-output.ts", [0, 0]],
+  ["packages/agent/src/core/tool.ts", [0, 0]],
+  ["packages/agent/src/core/turn.ts", [0, 0]],
+  ["packages/agent/src/core/types.ts", [0, 0]],
+  ["packages/agent/src/index.ts", [0, 0]],
   ["packages/agent/src/inspect/history.ts", [0, 0]],
-  ["packages/agent/src/inspect/index.ts", [5, 0]],
-  ["packages/agent/src/inspect/tree.ts", [2, 0]],
+  ["packages/agent/src/inspect/index.ts", [0, 0]],
+  ["packages/agent/src/inspect/tree.ts", [0, 0]],
   ["packages/agent/src/model/auth/index.ts", [0, 0]],
-  ["packages/agent/src/model/auth/storage.ts", [2, 0]],
+  ["packages/agent/src/model/auth/storage.ts", [0, 0]],
   ["packages/agent/src/model/error.ts", [0, 0]],
-  ["packages/agent/src/model/errors.ts", [2, 0]],
+  ["packages/agent/src/model/errors.ts", [0, 0]],
   ["packages/agent/src/model/index.ts", [0, 0]],
-  ["packages/agent/src/model/layers.ts", [1, 0]],
-  ["packages/agent/src/model/message/index.ts", [1, 0]],
+  ["packages/agent/src/model/layers.ts", [0, 0]],
+  ["packages/agent/src/model/message/index.ts", [0, 0]],
   ["packages/agent/src/model/model/index.ts", [0, 0]],
-  ["packages/agent/src/model/model/loader.ts", [4, 0]],
-  ["packages/agent/src/model/model/schema.ts", [1, 0]],
+  ["packages/agent/src/model/model/loader.ts", [0, 0]],
+  ["packages/agent/src/model/model/schema.ts", [0, 0]],
   ["packages/agent/src/model/model/select.ts", [0, 0]],
   ["packages/agent/src/model/processor/event-schema.ts", [0, 0]],
-  ["packages/agent/src/model/processor/index.ts", [2, 0]],
+  ["packages/agent/src/model/processor/index.ts", [0, 0]],
   ["packages/agent/src/model/processor/normalize.ts", [0, 0]],
-  ["packages/agent/src/model/processor/stream-events.ts", [9, 0]],
-  ["packages/agent/src/model/processor/tool-events.ts", [3, 0]],
+  ["packages/agent/src/model/processor/stream-events.ts", [0, 0]],
+  ["packages/agent/src/model/processor/tool-events.ts", [0, 0]],
   ["packages/agent/src/model/provider/identity.ts", [0, 0]],
-  ["packages/agent/src/model/provider/index.ts", [2, 0]],
+  ["packages/agent/src/model/provider/index.ts", [0, 0]],
   ["packages/agent/src/model/provider/proxy-models.ts", [0, 0]],
   ["packages/agent/src/model/provider/sdk.ts", [0, 0]],
   ["packages/agent/src/model/provider/stream.ts", [0, 0]],
-  ["packages/agent/src/model/provider/transform.ts", [1, 0]],
-  ["packages/agent/src/model/retry/delay.ts", [1, 0]],
-  ["packages/agent/src/model/retry/index.ts", [1, 0]],
-  ["packages/agent/src/model/retry/telemetry.ts", [1, 0]],
-  ["packages/agent/src/model/run.ts", [6, 0]],
-  ["packages/agent/src/model/services.ts", [1, 0]],
-  ["packages/agent/src/model/sink.ts", [2, 0]],
+  ["packages/agent/src/model/provider/transform.ts", [0, 0]],
+  ["packages/agent/src/model/retry/delay.ts", [0, 0]],
+  ["packages/agent/src/model/retry/index.ts", [0, 0]],
+  ["packages/agent/src/model/retry/telemetry.ts", [0, 0]],
+  ["packages/agent/src/model/run.ts", [0, 0]],
+  ["packages/agent/src/model/services.ts", [0, 0]],
+  ["packages/agent/src/model/sink.ts", [0, 0]],
   ["packages/agent/src/model/token/index.ts", [0, 0]],
   ["packages/agent/src/model/token/schema.ts", [0, 0]],
-  ["packages/agent/src/plugins/action/index.ts", [2, 0]],
-  ["packages/agent/src/plugins/alarm/index.ts", [5, 0]],
-  ["packages/agent/src/plugins/alarm/watch.ts", [8, 0]],
+  ["packages/agent/src/plugins/action/index.ts", [0, 0]],
+  ["packages/agent/src/plugins/alarm/index.ts", [0, 0]],
+  ["packages/agent/src/plugins/alarm/watch.ts", [0, 0]],
   ["packages/agent/src/plugins/compaction/candidate.ts", [0, 0]],
   ["packages/agent/src/plugins/compaction/compact.ts", [0, 0]],
-  ["packages/agent/src/plugins/compaction/contract.ts", [1, 0]],
+  ["packages/agent/src/plugins/compaction/contract.ts", [0, 0]],
   ["packages/agent/src/plugins/compaction/cut.ts", [0, 0]],
   ["packages/agent/src/plugins/compaction/durable.ts", [0, 0]],
-  ["packages/agent/src/plugins/compaction/estimate.ts", [2, 0]],
+  ["packages/agent/src/plugins/compaction/estimate.ts", [0, 0]],
   ["packages/agent/src/plugins/compaction/execute-cut.ts", [0, 0]],
-  ["packages/agent/src/plugins/compaction/geometry.ts", [1, 0]],
-  ["packages/agent/src/plugins/compaction/index.ts", [2, 0]],
-  ["packages/agent/src/plugins/compaction/measure.ts", [1, 0]],
+  ["packages/agent/src/plugins/compaction/geometry.ts", [0, 0]],
+  ["packages/agent/src/plugins/compaction/index.ts", [0, 0]],
+  ["packages/agent/src/plugins/compaction/measure.ts", [0, 0]],
   ["packages/agent/src/plugins/compaction/reduce.ts", [0, 0]],
-  ["packages/agent/src/plugins/compaction/restore.ts", [1, 0]],
-  ["packages/agent/src/plugins/compaction/speculate.ts", [1, 0]],
-  ["packages/agent/src/plugins/compaction/successor.ts", [1, 0]],
-  ["packages/agent/src/plugins/compaction/summary.ts", [7, 0]],
-  ["packages/agent/src/plugins/hook/consultant.ts", [4, 0]],
-  ["packages/agent/src/plugins/hook/index.ts", [3, 0]],
-  ["packages/agent/src/plugins/hook/process.ts", [11, 0]],
-  ["packages/agent/src/plugins/tool/dispatch.ts", [4, 0]],
-  ["packages/agent/src/plugins/tool/index.ts", [1, 0]],
+  ["packages/agent/src/plugins/compaction/restore.ts", [0, 0]],
+  ["packages/agent/src/plugins/compaction/speculate.ts", [0, 0]],
+  ["packages/agent/src/plugins/compaction/successor.ts", [0, 0]],
+  ["packages/agent/src/plugins/compaction/summary.ts", [0, 0]],
+  ["packages/agent/src/plugins/hook/consultant.ts", [0, 0]],
+  ["packages/agent/src/plugins/hook/index.ts", [0, 0]],
+  ["packages/agent/src/plugins/hook/process.ts", [0, 0]],
+  ["packages/agent/src/plugins/tool/dispatch.ts", [0, 0]],
+  ["packages/agent/src/plugins/tool/index.ts", [0, 0]],
   ["packages/agent/src/testing/commit.ts", [0, 0]],
-  ["packages/agent/src/testing/controller.ts", [1, 0]],
-  ["packages/agent/src/testing/delivery.ts", [1, 0]],
-  ["packages/agent/src/testing/index.ts", [1, 0]],
-  ["packages/agent/src/testing/registry.ts", [2, 1]],
+  ["packages/agent/src/testing/controller.ts", [0, 0]],
+  ["packages/agent/src/testing/delivery.ts", [0, 0]],
+  ["packages/agent/src/testing/index.ts", [0, 0]],
+  ["packages/agent/src/testing/registry.ts", [0, 0]],
 ]);
 
 export const RESIDUE_PINS: ResiduePins = {
   files: RESIDUE_FILE_PINS,
-  ratioBasisPoints: 1_424, // CEILING: re-measured after the #1344 cleanup (1425 = 3485/24454 at d9800ad74)
-  // TIGHT: JSDoc blocks spanning >6 physical lines at d9800ad74. The issue's
-  // 97 is not reproducible under any line-span definition; ceiling = measured
-  // 126 under "spans > 6 physical lines".
-  jsdocOverSix: 125,
-  structuralHeaders: STRUCTURAL_HEADERS,
+  // CEILING: measured after the 100-column rewrap (1682/23018); the package rule
+  // is 800bp, the ceiling is the actual so any comment growth fails.
+  ratioBasisPoints: 730,
+  jsdocOverSix: 0, // TIGHT: no JSDoc block may span more than six physical lines.
+  durableByteNotes: DURABLE_BYTE_NOTES,
 };
 
 export async function main(
@@ -432,7 +438,7 @@ export async function main(
     return;
   }
   io.stdout(
-    `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight)\n`,
+    `OK: comment residue pinned — ${RESIDUE_PINS.files.size} files, ratio ceiling ${RESIDUE_PINS.ratioBasisPoints}bp (growth-only), JSDoc>6 pin ${RESIDUE_PINS.jsdocOverSix} (tight), durable-byte notes ${RESIDUE_PINS.durableByteNotes.length}/${DURABLE_BYTE_NOTE_BUDGET}\n`,
   );
 }
 
