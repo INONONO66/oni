@@ -1,5 +1,32 @@
 # Implementation Status
 
+## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
+
+On `fix1337/1456-desktop-owner-bootstrap` (2026-10-13, base `18ca03806`).
+
+- The desktop connects with URL + token and no actor declaration; the upgrade
+  mints `connection:<uuid>`. Chat already admits that sender as the Owner from
+  one fact (`admitWebSocketOwner`: no registered endpoint and the stored `ws`
+  bootstrap grant's `defaultTier` is `owner`). The gateway's automation
+  callback used to grant Owner only to tokenless sockets or an already
+  registered Owner endpoint, so `automation_add`/`automation_enable` returned
+  `require_approval` until chat registered the address, and every reconnect
+  minted a new one.
+- `packages/channels` exports `webSocketSenderTier(stores, externalId)` (the
+  registered identity's tier, else the ws grant's `defaultTier`); chat's
+  `admitWebSocketOwner` and the app's automation callback both read it, so one
+  rule names the Owner's own connection. The old tokenless branch is gone: the
+  same grant covers a tokenless loopback socket, and removing the grant
+  (`openomni-resident-ws`) makes both chat and automation fail closed.
+- A declared socket keeps whatever its registered identity says (a registered
+  collaborator still gets `require_approval`); an unregistered declaration on
+  a token-authenticated socket resolves exactly as chat resolves it (the token
+  is the Owner credential). Session callers are unchanged.
+- Tests (`apps/openomni/test/automation-wire.test.ts`): the fresh token socket
+  on plain `/ws` with no pre-registered Owner runs add -> enable -> list twice
+  across a reconnect with `createdBy: "owner"` results; the same socket without
+  the bootstrap grant is refused `require_approval`.
+
 ## #1348 — agent test dedup and bare-throw narrowing (PR #1448, base `18ca03806`)
 
 - Every positive bare `toThrow()` in `packages/agent/test` is narrowed to the class the code actually throws: 41 sites in 19 files → 0 (`rg --pcre2 -n '(?<!not\.)toThrow\(\)' -g '*.ts' packages/agent/test`). Each site was classified by running a scratch probe copy once (deleted afterwards, never committed) rather than guessed; the classification receipt is `lane-1348-throw-probe.txt` under the campaign evidence directory.
@@ -52,8 +79,9 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
 
 - `apps/desktop/src/renderer/gateway/` transport gained six typed methods over the
   existing WebSocket: `automation_add`, `automation_remove`, `automation_enable`,
-  `automation_disable`, `automation_list`, `automation_ledger_read`; replies are
-  `*_added/removed/enabled/disabled/listed/ledger` or the shared `*_refused`
+  `automation_disable`, `automation_list`, `automation_ledger`; replies are
+  `*_added/removed/enabled/disabled/listed` and `automation_ledger_read` or the
+  shared `*_refused`
   frame. Every request has a bounded wait; a missing or malformed reply resolves
   to a typed refusal and re-enables the list (#1447 r1 M2).
 - `renderer/automation/{editor,triggers,conditions,view}.tsx`: record editor for
@@ -61,7 +89,8 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   render next to their field; `require_approval` and refusals are shown, never
   retried.
 - `renderer/ingress-ledger/{rows,view}.tsx`: ledger explorer over
-  `automation_ledger_read` (range/page bounded); a grouped row links to the
+  `automation_ledger` requests / `automation_ledger_read` replies (range/page
+  bounded); a grouped row links to the
   `matched` row sharing its `group:<id>` fact, the shape `packages/channels`
   `router/automation/groups.ts` writes (#1447 r1 H1).
 - Fixture preview lives only in `apps/desktop/test/automation-preview.{tsx,html}`
