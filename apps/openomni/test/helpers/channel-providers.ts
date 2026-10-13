@@ -5,7 +5,8 @@ type ProviderCredentials =
   | Parameters<typeof ChannelProviders.telegram.create>[0]
   | Parameters<typeof ChannelProviders.discord.create>[0]
   | Parameters<typeof ChannelProviders.slack.create>[0]
-  | Parameters<typeof ChannelProviders.github.create>[0];
+  | Parameters<typeof ChannelProviders.github.create>[0]
+  | Parameters<typeof ChannelProviders.webhook.create>[0];
 
 class FakeSurface implements Channel.Surface {
   handler: Channel.MessageHandler | null = null;
@@ -21,12 +22,10 @@ class FakeSurface implements Channel.Surface {
   onMessage(handler: Channel.MessageHandler): void {
     this.handler = handler;
   }
-
   start(_traceId: string): Promise<void> {
     this.started = true;
     return Promise.resolve();
   }
-
   stop(_traceId: string): void {
     this.stopped = true;
   }
@@ -80,7 +79,20 @@ export function fakeProviders() {
         };
       },
     },
+    webhook: {
+      ...ChannelProviders.webhook,
+      create(credentials, config) {
+        const surface = new FakeSurface("webhook", config, credentials);
+        surfaces.push(surface);
+        return {
+          surface,
+          webhookHandler: (request) => {
+            webhookCalls.push(request);
+            return Promise.resolve(new Response("OK", { status: 200 }));
+          },
+        };
+      },
+    },
   };
   return { surfaces, providers, delivered, webhookCalls };
 }
-

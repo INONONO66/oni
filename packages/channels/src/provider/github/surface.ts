@@ -1,4 +1,4 @@
-import { DeliveryNotSent, RateLimited } from "../../errors";
+import { RateLimited } from "../../errors";
 import { newTraceId } from "../../support/trace";
 import { type Channel, Operational } from "@openomni/protocol";
 import { z } from "zod";
@@ -7,25 +7,24 @@ import { requireHandler } from "../../support/handler-frame";
 import { GitHubClient } from "./client";
 import { GitHubWebhookPayloadSchemas } from "./types";
 import type { EffectRunner, PublishPort } from "../../types";
-import { type DeliveryReceipt, DeliveryReconciliation } from "../../support/deliver";
+import { type DeliveryReceipt, DeliveryReconciliation, isNotSent } from "../../support/deliver";
 import { authenticateGitHubWebhook } from "../../authn/github";
 import type { ChannelAuthnDecisionObserver } from "../../authn/types";
 
 interface GitHubEventContent {
   text: string;
   sender: string;
+  isBot: boolean;
   repo: string;
   issueNumber: number;
   issueKind: "issue" | "pr";
 }
-
 interface UnsupportedEvent {
   readonly kind: "unsupported_event";
   readonly event: string;
   readonly action: string | null;
   readonly reason: "unsupported_event" | "unsupported_action" | "invalid_payload";
 }
-
 function refusal(
   event: string,
   action: string | undefined,
@@ -33,21 +32,15 @@ function refusal(
 ): UnsupportedEvent {
   return { kind: "unsupported_event", event, action: action ?? null, reason };
 }
-
 interface GitHubAuthOptions {
   readonly onDecision?: ChannelAuthnDecisionObserver;
 }
-
-/** Every webhook payload carries `action`; unsupported events may not — optional keeps the event-key log honest. */
 const EventActionSchema = z.object({ action: z.string().optional() });
 const WebhookBodySchema = z.record(z.string(), z.json());
-
 function actionOf(raw: object): string | undefined {
   const parsed = EventActionSchema.safeParse(raw);
   return parsed.success ? parsed.data.action : undefined;
 }
-
-/** Shared shape of both supported payloads — one construction site, not two cloned literals. */
 function issueContent(
   text: string,
   user: { login: string },
@@ -55,13 +48,13 @@ function issueContent(
 ): GitHubEventContent {
   return {
     text,
-    sender: user.login,
+    sender: payload.sender?.login ?? user.login,
+    isBot: payload.sender?.type === "Bot",
     repo: payload.repository.full_name,
     issueNumber: payload.issue.number,
     issueKind: payload.issue.pull_request ? "pr" : "issue",
   };
 }
-
 function extractContent(event: string, raw: object): GitHubEventContent | UnsupportedEvent {
   const action = actionOf(raw);
   if (event === "issue_comment") {
@@ -83,9 +76,21 @@ function extractContent(event: string, raw: object): GitHubEventContent | Unsupp
       parsed.data,
     );
   }
+  if (event === "pull_request") {
+    if (action !== "opened") return refusal(event, action, "unsupported_action");
+    const parsed = GitHubWebhookPayloadSchemas.pull_request.safeParse(raw);
+    if (!parsed.success) return refusal(event, action, "invalid_payload");
+    return issueContent(
+      parsed.data.pull_request.body || parsed.data.pull_request.title,
+      parsed.data.pull_request.user,
+      {
+        ...parsed.data,
+        issue: { ...parsed.data.pull_request, pull_request: {} },
+      },
+    );
+  }
   return refusal(event, action, "unsupported_event");
 }
-
 type PreparedWebhook = Readonly<{
   traceId: string;
   deliveryId: string | null;
@@ -93,12 +98,10 @@ type PreparedWebhook = Readonly<{
   content: GitHubEventContent;
   inbound: Channel.InboundMessage;
 }>;
-
 type WebhookPreparation = PreparedWebhook | Readonly<{ response: Response }>;
 
 export class GitHubAdapter implements Channel.Surface {
   readonly id = "github";
-
   private readonly client: GitHubClient;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
@@ -136,8 +139,11 @@ export class GitHubAdapter implements Channel.Surface {
       try {
         return await this.client.postComment(repo, issueNumber, body, traceId, idempotencyKey);
       } catch (error) {
+        // Same physical-evidence rule as every other driver: a refused connection is a safe resend.
         const value =
-          error instanceof DeliveryNotSent || (error instanceof RateLimited && error.status === 429)
+          error instanceof Error &&
+          // Same physical-evidence rule as every other driver: a refused connection is a safe resend.
+          isNotSent(error, (cause) => cause instanceof RateLimited && cause.status === 429)
             ? "not_sent"
             : "unknown";
         this.publish(Operational.Events.Warn, {
@@ -155,7 +161,6 @@ export class GitHubAdapter implements Channel.Surface {
   onMessage(handler: Channel.MessageHandler): void {
     this.handler = handler;
   }
-
   async start(traceId: string): Promise<void> {
     requireHandler(this.handler, "github");
     this.publish(Operational.Events.Info, {
@@ -165,9 +170,8 @@ export class GitHubAdapter implements Channel.Surface {
       msg: "github webhook handler ready",
     });
   }
-
   stop(_traceId: string): void {
-    // no-op: GitHub adapter is webhook-based, no persistent connection to close
+    // Webhook transport has no persistent connection.
   }
 
   async handleWebhook(request: Request): Promise<Response> {
@@ -183,7 +187,6 @@ export class GitHubAdapter implements Channel.Surface {
         : { onDecision: this.authOptions.onDecision }),
     });
     if (auth.response) return auth.response;
-
     let body: ReturnType<typeof WebhookBodySchema.safeParse>;
     try {
       body = WebhookBodySchema.safeParse(JSON.parse(auth.body ?? ""));
@@ -192,7 +195,6 @@ export class GitHubAdapter implements Channel.Surface {
     }
     const preparation = this.prepareWebhook(request, body, traceId);
     if ("response" in preparation) return preparation.response;
-
     return this.dispatchWebhook(preparation);
   }
 
@@ -218,14 +220,11 @@ export class GitHubAdapter implements Channel.Surface {
   ): WebhookPreparation {
     const deliveryId = request.headers.get("x-github-delivery");
     const dedupeAcquisition = deliveryId === null ? undefined : this.dedupe.acquire(deliveryId);
-    if (dedupeAcquisition?.duplicate) {
+    if (dedupeAcquisition?.duplicate)
       return { response: new Response("Already processed", { status: 200 }) };
-    }
     const dedupeToken = dedupeAcquisition?.token;
-
     const event = request.headers.get("x-github-event");
     if (!event) return { response: new Response("Missing event", { status: 400 }) };
-
     if (!body.success)
       return this.observeUnsupported(
         refusal(event, undefined, "invalid_payload"),
@@ -235,32 +234,31 @@ export class GitHubAdapter implements Channel.Surface {
     const raw = body.data;
     const eventKey = `${event}.${actionOf(raw)}`;
     this.publish(Operational.Events.Info, {
+      // deliveryId: GitHub's own per-delivery id (x-github-delivery) — the
+      // natural correlation key between this trace and GitHub's audit log.
       traceId,
       time: this.options.now(),
       component: "server",
       msg: "github event received",
-      // deliveryId: GitHub's own per-delivery id (x-github-delivery) — the
-      // natural correlation key between this trace and GitHub's audit log.
       context: { event: eventKey, deliveryId },
     });
-
     const content = extractContent(event, raw);
     if ("kind" in content) return this.observeUnsupported(content, deliveryId, traceId);
-
     if (deliveryId === null || deliveryId.length === 0)
       return { response: new Response("Missing delivery id", { status: 400 }) };
     const addressees = [
       ...new Set(
-        [...content.text.matchAll(/@([a-zA-Z0-9][a-zA-Z0-9-]*)/g)].flatMap((match) => {
-          const id = match[1];
-          return id === undefined ? [] : [id];
-        }),
+        [...content.text.matchAll(/@([a-zA-Z0-9][a-zA-Z0-9-]*)/g)].flatMap((match) =>
+          match[1] === undefined ? [] : [match[1]],
+        ),
       ),
     ];
     const inbound: Channel.InboundMessage = {
       sender: { kind: "external", surface: "github", externalId: content.sender },
       facts: {
         eventId: deliveryId,
+        event: "message",
+        author: { externalId: content.sender, isBot: content.isBot },
         surface: "github",
         workspaceId: content.repo,
         channelId: `${content.issueKind}-${content.issueNumber}`,
@@ -275,19 +273,13 @@ export class GitHubAdapter implements Channel.Surface {
         render: content.text,
       },
     };
-
     this.publish(Operational.Events.Debug, {
       traceId,
       time: this.options.now(),
       component: "server",
       msg: "github message received",
-      context: {
-        repo: content.repo,
-        issue: content.issueNumber,
-        event: eventKey,
-      },
+      context: { repo: content.repo, issue: content.issueNumber, event: eventKey },
     });
-
     return { traceId, deliveryId, dedupeToken, content, inbound };
   }
 
@@ -308,12 +300,10 @@ export class GitHubAdapter implements Channel.Surface {
           stack: err instanceof Error ? err.stack : undefined,
         },
       });
-      if (prepared.deliveryId && prepared.dedupeToken !== undefined) {
+      if (prepared.deliveryId && prepared.dedupeToken !== undefined)
         this.dedupe.forget(prepared.deliveryId, prepared.dedupeToken);
-      }
       return new Response("Processing failed", { status: 500 });
     }
-
     return new Response("OK", { status: 200 });
   }
 }

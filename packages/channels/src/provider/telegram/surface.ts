@@ -10,12 +10,11 @@ import { TELEGRAM_RENDER } from "./format";
 import { TelegramClient } from "./client";
 import { TelegramNormalizer } from "./normalizer";
 import { TelegramPoller } from "./poller";
-import type { TelegramMessage } from "./types";
+import type { TelegramMessage, TelegramReaction } from "./types";
 import type { EffectRunner, PublishPort } from "../../types";
 
 export class TelegramAdapter implements Channel.Surface {
   readonly id = "telegram";
-
   private readonly client: TelegramClient;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
@@ -44,7 +43,6 @@ export class TelegramAdapter implements Channel.Surface {
 
   async start(traceId: string): Promise<void> {
     requireHandler(this.handler, "telegram");
-
     const me = await this.client.getMe(traceId);
     const botId = String(me.id);
     const botUsername = me.username ?? "";
@@ -55,12 +53,7 @@ export class TelegramAdapter implements Channel.Surface {
       msg: "telegram bot started",
       context: { username: me.username ?? me.first_name, botId: me.id },
     });
-
-    this.normalizer = new TelegramNormalizer({
-      botId,
-      botUsername,
-    });
-
+    this.normalizer = new TelegramNormalizer({ botId, botUsername });
     this.poller = new TelegramPoller(
       this.client,
       {
@@ -68,7 +61,10 @@ export class TelegramAdapter implements Channel.Surface {
           const messageTraceId = newTraceId(this.options.id);
           return handoffInbound({
             dedupe: this.dedupe,
-            key: `${message.chat.id}:${message.message_id}`,
+            key:
+              "new_reaction" in message
+                ? `${message.chat.id}:${message.message_id}:${message.new_reaction[0]?.emoji}:${message.user?.id ?? message.actor_chat?.id}`
+                : `${message.chat.id}:${message.message_id}`,
             traceId: messageTraceId,
             now: this.options.now,
             publish: this.publish,
@@ -81,7 +77,6 @@ export class TelegramAdapter implements Channel.Surface {
       this.publish,
       this.options,
     );
-
     void this.poller.start();
   }
 
@@ -116,11 +111,13 @@ export class TelegramAdapter implements Channel.Surface {
     );
   }
 
-  private async handleMessage(message: TelegramMessage, traceId: string): Promise<void> {
+  private async handleMessage(
+    message: TelegramMessage | TelegramReaction,
+    traceId: string,
+  ): Promise<void> {
     if (!this.normalizer) return;
     const inbound = this.normalizer.normalize(message);
     if (!inbound) return;
-
     this.publish(Operational.Events.Debug, {
       traceId,
       time: this.options.now(),
@@ -128,7 +125,6 @@ export class TelegramAdapter implements Channel.Surface {
       msg: "telegram message received",
       context: { chatId: String(message.chat.id) },
     });
-
     await requireHandler(this.handler, "telegram")(inbound);
   }
 }

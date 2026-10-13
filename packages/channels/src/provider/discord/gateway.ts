@@ -42,9 +42,7 @@ function validResumeUrl(raw: string, trustedOrigin: string | null): string | nul
   const host = parsed.hostname;
   const discordGateway =
     parsed.protocol === "wss:" && (host === "discord.gg" || host.endsWith(".discord.gg"));
-  if (!(discordGateway || parsed.origin === trustedOrigin)) {
-    return null;
-  }
+  if (!(discordGateway || parsed.origin === trustedOrigin)) return null;
   return `${raw}?v=10&encoding=json`;
 }
 
@@ -99,8 +97,7 @@ export class DiscordGateway {
   private async reconnect(): Promise<void> {
     // A resumable session skips the URL fetch; either path's rejection is one
     // failed attempt of the shell's bounded reconnect streak.
-    const url =
-      this.resumeUrl && this.sessionId ? this.resumeUrl : await this.fetchGatewayUrl();
+    const url = this.resumeUrl && this.sessionId ? this.resumeUrl : await this.fetchGatewayUrl();
     await this.openSocket(url);
   }
 
@@ -154,7 +151,6 @@ export class DiscordGateway {
     // JSON.stringify — the same serialization class as the #520 token bug.
     if (typeof frame.s === "number") this.sequence = frame.s;
     const d = frame.d;
-
     switch (frame.op) {
       case GatewayOp.HELLO: {
         const hello = HelloDataSchema.safeParse(d);
@@ -274,7 +270,9 @@ export class DiscordGateway {
         intents:
           Intents.GUILDS |
           Intents.GUILD_MESSAGES |
+          Intents.GUILD_MESSAGE_REACTIONS |
           Intents.DIRECT_MESSAGES |
+          Intents.DIRECT_MESSAGE_REACTIONS |
           Intents.MESSAGE_CONTENT,
         properties: { os: "linux", browser: "openomni", device: "openomni" },
       },

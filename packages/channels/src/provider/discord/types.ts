@@ -14,7 +14,9 @@ export const GatewayOp = {
 export const Intents = {
   GUILDS: 1 << 0,
   GUILD_MESSAGES: 1 << 9,
+  GUILD_MESSAGE_REACTIONS: 1 << 10,
   DIRECT_MESSAGES: 1 << 12,
+  DIRECT_MESSAGE_REACTIONS: 1 << 13,
   MESSAGE_CONTENT: 1 << 15,
 } as const;
 
@@ -43,6 +45,16 @@ export const DiscordMessageSchema = z.object({
 
 export type DiscordMessage = z.infer<typeof DiscordMessageSchema>;
 
+export const DiscordReactionSchema = z.object({
+  user_id: z.string(),
+  message_id: z.string(),
+  channel_id: z.string(),
+  guild_id: z.string().optional(),
+  emoji: z.object({ name: z.string().nullable() }),
+  member: z.object({ user: DiscordUserSchema.optional() }).optional(),
+});
+export type DiscordReaction = z.infer<typeof DiscordReactionSchema>;
+
 /** Outer gateway frame; `d` stays op-specific and is parsed at each op's arm. */
 export const GatewayFrameSchema = z.object({
   op: z.number(),
@@ -50,11 +62,8 @@ export const GatewayFrameSchema = z.object({
   s: z.number().nullish(),
   t: z.string().nullish(),
 });
-
 export type GatewayFrame = z.infer<typeof GatewayFrameSchema>;
-
 export const HelloDataSchema = z.object({ heartbeat_interval: z.number() });
-
 export const ReadyDataSchema = z.object({
   session_id: z.string(),
   resume_gateway_url: z.string(),

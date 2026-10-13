@@ -8,6 +8,7 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
   test(`GitHub authenticated webhook preserves platform facts: ${text}`, async () => {
     const payload = {
       action: "created",
+      sender: { login: "sender", type: "Bot" },
       repository: { full_name: "owner/repo", owner: { login: "owner" }, name: "repo" },
       issue: { number: 7, title: "issue", user: { login: "owner", type: "User" } },
       comment: { id: 42, body: text, user: { login: "sender", type: "Bot" } },
@@ -42,6 +43,8 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
       expect(facts.payload).toEqual(payload);
       expect(facts).toMatchObject({
         eventId: "event-42",
+        event: "message",
+        author: { externalId: "sender", isBot: true },
         workspaceId: "owner/repo",
         channelId: "issue-7",
         dm: false,
@@ -90,6 +93,25 @@ for (const value of ["sent", "not_sent", "unknown"] as const) {
   });
 }
 
+test("GitHub reports a refused connection as not_sent, like every other driver", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = Object.assign(
+    async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "GET") return Response.json([]);
+      throw Object.assign(new TypeError("Unable to connect"), { code: "ECONNREFUSED" });
+    },
+    { preconnect: realFetch.preconnect },
+  );
+  try {
+    const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions(), "token");
+    expect(await adapter.deliver("owner/repo#7", "content", "refused-key")).toEqual({
+      value: "not_sent",
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("GitHub refuses malformed destinations and missing credentials before effects", async () => {
   const realFetch = globalThis.fetch;
   let calls = 0;
@@ -107,9 +129,8 @@ test("GitHub refuses malformed destinations and missing credentials before effec
       "owner/repo",
       "owner/..#7",
       "owner/repo#999999999999999999999",
-    ]) {
+    ])
       expect(await adapter.deliver(endpoint, "content", endpoint)).toEqual({ value: "not_sent" });
-    }
     expect(calls).toBe(0);
   } finally {
     globalThis.fetch = realFetch;

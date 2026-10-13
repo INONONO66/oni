@@ -13,7 +13,7 @@
  */
 
 import type { ChannelProvider, EffectRunner, ProviderDeliveryRoute } from "@openomni/channels";
-import { ChannelProviders } from "@openomni/channels";
+import { ChannelProviders, createWebhookProvider } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
 
@@ -124,6 +124,7 @@ function declaredRow(
   plaintext: Uint8Array,
   providers: typeof ChannelProviders,
   deps: ChannelRuntimeDeps,
+  readCredential: CredentialReader,
 ): ChannelComponent | { readonly invalid: string } {
   if (key === "telegram") {
     return credentialRow(providers.telegram, plaintext, deps);
@@ -133,6 +134,17 @@ function declaredRow(
   }
   if (key === "slack") {
     return credentialRow(providers.slack, plaintext, deps);
+  }
+  if (key === "webhook") {
+    // Webhook has no static secret in the row's own credential payload: the
+    // signing secret lives behind `secretRef` and is only resolvable through
+    // the vault, so this is the one provider built fresh here rather than
+    // taken from the shipped `providers` registry.
+    const resolveSecret = async (ref: string) => {
+      const secret = readCredential(ref);
+      return secret.kind === "ok" ? new TextDecoder().decode(secret.plaintext) : undefined;
+    };
+    return credentialRow(createWebhookProvider(resolveSecret), plaintext, deps);
   }
   return credentialRow(providers.github, plaintext, deps);
 }
@@ -227,7 +239,13 @@ export function declaredChannelProfile(
       record(instance, "vault_locked", credential.reason);
       continue;
     }
-    const row = declaredRow(instance.provider, credential.plaintext, providers, deps);
+    const row = declaredRow(
+      instance.provider,
+      credential.plaintext,
+      providers,
+      deps,
+      readCredential,
+    );
     if ("invalid" in row) {
       record(instance, "credential_invalid", row.invalid);
       continue;

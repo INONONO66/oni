@@ -21,6 +21,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "createReplyGrantStore",
     "createSecretStore",
     "createSurfaceKeyStore",
+    "createWebhookProvider",
     "decodeChannelFailure",
     "openChannelStore",
     "resolveChannelGrant",

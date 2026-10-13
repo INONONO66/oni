@@ -1,7 +1,7 @@
 import type { ChannelStores } from "./stores.js";
 import type { PolicyEvaluationInput } from "@openomni/agent";
 import { Channel, type Gateway } from "@openomni/protocol";
-import { ChannelsFailure } from "../errors";
+import { inboundIdOf } from "./inbound-id.js";
 import { newTraceId } from "../support/trace";
 import { resolveChannelGrant } from "./channel-grant";
 import { resolveIngressActor } from "./actor-resolver";
@@ -17,7 +17,8 @@ function admitWebSocketOwner(
   if (
     sender.surface !== "ws" ||
     stores.actors.resolveEndpoint("ws", sender.externalId) !== undefined ||
-    resolveChannelGrant(stores, { surface: "ws", sender: sender.externalId })?.grant.defaultTier !== "owner"
+    resolveChannelGrant(stores, { surface: "ws", sender: sender.externalId })?.grant.defaultTier !==
+      "owner"
   )
     return;
   const actorId = `ws:owner:${sender.externalId}`;
@@ -57,11 +58,8 @@ export function externalMessage(
   requests: GatewayRouterPorts["requests"],
   id: () => string,
 ) {
-  if (sender.surface !== facts.surface)
-    throw new ChannelsFailure({
-      operation: "message.ingress",
-      cause: "authenticated surface mismatch",
-    });
+  // The sender/facts surface match is checked once by the caller
+  // (router/index.ts resolveExternal) before this projection runs.
   const surfaceKey = Channel.SurfaceKey.fromChannel({
     surface: facts.surface,
     namespace: facts.workspaceId ?? facts.surface,
@@ -74,9 +72,7 @@ export function externalMessage(
   const event = resolveIngressActor(
     stores,
     {
-      id: [facts.surface, facts.workspaceId ?? "", facts.channelId, facts.eventId]
-        .map(encodeURIComponent)
-        .join(":"),
+      id: inboundIdOf(facts),
       traceId: newTraceId(id),
       surface: facts.surface,
       ...(facts.workspaceId === undefined ? {} : { workspace: facts.workspaceId }),
@@ -98,7 +94,16 @@ export function externalMessage(
     },
     at,
   );
-  const route = resolveAndRecordRoute(stores, event, surfaceKey, event.traceId, sink, requests, at, id);
+  const route = resolveAndRecordRoute(
+    stores,
+    event,
+    surfaceKey,
+    event.traceId,
+    sink,
+    requests,
+    at,
+    id,
+  );
   const addressee = resolveAddressee(stores, facts);
   const target = route.decision.sessionId ?? stores.surfaceKeys.lookup(surfaceKey) ?? id();
   const actorId = event.meta?.actor?.actorId;

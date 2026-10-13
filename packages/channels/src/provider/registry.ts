@@ -2,6 +2,7 @@ import { DiscordProvider } from "./discord/provider.js";
 import { GitHubProvider } from "./github/provider.js";
 import { SlackProvider } from "./slack/provider.js";
 import { TelegramProvider } from "./telegram/provider.js";
+import { WebhookProvider } from "./webhook/provider.js";
 
 /**
  * The shipped provider set — pure data, no I/O. Composition roots read this
@@ -17,9 +18,11 @@ export const ChannelProviders: Readonly<{
   discord: typeof DiscordProvider;
   github: typeof GitHubProvider;
   slack: typeof SlackProvider;
+  webhook: typeof WebhookProvider;
 }> = {
   telegram: TelegramProvider,
   discord: DiscordProvider,
   github: GitHubProvider,
   slack: SlackProvider,
+  webhook: WebhookProvider,
 } as const;
