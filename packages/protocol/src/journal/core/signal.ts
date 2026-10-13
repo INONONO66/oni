@@ -2,8 +2,7 @@
  * `signal` — interrupt/resume/cancel control, consumed at the next boundary,
  * never a turn input. Single writer: the entity deliver path
  * (`packages/agent/src/core/commit.ts`). Version 2 (#1315): payloads name
- * the delivered input `deliveryId`; version-1 rows fold through the
- * `prompt` declaration's `foldDeliveryPayload` reader.
+ * the delivered input `deliveryId`.
  */
 import { z } from "zod";
 import { RowBody, declare, refineField } from "../declaration.js";

@@ -156,18 +156,6 @@ export namespace LedgerSession {
   export const Role = z.enum(["resident", "child"]);
   export type Role = z.infer<typeof Role>;
 
-  /**
-   * #1315 versioned role read: rows persisted before the rename carry the
-   * retired job-title byte for the delegated-session role. Old bytes stay on
-   * disk, every reader folds through here, writers only ever write `child`,
-   * and no alias is exported. This constant is the one sanctioned home for
-   * the retired role byte; the vocabulary-retirement grep excludes it by name.
-   */
-  export const LEGACY_CHILD_ROLE = "worker" as const;
-  export function foldLegacyRole(role: string): string {
-    return role === LEGACY_CHILD_ROLE ? "child" : role;
-  }
-
   export const State = z.enum(["idle", "running", "interrupted"]);
   export type State = z.infer<typeof State>;
 

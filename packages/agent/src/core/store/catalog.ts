@@ -7,7 +7,6 @@ import { LedgerSession } from "@openomni/protocol";
 import { CatalogVersionRefused, SessionNotFound } from "./errors";
 import { bootstrapStoreDatabase, SILENT_OBSERVATION_SINK, StoreHandle } from "./session-file/index.js";
 import { createPolicies } from "./storage/sqlite-l0-policies.js";
-import { LEGACY_INGRESS_POLICY_KIND } from "../gate/migrate.js";
 
 /**
  * The only catalog schema owner: the session index with its CAS-rotated fence
@@ -15,13 +14,39 @@ import { LEGACY_INGRESS_POLICY_KIND } from "../gate/migrate.js";
  * and attach to the same handle; the `cluster_*` tables are effect/cluster's.
  * There is no migration plane and the legacy `catalog.db` is never read.
  */
+const sqlList = (values: readonly string[]): string =>
+  values.map((value) => `'${value}'`).join(", ");
+
+/** The session-index role CHECK list: exactly the current role vocabulary. */
+const ROLE_LIST = sqlList(LedgerSession.Role.options);
+
+/**
+ * Policy-row kinds are point kinds (#1251): the closed journal set plus the
+ * one historical seed kind the point mapping still converts (gate/migrate.ts).
+ */
+const KIND_LIST = sqlList([
+  "prompt",
+  "signal",
+  "turn",
+  "llm",
+  "message",
+  "request",
+  "alarm",
+  "session.configure",
+  "policy.decision",
+  "tool",
+  "compaction",
+  "action",
+  "fold.checkpoint",
+  "ingress",
+  "alarm.fired",
+]);
+
 export const CATALOG_SCHEMA: readonly string[] = [
-  // The role CHECK admits the retired pre-rename byte: rebuilt v2 files keep
-  // their rows byte-for-byte and readers fold the legacy byte to `child`.
   `CREATE TABLE IF NOT EXISTS session_index (
     id TEXT PRIMARY KEY,
     parent_id TEXT,
-    role TEXT NOT NULL CHECK (role IN ('resident', 'child', '${LedgerSession.LEGACY_CHILD_ROLE}')),
+    role TEXT NOT NULL CHECK (role IN (${ROLE_LIST})),
     fence INTEGER NOT NULL DEFAULT 0 CHECK (fence >= 0),
     created_at INTEGER NOT NULL,
     has_armed INTEGER NOT NULL DEFAULT 0 CHECK (has_armed IN (0, 1))
@@ -29,15 +54,7 @@ export const CATALOG_SCHEMA: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS idx_session_index_parent ON session_index(parent_id, id)",
   `CREATE TABLE IF NOT EXISTS policy (
     name TEXT NOT NULL,
-    -- Policy-row kinds are point kinds (#1251): the closed journal set plus
-    -- the two historical tokens the legacy point mapping still converts
-    -- (gate/migrate.ts). Old catalog files keep their original CREATE TABLE
-    -- (IF NOT EXISTS), so historical rows stay byte-for-byte.
-    kind TEXT NOT NULL CHECK (kind IN (
-      'prompt', 'signal', 'turn', 'llm', 'message', 'request', 'alarm',
-      'session.configure', 'policy.decision', 'tool', 'compaction', 'action',
-      'fold.checkpoint', 'ingress', '${LEGACY_INGRESS_POLICY_KIND}', 'alarm.fired'
-    )),
+    kind TEXT NOT NULL CHECK (kind IN (${KIND_LIST})),
     phase TEXT NOT NULL CHECK (phase IN ('pre', 'post')),
     match TEXT NOT NULL CHECK (json_valid(match)),
     verdict TEXT NOT NULL CHECK (json_valid(verdict)),
@@ -49,8 +66,12 @@ export const CATALOG_SCHEMA: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS idx_policy_read ON policy(generation, kind, phase, priority DESC, name)",
 ];
 
-/** A `PRAGMA user_version` above this was written by newer code and opens read-only. */
-const CATALOG_SCHEMA_VERSION = 3;
+/**
+ * Catalog schemaVersion (#1252): stamped into `PRAGMA user_version` when the
+ * catalog is created or opened by code at least this new. A file whose marker
+ * is greater than this constant was written by newer code and opens read-only.
+ */
+const CATALOG_SCHEMA_VERSION = 4;
 
 const UserVersion = z.object({ user_version: z.number().int().nonnegative() });
 
@@ -70,8 +91,7 @@ const SessionIndexSqlRow = z
   .object({
     id: z.string(),
     parent_id: z.string().nullable(),
-    // Pre-rename files persist the retired role byte.
-    role: z.string().transform((role) => LedgerSession.foldLegacyRole(role)).pipe(LedgerSession.Role),
+    role: LedgerSession.Role,
     fence: z.number().int().nonnegative(),
     created_at: z.number(),
     // A newer-code file opened read-only may shape this differently.
@@ -196,22 +216,26 @@ interface OpenCatalogStoreOptions {
 }
 
 /**
- * SQLite cannot alter a CHECK constraint, so the two constrained tables are renamed aside,
- * recreated from CATALOG_SCHEMA and every row copied unchanged.
+ * SQLite cannot alter a CHECK constraint, so older catalogs rebuild both constrained tables.
+ * The copy rewrites retired role and ingress bytes to the current vocabulary; collisions or
+ * invalid values fail the transaction. Session-file journal bytes and hashes are untouched.
  */
 function migrateCatalogChecks(db: Database): void {
   for (const table of ["session_index", "policy"] as const) {
-    db.run(`ALTER TABLE ${table} RENAME TO ${table}_v2`);
+    db.run(`ALTER TABLE ${table} RENAME TO ${table}_old`);
   }
   // The raw DDL list: pragmas cannot change inside the migration transaction.
   for (const statement of CATALOG_SCHEMA) db.run(statement);
   db.run(`INSERT INTO session_index (id, parent_id, role, fence, created_at, has_armed)
-    SELECT id, parent_id, role, fence, created_at, has_armed FROM session_index_v2`);
+    SELECT id, parent_id, CASE WHEN role IN (${ROLE_LIST}) THEN role ELSE 'child' END,
+      fence, created_at, has_armed FROM session_index_old`);
   db.run(`INSERT INTO policy (name, kind, phase, match, verdict, encoding_version, priority, generation)
-    SELECT name, kind, phase, match, verdict, encoding_version, priority, generation FROM policy_v2`);
-  db.run("DROP TABLE session_index_v2");
-  db.run("DROP TABLE policy_v2");
-  // RENAME carried the old indexes away with the tables; recreate them.
+    SELECT name, CASE WHEN phase = 'pre' AND kind NOT IN (${KIND_LIST}) THEN 'ingress' ELSE kind END,
+      phase, match, verdict, encoding_version, priority, generation FROM policy_old`);
+  db.run("DROP TABLE session_index_old");
+  db.run("DROP TABLE policy_old");
+  // RENAME carried the old tables' indexes with them and DROP removed them;
+  // a second DDL pass recreates the indexes on the rebuilt tables.
   for (const statement of CATALOG_SCHEMA) db.run(statement);
 }
 
@@ -236,8 +260,7 @@ export function openCatalogStore(path: string, options: OpenCatalogStoreOptions)
           // v1 -> v2: the one guarded column add; fresh files get it from CATALOG_SCHEMA.
           db.run("ALTER TABLE session_index ADD COLUMN has_armed INTEGER NOT NULL DEFAULT 0");
         }
-        // v2 -> v3: rebuild the CHECK constraints so `child` role rows and `ingress`
-        // policy rows insert into pre-rename files; the retired byte stays on disk.
+        // Rebuild older CHECK constraints and rewrite retired bytes during the copy.
         migrateCatalogChecks(db);
         db.run(`PRAGMA user_version = ${CATALOG_SCHEMA_VERSION}`);
       }).immediate();

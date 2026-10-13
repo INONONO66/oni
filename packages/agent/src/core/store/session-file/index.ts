@@ -12,17 +12,8 @@ import {
   type ObservationSink,
   type Storage,
   type Storage as ProtocolStorage,
-  V1_DELIVERY_FIELDS,
 } from "@openomni/protocol";
 
-/**
- *  versioned read: rows persisted before the prompt/signal v2 bump name
- * the delivered input under the retired field names. The SQL projections
- * coalesce both spellings; the legacy paths come from the protocol's
- * versioned reader so no retired token is spelled here.
- */
-const legacyIdPath = `'$.${V1_DELIVERY_FIELDS.id}'`;
-const legacyKindPath = `'$.${V1_DELIVERY_FIELDS.kind}'`;
 import { z } from "zod";
 import { CatalogVersionRefused, CorruptRecord, CreateRefused, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
 import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
@@ -441,10 +432,10 @@ function createActionReads(db: Database, sink: ObservationSink): Reads {
         db
           .query<ActionSqlRow, [string]>(`
         SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind IN ('prompt', 'signal', 'action')
-          AND COALESCE(json_extract(a.effect, '$.deliveryKind'), json_extract(a.effect, ${legacyKindPath})) IS NOT NULL
+          AND json_extract(a.effect, '$.deliveryKind') IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM action d WHERE d.session_id = a.session_id
             AND d.kind IN ('prompt', 'signal', 'action')
-            AND COALESCE(json_extract(d.intent, '$.deliveryId'), json_extract(d.intent, ${legacyIdPath})) = a.id)
+            AND json_extract(d.intent, '$.deliveryId') = a.id)
           AND NOT EXISTS (SELECT 1 FROM action t, json_each(t.intent, '$.consumedStale') stale
             WHERE t.session_id = a.session_id AND t.kind = 'turn' AND json_valid(t.intent)
             AND stale.value = a.id)
@@ -468,7 +459,7 @@ function createActionReads(db: Database, sink: ObservationSink): Reads {
         db
           .query<ActionSqlRow, [string]>(`
         SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind IN ('prompt', 'signal', 'action')
-          AND COALESCE(json_extract(a.effect, '$.deliveryKind'), json_extract(a.effect, ${legacyKindPath})) IS NOT NULL
+          AND json_extract(a.effect, '$.deliveryKind') IS NOT NULL
         ORDER BY a.ordinal`)
           .all(sessionId),
       );

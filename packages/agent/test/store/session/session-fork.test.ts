@@ -9,6 +9,8 @@ import { z } from "zod";
 import { SessionGeneration, type LedgerAction } from "@openomni/protocol";
 import { testNow } from "../helpers/storage";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
+import { RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "../helpers/old-catalog";
+import { openCatalogStore } from "../../../src/core/store/catalog";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION } from "../../../src/core/store/session-file";
 import { receivedMessageAction } from "../../../src/core/commit";
@@ -360,6 +362,48 @@ describe("Session.fork", () => {
       expect(sha256()).toBe(before);
       const parent = fixture.buildParent();
       expect(fixture.refusalOf(fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION + 1 })).reason).toBe("schema_version");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("forks over a parent indexed under the retired role in an upgraded catalog (#1351)", () => {
+    const parent = fixture.buildParent();
+    const directory = mkdtempSync(join(tmpdir(), "fork-upgraded-"));
+    try {
+      const catalogPath = join(directory, "catalog.sqlite");
+      writeOldCatalog(catalogPath, {
+        version: 3,
+        roles: ["resident", "child", RETIRED_ROLE],
+        kinds: ["prompt", "ingress"],
+        sessions: [
+          ["root", null, "resident"],
+          [PARENT, "root", RETIRED_ROLE],
+        ],
+        policies: [],
+      });
+      const upgraded = openCatalogStore(catalogPath, { now: testNow });
+      try {
+        expect(upgraded.sessionIndex(PARENT)).toMatchObject({ parentId: "root", role: "child" });
+        const receipt = fixture.forked(parent.hashOf("turn-1:terminal"), { catalog: upgraded });
+        expect(receipt.parentId).toBe(PARENT);
+        // The child's role comes from the parent's session-file row, not the
+        // catalog; its index row lands under the rebuilt CHECK beside the rewritten parent.
+        expect(receipt.row.role).toBe(stores.kernel.row(PARENT).role);
+        expect(upgraded.sessionIndex(CHILD)).toMatchObject({ parentId: PARENT, role: receipt.row.role });
+      } finally {
+        upgraded.close();
+      }
+      expect(rawCatalogRows(catalogPath)).toMatchObject({
+        version: { user_version: 4 },
+        sessions: [
+          { id: CHILD, parent_id: PARENT, role: "resident" },
+          { id: PARENT, parent_id: "root", role: "child" },
+          { id: "root", parent_id: null, role: "resident" },
+        ],
+      });
+      // The parent chain is untouched by the catalog rewrite.
+      expect(stores.kernel.verifyChain(PARENT)).toMatchObject({ kind: "intact", head: parent.head });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

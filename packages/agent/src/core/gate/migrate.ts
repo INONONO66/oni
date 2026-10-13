@@ -6,14 +6,7 @@ import { GateComposeError, type GatePointTable } from "../points";
  * historical generations are projected the same way at compile time.
  */
 
-/**
- * The one sanctioned home for the retired policy address: historical generations still project it
- * onto `ingress.pre`; the vocabulary-retirement grep excludes it by name.
- */
-export const LEGACY_INGRESS_POLICY_KIND = "inbox.deliver" as const;
-
-const LEGACY_POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
-  [`${LEGACY_INGRESS_POLICY_KIND}\u0000pre`, "ingress.pre"],
+const POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
   ["ingress\u0000pre", "ingress.pre"],
   ["prompt\u0000pre", "prompt.pre"],
   ["turn\u0000pre", "turn.pre"],
@@ -30,9 +23,9 @@ const LEGACY_POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
   ["alarm.fired\u0000post", "alarm.fired"],
 ]);
 
-/** Undefined when the row cannot map. */
-export function legacyPointOf(kind: string, phase: PolicyRow.Phase): PointId | undefined {
-  return LEGACY_POINT_BY_KIND_PHASE.get(`${kind}\u0000${phase}`);
+/** The row's registered point, or undefined when it cannot map. */
+export function pointOfRow(kind: string, phase: PolicyRow.Phase): PointId | undefined {
+  return POINT_BY_KIND_PHASE.get(`${kind}\u0000${phase}`);
 }
 
 export type PolicyRowDraft = Omit<PolicyRow.Row, "generation">;
@@ -58,9 +51,6 @@ const COMPACTION_OP_BY_LEGACY_OP: ReadonlyMap<string, string> = new Map([
  * both points.
  */
 export function translateLegacyPolicyRow<Row extends PolicyRowDraft>(row: Row): Row {
-  // The historical byte never survives into a NEW generation.
-  if (row.kind === LEGACY_INGRESS_POLICY_KIND && row.phase === "pre")
-    return { ...row, kind: "ingress" };
   if (row.kind !== "turn" || row.phase !== "post") return row;
   const match = matchValue(row);
   const op = typeof match.op === "string" ? COMPACTION_OP_BY_LEGACY_OP.get(match.op) : undefined;
@@ -89,7 +79,7 @@ export function assertPointGenerationRows(
   table: GatePointTable,
 ): void {
   for (const row of rows) {
-    const point = legacyPointOf(row.kind, row.phase);
+    const point = pointOfRow(row.kind, row.phase);
     if (point === undefined || !table.has(point))
       throw new GateComposeError({ code: "unknown_point", point: `${row.kind}.${row.phase}` });
   }

@@ -12,7 +12,7 @@ import type { z } from "zod";
 import { clonePlain, type MessagePolicyContext } from "./match";
 import type { GatePointTable } from "../points";
 import type { GateHandler, PendingConsult, PreparedResults } from "./compose";
-import { legacyPointOf } from "./migrate";
+import { pointOfRow } from "./migrate";
 import type { CompileErrorData, CompiledRow, PolicyCompileError } from "./row-parse";
 import type { ProjectedGeneration } from "./project";
 
@@ -111,7 +111,7 @@ export function nextProjectedConsult(
   asyncRefs: ReadonlySet<string>,
   prepared: PreparedResults,
 ): PlannedConsult | undefined {
-  const point = legacyPointOf(input.kind, input.phase);
+  const point = pointOfRow(input.kind, input.phase);
   if (point === undefined || !table.has(point)) return undefined;
   if (input.kind === "message" && input.op === "send_message" && input.message === undefined)
     return undefined;
@@ -153,7 +153,7 @@ export function evaluateProjected(
       effects: Object.freeze([]),
       obligations: Object.freeze([]),
     });
-  const point = legacyPointOf(input.kind, input.phase);
+  const point = pointOfRow(input.kind, input.phase);
   if (point === undefined || !table.has(point)) return refused("unknown_point");
   if (input.kind === "message" && input.op === "send_message" && input.message === undefined)
     return refused("message_context_missing");

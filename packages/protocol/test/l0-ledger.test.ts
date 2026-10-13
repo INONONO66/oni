@@ -233,11 +233,3 @@ test("the loop-reserved alarm purpose set is closed and classifies exactly its m
   expect(isReservedAlarmPurpose("monitor.hit")).toBe(false);
   expect(isReservedAlarmPurpose("cron.tick")).toBe(false);
 });
-
-describe("LedgerSession.foldLegacyRole", () => {
-  test("folds the retired delegated-session role byte to child and leaves every other role alone", () => {
-    expect(LedgerSession.foldLegacyRole(LedgerSession.LEGACY_CHILD_ROLE)).toBe("child");
-    expect(LedgerSession.foldLegacyRole("child")).toBe("child");
-    expect(LedgerSession.foldLegacyRole("resident")).toBe("resident");
-  });
-});

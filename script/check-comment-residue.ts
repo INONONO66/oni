@@ -323,7 +323,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/run.ts", [0, 0]],
   ["packages/agent/src/core/stop.ts", [0, 0]],
   ["packages/agent/src/core/store/action-hash.ts", [0, 0]],
-  ["packages/agent/src/core/store/catalog.ts", [0, 0]],
+  ["packages/agent/src/core/store/catalog.ts", [2, 0]],
   ["packages/agent/src/core/store/decision.ts", [0, 0]],
   ["packages/agent/src/core/store/errors.ts", [0, 0]],
   ["packages/agent/src/core/store/fence.ts", [0, 0]],
