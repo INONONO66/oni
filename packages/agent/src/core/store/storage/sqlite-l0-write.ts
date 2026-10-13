@@ -56,7 +56,7 @@ export interface AppendLimits {
 export const DEFAULT_ROW_BYTE_CAP = 1024 * 1024;
 
 /**
- * Fail-closed write (#1252): every journal row body must satisfy its kind's
+ * Fail-closed write (): every journal row body must satisfy its kind's
  * declared schema and the row byte cap before anything touches the chain;
  * `fold.checkpoint` is schema-exempt but never outside the byte cap.
  */
@@ -148,8 +148,8 @@ export function appendAction(
   limits: AppendLimits,
   refuse?: RefuseWrite,
 ): LedgerAction.Receipt | undefined {
-  // #1252 fail-closed order (review r1 H2): the schema refusal runs BEFORE
-  // the existence/parent checks, exactly as pre-#1314 — a duplicate-id (or
+  //  fail-closed order (review r1 H2): the schema refusal runs BEFORE
+  // the existence/parent checks, exactly as pre- — a duplicate-id (or
   // foreign-parent) action that is ALSO schema-mismatched throws the typed
   // `SchemaRefused`, never a silent `undefined`.
   refuseRow(action, limits, refuse);

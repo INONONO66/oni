@@ -986,7 +986,7 @@ function makeSessionKernel(context: SessionKernelContext) {
     /** One consumed delivery attempt; undefined once the row is retired. */
     strikeArmedAlarm: (occurrenceId: string): number | undefined =>
       requiredArmedIn(context).strikeArmedAlarm(occurrenceId),
-    /** #1305: content-addressed tool output bytes — dedupe lives in the store's digest key. */
+    /** : content-addressed tool output bytes — dedupe lives in the store's digest key. */
     putToolOutput: (write: ToolOutputWrite): void => context.stores().toolOutputs.put(write),
     toolOutput: (outputId: string): ToolOutputRow | undefined =>
       context.stores().toolOutputs.get(outputId),

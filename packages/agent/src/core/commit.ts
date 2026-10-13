@@ -26,8 +26,6 @@ import { RunReasonCode } from "./reason-codes";
 import { AgentInvariantViolation, GenerationUnavailable } from "./failure";
 import { SessionPolicyRefusal } from "./messages";
 import type { SessionRunnerResult, SessionTool } from "./run";
-
-// ─── from session-fold-commit.ts (#1247) ───
 /** Fails closed: a compaction append without the composed seam cannot be pinned. */
 function requireNoCompactionPin(action: LedgerAction.Append): LedgerAction.Append {
   if (action.kind === "compaction")
@@ -69,7 +67,7 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
 export function commitFoldBatch(
   kernel: SessionKernel,
   input: LedgerSession.Commit,
-  // #1307: the composed compaction seam decorates compaction appends with
+  // : the composed compaction seam decorates compaction appends with
   // their successor proof. Absent seam + compaction append = typed defect —
   // the kernel never pins without the capability, and never commits unpinned.
   seam?: Pick<CompactionSeamService, "pinAction">,
@@ -214,8 +212,6 @@ function pinContext(
     value.phase === "intent" ? SessionTurn.Intent.parse(pinned) : SessionTurn.Resume.parse(pinned);
   return { ...action, intent: { encodingVersion: 1, value: PlainValueSchema.parse(intent) } };
 }
-
-// ─── from session-record.ts (#1247) ───
 export function foldCheckpointAction(input: {
   readonly sessionId: string;
   readonly parentId: string | null;
@@ -320,7 +316,7 @@ export function turnIntentAction(input: {
   readonly sessionId: string;
   readonly resultId: string;
   readonly deliveryIds: readonly string[];
-  /** #1256 H-3: stale `action` inputs this turn closes WITHOUT execution (`turn.consumed.stale`). */
+  /**  H-3: stale `action` inputs this turn closes WITHOUT execution (`turn.consumed.stale`). */
   readonly consumedStale?: readonly string[];
   readonly generation: SessionGeneration.Snapshot;
   readonly resumeCount: number;
@@ -370,9 +366,9 @@ export function turnCheckpointAction(input: {
   readonly resumeCount: number;
   readonly boundaryActionId: string;
   readonly boundary: SessionTurn.Boundary;
-  /** Consumed input seqs at this boundary (#1253): the turn's `turn.consumed` record. */
+  /** Consumed input seqs at this boundary (): the turn's `turn.consumed` record. */
   readonly deliveryIds: readonly string[];
-  /** #1256 H-1 (r3): stale `action` inputs this boundary closes WITHOUT execution (`turn.consumed.stale`). */
+  /**  H-1 (r3): stale `action` inputs this boundary closes WITHOUT execution (`turn.consumed.stale`). */
   readonly consumedStale?: readonly string[];
   readonly at: number;
 }): LedgerAction.Append {
@@ -409,7 +405,7 @@ export function turnCheckpointAction(input: {
 }
 
 /**
- * The journal row kind one delivered input lands as (#1252): `prompt` and
+ * The journal row kind one delivered input lands as (): `prompt` and
  * `action` inputs are rows of their own kind; interrupt/resume control is a
  * `signal` row. The single mapping both the admission constructor and the
  * delivery constructor share.
@@ -430,7 +426,7 @@ export function deliveryActions(
       id: `${item.id}:delivery`,
       parentId: parent,
       sessionId: item.sessionId,
-      // #1252: a delivered input is a journal row of its own kind — `prompt`
+      // : a delivered input is a journal row of its own kind — `prompt`
       // for turn inputs, `signal` for interrupt/resume control. The retired
       // input-queue delivery kind had one writer here; this constructor keeps it.
       kind: inputRowKind(item.kind),
@@ -496,7 +492,7 @@ export function turnTerminalAction(input: {
   };
 }
 
-/** The gate's turn-stop row (#1252): constructed here, the turn kind's single writer. */
+/** The gate's turn-stop row (): constructed here, the turn kind's single writer. */
 export function turnStopAction(input: {
   readonly id: string;
   readonly parentId: string | null;
@@ -626,14 +622,14 @@ export function receivedMessageAction(input: {
   readonly origin: Delivery.Origin;
   readonly parentActionId: string | null;
   readonly at: number;
-  /** Loop-consumption delivery the input row carries (#1253); absent folds to the `followUp` default. */
+  /** Loop-consumption delivery the input row carries (); absent folds to the `followUp` default. */
   readonly delivery?: JournalKind.Delivery;
 }): LedgerAction.Append {
   return {
     id: input.id,
     parentId: input.parentActionId,
     sessionId: input.sessionId,
-    // #1252: control inputs (interrupt/resume) are signal rows; prompts are prompt rows.
+    // : control inputs (interrupt/resume) are signal rows; prompts are prompt rows.
     kind: inputRowKind(input.kind),
     intent: input.origin,
     effect: {
@@ -649,13 +645,7 @@ export function receivedMessageAction(input: {
   };
 }
 
-/**
- * #1256 H-3: the staleness split a turn start applies to its backlog. A
- * deferred `action` input carries the journal ordinal (`after`) its payload
- * was computed against; one pointing BEFORE the latest executed compaction
- * reasons about a context that no longer exists, so it is never consumed —
- * the turn closes it via `turn.consumed.stale`. Everything else is live.
- */
+/**  H-3: the staleness split a turn start applies to its backlog. A */
 export function staleActionBacklog(
   backlog: readonly Delivery.Row[],
   compactionHead: number,
@@ -673,26 +663,19 @@ export function staleActionBacklog(
 export const DEFAULT_CONSUMPTION: ConsumptionSettings = { steering: "all", followUp: "all" };
 
 /**
- * The `all|one` consumption widths (#1253): settings data folded from the
+ * The `all|one` consumption widths (): settings data folded from the
  * latest `session.configure` row carrying `intent.settings`, not code.
  */
 export function consumptionSettings(kernel: SessionKernel, sessionId: string): ConsumptionSettings {
   return kernel.latestSettings(sessionId) ?? DEFAULT_CONSUMPTION;
 }
 
-/**
- * The loop boundary consumption rule (#1253): control signals
- * (interrupt/resume) are consumed at every boundary; `delivery: steer` input
- * rows at `tool.post` (`after_tools`) boundaries and at turn end; `delivery:
- * followUp` rows only at turn end. How many rows one boundary consumes per
- * mode is the settings widths (`all|one`). Returns the consumed subset in
- * backlog order.
- */
+/** The loop boundary consumption rule (): control signals */
 export function boundaryConsumption(
   backlog: readonly Delivery.Row[],
   boundary: SessionTurn.Boundary | "turn_end",
   settings: ConsumptionSettings,
-  /** #1256 H-1 (r3): the latest executed compaction's ordinal; EVERY boundary closes stale actions, not just turn start. */
+  /**  H-1 (r3): the latest executed compaction's ordinal; EVERY boundary closes stale actions, not just turn start. */
   compactionHead: number,
 ): { readonly consumed: Delivery.Row[]; readonly stale: Delivery.Row[] } {
   const { live, stale } = staleActionBacklog(backlog, compactionHead);

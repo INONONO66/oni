@@ -16,7 +16,7 @@ import {
 } from "@openomni/protocol";
 
 /**
- * #1315 versioned read: rows persisted before the prompt/signal v2 bump name
+ *  versioned read: rows persisted before the prompt/signal v2 bump name
  * the delivered input under the retired field names. The SQL projections
  * coalesce both spellings; the legacy paths come from the protocol's
  * versioned reader so no retired token is spelled here.
@@ -46,13 +46,7 @@ import { thrownAsError } from "../../failure";
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 
-/**
- * Fresh per-session ledger file DDL (W5.2 #1197) — the only session-file
- * schema owner. One file per session holds exactly three tables: the single
- * session row, the append-only action hash chain (0041 shape), and
- * first-writer-wins decision facts (0040 shape). There is no migration plane:
- * a session file is either fresh or already on this schema.
- */
+/** Fresh per-session ledger file DDL (W5.2 ) — the only session-file */
 export const SESSION_FILE_SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS session (
     id TEXT PRIMARY KEY,
@@ -167,13 +161,7 @@ type Reads = Pick<
   | "inputMessages"
 >;
 
-/**
- * Read degradation (#1252): a row that fails decode is kept verbatim on disk,
- * emits one `journal.corrupt{seq, kind, reason}` observation and folds as
- * opaque — its stored intent/effect text carried as plain string values. A row
- * that cannot even shape an opaque node is skipped; one bad row never blocks
- * session load.
- */
+/** Read degradation (): a row that fails decode is kept verbatim on disk, */
 function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, cause: Error): void {
   try {
     sink.publish(Journal.CorruptEvent, { seq: row.ordinal, kind: row.kind, reason: cause.message });
@@ -204,7 +192,7 @@ function decodeActionDegraded(
 }
 
 /**
- * Projection reads degrade by exclusion (#1252): a corrupt row emits the same
+ * Projection reads degrade by exclusion (): a corrupt row emits the same
  * single `journal.corrupt{seq, kind, reason}` observation as the fold path and
  * is skipped — the port answers instead of throwing. The fold (`range`) keeps
  * the opaque shape instead because the report view must show every row.
@@ -474,7 +462,7 @@ function createActionReads(db: Database, sink: ObservationSink): Reads {
           .get(sessionId),
       );
     },
-    // #1257: the SQL replacement for the retired received-message TS re-fold.
+    // : the SQL replacement for the retired received-message TS re-fold.
     inputMessages(sessionId) {
       return decodeRows(
         db
@@ -634,15 +622,7 @@ export function createActions(
   };
 }
 
-// ─── #1254 S3: durable armed-alarm index reads ───
-
-/**
- * One armed occurrence restored from the `armed_alarms` index (#1254 S3).
- * `purpose`/`sourceKey`/`payload` are re-read from the committed `arm` row by
- * `occurrenceId`; `armSeq` is recovered from the arm row id
- * `${alarmId}:arm:${armSeq}` (decision: not stored in the table — the row id
- * already carries it losslessly).
- */
+/** One armed occurrence restored from the `armed_alarms` index ( S3). */
 export interface ArmedAlarmRow {
   readonly alarmId: string;
   readonly occurrenceId: string;
@@ -738,8 +718,6 @@ function createArmedAlarmPorts(db: Database): {
   };
 }
 
-// ─── #1305 bounded tool output projection: content-addressed output bytes ───
-
 /** One stored tool output write: digest-named bytes plus an optional media hint. */
 export interface ToolOutputWrite {
   /** `canonicalDigest` identity of the bytes: `sha256:<64 hex>`. */
@@ -761,13 +739,7 @@ const ToolOutputSqlRow = z.object({
   media_type: z.string().nullable(),
 });
 
-/**
- * Content-addressed tool output storage (#1305): `put` is idempotent — the
- * digest key makes a repeated store of identical bytes a no-op, so a retried
- * tool settlement never duplicates bytes. Writes run in their own implicit
- * transaction BEFORE the referencing row commits: a crash between the two
- * leaves an unreferenced output (harmless), never a dangling reference.
- */
+/** Content-addressed tool output storage (): `put` is idempotent — the */
 export interface ToolOutputsAdapter {
   put(write: ToolOutputWrite): void;
   get(outputId: string): ToolOutputRow | undefined;
@@ -833,7 +805,7 @@ function verifyChain(db: Database, sessionId: string): LedgerAction.ChainVerdict
 
 
 /**
- * Session-file schemaVersion (#1257) in `PRAGMA user_version`. v1 -> v2 is the one guarded upgrade
+ * Session-file schemaVersion () in `PRAGMA user_version`. v1 -> v2 is the one guarded upgrade
  * (`armed_alarms.strikes`, stamped in the same transaction); a newer-build file refuses to open (typed); fork refuses a differing marker.
  */
 export const SESSION_FILE_SCHEMA_VERSION = 2;
@@ -872,7 +844,7 @@ export function readSessionFileSchemaVersion(path: string): number {
 const OPEN_PRAGMAS = [
   "PRAGMA busy_timeout = 5000",
   "PRAGMA journal_mode = WAL",
-  // Decision-class writes survive power loss (#510 D1): committed appends are
+  // Decision-class writes survive power loss ( D1): committed appends are
   // durable, which is what "no record, no action" means.
   "PRAGMA synchronous = FULL",
   "PRAGMA foreign_keys = ON",
@@ -972,11 +944,11 @@ export class SessionStore extends StoreHandle {
   readonly sessions: SessionWriteAdapter;
   readonly actions: ProtocolStorage.ActionSubAdapter;
   readonly decisionFacts: ProtocolStorage.DecisionFactSubAdapter;
-  /** #1254 S3: the durable armed-alarm index of this session file. */
+  /**  S3: the durable armed-alarm index of this session file. */
   readonly armedAlarms: () => readonly ArmedAlarmRow[];
   readonly armedCount: () => number;
   readonly strikeArmedAlarm: (occurrenceId: string) => number | undefined;
-  /** #1305: content-addressed tool output bytes of this session file. */
+  /** : content-addressed tool output bytes of this session file. */
   readonly toolOutputs: ToolOutputsAdapter;
   private readonly onObservationFailure: ObservationFailurePort;
   private readonly limits: AppendLimits;
@@ -1001,7 +973,7 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * One atomic fork write (#1257): the child genesis materialization plus the
+   * One atomic fork write (): the child genesis materialization plus the
    * copied, rehashed pre-anchor rows land in a single transaction — a crashed
    * fork leaves either a complete child chain or no child session row at all
    * (session-file recovery needs no partial-fork repair path).
@@ -1025,7 +997,7 @@ export class SessionStore extends StoreHandle {
             return refuse(new CorruptRecord({ operation: "session.fork", id: copy.id }));
           receipt = appended;
         }
-        // #1305: outputs referenced by copied rows land in the same atomic
+        // : outputs referenced by copied rows land in the same atomic
         // write, so a forked child never carries a dangling outputRef.
         for (const output of input.outputs ?? []) this.toolOutputs.put(output);
         const row = selectSession(this.db, materialize.row.id);
@@ -1102,7 +1074,7 @@ export interface SessionCreateReceipt {
   readonly receipt: LedgerAction.Receipt;
 }
 
-/** The atomic child write `Session.fork` hands the child store (#1257). */
+/** The atomic child write `Session.fork` hands the child store (). */
 interface SessionForkWrite {
   readonly materialize: LedgerSession.Materialize;
   /** The catalog unit the child's index row lands in, enclosing the child write. */
@@ -1111,7 +1083,7 @@ interface SessionForkWrite {
   readonly createdAt: number;
   /** Eligible pre-anchor parent rows, already remapped for the child chain. */
   readonly copies: readonly LedgerAction.Append[];
-  /** #1305: stored outputs the copied rows reference, copied under the same identifiers. */
+  /** : stored outputs the copied rows reference, copied under the same identifiers. */
   readonly outputs?: readonly ToolOutputWrite[];
 }
 
@@ -1130,7 +1102,7 @@ export interface SessionForkReceipt {
 const DROP_OBSERVATION_FAILURES: ObservationFailurePort = () => undefined;
 
 interface OpenSessionStoreOptions {
-  /** Injected wall clock (#1245): the store never reads ambient time. */
+  /** Injected wall clock (): the store never reads ambient time. */
   readonly now: () => number;
   readonly observationSink?: ObservationSink;
   readonly onObservationFailure?: ObservationFailurePort;
