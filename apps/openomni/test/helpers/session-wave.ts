@@ -3,14 +3,16 @@ import { Effect, type Result } from "effect";
 import { Core } from "@openomni/agent";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
+import { Bus } from "./bus";
 import type { AppSessionHandle } from "../../src";
-import type { AnyToolDefinition, LedgerAction } from "@openomni/protocol";
+import { LlmCall, type AnyToolDefinition, type LedgerAction } from "@openomni/protocol";
 type AdoptReceipt = Core.AdoptReceipt;
 type LedgerError = Core.LedgerError;
 import { z } from "zod";
 import { eventSignal } from "./event-signal";
 import { runEffect, runSyncResult } from "./effect";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { ResidentSuite } from "./resident-suite";
 
 export function waveTool(
   name: string,
@@ -63,6 +65,29 @@ export function bounded<T>(promise: Promise<T>): Promise<T> {
   const signal = eventSignal<T>("wave/recovery event");
   void promise.then(signal.resolve, signal.reject);
   return signal.promise;
+}
+
+/**
+ * Interrupt the live turn on the completion of its SECOND model call: the
+ * `LlmCall.Completed` event is the exact signal, and the interrupt must abort
+ * the turn even though the completion was the turn's last model step — the
+ * live turn holds its seal until an interrupt issued while it was live has
+ * landed (#1346).
+ */
+export function interruptSecondModel(
+  suite: Pick<ResidentSuite, "defer">,
+  requestCount: () => number,
+  currentHandle: () => AppSessionHandle | undefined,
+): Promise<void> {
+  const interrupted = Promise.withResolvers<void>();
+  suite.defer(
+    Bus.subscribe(LlmCall.Events.Completed, () => {
+      const handle = currentHandle();
+      if (requestCount() !== 2 || handle === undefined) return;
+      void runEffect(handle.interrupt()).then(interrupted.resolve, interrupted.reject);
+    }),
+  );
+  return interrupted.promise;
 }
 
 /**

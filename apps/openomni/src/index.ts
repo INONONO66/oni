@@ -1160,7 +1160,12 @@ export async function startOpenOmni(options: StartOptions = {}) {
             // then the turn's own boundary drain consumes it and aborts the wave.
             // #1346: the row lands through the session's one `Deliver` door as
             // a control `signal`; the entity's single writer owns the revision
-            // CAS, so the app neither borrows the fence nor retries a commit.
+            // CAS and the `running -> interrupted` transition, so the app
+            // neither borrows the fence nor retries a commit. The RPC ack IS
+            // the durable commit; the live turn holds its seal until this
+            // interrupt has landed and drained, so an interrupt issued while
+            // the turn is live always aborts it.
+            const release = entry.hold();
             yield* entityClient(id)
               .Deliver({
                 kind: "signal",
@@ -1169,6 +1174,14 @@ export async function startOpenOmni(options: StartOptions = {}) {
                 idempotencyKey: services.entropy.id(),
               })
               .pipe(
+                Effect.flatMap(() => entry.boundary("before_llm")),
+                // The entity refuses an interrupt with no running turn: the
+                // turn sealed under us, so there is nothing to interrupt and
+                // no stray signal was written — the no-op the early return is.
+                Effect.catchIf(
+                  (error) => error._tag === "DeliverRefused" && error.code === "denied" && liveTurns.get(id) !== entry,
+                  () => Effect.void,
+                ),
                 Effect.mapError(
                   (error) =>
                     new AgentFailure({
@@ -1178,8 +1191,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
                         : String(error),
                     }),
                 ),
+                Effect.ensuring(Effect.sync(release)),
               );
-            yield* entry.boundary("before_llm");
           }),
         tools: {
           add: (additions) =>

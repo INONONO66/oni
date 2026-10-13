@@ -1,7 +1,7 @@
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { expect, test } from "bun:test";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,6 +20,7 @@ import {
   type PlainObject,
 } from "@openomni/protocol";
 import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
+import { runAppEffect } from "../src/gateway";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
@@ -37,6 +38,7 @@ import {
   trackedWaveTools,
   waveTool,
   interruptDuringSecondModel,
+  interruptSecondModel,
 } from "./helpers/session-wave";
 import { approvalPolicy } from "./helpers/approval-policy";
 
@@ -336,6 +338,87 @@ test("after-model SDK interrupt starts zero bodies and seals one interrupted ter
     return terminal ? [terminal] : [];
   });
   expect(terminals.map((terminal) => terminal.kind)).toEqual(["interrupted"]);
+});
+
+// #1346: the interrupt rides the entity's `Deliver` door. The two cases the
+// asynchronous door must not regress: an interrupt issued on the turn's LAST
+// model completion still aborts it (the live turn holds its seal), and an
+// interrupt that arrives once the turn has sealed writes no stray signal.
+test("an interrupt on the last model completion aborts the turn through the entity door", async () => {
+  const { app, socket, received, cleanup } = await waveApp([waveTool("A", async () => "A")], ["A"]);
+  const interrupted = interruptSecondModel(suite, () => received.length, () => app.sessions.get(activeRow().id));
+  const settled = nextTerminal();
+  try {
+    socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run A" }));
+    await bounded(interrupted);
+    await settled;
+    const row = activeRow();
+    // The last completion carried no calls: the turn had nothing left but its
+    // seal, and the interrupt still won — durable row, drain, interrupted terminal.
+    expect(received).toHaveLength(2);
+    expect(toolResults(row.id).map((result) => [result.callId, result.terminal])).toEqual([["call-A", "executed"]]);
+    const actions = tree(row.id);
+    const interruptRow = actions.find(
+      (action) => action.kind === "signal" && z.object({ deliveryKind: z.literal("interrupt") }).safeParse(action.effect.value).success,
+    );
+    if (interruptRow === undefined) throw new Error("missing durable interrupt row");
+    const kernel = plane().openKernel(row.id);
+    const current = kernel.row(row.id);
+    // The entity writer owns the interrupt row: the row's commit owner is the
+    // activation's fence owner, and the transition `running -> interrupted` is durable.
+    expect(current.fenceOwner).not.toBeNull();
+    expect(interruptRow.sessionId).toBe(row.id);
+    expect(current.state).toBe("interrupted");
+    const terminals = actions.flatMap((action) => {
+      const terminal = Core.SessionHandleStore.turnTerminal(action);
+      return terminal ? [terminal] : [];
+    });
+    expect(terminals.map((terminal) => terminal.kind)).toEqual(["interrupted"]);
+    expect(kernel.pendingMessages(row.id).filter((item) => item.kind === "interrupt")).toEqual([]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("an interrupt after the turn sealed leaves no stray consumable signal", async () => {
+  const { app, socket, cleanup } = await waveApp([waveTool("A", async () => "A")], ["A"]);
+  const settled = nextTerminal();
+  try {
+    socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run A" }));
+    await settled;
+    const row = activeRow();
+    const kernel = plane().openKernel(row.id);
+    const sealedRevision = kernel.row(row.id).revision;
+    // The entity door itself: an interrupt control with no running turn is
+    // refused typed instead of landing as a pending signal the NEXT turn
+    // would consume.
+    const refused = await runAppEffect(
+      app.runtime,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const makeClient = yield* Core.SessionEntity.client;
+          return yield* Effect.result(
+            makeClient(row.id).Deliver({
+              kind: "signal",
+              body: JSON.stringify({ content: "", control: "interrupt" }),
+              source: JSON.stringify({ kind: "session", id: row.id }),
+              idempotencyKey: "late-interrupt",
+            }),
+          );
+        }),
+      ),
+    );
+    expect(Result.isFailure(refused) ? refused.failure : undefined).toMatchObject({ _tag: "DeliverRefused", code: "denied" });
+    expect(kernel.row(row.id)).toMatchObject({ revision: sealedRevision, state: "idle" });
+    expect(kernel.pendingMessages(row.id)).toEqual([]);
+    const terminals = tree(row.id).flatMap((action) => {
+      const terminal = Core.SessionHandleStore.turnTerminal(action);
+      return terminal ? [terminal] : [];
+    });
+    expect(terminals.map((terminal) => terminal.kind)).toEqual(["result"]);
+  } finally {
+    await cleanup();
+  }
 });
 
 test("all pre decisions precede A B C and reverse completion preserves ledger/provider order across D", async () => {

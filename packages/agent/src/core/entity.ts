@@ -216,6 +216,11 @@ function appendReceived(
     const row = kernel.row(authority.sessionId);
     const now = env.clock();
     const action = receivedActionFor(authority.sessionId, kind, message, now, delivery, after);
+    // #1346: an interrupt control lands only on a running turn (there is
+    // nothing else to interrupt; a stray pending signal would abort the NEXT
+    // turn), and its row carries the `running -> interrupted` transition.
+    if (kind === "interrupt" && row.state !== "running")
+      return yield* new DeliverRefused({ code: "denied" });
     const committed = yield* commitIn(handle, {
       sessionId: authority.sessionId,
       owner: authority.owner,
@@ -223,7 +228,7 @@ function appendReceived(
       now,
       expectedRevision: row.revision,
       actions: [action],
-      state: row.state,
+      state: kind === "interrupt" ? "interrupted" : row.state,
     });
     const receipt = committed.receipts[0];
     if (receipt === undefined)

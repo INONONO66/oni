@@ -217,6 +217,14 @@ interface LiveTurnEntry {
   readonly boundary: SessionRunnerInput["boundary"];
   /** The turn's own commit/transition port - request transitions ride the turn's fence. */
   readonly ledger: SessionRunnerInput["ledger"];
+  /**
+   * #1346: holds the turn open across one in-flight interrupt. The facade's
+   * interrupt rides the entity's asynchronous `Deliver` door, so a turn whose
+   * runner has already finished must not seal until every interrupt issued
+   * while it was live has landed and been drained — the hold is taken
+   * synchronously, before the first RPC hop, and released after the drain.
+   */
+  readonly hold: () => () => void;
 }
 
 export interface SessionLivePlane {
@@ -234,7 +242,24 @@ export function createSessionLivePlane(): SessionLivePlane {
     ids: () => [...entries.keys()],
     wrapRunner: (sessionId, runner) => (input) =>
       Effect.suspend(() => {
-        const entry: LiveTurnEntry = { approvals: undefined, boundary: input.boundary, ledger: input.ledger };
+        let holds = 0;
+        let settled = Deferred.makeUnsafe<void>();
+        const entry: LiveTurnEntry = {
+          approvals: undefined,
+          boundary: input.boundary,
+          ledger: input.ledger,
+          hold: () => {
+            if (holds === 0) settled = Deferred.makeUnsafe<void>();
+            holds += 1;
+            let released = false;
+            return () => {
+              if (released) return;
+              released = true;
+              holds -= 1;
+              if (holds === 0) Deferred.doneUnsafe(settled, Exit.succeed(undefined));
+            };
+          },
+        };
         entries.set(sessionId, entry);
         return runner({
           ...input,
@@ -243,6 +268,13 @@ export function createSessionLivePlane(): SessionLivePlane {
             input.bindApprovals?.(approvals);
           },
         }).pipe(
+          // An interrupt that was issued while the runner was live lands and
+          // drains before ANY exit (success, typed failure, interruption)
+          // reaches the sealer: the drain consumed the row and aborted the
+          // turn's signal, so a completed runner seals `interrupted` — never a
+          // completed turn with a stray pending interrupt behind it.
+          Effect.onExit(() => Effect.suspend(() => (holds === 0 ? Effect.void : Deferred.await(settled)))),
+          Effect.map((result) => (input.signal.aborted ? { kind: "interrupted" as const, text: "" } : result)),
           Effect.ensuring(
             Effect.sync(() => {
               if (entries.get(sessionId) === entry) entries.delete(sessionId);
