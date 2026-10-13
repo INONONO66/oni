@@ -122,7 +122,7 @@ function answeredByTransport(data: ApiFailure): boolean {
 const MAX_CAUSE_DEPTH = 8;
 const Caused = z.object({ cause: z.instanceof(Object) });
 
-export function apiCause<E>(error: E): ApiFailure | undefined {
+function apiCause<E>(error: E): ApiFailure | undefined {
   let current: object | undefined = z.instanceof(Object).safeParse(error).data;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined; depth += 1) {
     const apiError = coerceApiError(current);

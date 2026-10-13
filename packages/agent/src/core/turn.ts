@@ -5,7 +5,7 @@ import { RunEvents } from "./run-events";
 export { stopState } from "./stop";
 export type { StopObservation, StopVerdict } from "./stop";
 export { RunEvents } from "./run-events";
-import { accumulateUsage, type RunInput, type LlmSink as Sink, type LlmFailure, Llm, type LlmPort, isLlmRunFailure, LlmRunFailure, type AttemptEvidence, type ResolvedModel } from "./llm";
+import { accumulateUsage, type RunInput, type LlmSink as Sink, type LlmFailure, Llm, type LlmPort, isLlmRunFailure, LlmRunFailure, type AttemptEvidence, type ResolvedModel, type RunResult } from "./llm";
 import { selectModel } from "./model-select";
 import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, restoreBudgetState, type BudgetState, effectiveMaxToolCalls, publishBudgetTelemetry, evaluateBudget } from "./budget";
 import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "./failure";
@@ -838,20 +838,7 @@ function runModelStep(
       }),
       body: () => Effect.suspend(() => llm.run(prepared.runInput, prepared.trackingSink)).pipe(
         Effect.mapError(modelFailure),
-        Effect.flatMap((result) => {
-          if (result.type === "aborted") return Effect.fail(result.error ?? new Interrupted());
-          if (result.type === "error") return Effect.fail(result.error);
-          // A stop whose usage proves the window was exceeded is an overflow
-          // the provider did not name; it enters the same recovery path.
-          if (result.type === "stop" && result.evidence !== undefined && stopOverflows(llm, model, result.evidence))
-            return Effect.fail(overflowStop(model, result.evidence));
-          return Effect.succeed({
-            type: successfulOutcome({ type: result.type }),
-            evidence: PlainValueSchema.parse(
-              result.type === "stop" ? (result.evidence ?? null) : null,
-            ),
-          });
-        }),
+        Effect.flatMap((result) => settleAttempt(llm, model, result)),
       ),
     };
   }).pipe(Effect.provideService(Entropy, entropy));
@@ -912,6 +899,22 @@ function runModelStep(
   }
   const result = yield* handleStop(state, config, execution, base, turn, compaction);
   return result === "continue" ? undefined : result;
+  });
+}
+
+/** One attempt's result as the executor sees it; a stop whose usage proves the window was exceeded is an overflow the provider did not name and enters the same recovery path. */
+function settleAttempt(
+  llm: LlmPort,
+  model: ResolvedModel,
+  result: RunResult,
+): Effect.Effect<{ readonly type: "stop" | "continue"; readonly evidence: PlainValue }, ExecutionError> {
+  if (result.type === "aborted") return Effect.fail(result.error ?? new Interrupted());
+  if (result.type === "error") return Effect.fail(result.error);
+  if (result.type === "stop" && result.evidence !== undefined && stopOverflows(llm, model, result.evidence))
+    return Effect.fail(overflowStop(model, result.evidence));
+  return Effect.succeed({
+    type: successfulOutcome({ type: result.type }),
+    evidence: PlainValueSchema.parse(result.type === "stop" ? (result.evidence ?? null) : null),
   });
 }
 

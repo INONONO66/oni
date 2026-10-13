@@ -5,7 +5,7 @@ import { z } from "zod";
 /**
  * The model-call port (#1352): the core declares the request, event and
  * failure vocabulary a call layer must speak and the composition root binds
- * `@openomni/llm` to the {@link Llm} tag. Nothing here names an SDK type.
+ * the llm workspace to the {@link Llm} tag. Nothing here names an SDK type.
  */
 
 /** The streaming callback contract of one call: the producer side of every durable message. */
@@ -148,7 +148,7 @@ export type ProviderReason =
 export type RetryableProviderReason = Exclude<ProviderReason, "non_retryable" | "billing" | "content_policy">;
 
 /** The recorded attempt reason a classified call failure maps to; the overflow kind records `context_overflow`. */
-export type AttemptFailureReason = "timeout" | "transient_error" | "validation_error";
+type AttemptFailureReason = "timeout" | "transient_error" | "validation_error";
 
 /**
  * The closed classification the loop decides on. `instant` marks a retryable

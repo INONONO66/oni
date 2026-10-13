@@ -13,7 +13,7 @@ import { failureEvidence } from "../src/core/gate/decide";
 import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports";
 import { PolicyDenied, ToolBodyFailed, AgentFailure, AgentInvariantViolation, AgentStopError, CommitFailed, CompactionExecutionError, ExecutionApprovalError, OutcomeUnknown, Interrupted, InvocationClosed, GenerationUnavailable } from "../src/core/failure";
 import type { LedgerError } from "../src/core/store/errors";
-import { completeModel, mockLlm, createStopOutcome, mockProviderModel, type MockLlmFn, } from "./helpers/mock-llm";
+import { completeModel, mockLlm, createStopOutcome, type MockLlmFn } from "./helpers/mock-llm";
 import { runInput } from "./helpers/run-input";
 import { assistantTextSnapshot } from "./helpers/messages";
 

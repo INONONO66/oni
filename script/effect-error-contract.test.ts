@@ -4,6 +4,7 @@ import ts from "typescript";
 import { runSyncEffect } from "../apps/openomni/test/helpers/effect";
 import * as Agent from "../packages/agent/src/core/failure";
 import * as Llm from "../packages/llm/src/errors";
+import * as CoreLlm from "../packages/agent/src/core/llm";
 import * as Store from "../packages/agent/src/core/store/errors";
 import { sdkError } from "../packages/llm/test/helpers/retry";
 import * as Channels from "../packages/channels/src/errors";
@@ -65,10 +66,10 @@ const store = {
   SchemaRefused: new Store.SchemaRefused({ sessionId: "session", actionId: "action", kind: "prompt", reason: "fixture" }),
   CatalogVersionRefused: new Store.CatalogVersionRefused({ fileVersion: 99, codeVersion: 1, operation: "indexSession" }),
 } satisfies { [K in Store.LedgerError["_tag"]]: Extract<Store.LedgerError, { _tag: K }> };
-// Agent.SessionError absorbs Store.LedgerError and Model.LlmRunFailure, so those fixtures are members too.
+// Agent.SessionError absorbs Store.LedgerError and the core port's LlmRunFailure (#1352), so those fixtures are members too.
 const agent = {
   ...store,
-  LlmRunFailure: model.LlmRunFailure,
+  LlmRunFailure: new CoreLlm.LlmRunFailure({ ...message, usage, aborted: false, contextOverflow: false, visibleOutput: true }),
   AgentFailure: agentFailure,
   PolicyDenied: new Agent.PolicyDenied({ phase: "pre", ruleIds: [] }),
   ToolBodyFailed: new Agent.ToolBodyFailed({ tool: "fixture", cause: "foreign" }),

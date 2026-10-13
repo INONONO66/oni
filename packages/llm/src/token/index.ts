@@ -15,17 +15,6 @@ export const estimateUsage: EstimateUsage = (serializedPrompt, emittedAssistant)
   outputTokens: Math.ceil(emittedAssistant.length / 4),
 });
 
-/** Add billed usage, including failed attempts; auxiliary counts are not billed twice. */
-export function accumulateUsage(total: Token.AgentUsage, usage: Token.ProviderUsage): void {
-  total.inputTokens += usage.inputTokens;
-  total.outputTokens += usage.outputTokens;
-  total.totalTokens += usage.inputTokens + usage.outputTokens;
-  for (const key of ["reasoningTokens", "cacheReadTokens", "cacheWriteTokens"] as const) {
-    const count = usage[key] ?? 0;
-    if (count > 0) total[key] = (total[key] ?? 0) + count;
-  }
-}
-
 export namespace TokenTracker {
   /** Required unusable counts stay undefined so the fold estimates them, never silently zeroes. */
   export function extractUsage(response: {

@@ -2,14 +2,14 @@ import type { APICallError } from "ai";
 import { Data } from "effect";
 
 /** A cause as one diagnostic line: strings verbatim, an Error as `Name: message` (name or message alone when the other is empty). */
-export function renderBodyCause(cause: string | Error): string {
+function renderBodyCause(cause: string | Error): string {
   if (typeof cause === "string") return cause;
   if (cause.message === "") return cause.name;
   return cause.name === "" ? cause.message : `${cause.name}: ${cause.message}`;
 }
 
 /** A thrown value as an Error (a non-Error wraps its own `String()` text); `instanceof`/`String()` may throw again (a revoked Proxy), so the fallback names only the `typeof` and runs no user code. */
-export function thrownAsError<T>(cause: T): Error {
+function thrownAsError<T>(cause: T): Error {
   try {
     return cause instanceof Error ? cause : new Error(String(cause));
   } catch {
