@@ -7,6 +7,7 @@ import {
   type ChannelStores,
   createGatewayRouter,
   type GatewayRouter,
+  webSocketSenderTier,
   type WebSocketHandler,
   type WsConnection,
 } from "@openomni/channels";
@@ -361,7 +362,7 @@ export function webSocketCallbacks(
   automation?: {
     readonly respond: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
       Effect.Effect<Ingress.AutomationResponse>;
-    readonly actors: Pick<ChannelStores["actors"], "resolveEndpoint">;
+    readonly stores: ChannelStores;
   },
 ) {
   const inflight = new Set<Promise<void>>();
@@ -426,8 +427,9 @@ export function webSocketCallbacks(
                      outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
                      outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
                   return Effect.map(
-                    automation?.respond(outcome, !ws.data.authenticated ||
-                      automation.actors.resolveEndpoint("ws", ws.data.externalId)?.identity.trustTier === "owner"
+                    // #1456: the same fact chat admits the Owner by (registered
+                    // identity, else the ws bootstrap grant), without registering one.
+                    automation?.respond(outcome, webSocketSenderTier(automation.stores, ws.data.externalId) === "owner"
                       ? "owner" : `session:ws:${ws.data.externalId}`) ??
                       Effect.succeed<Ingress.AutomationResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,

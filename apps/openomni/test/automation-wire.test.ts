@@ -2,11 +2,56 @@ import { expect, test } from "bun:test";
 import { Ingress } from "@openomni/protocol";
 import { residentSuite } from "./helpers/resident-suite";
 import { automationFixture, automationRecord, automationRequest } from "./helpers/automation";
-import { nextFrame } from "./helpers/ws";
+import { closeSocket, nextFrame } from "./helpers/ws";
 import { automationWire } from "../src/composition/automation-wire";
 import { runEffect } from "./helpers/effect";
 
 const suite = residentSuite();
+
+test("a fresh token-authenticated desktop can add, enable, and list automations before chat and after reconnect", async () => {
+  const f = await automationFixture(suite);
+  for (const requestId of ["first", "reconnected"]) {
+    const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws`, ["auth", "owner-token"]);
+    expect(await automationRequest(socket, {
+      type: "automation_add", requestId: `${requestId}-add`, record: automationRecord({ enabled: false }),
+    })).toMatchObject({
+      type: "automation_added", requestId: `${requestId}-add`,
+      record: { id: "build", enabled: false, createdBy: "owner" },
+    });
+    expect(await automationRequest(socket, {
+      type: "automation_enable", requestId: `${requestId}-enable`, id: "build",
+    })).toMatchObject({
+      type: "automation_enabled", requestId: `${requestId}-enable`,
+      record: { id: "build", enabled: true, createdBy: "owner" },
+    });
+    expect(await automationRequest(socket, { type: "automation_list", requestId: `${requestId}-list` }))
+      .toMatchObject({ type: "automation_listed", requestId: `${requestId}-list`, records: [automationRecord()] });
+    expect(f.stores.automations.get("build")?.approved).toBe(true);
+    await closeSocket(socket);
+  }
+});
+
+test("a token-authenticated desktop without the chat bootstrap grant requires approval", async () => {
+  const f = await automationFixture(suite);
+  f.stores.channelGrants.remove("openomni-resident-ws");
+  const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws`, ["auth", "owner-token"]);
+  expect(await automationRequest(socket, { type: "automation_add", requestId: "add", record: automationRecord() }))
+    .toMatchObject({ type: "automation_add_refused", reason: "require_approval" });
+  expect(await automationRequest(socket, { type: "automation_enable", requestId: "enable", id: "build" }))
+    .toMatchObject({ type: "automation_enable_refused", reason: "require_approval" });
+});
+
+test("a declared actor nobody registered resolves like chat does: Owner until registered as a peer", async () => {
+  const f = await automationFixture(suite);
+  const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws?actor=newcomer`, ["auth", "owner-token"]);
+  expect(await automationRequest(socket, { type: "automation_add", requestId: "add", record: automationRecord({ enabled: false }) }))
+    .toMatchObject({ type: "automation_added", requestId: "add", record: { id: "build", createdBy: "owner" } });
+  f.stores.actors.registerIdentity({ id: "newcomer", kind: "human", trustTier: "collaborator" });
+  f.stores.actors.registerEndpoint({ id: "ws:newcomer", actorId: "newcomer", channel: "ws", externalId: "newcomer" });
+  expect(await automationRequest(socket, { type: "automation_enable", requestId: "enable", id: "build" }))
+    .toMatchObject({ type: "automation_enable_refused", requestId: "enable", reason: "require_approval" });
+  expect(f.stores.automations.get("build")).toMatchObject({ approved: true, record: { enabled: false, createdBy: "owner" } });
+});
 
 test("a declared peer socket requires approval to add or enable an automation", async () => {
   const f = await automationFixture(suite);

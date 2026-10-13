@@ -107,3 +107,20 @@ export function resolveChannelGrant(
     inboundTreatment: effectiveTreatment(grant),
   };
 }
+
+/**
+ * The authority a `ws` sender carries on this perimeter: its registered
+ * identity's tier, else the tier the surface's bootstrap grant materializes
+ * (the loopback/token-gated owner grant the app registers). Chat admits the
+ * Owner through exactly this fact; the app's automation callback reads the
+ * same one, so there is one rule for who the Owner's own connection is.
+ */
+export function webSocketSenderTier(
+  stores: ChannelStores,
+  externalId: string,
+): Actor.TrustTier | undefined {
+  return (
+    stores.actors.resolveEndpoint("ws", externalId)?.identity.trustTier ??
+    resolveChannelGrant(stores, { surface: "ws", sender: externalId })?.grant.defaultTier
+  );
+}
