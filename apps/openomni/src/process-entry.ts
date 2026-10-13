@@ -8,10 +8,8 @@ const createSessionRequests = Core.createSessionRequests;
 const currentExecutor = Core.currentExecutor;
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
-const adoptSessionAuthority = Core.adoptSessionAuthority;
 const SessionEntity = Core.SessionEntity;
 type SessionError = Core.SessionError;
-const receivedMessageAction = Core.receivedMessageAction;
 type SessionEntryServices = Core.SessionEntryServices;
 type SessionRuntime = Core.SessionRuntime;
 import { createChannelStores, createGatewayRouter, decodeChannelFailure } from "@openomni/channels";
@@ -29,14 +27,14 @@ import { AppInvariantError } from "./invariant";
 import { AppScope, SessionEntityBinding, type AppRuntime } from "./runtime";
 import { type Delivery, Model, type SessionTransition } from "@openomni/protocol";
 import { z } from "zod";
-import { AppLedger, type AppLedgerPlane } from "./composition/cluster-runtime";
+import { AppLedger } from "./composition/cluster-runtime";
 import { ComposedGeneration } from "./composition/composed";
 import { createCompletionPort } from "./composition/completion";
 import { configureAuthority } from "./composition/generation-layers";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow } from "./composition/platform";
 import { createResident } from "./resident";
-import { materializeDeliveryTarget, pendingDeliveryRow, prepareMessage } from "./composition/message-session";
+import { type DeliverPayload, deliverPayload, prepareMessage } from "./composition/message-session";
 import { messageDecisionRules } from "./composition/message-decision";
 import { gateRowPolicySeeds, seedKernelPolicyRows } from "./policy-seed";
 import { AppPointTable } from "./composition/point-table";
@@ -72,62 +70,41 @@ export type ProcessSessionRequest = z.infer<typeof ProcessSessionRequest>;
 export const PROCESS_SESSION_NO_REQUEST_EXIT = 78;
 
 /**
- * Direct chain commit of one received message (child-side delivery). The
- * child has no cluster client; an idle destination gets a fence takeover and
- * relies on the parent's `committed` doorbell (stdout) for any further wake
- * (the parent's entity re-adopts on its next activation — the same takeover
- * the fence CAS exists for). A RUNNING destination's live authority is
- * borrowed instead (W5.2 S4, same rule as `requestAuthorityKernel`):
- * stealing a live turn's fence would refuse that turn's own commits
- * mid-flight, and with the delivering RPC acking at the durable boundary
- * there is no redelivery to absorb that refusal — the row lands between the
- * turn's awaits and the turn's continuation drain consumes it.
+ * The parent-side door one process child's deliveries go through (#1346):
+ * the child maps each prepared commit to its entity `Deliver` payload and
+ * the parent, which owns the cluster, creates the destination and runs the
+ * RPC. The child itself never writes another session's chain.
  */
-export function localDeliveryCommit(plane: AppLedgerPlane, owner: string, clock: () => number) {
+export interface ProcessDelivery {
+  readonly commit: Delivery.Commit;
+  readonly deliver: DeliverPayload;
+}
+
+export interface ProcessReplies {
+  readonly answer?: (input: SessionTransition.Answer) => Promise<SessionTransition.Resolution>;
+  readonly deliver: (input: ProcessDelivery) => Promise<Delivery.Row>;
+}
+
+/** The child's delivery commit: payload mapping here, admission in the parent's entity. */
+export function forwardedDeliveryCommit(deliver: ProcessReplies["deliver"]) {
   return (input: Delivery.Commit): Effect.Effect<Delivery.Row, AgentFailure> =>
-    Effect.gen(function* () {
-      yield* materializeDeliveryTarget(plane, input, clock);
-      const kernel = plane.openKernel(input.sessionId);
-      const existing = kernel.actionById(input.id);
-      if (existing !== undefined) return pendingDeliveryRow(input, existing.ordinal);
-      const refuse = (error: { readonly _tag: string }) =>
-        new AgentFailure({ operation: "message.commit", cause: error._tag });
-      const live = kernel.row(input.sessionId);
-      const authority =
-        live.state === "running" && live.fenceOwner !== null
-          ? { owner: live.fenceOwner, fence: live.fence }
-          : {
-              owner,
-              fence: yield* adoptSessionAuthority(kernel, input.sessionId, owner).pipe(
-                Effect.mapError(refuse),
-              ),
-            };
-      const row = kernel.row(input.sessionId);
-      const action = receivedMessageAction({ ...input, at: input.createdAt });
-      const committed = yield* kernel
-        .commit({
-          sessionId: input.sessionId,
-          owner: authority.owner,
-          fence: authority.fence,
-          now: clock(),
-          expectedRevision: row.revision,
-          actions: [action],
-          state: row.state,
-        })
-        .pipe(Effect.mapError(refuse));
-      const receipt = committed.receipts[0];
-      if (receipt === undefined)
-        return yield* new AgentFailure({ operation: "message.commit", cause: "no receipt" });
-      return pendingDeliveryRow(input, receipt.action.ordinal);
-    });
+    deliverPayload(input).pipe(
+      Effect.flatMap((payload) =>
+        Effect.tryPromise({
+          try: () => deliver({ commit: input, deliver: payload }),
+          catch: (error) => new AgentFailure({ operation: "message.deliver", cause: String(error) }),
+        }),
+      ),
+    );
 }
 
 export function serveProcessSession(
   request: ProcessSessionRequest,
   committed: (ids: readonly string[]) => void,
-  answer: ((input: SessionTransition.Answer) => Promise<SessionTransition.Resolution>) | undefined,
+  replies: ProcessReplies,
   appRuntime: AppRuntime,
 ) {
+  const answer = replies.answer;
   return Effect.gen(function* () {
   const composed = yield* ComposedGeneration;
   const generations = yield* GenerationLayers;
@@ -151,7 +128,6 @@ export function serveProcessSession(
     onDeliveryCommitted: committed,
     dispatchOutbound: dispatchOutboundMessage(
       (...args) => gateway.ingest(...args),
-      now,
       plane.openKernel,
     ),
     authorizeConfigure: configureAuthority(generations, plane.openKernel),
@@ -183,7 +159,7 @@ export function serveProcessSession(
   });
   yield* generations.initialize(resident.definitions);
   const requests = yield* createSessionRequests(runtime);
-  const commitDelivery = localDeliveryCommit(plane, owner, now);
+  const commitDelivery = forwardedDeliveryCommit(replies.deliver);
   const gateway = createGatewayRouter({
     sink: observations.publish,
     now,
@@ -191,7 +167,7 @@ export function serveProcessSession(
     stores: createChannelStores(channelStoreSource(plane, now)),
     transaction: channelTransaction(plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction),
     delivery: { commit: (input) => commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))) },
-    prepare: prepareMessage(plane, resident.materialize),
+    prepare: prepareMessage(plane, resident.genesis),
     run: (sender, execution, body) => Effect.gen(function* () {
       const outbound = yield* outboundMessage;
       const result = yield* (outbound?.executor ?? currentExecutor()).run(
@@ -312,7 +288,7 @@ export async function runProcessEntry(io: {
       await acquireAppResource(runtime, serveProcessSession(
         request,
         (sessionIds) => io.log(JSON.stringify({ sessionIds })),
-        replies.answer,
+        { answer: replies.answer, deliver: replies.deliver },
         runtime,
       ));
     } finally {

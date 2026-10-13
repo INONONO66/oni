@@ -29,9 +29,13 @@ import type { SessionKernel } from "./store/fence";
 import { configureAction } from "./store/fence";
 import { consumptionSettings } from "./commit";
 import type { LedgerError } from "./store/errors";
-import type { SessionForkReceipt, SessionStore, ToolOutputWrite } from "./store/session-file/index.js";
+import type {
+  SessionForkReceipt,
+  SessionIndexUnit,
+  SessionStore,
+  ToolOutputWrite,
+} from "./store/session-file/index.js";
 import { SESSION_FILE_SCHEMA_VERSION } from "./store/session-file/index.js";
-import type { SessionIndexInsert } from "./store/catalog";
 
 /**
  * Default cap on copied journal bytes. A session generation overrides it by
@@ -81,8 +85,8 @@ export interface ForkPorts {
   readonly parentSchemaVersion: number;
   /** Opens the child session store; called only after every parent-side check passed. */
   readonly openChild: () => SessionStore;
-  /** Catalog index write — a separate SQLite connection, written after the child chain committed. */
-  readonly indexSession: (input: SessionIndexInsert) => void;
+  /** The catalog write unit the child's index lands in, enclosing the child write. */
+  readonly catalog: SessionIndexUnit;
 }
 
 export interface ForkReceipt {
@@ -322,14 +326,10 @@ export function forkSession(
           at: input.now,
         }),
       },
+      index: ports.catalog,
+      createdAt: input.now,
       copies,
       outputs,
-    });
-    ports.indexSession({
-      id: input.childId,
-      parentId: input.from,
-      role: parentRow.role,
-      createdAt: input.now,
     });
     return { childId: input.childId, parentId: input.from, forkedFrom, head: receipt.head, row: receipt.row };
   });

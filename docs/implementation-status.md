@@ -1,5 +1,13 @@
 # Implementation Status
 
+## #1346 one-call session creation and the four entity RPCs (epic #1356, rung 4)
+
+On `epic1356/1346-create-session-four-rpcs` (2026-10-13, base `89b90b793`, PR #1444).
+
+Session creation is one core call: `Core.createSession` (`packages/agent/src/core/create.ts`, `SessionStore.create`) commits the session-file genesis inside the catalog transaction, so the durable genesis and its catalog index row exist together or not at all, refusing typed `CreateRefused{duplicate | orphan_index | write}`; fork indexing is core-owned through `ForkPorts.catalog`. The app reaches a session only through the four entity RPCs: ingress and outbound commits ride the core execution ledgers (typed `CorruptRecord` on a missing receipt), `materializeDeliveryTarget` calls `Core.createSession`, interrupt is `Deliver{kind: "signal", control: "interrupt"}` (the app CAS/retry loop is deleted), and the process child forwards deliveries as `request_deliver` frames the parent commits through the entity. The `Core` barrel exposes `SessionHandleStore` as the curated read-only face only; `script/check-deps.ts` `validateAppsSessionWrites` bans session-store write receivers in `apps/**` except the exact `index.ts:1219 kernel.commit` (`tools.add` configure) line and the pinned `ingress-executor.ts` `Core.adoptedExecutor` perimeter exception. Verification tokens in `apps/openomni/src`: `kernel.commit(`/`source.commit(`/`kernel.materialize(`/`plane.catalog.indexSession(` 2/1/1/3 → 0/0/0/0; scoped `.commit(` 5 → 1 and `.materialize(` 3 → 1.
+
+Verification: lead gate `gate-1346.sh` on the PR head after the rebase onto `89b90b793` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1346.log`); adversarial review r1 (`review-1346-r1.md`) and r2 (`review-1346-r2.md`): Gate (local, 2aa690c6c): 14 STEP/LANE/PATCH exits 0 in gate-1346.log; the packages/agent lane wedged under load 23 on 18 cores (114/114 timeouts, 0 assertion failures, no output after 15:40) and was killed, then rerun alone (hub 15:51 ruling, no full-gate rerun): LANE_EXIT packages/agent 0,  1787 pass  0 fail - logs gate-1346.log + gate-1346.agent.log under core1356/..
+
 ## #1345 core-owned ledger host (epic #1356, rung 3)
 
 On `epic1356/1345-core-host-layer` (2026-10-12, base `25584f2d7`, PR #1442).

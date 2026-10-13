@@ -20,6 +20,7 @@ import {
   type PlainObject,
 } from "@openomni/protocol";
 import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
+import { runAppEffect } from "../src/gateway";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
@@ -36,6 +37,7 @@ import {
   ProviderRequest,
   trackedWaveTools,
   waveTool,
+  interruptDuringSecondModel,
   interruptSecondModel,
 } from "./helpers/session-wave";
 import { approvalPolicy } from "./helpers/approval-policy";
@@ -195,6 +197,8 @@ async function waveApp(
   definitions: readonly AnyToolDefinition[],
   names: readonly string[],
   sessionRuntime?: NonNullable<Parameters<typeof suite.boot>[0]>["sessionRuntime"],
+  /** Parks the provider's n-th response until the promise settles (exact-state gating). */
+  hold?: (request: number) => Promise<void>,
 ) {
   const received: z.infer<typeof ProviderRequest>[] = [];
   const calls = names.map((name) => ({ id: `call-${name}`, name, input: { slot: name } }));
@@ -203,6 +207,7 @@ async function waveApp(
     port: 0,
     async fetch(request) {
       received.push(ProviderRequest.parse(JSON.parse(await request.text())));
+      await hold?.(received.length);
       return providerResponse(received.length === 1 ? calls : []);
     },
   });
@@ -333,6 +338,89 @@ test("after-model SDK interrupt starts zero bodies and seals one interrupted ter
     return terminal ? [terminal] : [];
   });
   expect(terminals.map((terminal) => terminal.kind)).toEqual(["interrupted"]);
+});
+
+// #1346: the interrupt rides the entity's `Deliver` door. The two cases the
+// asynchronous door must not regress: an interrupt issued on the turn's LAST
+// model completion still aborts it (the live turn holds its seal), and an
+// interrupt that arrives once the turn has sealed writes no stray signal.
+test("an interrupt on the last model completion aborts the turn through the entity door", async () => {
+  const { app, socket, received, cleanup } = await waveApp([waveTool("A", async () => "A")], ["A"]);
+  const interrupted = interruptSecondModel(suite, () => received.length, () => app.sessions.get(activeRow().id));
+  const settled = nextTerminal();
+  try {
+    socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run A" }));
+    await bounded(interrupted);
+    await settled;
+    const row = activeRow();
+    // The last completion carried no calls: the turn had nothing left but its
+    // seal, and the interrupt still won — durable row, drain, interrupted terminal.
+    expect(received).toHaveLength(2);
+    expect(toolResults(row.id).map((result) => [result.callId, result.terminal])).toEqual([["call-A", "executed"]]);
+    const actions = tree(row.id);
+    const interruptRow = actions.find(
+      (action) => action.kind === "signal" && z.object({ deliveryKind: z.literal("interrupt") }).safeParse(action.effect.value).success,
+    );
+    if (interruptRow === undefined) throw new Error("missing durable interrupt row");
+    const kernel = plane().openKernel(row.id);
+    const current = kernel.row(row.id);
+    // The entity writer owns the interrupt row: the row's commit owner is the
+    // activation's fence owner, and the transition `running -> interrupted` is durable.
+    expect(current.fenceOwner).not.toBeNull();
+    expect(interruptRow.sessionId).toBe(row.id);
+    expect(current.state).toBe("interrupted");
+    const terminals = actions.flatMap((action) => {
+      const terminal = Core.SessionHandleStore.turnTerminal(action);
+      return terminal ? [terminal] : [];
+    });
+    expect(terminals.map((terminal) => terminal.kind)).toEqual(["interrupted"]);
+    expect(kernel.pendingMessages(row.id).filter((item) => item.kind === "interrupt")).toEqual([]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("an interrupt after the turn sealed leaves no stray consumable signal", async () => {
+  const { app, socket, cleanup } = await waveApp([waveTool("A", async () => "A")], ["A"]);
+  const settled = nextTerminal();
+  try {
+    socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run A" }));
+    await settled;
+    const row = activeRow();
+    const kernel = plane().openKernel(row.id);
+    // The facade: no live turn means no handle at all — the early return
+    // is structural, nothing can issue an interrupt on a sealed session.
+    expect(app.sessions.get(row.id)).toBeUndefined();
+    // The entity door itself: an interrupt control with no running turn is
+    // consumed by the activation's drain as a no-op delivery — the control
+    // row and its delivery record land, nothing stays pending for the NEXT
+    // turn to abort, and the row state is untouched (no `interrupted`).
+    const landed = await runAppEffect(
+      app.runtime,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const makeClient = yield* Core.SessionEntity.client;
+          return yield* makeClient(row.id).Deliver({
+            kind: "signal",
+            body: JSON.stringify({ content: "", control: "interrupt" }),
+            source: JSON.stringify({ kind: "session", id: row.id }),
+            idempotencyKey: "late-interrupt",
+          });
+        }),
+      ),
+    );
+    expect(landed.existed).toBe(false);
+    expect(tree(row.id).map((action) => action.id)).toEqual(expect.arrayContaining(["late-interrupt", "late-interrupt:delivery"]));
+    expect(kernel.row(row.id)).toMatchObject({ state: "idle" });
+    expect(kernel.pendingMessages(row.id)).toEqual([]);
+    const terminals = tree(row.id).flatMap((action) => {
+      const terminal = Core.SessionHandleStore.turnTerminal(action);
+      return terminal ? [terminal] : [];
+    });
+    expect(terminals.map((terminal) => terminal.kind)).toEqual(["result"]);
+  } finally {
+    await cleanup();
+  }
 });
 
 test("all pre decisions precede A B C and reverse completion preserves ledger/provider order across D", async () => {
@@ -605,6 +693,8 @@ for (const door of ["captured-cell", "captured-wave"] as const) {
     const invoke = (executor: ReturnType<typeof currentExecutor>): Promise<string | InvocationClosed> =>
       attemptInvoke(executor).catch((error: Error) =>
         error instanceof InvocationClosed ? error : error.name);
+    let handle: AppSessionHandle | undefined;
+    const interrupt = interruptDuringSecondModel(() => handle);
     const { app, socket, received, cleanup } = await waveApp(
       [
         waveTool("A", async () => "A", true),
@@ -621,8 +711,9 @@ for (const door of ["captured-cell", "captured-wave"] as const) {
         }),
       ],
       ["A", "outer"],
+      undefined,
+      interrupt.hold,
     );
-    let handle: AppSessionHandle | undefined;
     try {
       socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run nested effect" }));
       const executor = await bounded(captured.promise);
@@ -635,16 +726,10 @@ for (const door of ["captured-cell", "captured-wave"] as const) {
       void invoke(executor).then(wrapperSettled.resolve, wrapperSettled.reject);
       await bounded(entered.promise);
       // When: interrupt returns and the parent unwinds while the raw effect is gated.
-      {
-        // Finish the top-level body first, so it cannot mask missing captured retention.
-        const interrupted = interruptSecondModel(
-          suite,
-          () => received.length,
-          () => handle,
-        );
-        outerDone.resolve();
-        await bounded(interrupted);
-      }
+      // Finish the top-level body first, so it cannot mask missing captured
+      // retention; the interrupt lands while the second model call is parked.
+      outerDone.resolve();
+      await bounded(interrupt.interrupted);
       await bounded(parentSettled.promise);
       expect(await bounded(wrapperSettled.promise)).toMatchObject({ _tag: "InvocationClosed", reason: "settled" });
       expect(existsSync(marker)).toBe(false);
@@ -748,6 +833,8 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
           ? runEffect(dispatcher.executeCell(call, context)).then((result) => [result])
           : runEffect(dispatcher.executeWave([call], context));
       };
+      let handle: AppSessionHandle | undefined;
+      const interrupt = interruptDuringSecondModel(() => handle);
       const { app, socket, received, sessionDbPath, cleanup } = await waveApp(
         [
           waveTool("A", async () => "A", true),
@@ -759,8 +846,9 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
           }),
         ],
         ["A", "outer"],
+        undefined,
+        interrupt.hold,
       );
-      let handle: AppSessionHandle | undefined;
       try {
         socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "run timed nested effect" }));
         const executor = await bounded(captured.promise);
@@ -768,11 +856,6 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
         sessionId = row.id;
         handle = app.sessions.get(sessionId);
         if (handle === undefined) throw new Error("missing SDK handle");
-        const interrupted = interruptSecondModel(
-          suite,
-          () => received.length,
-          () => handle,
-        );
         if (current) outerGate.resolve();
         else {
           expect(() => currentExecutor()).toThrow("executor context is required");
@@ -782,7 +865,7 @@ for (const door of ["current-cell", "current-wave", "captured-cell", "captured-w
         await bounded(timedOut.promise);
         expect((await bounded(wrapper.promise)).map((result) => result.isError)).toEqual([true]);
         outerGate.resolve();
-        await bounded(interrupted);
+        await bounded(interrupt.interrupted);
         expect(existsSync(marker)).toBe(false);
         expect(toolResults(sessionId).map((result) => [result.callId, result.terminal])).toEqual([
           ["timed-inner", "outcome_unknown"],

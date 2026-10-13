@@ -1,15 +1,15 @@
 import { Core, Testing } from "@openomni/agent";
-const adoptSessionAuthority = Core.adoptSessionAuthority;
 const decideSessionAdmission = Core.decideSessionAdmission;
 const Entropy = Core.Entropy;
 const AgentFailure = Core.AgentFailure;
+type AgentFailure = Core.AgentFailure;
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
 type SessionEntryServices = Core.SessionEntryServices;
 type SessionError = Core.SessionError;
 type SessionRuntime = Core.SessionRuntime;
 type LedgerError = Core.LedgerError;
-import type { ObservationSink as ObservationSinkPort, SessionTurn } from "@openomni/protocol";
+import type { Delivery, ObservationSink as ObservationSinkPort, SessionTurn } from "@openomni/protocol";
 import { Clock, Context, Effect, type Scope } from "effect";
 import {
   AppLedger,
@@ -19,7 +19,7 @@ import {
   withChannelStores,
 } from "../../src/composition/cluster-runtime";
 import { ComposedGeneration } from "../../src/composition/composed";
-import { localDeliveryCommit } from "../../src/process-entry";
+import { materializeDeliveryTarget, pendingDeliveryRow } from "../../src/composition/message-session";
 import type { AppRuntime } from "../../src/runtime";
 import { runRuntimeEffect } from "./effect";
 import { testClock } from "./test-entropy";
@@ -62,25 +62,44 @@ export function planeOf(runtime: AppRuntime): Promise<AppLedgerPlane> {
   return runRuntimeEffect(runtime, Effect.map(AppLedger, (plane) => plane));
 }
 
-/** Strictly-newer fence adoption on a fixture kernel (the entity's own CAS). */
+/**
+ * A fixture's fence adoption: the core's own takeover fold (the activation's
+ * CAS, re-decided after a lost increment), reached through the agent's
+ * `Testing` seam — no second copy of the product logic lives here (#1346 M6).
+ * Test-only: the app composes no fence of its own.
+ */
 export function adoptTestFence(
   kernel: SessionKernel,
   sessionId: string,
   owner: string,
 ): Effect.Effect<number, LedgerError> {
-  return adoptSessionAuthority(kernel, sessionId, owner);
+  return Testing.adoptSessionAuthority(kernel, sessionId, owner);
 }
 
 /**
- * A cluster-free delivery commit for fixtures: the process child's own local
- * delivery (src/process-entry.ts), bound to a fixture plane and owner.
+ * A cluster-free delivery for fixtures that never boot an entity: the app
+ * materializes the declared destination, then the agent's `Testing` seam
+ * lands the received-message action under the core's own fence fold — no
+ * fence branch, CAS or commit lives here (#1346 M6). The product path is the
+ * entity's `Deliver` RPC, which needs a booted cluster; this stays test-only
+ * and must not back a test that claims admission behavior: the
+ * `messageFixture` sender holds its turn under a local runner, so no entity
+ * can own it. Admission through the entity is proven where the parent is a
+ * booted app (`startOpenOmni` in process-session-e2e, session-wave-e2e).
  */
 export function localDelivery(
   plane: AppLedgerPlane,
   owner = "test-delivery",
   clock: () => number = () => Date.now(),
 ) {
-  return localDeliveryCommit(plane, owner, clock);
+  return (input: Delivery.Commit): Effect.Effect<Delivery.Row, AgentFailure> =>
+    Effect.gen(function* () {
+      yield* materializeDeliveryTarget(plane, input, clock);
+      const ordinal = yield* Testing.localDelivery(plane.openKernel(input.sessionId), input, owner, clock).pipe(
+        Effect.mapError((error) => new AgentFailure({ operation: "message.commit", cause: error._tag })),
+      );
+      return pendingDeliveryRow(input, ordinal);
+    });
 }
 
 export type ResolvedTestRuntime = Core.ResolvedSessionRuntime;

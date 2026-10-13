@@ -40,6 +40,9 @@ function transport(scenario: string, answer?: SessionTransition.Resolution | Err
         if (answers.length > 1) throw new Error("owner refused");
         return answer;
       },
+      deliver: async () => {
+        throw new Error("no delivery configured");
+      },
     }),
   };
 }

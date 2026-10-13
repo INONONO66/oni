@@ -2,7 +2,7 @@ import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
 const createExecutor = Core.createExecutor;
-import { Delivery, type LedgerSession, type SessionTransition } from "@openomni/protocol";
+import { Delivery, SessionGeneration, type LedgerSession, type SessionTransition } from "@openomni/protocol";
 import { Effect } from "effect";
 import {
   createMessageDeliveryCommit,
@@ -118,6 +118,47 @@ test("delivery target materialization refuses a child beyond its pinned fanout",
   }
 });
 
+test("delivery target creation indexes the genesis in one core write and a repeat is the idempotent outcome", async () => {
+  // #1346 boundary: the app no longer materializes then indexes in two calls;
+  // the catalog row and the configure genesis exist together or not at all.
+  const plane = testPlane();
+  const materialize = messageMaterialization(() => 1, testIds("materialize"));
+  const target = () =>
+    deliveryCommit(
+      "target",
+      materialize({
+        id: "target",
+        parentId: null,
+        role: "resident",
+        tools: [],
+        preset: "",
+        runner: "resident",
+        at: 100,
+        settings: { steering: "one", followUp: "all", forkCopyByteCap: 2048 },
+      }),
+    );
+  try {
+    await runEffect(materializeDeliveryTarget(plane, target(), () => 100));
+    const kernel = plane.openKernel("target");
+    const genesis = kernel.latestAction("target");
+    expect(genesis?.kind).toBe("session.configure");
+    expect(kernel.row("target").revision).toBe(1);
+    expect(plane.catalog.sessionIndex("target")).toMatchObject({ id: "target", parentId: null, role: "resident" });
+    expect(SessionGeneration.ConfigureIntent.parse(genesis?.intent.value).settings).toEqual({
+      steering: "one",
+      followUp: "all",
+      forkCopyByteCap: 2048,
+    });
+    // A second creator racing the same id neither rewrites genesis nor fails the delivery.
+    await runEffect(materializeDeliveryTarget(plane, target(), () => 200));
+    expect(kernel.row("target").revision).toBe(1);
+    expect(kernel.latestAction("target")?.id).toBe(genesis?.id);
+    expect(plane.listSessions().map((row) => row.id)).toEqual(["target"]);
+  } finally {
+    plane.close();
+  }
+});
+
 test("entity delivery refuses bytes that do not match the outbound letter", async () => {
   const plane = testPlane();
   const message: SessionTransition.OutboundMessage = {
@@ -162,7 +203,7 @@ test("entity delivery refuses bytes that do not match the outbound letter", asyn
           parentActionId: null,
         }).pipe(
           Effect.provideService(outboundMessage, {
-            input: { message, authority: { owner: "runner", fence: 1 } },
+            input: { message, ledger: { commit: () => Effect.die(new Error("unused source ledger")) } },
             executor,
           }),
         ),

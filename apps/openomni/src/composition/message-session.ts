@@ -43,8 +43,9 @@ export function pendingDeliveryRow(input: Delivery.Commit, ordinal: number): Del
  * gateway prepared; both are applied before the persisted send.
  */
 /**
- * Materializes the destination a prepared send declared (fanout-guarded),
- * idempotently: an existing row is left untouched and only re-indexed.
+ * Creates the destination a prepared send declared (fanout-guarded) through
+ * the core creation door (#1346): genesis row and catalog index land in one
+ * write, and an existing session is left untouched.
  */
 export function materializeDeliveryTarget(
   plane: AppLedgerPlane,
@@ -54,103 +55,113 @@ export function materializeDeliveryTarget(
   return Effect.gen(function* () {
     const create = input.createSession;
     if (create === undefined) return;
-    const kernel = plane.openKernel(input.sessionId);
-    const exists = (() => {
-      try {
-        kernel.row(input.sessionId);
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-    if (!exists) {
-      const limits = input.limits;
-      if (limits !== undefined && create.row.parentId !== null) {
-        const children = plane
-          .listSessions()
-          .filter((row) => row.parentId === create.row.parentId);
-        if (children.length >= limits.fanout)
-          return yield* new AgentFailure({
-            operation: "message.commit",
-            cause: "child fanout limit exhausted",
-          });
-      }
-      const snapshot = SessionGeneration.ConfigureEffect.parse(
-        create.initialAction.effect.value,
-      ).snapshot;
-      // The prepared genesis settings (#1257 fork copy cap, #1253 widths)
-      // survive into the written configure row.
-      const prepared = SessionGeneration.ConfigureIntent.safeParse(create.initialAction.intent.value);
-      const settings = prepared.success ? prepared.data.settings : undefined;
-      yield* kernel
-        .materialize({
-          id: create.row.id,
-          parentId: create.row.parentId,
-          role: create.row.role,
-          tools: [...snapshot.tools],
-          bundles: snapshot.bundles,
-          system: { preset: snapshot.systemPreset, blocks: snapshot.systemBlocks },
-          policyGeneration: snapshot.policyGeneration,
-          ...(snapshot.manifestHash === undefined ? {} : { manifestHash: snapshot.manifestHash }),
-          ...(settings === undefined ? {} : { settings }),
-          actionId: create.initialAction.id,
-          at: clock(),
-        })
-        .pipe(
-          Effect.mapError(
-            (error) => new AgentFailure({ operation: "message.materialize", cause: error._tag }),
-          ),
-        );
+    if (plane.listSessions().some((row) => row.id === create.row.id)) return;
+    const limits = input.limits;
+    if (limits !== undefined && create.row.parentId !== null) {
+      const children = plane
+        .listSessions()
+        .filter((row) => row.parentId === create.row.parentId);
+      if (children.length >= limits.fanout)
+        return yield* new AgentFailure({
+          operation: "message.commit",
+          cause: "child fanout limit exhausted",
+        });
     }
-    plane.catalog.indexSession({
+    const snapshot = SessionGeneration.ConfigureEffect.parse(
+      create.initialAction.effect.value,
+    ).snapshot;
+    // The prepared genesis settings (#1257 fork copy cap, #1253 widths)
+    // survive into the written configure row.
+    const prepared = SessionGeneration.ConfigureIntent.safeParse(create.initialAction.intent.value);
+    const settings = prepared.success ? prepared.data.settings : undefined;
+    yield* Core.createSession(plane, {
       id: create.row.id,
       parentId: create.row.parentId,
       role: create.row.role,
-      createdAt: clock(),
-    });
+      genesis: {
+        tools: [...snapshot.tools],
+        bundles: snapshot.bundles,
+        system: { preset: snapshot.systemPreset, blocks: snapshot.systemBlocks },
+        policyGeneration: snapshot.policyGeneration,
+        ...(snapshot.manifestHash === undefined ? {} : { manifestHash: snapshot.manifestHash }),
+        ...(settings === undefined ? {} : { settings }),
+        actionId: create.initialAction.id,
+        at: clock(),
+      },
+    }).pipe(
+      // A concurrent creator winning the same id is the idempotent outcome;
+      // an orphan index row (no genesis file) fails typed below (#1346 M3).
+      Effect.catchIf((error) => error.reason === "duplicate", () => Effect.void),
+      Effect.mapError(
+        (error) => new AgentFailure({ operation: "message.create", cause: error._tag }),
+      ),
+    );
   });
 }
 
-export function createMessageDeliveryCommit(deps: MessageDeliveryDeps) {
-  return function commitMessageDelivery(
-    input: Delivery.Commit,
-  ): Effect.Effect<Delivery.Row, AgentFailure> {
-    return Effect.gen(function* () {
-      const outbound = yield* outboundMessage;
-      const message = outbound?.input.message;
-      if (
-        message !== undefined &&
-        (input.id !== message.messageId ||
-          input.sessionId !== message.destinationSessionId ||
-          input.content !== message.content)
-      ) {
-        return yield* new AgentFailure({
-          operation: "message.commit",
-          cause: "outbound delivery binding mismatch",
-        });
-      }
+/** The entity `Deliver` RPC payload one prepared commit maps to. */
+export interface DeliverPayload {
+  readonly kind: string;
+  readonly body: string;
+  readonly source: string;
+  readonly idempotencyKey: string;
+}
+
+/**
+ * Maps one prepared delivery commit to its entity `Deliver` payload (#1346):
+ * the outbound binding is checked against the dispatching turn's letter and
+ * the consumption boundary rides the body explicitly. Pure apart from the
+ * outbound context read; the commit that follows may run in another process.
+ */
+export function deliverPayload(input: Delivery.Commit): Effect.Effect<DeliverPayload, AgentFailure> {
+  return Effect.gen(function* () {
+    const outbound = yield* outboundMessage;
+    const message = outbound?.input.message;
+    if (
+      message !== undefined &&
+      (input.id !== message.messageId ||
+        input.sessionId !== message.destinationSessionId ||
+        input.content !== message.content)
+    ) {
+      return yield* new AgentFailure({
+        operation: "message.commit",
+        cause: "outbound delivery binding mismatch",
+      });
+    }
+    // #1253: every input lands through the entity's one `deliver` door. An
+    // interrupt/resume rides the `signal` kind with its control op in the
+    // body; the message id is the caller-chosen idempotency key, so a
+    // redelivered commit resolves to the original seq. A typed refusal
+    // (`unknown_kind | missing_key | closed | denied`) appends nothing.
+    const control = input.kind === "interrupt" || input.kind === "resume" ? input.kind : undefined;
+    // #1311: the outbound message declares its consumption boundary (a child
+    // settlement rides `followUp`); the deliver body carries it explicitly.
+    const delivery = message?.delivery;
+    return {
+      kind: control === undefined ? input.kind : "signal",
+      body: JSON.stringify({
+        content: input.content,
+        ...(control === undefined ? {} : { control }),
+        ...(delivery === undefined ? {} : { delivery }),
+      }),
+      source: JSON.stringify(input.origin.value),
+      idempotencyKey: input.id,
+    };
+  });
+}
+
+/**
+ * Commits one mapped payload through the destination's Session entity:
+ * the declared destination is created first (one core write), then the
+ * receiver's activation admits the input and drains before the RPC acks.
+ */
+export function commitDeliverPayload(deps: MessageDeliveryDeps) {
+  return (input: Delivery.Commit, payload: DeliverPayload): Effect.Effect<Delivery.Row, AgentFailure> =>
+    Effect.gen(function* () {
       yield* materializeDeliveryTarget(deps.plane, input, deps.clock);
-      const entity = deps.client(input.sessionId);
-      // #1253: every input lands through the entity's one `deliver` door. An
-      // interrupt/resume rides the `signal` kind with its control op in the
-      // body; the message id is the caller-chosen idempotency key, so a
-      // redelivered commit resolves to the original seq. A typed refusal
-      // (`unknown_kind | missing_key | closed | denied`) appends nothing.
-      const control = input.kind === "interrupt" || input.kind === "resume" ? input.kind : undefined;
-      // #1311: the outbound message declares its consumption boundary (a child
-      // settlement rides `followUp`); the deliver body carries it explicitly.
-      const delivery = message?.delivery;
-      const receipt = yield* entity
-        .Deliver({
-          kind: control === undefined ? input.kind : "signal",
-          body: JSON.stringify({
-            content: input.content,
-            ...(control === undefined ? {} : { control }),
-            ...(delivery === undefined ? {} : { delivery }),
-          }),
-          source: JSON.stringify(input.origin.value),
-          idempotencyKey: input.id,
-        })
+      const receipt = yield* deps
+        .client(input.sessionId)
+        .Deliver(payload)
         .pipe(
           Effect.mapError(
             (error) => new AgentFailure({ operation: "message.deliver", cause: String(error) }),
@@ -158,6 +169,14 @@ export function createMessageDeliveryCommit(deps: MessageDeliveryDeps) {
         );
       return pendingDeliveryRow(input, receipt.seq);
     });
+}
+
+export function createMessageDeliveryCommit(deps: MessageDeliveryDeps) {
+  const commit = commitDeliverPayload(deps);
+  return function commitMessageDelivery(
+    input: Delivery.Commit,
+  ): Effect.Effect<Delivery.Row, AgentFailure> {
+    return deliverPayload(input).pipe(Effect.flatMap((payload) => commit(input, payload)));
   };
 }
 
@@ -236,7 +255,7 @@ function recipientRelation(
 
 function prepareExternal(
   plane: AppLedgerPlane,
-  materialize: (
+  genesis: (
     id: string,
     parentId: string | null,
     role: LedgerSession.Role,
@@ -264,7 +283,7 @@ function prepareExternal(
             replyTo: send.replyTo,
           }),
         }),
-    ...(!exists ? { createSession: materialize(target, null, "resident", "resident") } : {}),
+    ...(!exists ? { createSession: genesis(target, null, "resident", "resident") } : {}),
     message: {
       sender: "external",
       eventIdUnique: kernel === undefined || kernel.actionById(messageId) === undefined,
@@ -315,7 +334,7 @@ function withinDeadline(
 
 export function prepareMessage(
   plane: AppLedgerPlane,
-  materialize: (
+  genesis: (
     id: string,
     parentId: string | null,
     role: LedgerSession.Role,
@@ -325,7 +344,7 @@ export function prepareMessage(
   return (sender, send, target, messageId) =>
     Effect.gen(function* () {
       if (sender.kind === "external") {
-        return prepareExternal(plane, materialize, send, target, messageId);
+        return prepareExternal(plane, genesis, send, target, messageId);
       }
       const kernel = plane.openKernel(sender.id);
       const source = kernel.row(sender.id);
@@ -358,7 +377,7 @@ export function prepareMessage(
         sender: { sessionId: sender.id, owner: source.fenceOwner, fence: source.fence },
         ...(send.to.kind === "new_session"
           ? {
-              createSession: materialize(target, sender.id, send.to.role, send.to.runner),
+              createSession: genesis(target, sender.id, send.to.role, send.to.runner),
               limits: { fanout: Math.min(...fanout), depth: Math.min(...depths) },
             }
           : {}),

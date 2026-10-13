@@ -50,7 +50,6 @@ export function messageFixture(
     listSessions: plane.listSessions,
     dispatchOutbound: dispatchOutboundMessage(
       (...args) => gateway.ingest(...args),
-      () => 100,
       plane.openKernel,
     ),
   };

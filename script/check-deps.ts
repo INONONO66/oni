@@ -1066,10 +1066,10 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
  * Retiring a call site lowers its pin in the same PR.
  */
 const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
-  ["apps/openomni/src/composition/ingress-executor.ts", 2],
-  ["apps/openomni/src/composition/message-session.ts", 1],
-  ["apps/openomni/src/index.ts", 2],
-  ["apps/openomni/src/process-entry.ts", 1],
+  // #1346: ingress-executor, message-session and process-entry retired their
+  // last direct tokens (now Core.createSession / the Session entity RPCs);
+  // index.ts keeps the one deferred `tools.add` configure commit.
+  ["apps/openomni/src/index.ts", 1],
 ]);
 
 /** The two entity-assembly identifiers counted wherever they appear, import specifiers included. */
@@ -1098,6 +1098,8 @@ const APPS_AGENT_KERNEL_MEMBERS: ReadonlySet<string> = new Set([
 function receiverName(expression: ts.Expression): string | undefined {
   if (ts.isIdentifier(expression)) return expression.text;
   if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) return expression.name.text;
+  // A called receiver (`plane.sessionStore(id).create`) is named by its callee.
+  if (ts.isCallExpression(expression)) return receiverName(expression.expression);
   return undefined;
 }
 
@@ -1167,6 +1169,225 @@ export async function validateAppsAgentTokens(
     }
   } else {
     warn(`NOTICE [check-deps] token pin slack not judged: ${root} is not a git checkout`);
+  }
+  return violations;
+}
+
+/**
+ * #1346: the session-store write members no app source may name, on any
+ * receiver and in any form — member call, element-access call, destructuring
+ * or aliasing read, bare call of a destructured/aliased name. `create` is the
+ * session-file unit's own door and counts only off a `sessionStore(...)`
+ * receiver: `ports.create`, `provider.create` and `NamedError.create` are
+ * unrelated same-named ports.
+ */
+const APPS_SESSION_WRITE_MEMBERS: ReadonlySet<string> = new Set([
+  "commit",
+  "materialize",
+  "indexSession",
+  "adoptFence",
+  "adoptedExecutionLedger",
+  "fencedExecutionLedger",
+  "adoptedExecutor",
+]);
+const APPS_SESSION_STORE_UNIT_MEMBERS: ReadonlySet<string> = new Set(["create"]);
+
+interface AppsSessionWriteSite {
+  readonly file: string;
+  /** 1-based line of the member name, where `rg -n` reports it. */
+  readonly line: number;
+  readonly receiver: string;
+  readonly member: string;
+}
+
+/**
+ * #1346: the two app-side session-store writes that survive the cutover, by
+ * exact source line. One is the deferred `tools.add` `session.configure`
+ * commit (its input contract is parent-owned; it is not converted into a
+ * signal). The other is the perimeter ingress executor's `Core.adoptedExecutor`
+ * call: it DOES adopt a fence (`adoptSessionAuthority` inside the core) for
+ * the request's writer and commits gate rows through the core's fenced door,
+ * so it is counted here as the second scoped exception (review-1346-r2 M1).
+ * Moving either line re-pins it here; any other write anywhere fails.
+ */
+const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
+  { file: "apps/openomni/src/index.ts", line: 1224, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 59, receiver: "Core", member: "adoptedExecutor" },
+];
+
+/** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
+const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [
+  { file: "apps/openomni/src/provisioning/contacts.ts", receiver: "port", member: "materialize" },
+];
+
+/** The banned member a property or element access names, if any (`create` only off `sessionStore(...)`). */
+function bannedSessionWriteMember(
+  access: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+): { readonly name: string; readonly node: ts.Node } | undefined {
+  const named = ts.isPropertyAccessExpression(access)
+    ? ts.isIdentifier(access.name) ? { name: access.name.text, node: access.name } : undefined
+    : ts.isStringLiteral(access.argumentExpression)
+      ? { name: access.argumentExpression.text, node: access.argumentExpression }
+      : undefined;
+  if (named === undefined) return undefined;
+  if (APPS_SESSION_WRITE_MEMBERS.has(named.name)) return named;
+  if (
+    APPS_SESSION_STORE_UNIT_MEMBERS.has(named.name) &&
+    ts.isCallExpression(access.expression) &&
+    receiverName(access.expression.expression) === "sessionStore"
+  )
+    return named;
+  return undefined;
+}
+
+/**
+ * Every naming of a session-store write member in one app source, by AST
+ * walk. Counted on any receiver: the member call (`kernel.commit(...)`,
+ * `source.commit(...)`, `plane.catalog.indexSession(...)`, line-wrapped
+ * forms), the element-access call (`kernel["commit"](...)`), the aliasing
+ * read (`const adopt = Core.adoptedExecutionLedger`), the destructuring
+ * (`const { materialize: seed } = source`) and the bare call of a banned name
+ * (`adoptedExecutionLedger(...)`). `commit` is also an ordinary payload field
+ * name (`input.commit.id`, `const { commit, deliver } = frame`), so its
+ * value forms count only as a pair: a `commit` bound from a destructuring or
+ * alias AND called bare in the same file (`const { commit } = kernel;
+ * commit(...)`). The receiver is the member chain's final name, `<bare>` for
+ * a bare call, `<destructure>` for a binding, `<alias>` for an aliasing read;
+ * comments, strings and template text never count. Sites are in source order.
+ */
+export function appsSessionWriteSites(source: string, filePath: string): AppsSessionWriteSite[] {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const walk = new SessionWriteWalk(sourceFile, filePath);
+  walk.visit(sourceFile);
+  return walk.sites();
+}
+
+/** The one-file walk behind {@link appsSessionWriteSites}: direct sites plus the paired `commit` value forms. */
+class SessionWriteWalk {
+  private readonly found: { readonly position: number; readonly site: AppsSessionWriteSite }[] = [];
+  /** `commit` value forms, paired after the walk: bindings by bound name, bare calls by callee name. */
+  private readonly commitBindings: { readonly node: ts.Node; readonly receiver: string; readonly bound: string }[] = [];
+  private readonly bareCalls: ts.Identifier[] = [];
+
+  constructor(
+    private readonly sourceFile: ts.SourceFile,
+    private readonly filePath: string,
+  ) {}
+
+  visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) this.call(node);
+    else if (ts.isVariableDeclaration(node)) this.alias(node);
+    else if (ts.isBindingElement(node)) this.destructure(node);
+    ts.forEachChild(node, this.visit);
+  };
+
+  sites(): AppsSessionWriteSite[] {
+    const called = this.commitBindings.filter((binding) => this.bareCalls.some((call) => call.text === binding.bound));
+    for (const binding of called) this.site(binding.node, binding.receiver, "commit");
+    for (const call of this.bareCalls) {
+      if (called.some((binding) => binding.bound === call.text)) this.site(call, "<bare>", "commit");
+    }
+    return this.found.sort((a, b) => a.position - b.position).map((entry) => entry.site);
+  }
+
+  private site(node: ts.Node, receiver: string, member: string): void {
+    const position = node.getStart(this.sourceFile);
+    this.found.push({
+      position,
+      site: { file: this.filePath, line: this.sourceFile.getLineAndCharacterOfPosition(position).line + 1, receiver, member },
+    });
+  }
+
+  private valueForm(member: { readonly name: string; readonly node: ts.Node }, receiver: string, bound: string): void {
+    if (member.name === "commit") this.commitBindings.push({ node: member.node, receiver, bound });
+    else this.site(member.node, receiver, member.name);
+  }
+
+  private call(node: ts.CallExpression): void {
+    const callee = node.expression;
+    if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+      const banned = bannedSessionWriteMember(callee);
+      if (banned !== undefined) this.site(banned.node, receiverName(callee.expression) ?? "<expression>", banned.name);
+      return;
+    }
+    if (!ts.isIdentifier(callee)) return;
+    if (APPS_SESSION_WRITE_MEMBERS.has(callee.text) && callee.text !== "commit") this.site(callee, "<bare>", callee.text);
+    else this.bareCalls.push(callee);
+  }
+
+  private alias(node: ts.VariableDeclaration): void {
+    const initializer = node.initializer;
+    if (
+      !ts.isIdentifier(node.name) ||
+      initializer === undefined ||
+      !(ts.isPropertyAccessExpression(initializer) || ts.isElementAccessExpression(initializer))
+    )
+      return;
+    const banned = bannedSessionWriteMember(initializer);
+    if (banned !== undefined) this.valueForm(banned, "<alias>", node.name.text);
+  }
+
+  private destructure(node: ts.BindingElement): void {
+    if (!ts.isIdentifier(node.name)) return;
+    const property = node.propertyName ?? node.name;
+    const name = ts.isIdentifier(property) || ts.isStringLiteral(property) ? property.text : undefined;
+    if (name !== undefined && (APPS_SESSION_WRITE_MEMBERS.has(name) || APPS_SESSION_STORE_UNIT_MEMBERS.has(name)))
+      this.valueForm({ name, node: property }, "<destructure>", node.name.text);
+  }
+}
+
+/**
+ * #1346 ban: app sources create sessions through `Core.createSession` and
+ * write through the Session entity's four RPCs; a direct session-store write
+ * call outside the exact allow-list fails, and a stale allow-list line (the
+ * pinned call moved or disappeared) fails inside a git checkout.
+ */
+export async function validateAppsSessionWrites(
+  root = ".",
+  warn: (notice: string) => void = console.warn,
+): Promise<string[]> {
+  const violations: string[] = [];
+  const used = new Set<AppsSessionWriteSite>();
+  for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
+    for (const site of appsSessionWriteSites(source, filePath)) {
+      if (
+        APPS_SESSION_WRITE_EXCLUSIONS.some(
+          (entry) => entry.file === site.file && entry.receiver === site.receiver && entry.member === site.member,
+        )
+      )
+        continue;
+      const allowed = APPS_SESSION_WRITE_ALLOW_LIST.find(
+        (entry) =>
+          entry.file === site.file &&
+          entry.line === site.line &&
+          entry.receiver === site.receiver &&
+          entry.member === site.member,
+      );
+      if (allowed !== undefined) {
+        used.add(allowed);
+        continue;
+      }
+      violations.push(
+        `VIOLATION: ${site.file}:${site.line} names ${site.receiver}.${site.member} — #1346: session writes ride Core.createSession or the Session entity RPCs; only the exact allow-listed sites may write directly`,
+      );
+    }
+  }
+  if (isGitCheckout(root)) {
+    for (const entry of APPS_SESSION_WRITE_ALLOW_LIST) {
+      if (!used.has(entry)) {
+        violations.push(
+          `VIOLATION: ${entry.file}:${entry.line} no longer names ${entry.receiver}.${entry.member} — #1346: the allow-listed write moved or disappeared; re-pin the exact line or drop the entry`,
+        );
+      }
+    }
+  } else {
+    warn(`NOTICE [check-deps] session-write allow-list presence not judged: ${root} is not a git checkout`);
   }
   return violations;
 }
@@ -1775,6 +1996,7 @@ export async function main(): Promise<void> {
   const agentIndexPerimeterViolationList = await validateAgentIndexPerimeter();
   const appsAgentBarrelViolationList = await validateAppsAgentBarrel();
   const appsAgentTokenViolationList = await validateAppsAgentTokens();
+  const appsSessionWriteViolationList = await validateAppsSessionWrites();
   const bundleViolations = await checkBundleImports();
   const deepImportViolations = await validateDeepImports();
   const deepRelativeImportViolations = await validateDeepRelativeImports();
@@ -1788,6 +2010,7 @@ export async function main(): Promise<void> {
     ...agentIndexPerimeterViolationList,
     ...appsAgentBarrelViolationList,
     ...appsAgentTokenViolationList,
+    ...appsSessionWriteViolationList,
     ...bundleViolations.map(
       (finding) => `VIOLATION: ${finding.code} ${finding.file}:${finding.line}`,
     ),

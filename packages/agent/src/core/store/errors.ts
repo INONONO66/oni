@@ -16,6 +16,21 @@ export class MaterializeRefused extends Data.TaggedError("MaterializeRefused")<{
   readonly reason: "input" | "configuration" | "state";
 }> {}
 
+/**
+ * One creation refused: `duplicate` (the session file holds the id — the
+ * idempotent outcome for a concurrent creator), `orphan_index` (a catalog row
+ * with no session file behind it; fail closed) or `write` (the unit failed).
+ */
+export class CreateRefused extends Data.TaggedError("CreateRefused")<{
+  readonly sessionId: string;
+  readonly reason: "duplicate" | "orphan_index" | "write";
+  readonly cause?: Error | LedgerError;
+}> {
+  override get message(): string {
+    return `session creation refused (${this.reason}): ${this.sessionId}`;
+  }
+}
+
 export class FenceRefused extends Data.TaggedError("FenceRefused")<{
   readonly sessionId: string;
   readonly reason: "held" | "stale";
@@ -111,6 +126,7 @@ export class CatalogVersionRefused extends Data.TaggedError("CatalogVersionRefus
 export type LedgerError =
   | SessionNotFound
   | MaterializeRefused
+  | CreateRefused
   | FenceRefused
   | CommitRefused
   | PolicyGenerationRefused

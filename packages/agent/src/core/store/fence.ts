@@ -68,7 +68,7 @@ interface GenerationSeed {
   readonly manifestHash?: string;
 }
 
-interface MaterializeInput extends GenerationSeed {
+export interface MaterializeInput extends GenerationSeed {
   readonly id: string;
   readonly parentId: string | null;
   readonly role: LedgerSession.Role;

@@ -6,7 +6,6 @@ import { Bundle, Core } from "@openomni/agent";
 type ExecutionApprovalRequest = Core.ExecutionApprovalRequest;
 import { Bus, newTraceId } from "./helpers/bus";
 import { Effect } from "effect";
-const CommitRefused = Core.CommitRefused;
 import { type Alarm, canonicalDigest, L0Observation, Operational, type PlainObject } from "@openomni/protocol";
 import type { AppSessionHandle } from "../src";
 import {
@@ -14,6 +13,7 @@ import {
   requestToolStep,
 } from "./helpers/assistant-message";
 import { adoptTestFence, planeOf } from "./helpers/ledger";
+import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
 import { testMachinesPlane } from "./helpers/self-machine";
 import { bounded } from "./helpers/protected-dispatch";
@@ -22,6 +22,7 @@ import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { waveTool } from "./helpers/session-wave";
 import { testToolsBundle } from "./helpers/app-fixture";
+import { testIds } from "./helpers/test-entropy";
 import { nextFrame } from "./helpers/ws";
 import { approvalPolicy } from "./helpers/approval-policy";
 import { materializeResident } from "./helpers/resident-materialize";
@@ -48,65 +49,126 @@ async function restartApp(config: ReturnType<typeof suite.config>) {
   return planeOf(app.runtime);
 }
 
-test.each(["revision", "fence"] as const)(
-  "facade interrupt handles a %s commit refusal",
-  async (reason) => {
-    const entered = Promise.withResolvers<string>();
-    const release = Promise.withResolvers<void>();
-    const app = await suite.boot({
-      config: suite.config(`index-interrupt-${reason}-`, { wsToken: "interrupt-token" }),
-      llm: {
-        resolveModel: fakeProviderModel,
-        run: (input) => Effect.gen(function* () {
-          entered.resolve(input.trace.sessionId);
-          yield* Effect.promise(() => release.promise);
-          return { type: "stop" as const };
-        }),
-      },
-    });
-    const plane = await planeOf(app.runtime);
-    const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "interrupt-token"]);
-    socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "interrupt this turn" }));
-    const sessionId = await bounded(entered.promise);
-    const handle = app.sessions.get(sessionId);
-    if (handle === undefined) throw new Error("live turn missing");
-    const original = plane.openKernel;
-    let commits = 0;
-    const spy = spyOn(plane, "openKernel").mockImplementation((id) => {
-      const kernel = original(id);
-      if (id !== sessionId) return kernel;
-      const commit: typeof kernel.commit = (input) => {
-        const effect = input.actions[0]?.effect.value;
-        if (
-          effect === null || typeof effect !== "object" ||
-          Array.isArray(effect) || effect.deliveryKind !== "interrupt"
-        ) return kernel.commit(input);
-        commits += 1;
-        if (commits > 1) return kernel.commit(input);
-        const row = kernel.row(id);
-        return Effect.fail(new CommitRefused({
-          sessionId: id, reason,
-          expectedRevision: input.expectedRevision, currentRevision: row.revision + 1,
-          fence: input.fence, currentFence: row.fence,
-        }));
-      };
-      return { ...kernel, commit };
-    });
-    try {
-      if (reason === "revision") {
-        await bounded(runEffect(handle.interrupt()));
-        expect(commits).toBe(2);
-      } else {
-        const failure = await bounded(runEffect(Effect.flip(handle.interrupt())));
-        expect(failure).toMatchObject({ _tag: "AgentFailure", operation: "session.interrupt" });
-        expect(commits).toBe(1);
-      }
-    } finally {
-      spy.mockRestore();
-      release.resolve();
+/** A held fake model: the test owns when the turn's one model call returns. */
+async function heldTurnApp(prefix: string, entropy?: () => string) {
+  const entered = Promise.withResolvers<string>();
+  const release = Promise.withResolvers<void>();
+  const app = await suite.boot({
+    config: suite.config(prefix, { wsToken: "interrupt-token" }),
+    ...(entropy === undefined ? {} : { sessionRuntime: { entropy } }),
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input) => Effect.gen(function* () {
+        entered.resolve(input.trace.sessionId);
+        yield* Effect.promise(() => release.promise);
+        return { type: "stop" as const };
+      }),
+    },
+  });
+  const plane = await planeOf(app.runtime);
+  const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "interrupt-token"]);
+  socket.send(JSON.stringify({ type: "message", eventId: newTraceId(), text: "interrupt this turn" }));
+  const sessionId = await bounded(entered.promise);
+  const handle = app.sessions.get(sessionId);
+  if (handle === undefined) throw new Error("live turn missing");
+  return { app, plane, sessionId, handle, release };
+}
+
+function signalRows(plane: Awaited<ReturnType<typeof planeOf>>, sessionId: string) {
+  return sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter((action) => action.kind === "signal");
+}
+
+test("facade interrupt rides the entity Deliver signal: the activation's writer commits the row under its own fence", async () => {
+  const { plane, sessionId, handle, release } = await heldTurnApp("index-interrupt-");
+  const kernel = plane.openKernel(sessionId);
+  // #1346: the live activation holds the fence under the runner's writer
+  // identity; the interrupt row must land under THAT owner and fence (the
+  // single writer's CAS), never under a fence another writer adopted.
+  const live = kernel.row(sessionId);
+  expect(live).toMatchObject({ state: "running", fenceOwner: `openomni:${process.pid}` });
+  const committed: { readonly id: string; readonly revision: number }[] = [];
+  suite.defer(
+    Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
+      if (event.sessionId === sessionId && event.kind === "signal") committed.push({ id: event.id, revision: event.revision });
+    }),
+  );
+  try {
+    const interrupted = runEffect(handle.interrupt());
+    release.resolve();
+    await bounded(interrupted);
+    const signals = signalRows(plane, sessionId);
+    // One received interrupt row from the session itself, consumed by the
+    // turn's own `before_llm` boundary drain.
+    expect(signals.map((action) => action.effect.value)).toEqual([
+      { deliveryKind: "interrupt", content: "" },
+      expect.objectContaining({ phase: "delivery", kind: "interrupt", boundary: "before_llm", deliveryId: signals[0]?.id }),
+    ]);
+    expect(signals[0]?.intent.value).toEqual({ kind: "session", id: sessionId });
+    // Writer identity: the row committed on the live chain (after the turn
+    // rows the activation wrote) and the fence owner/fence never changed
+    // hands around it — the activation's own CAS, no other writer.
+    expect(committed.find((event) => event.id === signals[0]?.id)?.revision).toBeGreaterThan(live.revision);
+    const after = kernel.row(sessionId);
+    expect([after.fenceOwner, after.fence]).toEqual([live.fenceOwner, live.fence]);
+    expect(after.state).toBe("interrupted");
+  } finally {
+    release.resolve();
+  }
+});
+
+test("two concurrent facade interrupts serialize at the entity door: both land, both drain, no stray signal", async () => {
+  // Re-homed stale-revision case: the deleted app retry duplicated a row on a
+  // revision race; the entity's single writer serializes the two interrupts
+  // at its own CAS — each lands exactly once and each is drained by the live
+  // turn's boundary (the second as a no-op on the already-interrupted turn),
+  // so nothing stays pending for the NEXT turn to abort.
+  const { plane, sessionId, handle, release } = await heldTurnApp("index-interrupt-twice-");
+  const kernel = plane.openKernel(sessionId);
+  try {
+    const first = runEffect(handle.interrupt());
+    const second = runEffect(handle.interrupt());
+    release.resolve();
+    await bounded(Promise.all([first, second]));
+    const signals = signalRows(plane, sessionId).map((action) => ({ id: action.id, value: action.effect.value }));
+    const interrupts = signals.filter((signal) => (signal.value as { deliveryKind?: string }).deliveryKind === "interrupt");
+    expect(interrupts).toHaveLength(2);
+    for (const interrupt of interrupts) {
+      expect(signals.filter((signal) => (signal.value as { deliveryId?: string }).deliveryId === interrupt.id)).toHaveLength(1);
     }
-  },
-);
+    expect(kernel.pendingMessages(sessionId)).toEqual([]);
+    expect(kernel.row(sessionId).state).toBe("interrupted");
+  } finally {
+    release.resolve();
+  }
+});
+
+test("facade interrupt surfaces the entity door's typed refusal as its code", async () => {
+  // The interrupt's idempotency key is minted from the app's entropy; an
+  // empty key is the door's `missing_key` refusal, which the facade reports
+  // as `tag:code` with no row committed and the held turn left intact.
+  const ids = testIds("index-interrupt-refused");
+  let blank = false;
+  const { plane, sessionId, handle, release } = await heldTurnApp(
+    "index-interrupt-refused-",
+    () => (blank ? "" : ids()),
+  );
+  const kernel = plane.openKernel(sessionId);
+  try {
+    const before = kernel.row(sessionId);
+    blank = true;
+    const failure = await bounded(runEffect(Effect.flip(handle.interrupt())));
+    blank = false;
+    expect(failure).toMatchObject({
+      _tag: "AgentFailure",
+      operation: "session.interrupt",
+      cause: "DeliverRefused:missing_key",
+    });
+    expect(signalRows(plane, sessionId)).toEqual([]);
+    expect(kernel.row(sessionId)).toMatchObject({ state: "running", revision: before.revision });
+  } finally {
+    release.resolve();
+  }
+});
 
 test("live approval readiness notifies the facade and arms its deadline", async () => {
   const modelEntered = Promise.withResolvers<string>();

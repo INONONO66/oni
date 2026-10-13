@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import type { SessionTransition } from "@openomni/protocol";
+import type { Delivery, SessionTransition } from "@openomni/protocol";
 import { createProcessReplyChannel } from "../src/composition/process-replies";
 import { runEffect } from "./helpers/effect";
 import { bounded } from "./helpers/protected-dispatch";
@@ -21,6 +21,17 @@ const answer: SessionTransition.Answer = {
   allowedAction: "report_result",
   content: "answer",
 };
+
+const commit: Delivery.Commit = {
+  id: "delivery",
+  sessionId: "receiver",
+  kind: "prompt",
+  content: "hello",
+  origin: { encodingVersion: 1, value: { kind: "session", id: "child" } },
+  createdAt: 1,
+  parentActionId: null,
+};
+const deliver = { kind: "prompt", body: JSON.stringify({ content: "hello" }), source: JSON.stringify(commit.origin.value), idempotencyKey: commit.id };
 
 function fixture() {
   const input = new PassThrough();
@@ -68,6 +79,29 @@ test("process receiving refusal reaches the source instead of becoming an acknow
     `${JSON.stringify({ ok: false, inputId: answer.inputId, error: "receiver refused" })}\n`,
   );
   expect(await bounded(refused)).toMatchObject({ message: "receiver refused" });
+});
+
+test("a well-formed receipt of the other shape fails exactly its pending operation", async () => {
+  // The wire accepts both receipt shapes; a delivery answered with a
+  // resolution (or an answer with a row) is a protocol fault the pending
+  // operation surfaces, never a success with a fabricated value.
+  using f = fixture();
+  f.input.write("initial\n");
+  await f.channel.first;
+  const delivered = f.channel.deliver({ commit, deliver }).then(
+    () => null,
+    (error: Error) => error,
+  );
+  f.input.write(`${JSON.stringify({ ok: true, inputId: commit.id, resolution: "resolved" })}\n`);
+  expect(await bounded(delivered)).toMatchObject({ message: "process delivery receipt carries no row" });
+  const answered = f.channel.answer(answer).then(
+    () => null,
+    (error: Error) => error,
+  );
+  const { parentActionId: _parent, ...fields } = commit;
+  const row: Delivery.Row = { ...fields, status: "pending", consumedBy: null, consumedAt: null, ordinal: 1 };
+  f.input.write(`${JSON.stringify({ ok: true, inputId: answer.inputId, row })}\n`);
+  expect(await bounded(answered)).toMatchObject({ message: "process answer receipt carries no resolution" });
 });
 
 test.each([

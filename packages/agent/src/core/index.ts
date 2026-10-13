@@ -30,7 +30,7 @@ export {
 } from "./tool";
 
 export {
-  adoptSessionAuthority, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,
+  adoptedExecutor, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,
   type GenerationBundle, type SessionHandle, type SessionRunner, type SessionRuntime,
   type SessionCreateOptions, type SessionRunnerInput, type SessionRunnerResult,
   type SessionEntityPorts, type SessionEntityTurnInput,
@@ -38,7 +38,7 @@ export {
   composedManifest, type ComposedManifest,
 } from "./run";
 export { decideSessionAdmission } from "./admission";
-export { requestAuthorityKernel, commitSessionRequest } from "./request";
+export { requestAuthorityKernel } from "./request";
 export { createSessionRequests, decideRequestTransition, requestBindingDigest } from "./request";
 export { receivedMessageAction, staleActionBacklog } from "./commit";
 export { armAction, firedAction, alarmDisposition, composeAlarmPurposes, AlarmComposeError, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./alarm";
@@ -46,6 +46,7 @@ export { SessionEntity, SessionEntityContext, type SessionKernel } from "./entit
 export { Ledger, OpenRefused, openLedger, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./host";
 export { makeObservationBus, observationBusLayer, scopeObservation } from "./bus";
 export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./fork";
+export { createSession, CreateRefused, type CreateSessionInput, type SessionReceipt } from "./create";
 
 // ─── journal/store surface (formerly the Journal namespace, #1276) ───
 export {

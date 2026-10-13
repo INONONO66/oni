@@ -24,7 +24,7 @@ import {
 const legacyIdPath = `'$.${V1_DELIVERY_FIELDS.id}'`;
 const legacyKindPath = `'$.${V1_DELIVERY_FIELDS.kind}'`;
 import { z } from "zod";
-import { CorruptRecord, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
+import { CorruptRecord, CreateRefused, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
 import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import type { SessionWriteAdapter } from "../services";
 import { createSqliteDecisionFacts } from "../decision.js";
@@ -909,6 +909,7 @@ export class SessionStore extends StoreHandle {
   readonly armedCount: () => number;
   /** #1305: content-addressed tool output bytes of this session file. */
   readonly toolOutputs: ToolOutputsAdapter;
+  private readonly onObservationFailure: ObservationFailurePort;
   constructor(
     db: Database,
     observationSink: ObservationSink,
@@ -916,6 +917,7 @@ export class SessionStore extends StoreHandle {
     onObservationFailure: ObservationFailurePort,
   ) {
     super(db, observationSink, now);
+    this.onObservationFailure = onObservationFailure;
     this.sessions = createSessions(db, this.transaction, observationSink, onObservationFailure);
     this.actions = createActions(db, this.transaction, observationSink, onObservationFailure);
     this.decisionFacts = createSqliteDecisionFacts(db);
@@ -933,8 +935,7 @@ export class SessionStore extends StoreHandle {
    */
   fork(input: SessionForkWrite): Effect.Effect<SessionForkReceipt, LedgerError> {
     return writeEffect("session.fork", (refuse: RefuseWrite) =>
-      this.transaction(() => {
-        const materialize = LedgerSession.Materialize.parse(input.materialize);
+      this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
         const created = materializeSession(this.db, materialize, refuse);
         if (!created.created)
           return refuse(new MaterializeRefused({ sessionId: materialize.row.id, reason: "state" }));
@@ -955,11 +956,80 @@ export class SessionStore extends StoreHandle {
       }),
     );
   }
+
+  /** One atomic creation write: genesis row and catalog index land together; a duplicate on either plane refuses typed with zero new facts. */
+  create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
+    return writeEffect("session.create", (refuse: RefuseWrite) => {
+      const created = this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
+        const result = materializeSession(this.db, materialize, refuse);
+        return result.created
+          ? result
+          : refuse(new CreateRefused({ sessionId: materialize.row.id, reason: "duplicate" }));
+      });
+      reportCommitted(this.db, this.observationSink, this.onObservationFailure, created.receipt);
+      return { row: created.row, receipt: created.receipt };
+    });
+  }
+
+  /**
+   * The catalog lock encloses the session-file write: index row first (a lost
+   * race refuses before any session write), a thrown write unwinds both, and
+   * `createdAt` is the caller's clock. A colliding index row is `duplicate`
+   * only with a session file behind it; a catalog row alone is `orphan_index`.
+   */
+  private indexed<T>(
+    index: SessionIndexUnit,
+    input: LedgerSession.Materialize,
+    createdAt: number,
+    refuse: RefuseWrite,
+    write: (materialize: LedgerSession.Materialize) => T,
+  ): T {
+    const materialize = LedgerSession.Materialize.parse(input);
+    return index.transaction(() => {
+      const { id, parentId, role } = materialize.row;
+      if (!index.indexSession({ id, parentId, role, createdAt }))
+        return refuse(
+          new CreateRefused({
+            sessionId: id,
+            reason: selectSession(this.db, id) === undefined ? "orphan_index" : "duplicate",
+          }),
+        );
+      return this.transaction(() => write(materialize));
+    });
+  }
+}
+
+/** The catalog side of one creation: its write unit and index insert (`CatalogStore`, structurally). */
+export interface SessionIndexUnit {
+  readonly transaction: <T>(operation: () => T) => T;
+  readonly indexSession: (input: {
+    readonly id: string;
+    readonly parentId: string | null;
+    readonly role: LedgerSession.Role;
+    readonly createdAt: number;
+  }) => boolean;
+}
+
+/** The atomic genesis-plus-index write `createSession` hands the store. */
+export interface SessionCreateWrite {
+  readonly materialize: LedgerSession.Materialize;
+  readonly index: SessionIndexUnit;
+  /** The index row's creation stamp: the caller's clock (the genesis `at`). */
+  readonly createdAt: number;
+}
+
+export interface SessionCreateReceipt {
+  readonly row: LedgerSession.Row;
+  readonly receipt: LedgerAction.Receipt;
 }
 
 /** The atomic child write `Session.fork` hands the child store (#1257). */
 interface SessionForkWrite {
   readonly materialize: LedgerSession.Materialize;
+  /** The catalog unit the child's index row lands in, enclosing the child write. */
+  readonly index: SessionIndexUnit;
+  /** The child's index creation stamp: the fork's `now`. */
+  readonly createdAt: number;
   /** Eligible pre-anchor parent rows, already remapped for the child chain. */
   readonly copies: readonly LedgerAction.Append[];
   /** #1305: stored outputs the copied rows reference, copied under the same identifiers. */

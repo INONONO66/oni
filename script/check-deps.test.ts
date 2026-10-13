@@ -223,10 +223,12 @@ test("accepts a clean repository with no dependency or doc warnings", async () =
   );
   const result = await run(root);
   expect(result.code).toBe(0);
-  // The fixture is not a git checkout, so the #1343 token-pin slack skip is
-  // announced loudly (exactly once) instead of passing silently.
+  // The fixture is not a git checkout, so the #1343 token-pin slack skip and
+  // the #1346 allow-list presence skip are each announced loudly (exactly
+  // once) instead of passing silently.
   expect(result.error).toBe(
-    "NOTICE [check-deps] token pin slack not judged: . is not a git checkout\n",
+    "NOTICE [check-deps] token pin slack not judged: . is not a git checkout\n" +
+      "NOTICE [check-deps] session-write allow-list presence not judged: . is not a git checkout\n",
   );
 });
 

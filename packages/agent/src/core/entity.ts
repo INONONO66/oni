@@ -216,6 +216,8 @@ function appendReceived(
     const row = kernel.row(authority.sessionId);
     const now = env.clock();
     const action = receivedActionFor(authority.sessionId, kind, message, now, delivery, after);
+    // The interrupt row carries the writer-owned `running -> interrupted`
+    // transition; any other state drains the control as a no-op delivery.
     const committed = yield* commitIn(handle, {
       sessionId: authority.sessionId,
       owner: authority.owner,
@@ -223,7 +225,7 @@ function appendReceived(
       now,
       expectedRevision: row.revision,
       actions: [action],
-      state: row.state,
+      state: kind === "interrupt" && row.state === "running" ? "interrupted" : row.state,
     });
     const receipt = committed.receipts[0];
     if (receipt === undefined)

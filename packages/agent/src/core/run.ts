@@ -19,7 +19,7 @@ import { Entropy, ObservationSink as ObservationService, GenerationLayers, type 
 import type { CompactionSeamService } from "./compaction-ports";
 import type { ApprovalPolicy } from "./approval-policy";
 import { commitFoldBatch, turnCheckpointAction, deliveryActions, turnTerminalAction, policyRefusalResult, sessionRunnerResultValue, sessionRunnerResultFromValue, boundaryConsumption, consumptionSettings, } from "./commit";
-import type { LedgerError } from "./store/errors";
+import { CorruptRecord, type LedgerError } from "./store/errors";
 import { z } from "zod";
 import { hydrateSessionHistory, refreshSessionHistory } from "../inspect/history";
 import { observeDrained, scopeObservation } from "./bus";
@@ -126,10 +126,10 @@ export interface SessionRuntime {
    * compaction append is a defect and a restore refuses typed.
    */
   readonly compaction?: CompactionSeamService;
-  /** Dispatches only an already committed source obligation through gateway admission. */
+  /** Dispatches a committed source obligation through gateway admission; `ledger` is the source turn's fenced door. */
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
-    readonly authority: { readonly owner: string; readonly fence: number };
+    readonly ledger: Pick<ExecutionLedger, "commit">;
   }) => Effect.Effect<LedgerAction.Receipt, ExecutionError, RunnerServices>;
   /** Direct post-commit doorbells, independent of the lossy observation bus. */
   readonly onDeliveryCommitted?: (sessionIds: readonly string[]) => void;
@@ -439,6 +439,50 @@ export interface SessionControllerState {
   retainedRunner: Fiber.Fiber<void, SessionError> | undefined;
   rawSlots: ReturnType<typeof createRawSlots>;
   activeApprovals: ExecutionApprovals | undefined;
+}
+
+/** One fenced commit door: each action lands at the row's current revision under the given authority. */
+function fencedExecutionLedger(
+  kernel: SessionKernel,
+  sessionId: string,
+  owner: string,
+  fence: number,
+  clock: () => number,
+): Pick<ExecutionLedger, "commit"> {
+  return {
+    commit: (action) => Effect.suspend(() => {
+      const row = kernel.row(sessionId);
+      return kernel.commit({
+        sessionId, owner, fence, now: clock(), expectedRevision: row.revision,
+        actions: [action], state: row.state,
+      }).pipe(Effect.flatMap((result) => {
+        const receipt = result.receipts[0];
+        return receipt === undefined
+          ? Effect.fail(new CorruptRecord({ operation: "ledger.commit", id: action.id }))
+          : Effect.succeed(receipt);
+      }));
+    }),
+  };
+}
+
+/**
+ * The policy-gate executor of a session with no live turn: the core adopts the
+ * fence for `owner` and builds the executor over its own fenced door, so no
+ * commit, materialize or fence-adoption door leaves the core.
+ */
+export function adoptedExecutor(
+  kernel: SessionKernel,
+  sessionId: string,
+  owner: string,
+  clock: () => number,
+  options: Omit<ExecutorOptions, "ledger">,
+): ReturnType<typeof createExecutor> {
+  return adoptSessionAuthority(kernel, sessionId, owner).pipe(
+    Effect.mapError((error) => new CommitFailed({ error })),
+    Effect.flatMap((fence) =>
+      createExecutor({ ...options, ledger: fencedExecutionLedger(kernel, sessionId, owner, fence, clock) }),
+    ),
+  );
 }
 
 // ─── from session-configuration.ts (#1247) ───
@@ -752,13 +796,11 @@ export function dispatchSessionOutbound(
   clock: () => number,
 ): Effect.Effect<void, SessionError> {
   return Effect.suspend(() => {
-    const commit = (actions: LedgerAction.Append[]) => Effect.suspend(() => {
-      const row = kernel.row(sessionId);
-      return kernel.commit({
-        sessionId, owner, fence, now: clock(), expectedRevision: row.revision,
-        actions, state: row.state,
-      }).pipe(Effect.mapError((error) => new CommitFailed({ error })), Effect.asVoid);
-    });
+    const ledger = fencedExecutionLedger(kernel, sessionId, owner, fence, clock);
+    const commit = (actions: LedgerAction.Append[]) =>
+      Effect.forEach(actions, (action) => ledger.commit(action), { discard: true }).pipe(
+        Effect.mapError((error) => new CommitFailed({ error })),
+      );
     return Effect.forEach(kernel.outboundRows(sessionId), (item) => Effect.scoped(Effect.gen(function* () {
       if (item.state === "delivered") return;
       // The receiver's durable commit is the proof, not a second dispatch. This
@@ -775,7 +817,7 @@ export function dispatchSessionOutbound(
       const captured = yield* runtime.generations.capture({ sessionId, generation: toolsGeneration(kernel, item.message) });
       const receipt = yield* captured.provide(runtime.dispatchOutbound({
         message: item.message,
-        authority: { owner, fence },
+        ledger,
       })).pipe(Effect.provide(runtime.services));
       yield* commit([acknowledge(item.message, receipt, clock())]);
     })), { discard: true });

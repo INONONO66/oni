@@ -4,7 +4,8 @@ import type { Readable } from "node:stream";
 import type { EffectRunner } from "@openomni/channels";
 import { Deferred, Effect, Exit, Result } from "effect";
 import { ThrownError } from "../thrown";
-import type { SessionTransition } from "@openomni/protocol";
+import type { Delivery, SessionTransition } from "@openomni/protocol";
+import type { ProcessDelivery } from "../process-entry";
 import { ProcessReplyReceipt } from "./process-session";
 
 /** #1248: the receiving session has this long to acknowledge an answer frame. */
@@ -20,9 +21,11 @@ export function createProcessReplyChannel(
   const first = Promise.withResolvers<string | undefined>();
   let opened = false;
   const pending = new Map<string, Deferred.Deferred<SessionTransition.Resolution, Error>>();
+  const deliveries = new Map<string, Deferred.Deferred<Delivery.Row, Error>>();
   function fail(error: Error): void {
     first.reject(error);
     for (const entry of pending.values()) Deferred.doneUnsafe(entry, Exit.fail(error));
+    for (const entry of deliveries.values()) Deferred.doneUnsafe(entry, Exit.fail(error));
   }
   lines.on("line", (line) => {
     if (!opened) {
@@ -39,6 +42,18 @@ export function createProcessReplyChannel(
       return;
     }
     const receipt = parsed.success;
+    const delivery = deliveries.get(receipt.inputId);
+    if (delivery !== undefined) {
+      Deferred.doneUnsafe(
+        delivery,
+        !receipt.ok
+          ? Exit.fail(new Error(receipt.error))
+          : "row" in receipt
+            ? Exit.succeed(receipt.row)
+            : Exit.fail(new Error("process delivery receipt carries no row")),
+      );
+      return;
+    }
     const entry = pending.get(receipt.inputId);
     if (entry === undefined) {
       fail(new Error("unsolicited process receiving receipt"));
@@ -46,13 +61,18 @@ export function createProcessReplyChannel(
     }
     Deferred.doneUnsafe(
       entry,
-      receipt.ok ? Exit.succeed(receipt.resolution) : Exit.fail(new Error(receipt.error)),
+      !receipt.ok
+        ? Exit.fail(new Error(receipt.error))
+        : "resolution" in receipt
+          ? Exit.succeed(receipt.resolution)
+          : Exit.fail(new Error("process answer receipt carries no resolution")),
     );
   });
   lines.on("close", () => {
     if (!opened) first.resolve(undefined);
     const closed = new Error("process reply transport closed");
     for (const entry of pending.values()) Deferred.doneUnsafe(entry, Exit.fail(closed));
+    for (const entry of deliveries.values()) Deferred.doneUnsafe(entry, Exit.fail(closed));
   });
   lines.on("error", fail);
   return {
@@ -75,6 +95,26 @@ export function createProcessReplyChannel(
         );
       } finally {
         pending.delete(answer.inputId);
+      }
+    },
+    /** #1346: one child delivery, admitted by the parent's Session entity; the receipt is the pending row. */
+    async deliver(input: ProcessDelivery): Promise<Delivery.Row> {
+      const key = input.commit.id;
+      if (deliveries.has(key)) throw new AppInvariantError("process delivery is already in flight");
+      const response = Deferred.makeUnsafe<Delivery.Row, Error>();
+      deliveries.set(key, response);
+      try {
+        write(JSON.stringify({ kind: "request_deliver", commit: input.commit, deliver: input.deliver }));
+        return await run(
+          Deferred.await(response).pipe(
+            Effect.timeoutOrElse({
+              duration: RECEIPT_DEADLINE_MS,
+              orElse: () => Effect.fail(new Error("process delivery receipt timed out")),
+            }),
+          ),
+        );
+      } finally {
+        deliveries.delete(key);
       }
     },
     close() {

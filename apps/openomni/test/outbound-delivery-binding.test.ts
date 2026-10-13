@@ -62,7 +62,6 @@ test("the receiving consumer may only commit the exact outbound letter", async (
           delivery: { kind: "session" as const },
         };
       }).pipe(Effect.mapError(decodeChannelFailure("test.delivery"))),
-    () => 100,
     plane.openKernel,
   );
   // W5.2: the receipt-missing invariant surfaces as a dispatch defect (the
@@ -71,7 +70,7 @@ test("the receiving consumer may only commit the exact outbound letter", async (
   await expect(
     runEffect(
       Effect.scoped(
-        dispatch({ message, authority: { owner: "runner", fence: 1 } }).pipe(
+        dispatch({ message, ledger: { commit: () => Effect.die(new Error("the dispatcher records nothing here")) } }).pipe(
           Effect.provide(runnerTestLayer),
         ),
       ),

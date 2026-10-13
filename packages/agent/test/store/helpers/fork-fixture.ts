@@ -127,7 +127,7 @@ export function forkFixture(stores: LedgerStores, child: () => ChildStore) {
       parent: stores.kernel,
       parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION,
       openChild: () => child(),
-      indexSession: (input) => stores.catalog.indexSession(input),
+      catalog: stores.catalog,
       ...overrides,
     };
   }

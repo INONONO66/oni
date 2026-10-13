@@ -16,8 +16,10 @@ import {
   agentBandViolations,
   appsAgentInternalViolations,
   appsAgentTokenCount,
+  appsSessionWriteSites,
   validateAgentBands,
   validateAppsAgentTokens,
+  validateAppsSessionWrites,
 } from "./check-deps";
 
 // ─── check (a): core -> plugins/model/inspect/testing banned ───
@@ -342,17 +344,29 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
 });
 
 test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
-  // process-entry.ts is pinned at 1; a checkout where it is clean must fail,
-  // and so must a pinned file deleted from the checkout (ingress-executor.ts).
-  const root = scratchAppsTree({ "process-entry.ts": "export const clean = true;\n" }, "dir");
+  // index.ts is pinned at 1 (#1346: the last pinned file); a checkout where
+  // it is clean must fail, and so must a pinned file deleted from the checkout.
+  const cases: readonly Record<string, string>[] = [
+    { "index.ts": "export const clean = true;\n" },
+    { "process-entry.ts": "export const clean = true;\n" },
+  ];
+  for (const files of cases) {
+    const root = scratchAppsTree(files, "dir");
+    try {
+      const violations = await validateAppsAgentTokens(root);
+      expect(violations).toContain(
+        "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("#1343: a formerly pinned file that retired every token is unpinned, not slack (#1346)", async () => {
+  const root = scratchAppsTree({ "composition/ingress-executor.ts": "export const clean = true;\n", "index.ts": "kernel.commit(a);\n" }, "dir");
   try {
-    const violations = await validateAppsAgentTokens(root);
-    expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/process-entry.ts token pin exceeds actual (1 > 0): lower the pin",
-    );
-    expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/composition/ingress-executor.ts token pin exceeds actual (2 > 0): lower the pin",
-    );
+    expect(await validateAppsAgentTokens(root)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -383,7 +397,7 @@ test("#1343: a worktree-style .git FILE scopes slack judging exactly like a .git
     const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
     expect(notices).toEqual([]);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (2 > 0): lower the pin",
+      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -391,7 +405,7 @@ test("#1343: a worktree-style .git FILE scopes slack judging exactly like a .git
 });
 
 test("#1343: an already-pinned file growing above its pin fails with the file and both numbers", async () => {
-  // index.ts is pinned at 2; a third direct token is growth, not slack.
+  // index.ts is pinned at 1 (#1346); a second direct token is growth, not slack.
   const root = scratchAppsTree(
     {
       "index.ts": [
@@ -405,9 +419,159 @@ test("#1343: an already-pinned file growing above its pin fails with the file an
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 2 — shrink only, never grow",
+      "VIOLATION: apps/openomni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 1 — shrink only, never grow",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** The #1346 gate's notice sink when a case asserts violations only. */
+const silent = (notice: string): void => {
+  if (notice.length === 0) throw new Error("empty notice");
+};
+
+test("#1346: session-store write calls are found by AST, wrapped or chained, never in prose", () => {
+  const sites = appsSessionWriteSites(
+    [
+      "const a = kernel.commit(x);",
+      "await plane.catalog.indexSession(row);",
+      "const b = source",
+      "  .commit(",
+      "    y,",
+      "  );",
+      "kernel.materialize(seed); kernel.adoptFence(owner);",
+      "// kernel.commit( in a comment",
+      "const s = 'kernel.commit(' + `wrapped .materialize( text`;",
+      "const read = kernel.row(id); const other = commit(z);",
+    ].join("\n"),
+    "apps/openomni/src/x.ts",
+  );
+  expect(sites.map((site) => [site.line, site.receiver, site.member])).toEqual([
+    [1, "kernel", "commit"],
+    [2, "catalog", "indexSession"],
+    [4, "source", "commit"],
+    [7, "kernel", "materialize"],
+    [7, "kernel", "adoptFence"],
+  ]);
+});
+
+test("#1346 r1 M2: every spelling of a write door counts — element access, destructuring, aliasing, bare and renamed calls, sessionStore create", () => {
+  const sites = appsSessionWriteSites(
+    [
+      'kernel["commit"]({});',
+      "const { commit } = kernel; commit({});",
+      "const { materialize: seed } = source;",
+      "const adopt = Core.adoptedExecutionLedger; adopt(kernel, id, owner, clock);",
+      "Core.fencedExecutionLedger(kernel, id, owner, fence);",
+      "plane.sessionStore(id).create({});",
+      "ports.create(x); provider.create(y); NamedError.create(z);",
+      "const read = kernel.row(id); const { row } = kernel;",
+      "const key = input.commit.id; const { commit: payload, deliver } = frame; send({ payload, deliver });",
+      "const local = commitDeliverPayload(deps); local(input, payload);",
+    ].join("\n"),
+    "apps/openomni/src/x.ts",
+  );
+  // Line 9-10: `commit` as a payload field read, an uncalled destructure and
+  // an unrelated local never count; line 2 counts because the destructured
+  // `commit` is then called bare.
+  expect(sites.map((site) => [site.line, site.receiver, site.member])).toEqual([
+    [1, "kernel", "commit"],
+    [2, "<destructure>", "commit"],
+    [2, "<bare>", "commit"],
+    [3, "<destructure>", "materialize"],
+    [4, "<alias>", "adoptedExecutionLedger"],
+    [5, "Core", "fencedExecutionLedger"],
+    [6, "sessionStore", "create"],
+  ]);
+  expect(
+    appsSessionWriteSites("const c = kernel.commit; c(x); const { commit: m } = store; m(y);", "apps/openomni/src/y.ts").map(
+      (site) => [site.receiver, site.member],
+    ),
+  ).toEqual([
+    ["<alias>", "commit"],
+    ["<bare>", "commit"],
+    ["<destructure>", "commit"],
+    ["<bare>", "commit"],
+  ]);
+});
+
+test("#1346: a session write outside the exact allow-list line fails; the contacts materialize port is excluded", async () => {
+  const root = scratchAppsTree(
+    {
+      "composition/x.ts": "export const run = () => kernel.commit(action);\n",
+      "provisioning/contacts.ts": "export const persons = () => port.materialize();\n",
+    },
+    "dir",
+  );
+  try {
+    const violations = await validateAppsSessionWrites(root, silent);
+    expect(violations.filter((line) => line.includes("composition/x.ts:1 names kernel.commit"))).toHaveLength(1);
+    expect(violations.some((line) => line.includes("contacts.ts"))).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("#1346: the allow-listed tools.add configure commit must still sit on its pinned line in a git checkout", async () => {
+  const root = scratchAppsTree({ "index.ts": "export const noWrites = 1;\n" }, "file");
+  try {
+    const violations = await validateAppsSessionWrites(root, silent);
+    expect(violations).toEqual([
+      expect.stringContaining("apps/openomni/src/index.ts:1224 no longer names kernel.commit"),
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:59 no longer names Core.adoptedExecutor"),
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  const notices: string[] = [];
+  const bare = scratchAppsTree({ "index.ts": "export const noWrites = 1;\n" });
+  try {
+    expect(await validateAppsSessionWrites(bare, (notice) => notices.push(notice))).toEqual([]);
+    expect(notices).toHaveLength(1);
+  } finally {
+    rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+/** The two pinned writes on their exact lines: the tools.add commit at index.ts:1224, the ingress adoption at ingress-executor.ts:59. */
+function pinnedWritesTree(ingressLine: number, extra = ""): string {
+  return scratchAppsTree(
+    {
+      "index.ts": `${"\n".repeat(1223)}kernel.commit(action);\n`,
+      "composition/ingress-executor.ts": `${"\n".repeat(ingressLine - 1)}const executor = Core.adoptedExecutor(kernel, id, owner, clock, {});\n${extra}`,
+    },
+    "file",
+  );
+}
+
+test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned to its exact line", async () => {
+  expect(
+    appsSessionWriteSites("Core.adoptedExecutor(kernel,id,owner,clock,{})", "apps/openomni/src/probe.ts").map(
+      (site) => [site.line, site.receiver, site.member],
+    ),
+  ).toEqual([[1, "Core", "adoptedExecutor"]]);
+  const pinned = pinnedWritesTree(59);
+  try {
+    expect(await validateAppsSessionWrites(pinned, silent)).toEqual([]);
+  } finally {
+    rmSync(pinned, { recursive: true, force: true });
+  }
+  const moved = pinnedWritesTree(60);
+  try {
+    expect(await validateAppsSessionWrites(moved, silent)).toEqual([
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:60 names Core.adoptedExecutor"),
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:59 no longer names Core.adoptedExecutor"),
+    ]);
+  } finally {
+    rmSync(moved, { recursive: true, force: true });
+  }
+  const second = pinnedWritesTree(59, "const again = Core.adoptedExecutor(kernel, id, owner, clock, {});\n");
+  try {
+    expect(await validateAppsSessionWrites(second, silent)).toEqual([
+      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:60 names Core.adoptedExecutor"),
+    ]);
+  } finally {
+    rmSync(second, { recursive: true, force: true });
   }
 });

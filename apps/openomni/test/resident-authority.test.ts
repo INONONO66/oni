@@ -52,7 +52,7 @@ for (const scenario of [
           localDelivery(resident.plane, "authority-gateway", Date.now)(input).pipe(
             Effect.mapError(decodeChannelFailure("delivery.commit")),
           ) },
-        prepare: prepareMessage(resident.plane, resident.materialize),
+        prepare: prepareMessage(resident.plane, resident.genesis),
         ...(yield* residentGatewayPorts(resident.plane, Date.now)),
       }, undefined);
     }).pipe(Effect.provide(resident.services)));

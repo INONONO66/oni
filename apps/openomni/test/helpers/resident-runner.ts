@@ -102,7 +102,7 @@ export function residentRunner(
         parentActionId: null,
         ...(exists
           ? {}
-          : { createSession: resident.materialize(sessionId, null, "resident", "resident") }),
+          : { createSession: resident.genesis(sessionId, null, "resident", "resident") }),
       }));
       const result = await drain(sessionId);
       if (result === undefined) throw new Error("resident turn returned no result");
