@@ -535,7 +535,7 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
 });
 
 /** The two pinned writes on their exact lines: the tools.add commit at index.ts:1219, the ingress adoption at ingress-executor.ts:59. */
-function pinnedWritesTree(ingressLine: number, extra: string = ""): string {
+function pinnedWritesTree(ingressLine: number, extra = ""): string {
   return scratchAppsTree(
     {
       "index.ts": `${"\n".repeat(1218)}kernel.commit(action);\n`,
