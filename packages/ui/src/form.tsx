@@ -3,17 +3,23 @@ import { UI_NAMES } from "./names";
 
 const CONTROL = "focus-ring min-h-10 w-full min-w-0 rounded-md bg-raised px-3 py-2 text-body text-fg disabled:opacity-50";
 
-export function Field({ label, hint, children }: {
+export function Field({ label, hint, error, children }: {
   readonly label: string;
   readonly hint?: string;
-  readonly children: ReactElement<{ id?: string; "aria-describedby"?: string }>;
+  readonly error?: string;
+  readonly children: ReactElement<{ id?: string; "aria-describedby"?: string; "aria-invalid"?: boolean }>;
 }) {
   const id = useId();
   return (
     <label htmlFor={id} className="flex min-w-0 flex-col gap-2 text-body" data-ui={UI_NAMES.Field}>
       <span className="font-medium">{label}</span>
-      {cloneElement(children, { id, "aria-describedby": hint ? `${id}-hint` : undefined })}
+      {cloneElement(children, {
+        id,
+        "aria-invalid": error ? true : undefined,
+        "aria-describedby": [hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(" ") || undefined,
+      })}
       {hint && <span id={`${id}-hint`} className="text-fg-muted text-label">{hint}</span>}
+      {error && <span id={`${id}-error`} role="alert" className="whitespace-pre-wrap break-words text-label">{error}</span>}
     </label>
   );
 }

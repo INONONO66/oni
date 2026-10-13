@@ -4,11 +4,15 @@ import { attributes } from "./markup";
 
 test("fields bind labels and help text to each native control", () => {
   for (const control of [<Input key="input" />, <Select key="select"><option value="one">One</option></Select>, <Textarea key="textarea" />]) {
-    const tags = attributes(<Field label="Setting" hint="Help">{control}</Field>);
+    const tags = attributes(<Field label="Setting" hint="Help" error="Invalid value">{control}</Field>);
     const label = tags.find((tag) => tag["data-ui"] === "Field");
     const input = tags.find((tag) => tag["aria-describedby"] !== undefined);
     expect(input?.id).toBe(label?.for);
-    expect(tags.some((tag) => tag.id === input?.["aria-describedby"])).toBe(true);
+    expect(input?.["aria-invalid"]).toBe("true");
+    const descriptions = input?.["aria-describedby"]?.split(" ") ?? [];
+    expect(descriptions).toHaveLength(2);
+    for (const id of descriptions) expect(tags.some((tag) => tag.id === id)).toBe(true);
+    expect(tags.find((tag) => tag.role === "alert")?.id).toBe(descriptions[1]);
   }
 });
 

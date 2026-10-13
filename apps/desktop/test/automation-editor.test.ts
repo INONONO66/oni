@@ -4,6 +4,53 @@ import { AutomationView } from "../src/renderer/automation/view";
 import { automationRenderer } from "./helpers/automation-renderer";
 import { automationRecord, createAutomationFixture } from "./helpers/automation-wire";
 
+test("local validation associates nested issues with their controls before sending", async () => {
+  const fixture = createAutomationFixture();
+  const ui = automationRenderer();
+  try {
+    await ui.render(createElement(AutomationView, { transport: fixture.transport, sessions: [], id: () => "new" }));
+    await ui.click("Edit");
+    await ui.field("Surface", "");
+    await ui.field("Channels", "valid\n");
+    await ui.field("Maximum runs per day", "0");
+    await ui.submit();
+    for (const label of ["Surface", "Channels", "Maximum runs per day"]) {
+      const field = [...ui.host.querySelectorAll("label")].find((node) => node.querySelector("span")?.textContent === label);
+      const control = field?.querySelector("input,textarea");
+      const error = field?.querySelector('[role="alert"]');
+      expect(error).not.toBeNull();
+      expect(control?.getAttribute("aria-invalid")).toBe("true");
+      expect(control?.getAttribute("aria-describedby")?.split(" ")).toContain(error?.id);
+    }
+    expect(fixture.requests.map((request) => request.type)).toEqual(["automation_list"]);
+  } finally { await ui.close(); }
+});
+
+test("server invalid_record issues use the same field locations and retain unbound issues", async () => {
+  const issues = [
+    { path: ["triggers", 0, "surface"], message: "Surface unavailable", code: "custom" },
+    { path: ["conditions", "channels", 0], message: "Channel unavailable", code: "custom" },
+    { path: ["args", "record", "limits", "maxRunsPerDay"], message: "Limit refused", code: "custom" },
+    { path: [], message: "Record refused", code: "custom" },
+  ];
+  const fixture = createAutomationFixture([automationRecord], [], (request) => request.type === "automation_add"
+    ? { type: "automation_add_refused", requestId: request.requestId, reason: "invalid_record", detail: "Invalid record", issues }
+    : undefined);
+  const ui = automationRenderer();
+  try {
+    await ui.render(createElement(AutomationView, { transport: fixture.transport, sessions: [], id: () => "new" }));
+    await ui.click("Edit");
+    await ui.submit();
+    for (const [label, issue] of [["Surface", issues[0]], ["Channels", issues[1]], ["Maximum runs per day", issues[2]]] as const) {
+      const field = [...ui.host.querySelectorAll("label")].find((node) => node.querySelector("span")?.textContent === label);
+      expect(field?.querySelector('[role="alert"]')?.textContent).toBe(issue?.message);
+      expect(field?.querySelector("input,textarea")?.getAttribute("aria-invalid")).toBe("true");
+    }
+    expect(ui.host.querySelector('form > [role="alert"]')?.textContent).toContain(issues[3]?.message);
+    expect(fixture.requests.map((request) => request.type)).toEqual(["automation_list", "automation_add", "automation_list"]);
+  } finally { await ui.close(); }
+});
+
 test("an empty trigger list never reaches the wire", async () => {
   const fixture = createAutomationFixture();
   const ui = automationRenderer();

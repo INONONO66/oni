@@ -3,7 +3,7 @@ import { ActionButton, ConsoleContent, Text } from "@openomni/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { GatewayChatTransport } from "../chat/gateway-transport";
-import { GatewayUnavailableError } from "../errors";
+import { AutomationRefusedError, GatewayUnavailableError } from "../errors";
 import { automationListOptions, queryKeys } from "../state/queries";
 import type { LocalSession } from "../state/store";
 import { AutomationEditor } from "./editor";
@@ -43,6 +43,8 @@ export function AutomationView({ transport, sessions, id }: {
   };
   const pending = editing?.createdBy.startsWith("session:") && !editing.enabled;
   const busy = change.isPending;
+  const fieldRefusal = editing !== null && change.error instanceof AutomationRefusedError
+    ? change.error.refusal : undefined;
 
   return <ConsoleContent>
     <section aria-label="Automations" className="flex min-w-0 flex-col gap-6">
@@ -56,16 +58,16 @@ export function AutomationView({ transport, sessions, id }: {
         <>
           {records.isPending && <p role="status">Loading automations...</p>}
           {records.error && <div role="alert"><p>{records.error.message}</p><ActionButton onClick={() => void records.refetch()}>Retry</ActionButton></div>}
-          {change.error && <p role="alert" className="whitespace-pre-wrap break-words rounded-md bg-raised p-4 text-body">{change.error.message}</p>}
+          {change.error && <p role="alert" className="whitespace-pre-wrap break-words rounded-md bg-raised p-4 text-body">{fieldRefusal?.detail ?? change.error.message}</p>}
           {editing !== null ? <>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Text as="h2" level="title">{editing.name || "New automation"}</Text>
-              <span className="text-fg-muted text-label">{pending ? "Pending approval" : editing.enabled ? "Enabled" : "Disabled"}</span>
+              <RecordStatus record={editing} />
             </div>
             {pending && <aside aria-label="Approval required" className="rounded-md bg-raised p-4 text-body">
               <p>This session-created record cannot run until you approve it. Save changes first, then approve it from the list.</p>
             </aside>}
-            <AutomationEditor key={editing.id} record={editing} sessions={sessions} busy={busy} onSave={(record) => change.mutate({ type: "save", record })} onCancel={() => { setEditing(null); change.reset(); }} />
+            <AutomationEditor key={editing.id} record={editing} sessions={sessions} busy={busy} serverIssues={fieldRefusal?.issues} onSave={(record) => change.mutate({ type: "save", record })} onCancel={() => { setEditing(null); change.reset(); }} />
           </> : (
             <ul className="flex flex-col gap-4">
               {records.data?.length === 0 && <li className="text-body text-fg-muted">No automations yet. Create one to connect an event to a session.</li>}
@@ -76,6 +78,11 @@ export function AutomationView({ transport, sessions, id }: {
       )}
     </section>
   </ConsoleContent>;
+}
+
+function RecordStatus({ record }: { readonly record: Ingress.Automation }) {
+  const approval = record.createdBy.startsWith("session:") && !record.enabled;
+  return <span className="text-fg-muted text-label">{approval ? "Pending approval" : record.enabled ? "Enabled" : "Disabled"}</span>;
 }
 
 function RecordRow({ record, busy, onEdit, onChange }: {
@@ -89,7 +96,7 @@ function RecordRow({ record, busy, onEdit, onChange }: {
   return <li className="flex min-w-0 flex-col gap-3 border-line border-b py-4" data-record-id={record.id}>
     <div className="flex flex-wrap items-start justify-between gap-2">
       <h2 className="min-w-0 break-words font-medium text-title">{record.name || record.id}</h2>
-      <span className="text-fg-muted text-label">{approval ? "Pending approval" : record.enabled ? "Enabled" : "Disabled"}</span>
+      <RecordStatus record={record} />
     </div>
     <p className="break-words text-body text-fg-muted">{record.triggers.length} triggers · {record.target === "new" ? "New session" : record.target} · {record.kind}</p>
     {approval && <p role="status" className="text-body">Proposed by {record.createdBy}. Approval is required before it can run.</p>}

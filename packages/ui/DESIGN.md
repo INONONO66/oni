@@ -21,6 +21,8 @@ Application routing, record state and wire decisions remain in desktop.
 ## Primitives
 
 `Field` binds a visible label and optional help text to one native control.
+Field errors appear below that control in the existing foreground label tone,
+with `aria-invalid` and `aria-describedby` linking the error and any help text.
 `Input`, `Select` and `Textarea` retain native keyboard and form semantics.
 Controls fill their available width and shrink inside a narrow container.
 `ActionButton` defaults to a non-submitting button; only an explicit submit
