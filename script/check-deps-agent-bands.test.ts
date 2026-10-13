@@ -518,7 +518,7 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
   try {
     const violations = await validateAppsSessionWrites(root, silent);
     expect(violations).toEqual([
-      expect.stringContaining("apps/openomni/src/index.ts:1224 no longer names kernel.commit"),
+      expect.stringContaining("apps/openomni/src/index.ts:1245 no longer names kernel.commit"),
       expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:59 no longer names Core.adoptedExecutor"),
     ]);
   } finally {

@@ -59,12 +59,12 @@ const OPS: Record<string, readonly string[]> = {
     "secret_rotate",
     "bundle_enable",
     "bundle_disable",
-    "status",
     "automation_add",
     "automation_remove",
     "automation_enable",
     "automation_disable",
     "automation_list",
+    "status",
   ],
 };
 /** Vocabulary retired by #949; none of it may reappear on either door. */
