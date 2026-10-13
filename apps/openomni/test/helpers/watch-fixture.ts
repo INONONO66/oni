@@ -10,11 +10,8 @@ import {
 import { createAlarmMonitorPorts, createLiveArmRegistry } from "../../src/composition/alarm-plane";
 import { cronPurposes } from "../../src/bundles/cron";
 import { monitorBundle, monitorPurposes } from "../../src/bundles/monitor";
-import {
-  createAppLedger,
-  type AppLedgerPlane,
-  type SessionKernel,
-} from "../../src/composition/cluster-runtime";
+import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
+import { createAppLedger } from "./ledger";
 import type { MonitorPorts } from "../../src/tools/core/watch";
 import type { ArmedWatch, WatchSources } from "../../src/composition/watch-sources";
 import { gateRowPolicySeeds, seedKernelPolicyRows } from "../../src/policy-seed";

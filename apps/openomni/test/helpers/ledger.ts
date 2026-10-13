@@ -1,6 +1,5 @@
-import { Core } from "@openomni/agent";
+import { Core, Testing } from "@openomni/agent";
 const adoptSessionAuthority = Core.adoptSessionAuthority;
-const createSessionEntityRunTurn = Core.createSessionEntityRunTurn;
 const decideSessionAdmission = Core.decideSessionAdmission;
 const Entropy = Core.Entropy;
 const AgentFailure = Core.AgentFailure;
@@ -10,13 +9,14 @@ type SessionEntryServices = Core.SessionEntryServices;
 type SessionError = Core.SessionError;
 type SessionRuntime = Core.SessionRuntime;
 type LedgerError = Core.LedgerError;
-import type { SessionTurn } from "@openomni/protocol";
+import type { ObservationSink as ObservationSinkPort, SessionTurn } from "@openomni/protocol";
 import { Clock, Context, Effect, type Scope } from "effect";
 import {
   AppLedger,
-  createAppLedger,
   type AppLedgerPlane,
+  reportObservationPublishFailure,
   type SessionKernel,
+  withChannelStores,
 } from "../../src/composition/cluster-runtime";
 import { ComposedGeneration } from "../../src/composition/composed";
 import { localDeliveryCommit } from "../../src/process-entry";
@@ -24,10 +24,36 @@ import type { AppRuntime } from "../../src/runtime";
 import { runRuntimeEffect } from "./effect";
 import { testClock } from "./test-entropy";
 
+export interface AppLedgerOptions {
+  readonly now: () => number;
+  /** Catalog SQLite file; absent = an in-memory catalog. */
+  readonly catalogPath?: string;
+  /** Directory of per-session ledger files; absent = in-memory session stores. */
+  readonly sessionsDir?: string;
+  readonly observationSink?: ObservationSinkPort;
+  readonly onObservationFailure?: Core.ObservationFailurePort;
+}
+
+/**
+ * The app plane without the cluster host (the shape `appLedgerLayer` builds
+ * over `Core.Ledger`, with the app's incident log as the failure port),
+ * opened synchronously; the fixture owns `close`.
+ */
+export function createAppLedger(options: AppLedgerOptions): AppLedgerPlane {
+  return withChannelStores(
+    Testing.openLedgerPlane({
+      now: options.now,
+      ...(options.catalogPath === undefined ? {} : { catalog: { path: options.catalogPath } }),
+      ...(options.sessionsDir === undefined ? {} : { sessions: { dir: options.sessionsDir } }),
+      ...(options.observationSink === undefined ? {} : { observationSink: options.observationSink }),
+      onObservationFailure: options.onObservationFailure ?? reportObservationPublishFailure,
+    }),
+    options.now,
+  );
+}
+
 /** A standalone app ledger plane for fixtures that never boot the runtime. */
-export function testPlane(
-  options: Partial<Parameters<typeof createAppLedger>[0]> = {},
-): AppLedgerPlane {
+export function testPlane(options: Partial<AppLedgerOptions> = {}): AppLedgerPlane {
   return createAppLedger({ ...options, now: options.now ?? testClock() });
 }
 
@@ -57,7 +83,7 @@ export function localDelivery(
   return localDeliveryCommit(plane, owner, clock);
 }
 
-export type ResolvedTestRuntime = Parameters<typeof createSessionEntityRunTurn>[1];
+export type ResolvedTestRuntime = Core.ResolvedSessionRuntime;
 
 /** The app's runtime resolution, replayed for fixtures over a built service context. */
 export function resolvedRuntimeFor(
@@ -82,14 +108,14 @@ export function resolvedRuntimeFor(
 export function drainSession(deps: {
   readonly plane: AppLedgerPlane;
   readonly sessionId: string;
-  readonly runner: Parameters<typeof createSessionEntityRunTurn>[0];
+  readonly runner: Core.SessionRunner;
   readonly runtime: ResolvedTestRuntime;
   readonly scope: Scope.Scope;
   readonly owner?: string;
 }): Effect.Effect<SessionTurn.Terminal | undefined, SessionError | LedgerError, ComposedGeneration> {
   const owner = deps.owner ?? "test-drain";
   const kernel = deps.plane.openKernel(deps.sessionId);
-  const runTurn = createSessionEntityRunTurn(deps.runner, deps.runtime, deps.scope);
+  const runTurn = deps.plane.turnPort(deps.runner, deps.runtime, deps.scope);
   return Effect.gen(function* () {
     // Admission refuses a snapshot with no declared kinds; the drain states
     // the composed generation's kinds like the process child does.

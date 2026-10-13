@@ -42,13 +42,14 @@ export { requestAuthorityKernel, commitSessionRequest } from "./request";
 export { createSessionRequests, decideRequestTransition, requestBindingDigest } from "./request";
 export { receivedMessageAction, staleActionBacklog } from "./commit";
 export { armAction, firedAction, alarmDisposition, composeAlarmPurposes, AlarmComposeError, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./alarm";
-export { SessionEntity, SessionEntityContext, createSessionEntityLayer, createSessionEntityRunTurn, type SessionKernel } from "./entity";
+export { SessionEntity, SessionEntityContext, type SessionKernel } from "./entity";
+export { Ledger, OpenRefused, openLedger, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./host";
 export { makeObservationBus, observationBusLayer, scopeObservation } from "./bus";
 export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./fork";
 
 // ─── journal/store surface (formerly the Journal namespace, #1276) ───
 export {
-  openCatalogStore, CATALOG_SCHEMA, bootstrapStoreDatabase, openSessionStore,
+  CATALOG_SCHEMA, bootstrapStoreDatabase,
   readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION,
   createDecisionFactPort, SessionHandleStore,
   CommitRefused, CorruptRecord, requireSubAdapter, withStoreTimestamps,

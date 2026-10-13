@@ -1,5 +1,5 @@
 import { Vault } from "@openomni/channels";
-import { createAppLedger } from "../../src/composition/cluster-runtime";
+import { createAppLedger } from "./ledger";
 import type { KekResolution } from "../../src/provisioning/vault-key";
 import { putChannelCredential } from "./channel-credential";
 import { testClock } from "./test-entropy";

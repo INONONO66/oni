@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Core } from "@openomni/agent";
 const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
-const openCatalogStore = Core.openCatalogStore;
+import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import type { PolicyRow } from "@openomni/protocol";
 import { gateRowPolicySeeds, seedKernelPolicyRows } from "../src/policy-seed";
 import { monitorBundle } from "../src/bundles/monitor";

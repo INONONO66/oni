@@ -23,7 +23,6 @@ import { Core, Bundle } from "@openomni/agent";
 const Entropy = Core.Entropy;
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
-const createSessionEntityRunTurn = Core.createSessionEntityRunTurn;
 const createSessionRequests = Core.createSessionRequests;
 const SessionEntity = Core.SessionEntity;
 type SessionHandle = Core.SessionHandle;
@@ -943,7 +942,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // Bind the entity's composition-owned ports: turns run the Resident's
     // runner over the activation's kernel + fence; process-runner sessions
     // delegate to the child transport without committing under this fence.
-    const resolvedRuntime: Parameters<typeof createSessionEntityRunTurn>[1] = {
+    const resolvedRuntime: Core.ResolvedSessionRuntime = {
       ...sessionRuntime,
       clock: services.now,
       entropy: services.entropy.id,
@@ -959,7 +958,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
               try: () => processSessions.wake(input.authority.sessionId),
               catch: foreignFailure((fields) => new AgentFailure(fields), "process.wake"),
             }).pipe(Effect.asVoid)
-          : createSessionEntityRunTurn(
+          : plane.turnPort(
               liveTurns.wrapRunner(
                 input.authority.sessionId,
                 resident.runnerFor(input.kernel.row(input.authority.sessionId)),

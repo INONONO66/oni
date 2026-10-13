@@ -15,8 +15,8 @@ import { sessionTree } from "../../../packages/agent/test/store/helpers/session-
 import { createRequestDomainRevisions } from "../src/tools/core/request-domain-revisions";
 import { runEffect } from "./helpers/effect";
 import { afterEach, beforeEach, expect, it } from "bun:test";
-const openCatalogStore = Core.openCatalogStore;
-const openSessionStore = Core.openSessionStore;
+import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
+import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
 import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { testPlane } from "./helpers/ledger";
 const eraseTool = Core.eraseTool;

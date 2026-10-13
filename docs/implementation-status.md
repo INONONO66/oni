@@ -1,5 +1,13 @@
 # Implementation Status
 
+## #1345 core-owned ledger host (epic #1356, rung 3)
+
+On `epic1356/1345-core-host-layer` (2026-10-12, base `25584f2d7`, PR #1442).
+
+The ledger host moved into `packages/agent`: `core/host.ts` opens the catalog, per-session stores, the `effect/cluster` `SingleRunner` layer and the session entity behind `Core.openLedger` (a scoped Layer; one store-opening function carries the typed `OpenRefused`, and the plane finalizer is the catalog's only release). The plain plane constructor exists only as `Testing.openLedgerPlane` for test fixtures and is banned in `apps/**/src` by `script/check-deps.ts`; the `Core` barrel no longer exposes `openCatalogStore`/`openSessionStore`. `apps/openomni/src/composition/cluster-runtime.ts` keeps configuration and consumes the Layer: retired tokens `openCatalogStore|openSessionStore|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient` in `apps/openomni/src` 2/3/2/6/2 → 0/0/0/0/0; `@effect/sql-sqlite-bun` imports in app + channels src 1 → 0 and `effect/cluster` imports in app src 1 → 0. The one channels touch is the Owner-approved test helper `packages/channels/test/helpers/ledger.ts` (+18/−10: import switched to `Testing.openLedgerPlane`, a `close` and the session-file key mapping; no `packages/channels/src` change). `packages/agent/test/core/host.test.ts` covers file and memory modes, late port binding, open refusal, single catalog release, reopen over the same catalog/session files, and memory-mode passivation on the injected clock.
+
+Verification: lead gate `gate-1345.sh` on the PR head after the rebase onto `25584f2d7` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1345.log`); adversarial review r1 (`review-1345-r1.md`, H1 M4 L6) fixed in full by the r1 fix lane, r2 (`review-1345-r2.md`) r2 REQUEST_CHANGES H3 fixed in f65ba02ca..eb0e7d732 + 171b9371e; gate-verified GATE_EXIT 0 on 171b9371e, no r3 per rule 3.
+
 ## #1344 unified parallel core implementations (epic #1356, rung 2)
 
 On `epic1356/1344-parallel-impls` (2026-10-12, base `7e05bb8d1`, PR #1408).

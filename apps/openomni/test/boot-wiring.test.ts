@@ -9,7 +9,8 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Core, type Model } from "@openomni/agent";
+import type { Model } from "@openomni/agent";
+import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 type RunInput = Model.RunInput;
 type Sink = Model.Sink;
 import type { Channel } from "@openomni/protocol";
@@ -441,7 +442,7 @@ describe("boot alarm rescan", () => {
 
   test("the catalog flag feeds the sweep: markArmed round-trips through armedSessionIds", () => {
     const directory = mkdtempSync(join(tmpdir(), "boot-rescan-catalog-"));
-    const catalog = Core.openCatalogStore(join(directory, "catalog.sqlite"), {
+    const catalog = openCatalogStore(join(directory, "catalog.sqlite"), {
       now: () => 1,
     });
     try {
