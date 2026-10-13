@@ -19,28 +19,27 @@ const monitor = {
   hit: { content: "MONITOR_SENTINEL", terminal: true, detail: "exit:0" },
 };
 
-test.each([
-  ["cron", "action"], ["cron", "prompt"], ["monitor", "action"], ["monitor", "prompt"],
-] as const)("%s tick routes %s to the same entity without a self-RPC deadlock", async (source, kind) => {
+function fireAlarm(f: Awaited<ReturnType<typeof automationFixture>>, target: string,
+  armed: Awaited<ReturnType<typeof commitArm>>, purpose: string, source: string, payload: object) {
+  return runAppEffect(f.app.runtime, Effect.scoped(Effect.gen(function* () {
+    const client = yield* Core.SessionEntity.client;
+    return yield* client(target).Alarm({ ...armed, purpose, sourceKey: source, payload: JSON.stringify(payload), fireAt: 0 });
+  })));
+}
+
+test.each(["action", "prompt"] as const)("cron tick routes %s to the same entity without a self-RPC deadlock", async (kind) => {
+  const source = "cron";
   const f = await automationFixture(suite);
   const target = await f.target();
   f.time.now = FIXTURE_BASE;
   const kernel = f.plane.openKernel(target);
-  const purpose = source === "cron" ? CRON_TICK : Bundle.MONITOR_HIT;
-  const payload = source === "cron" ? cron : monitor;
   f.stores.automations.add(automationRecord({
-    triggers: [{ type: "schedule", cron: source === "cron" ? cron.expr : "watch", tz: "UTC" }],
-    target: `session:${target}`, kind,
+    triggers: [{ type: "schedule", cron: cron.expr, tz: "UTC" }], target: `session:${target}`, kind,
   }));
   const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
-    purpose, at: 0, alarmId: "watch", sourceKey: source, payload, ts: f.time.now,
+    purpose: CRON_TICK, at: 0, alarmId: "watch", sourceKey: source, payload: cron, ts: f.time.now,
   });
-  const result = await runAppEffect(f.app.runtime, Effect.scoped(Effect.gen(function* () {
-    const client = yield* Core.SessionEntity.client;
-    return yield* client(target).Alarm({
-      ...armed, purpose, sourceKey: source, payload: JSON.stringify(payload), fireAt: 0,
-    });
-  })));
+  const result = await fireAlarm(f, target, armed, CRON_TICK, source, cron);
   expect(result.outcome).toBe("delivered");
   expect(kernel.actionById(armed.occurrenceId)?.kind).toBe(kind);
   expect(kernel.actionById(`${armed.occurrenceId}:prompt`)).toBeUndefined();
@@ -48,6 +47,21 @@ test.each([
     decision: "matched", surface: "alarm", inboundId: armed.occurrenceId,
     time: f.time.now, target: `session:${target}`,
   })]);
+});
+
+test("a monitor tick matches no schedule record, even one whose cron is the alarm id", async () => {
+  const f = await automationFixture(suite);
+  const target = await f.target();
+  f.time.now = FIXTURE_BASE;
+  const kernel = f.plane.openKernel(target);
+  f.stores.automations.add(automationRecord({
+    triggers: [{ type: "schedule", cron: "watch", tz: "UTC" }], target: `session:${target}`,
+  }));
+  const armed = await commitArm({ kernel, fence: kernel.row(target).fence }, target, {
+    purpose: Bundle.MONITOR_HIT, at: 0, alarmId: "watch", sourceKey: "monitor", payload: monitor, ts: f.time.now,
+  });
+  await fireAlarm(f, target, armed, Bundle.MONITOR_HIT, "monitor", monitor);
+  expect(f.stores.automations.decisions(armed.occurrenceId)).toEqual([]);
 });
 
 test("a filtered schedule tick writes no local prompt shortcut", async () => {

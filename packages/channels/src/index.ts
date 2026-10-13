@@ -19,6 +19,7 @@ export {
 // them through this barrel instead of the retired ledger package root.
 export { createActorRegistry, type ActorRegistry } from "./store/actor/index.js";
 export { createAutomationStore, AutomationEnableRefused } from "./store/automation/index.js";
+export { scheduleTickChannel } from "./automation/matcher.js";
 export { createBlacklistStore } from "./store/blacklist/index.js";
 export { createChannelGrantStore, type ChannelGrantStore } from "./store/channel-grant/index.js";
 export { createReplyGrantStore } from "./store/reply-grant/index.js";

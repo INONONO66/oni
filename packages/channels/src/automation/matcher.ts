@@ -40,12 +40,21 @@ export interface MatchPorts {
   readonly judge?: (question: string, input: Ingress.Input) => Verdict;
 }
 
+/**
+ * A cron tick's channel names its expression. Monitor ticks share the alarm
+ * surface and event but carry a `monitor:` channel, so no schedule trigger
+ * can match them (a typed watch trigger is follow-up work).
+ */
+export function scheduleTickChannel(cron: string): string {
+  return `cron:${cron}`;
+}
+
 function triggerMatches(trigger: Ingress.Trigger, input: Ingress.Input): boolean {
   switch (trigger.type) {
     case "message": return trigger.surface === input.surface && trigger.event === input.event;
     case "webhook": return input.event === "webhook" && trigger.secretRef === input.channelId;
     case "github": return input.event === "github" && trigger.event === input.channelId;
-    case "schedule": return input.event === "schedule" && trigger.cron === input.channelId;
+    case "schedule": return input.event === "schedule" && input.channelId === scheduleTickChannel(trigger.cron);
     case "on_demand": return false;
   }
 }

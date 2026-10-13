@@ -1,5 +1,5 @@
 import { Bundle, type Core } from "@openomni/agent";
-import type { GatewayRouter, ChannelStores } from "@openomni/channels";
+import { scheduleTickChannel, type GatewayRouter, type ChannelStores } from "@openomni/channels";
 import { Ingress, PlainValueSchema } from "@openomni/protocol";
 import { Context, Effect } from "effect";
 import { CauseText } from "../thrown";
@@ -34,7 +34,7 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
     const input = yield* Effect.try({
       try: () => Ingress.Input.parse({
         surface: "alarm", event: "schedule", eventId: fired.occurrenceId,
-        channelId: typeof expr === "string" ? expr : fired.alarmId,
+        channelId: typeof expr === "string" ? scheduleTickChannel(expr) : `monitor:${fired.alarmId}`,
         threadId: ctx.sessionId, author: { externalId: `session:${ctx.sessionId}`, isBot: true },
         dm: false, mentionsBot: false, body: prompt.content, receivedAt: ctx.now,
       }),
@@ -45,7 +45,7 @@ export function automationAlarm(router: GatewayRouter, stores: ChannelStores): A
       { kind: "external", surface: input.surface, externalId: input.author.externalId },
       {
         eventId: input.eventId, surface: input.surface, event: input.event,
-        channelId: input.channelId ?? fired.alarmId, author: input.author,
+        channelId: input.channelId ?? `monitor:${fired.alarmId}`, author: input.author,
         reply: { chain: [], threadId: input.threadId }, dm: input.dm, addressees: [],
         render: input.body, payload: { receivedAt: input.receivedAt },
       },
