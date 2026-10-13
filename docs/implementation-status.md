@@ -800,31 +800,27 @@ by timing luck.
   check; each names its invariant in a header comment.
   `knip-baseline.json` still reads `"grandfathered": []`.
 
-## #1307 compaction behind a core seam, declared in the manifest (epic #1303, rung 1)
+## #1307 and #1353 compaction capability behind four core ports
 
-On `stab/1-compaction-plugin-ownership` (2026-10-07, base `c73bc03b3`). The
-kernel reaches compaction only through the composed `CompactionSeam`
-(`packages/agent/src/core/compaction-ports.ts`, exported via `core/api.ts`):
-`core/{compaction,turn,commit,mailbox,types,index}.ts` have zero
-`plugins/compaction` lines, and `plugins/compaction/successor.ts` reads
-history through injected `CompactionHistoryPorts` instead of
-`inspect/history` (both greps print nothing; `script/check-deps.ts` pins the
-former core→compaction edges at 0 so a reintroduced import fails closed).
-`plugins/compaction/index.ts` exports `compactionCapability()` — a
-`Capability.define` contract named `compaction` whose verbs are one frozen
-`CompactionSeamService` (`geometry`/`measure`/`estimate`/`shouldCompact`/
-`execute`/`createSession`/`pinAction`/`prepareRestore`/`protectRecent`) —
-and `packages/agent/src/bundle.ts` wires the history ports for the app.
-`appManifest` (`apps/openomni/src/manifest.ts`) lists the capability, so
-`off: ["compaction"]` flows through `cascadeOff` and records the typed
-`{ name: "compaction", because: "compaction" }` disabled entry; with the
-seam absent the kernel skips compaction (`applyCompaction` → `"none"`, no
-event) and a compaction append dies typed
-(`compaction append without a composed compaction seam`) — never a silent
-built-in fallback. No new journal kind, tool, or gate point; durable bytes
-unchanged. Tests: `packages/agent/test/compaction/capability.test.ts`,
-compaction-off cases in `packages/agent/test/compose-off-cascade.test.ts`
-and `apps/openomni/test/manifest.test.ts`.
+The composed `CompactionSeam` in `packages/agent/src/core/compaction-ports.ts`
+binds one run-scoped `CompactionPort` with exactly four operations:
+`maybeCompact`, `window`, `pinAction`, and `prepareRestore`.
+`maybeCompact(state, reason)` owns threshold checks, prepare-only continuation,
+speculative candidate lifetime and execution in `plugins/compaction/policy.ts`;
+`window(state)` reads the model window for yield admission without executing.
+`core/turn.ts` calls `maybeCompact` at one site, with `"prepare"` on tool-loop
+continuation, `"threshold"` at turn end, and `"yield"`/`"overflow"` at the
+respective recovery boundaries. An in-flight speculative cut below grace
+defers execution. `plugins/compaction/successor.ts` reads history through
+injected `CompactionHistoryPorts`, wired by `packages/agent/src/bundle.ts`.
+`appManifest` lists the capability; composing it off skips compaction without
+writing a `compaction` row, while an unpinnable compaction append fails closed.
+`core/compaction.ts` and the app strategy wrapper are deleted; the plugin owns
+the default 4000-character tool-output elision with a 500-character head.
+No new journal kind, schema version, tool, or gate point. Tests:
+`packages/agent/test/compaction/{compact,capability}.test.ts`,
+`packages/agent/test/core/execution/{compaction-deferral,compaction-off,overflow-recovery}.test.ts`,
+and `apps/openomni/test/compaction-composition.test.ts`.
 
 ## #1316 tool plugin owns tool dispatch, monitor requires the tool seam (epic #1303)
 
