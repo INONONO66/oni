@@ -36,7 +36,7 @@ export const WATCH_SPEC: Alarm.WatchSpec = {
 };
 
 /** The same budget over a one-minute timed build watch. */
-export const TIMED_WATCH_SPEC: Alarm.WatchSpec = {
+const TIMED_WATCH_SPEC: Alarm.WatchSpec = {
   ...WATCH_SPEC,
   watch: { command: "make build", description: "build watch", timeout_ms: 60_000 },
 };

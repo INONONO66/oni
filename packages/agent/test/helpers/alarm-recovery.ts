@@ -110,7 +110,7 @@ export function armedOccurrence(home: ClusterHome, sessionId: string): Parameter
 }
 
 /** The durable armed index of one session: its row count and the catalog flag. */
-export function armedIndex(
+function armedIndex(
   home: ClusterHome,
   sessionId: string,
 ): { readonly count: number; readonly hasArmed: boolean | undefined } {

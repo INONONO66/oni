@@ -13,7 +13,7 @@ import {
 } from "../../src/plugins/hook";
 
 /** The scripted echo child: behavior is keyed by the request's `event` field. */
-export const HOOK_CHILD_SCRIPT = `
+const HOOK_CHILD_SCRIPT = `
 const held = [];
 const heldResult = (event) =>
   event === "hold-rewrite" ? { type: "rewrite", fields: { input: { redacted: true } } }

@@ -39,7 +39,7 @@ export function useForkFixture() {
 }
 
 /** One fork fixture (#1257) bound to a parent plane and a separate child store. */
-export function forkFixture(stores: LedgerStores, child: () => ChildStore) {
+function forkFixture(stores: LedgerStores, child: () => ChildStore) {
   function commit(
     authority: { sessionId: string; owner: string; fence: number },
     actions: readonly LedgerAction.Append[],

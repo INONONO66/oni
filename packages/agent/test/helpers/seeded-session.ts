@@ -31,7 +31,7 @@ export interface SessionHandles {
 const fixedClock = () => 1;
 
 /** Open the catalog and one session file and bind a kernel; the caller closes. */
-export function openSessionHandles(
+function openSessionHandles(
   home: ClusterHome,
   sessionId: string,
   now: () => number = fixedClock,
@@ -105,7 +105,7 @@ export function materializeSession(
     );
 }
 
-export type CommitActions = LedgerSession.Commit["actions"];
+type CommitActions = LedgerSession.Commit["actions"];
 
 export interface FencedSession extends SessionHandles {
   readonly sessionId: string;

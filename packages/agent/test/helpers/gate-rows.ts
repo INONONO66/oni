@@ -28,7 +28,7 @@ export function gateRow(on: PointId, overrides: Partial<GateRow> = {}): GateRow 
 }
 
 /** The `model` string of a plain object value, else `""` (the rewrite probes read it). */
-export function plainModel(value: PlainValue): string {
+function plainModel(value: PlainValue): string {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return "";
   const model = value.model;
   return typeof model === "string" ? model : "";
