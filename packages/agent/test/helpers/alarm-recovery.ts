@@ -108,14 +108,3 @@ export function armedOccurrence(home: ClusterHome, sessionId: string): Parameter
     return { ...row, fireAt: row.fireAt };
   });
 }
-
-/** The durable armed index of one session: its row count and the catalog flag. */
-function armedIndex(
-  home: ClusterHome,
-  sessionId: string,
-): { readonly count: number; readonly hasArmed: boolean | undefined } {
-  return withSessionHandles(home, sessionId, ({ kernel, catalog }) => ({
-    count: kernel.armedCount(),
-    hasArmed: catalog.sessionIndex(sessionId)?.hasArmed,
-  }));
-}
