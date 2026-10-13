@@ -1,6 +1,6 @@
 import { APICallError } from "ai";
 import { Effect } from "effect";
-import { Model as AgentModel } from "@openomni/agent";
+import { Auth } from "@openomni/llm";
 import type { FixtureLlm } from "./app-fixture";
 import type { Model } from "@openomni/protocol";
 import { assistantMessage } from "./assistant-message";
@@ -28,8 +28,8 @@ export const FIXTURE_AUTH_FILE = "/nonexistent/openomni-test/auth.json";
 
 export function transientProvider(
   resolved: Model.Ref[],
-  auths?: AgentModel.Auth.Info[],
-): FixtureLlm {
+  auths?: Auth.Info[],
+): Partial<FixtureLlm> {
   let calls = 0;
   return {
     resolveModel: (model) =>
@@ -41,7 +41,7 @@ export function transientProvider(
     run: (input, sink) =>
       Effect.gen(function* () {
         if (auths !== undefined)
-          auths.push(yield* AgentModel.Auth.resolve(input.model.providerID, FIXTURE_AUTH_FILE, input.auth, input.authProvider));
+          auths.push(yield* Auth.resolve(input.model.providerID, FIXTURE_AUTH_FILE, input.auth, input.authProvider));
         calls += 1;
         if (calls === 1) return { type: "error" as const, error: providerFailure("transient blip") };
         sink.onMessage(assistantMessage(input, { call: calls, text: "recovered" }));

@@ -1,9 +1,9 @@
 import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
 import { testToolPorts } from "./tool-ports";
 import { Context, Effect, Layer, Scope } from "effect";
-import { Bundle, Core, Model } from "@openomni/agent";
-const Llm = Model.Llm;
-const LlmLive = Model.LlmLive;
+import { Bundle, Core } from "@openomni/agent";
+const Llm = Core.Llm;
+import { LlmLive } from "../../src/runtime";
 import { observationService } from "../../../../packages/agent/test/helpers/service-layers";
 import type { ObservationSink } from "@openomni/protocol";
 import { allowConfigure, generationServices } from "./generation-services";

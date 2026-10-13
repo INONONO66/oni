@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Model } from "@openomni/agent";
+import type { Core } from "@openomni/agent";
 import { z } from "zod";
 import { sessionFilePath } from "../src/composition/cluster-runtime";
 import { planeOf } from "./helpers/ledger";
@@ -57,7 +57,7 @@ test("real app SSE compaction commits reversible evidence through the session ex
       baseUrl: `http://127.0.0.1:${providerPort}/v1`,
     },
   });
-  const model: Model.Provider.Model = {
+  const model: Core.ResolvedModel = {
     id: "fixture",
     name: "fixture",
     providerID: "anthropic",

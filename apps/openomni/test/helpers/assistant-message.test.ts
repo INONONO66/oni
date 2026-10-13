@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Model } from "@openomni/agent";
-type RunInput = Model.RunInput;
+import type { Core } from "@openomni/agent";
+type RunInput = Core.RunInput;
 import { assistantMessage } from "./assistant-message";
 import { testIds } from "./test-entropy";
 

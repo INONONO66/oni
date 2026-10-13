@@ -1,5 +1,5 @@
-import { Model } from "@openomni/agent";
-const LlmRunFailure = Model.LlmRunFailure;
+import { Core } from "@openomni/agent";
+const LlmRunFailure = Core.LlmRunFailure;
 import { APICallError } from "ai";
 
 export function providerFailure(
@@ -12,7 +12,7 @@ export function providerFailure(
     responseHeaders: { "retry-after-ms": "0" },
     isRetryable: true,
   }),
-): Model.Run.Failure {
+): Core.LlmRunFailure {
   return new LlmRunFailure({
       message,
       aborted: cause.name === "AbortError",
@@ -26,6 +26,7 @@ export function providerFailure(
         cacheWriteTokens: 0,
       },
       cause: APICallError.isInstance(cause) ? cause : String(cause),
+      ...(APICallError.isInstance(cause) ? { providerErrorName: cause.name } : {}),
       retryAfterMs: 0,
   });
 }

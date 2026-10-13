@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { newTraceId } from "./helpers/bus";
 import { runEffect } from "./helpers/effect";
-import { Model } from "@openomni/agent";
+import { Auth } from "@openomni/llm";
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
@@ -217,7 +217,7 @@ test("real cross-provider fallback sends only the fallback's stored credential",
     if (old === undefined) delete process.env.OPENOMNI_AUTH_FILE;
     else process.env.OPENOMNI_AUTH_FILE = old;
   });
-  await runEffect(Model.Auth.set("openai", { type: "api", key: "fallback-key" }, { id: () => "tmp-fallback", authFilePath: join(catalogPath, "..", "auth.json") }));
+  await runEffect(Auth.set("openai", { type: "api", key: "fallback-key" }, { id: () => "tmp-fallback", authFilePath: join(catalogPath, "..", "auth.json") }));
   const plane = await bootAndAwaitTurn(config, "fallback");
   expect(authorization.map((request) => request.key)).toEqual([
     "primary-key",

@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Bundle, Core, Model } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
+import { LlmLive } from "../src/runtime";
 import { L0Observation, type LedgerAction } from "@openomni/protocol";
-type RunInput = Model.RunInput;
-type Sink = Model.Sink;
+type RunInput = Core.RunInput;
+type Sink = Core.LlmSink;
 import { Clock, Context, Effect, Layer } from "effect";
 import {
   hooksJsonBundle,
@@ -501,9 +502,9 @@ async function offCascadeConfigureRows(prefix: string) {
     clusterClock: "injected",
     entropy: testEntropy(() => `e-${++counter}`),
     llm: Layer.unwrap(
-      Effect.map(Layer.build(Model.LlmLive), (live) =>
-        Layer.succeed(Model.Llm, {
-          ...Context.get(live, Model.Llm),
+      Effect.map(Layer.build(LlmLive), (live) =>
+        Layer.succeed(Core.Llm, {
+          ...Context.get(live, Core.Llm),
           resolveModel: fakeProviderModel,
           run: (input: RunInput, sink: Sink) =>
             Effect.sync(() => {

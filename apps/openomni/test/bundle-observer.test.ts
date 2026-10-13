@@ -3,11 +3,11 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { Core, Bundle, Model } from "@openomni/agent";
+import { Core, Bundle } from "@openomni/agent";
+import { makeLlmService } from "@openomni/llm";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
-const Llm = Model.Llm;
-const run = Model.run;
+const Llm = Core.Llm;
 import { sessionFilePath } from "../src/composition/cluster-runtime";
 import { planeOf } from "./helpers/ledger";
 import { Effect, Layer } from "effect";
@@ -19,6 +19,9 @@ import { testToolsBundle } from "./helpers/app-fixture";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { eventSignal } from "./helpers/event-signal";
 import { Bus, newTraceId } from "./helpers/bus";
+
+/** The fixture provider is reached over `baseUrl`; no credential file is read on this path. */
+const ABSENT_AUTH_FILE = "/nonexistent/openomni-test/auth.json";
 
 const suite = residentSuite();
 const echo = (name: string, execute: (text: string) => Promise<string>) => eraseTool(defineTool({
@@ -41,7 +44,7 @@ for (const enabled of [false, true]) test(`one AppLive bundle argument controls 
   const echoTool = echo("echo", async (text) => text);
   const runtime = gatewayRuntime({ observations: Bus, catalogPath: config.catalogPath, sessionsDir: config.sessionsDir,
     composed: composedHolder({ bundles: [...(enabled ? [audit.contract] : []), testToolsBundle([echoTool])] }),
-    llm: Layer.succeed(Llm, { run: (input, sink, dependencies) => run({ ...input, authFilePath: "/nonexistent/openomni-test/auth.json" }, sink, dependencies), resolveModel: () => Effect.succeed({ providerID: "anthropic", id: "fixture", name: "fixture", api: { npm: "@ai-sdk/anthropic" } }) }),
+    llm: Layer.succeed(Llm, { ...makeLlmService(ABSENT_AUTH_FILE), resolveModel: () => Effect.succeed({ providerID: "anthropic", id: "fixture", name: "fixture", api: { npm: "@ai-sdk/anthropic" } }) }),
   });
   const app = await suite.boot({ config, runtime });
   const plane = await planeOf(app.runtime);
@@ -96,7 +99,7 @@ test("a held WS generation keeps its catalog and transformer while public tools.
   const config = suite.config("app-bundle-swap-", { wsToken: "fixture", compactionSummarizer: false,
     model: { provider: "anthropic", id: "fixture", apiKey: "fixture", baseUrl: `http://127.0.0.1:${provider.port}/v1` } });
   const runtime = gatewayRuntime({ observations: Bus, catalogPath: config.catalogPath, sessionsDir: config.sessionsDir, composed: composedHolder({ bundles: [audit.contract, definition, testToolsBundle([base])] }),
-    llm: Layer.succeed(Llm, { run: (input, sink, dependencies) => run({ ...input, authFilePath: "/nonexistent/openomni-test/auth.json" }, sink, dependencies), resolveModel: () => Effect.succeed({ providerID: "anthropic", id: "fixture", name: "fixture", api: { npm: "@ai-sdk/anthropic" } }) }),
+    llm: Layer.succeed(Llm, { ...makeLlmService(ABSENT_AUTH_FILE), resolveModel: () => Effect.succeed({ providerID: "anthropic", id: "fixture", name: "fixture", api: { npm: "@ai-sdk/anthropic" } }) }),
   });
   const app = await suite.boot({ config, runtime });
   const plane = await planeOf(app.runtime);

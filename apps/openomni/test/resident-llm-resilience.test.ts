@@ -3,7 +3,8 @@ import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { providerFailure } from "./helpers/provider-failure";
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
-import { Core, Model as AgentModel } from "@openomni/agent";
+import { Core } from "@openomni/agent";
+import { Auth } from "@openomni/llm";
 const AgentFailure = Core.AgentFailure;
 import type { Model } from "@openomni/protocol";
 import { createResidentGateway } from "../src/gateway";
@@ -30,8 +31,8 @@ describe("Resident model fallback wiring", () => {
   it("resolves the configured fallback on the retry after a transient failure", async () => {
     const sessionId = openSession("openomni-resident-fallback-");
     const resolved: Model.Ref[] = [];
-    const auths: AgentModel.Auth.Info[] = [];
-    const credentials = spyOn(AgentModel.Auth, "get").mockReturnValue(Effect.succeed({ type: "api", key: "fallback-key" }));
+    const auths: Auth.Info[] = [];
+    const credentials = spyOn(Auth, "get").mockReturnValue(Effect.succeed({ type: "api", key: "fallback-key" }));
     const resident = createResident({
       model: PRIMARY,
       modelFallbacks: [FALLBACK],

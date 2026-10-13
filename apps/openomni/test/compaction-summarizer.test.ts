@@ -1,11 +1,12 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "bun:test";
-import { Core, Model } from "@openomni/agent";
-const Llm = Model.Llm;
+import { Core } from "@openomni/agent";
+const Llm = Core.Llm;
 const ObservationSink = Core.ObservationSink;
 import { Bus } from "./helpers/bus";
 import type { FixtureLlm } from "./helpers/app-fixture";
-const LlmRunFailure = Model.LlmRunFailure;
+import { fakeLlm } from "../../../packages/agent/test/helpers/fake-llm";
+const LlmRunFailure = Core.LlmRunFailure;
 import type { Message } from "@openomni/protocol";
 import {
   createCompactionSummarizer as summarizer,
@@ -16,8 +17,8 @@ import { executor } from "./helpers/executor";
 import { runEffect, runSyncEffect } from "./helpers/effect";
 import { testIds } from "./helpers/test-entropy";
 
-function createCompactionSummarizer(config: Parameters<typeof summarizer>[0] & { readonly io: FixtureLlm }) {
-  const run = runSyncEffect(summarizer(config).pipe(Effect.provideService(Llm, config.io), Effect.provideService(ObservationSink, Bus)));
+function createCompactionSummarizer(config: Parameters<typeof summarizer>[0] & { readonly io: Partial<FixtureLlm> }) {
+  const run = runSyncEffect(summarizer(config).pipe(Effect.provideService(Llm, fakeLlm(config.io)), Effect.provideService(ObservationSink, Bus)));
   return (...args: Parameters<typeof run>) => Effect.provideService(run(...args), ExecutorContext, executor);
 }
 
@@ -53,7 +54,7 @@ const resolveModel: NonNullable<FixtureLlm["resolveModel"]> = (model) => Effect.
   providerID: model.provider,
 });
 
-function runFailure(contextOverflow: boolean, message: string): Model.Run.Failure {
+function runFailure(contextOverflow: boolean, message: string): Core.LlmRunFailure {
   return new LlmRunFailure({
     visibleOutput: false,
     message,
@@ -69,7 +70,7 @@ function runFailure(contextOverflow: boolean, message: string): Model.Run.Failur
   });
 }
 
-function failingRun(failure: Model.Run.Failure, onCall: (input: Parameters<NonNullable<FixtureLlm["run"]>>[0]) => void): NonNullable<FixtureLlm["run"]> {
+function failingRun(failure: Core.LlmRunFailure, onCall: (input: Parameters<NonNullable<FixtureLlm["run"]>>[0]) => void): NonNullable<FixtureLlm["run"]> {
   return (input) => Effect.sync(() => {
     onCall(input);
     return { type: "error", error: failure };

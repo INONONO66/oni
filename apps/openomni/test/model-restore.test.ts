@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { isolated } from "../../../packages/agent/test/helpers/isolated";
 import { recordingLedger } from "../../../packages/agent/test/helpers/effect-g2";
 import { describe, expect, it } from "bun:test";
-import type { Sink } from "../../../packages/agent/src/model";
+import type { LlmSink as Sink, RunInput } from "../../../packages/agent/src/core/llm";
 import type { LedgerAction, Model, PlainObject, PolicyRow } from "@openomni/protocol";
 import { runAgent } from "../../../packages/agent/src/core/turn";
 import { createAssistantMessage } from "../../../packages/agent/src/core/message-factory";
@@ -71,7 +71,7 @@ async function turn(options: {
         restoreModelSelection,
         stopEvidence: fixtureStopEvidence,
         llm: {
-          run: (_input: import("../../../packages/agent/src/model").RunInput, sink: Sink) =>
+          run: (_input: RunInput, sink: Sink) =>
             Effect.promise(async () => {
               sink.onMessage(createAssistantMessage("done", "", "session", messageSource));
               return createStopOutcome();
