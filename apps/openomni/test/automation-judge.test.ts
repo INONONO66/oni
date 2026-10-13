@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Core, Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
 import { Ingress } from "@openomni/protocol";
 import { type Context, Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
@@ -12,13 +12,14 @@ const event = Ingress.Input.parse({
   eventId: "event", surface: "discord", event: "message", author: { externalId: "user", isBot: false },
   dm: false, mentionsBot: false, body: "EVIDENCE", receivedAt: 100,
 });
-function judgeWith(run: Context.Service.Shape<typeof Model.Llm>["run"]) {
+function judgeWith(run: Context.Service.Shape<typeof Core.Llm>["run"]) {
   return automationJudge({ provider: "test", id: "primary", fastId: "fast", apiKey: "secret" }, {
     now: () => 100, id: () => crypto.randomUUID(),
   }).pipe(
-    Effect.provideService(Model.Llm, {
+    Effect.provideService(Core.Llm, {
       run,
       resolveModel: (ref) => Effect.succeed({ id: ref.id, providerID: ref.provider, name: ref.id }),
+      classifyFailure: () => ({ kind: "aborted" }),
     }),
     Effect.provideService(Core.ObservationSink, observationService({ publish: () => undefined })),
   );
@@ -26,7 +27,7 @@ function judgeWith(run: Context.Service.Shape<typeof Model.Llm>["run"]) {
 
 test.each([["yes", "yes"], ["no", "no"], ["garbage", "unknown"], ["YES", "unknown"], ["yes no", "unknown"]] as const)(
   "judge parses %s as %s and uses bounded deterministic model arguments", async (text, verdict) => {
-    const calls: Model.RunInput[] = [];
+    const calls: Core.RunInput[] = [];
     const judge = await runEffect(judgeWith((input, sink) => Effect.sync(() => {
       calls.push(input);
       sink.onMessage(assistantMessage(input, { text }));

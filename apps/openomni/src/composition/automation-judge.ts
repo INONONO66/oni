@@ -1,4 +1,4 @@
-import { Core, Model } from "@openomni/agent";
+import { Core } from "@openomni/agent";
 import { type Ingress, traceIdFromUuid } from "@openomni/protocol";
 import { Cause, Effect, Option } from "effect";
 import { modelTransport, type OpenOmniConfig } from "../config";
@@ -9,15 +9,15 @@ export function automationJudge(
   sources: { readonly now: () => number; readonly id: () => string },
 ) {
   return Effect.gen(function* () {
-    const llm = yield* Model.Llm;
+    const llm = yield* Core.Llm;
     const events = yield* Core.ObservationSink;
     return (question: string, event: Ingress.Input) =>
       Effect.gen(function* () {
         const sessionId = "gateway-ingress";
         const messageId = sources.id();
         const selected = yield* llm.resolveModel({
-          provider: model.provider, id: model.fastId ?? model.id, now: sources.now,
-        });
+          provider: model.provider, id: model.fastId ?? model.id,
+        }, sources.now);
         let text = "";
         const outcome = yield* llm.run({
           model: selected, auth: { type: "api", key: model.apiKey }, authProvider: model.provider,

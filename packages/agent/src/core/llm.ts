@@ -56,6 +56,8 @@ export interface RunInput {
   toolChoice?: "auto" | "required" | "none";
   /** Maximum generated tokens for this call; absent leaves the provider default. */
   maxTokens?: number;
+  /** Call-owned sampling temperature; absent leaves the provider default. */
+  temperature?: number;
   /** Stop at the step boundary once the last step's cache-inclusive input tokens reach this; absent = never. */
   yieldAtInputTokens?: number;
   /** Stop at the next step boundary while this returns true. */
