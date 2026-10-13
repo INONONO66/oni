@@ -62,18 +62,9 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
 }
 
 /**
- * Synchronous decoration preserves durable admission's existing suspension schedule.
- * The writer keeps the restore tail under policy (#1347): an interval checkpoint
- * lands when the non-checkpoint count reaches `everyActions` OR the tail bytes
- * (checkpoint row inclusive) would pass `maxTailBytes`, so no restore ever meets
- * a tail this writer let grow past the budget.
- *
- * A checkpoint row carries the whole folded state, so a session whose state has
- * outgrown the row cap can never checkpoint again. That degrades explicitly
- * (#1347 M1): the store's typed `row_bytes` refusal of a checkpoint this writer
- * added is logged, and the caller's rows commit without it. The next commit at
- * the threshold replays the same tail, so the cost is a full-tail fold per
- * commit, never a wedged session or a lost caller row.
+ * Synchronous decoration preserves durable admission's existing suspension schedule. A checkpoint lands
+ * at `everyActions` or when the tail bytes would pass `maxTailBytes`, so no restore meets a tail this writer
+ * let grow. State past the row cap never checkpoints again: the typed `row_bytes` refusal is logged, the caller's rows commit, later commits refold the full tail.
  */
 export function commitFoldBatch(
   kernel: SessionKernel,
@@ -133,9 +124,8 @@ type FoldPlan = {
 };
 
 /**
- * Pin the caller's drafts against the running fold and, with `checkpoints`,
- * interleave the checkpoint rows policy asks for; without it the plan is the
- * pinned drafts alone (the M1 fallback after a refused checkpoint).
+ * Pin the caller's drafts against the running fold and, with `checkpoints`, interleave the
+ * checkpoint rows policy asks for; without it the plan is the pinned drafts alone (refused-checkpoint fallback).
  */
 function planFoldBatch(
   kernel: SessionKernel,

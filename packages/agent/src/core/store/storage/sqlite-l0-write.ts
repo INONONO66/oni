@@ -50,19 +50,15 @@ export interface AppendLimits {
 }
 
 /**
- * Default row cap at the append boundary (#1347): exactly 1 MiB of serialized
- * payload (`actionPayloadBytes`, intent plus effect). Rows that could carry a
- * tool result — the `tool` row and its `tool.post` `policy.decision` row —
- * commit the bounded projection (#1305), so the cap is a backstop, not a
- * budget any producer runs up against.
+ * Default row cap at the append boundary: exactly 1 MiB of serialized payload (`actionPayloadBytes`).
+ * Rows that could carry a tool result commit the bounded projection, so the cap is a backstop, not a budget.
  */
 export const DEFAULT_ROW_BYTE_CAP = 1024 * 1024;
 
 /**
  * Fail-closed write (#1252): every journal row body must satisfy its kind's
- * declared schema and the row byte cap before anything touches the chain.
- * `fold.checkpoint` is outside the declaration table (schema-exempt) but
- * never outside the byte cap.
+ * declared schema and the row byte cap before anything touches the chain;
+ * `fold.checkpoint` is schema-exempt but never outside the byte cap.
  */
 function refuseRow(
   action: LedgerAction.Append,

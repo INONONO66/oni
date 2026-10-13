@@ -22,10 +22,7 @@ export function createBudgetState(now: () => number): BudgetState {
   };
 }
 
-/**
- * A reactivated turn resumes its checkpointed counters; the charged wall slice
- * is rebased onto the run's clock so downtime between activations is free.
- */
+/** A reactivated turn resumes its checkpointed counters; the wall slice is rebased so downtime is free. */
 export function restoreBudgetState(checkpointed: FoldCheckpoint.BudgetState, now: () => number): BudgetState {
   return {
     startTime: now() - (checkpointed.chargedAt - checkpointed.startTime),

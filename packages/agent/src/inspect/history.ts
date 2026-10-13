@@ -95,10 +95,7 @@ function applyHistoryAction(
     parents.delete(action.parentId);
 }
 
-/**
- * Budget counters charged as the loop does: a turn per logical `llm` intent, tokens
- * per attempt result, a call plus un-charged wall slice per settled tool.
- */
+/** Budget counters charged as the loop does: a turn per logical `llm` intent, tokens per attempt, a call plus wall slice per settled tool. */
 function chargeBudget(state: FoldCheckpoint.State, action: LedgerAction.Node): void {
   const intent = object(action.intent.value);
   if (action.kind === "turn" && intent.phase === "intent") {
@@ -247,9 +244,8 @@ export interface RestoreOptions {
 }
 
 /**
- * The activation restore tail exceeded `maxTailBytes`: no partial state, the
- * work done rides along. The writer keeps the tail under policy (#1347), so
- * only rows appended outside `commitFoldBatch` or a lowered policy reach this.
+ * The activation restore tail exceeded `maxTailBytes`: no partial state, the work done rides along.
+ * The writer keeps the tail under policy, so only rows appended outside `commitFoldBatch` or a lowered policy reach this.
  */
 export const RestoreRefused = NamedError.create(
   "RestoreRefused",
@@ -320,9 +316,8 @@ export function hydrateSessionHistory(
 }
 
 /**
- * The activation restore (#1347): the one read bound by the folded
- * `maxTailBytes`, refused in the error channel. Shared hydrate paths stay
- * unbounded because the writer already keeps the tail under that policy.
+ * The activation restore: the one read bound by the folded `maxTailBytes`, refused in the error
+ * channel. Shared hydrate paths stay unbounded because the writer already keeps the tail under that policy.
  */
 export function restoreSessionHistory(
   kernel: SessionKernel,
@@ -353,9 +348,8 @@ export function refreshSessionHistory(
 }
 
 /**
- * Folds the suffix page by page; each page's bytes count BEFORE folding, and
- * under a `maxTailBytes` bound the page that carries the total past it refuses
- * with nothing folded. Without a bound the read is the writer's own invariant.
+ * Folds the suffix page by page; each page's bytes count BEFORE folding, and under a `maxTailBytes`
+ * bound the page that carries the total past it refuses with nothing folded. Unbounded: the writer's invariant.
  */
 function readHistorySuffix(
   kernel: SessionKernel,

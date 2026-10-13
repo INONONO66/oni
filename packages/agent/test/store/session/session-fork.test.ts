@@ -383,11 +383,12 @@ describe("Session.fork", () => {
       // with the typed store error before any DDL, stamp or table read, returns
       // no store, and the fork refuses.
       expect(readSessionFileSchemaVersion(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
-      let refusal: unknown;
+      let refusal: CatalogVersionRefused | undefined;
       try {
         openSessionStore(newerPath, { now: testNow });
       } catch (error) {
-        refusal = error;
+        expect(error).toBeInstanceOf(CatalogVersionRefused);
+        if (error instanceof CatalogVersionRefused) refusal = error;
       }
       expect(refusal).toBeInstanceOf(CatalogVersionRefused);
       expect(refusal).toMatchObject({

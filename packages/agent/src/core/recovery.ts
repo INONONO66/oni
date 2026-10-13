@@ -116,7 +116,7 @@ export function createSessionRecovery(
   return { resumeTurn, resumeInterrupted, restoreContextProjection };
 }
 
-/** The four restore log annotations: the telemetry's only consumer (#1347). */
+/** The four restore log annotations: the telemetry's only consumer. */
 function restoreAnnotations(telemetry: HydratedSessionHistory["telemetry"]) {
   return {
     restoreRows: telemetry.rows,
@@ -127,11 +127,8 @@ function restoreAnnotations(telemetry: HydratedSessionHistory["telemetry"]) {
 }
 
 /**
- * The activation restore (#1347): fold the suffix after the latest checkpoint
- * under `maxTailBytes` once and log the cost. The typed budget refusal arrives
- * in the error channel and still logs the work done; the activation proceeds,
- * since the writer bounds every tail it appends and the runner's own reads
- * are unbounded. Any other failure is logged, as before, never fatal here.
+ * The activation restore: fold the suffix after the latest checkpoint under `maxTailBytes` once and log
+ * the cost. A typed budget refusal still logs the work done and the activation proceeds (the writer bounds every tail). Never fatal.
  */
 export function logRestoredHistory(kernel: SessionKernel, sessionId: string, now: () => number): Effect.Effect<void> {
   return restoreSessionHistory(kernel, sessionId, { now }).pipe(

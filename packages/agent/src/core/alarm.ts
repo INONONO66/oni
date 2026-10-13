@@ -172,10 +172,8 @@ export interface AlarmDrainConfig {
 }
 
 /**
- * Delivery attempts one occurrence may consume (#1347): the pre-execution
- * strike that reaches this count folds `fired{exhausted}` without running the
- * occurrence. A core constant, not drain configuration — the issue fixes the
- * poison boundary at three and no composition root tunes it.
+ * Delivery attempts one occurrence may consume: the pre-execution strike reaching this count
+ * folds `fired{exhausted}` unexecuted. A core constant (poison boundary), not drain configuration.
  */
 export const MAX_OCCURRENCE_STRIKES = 3;
 

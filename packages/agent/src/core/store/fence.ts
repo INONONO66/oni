@@ -926,7 +926,7 @@ function makeSessionKernel(context: SessionKernelContext) {
       requiredActionsIn(context).latestAction(sessionId, throughRevision),
     latestFoldCheckpoint: (sessionId: string, throughRevision?: number) =>
       latestFoldCheckpointIn(context, sessionId, throughRevision),
-    /** Payload bytes of the rows after `afterRevision` through `throughRevision`: the writer's tail measure (#1347). */
+    /** Payload bytes of the rows after `afterRevision` through `throughRevision`: the writer's tail measure. */
     payloadBytes: (sessionId: string, afterRevision: number, throughRevision: number): number =>
       requiredActionsIn(context).payloadBytes(sessionId, afterRevision, throughRevision),
     priorModelAttempt: (sessionId: string, turnId: string) =>

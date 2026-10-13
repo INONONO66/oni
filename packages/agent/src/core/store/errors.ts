@@ -108,12 +108,9 @@ export class LedgerInvariant extends Data.TaggedError("LedgerInvariant")<{
 }> {}
 
 /**
- * SchemaVersion fence (#1252, #1347): a store file whose `user_version` marker
- * is greater than this build's was written by newer code. A catalog opens
- * read-only: reads work, Deliver (fence rotation) and fork (session indexing)
- * are refused with this error, bytes stay untouched. A session file refuses at
- * `openSessionStore`: no store is returned, nothing is read past the marker,
- * nothing is written.
+ * SchemaVersion fence (#1252): a store file whose `user_version` marker exceeds this build's was
+ * written by newer code. A catalog opens read-only: reads work, Deliver (fence rotation) and fork
+ * (session indexing) refuse with this error. A session file refuses at `openSessionStore`: nothing read or written.
  */
 export class CatalogVersionRefused extends Data.TaggedError("CatalogVersionRefused")<{
   readonly fileVersion: number;

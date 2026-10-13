@@ -475,12 +475,20 @@ test("#1347 a folded state past the row cap degrades explicitly: the checkpoint'
   const overBy = checkpointBytes(content) - ROW_CAP;
   expect(overBy).toBeGreaterThanOrEqual(1);
   expect(overBy).toBeLessThanOrEqual(slope);
-  const warnings: { message: string; annotations: Record<string, unknown> }[] = [];
+  const warnings: { message: string; annotations: Record<string, string | number> }[] = [];
   const collector = Logger.make((options) => {
     if (options.logLevel !== "Warn") return;
     for (const item of Array.isArray(options.message) ? options.message : [options.message]) {
       if (typeof item === "string")
-        warnings.push({ message: item, annotations: { ...options.fiber.getRef(References.CurrentLogAnnotations) } });
+        warnings.push({
+          message: item,
+          annotations: Object.fromEntries(
+            Object.entries(options.fiber.getRef(References.CurrentLogAnnotations)).filter(
+              (entry): entry is [string, string | number] =>
+                typeof entry[1] === "string" || typeof entry[1] === "number",
+            ),
+          ),
+        });
     }
   });
   // The fourth row: the writer plans a checkpoint, the store refuses it typed, the row lands without it.

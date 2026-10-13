@@ -833,10 +833,8 @@ function verifyChain(db: Database, sessionId: string): LedgerAction.ChainVerdict
 
 
 /**
- * Session-file schemaVersion (#1257) in `PRAGMA user_version`. v1 -> v2 is the
- * one guarded upgrade (`armed_alarms.strikes`, stamped in the same transaction);
- * a newer-build file refuses to open (typed, #1347); `Session.fork` refuses a
- * differing marker.
+ * Session-file schemaVersion (#1257) in `PRAGMA user_version`. v1 -> v2 is the one guarded upgrade
+ * (`armed_alarms.strikes`, stamped in the same transaction); a newer-build file refuses to open (typed); fork refuses a differing marker.
  */
 export const SESSION_FILE_SCHEMA_VERSION = 2;
 
@@ -856,12 +854,9 @@ function probeSessionFileSchemaVersion(path: string): number {
 }
 
 /**
- * SchemaVersion probe before a fork (#1257, #1347): reads only
- * `PRAGMA user_version` through a `readonly` open, so an unstamped legacy
- * parent (0) and a newer-build file are never modified and their tables are
- * never read. An older STAMPED file (1 ≤ v < this schema) first upgrades
- * through the guarded path, then re-probes, so a version-1 parent forks. A
- * missing file probes as 0 — not this schema.
+ * SchemaVersion probe before a fork: reads only `PRAGMA user_version` through a `readonly` open,
+ * so an unstamped legacy parent (0) and a newer-build file are never modified nor their tables read.
+ * An older stamped file (1 ≤ v < this schema) upgrades through the guarded path, then re-probes. Missing: 0.
  */
 export function readSessionFileSchemaVersion(path: string): number {
   const version = probeSessionFileSchemaVersion(path);
@@ -901,10 +896,7 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
   }).immediate();
 }
 
-/**
- * Newer-build marker: the typed `CatalogVersionRefused` before any DDL, stamp
- * or table read, and no handle survives it; otherwise bootstrap and upgrade.
- */
+/** Newer-build marker: typed `CatalogVersionRefused` before any DDL, stamp or read, no handle survives; else bootstrap and upgrade. */
 function openStampedSessionDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);

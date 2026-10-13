@@ -1491,9 +1491,8 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
   function complete<R>(stage: Stage<R>, raw: PlainValue): Effect.Effect<ExecutionResult, ExecutionError> {
     return Effect.gen(function* () {
       const value = clonePlainValue(raw);
-      // #1347 H2: the post decision row records the gate's `output`, so it
-      // consults the same bounded projection the tool row commits (#1305) —
-      // never the full result, which would push the decision row past the cap.
+      // The post decision row records the gate's `output` from the same bounded projection
+      // the tool row commits — never the full result, which would push it past the cap.
       const outcome = consulted(stage.request.kind, "post")
         ? yield* decide(stage.request, "post", { intent: stage.request.intent, effect: stage.request.effect, result: projectValue(stage.kind, value) }).pipe(
             Effect.flatMap((post) => settlePost(stage.request, post, value)))
