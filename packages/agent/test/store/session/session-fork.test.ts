@@ -21,6 +21,7 @@ import { testExecutor } from "../../helpers/executor";
 import { messageSource } from "../../helpers/message-source";
 import { sessionTree } from "../../helpers/session-tree";
 import { runLedgerSync } from "../helpers/effect";
+import { CatalogVersionRefused } from "../../../src/core/store/errors";
 
 const stores = useMemoryStores();
 let childStore: SessionStore | undefined;
@@ -367,7 +368,7 @@ describe("Session.fork", () => {
     }
   });
 
-  test("#1347 a newer-version session file opens read-only and is never downgraded", () => {
+  test("#1347 a newer-version session file refuses to open, typed, and is never downgraded", () => {
     const directory = mkdtempSync(join(tmpdir(), "fork-newer-"));
     try {
       const newerPath = join(directory, "newer.sqlite");
@@ -378,12 +379,23 @@ describe("Session.fork", () => {
       const sha256 = () => createHash("sha256").update(readFileSync(newerPath)).digest("hex");
       const before = sha256();
 
-      // Neither the upgrade helper nor a full open touches a newer file; the
-      // open yields a query-only store (no DDL, no stamp) and the fork refuses.
+      // Neither the probe nor a full open touches a newer file: the open refuses
+      // with the typed store error before any DDL, stamp or table read, returns
+      // no store, and the fork refuses.
       expect(readSessionFileSchemaVersion(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
-      const store = openSessionStore(newerPath, { now: testNow });
-      expect(store.armedCount).toThrow(/no such table: armed_alarms/);
-      store.close();
+      let refusal: unknown;
+      try {
+        openSessionStore(newerPath, { now: testNow });
+      } catch (error) {
+        refusal = error;
+      }
+      expect(refusal).toBeInstanceOf(CatalogVersionRefused);
+      expect(refusal).toMatchObject({
+        _tag: "CatalogVersionRefused",
+        fileVersion: SESSION_FILE_SCHEMA_VERSION + 1,
+        codeVersion: SESSION_FILE_SCHEMA_VERSION,
+        operation: "openSessionStore",
+      });
       expect(readSessionFileSchemaVersion(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
       expect(sha256()).toBe(before);
       const parent = fixture.buildParent();

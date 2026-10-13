@@ -24,7 +24,7 @@ import {
 const legacyIdPath = `'$.${V1_DELIVERY_FIELDS.id}'`;
 const legacyKindPath = `'$.${V1_DELIVERY_FIELDS.kind}'`;
 import { z } from "zod";
-import { CorruptRecord, CreateRefused, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
+import { CatalogVersionRefused, CorruptRecord, CreateRefused, LedgerInvariant, MaterializeRefused, type LedgerError } from "../errors";
 import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import type { SessionWriteAdapter } from "../services";
 import { createSqliteDecisionFacts } from "../decision.js";
@@ -835,7 +835,8 @@ function verifyChain(db: Database, sessionId: string): LedgerAction.ChainVerdict
 /**
  * Session-file schemaVersion (#1257) in `PRAGMA user_version`. v1 -> v2 is the
  * one guarded upgrade (`armed_alarms.strikes`, stamped in the same transaction);
- * a newer-build file opens query-only; `Session.fork` refuses a differing marker.
+ * a newer-build file refuses to open (typed, #1347); `Session.fork` refuses a
+ * differing marker.
  */
 export const SESSION_FILE_SCHEMA_VERSION = 2;
 
@@ -900,7 +901,10 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
   }).immediate();
 }
 
-/** Newer-build marker: query-only, no DDL or stamp; otherwise bootstrap and upgrade. */
+/**
+ * Newer-build marker: the typed `CatalogVersionRefused` before any DDL, stamp
+ * or table read, and no handle survives it; otherwise bootstrap and upgrade.
+ */
 function openStampedSessionDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
@@ -908,12 +912,14 @@ function openStampedSessionDatabase(path: string): Database {
   try {
     const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
     if (version > SESSION_FILE_SCHEMA_VERSION) {
-      db.run("PRAGMA busy_timeout = 5000");
-      db.run("PRAGMA query_only = ON");
-    } else {
-      bootstrapStoreDatabase(db, SESSION_FILE_SCHEMA);
-      if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db);
+      throw new CatalogVersionRefused({
+        fileVersion: version,
+        codeVersion: SESSION_FILE_SCHEMA_VERSION,
+        operation: "openSessionStore",
+      });
     }
+    bootstrapStoreDatabase(db, SESSION_FILE_SCHEMA);
+    if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db);
     ready = true;
   } finally {
     if (!ready) db.close();
