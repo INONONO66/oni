@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Actor } from "../actor/index.js";
 import { BusEvent } from "../bus/index.js";
+import { RunWhen } from "../ingress/automation.js";
 import { PlainObjectSchema } from "../json.js";
 import { EpochMs } from "../time.js";
 
@@ -20,6 +21,17 @@ const RoutingDecisionBase = Base.extend({
   actorId: z.string().optional(),
   trustTier: Actor.TrustTier.optional(),
   inboundTreatment: Actor.InboundTreatment.optional(),
+});
+
+const LedgerDecisionBase = RoutingDecisionBase.extend({
+  stage: z.literal("automation"),
+  outcome: z.literal("record"),
+  by: z.string().regex(/^(automation|rule|blacklist)\/.+/),
+  factsDigest: z.string().min(1),
+  // The session the matched action landed in; `new` targets resolve to a minted id before the row is written.
+  target: z.string().regex(/^session:.+/).optional(),
+  runWhen: RunWhen.optional(),
+  actionSeq: z.number().int().nonnegative().optional(),
 });
 
 function routingDecisionUnion(candidateId: z.ZodType<string, string>) {
@@ -55,6 +67,12 @@ function routingDecisionUnion(candidateId: z.ZodType<string, string>) {
       outcome: z.literal("route"),
       target: z.string(),
     }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("matched") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("filtered") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("refused") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("deduped") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("grouped") }).strict(),
+    LedgerDecisionBase.extend({ decision: z.literal("superseded") }).strict(),
   ]);
 }
 

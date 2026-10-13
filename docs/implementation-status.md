@@ -16,6 +16,52 @@ Five parallel implementations inside `packages/agent` collapsed to one owner eac
 
 Verification: lead gate `gate-1344-r1.sh` on the PR head after the rebase onto `7e05bb8d1` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1344-r1.log`): build, check-types, lint, lint:tools, check-topology, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types, verify-tsconfig-inheritance, lint:docs, check-quality-python, the eight workspace test lanes, the three script lanes and patch coverage all exit 0; jscpd `packages/agent/src` 9 → 0; `check-comment-residue` OK at 1424bp. Review r1 (`review-1344-r1.md`, H0 M6 L6) fixed in full; r2 (`review-1344-r2.md`, H0 M1 L5) confirmed them and found one new Medium — a second `thrownAsError` copy in `model/model/loader.ts` — fixed by the lead before merge (loader on `core/failure`'s `thrownAsError`/`renderBodyCause`).
 
+## #1338 protocol contracts for the unified ingress input, automation records and automation ledger decisions (epic #1337, rung 1)
+
+On `epic1337/1338-protocol-schemas` (2026-10-12, base `d9800ad74`, PR #1409).
+
+- Four Zod contracts under `packages/protocol/src/ingress/`, exported through
+  the existing `Ingress` namespace, Effect-free and I/O-free
+  (`rg -c -i effect packages/protocol/src/ingress/` prints nothing):
+  - `Ingress.Input` (`ingress/input.ts`): the one normalized event every
+    source produces — `eventId`, `surface`, `event` in
+    `message | reaction | mention | webhook | github | schedule`, optional
+    `channelId`/`threadId`/`workspaceId`, `author{externalId, isBot}`, `dm`,
+    `mentionsBot`, `body`, `receivedAt`; strict object.
+  - `Ingress.Automation` (`ingress/automation.ts`): the managed rule record —
+    `createdBy` is `owner` or `session:<id>`, at least one `Trigger`
+    (`schedule{cron, tz} | message{surface, event} | webhook{secretRef} |
+    github{event} | on_demand`), optional `Conditions` whose list fields are
+    non-empty (`channels`, `users`, `threads`, `contains`, `excludes`,
+    `regex`) plus `includeBots`/`dm`/`mentionOnly`, optional `runWhen` prose,
+    optional `grouping{windowSeconds in 0|5|10|20|30|60, by
+    thread|channel|author}`, the delivery record `target` (`new` or
+    `session:<id>`) × `kind` (`prompt | action`, default `action`), optional
+    `instructions` for a new session, optional `limits.maxRunsPerDay`.
+  - `Ingress.TriggerContext`: what a matched automation hands the session —
+    `automationId`, the firing `trigger`, `matched{conditions, runWhen?{verdict
+    yes|no|unknown, reason}}`, and the bounded event group (1..64 messages of
+    `{eventId, body, receivedAt}` with surface/channel/thread/author).
+  - Six automation ledger variants on `RoutingDecisionPayload`
+    (`event/ingress.ts`): `matched | filtered | refused | deduped | grouped |
+    superseded`, each strict with `stage: "automation"`, `outcome:
+    "record"`, `by` matching `automation/… | rule/… | blacklist/…`,
+    `factsDigest` (never a message body), optional `runWhen` and `actionSeq`;
+    `recordedRoutingDecision` keeps upcasting persisted rows (regression test
+    `persisted routing rows still upcast historical fields`).
+- `Gateway.IngressFacts` (`gateway/message.ts`) gains optional `event`
+  (`message | reaction | mention`) and `author{externalId, isBot}` so
+  drivers can report the facts rung 2 normalizes from; existing facts parse
+  unchanged.
+- No consumer yet: channels normalizers (#1339), the matcher and judge port
+  (#1340), the app provisioning and deliver plug-in (#1341) and the desktop
+  editor (#1342) are the following rungs. No journal kind, gate point, tool,
+  wire method or app/desktop file changes in this rung.
+- Tests (`bun test packages/protocol`, 592 pass / 0 fail across 52 files):
+  `ingress-input.test.ts` 8, `automation-record.test.ts` 22,
+  `ingress-ledger.test.ts` 16, `ingress-facts.test.ts` 5; the routing suite
+  under `test/ingress` is 76 pass.
+
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
 
 Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. The depth row lives in the catalog policy plane, where `seedKernelPolicyRows` (`apps/openomni/src/policy-seed.ts`) lets every stored row overwrite the default by id, so a catalog seeded before this change keeps admitting at its stored `max: 4`; only catalogs without the row (fresh installs) receive the shared value. Migrating stored rows is a follow-up on #1422. The tests assert the admission constant equals the caps' `maxDepth`.
