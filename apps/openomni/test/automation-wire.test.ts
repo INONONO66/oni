@@ -41,6 +41,18 @@ test("a token-authenticated desktop without the chat bootstrap grant requires ap
     .toMatchObject({ type: "automation_enable_refused", reason: "require_approval" });
 });
 
+test("a declared actor nobody registered resolves like chat does: Owner until registered as a peer", async () => {
+  const f = await automationFixture(suite);
+  const socket = await suite.openSocket(`ws://127.0.0.1:${f.app.port}/ws?actor=newcomer`, ["auth", "owner-token"]);
+  expect(await automationRequest(socket, { type: "automation_add", requestId: "add", record: automationRecord({ enabled: false }) }))
+    .toMatchObject({ type: "automation_added", requestId: "add", record: { id: "build", createdBy: "owner" } });
+  f.stores.actors.registerIdentity({ id: "newcomer", kind: "human", trustTier: "collaborator" });
+  f.stores.actors.registerEndpoint({ id: "ws:newcomer", actorId: "newcomer", channel: "ws", externalId: "newcomer" });
+  expect(await automationRequest(socket, { type: "automation_enable", requestId: "enable", id: "build" }))
+    .toMatchObject({ type: "automation_enable_refused", requestId: "enable", reason: "require_approval" });
+  expect(f.stores.automations.get("build")).toMatchObject({ approved: true, record: { enabled: false, createdBy: "owner" } });
+});
+
 test("a declared peer socket requires approval to add or enable an automation", async () => {
   const f = await automationFixture(suite);
   f.stores.actors.registerIdentity({ id: "peer", kind: "human", trustTier: "collaborator" });

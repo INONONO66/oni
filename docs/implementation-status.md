@@ -2,7 +2,7 @@
 
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
-On `fix1337/1456-desktop-owner-bootstrap` (2026-10-13, base `18ca03806`).
+On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a`).
 
 - The desktop connects with URL + token and no actor declaration; the upgrade
   mints `connection:<uuid>`. Chat already admits that sender as the Owner from
