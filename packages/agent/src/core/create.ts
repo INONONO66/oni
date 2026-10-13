@@ -1,4 +1,3 @@
-/** The one session creation door: genesis configure row and catalog index commit in one enclosed write unit. */
 import { Effect } from "effect";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import type { LedgerPlane } from "./host";
@@ -12,17 +11,15 @@ export interface CreateSessionInput {
   readonly id: string;
   readonly parentId: string | null;
   readonly role: LedgerSession.Role;
-  /** The composed genesis: generation seed, pinned settings, and the configure action identity. */
   readonly genesis: Omit<MaterializeInput, "id" | "parentId" | "role">;
 }
 
 export interface SessionReceipt {
   readonly row: LedgerSession.Row;
-  /** The durable genesis `session.configure` receipt. */
   readonly genesis: LedgerAction.Receipt;
 }
 
-/** A fault before commit leaves neither side discoverable; a duplicate id refuses typed. */
+/** A fault before commit leaves neither side discoverable. */
 export function createSession(
   plane: Pick<LedgerPlane, "catalog" | "sessionStore">,
   input: CreateSessionInput,

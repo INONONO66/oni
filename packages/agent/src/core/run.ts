@@ -25,7 +25,6 @@ import { hydrateSessionHistory, refreshSessionHistory } from "../inspect/history
 import { observeDrained, scopeObservation } from "./bus";
 import { runAgent } from "./turn";
 
-// ─── from session-contract.ts (#1247) ───
 export interface SessionTool {
   readonly name: string;
   readonly inputSchema: SessionGeneration.Tool["inputSchema"];
@@ -120,25 +119,14 @@ export type SessionRunnerResult =
 export type SessionRunner = (input: SessionRunnerInput) => Effect.Effect<SessionRunnerResult, ExecutionError, RunnerServices>;
 
 export interface SessionRuntime {
-  /**
-   * The composed compaction capability's verbs (#1307): commit-path pinning
-   * and context-projection restore. Absent = the capability is off — a
-   * compaction append is a defect and a restore refuses typed.
-   */
+  /** Absent = the compaction capability is off: a compaction append is a defect and a restore refuses typed. */
   readonly compaction?: CompactionSeamService;
-  /** Dispatches a committed source obligation through gateway admission; `ledger` is the source turn's fenced door. */
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
     readonly ledger: Pick<ExecutionLedger, "commit">;
   }) => Effect.Effect<LedgerAction.Receipt, ExecutionError, RunnerServices>;
-  /** Direct post-commit doorbells, independent of the lossy observation bus. */
   readonly onDeliveryCommitted?: (sessionIds: readonly string[]) => void;
-  /**
-   * Composition-owned child settlement (#1311): the app injects
-   * `settleChild` (apps/openomni/src/bundles/delegation-policy). Called at turn
-   * seal; a returned message is committed as the child's outbound obligation.
-   * Absent = a sealing child never writes toward its parent.
-   */
+  /** App-injected child settlement, called at turn seal; absent = a sealing child never writes toward its parent. */
   readonly settleChild?: (
     kernel: SessionKernel,
     row: LedgerSession.Row,
@@ -152,11 +140,7 @@ export interface SessionRuntime {
   }) => Effect.Effect<readonly { actionId: string; kind: "message" | "approval" }[], ExecutionError>;
   readonly retryAlarm?: ExecutorOptions["retryAlarm"];
   readonly approvalTimeoutMs?: ExecutorOptions["approvalTimeoutMs"];
-  /**
-   * The composed approval policy (#1309): the product bundle owns the values
-   * (responders, recent-open quota, default expiry, default run budget) and
-   * composition threads them here. Required — the core has no fallback.
-   */
+  /** The product bundle owns the approval values; required — the core has no fallback. */
   readonly approvalPolicy: ApprovalPolicy;
   readonly processId?: string;
   /** Required pinned pre-policy authority for `session.configure`; there is no allow fallback. */
@@ -167,40 +151,20 @@ export interface SessionRuntime {
   ) => Readonly<Record<string, number>>;
   readonly onRequestReady?: (sessionId: string) => void;
   /**
-   * Handle-scoped kernel opener (W5.2 F1): every controller reads and commits
-   * through the kernel this returns for its session. Fenced single-writer
-   * contract: every commit carries the fence adopted at activation, so a
-   * stale writer can never commit after another one took over. There is no
-   * liveness heartbeat - the fence CAS is the takeover authority. A runner
-   * MUST still honour aborts promptly - an abort-ignoring runner keeps
-   * computing without authority and its late result is discarded.
-   */
+     * Fenced single-writer contract: every commit carries the fence adopted at
+     * activation, and the fence CAS (no heartbeat) is the takeover authority. A
+     * runner MUST honour aborts promptly: its late result is discarded.
+     */
   readonly openKernel: (sessionId: string) => SessionKernel;
-  /** Catalog-backed enumeration of durable sessions this process can open. */
   readonly listSessions: () => LedgerSession.Row[];
   readonly onHibernate?: (sessionId: string) => Effect.Effect<void, ExecutionError>;
-  /**
-   * How long `close()` waits for an abort-ignoring runner to settle before
-   * detaching the caller. Detaching only bounds the caller-facing wait: the
-   * turn continuation still settles durably before authority moves on. `0`
-   * detaches immediately.
-   */
+  /** Bounds only the caller-facing `close()` wait on an abort-ignoring runner; the turn continuation still settles durably. `0` detaches immediately. */
   readonly closeGraceMs?: number;
-  /**
-   * The product's currently composed manifest (#1255): read at every turn
-   * start. A `hash` differing from the session's adopted `manifestHash`
-   * appends one `session.configure{operation: "compose", disabled}` through
-   * the single writer BEFORE the turn captures its generation; the in-flight
-   * turn is untouched. Absent = static manifest, no rotation.
-   */
+  /** Read at every turn start: a `hash` differing from the adopted `manifestHash` appends one compose configure before the turn captures its generation. Absent = static manifest. */
   readonly composed?: { readonly current: () => ComposedManifest | undefined };
 }
 
-/**
- * The journal-facing face of one composed `Generation` (#1255): exactly what a
- * session adopts at its next turn start. Recomputed from empty state by
- * `compose` on every manifest change; never patched.
- */
+/** The journal-facing face of one composed `Generation`: recomputed from empty state on every manifest change, never patched. */
 export interface ComposedManifest {
   readonly hash: string;
   readonly tools: readonly SessionGeneration.Tool[];
@@ -208,7 +172,6 @@ export interface ComposedManifest {
   readonly disabled: ConfigureDisabled;
 }
 
-/** Projects a composed `Generation` once into its adoption face. */
 export function composedManifest(generation: Generation): ComposedManifest {
   return {
     hash: generation.hash,
@@ -265,13 +228,11 @@ export interface SessionHandle {
   prompt(content: string, origin?: Delivery.Origin): Effect.Effect<SessionRunnerResult | undefined, SessionError>;
   interrupt(origin?: Delivery.Origin): Effect.Effect<void, SessionError>;
   resume(origin?: Delivery.Origin): Effect.Effect<void, SessionError>;
-  /** Record the typed compensation of one compaction (`restore_context_projection`); history is never erased. */
+  /** History is never erased: compensation is a typed `restore_context_projection` record. */
   restoreContext(compactionId: string): Effect.Effect<ExecutionResult, SessionError>;
   get(options?: SessionGetOptions): SessionTurn.Snapshot;
   watch(options?: SessionGetOptions): SessionTurn.Watch;
-  /** Bounded revision page of committed actions; the resynchronization read after a `watch` gap. */
   history(request?: SessionHistory.PageRequest): SessionHistory.Page;
-  /** Redacted causal projection over this session and the sessions it commissioned. */
   inspect(request?: InspectRequest): InspectionPage;
   close(): Effect.Effect<void, SessionError>;
 }
@@ -292,12 +253,7 @@ export interface SessionControllerLifecycle {
   release(): void;
 }
 
-/**
- * Ports the Session entity handler (W5.2 #1197) receives from composition.
- * The entity owns receipt, dedupe, fence authority and backlog admission; the
- * turn machinery and the chain-guarded timer folds stay behind these ports so
- * the durable protocol and the execution engine evolve independently.
- */
+/** The entity owns receipt, dedupe, fence authority and backlog admission; the turn machinery and timer folds stay behind these ports. */
 
 export type SessionAdmissionSnapshot = Parameters<typeof decideSessionAdmission>[0];
 type SessionAdmissionDecision = ReturnType<typeof decideSessionAdmission>;
@@ -309,7 +265,6 @@ export interface SessionEntityAuthority {
   readonly fence: number;
 }
 
-/** An admitted unit of turn work: everything but `stop`/`refused`/`consume`. */
 export interface SessionEntityTurnInput {
   readonly authority: SessionEntityAuthority;
   readonly kernel: SessionKernel;
@@ -318,116 +273,54 @@ export interface SessionEntityTurnInput {
     | Extract<SessionAdmissionDecision, { kind: "recover" } | { kind: "resume" }>;
   readonly snapshot: SessionAdmissionSnapshot;
   /**
-   * Detaches the admitted turn's post-boundary remainder (W5.2 S4). The port
-   * calls it only after the durable turn boundary (deliveries + turn
-   * envelope, state `running`) is committed; the entity forks the body under
-   * the activation so the delivering RPC acks at the boundary instead of
-   * joining the whole model turn (a parent awaiting its child's Prompt RPC
-   * inside its own turn would otherwise deadlock the two mailboxes).
-   * Fixtures may run the body inline.
-   */
+     * Called only after the durable turn boundary is committed; the entity forks
+     * the body so the delivering RPC acks at the boundary (a parent awaiting its
+     * child's Prompt RPC inside its own turn would otherwise deadlock). Fixtures may run inline.
+     */
   readonly detach: (body: Effect.Effect<void, SessionError>) => Effect.Effect<void, SessionError>;
 }
 
 export interface SessionEntityPorts {
-  /**
-   * The composed approval policy (#1309): the pure request authority reads
-   * its recent-open quota from here. Required — no in-core quota literal.
-   */
+  /** The request authority reads its recent-open quota here; required — no in-core literal. */
   readonly approvalPolicy: ApprovalPolicy;
-  /**
-   * Composition readiness: an activation awaits this before its first port
-   * call. The cluster redelivers a crashed process's persisted messages (its
-   * keep-alive, a due alarm) as soon as the host starts, which can activate
-   * a session before the composition root has bound the real ports; the gate
-   * holds that activation until boot binds them. Absent means ready.
-   */
+  /** Redelivered messages can activate a session before boot bound the real ports; the gate holds that activation. Absent means ready. */
   readonly ready?: Effect.Effect<void>;
-  /** Runs one admitted decision to a durable boundary; the ack follows its commits. */
   readonly runTurn: (input: SessionEntityTurnInput) => Effect.Effect<void, SessionError>;
-  /**
-   * Fires after the entity commits one request transition (a `resolve` or a
-   * deadline expiry). A recovered turn that went live in this same activation
-   * and parked on the still-open request re-reads it through this doorbell —
-   * the app-side answer path never saw that turn, since it was not live when
-   * the answer was dispatched. Mirrors `SessionRuntime.onRequestReady`.
-   */
+  /** A turn recovered in this activation and parked on a still-open request re-reads it through this doorbell: the app-side answer path never saw that turn. */
   readonly onRequestReady?: (sessionId: string) => void;
-  /**
-   * #1254 S4: the composed non-reserved alarm capability. A delivered
-   * occurrence whose purpose is neither loop-reserved nor declared here folds
-   * to a recorded `fired{stale}` fact with zero execution. Absent means no
-   * capability purposes are registered.
-   */
+  /** A delivered occurrence whose purpose is neither loop-reserved nor declared here folds to a recorded `fired{stale}` fact with zero execution. */
   readonly alarmCapability?: import("./alarm").AlarmCapability;
-  /**
-   * #1254 S4: observation hook for the entity's cluster keep-alive toggles
-   * around a detached turn (true while a turn runs). Test seam; the real
-   * keep-alive rides `Entity.keepAlive`.
-   */
+  /** Test seam for the keep-alive toggles around a detached turn; the real keep-alive rides `Entity.keepAlive`. */
   readonly onKeepAlive?: (enabled: boolean) => void;
-  /**
-   * The input registration table `deliver` admits against (#1253): the
-   * composition root states every registered kind (`prompt` and `signal` plus
-   * whatever the composed generation registers). Absent is the typed
-   * `seam_missing` refusal at `deliver` (#1313) — never a core fallback.
-   */
+  /** Absent is the typed `seam_missing` refusal at `deliver` — never a core fallback. */
   readonly inputRegistrations?: readonly string[];
-  /**
-   * The capability journal kinds the composed generation registers (#1255):
-   * session admission refuses a pending input of an absent capability's kind
-   * with `unknown_kind`. Absent refuses every admission with a typed
-   * `missing_capability_kinds` decision (#1310) — never a built-in default.
-   */
+  /** Absent refuses every admission with a typed `missing_capability_kinds` decision — never a built-in default. */
   readonly capabilityKinds?: readonly string[];
-  /** Optional domain-revision capture for request bindings, as on `SessionRuntime`. */
   readonly requestDomainRevisions?: (
     request: SessionTransition.Request,
   ) => Readonly<Record<string, number>>;
   /**
-   * #1254 S3: resends one armed occurrence through the cluster's persisted
-   * DeliverAt door (the occurrence id is the dedupe key, so a live duplicate
-   * folds in the cluster). Persist-and-return (M3): the effect completes when
-   * the envelope is durable — it never awaits the delivery reply, which for a
-   * future occurrence only arrives at `fireAt`. For a native-source purpose
-   * (`monitor.hit`) the send is the source (re)install instead (#1254 H2).
-   * A typed `AlarmSendRefused` is a PERMANENT refusal — the entity retires
-   * the chain; transient failures must stay defects so the armed row stands.
-   * Absent means no resend plane is composed.
-   */
+     * Persist-and-return: completes when the envelope is durable, never awaiting
+     * the reply (a future occurrence replies at `fireAt`). `AlarmSendRefused` is
+     * PERMANENT (the entity retires the chain); transient failures stay defects.
+     */
   readonly sendAlarm?: (
     sessionId: string,
     occurrence: import("./alarm").AlarmFired,
   ) => Effect.Effect<void, import("./alarm").AlarmSendRefused>;
-  /**
-   * #1254 H3: live-activation hook. Called once per activation (after fence
-   * adoption, before the armed resend) with the entity's budgeted `arm` verb
-   * — the ONE committing arm path; app-side capability verbs delegate to it
-   * and refuse `not_live` when no activation is registered. The returned
-   * release runs at passivation. Absent means no app-side arm path exists.
-   */
+  /** The ONE committing arm path app-side verbs delegate to (`not_live` when no activation is registered); the release runs at passivation. */
   readonly onLive?: (
     sessionId: string,
     verbs: {
       readonly arm: import("./alarm").ArmVerb;
-      /**
-       * #1254 r2 H3: the turn token. True iff this activation is running (or
-       * recovered) the named turn — the registry refuses `stale_turn` for a
-       * continuation whose turn this activation does not own, so an effect
-       * authorized under one activation never commits through a successor.
-       */
+      /** True iff this activation owns the named turn: an effect authorized under one activation never commits through a successor. */
       readonly ownsTurn: (turnId: string) => boolean;
     },
   ) => () => void;
-  /**
-   * #1254 H1: fired synchronously after every arm the entity's arm verb
-   * commits. The composition root follows the chain with its native source
-   * handles (refresh on re-arm, close on retire). Absent means nobody follows.
-   */
+  /** Fired synchronously after every committed arm so native source handles follow the chain (refresh on re-arm, close on retire). */
   readonly onArmed?: (notice: import("./alarm").AlarmArmNotice) => void;
 }
 
-// ─── from controller-state (#1247) ───
 export interface SessionControllerState {
   active: Fiber.Fiber<SessionRunnerResult | undefined, SessionError> | undefined;
   controller: AbortController | undefined;
@@ -441,7 +334,6 @@ export interface SessionControllerState {
   activeApprovals: ExecutionApprovals | undefined;
 }
 
-/** One fenced commit door: each action lands at the row's current revision under the given authority. */
 function fencedExecutionLedger(
   kernel: SessionKernel,
   sessionId: string,
@@ -465,11 +357,7 @@ function fencedExecutionLedger(
   };
 }
 
-/**
- * The policy-gate executor of a session with no live turn: the core adopts the
- * fence for `owner` and builds the executor over its own fenced door, so no
- * commit, materialize or fence-adoption door leaves the core.
- */
+/** The core adopts the fence for `owner` and builds the executor over its own fenced door, so no commit or fence door leaves the core. */
 export function adoptedExecutor(
   kernel: SessionKernel,
   sessionId: string,
@@ -485,12 +373,7 @@ export function adoptedExecutor(
   );
 }
 
-// ─── from session-configuration.ts (#1247) ───
-/**
- * Adopts a strictly newer fence for this writer (W5.2 F5). There is no lease
- * TTL and no heartbeat: the fence CAS is the whole takeover authority. A lost
- * single-increment race re-reads the row and re-decides from the fresh fence.
- */
+/** No lease TTL, no heartbeat: the fence CAS is the whole takeover authority; a lost race re-reads the row and re-decides. */
 export function adoptSessionAuthority(
   kernel: SessionKernel,
   sessionId: string,
@@ -541,8 +424,8 @@ export function createSessionConfiguration(
         generation, revertTo: previous.generation, tools: nextTools,
         system: nextSystem, policyGeneration: previous.policyGeneration,
         bundles: previous.bundles,
-        // #1255: an app-level configure keeps the adopted manifest — dropping
-        // the hash would force a spurious compose adoption at next turn start.
+        // An app-level configure keeps the adopted manifest — dropping the hash
+        // would force a spurious compose adoption at next turn start.
         ...(previous.manifestHash === undefined ? {} : { manifestHash: previous.manifestHash }),
       });
       const configured = SessionHandleStore.configureAction({
@@ -563,12 +446,10 @@ export function createSessionConfiguration(
   return { configure };
 }
 
-// ─── from session-generations.ts (#1247) ───
 export interface GenerationBundle {
   readonly id: SessionGeneration.Id;
   readonly snapshot: SessionGeneration.Snapshot;
   readonly layer: Layer.Layer<GenerationServices, SessionError>;
-  /** Infallible synchronous gate flip, only after durable selection commits. */
   readonly activate: Effect.Effect<void>;
 }
 
@@ -582,7 +463,6 @@ interface Entry {
   closed: boolean;
 }
 
-/** One process-retained owner per session; closed entries remain tombstones. */
 export function makeSessionGenerations(initial: GenerationBundle) {
   return Effect.gen(function* () {
     const processScope = yield* Effect.scope;
@@ -669,12 +549,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
       })));
     }
 
-    /**
-     * Awaits every entry's live owners without flipping `stopping` (W5.2 S4):
-     * shutdown interrupts live turns first, then settles here so the
-     * fail-fast `drain` observes zero owners. Loops because a detached turn
-     * unwinding may briefly hand its capture to a successor entry.
-     */
+    /** Awaits live owners without flipping `stopping`, so the fail-fast `drain` observes zero owners; loops because a detached turn may briefly hand its capture to a successor entry. */
     const settle: Effect.Effect<void> = Effect.suspend(() => {
       const pending = [...entries.values()].filter((entry) => entry.owners.pending() > 0);
       if (pending.length === 0) return Effect.void;
@@ -709,7 +584,6 @@ function acquire(bundle: GenerationBundle): Effect.Effect<Entry, SessionError> {
   }));
 }
 
-// ─── from session-outbound.ts (#1247) ───
 function outboundOpen(
   message: SessionTransition.OutboundMessage,
   at: number,
@@ -786,7 +660,7 @@ function acknowledge(
   };
 }
 
-/** Drains recorded source obligations. It never seals again or writes a destination session. */
+/** Never seals again or writes a destination session. */
 export function dispatchSessionOutbound(
   kernel: SessionKernel,
   sessionId: string,
@@ -824,7 +698,6 @@ export function dispatchSessionOutbound(
   });
 }
 
-// ─── from session-stop-evidence.ts (#1247) ───
 export function sessionStopEvidence(
   kernel: SessionKernel,
   sessionId: string,
@@ -859,14 +732,9 @@ export function sessionStopEvidence(
 }
 
 /**
- * Live wait evidence is a chain fold over the one `alarm` kind (#1252 op
- * arm|fired; #1254 chain scheme): per `alarmId`, an `arm` with an `at`
- * arms the chain, an `arm{at: null}` retires it, and a `fired` row for the
- * currently armed occurrence settles it. Every capability chain still armed
- * at the end of this turn's window is live-wait evidence. Loop-reserved
- * purposes (`deadline`, `retry`, `step_watchdog`, `resume`) are the loop's
- * own bookkeeping — a request deadline armed by `send_message` parks nothing;
- * the turn continues to the model as before #1254 moved that arm into the chain.
+ * Per `alarmId`, an `arm` with an `at` arms the chain, `arm{at: null}` retires
+ * it, and a `fired` for the armed occurrence settles it; every capability chain
+ * still armed at the window's end is live-wait evidence. Loop-reserved purposes park nothing.
  */
 const AlarmFoldRow = z.discriminatedUnion("op", [
   z.object({
@@ -891,7 +759,6 @@ function alarmOp(action: LedgerAction.Node): "arm" | "fired" | undefined {
 
 type ArmedChains = Map<string, { readonly id: string; readonly occurrenceId: string }>;
 
-/** One chain step: arm (capability purpose, live `at`) arms, `at: null` retires, a matching fired settles. */
 function foldAlarmChain(armed: ArmedChains, action: LedgerAction.Node): void {
   const row = alarmFoldRow(action);
   if (row === undefined) return;
@@ -942,15 +809,12 @@ function effectChanged(action: LedgerAction.Node): boolean {
   return effect !== null && typeof effect === "object" && !Array.isArray(effect) && effect.stateChanged === true;
 }
 
-// ─── from session-turn.ts (#1247) ───
 const ExternalOrigin = z.object({ kind: z.literal("external") });
 const FullAccessOrigin = ExternalOrigin.extend({ inboundTreatment: z.literal("full_access") });
 const EvidenceOnlyOrigin = ExternalOrigin.extend({ inboundTreatment: z.literal("evidence_only") });
 const SessionOrigin = z.object({ kind: z.literal("session"), id: z.string() });
-/** Provenance this kernel minted itself: session handles, inter-session mail, reply terminals. */
 const TrustedOrigin = z.union([SessionOrigin, Delivery.MessageOrigin, Delivery.ReplyOrigin]);
 
-/** The violation fact published when mail of unknown provenance reaches a turn. */
 export const InboundAuthorityViolated = BusEvent.define(
   "session.inbound_authority.violation",
   z.object({
@@ -966,12 +830,9 @@ export interface InboundAuthorityDecision {
 }
 
 /**
- * Turn authority from the prompt's delivered origin. A kernel-minted origin acts;
- * an external origin acts only when the perimeter recorded `full_access`
- * verbatim, and is evidence when it recorded `evidence_only`. Everything else
- * is mail of unknown provenance: evidence authority plus a recorded violation
- * fact — never `act`. A missing origin never reaches this function (#1310):
- * `promptInboundAuthority` refuses it typed before any grant.
+ * A kernel-minted origin acts; an external origin acts only on a verbatim
+ * `full_access` record and is evidence on `evidence_only`. Anything else is
+ * unknown provenance: evidence authority plus a recorded violation — never `act`.
  */
 export function inboundAuthority(origin: PlainValue): InboundAuthorityDecision {
   if (TrustedOrigin.safeParse(origin).success) return { authority: "act" };
@@ -983,12 +844,7 @@ export function inboundAuthority(origin: PlainValue): InboundAuthorityDecision {
   return { authority: "evidence_only", violation: new InboundAuthorityViolation("unknown_origin") };
 }
 
-/**
- * Turn authority for the hydrated prompt (#1310). No prompt means a
- * kernel-driven turn: `act` with nothing to authenticate. A prompt whose
- * action row (or its recorded intent) cannot be found is `missing_origin`:
- * a typed violation the turn FAILS on — never a silent `act` grant.
- */
+/** No prompt means a kernel-driven turn (`act`); a prompt whose action row cannot be found is a typed `missing_origin` the turn FAILS on. */
 export function promptInboundAuthority(
   promptId: string | undefined,
   origin: PlainValue | undefined,
@@ -998,7 +854,7 @@ export function promptInboundAuthority(
   return { authority: "evidence_only", violation: new InboundAuthorityViolation("missing_origin") };
 }
 
-/** The turn's result when the runner never produced one: a typed missing-output failure, not a policy refusal. */
+/** A runner with no output is a typed missing-output failure, not a policy refusal. */
 export function runnerOutputMissingResult(turnId: string): SessionRunnerResult {
   const cause = new RunnerOutputMissing(turnId);
   return { kind: "error", text: cause.message, cause };
@@ -1074,8 +930,7 @@ export function createSessionTurn(
         if (controller.signal.aborted) return yield* Effect.interrupt;
         const hydrated = hydrateSessionHistory(kernel, sessionId);
         const promptId = hydrated.messages.filter((message) => message.role === "user").at(-1)?.id;
-        // #1257: the prompt's origin is its action row's intent — a point
-        // read, not the retired whole-chain received-message fold.
+        // The prompt's origin is its action row's intent — a point read, not a whole-chain fold.
         const origin = promptId === undefined ? undefined : kernel.actionById(promptId)?.intent;
         const inbound = promptInboundAuthority(promptId, origin?.value);
         if (inbound.violation !== undefined) {
@@ -1085,8 +940,7 @@ export function createSessionTurn(
             { reason: inbound.violation.reason, ...(promptId === undefined ? {} : { messageId: promptId }) },
           );
         }
-        // #1310: a prompt with no recorded origin fails the turn typed — the
-        // runner never runs, so no authority (not even evidence) is granted.
+        // A prompt with no recorded origin fails the turn typed — the runner never runs.
         if (inbound.violation?.reason === "missing_origin") {
           runnerResult = { kind: "error", text: inbound.violation.message, cause: inbound.violation };
           return sessionRunnerResultValue(runnerResult);
@@ -1143,11 +997,9 @@ export function createSessionTurn(
   function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string) {
     return Effect.gen(function* () {
       const observations = yield* ObservationService;
-      // #1253 boundary rule: steer rows drain at tool.post boundaries, followUp
-      // rows wait for turn end; widths are session.configure settings data.
-      // #1256 H-1 (r3): EVERY boundary applies the stale split — a late
-      // `action` with `after` behind the compaction head is closed durably
-      // here, never delivered mid-turn.
+      // Steer rows drain at tool.post boundaries, followUp rows wait for turn end.
+      // EVERY boundary applies the stale split: a late `action` with `after` behind
+      // the compaction head is closed durably here, never delivered mid-turn.
       const { consumed: pending, stale } = boundaryConsumption(
         kernel.pendingMessages(sessionId),
         boundary,
@@ -1159,7 +1011,7 @@ export function createSessionTurn(
         yield* ports.consumePolicyBlockedDeliveries(pending);
         return yield* new AgentFailure({ operation: "session.prompt", cause: evaluated.refusal.reason });
       }
-      // #1256 r3 H-3: deliver the rewritten body, not the original.
+      // Deliver the rewritten body, not the original.
       const delivered = pending.map((item) => {
         const body = evaluated.contents.get(item.id);
         return body === undefined ? item : { ...item, content: body };
@@ -1206,8 +1058,7 @@ export function createSessionTurn(
         id: open.resultId, parentId: deliveries.at(-1)?.id ?? latest?.id ?? open.action.id,
         sessionId, turnId: open.turnId, result, resumeCount: open.resumeCount, boundaryActionId: open.boundaryActionId, at: clock(),
       });
-      // #1311: a child settles toward its parent exactly once — an existing
-      // settlement row (any prior seal's outbound obligation) skips the fold.
+      // A child settles toward its parent exactly once: an existing settlement row skips the fold.
       const settled =
         current.parentId !== null &&
         kernel
@@ -1244,7 +1095,6 @@ function resultOf(exit: Exit.Exit<ExecutionResult, ExecutionError>, value: Sessi
   return sessionRunnerResultFromValue(outcome.value) ?? policyRefusalResult("invalid_output");
 }
 
-// ─── from session-chat-runner.ts (#1247) ───
 interface SessionChatRun {
   readonly config: Omit<ChatAgentConfig, "stopEvidence"> & { readonly executor: Executor };
   readonly traceContext: TraceContext.Type;
@@ -1254,11 +1104,7 @@ interface SessionChatRun {
 interface SessionChatRunnerOptions {
   readonly prepare: (input: SessionRunnerInput) => Effect.Effect<SessionChatRun, ExecutionError, RunnerServices>;
   readonly reportError?: (error: Error, input: SessionRunnerInput) => string | undefined;
-  /**
-   * Composition-owned pinned-model read (#1276): the app injects
-   * `pinnedModelSelection` (apps/openomni/src/composition/model-selection.ts).
-   * Absent = no turn-start pin; the chain starts at the primary.
-   */
+  /** App-injected pinned-model read; absent = no turn-start pin, the chain starts at the primary. */
   readonly pinnedModel?: (kernel: SessionKernel, sessionId: string, turnId: string) => Model.Ref | undefined;
 }
 
@@ -1299,8 +1145,7 @@ export function createSessionChatRunner(options: SessionChatRunnerOptions): Sess
   }));
 }
 
-// ─── session handle plane seam (#1247): the registry lives in testing/ ───
-/** A live in-process handle plane; only the testing registry installs one. */
+/** Only the testing registry installs an in-process handle plane. */
 export interface SessionHandlePlane {
   get(id: string): SessionHandle | undefined;
   close(): Effect.Effect<void, SessionError>;

@@ -15,10 +15,7 @@ function token(value: PlainValue | undefined): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-/**
- * One bounded action page contributes physical attempt results once each.
- * Usage without a durable origin marker is unknown, never silently reported.
- */
+/** Usage without a durable origin marker is unknown, never silently reported. */
 export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsage[] {
   const seen = new Set<string>();
   const usage: AttemptUsage[] = [];
@@ -32,10 +29,7 @@ export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsag
   return usage;
 }
 
-/**
- * #1252: physical attempts share the `llm` kind with the logical llm action;
- * an attempt intent is the row carrying the attempt ordinal in its intent.
- */
+/** Physical attempts share the `llm` kind; an attempt intent carries the attempt ordinal. */
 function attemptIntentIds(actions: readonly LedgerAction.Node[]): ReadonlySet<string> {
   const ids = new Set<string>();
   for (const action of actions) {
@@ -67,7 +61,7 @@ function attemptResult(
   };
 }
 
-/** The union of parallel tool intervals is wall time, not the sum of tool times. */
+/** Wall time is the union of parallel intervals, not the sum. */
 export function toolWallMs(intervals: readonly { readonly start: number; readonly end: number }[]): number {
   const sorted = [...intervals].sort((a, b) => a.start - b.start);
   let wall = 0;

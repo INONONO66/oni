@@ -18,8 +18,6 @@ import { Entropy, ObservationSink } from "./ports";
 import { applyCompaction, prepareCompactionAfterContinue } from "./compaction";
 import { ExecutorContext, type Executor } from "./gate/decide";
 
-
-// ─── from core/execution/state.ts (#1247) ───
 function toMessagesWithParts(
   messages: ChatAgentInput["messages"],
   sessionId: string,
@@ -49,12 +47,7 @@ function toMessagesWithParts(
   return output;
 }
 
-/**
- * A run's trace context after the runner has refused an incomplete one. The
- * three ids are inherited from whatever asked for the run; every downstream
- * stage takes this type rather than the partial one, so none of them has to
- * decide what to do about a missing id.
- */
+/** Every downstream stage takes this complete trace, so none decides what to do about a missing id. */
 export type RunTrace = TraceContext.Type & {
   readonly traceId: string;
   readonly sessionId: string;
@@ -62,16 +55,9 @@ export type RunTrace = TraceContext.Type & {
 };
 
 /**
- * Builds a {@link RunTrace}, refusing an incomplete one.
- *
- * A run or a tool call whose traceId, sessionId, and runId were invented on
- * its behalf emits records that correlate to nothing, and the caller never
- * learns it forgot (#606). `subject` names the boundary that refused, and the
- * message lists what was missing rather than only that something was.
- *
- * What is required is inheritance, not wire format. Whether the identity is
- * expressible as a W3C `traceparent` is enforced by the emitter that puts it
- * on the wire, which is the only place the format matters.
+ * Refuses an incomplete trace: ids invented on a run's behalf correlate to
+ * nothing and the caller never learns it forgot. Inheritance is required, not
+ * wire format — the emitter that puts it on the wire enforces `traceparent`.
  */
 function requireTrace(
   subject: string,
@@ -95,11 +81,7 @@ function nonEmptyString<T>(value: T): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/**
- * A run's identity, all four fields required. The runner builds exactly one of
- * these, from a trace it refused to mint (#606); nothing else may synthesize
- * one, so every consumer can read the fields rather than guess at them.
- */
+/** The runner builds exactly one run identity from a trace it refused to mint; nothing else may synthesize one. */
 export interface AgentRunBase {
   readonly traceId: string;
   readonly sessionId: string;
@@ -110,7 +92,7 @@ export interface AgentRunBase {
 export interface RunState {
   stop: StopState;
   readonly modelFailureReasons: string[];
-  /** Index into the configured chain where this turn's selection starts (a pinned fallback the policy refused to release). */
+  /** Chain index where selection starts (a pinned fallback the policy refused to release). */
   modelChainStart: number;
   modelKey?: string;
   readonly sessionId: string;
@@ -121,43 +103,21 @@ export interface RunState {
   readonly totalUsage: TokenUsage;
   continuationCount: number;
   compactionCount: number;
-  /**
-   * Provider-measured context of the most recent model call
-   * (input + cache read + cache write), undefined until one completes.
-   * The compaction trigger reads this — never the cumulative run spend.
-   */
+  /** Provider-measured context of the latest model call; the compaction trigger reads this, never the cumulative run spend. */
   lastCallContextTokens?: number;
-  /**
-   * L5: the one-shot overflow recovery. A provider context-overflow may
-   * re-enter the compaction seam and retry exactly once per run; a second
-   * overflow ends the run honestly.
-   */
+  /** One-shot overflow recovery: a provider context-overflow re-enters the compaction seam at most once per run. */
   overflowCompactionAttempted?: boolean;
-  /**
-   * The resolved model's context window — a fact of the model, recorded when
-   * the loop resolves it, so strategy config never has to re-derive it.
-   * Undefined when the catalog does not know (proxy models report 0).
-   */
+  /** The resolved model's context window; undefined when the catalog does not know (proxy models report 0). */
   contextWindowTokens?: number;
-  /**
-   * Set when a window yield fired and the seam reclaimed nothing: the run
-   * proceeds with the yield disarmed — the remaining headroom is real, and
-   * re-yielding every step would kill a run the window could still carry.
-   */
+  /** Set when a window yield reclaimed nothing: re-yielding every step would kill a run the window could still carry. */
   windowYieldDisarmed?: boolean;
   /** Last committed structural yield; the policy and loop share its adaptive threshold. */
   lastCompactionYield?: CompactionYield;
-  /** Results of the most recent apply seam, consumed by the window-yield path. */
   lastCompactionIneffective?: boolean;
   turnIndex: number;
   /** The last `turnIndex` charged to the budget; -1 before the first turn. */
   chargedTurnIndex: number;
-  /**
-   * The current retry attempt (1-based), stamped by the runner at each
-   * attempt's start. Together with `turnIndex` it gives lifecycle policies an
-   * attempt-scoped identity: the same turnIndex under a higher attempt is a
-   * retry re-entry, never progress (#694 observation material).
-   */
+  /** 1-based retry attempt stamped per attempt: the same `turnIndex` under a higher attempt is a retry re-entry, never progress. */
   attempt: number;
   readonly startTime: number;
 }
@@ -166,29 +126,15 @@ export interface TurnArtifacts {
   readonly toolExecutor?: import("./types").ChatAgentConfig["toolExecutor"];
   readonly runInput: RunInput;
   readonly trackingSink: Sink;
-  /**
-   * The turn's assistant message as projected by the llm fold (#557): the
-   * latest boundary snapshot, immutable, with all parts (tool + reasoning
-   * included). This is the single source of truth for what enters history
-   * at turn end (#546).
-   */
+  /** The llm fold's latest immutable boundary snapshot: the single source of truth for what enters history at turn end. */
   readonly turnAssistant: { message?: Message.WithParts };
   readonly turnUsage: TokenUsage;
   readonly toolPolicyDecisions: Array<{ readonly decision: Policy.PolicyDecision }>;
-  /** The step budget this turn was given — a turn that used all of it ended on the cap, not a window yield. */
+  /** A turn that used its whole step budget ended on the cap, not a window yield. */
   readonly stepCap: number;
-  /**
-   * Whether the window-yield knob was armed for the call that actually ran.
-   * Mutable on purpose: a `model.override` (#753) reroutes the connection
-   * after buildTurn planned it, and turnYield must classify the stop against
-   * the call's real arm state, not the plan's.
-   */
+  /** Mutable on purpose: a `model.override` reroutes after `buildTurn` planned, and turnYield must classify against the call's real arm state. */
   windowYieldArmed: boolean;
-  /**
-   * Set when the host steering check fired at a step boundary (#751) — the
-   * yield disambiguator: a tool-calls stop below the step cap with this set
-   * is a steering yield, not a cap end or a window yield.
-   */
+  /** Yield disambiguator: a tool-calls stop below the step cap with this set is a steering yield, not a cap end or window yield. */
   readonly steering: { requested: boolean };
 }
 
@@ -238,13 +184,7 @@ function getCompactionCount(state: RunState): number | undefined {
   return state.compactionCount > 0 ? state.compactionCount : undefined;
 }
 
-/**
- * Charges the turn budget for the turn about to run, once.
- *
- * A retried attempt is the same turn tried again: the runner re-enters
- * `buildTurn` without advancing `turnIndex`, so charging per attempt would let
- * a transient provider error eat headroom an operator sized in turns of work.
- */
+/** Charged once per turn: a retried attempt re-enters without advancing `turnIndex`, so per-attempt charging would let transient errors eat headroom. */
 export function recordRunTurn(state: RunState): void {
   if (state.chargedTurnIndex === state.turnIndex) return;
   state.chargedTurnIndex = state.turnIndex;
@@ -263,13 +203,7 @@ function disarmWindowYield(state: RunState): void {
   state.windowYieldDisarmed = true;
 }
 
-/**
- * Clears the model-scoped window guards on a fallback model switch (#752
- * review F3). `windowYieldDisarmed` ("the remaining headroom is real") and
- * the spent L5 one-shot overflow recovery are judgments about ONE model's
- * window; carried onto a different model, a smaller fallback window would be
- * fired blind with its recovery already consumed.
- */
+/** The window guards are judgments about ONE model's window; carried onto a smaller fallback window they would fire blind with the recovery already consumed. */
 function resetModelWindowGuards(state: RunState): void {
   state.windowYieldDisarmed = undefined;
   state.lastCompactionYield = undefined;
@@ -301,7 +235,6 @@ export function advanceRunTurn(state: RunState): void {
   state.turnIndex++;
 }
 
-// ─── from core/execution/run-events.ts (#1247) ───
 function emitRunStarted(
   events: BusEvent.Sink,
   trace: TraceContext.Type,
@@ -395,14 +328,7 @@ function emitErrorRetry(
   });
 }
 
-/**
- * The run is over and will not be retried.
- *
- * `reason` and `maxAttempts` are carried because on a first-attempt terminal
- * failure no `ErrorRetry` precedes this, and the effective `maxAttempts` — the
- * configured one narrowed by a `run.retry_after` effect — exists nowhere else
- * in the record.
- */
+/** Carries `reason`/`maxAttempts` because on a first-attempt terminal failure no `ErrorRetry` precedes this and the narrowed budget exists nowhere else. */
 function emitRunFailed(
   events: BusEvent.Sink,
   agentBase: AgentRunBase,
@@ -435,7 +361,6 @@ function runResult(state: RunState, options?: { text?: string }): AgentResult {
   };
 }
 
-// ─── from core/execution/turn-assistant.ts (#1247) ───
 function assistantTextOf(message: Message.WithParts | undefined): string {
   if (message === undefined) return "";
   return message.parts
@@ -514,7 +439,6 @@ function recordAssistant(
   });
 }
 
-// ─── from core/execution/turn.ts (#1247) ───
 export function buildTurn(
   state: RunState,
   config: ObservedChatAgentConfig,
@@ -543,7 +467,7 @@ export function buildTurn(
       ? Number.MAX_SAFE_INTEGER
       : Math.max(1, toolCallPool - state.budgetState.toolCalls);
   // No compaction seam = the capability is off: the window-yield arm and the
-  // measured-context recording are compaction concerns and skip with it (#1307).
+  // measured-context recording are compaction concerns and skip with it.
   const compactionSeam = config.compactionSeam;
   const yieldAtInputTokens =
     state.contextWindowTokens === undefined ||
@@ -560,9 +484,8 @@ export function buildTurn(
         );
   const turnAssistant: TurnArtifacts["turnAssistant"] = {};
   const trackingSink = createTrackingSink(state, sink, turnUsage, turnAssistant, compactionSeam?.measure);
-  // Steering (#751): the host check is wrapped so the turn records WHY the
-  // loop stopped — without the flag, a steering yield below the step cap is
-  // indistinguishable from a cap end and would terminate as "max-steps".
+  // The host check is wrapped so the turn records WHY the loop stopped: without
+  // the flag a steering yield below the step cap would terminate as "max-steps".
   const steering: TurnArtifacts["steering"] = { requested: false };
   const steeringPending = config.steeringPending;
 
@@ -588,10 +511,8 @@ export function buildTurn(
         ...(config.transport === undefined ? {} : { transport: config.transport }),
         allowAuthFallback: config.allowAuthFallback,
         toolChoice: configuredToolChoice,
-        // Yield at the same ratio the compaction trigger defaults to: the
-        // loop stops at a step boundary once the window fills, the seam
-        // below gets its chance on every path — Resident and tool loops
-        // included, not just injected continuations (#649 reachability map).
+        // Yield at the compaction trigger's default ratio so the seam below gets its
+        // chance on every path, not just injected continuations.
         ...(yieldAtInputTokens === undefined ? {} : { yieldAtInputTokens }),
         ...(steeringPending === undefined
           ? {}
@@ -620,11 +541,7 @@ export function buildTurn(
 
 type StopOutcome = AgentResult | "continue";
 
-/**
- * A turn whose last step still asked for tools did not finish — the llm loop
- * stopped it: at the step cap, or at the window-yield boundary the loop arms
- * from the recorded model window. Anything else is the model's own stop.
- */
+/** A turn whose last step still asked for tools was stopped by the loop (step cap or window yield); anything else is the model's own stop. */
 function turnYield(
   turn: TurnArtifacts,
   assistantMessage: Message.WithParts,
@@ -757,7 +674,6 @@ function drainStepBoundary(
   });
 }
 
-// ─── from core/execution/run.ts (#1247) ───
 /** Stateless L3 orchestration; the session supplies the only execution authority. */
 export function runAgent(
   input: ChatAgentInput,
@@ -774,8 +690,7 @@ export function runAgent(
   const config = {
     ...options,
     events,
-    // #1309: resolve the run budget once at entry — the explicit budget wins
-    // per field; the rest reads the injected policy's defaultBudget.
+    // Resolve the run budget once at entry: the explicit budget wins per field.
     budget: resolveAgentBudget(options.defaultBudget, options.budget),
   };
   return yield* Effect.scopedWith((scope) => Effect.suspend(() => {

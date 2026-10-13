@@ -8,13 +8,7 @@ import {
 } from "@openomni/protocol";
 import { z } from "zod";
 
-/**
- * Merged core+capability point registration table (#1251). The core always
- * registers its eight records; each capability (removable built-in plugin:
- * tool, compaction, alarm, action) registers its own points through its
- * declaration, so a capability point is only present while its owner is
- * composed. Rows compile against this table and reject fail-closed.
- */
+/** The core always registers its eight records; a capability point is present only while its owner is composed. */
 export type GatePointTable = ReadonlyMap<string, PointRecord>;
 
 export const GateComposeError = NamedError.create(
@@ -38,19 +32,13 @@ export interface CapabilityPointRegistration {
 
 export interface ComposePointTableOptions {
   readonly capabilities: readonly CapabilityPointRegistration[];
-  /** The core's own registrations; injected by the core, sealed to the eight records. */
+  /** Sealed to the eight records. */
   readonly core?: readonly PointRecord[];
 }
 
 const capabilityRecords = new Map(CAPABILITY_POINT_RECORDS.map((record) => [record.id, record]));
 
-/**
- * Builds the merged registration table. Rejections are fail-closed and typed:
- * a missing sealed core record is `builtin_removed`; a capability registering
- * a core-owned or already-registered point is `duplicate`; a registration for
- * an id without a capability record is `unknown_point` (new points require a
- * record).
- */
+/** Fail-closed and typed: a missing core record is `builtin_removed`, a re-registered point `duplicate`, an id without a record `unknown_point`. */
 export function composePointTable(options: ComposePointTableOptions): GatePointTable {
   const core = options.core ?? CORE_POINT_RECORDS;
   for (const sealed of CORE_POINT_RECORDS) {
@@ -75,7 +63,6 @@ export function composePointTable(options: ComposePointTableOptions): GatePointT
   return table;
 }
 
-/** The built-in capability registrations the kernel composes by default. */
 export const KERNEL_CAPABILITY_POINTS: readonly CapabilityPointRegistration[] = Object.freeze([
   Object.freeze({ bundle: "tool", points: Object.freeze(["tool.pre", "tool.post"] as const) }),
   Object.freeze({
@@ -86,14 +73,7 @@ export const KERNEL_CAPABILITY_POINTS: readonly CapabilityPointRegistration[] = 
   Object.freeze({ bundle: "action", points: Object.freeze(["action.pre"] as const) }),
 ]);
 
-/**
- * Registry lookup replacing the executor's point calculation (#1251): an
- * execution of `kind` consults `<kind>.<phase>` only when that point is
- * registered in the composition's table; an unregistered pre point fails
- * closed and an unregistered post point is simply not consulted (prompt and
- * message have no post point). There is no default table: the composed
- * snapshot carries the table it compiled against.
- */
+/** An unregistered pre point fails closed; an unregistered post point is simply not consulted. No default table. */
 export function executionPoint(
   kind: string,
   phase: "pre" | "post",

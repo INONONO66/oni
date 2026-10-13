@@ -9,7 +9,6 @@ import { z } from "zod";
 import { RawToolSlots, openInvocation, withExecutor, withInvocation, type InvocationFrame, type Executor, type ExecutionRequest } from "./gate/decide";
 import type { ToolOutputPorts } from "./tool-output";
 
-// ─── from core/execution/tools.ts (#1247) ───
 export function buildSystemPrompt(
   basePrompt: string | undefined,
   tools: Tool.Spec[],
@@ -30,22 +29,12 @@ export function assertToolExecutor(config: ChatAgentConfig): void {
   }
 }
 
-/**
- * Config-time validation: claiming the metadata keys throws on a key
- * collision. Run alongside
- * `assertToolExecutor` so an ambiguous catalog refuses the run before it is
- * opened, instead of surfacing mid-turn as a retryable "tool" error.
- */
+/** Config-time: an ambiguous catalog refuses the run before it opens instead of surfacing mid-turn as a retryable "tool" error. */
 export function assertUnambiguousToolMetadata(config: ChatAgentConfig): void {
   const tools = config.tools;
-  // Every key names the tool that claimed it. Two tools resolving to the same
-  // key (e.g. `a_b` alongside `a.b`, whose underscore-mangled alias is also
-  // `a.b`) used to be a silent last-writer-wins — the later tool's labels
-  // answered the earlier tool's policy lookups (#606 re-audit). A collision
-  // is a configuration error; refuse it loudly, naming both tools.
-  // Owners are keyed by tool IDENTITY, not name: two distinct tools carrying
-  // the same name (the underscore-mangling seam can manufacture that) must
-  // collide too, or the later one silently answers the earlier one's lookups.
+  // Two tools resolving to the same key (`a_b` alongside `a.b`) used to be a
+  // silent last-writer-wins on policy lookups; refuse loudly, naming both.
+  // Owners are keyed by tool IDENTITY, not name, so same-name tools collide too.
   const owners = new Map<string, { readonly name: string; readonly tool: object }>();
   const claim = (key: string, tool: { name: string }): void => {
     const owner = owners.get(key);
@@ -88,14 +77,12 @@ export function prepareTurnTools(state: RunState, config: Pick<ChatAgentConfig, 
   return { allTools, executor };
 }
 
-// ─── from core/execution/tool-wave.ts (#1247) ───
 export interface WaveControl {
   readonly signal: AbortSignal;
   readonly retain?: (effect: Promise<void>) => void;
 }
 
-
-/** Assemble tool results on the original assistant slots, never completion order. */
+/** Results land on the original assistant slots, never completion order. */
 export function settleModelTools(
   turn: TurnArtifacts,
   config: Omit<ChatAgentConfig, "budget" | "defaultBudget">,
@@ -179,7 +166,6 @@ export function settleModelTools(
   });
 }
 
-// ─── from tool-body.ts (#1247) ───
 export const ToolBodyOutcome = z.discriminatedUnion("status", [
   z.object({ status: z.literal("timed_out") }).strict(),
   z.object({
@@ -191,7 +177,7 @@ export const ToolBodyOutcome = z.discriminatedUnion("status", [
 ]);
 type ToolBodyOutcome = z.infer<typeof ToolBodyOutcome>;
 
-/** The only async-tool boundary. Register ownership and handlers before entering foreign code. */
+/** Register ownership and handlers before entering foreign code. */
 export function executeToolBody<In extends z.ZodType, Out extends z.ZodType>(
   definition: ToolDefinition<In, Out>,
   input: z.output<In>,
@@ -264,8 +250,6 @@ function isToolRefusal(value: CaughtValue): value is Error {
   return value instanceof Error && value.name === "ToolRefused";
 }
 
-// ─── from tool-dispatcher.ts (#1247) ───
-/** Executable catalog data copied into each captured generation's dispatch table. */
 export type ToolDispatchDefinition<In extends z.ZodType = z.ZodType, Out extends z.ZodType = z.ZodType> = ToolDefinition<In, Out> & {
   readonly approval?: (
     input: PlainValue,
@@ -283,7 +267,6 @@ export class ToolRefused extends Error {
   }
 }
 
-/** The single owner of the replay-safety derivation. */
 function toolIsSafe(category: ToolCategory): boolean {
   return category === "query";
 }
@@ -297,7 +280,7 @@ export type ToolErrorKind =
 
 export type ToolDispatchResult = Tool.Result & { readonly content: string; readonly errorKind?: ToolErrorKind };
 export type CellToolDispatchResult = Omit<ToolDispatchResult, "output" | "content"> & {
-  /** Cell-door successes skip render, so they carry typed data without model text. */
+  /** Cell-door successes skip render: typed data without model text. */
   readonly content?: string;
 };
 
@@ -305,12 +288,7 @@ export interface DispatcherOptions {
   readonly executor: Executor;
   readonly timeoutMs?: number;
   readonly retainEffect?: (effect: Promise<void>) => void;
-  /**
-   * #1305: budget + store for bounded model-facing output projection. A
-   * dispatcher composed without it (the render-free cell door, bare test
-   * dispatchers) performs no projection; the per-turn dispatcher always
-   * carries the ledger-backed ports.
-   */
+  /** A dispatcher composed without it performs no projection; the per-turn dispatcher always carries the ledger-backed ports. */
   readonly toolOutput?: ToolOutputPorts;
 }
 
@@ -374,13 +352,7 @@ export function toolInputSchema(definition: AnyToolDefinition): JsonSchemaObject
 
 export type ProjectableTool = ToolDispatchDefinition & { readonly idempotent?: boolean };
 
-/**
- * The three tool projections (#1255), derived ONCE from one definition list —
- * the composed generation's tools or the catalog. `session` is the journaled
- * `SessionGeneration.Tool` shape (`idempotent` preserved; the run loop alone
- * decides replay), `specs` the model-visible `Tool.Spec` faces, `dispatch` the
- * execution Map. No caller re-projects.
- */
+/** Derived ONCE from one definition list; no caller re-projects. `idempotent` is preserved — the run loop alone decides replay. */
 export interface ToolProjections {
   readonly session: readonly SessionGeneration.Tool[];
   readonly specs: readonly Tool.Spec[];

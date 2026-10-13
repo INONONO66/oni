@@ -19,12 +19,7 @@ export { createHandlerTable, HandlerTableError, KERNEL_POLICY_REGISTRY, type Han
 export { PolicyCompileError } from "./row-parse";
 export type { CompiledPolicySnapshot, PolicyEvaluation, PolicyEvaluationInput } from "./evaluate";
 
-/**
- * Policy snapshot compiler (#1251): validates one generation's historical
- * rows (`row-parse.ts`), projects them onto the fourteen-point gate
- * (`project.ts`), and exposes the compatibility evaluator (`evaluate.ts`).
- * The compiled gate is the single production evaluator.
- */
+/** Validates historical rows (`row-parse.ts`), projects them onto the gate (`project.ts`) and exposes the compatibility evaluator (`evaluate.ts`). */
 
 export interface CompilePolicySnapshotOptions {
   readonly registry: HandlerTable;
@@ -32,11 +27,10 @@ export interface CompilePolicySnapshotOptions {
   readonly rows: readonly PolicyRow.Row[];
   readonly mandatory?: readonly RuleName[];
   readonly kinds?: readonly string[];
-  /** The composition's merged point table; defaults to the kernel's built-in capabilities. */
+  /** Defaults to the kernel's built-in capabilities. */
   readonly table?: GatePointTable;
 }
 
-/** The kernel's default composition: core plus every built-in capability. */
 function kernelPointTable(): GatePointTable {
   return composePointTable({ capabilities: KERNEL_CAPABILITY_POINTS });
 }
@@ -54,14 +48,13 @@ export function compilePolicySnapshot(
       });
     }
   }
-  // #1315: `ingress` is the ingress.pre point's own policy address, not a
-  // journal kind, so it is always compilable regardless of the caller's set.
+  // `ingress` is the ingress.pre point's own policy address, not a journal
+  // kind, so it is always compilable regardless of the caller's set.
   const kinds = new Set([...(options.kinds ?? DEFAULT_COMPILE_KINDS), "ingress"]);
   const registry = createHandlerTable(options.registry);
   const table = options.table ?? kernelPointTable();
   // Historical compaction rows convert onto the compaction point before
-  // evaluation, so a base-era `turn/post {op: compaction}` deny keeps
-  // refusing summarization (#1251).
+  // evaluation, so a base-era `turn/post {op: compaction}` deny keeps refusing.
   const translated = options.rows.map(translateLegacyPolicyRow);
   const rows = translated.map((row) => parseRow(row, options.generation, kinds, registry));
   let projected: ProjectedGeneration;
@@ -81,7 +74,7 @@ export function compilePolicySnapshot(
     ...registry.transformers.map(
       (transformer) => [transformer.name, wrapTransformer(transformer)] as const,
     ),
-    // Guards (#1258) are already gate handlers: consulted, verdict-bearing.
+    // Guards are already gate handlers: consulted, verdict-bearing.
     ...(registry.guards ?? []).map((guard) => [guard.name, guard.decide] as const),
   ]);
   const consultants = new Map((registry.consultants ?? []).map((entry) => [entry.name, entry]));
@@ -93,13 +86,9 @@ export function compilePolicySnapshot(
     contentHash,
     pointTable: table,
     evaluate: (input: PolicyEvaluationInput) => evaluate(input),
-    // #1256 r5 H-1: async consultants resolve IN ROW ORDER through the probe
-    // fold — each receives the value every earlier row (sync or prepared
-    // async) already folded, so a later guard judges the value an earlier
-    // rewrite sends to the executor. The final fold runs with every settled
-    // result prepared; inputHash stays the input's identity, so replay is
-    // untouched. No consultant registered or matched = exactly the sync
-    // evaluation.
+    // Async consultants resolve IN ROW ORDER through the probe fold, so a later
+    // guard judges the value an earlier rewrite sends; inputHash stays the
+    // input's identity, so replay is untouched.
     evaluateEffect: (input: PolicyEvaluationInput) =>
       Effect.suspend(() => {
         if (consultants.size === 0) return Effect.sync(() => evaluate(input));
@@ -206,7 +195,7 @@ function seeded(
   };
 }
 
-/** Kernel-owned initial data; the numeric limits are read from these rows. */
+/** The numeric limits are read from these rows. */
 export const SEEDED_POLICY_ROWS: readonly PolicyRowDraft[] = Object.freeze([
   seeded("compaction", "compaction", "pre", {}, { type: "allow" }, 1_000),
   seeded(

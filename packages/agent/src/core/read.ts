@@ -1,19 +1,7 @@
 /**
- * #1253 `read` models: ordered fact reductions over the journal fold (the
- * committed action chain), never the observation bus. Nine models cover the
- * 12 public journal kinds; `fold.checkpoint` is a store-internal read
- * accelerator, not a journal kind, and is excluded from every model by
- * construction (each model filters on its declared kinds only).
- *
- *   history      — prompt, action, turn, llm, tool, compaction
- *   decisions    — policy.decision (plus the gate's consulted rows)
- *   requests     — request lifecycle phases
- *   alarms       — alarm arm/fired
- *   generations  — session.configure (settings data)
- *   tree         — session.configure lineage
- *   metrics      — turn + llm (attempt usage)
- *   control      — signal
- *   outbound     — message
+ * Ordered fact reductions over the journal fold, never the observation bus.
+ * `fold.checkpoint` is a store-internal accelerator excluded from every model
+ * by construction: each model filters on its declared kinds only.
  */
 import type { LedgerAction, PlainValue } from "@openomni/protocol";
 import { attemptUsage } from "./metrics";
@@ -39,7 +27,6 @@ function text(value: PlainValue | undefined): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/** The chain position every model row carries. */
 function base(action: LedgerAction.Node) {
   return { seq: action.ordinal, id: action.id, at: action.ts };
 }
@@ -152,7 +139,6 @@ function outboundRows(actions: readonly LedgerAction.Node[]) {
   });
 }
 
-/** One model page from one bounded, ordered action window of the fold. */
 export function renderReadModel(model: ReadModel, actions: readonly LedgerAction.Node[]) {
   switch (model) {
     case "history":

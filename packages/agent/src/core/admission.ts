@@ -25,11 +25,7 @@ interface AdmissionSnapshot {
   readonly pending: readonly Delivery.Row[];
   readonly open?: SessionHandleStore.OpenTurn;
   readonly terminal?: ReturnType<SessionKernel["latestTurnTerminal"]>;
-  /**
-   * Capability kinds the composed generation registers (#1310): a snapshot
-   * that carries none is a typed `missing_capability_kinds` refusal, never a
-   * silent built-in list.
-   */
+  /** A snapshot carrying no kinds is a typed `missing_capability_kinds` refusal, never a silent built-in list. */
   readonly capabilityKinds?: readonly string[];
 }
 
@@ -40,13 +36,12 @@ type AdmissionDecision =
   | { readonly kind: "resume"; readonly item: Delivery.Row }
   | { readonly kind: "consume"; readonly items: readonly Delivery.Row[] };
 
-/** Pure routing of the durable S/T/I views; dispatch remains behind the ledger CAS. */
+/** Pure routing; dispatch remains behind the ledger CAS. */
 export function decideSessionAdmission(snapshot: AdmissionSnapshot): AdmissionDecision {
   const { row, pending, open, terminal } = snapshot;
-  // #1252 input admission: an input whose journal row kind belongs to a
-  // capability absent from the composed generation is rejected, not consumed.
-  // #1310: a snapshot with no registered kinds is refused typed — admission
-  // never substitutes a built-in list for a composition that declared nothing.
+  // An input whose row kind belongs to a capability absent from the composed
+  // generation is rejected, not consumed; a snapshot with no registered kinds
+  // is refused typed — admission never substitutes a built-in list.
   const registered = snapshot.capabilityKinds;
   if (registered === undefined) return { kind: "refused", reason: "missing_capability_kinds" };
   if (pending.some((item) => Journal.admitInputKind(registered, inputRowKind(item.kind)) !== "ok"))
@@ -72,11 +67,9 @@ export function decideSessionAdmission(snapshot: AdmissionSnapshot): AdmissionDe
 
 function decideIdleDeliveries(pending: readonly Delivery.Row[]): AdmissionDecision {
   if (pending.length === 0) return { kind: "stop" };
-  // #1256 r5 H-3: an `action` input heads a turn like a prompt — the turn's
-  // boundary consumption is the ONE owner of its fate (a live one delivers,
-  // a stale one closes via `turn.consumed.stale`). Noop-consuming it here
-  // would drop a late hook result without the durable closure fact. Only
-  // leading control signals are swallowed.
+  // An `action` input heads a turn like a prompt: boundary consumption is the
+  // ONE owner of its fate (live delivers, stale closes via `turn.consumed.stale`).
+  // Noop-consuming it here would drop a late hook result without the closure fact.
   const firstInput = pending.findIndex((item) => item.kind === "prompt" || item.kind === "action");
   if (firstInput === 0) return { kind: "start" };
   return { kind: "consume", items: firstInput > 0 ? pending.slice(0, firstInput) : pending };
@@ -129,13 +122,7 @@ export function createSessionAdmission(
     }, runtime.compaction);
   }
 
-  /**
-   * Turn-start manifest adoption (#1255): when the product's composed
-   * generation differs from the session's adopted `manifestHash`, append one
-   * `session.configure{operation: "compose", disabled}` through the single
-   * writer, then capture. The in-flight turn never sees this — it finishes on
-   * the generation it captured; rotation happens strictly between turns.
-   */
+  /** A composed generation differing from the adopted `manifestHash` appends one compose configure before capture; rotation happens strictly between turns. */
   function adoptComposedManifest(): Effect.Effect<void, AdmissionError> {
     return Effect.gen(function* () {
       const composed = runtime.composed?.current();
@@ -182,11 +169,8 @@ export function createSessionAdmission(
       const generation = kernel.latestGenerationFor(sessionId);
       const captured = yield* runtime.generations.capture({ sessionId, generation: generation.generation });
       const observations = yield* captured.provide(ObservationSink);
-      // #1253 turn end: both steer and followUp rows are eligible, each capped
-      // by its settings width; the leftover backlog feeds the next turn.
-      // #1256 H-3/H-1: the stale split lives INSIDE boundaryConsumption — a
-      // deferred `action` input pointing before the compaction head is never
-      // consumed; this turn closes it via `turn.consumed.stale`.
+      // Turn end: steer and followUp rows are both eligible, each capped by its
+      // width; the stale split lives INSIDE boundaryConsumption.
       const { consumed: pending, stale } = boundaryConsumption(
         kernel.pendingMessages(sessionId),
         "turn_end",
@@ -198,8 +182,7 @@ export function createSessionAdmission(
         yield* consumePolicyBlockedDeliveries(pending);
         return policyRefusalResult(evaluatedPrompts.refusal.reason);
       }
-      // #1256 r3 H-3: a prompt.pre rewrite's output is what the turn delivers —
-      // the delivery row's content is what the model later reads.
+      // A prompt.pre rewrite's output is what the turn delivers and the model reads.
       const delivered = pending.map((item) => {
         const body = evaluatedPrompts.contents.get(item.id);
         return body === undefined ? item : { ...item, content: body };
@@ -269,8 +252,7 @@ export function createSessionAdmission(
     return Effect.gen(function* () {
       const ledger = createExecutionLedger();
       let refusal: SessionPolicyRefusal | undefined;
-      // #1256 r3 H-3: prompt.pre rewrites (the registry's `body` field) — what
-      // the boundary delivers (and the model reads) is the rewritten body.
+      // The boundary delivers the prompt.pre rewritten body, not the original.
       const contents = new Map<string, string>();
       for (const item of items) {
         if (item.kind !== "prompt") continue;
@@ -320,8 +302,8 @@ export function createSessionAdmission(
   function createExecutionLedger(turnId?: string): ExecutionLedger {
     const executionFence = state.fence;
     return {
-      // #1305: the generation's tool output budget and the session file's
-      // content-addressed output store, threaded to the executor/dispatcher.
+      // The generation's tool output budget and the session file's output store,
+      // threaded to the executor/dispatcher.
       toolOutputBudgetBytes: () =>
         consumptionSettings(kernel, sessionId).toolOutputBudgetBytes ?? DEFAULT_TOOL_OUTPUT_BUDGET_BYTES,
       putToolOutput: (write) => kernel.putToolOutput(write),

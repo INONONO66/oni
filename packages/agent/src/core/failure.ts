@@ -5,7 +5,6 @@ import { AdmissionFailure } from "./messages";
 import type { LlmRunFailure } from "../model";
 import type { LedgerSession } from "@openomni/protocol";
 
-// ─── from errors.ts (#1247) ───
 /** Machine stop verdicts are typed execution failures, never defects. */
 export class AgentStopError extends Data.TaggedError("AgentStopError")<{
   readonly reason: Extract<StopVerdict, { kind: "error" }>["reason"];
@@ -18,14 +17,13 @@ export class AgentStopError extends Data.TaggedError("AgentStopError")<{
 
 export class ContextAdmissionError extends Data.TaggedError("ContextAdmissionError")<Record<never, never>> {}
 
-/** Journal/model text of a structured cause: a string verbatim, an Error as `String(error)` renders it. */
 export function renderBodyCause(cause: string | Error): string {
   if (typeof cause === "string") return cause;
   if (cause.message === "") return cause.name;
   return cause.name === "" ? cause.message : `${cause.name}: ${cause.message}`;
 }
 
-/** A thrown value as an Error (a non-Error wraps its own `String()` text); `instanceof`/`String()` may throw again (a revoked Proxy), so the fallback names only the `typeof` and runs no user code. */
+/** `instanceof`/`String()` may throw again (a revoked Proxy), so the fallback names only the `typeof` and runs no user code. */
 export function thrownAsError<T>(cause: T): Error {
   try {
     return cause instanceof Error ? cause : new Error(String(cause));
@@ -63,7 +61,6 @@ export class OutcomeUnknown extends Data.TaggedError("OutcomeUnknown")<{
   readonly reason: string;
 }> {}
 
-/** Agent-owned failure for a Cause without a typed error; `Failure.of` synthesizes it. */
 export class AgentFailure extends Data.TaggedError("AgentFailure")<{
   readonly operation: string;
   readonly cause: string | Error;
@@ -71,28 +68,25 @@ export class AgentFailure extends Data.TaggedError("AgentFailure")<{
   override get message(): string { return `${this.operation}: ${renderBodyCause(this.cause)}`; }
 }
 
-/** A context-restore the admission plane refused: the caller-selected compaction target is unknown or was never executed. */
+/** The caller-selected compaction target is unknown or was never executed. */
 export class ContextRestoreError extends Data.TaggedError("ContextRestoreError")<{
   readonly reason: "unknown_compaction" | "not_executed";
 }> {
   override get message(): string { return `context restore refused: ${this.reason}`; }
 }
 
-/** A compaction execution the admission plane refused or whose recorded output no longer matches. */
 export class CompactionExecutionError extends Data.TaggedError("CompactionExecutionError")<{
   readonly reason: string;
 }> {
   override get message(): string { return `compaction execution refused: ${this.reason}`; }
 }
 
-/** A session commit the ledger refused; carries the full refusal verdict. */
 export class SessionCommitError extends Data.TaggedError("SessionCommitError")<{
   readonly result: Exclude<LedgerSession.CommitResult, { readonly ok: true }>;
 }> {
   override get message(): string { return `session commit ${this.result.reason}`; }
 }
 
-/** Named carrier for programmer-invariant violations thrown from non-Effect code paths. */
 export class AgentInvariantViolation extends Error {
   constructor(reason: string) {
     super(reason);
@@ -135,32 +129,21 @@ export class ExecutionApprovalError extends Data.TaggedError("ExecutionApprovalE
   readonly code: "stale_approval" | "approval_authority_unavailable" | "unauthenticated";
 }> {}
 
-/**
- * Perimeter mail whose provenance the turn could not authenticate: the turn
- * runs with `evidence_only` authority and this fact is recorded as a
- * violation observation (issue #1245). A `missing_origin` prompt — one whose
- * action row records no origin at all — fails its turn instead (#1310): no
- * authority is granted without a recorded provenance. A recorded fact, never
- * a failure-channel value: tagged like `SessionPolicyRefusal`, not an `Error`.
- */
+/** Unauthenticated provenance runs with `evidence_only` authority and is recorded as a violation fact — tagged like `SessionPolicyRefusal`, not an `Error`; a `missing_origin` prompt fails its turn instead. */
 export class InboundAuthorityViolation {
   readonly _tag = "InboundAuthorityViolation";
   constructor(readonly reason: "unknown_origin" | "undeclared_treatment" | "missing_origin") {}
   get message(): string { return `inbound authority violation: ${this.reason}`; }
 }
 
-/** A turn whose executor sealed without any runner-produced output: a distinct typed result cause, not a policy refusal. */
+/** A distinct typed result cause, not a policy refusal. */
 export class RunnerOutputMissing {
   readonly _tag = "RunnerOutputMissing";
   constructor(readonly turnId: string) {}
   get message(): string { return `runner output missing: turn ${this.turnId}`; }
 }
 
-/**
- * A backlog admission the session entity refused: the durable views are
- * mutually inconsistent (e.g. a running session with no open turn). Recorded
- * as a typed refusal fact; drains report it instead of folding into a stop.
- */
+/** Mutually inconsistent durable views (a running session with no open turn): drains report the typed refusal instead of folding into a stop. */
 export class SessionAdmissionRefused {
   readonly _tag = "SessionAdmissionRefused";
   constructor(readonly sessionId: string) {}
@@ -186,18 +169,14 @@ export type ExecutionError =
 export type SessionError = ExecutionError | SessionMissing | LeaseLost | GenerationUnavailable | GenerationUnsettled | LedgerError | BundleError | ContextRestoreError | AdmissionFailure;
 export { AdmissionFailure };
 
-// ─── from failure.ts (#1247) ───
-/** The typed error a Cause carries, else `synthesize` applied to the pretty-printed Cause (defects and interrupts). */
 export function fromCause<E, F>(cause: Cause.Cause<E>, synthesize: (pretty: string) => F): E | F {
   return Option.getOrElse(Cause.findErrorOption(cause), () => synthesize(pretty(cause)));
 }
 
 /**
- * `Cause.pretty` byte-for-byte, except that an Error whose `stack` is not a string renders as
- * `name: message`. Bun 1.4.1 materializes `new Error().stack` lazily and intermittently yields
- * `undefined` with `Error.stackTraceLimit` intact (always when the limit is 0), which made
- * effect's renderer return `""` or throw from `cause.stack.split`. This is the one Cause renderer
- * for this package and `apps/openomni`; `Cause.pretty` is not read there.
+ * `Cause.pretty` byte-for-byte, except an Error whose `stack` is not a string
+ * renders as `name: message`: Bun 1.4.1 materializes `stack` lazily and can
+ * yield `undefined`, which made effect's renderer return `""` or throw.
  */
 export function pretty<E>(cause: Cause.Cause<E>): string {
   return Cause.prettyErrors(cause).map(renderPrettyError).join("\n");
@@ -218,7 +197,6 @@ function renderErrorCause(cause: Error, prefix: string): string {
   return "cause" in cause && cause.cause instanceof Error ? `${lines} {\n${renderErrorCause(cause.cause, `${prefix}  `)}\n${prefix}}` : lines;
 }
 
-/** Agent profile: a Cause without a typed error becomes this package's AgentFailure for `operation`. */
 export function of<E>(cause: Cause.Cause<E>, operation: string): E | AgentFailure {
   return fromCause(cause, (pretty) => new AgentFailure({ operation, cause: pretty }));
 }

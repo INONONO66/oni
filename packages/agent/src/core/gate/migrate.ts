@@ -1,20 +1,9 @@
 import type { PlainValue, PointId, PolicyRow } from "@openomni/protocol";
 import { GateComposeError, type GatePointTable } from "../points";
 
-/**
- * Latest-only catalog migration (#1251): maps historical `kind`/`phase` rows
- * onto the fourteen registered points. Historical generations keep their
- * exact bytes; only the latest generation converts (policy-seed) while pinned
- * historical generations are projected the same way at compile time.
- */
+/** Historical generations keep their exact bytes; only the latest generation converts, while pinned historical generations are projected the same way at compile time. */
 
-/**
- * #1315: the retired input-queue policy address. Historical generations keep
- * the byte on disk and still project onto `ingress.pre`; the latest
- * generation converts onto the current `ingress` address at seed time. This
- * constant is the one sanctioned home for the retired policy address; the
- * vocabulary-retirement grep excludes it by name.
- */
+/** The one sanctioned home for the retired policy address: historical generations still project it onto `ingress.pre`; the vocabulary-retirement grep excludes it by name. */
 export const LEGACY_INGRESS_POLICY_KIND = "inbox.deliver" as const;
 
 const LEGACY_POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
@@ -26,8 +15,7 @@ const LEGACY_POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
   ["llm\u0000pre", "llm.pre"],
   ["llm\u0000post", "llm.post"],
   ["message\u0000pre", "message.pre"],
-  // Session configuration gating is consulted by the core's configure
-  // authority; its historical rows belong to the session-open point.
+  // Configure gating's historical rows belong to the session-open point.
   ["session.configure\u0000pre", "session.open"],
   ["tool\u0000pre", "tool.pre"],
   ["tool\u0000post", "tool.post"],
@@ -36,7 +24,7 @@ const LEGACY_POINT_BY_KIND_PHASE: ReadonlyMap<string, PointId> = new Map([
   ["alarm.fired\u0000post", "alarm.fired"],
 ]);
 
-/** The historical row's registered point, or undefined when it cannot map. */
+/** Undefined when the row cannot map. */
 export function legacyPointOf(kind: string, phase: PolicyRow.Phase): PointId | undefined {
   return LEGACY_POINT_BY_KIND_PHASE.get(`${kind}\u0000${phase}`);
 }
@@ -49,30 +37,15 @@ function matchValue(row: PolicyRowDraft): Readonly<Record<string, PlainValue>> {
   return value;
 }
 
-/**
- * The retired v3 point mapping consulted `turn/post` for every compaction
- * operation, renaming `compact` to `compaction` and passing every other
- * operation (`restore_context_projection`) through. Conversion inverts that
- * mapping so each historical restriction lands on the compaction point with
- * its real operation.
- */
+/** The retired v3 mapping consulted `turn/post` for every compaction operation; conversion inverts it so each historical restriction lands on the compaction point with its real operation. */
 const COMPACTION_OP_BY_LEGACY_OP: ReadonlyMap<string, string> = new Map([
   ["compaction", "compact"],
   ["restore_context_projection", "restore_context_projection"],
 ]);
 
-/**
- * Converts one historical row's semantics onto the fourteen-point contract
- * (#1251): a `turn/post` row matching a historical compaction operation
- * governs the compaction point itself, so it becomes a `compaction/pre` row
- * matching the real operation — a base-era compaction or restore deny keeps
- * refusing after conversion. A wildcard `turn/post` row stays untouched here;
- * the compiler projects it onto both `turn.post` and `compaction.pre`, which
- * the old mapping consulted for compaction operations.
- */
+/** A `turn/post` row matching a historical compaction operation becomes a `compaction/pre` row, so a base-era deny keeps refusing; a wildcard `turn/post` row stays and the compiler projects it onto both points. */
 export function translateLegacyPolicyRow<Row extends PolicyRowDraft>(row: Row): Row {
-  // #1315: the latest generation regenerates under the current `ingress`
-  // address; the historical byte never survives into a NEW generation.
+  // The historical byte never survives into a NEW generation.
   if (row.kind === LEGACY_INGRESS_POLICY_KIND && row.phase === "pre")
     return { ...row, kind: "ingress" };
   if (row.kind !== "turn" || row.phase !== "post") return row;
@@ -87,11 +60,7 @@ export function translateLegacyPolicyRow<Row extends PolicyRowDraft>(row: Row): 
   };
 }
 
-/**
- * Marks a generation as validated against the fourteen-point registration
- * table. The marker is inert: it only ever matches the reserved
- * `point-registry` op, which no execution uses.
- */
+/** The marker is inert: it only matches the reserved `point-registry` op, which no execution uses. */
 export const POINT_GENERATION_ROW: PolicyRowDraft = Object.freeze({
   name: "point-registry",
   kind: "turn",
@@ -101,7 +70,7 @@ export const POINT_GENERATION_ROW: PolicyRowDraft = Object.freeze({
   priority: 0,
 });
 
-/** Rejects (fail-closed, `unknown_point`) when any row cannot map to a registered point. */
+/** Fail-closed `unknown_point` when any row cannot map. */
 export function assertPointGenerationRows(
   rows: readonly PolicyRowDraft[],
   table: GatePointTable,

@@ -3,22 +3,12 @@ import type { LedgerAction } from "@openomni/protocol";
 import type { CommitFailed } from "./failure";
 import type { AlarmFired } from "./alarm";
 
-/**
- * Alarm plane port types (#1247/#1254): pure contracts the kernel consumes.
- * The implementations (chain guard, the ledger-backed retry alarm) live in
- * `core/alarm.ts`; the kernel takes these ports without defaults.
- */
+/** Pure contracts the kernel takes without defaults; implementations live in `core/alarm.ts`. */
 
-/**
- * Durable retry schedule port over the alarm chain (#1254). Structurally a
- * drop-in for `ExecutorOptions["retryAlarm"]`: `arm` commits the `alarm{arm}`
- * chain row (durable evidence) and then forwards the DeliverAt occurrence;
- * `wait` keeps the live in-process residual sleep; `settle` retires the chain
- * with an `at: null` arm so a completed attempt leaves no open alarm.
- */
+/** `arm` commits the `alarm{arm}` chain row then forwards the occurrence; `wait` keeps the in-process residual sleep; `settle` retires the chain so a completed attempt leaves no open alarm. */
 export interface RetryAlarmPort {
   arm(input: {
-    /** The attempt intent action id; the chain id is `<id>:retry`. */
+    /** The chain id is `<id>:retry`. */
     readonly id: string;
     readonly attempt: number;
     readonly reason: string;
@@ -33,9 +23,8 @@ export interface RetryAlarmPort {
 
 export interface RetryAlarmDeps {
   readonly sessionId: string;
-  /** Commits one arm append under the activation's fence (the turn's ledger). */
   readonly commitArm: (action: LedgerAction.Append) => Effect.Effect<void, CommitFailed>;
-  /** Forwards one armed occurrence to the composed DeliverAt door; default void. */
+  /** Default void. */
   readonly send: (occurrence: AlarmFired) => Effect.Effect<void, CommitFailed>;
   readonly clock: () => number;
 }

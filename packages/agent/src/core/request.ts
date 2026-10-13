@@ -11,7 +11,6 @@ import { type SessionRuntime, getSessionHandle, adoptSessionAuthority } from "./
 import { Entropy } from "./ports";
 import type { ApprovalRecentOpen } from "./approval-policy";
 
-// ─── from session-request.ts (#1247) ───
 export interface RequestDecision {
   readonly resolution: SessionTransition.Resolution;
   readonly request?: SessionTransition.Request;
@@ -35,8 +34,7 @@ function all(...checks: readonly boolean[]): boolean {
   return checks.every((check) => check);
 }
 
-
-/** Pure request authority. The caller applies the whole plan under the captured lease/revision. */
+/** Pure: the caller applies the whole plan under the captured lease/revision. */
 export function decideRequestTransition(
   command: SessionTransition.Command,
   snapshot: RequestSnapshot,
@@ -149,10 +147,7 @@ function payloadEvidence(payload: SessionTransition.Payload) {
   return {};
 }
 
-/**
- * The request lifecycle phase a row records (#1252): answers are the
- * `answered` phase of the one `request` kind — the former `reply` kind.
- */
+/** Answers are the `answered` phase of the one `request` kind. */
 function lifecyclePhase(
   payload: SessionTransition.Payload,
   request: SessionTransition.Request,
@@ -218,14 +213,7 @@ function resolutionRecord(
   };
 }
 
-/**
- * Deadline chain arms (#1254 S4): a `request.open` with a deadline arms the
- * reserved `deadline` purpose (alarmId `<requestId>:deadline`, armSeq 1) in
- * the SAME decision batch; every terminal transition retires the chain with
- * an `at: null` arm (armSeq 2) so a settled request leaves no open alarm. A
- * deadline occurrence that still outraces the retire folds through the chain
- * guard, and the wake expires the request only if it is still open.
- */
+/** A `request.open` with a deadline arms `<requestId>:deadline` in the SAME batch; every terminal transition retires it, and an outracing occurrence expires the request only if still open. */
 function deadlineArms(
   command: SessionTransition.Command,
   request: SessionTransition.Request,
@@ -631,7 +619,6 @@ function objectValue(value: PlainValue | undefined) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 }
 
-// ─── from session-requests.ts (#1247) ───
 export interface SessionRequestPort {
   list(): readonly SessionTransition.Request[];
   timeout(requestId: string, at: number): Effect.Effect<void, ExecutionError>;
@@ -680,8 +667,8 @@ function requestGeneration(
   return generation;
 }
 
-/** The gateway gets this injected kernel port, never a lifecycle store. */
-/** The recorded invocation a request reopens; anything else is an invariant break, not a session failure. */
+/** The gateway gets this injected port, never a lifecycle store. */
+/** Anything else is an invariant break, not a session failure. */
 function originalInvocation(kernel: SessionKernel, requestId: string): (PlainObject & { readonly value: PlainValue }) | undefined {
   const intent = kernel.actionById(requestId)?.intent.value;
   if (intent === null || intent === undefined || typeof intent !== "object" || Array.isArray(intent) || intent.value === undefined)
@@ -689,7 +676,6 @@ function originalInvocation(kernel: SessionKernel, requestId: string): (PlainObj
   return { ...intent, value: intent.value };
 }
 
-/** The reopened durable request row, bound to the recorded invocation and its generation. */
 function openedRequest(
   input: Parameters<SessionRequestPort["open"]>[0],
   intent: PlainObject & { readonly value: PlainValue },
@@ -742,10 +728,8 @@ export function createSessionRequests(runtime: SessionRuntime): Effect.Effect<Se
     return Effect.gen(function* () {
     const live = getSessionHandle(sessionId, runtime);
     if (live !== undefined) return yield* live.requests.transition(payload, inputId, at, admission);
-    // Out-of-turn authority is a fence adoption (W5.2 F5): this writer becomes
-    // the session's current activation for exactly this commit. A concurrently
-    // live activation elsewhere observes the higher fence and goes stale; on
-    // the entity plane these transitions route through the entity instead.
+    // Out-of-turn authority is a fence adoption: this writer becomes the current
+    // activation for exactly this commit; a live activation elsewhere goes stale.
     const owner = `${runtime.processId ?? process.pid}:request:${id()}`;
     const kernel = runtime.openKernel(sessionId);
     const now = clock();
@@ -857,7 +841,6 @@ export function createSessionRequests(runtime: SessionRuntime): Effect.Effect<Se
   });
 }
 
-
 function requestIdentity(payload: SessionTransition.Payload): string {
   switch (payload.kind) {
     case "request.open": return payload.request.requestId;
@@ -891,11 +874,8 @@ export function commitSessionRequest(
       domainRevisions: request === undefined ? undefined : runtime.requestDomainRevisions?.(request),
     }, runtime.approvalPolicy.recentOpen);
     if (decision.actions.length > 0) {
-      // Reply intakes and gateway admissions are received-message chain
-      // actions in the same fenced batch (the input-queue table is gone). A
-      // foreign-session admission (a `new_session` child's message) never
-      // rides this single-session fenced batch: the child's own entity
-      // commits it through the admission commit port.
+      // A foreign-session admission (a `new_session` child's message) never rides
+      // this single-session fenced batch: the child's own entity commits it.
       const intake = [
         ...(decision.receive === undefined ? [] : [decision.receive]),
         ...(admission === undefined || admission.sessionId !== sessionId ? [] : [admission]),
@@ -915,18 +895,9 @@ export function commitSessionRequest(
 }
 
 /**
- * Out-of-turn request authority over a possibly-live activation (W5.2 F5):
- * adopting a fresh fence while an entity turn is running would steal that
- * activation's authority and kill its wave. This kernel view instead BORROWS
- * the running activation's owner+fence: `adoptFence` on a running session
- * records the live pair (and the borrowing caller) without touching the row,
- * `row()` reports the borrowing caller as `fenceOwner` so the pure request
- * decision (`ownsRequestRevision`) runs under the true live authority, and the
- * commit lands under the live owner+fence (same process: it lands between the
- * turn's awaits). Fence and revision are never masked — a rotated fence or a
- * moved revision still refuses — and only the caller that adopted through this
- * view gains the borrow; any other owner keeps being rejected. An idle session
- * falls back to a real adoption, the documented out-of-turn takeover.
+ * Adopting a fresh fence while an entity turn runs would steal its authority
+ * and kill its wave, so this view BORROWS the live owner+fence for the one
+ * caller that adopted through it; fence and revision are never masked.
  */
 export function requestAuthorityKernel(base: SessionKernel, sessionId: string): SessionKernel {
   const holder: {
