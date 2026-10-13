@@ -726,7 +726,7 @@ export function dispatchSessionOutbound(
 }
 
 export function sessionStopEvidence(
-  kernel: SessionKernel,
+  kernel: Pick<SessionKernel, "row" | "actionById" | "historyPage">,
   sessionId: string,
   turnId: string,
   approvals: () => ExecutionApprovals | undefined,

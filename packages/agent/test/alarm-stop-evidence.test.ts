@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction, LedgerSession, SessionHistory } from "@openomni/protocol";
 import { armAction, firedAction } from "../src/core/alarm";
 import { sessionStopEvidence } from "../src/core/run";
 import type { SessionKernel } from "../src/core/entity";
@@ -19,19 +19,21 @@ function evidence(action: LedgerAction.Append) {
   const turn = LedgerAction.Node.parse({ ...arm, id: "turn", ordinal: 1, prevHash: "", actionHash: "" });
   const committed = LedgerAction.Node.parse({ ...action, ordinal: 2, prevHash: "", actionHash: "" });
   let reads = 0;
-  const kernel = {
-    row: () => ({
-      id: sessionId, parentId: null, role: "resident" as const, fenceOwner: null, fence: 0,
-      revision: reads++ === 0 ? 1 : 2, state: "idle" as const,
-      toolsGeneration: 0, systemHash: "", policyGeneration: 0,
+  const kernel: Pick<SessionKernel, "row" | "actionById" | "historyPage"> = {
+    row: () => LedgerSession.Row.parse({
+      id: sessionId, parentId: null, role: "resident", fenceOwner: null, fence: 0,
+      revision: reads++ === 0 ? 1 : 2, state: "idle",
     }),
-    actionById: (id: string) => id === "turn" ? turn : undefined,
-    historyPage: (_id: string, request: { afterRevision?: number }) => ({
-      sessionId, afterRevision: request.afterRevision ?? 0, headRevision: 2,
-      actions: (request.afterRevision ?? 0) < 2 ? [committed] : [],
-      nextRevision: null,
-    }),
-  } as Pick<SessionKernel, "row" | "actionById" | "historyPage"> as SessionKernel;
+    actionById: (id) => id === "turn" ? turn : undefined,
+    historyPage: (_id, request = {}) => {
+      const afterRevision = request.afterRevision ?? 0;
+      return SessionHistory.Page.parse({
+        sessionId, afterRevision, headRevision: 2,
+        actions: afterRevision < 2 ? [committed] : [],
+        nextRevision: null,
+      });
+    },
+  };
   return runTestSync(sessionStopEvidence(kernel, sessionId, "turn", () => undefined)());
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LedgerAction, type PlainObject } from "@openomni/protocol";
+import { LedgerAction, SessionHistory } from "@openomni/protocol";
 import { armAction, firedAction } from "../src/core/alarm";
 import { foldAlarmChains, openAlarmIds } from "../src/core/alarm-read";
 import type { SessionKernel } from "../src/core/entity";
@@ -9,7 +9,7 @@ const sessionId = "alarm-read";
 function arm(ordinal: number, purpose: string, alarmId: string, at: number | null, supersedes: string | null = null) {
   return armAction({
     parentId: null, sessionId, purpose, alarmId, at, supersedes,
-    sourceKey: "watch", payload: {} as PlainObject, armSeq: ordinal, ts: ordinal,
+    sourceKey: "watch", payload: {}, armSeq: ordinal, ts: ordinal,
   });
 }
 
@@ -18,16 +18,18 @@ function node(action: LedgerAction.Append, ordinal: number): LedgerAction.Node {
 }
 
 function chains(actions: readonly LedgerAction.Node[], afterRevision = 0, throughRevision = actions.length) {
-  const kernel = {
-    historyPage: (_sessionId: string, request: { afterRevision?: number; limit?: number }) => {
-      const remaining = actions.filter((action) => action.ordinal > (request.afterRevision ?? 0));
-      const page = remaining.slice(0, request.limit ?? 100);
-      return {
-        actions: page,
-        nextRevision: remaining.length > page.length ? page.at(-1)?.ordinal ?? null : null,
-      };
+  const headRevision = actions.at(-1)?.ordinal ?? 0;
+  const kernel: Pick<SessionKernel, "historyPage"> = {
+    historyPage: (_sessionId, request = {}) => {
+      const afterRevision = request.afterRevision ?? 0;
+      const page = actions.filter((action) => action.ordinal > afterRevision).slice(0, request.limit ?? 100);
+      const last = page.at(-1)?.ordinal ?? afterRevision;
+      return SessionHistory.Page.parse({
+        sessionId, afterRevision, headRevision, actions: page,
+        nextRevision: last < headRevision ? last : null,
+      });
     },
-  } as Pick<SessionKernel, "historyPage">;
+  };
   return foldAlarmChains(kernel, sessionId, { afterRevision, throughRevision });
 }
 
