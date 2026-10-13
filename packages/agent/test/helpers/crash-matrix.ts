@@ -285,7 +285,7 @@ function executePoint(point: CrashPoint, bodies: string[]) {
     return yield* runChatAttempts(executor, () =>
       Effect.gen(function* () {
         bodies.push("llm");
-        if (point === "retry_backoff_wait") return yield* providerFailure("overloaded");
+        if (point === "retry_backoff_wait") return yield* providerFailure("overloaded", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } });
         return { type: "stop" };
       }),
     );

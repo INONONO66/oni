@@ -407,7 +407,7 @@ describe("session chat runner", () => {
             async (input: RunInput, sink: LlmSink) => {
               calls += 1;
               return calls === 1
-                ? { type: "error", error: providerFailure("transient provider outage") }
+                ? { type: "error", error: providerFailure("transient provider outage", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) }
                 : completeModel(input, sink);
             },
           );
@@ -457,7 +457,7 @@ describe("session chat runner", () => {
             async (input: RunInput, sink: LlmSink) => {
               answered.push(input.model.id);
               return answered.length === 1
-                ? { type: "error", error: providerFailure("transient provider outage") }
+                ? { type: "error", error: providerFailure("transient provider outage", { failureClass: { kind: "retryable", reason: "transient_error", providerReason: "server_error", afterMs: 0, directed: true, instant: false } }) }
                 : completeModel(input, sink);
             },
             { prompts: 2, fallbacks: [fallback] },
