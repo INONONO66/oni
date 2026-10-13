@@ -16,15 +16,10 @@ import { configureAction } from "../src/core/store/fence";
 import type { SessionRunner } from "../src/core/run";
 import { session } from "../src/testing/registry";
 import { isolated, isolatedLedger } from "./helpers/isolated";
-import { commitReceivedMessage } from "./helpers/ingress";
+import { queuePromptOnS } from "./helpers/ingress";
 import { seedPolicy } from "./helpers/seed-policy";
 import { sessionTree } from "./helpers/session-tree";
-import {
-  allowConfigure,
-  isolatedRuntime,
-  withSessionServices,
-  type SessionFixture,
-} from "./helpers/session-services";
+import { boundedBy2s, silentRuntime, withSessionServices, type SessionFixture } from "./helpers/session-services";
 
 function deliveryRow(input: {
   readonly ordinal: number;
@@ -95,20 +90,9 @@ describe("boundaryConsumption rule", () => {
 // Integrated: a real session turn obeys the rule and records turn.consumed.
 // ---------------------------------------------------------------------------
 
-const bounded = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.timeout("2 seconds"));
+const bounded = boundedBy2s;
 
-function fixture(): SessionFixture {
-  let sequence = 0;
-  return {
-    authorizeConfigure: allowConfigure,
-    observations: { publish: () => undefined, subscribe: () => () => undefined },
-    clock: () => 20,
-    entropy: () => `bc-${++sequence}`,
-    processId: "bc",
-    ...isolatedRuntime(),
-  };
-}
+const fixture = () => silentRuntime("bc", "bc");
 
 function declare(runtime: SessionFixture, runner: SessionRunner) {
   return withSessionServices(session({ id: "S", role: "resident", runner }, runtime), runtime);
@@ -145,18 +129,8 @@ function commitSettings(
   });
 }
 
-function queue(ordinal: number, content: string, delivery: "steer" | "followUp") {
-  return commitReceivedMessage(isolatedLedger().kernel, {
-    id: `queued-${ordinal}`,
-    sessionId: "S",
-    kind: "prompt",
-    content,
-    createdAt: 21 + ordinal,
-    origin: { encodingVersion: 1, value: {} },
-    parentActionId: isolatedLedger().kernel.latestAction("S")?.id ?? null,
-    delivery,
-  });
-}
+const queue = (ordinal: number, content: string, delivery: "steer" | "followUp") =>
+  queuePromptOnS(isolatedLedger().kernel, ordinal, content, delivery);
 
 describe("integrated boundary consumption", () => {
   test("consumptionSettings folds the latest configure settings row", () =>

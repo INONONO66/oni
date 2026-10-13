@@ -12,6 +12,7 @@ import { Deferred, Effect, Fiber } from "effect";
 import {
   clusterTempDir,
   readChain,
+  refusedDeliverAfterSeed,
   runCluster,
   sendAlarm,
   sendDeliver,
@@ -143,22 +144,13 @@ test("deliver(signal interrupt/resume) replaces Interrupt and Resume: idle contr
 });
 
 test("deliver with an unregistered kind is unknown_kind with zero new facts", async () => {
-  const sessionId = "surface-unknown-kind";
-  const before = await runCluster(
-    options,
-    Effect.gen(function* () {
-      yield* sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "seed", content: "seed" });
-      return readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length;
-    }),
-  );
-  const refusal = await runCluster(
-    options,
-    sendDeliver(sessionId, { kind: "action", idempotencyKey: "a1", content: "{}" }).pipe(
-      Effect.flip,
-    ),
-  );
+  const { refusal, seeded, after } = await refusedDeliverAfterSeed(options, "surface-unknown-kind", {
+    kind: "action",
+    idempotencyKey: "a1",
+    content: "{}",
+  });
   expect((refusal as DeliverRefused).code).toBe("unknown_kind");
-  expect(readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length).toBe(before);
+  expect(after).toBe(seeded);
 });
 
 test("resolve replaces RequestResolve/RequestCancel: answer resolves, cancel closes, both typed", async () => {

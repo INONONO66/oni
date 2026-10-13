@@ -1,52 +1,17 @@
 import { expect, it } from "bun:test";
 import { Clock, Effect } from "effect";
 import { TestClock } from "effect/testing";
-import type { Message, Tool } from "@openomni/protocol";
-import { messageSource } from "../../helpers/message-source";
+import type { Tool } from "@openomni/protocol";
 import { isolated } from "../../helpers/isolated";
-import { runInput } from "../../helpers/run-input";
+import { readyWaveTurn } from "../../helpers/tool-wave";
 import { fixtureStopEvidence } from "../../helpers/chat-services";
-import { createAssistantMessage } from "../../../src/core/message-factory";
-import { createRunState } from "../../../src/core/turn";
-import { buildTurn } from "../../../src/core/turn";
 import { settleModelTools } from "../../../src/core/tool";
 import type { ObservedChatAgentConfig } from "../../../src/core/types";
 import { TEST_BUDGET } from "../../helpers/approval-policy";
 
 const sessionId = "session-wave-timing";
 
-function pendingAssistant(ids: readonly string[]): Message.WithParts {
-  const message = createAssistantMessage("", "", sessionId, messageSource);
-  return {
-    ...message,
-    parts: ids.map((id) => ({
-      id: `${id}:part`,
-      sessionID: sessionId,
-      messageID: message.info.id,
-      type: "tool",
-      callID: id,
-      tool: "timed",
-      state: { status: "pending", input: {} },
-    })),
-  };
-}
-
-function waveTurn(config: ObservedChatAgentConfig) {
-  const input = runInput([]);
-  const state = createRunState(input, messageSource);
-  const built = buildTurn(
-    state,
-    config,
-    { providerID: "test", id: "test", name: "test" },
-    undefined,
-    input.traceContext,
-    messageSource,
-  );
-  if (built.type !== "ready") throw new Error("turn unavailable");
-  const turn = built.turn;
-  turn.turnAssistant.message = pendingAssistant(["A", "B"]);
-  return { state, turn };
-}
+const waveTurn = (config: ObservedChatAgentConfig) => readyWaveTurn(config, sessionId);
 
 /**
  * #1245: tool-wave duration is computed from the injected Effect Clock —

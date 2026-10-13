@@ -8,7 +8,7 @@ import { awaitSignal, failure, boundedSignal as bounded } from "./helpers/g0-sig
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { seedPolicy } from "./helpers/seed-policy";
 import { openRequest } from "./helpers/open-request";
-import { commitReceivedMessage } from "./helpers/ingress";
+import { commitReceivedMessage, type ReceivedMessageInput } from "./helpers/ingress";
 import { reactivateSession } from "./helpers/wake-session";
 import type { ExecutionApprovalRequest, ExecutionApprovals } from "../src/core/gate/decide";
 import { closeSessions, type SessionCreateOptions, type SessionHandle, type SessionRunner, type SessionRunnerInput } from "../src/core/run";
@@ -258,16 +258,7 @@ function pendingDeliveries(sessionId: string): Delivery.Row[] {
 }
 
 /** Out-of-band ingress onto the received-message chain, error-mapped like the handle plane. */
-function commitDelivery(input: {
-  readonly id: string;
-  readonly sessionId: string;
-  readonly kind: Delivery.Kind;
-  readonly content: string;
-  readonly origin: Delivery.Origin;
-  readonly createdAt: number;
-  readonly parentActionId: string | null;
-  readonly delivery?: "steer" | "followUp";
-}) {
+function commitDelivery(input: ReceivedMessageInput) {
   return commitReceivedMessage(kernel(), input).pipe(
     Effect.mapError((error: LedgerError) => new CommitFailed({ error })),
   );

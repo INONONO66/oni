@@ -16,6 +16,7 @@ import {
   clusterTempDir,
   completionSignal,
   readChain,
+  refusedDeliverAfterSeed,
   runCluster,
   sendDeliver,
   sendRead,
@@ -35,22 +36,13 @@ afterAll(() => {
 });
 
 test("a blank idempotency key is missing_key and appends nothing", async () => {
-  const sessionId = "idem-missing-key";
-  const seeded = await runCluster(
-    options,
-    Effect.gen(function* () {
-      yield* sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "seed", content: "seed" });
-      return readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length;
-    }),
-  );
-  const refusal = await runCluster(
-    options,
-    sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "  ", content: "keyless" }).pipe(
-      Effect.flip,
-    ),
-  );
+  const { refusal, seeded, after } = await refusedDeliverAfterSeed(options, "idem-missing-key", {
+    kind: "prompt",
+    idempotencyKey: "  ",
+    content: "keyless",
+  });
   expect((refusal as DeliverRefused).code).toBe("missing_key");
-  expect(readChain(sessionFileFor(sessionsDir, sessionId), sessionId).length).toBe(seeded);
+  expect(after).toBe(seeded);
 });
 
 test("a replayed key resolves to the original seq with zero new facts", async () => {

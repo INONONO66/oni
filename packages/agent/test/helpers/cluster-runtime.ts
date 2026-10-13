@@ -186,7 +186,7 @@ class TestClusterEnv extends Context.Service<TestClusterEnv, TestClusterOptions>
 ) {}
 
 /** Bun webcrypto-backed Crypto service (platform-bun is not a workspace dep). */
-const BunTestCrypto = Layer.succeed(
+export const BunTestCrypto = Layer.succeed(
   Crypto.Crypto,
   Crypto.make({
     randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
@@ -497,24 +497,8 @@ function provisionSession(options: TestClusterOptions, sessionId: string): Effec
               return false;
             }
           })();
-          if (!exists) {
-            yield* kernel.materialize({
-              id: sessionId,
-              parentId: null,
-              role: "resident",
-              tools: [],
-              system: { preset: "", blocks: [] },
-              policyGeneration: 1,
-              actionId: `${sessionId}:materialize`,
-              at: Date.now(),
-            });
-          }
-          catalog.indexSession({
-            id: sessionId,
-            parentId: null,
-            role: "resident",
-            createdAt: Date.now(),
-          });
+          if (!exists) yield* materializeResident(kernel, sessionId);
+          indexResident(catalog, sessionId);
           store.close();
           catalog.close();
         }),
@@ -524,6 +508,23 @@ function provisionSession(options: TestClusterOptions, sessionId: string): Effec
     return pending;
   });
 }
+
+/** The wall-clock resident genesis row `${sessionId}:materialize` at policy generation 1. */
+export const materializeResident = (kernel: SessionHandleStore.SessionKernel, sessionId: string) =>
+  kernel.materialize({
+    id: sessionId,
+    parentId: null,
+    role: "resident",
+    tools: [],
+    system: { preset: "", blocks: [] },
+    policyGeneration: 1,
+    actionId: `${sessionId}:materialize`,
+    at: Date.now(),
+  });
+
+/** Registers `sessionId` as a wall-clock resident in the catalog index. */
+export const indexResident = (catalog: ReturnType<typeof openCatalogStore>, sessionId: string) =>
+  catalog.indexSession({ id: sessionId, parentId: null, role: "resident", createdAt: Date.now() });
 
 /** Canonical JSON of a protocol `Delivery.MessageOrigin` value (messages.ts C1). */
 function testOrigin(sessionId: string, messageId: string): string {
@@ -571,6 +572,28 @@ export const sendRescan = (sessionId: string, occurrenceId: string, fireAt: numb
     payload: "{}",
     fireAt,
   });
+
+/**
+ * Seeds one prompt (`seed`) into `sessionId`, then delivers `input` in a second
+ * cluster run expecting a typed refusal; returns that refusal and the chain
+ * length before and after so the caller pins the zero-new-facts claim.
+ */
+export async function refusedDeliverAfterSeed(
+  options: TestClusterOptions,
+  sessionId: string,
+  input: Parameters<typeof sendDeliver>[1],
+) {
+  const file = sessionFileFor(options.sessionsDir, sessionId);
+  const seeded = await runCluster(
+    options,
+    Effect.gen(function* () {
+      yield* sendDeliver(sessionId, { kind: "prompt", idempotencyKey: "seed", content: "seed" });
+      return readChain(file, sessionId).length;
+    }),
+  );
+  const refusal = await runCluster(options, sendDeliver(sessionId, input).pipe(Effect.flip));
+  return { refusal, seeded, after: readChain(file, sessionId).length };
+}
 
 /** The ad-hoc `kick` rescan occurrence (armSeq 1, already due) that merely activates `sessionId`. */
 export const sendKick = (sessionId: string) =>

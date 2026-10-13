@@ -17,9 +17,9 @@ import { createSessionChatRunner } from "../src/core/run";
 import { prepareChatFixture } from "./helpers/chat-services";
 import { assistantStep } from "./helpers/dispatching-runner";
 import { isolated, isolatedLedger } from "./helpers/isolated";
-import { commitReceivedMessage } from "./helpers/ingress";
+import { queuePromptOnS } from "./helpers/ingress";
 import { nth } from "./helpers/nth";
-import { allowConfigure, isolatedRuntime, withSessionServices, type SessionFixture, } from "./helpers/session-services";
+import { boundedBy2s, silentRuntime, withSessionServices, type SessionFixture } from "./helpers/session-services";
 import { openRequest } from "./helpers/open-request";
 import { seedPolicy } from "./helpers/seed-policy";
 import { fixtureGeneration, fixtureNode, fixtureTerminal, fixtureOpenTurn, fixtureTurn, } from "./helpers/open-turn-fixture";
@@ -57,19 +57,8 @@ function pendingRow(kind: Delivery.Kind, ordinal = 1): Delivery.Row {
     origin: { encodingVersion: 1, value: { kind: "session", id: "S" } },
   };
 }
-const bounded = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.timeout("2 seconds"));
-function fixture(): SessionFixture {
-  let sequence = 0;
-  return {
-    authorizeConfigure: allowConfigure,
-    observations: { publish: () => undefined, subscribe: () => () => undefined },
-    clock: () => 20,
-    entropy: () => `fsm-${++sequence}`,
-    processId: "fsm",
-    ...isolatedRuntime(),
-  };
-}
+const bounded = boundedBy2s;
+const fixture = () => silentRuntime("fsm", "fsm");
 /** Seeded runtime plus entry/release gates for runner-holding tests. */
 function gatedFixture(): Effect.Effect<{
   runtime: SessionFixture;
@@ -479,16 +468,7 @@ describe("T01-T15 real controller transition witnesses", () => {
               ["two", "followUp"],
             ] as const
           ).entries())
-            yield* commitReceivedMessage(isolatedLedger().kernel, {
-              id: `queued-${ordinal}`,
-              sessionId: "S",
-              kind: "prompt",
-              content,
-              createdAt: 21 + ordinal,
-              origin: { encodingVersion: 1, value: {} },
-              parentActionId: isolatedLedger().kernel.latestAction("S")?.id ?? null,
-              delivery,
-            });
+            yield* queuePromptOnS(isolatedLedger().kernel, ordinal, content, delivery);
           expect(
             isolatedLedger()
               .kernel.pendingMessages("S")
