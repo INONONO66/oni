@@ -500,7 +500,7 @@ test("#1346: a session write outside the exact allow-list line fails; the contac
   const root = scratchAppsTree(
     {
       "composition/x.ts": "export const run = () => kernel.commit(action);\n",
-      "provisioning/contacts.ts": "export const persons = () => port.materialize();\n",
+      "bundles/provision/contacts.ts": "export const persons = () => port.materialize();\n",
     },
     "dir",
   );

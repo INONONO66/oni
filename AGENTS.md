@@ -49,7 +49,8 @@ OpenOmni is a single-Owner Agent OS: one Resident delegates through durable cont
 ```text
 openomni/
 ├── apps/
-│   ├── openomni/        # kernel app: Resident, gateway composition, machines, delegation
+│   ├── openomni/        # kernel app: eleven bundle directories under src/bundles/, gateway composition
+│   │   └── src/bundles/ # alarms, approval-policy, compaction, core-policy, delegation-policy, hooks-json, messaging, prompt, provision, resident, tools
 │   └── desktop/         # Electron console: shell/build pipeline plus app-owned AI SDK chat state
 ├── packages/
 │   ├── protocol/        # Zod schemas and cross-package contracts
@@ -122,12 +123,14 @@ ui <- apps/desktop
 | Channel driver or perimeter route | `packages/channels/src/` |
 | Raw machine endpoints | `packages/machines/src/` |
 | Code mode and injected interpreter | `packages/codemode/src/` |
-| Resident and app composition | `apps/openomni/src/resident.ts`, `apps/openomni/src/index.ts` |
-| Production compaction strategy | `apps/openomni/src/compaction/`, `packages/agent/src/plugins/compaction/` |
+| Resident and app composition | `apps/openomni/src/bundles/resident/index.ts`, `apps/openomni/src/index.ts` |
+| App policy, messaging, and prompts | `apps/openomni/src/bundles/core-policy/`, `apps/openomni/src/bundles/messaging/`, `apps/openomni/src/bundles/prompt/` |
+| App alarms and provision operations | `apps/openomni/src/bundles/alarms/`, `apps/openomni/src/bundles/provision/` |
+| Production compaction strategy | `apps/openomni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/` |
 | Gateway and channel registration | `apps/openomni/src/gateway.ts`, `apps/openomni/src/channels.ts` |
-| Contacts and the one send_message tool (#1258) | `apps/openomni/src/bundles/send-message/` |
+| Contacts and the one send_message tool (#1258) | `apps/openomni/src/bundles/messaging/send-message/` |
 | Delegation caps, deadline, and child replies (#1258) | `apps/openomni/src/bundles/delegation-policy/` |
-| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271) | `apps/openomni/src/tools/`, `apps/openomni/src/tools/mutation/provision.ts` |
+| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271) | `apps/openomni/src/bundles/tools/<tool>/index.ts`, `apps/openomni/src/bundles/provision/provision.ts` |
 | Shipped-state truth | `docs/implementation-status.md` |
 | Conformance/ratchets | `script/`, `script/conformance/` |
 
