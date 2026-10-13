@@ -30,8 +30,8 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { runScriptMain } from "./main-runner";
 import { projectTools } from "../packages/agent/src/core/tool.js";
-import { catalogDefinitions, type ToolPorts } from "../apps/openomni/src/tools/core/catalog.js";
-import { createMonitorTool } from "../apps/openomni/src/bundles/monitor/index.js";
+import { catalogDefinitions, type ToolPorts } from "../apps/openomni/src/bundles/tools/core/catalog.js";
+import { createMonitorTool } from "../apps/openomni/src/bundles/alarms/monitor/index.js";
 import { eraseTool } from "../packages/agent/src/core/tool.js";
 import type { Tool, AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool/index.js";
 import type { PlainObject, PlainValue } from "../packages/protocol/src/json.js";
@@ -361,7 +361,7 @@ export async function checkNaming(baseline: Baseline): Promise<Violation[]> {
 // ---------------------------------------------------------------------------
 
 // #1255: bundle-owned tools live under `src/bundles/<bundle>/index.ts`.
-const TOOL_SOURCE_GLOBS = ["apps/openomni/src/tools/**/*.ts", "apps/openomni/src/bundles/**/*.ts"];
+const TOOL_SOURCE_GLOBS = ["apps/openomni/src/bundles/tools/**/*.ts", "apps/openomni/src/bundles/**/*.ts"];
 const TOOL_CATEGORIES: readonly ToolCategory[] = ["query", "mutation", "authority", "execution"];
 
 function looksLikeToolDefinition(value: object): value is AnyToolDefinition {
@@ -429,9 +429,17 @@ function toolFileName(toolName: string): string {
 
 /** #1255: a bundle-owned tool lives in its bundle's `index.ts`, directory named after the tool. */
 function isToolSourcePath(toolName: string, filePath: string): boolean {
+  const directory = toolName.replaceAll("_", "-");
+  const bundleRelative = filePath.startsWith("apps/openomni/src/bundles/")
+    ? filePath.slice("apps/openomni/src/bundles/".length).split("/")
+    : [];
+  const bundleLayout = (
+    (bundleRelative.length === 2 && bundleRelative[1] === "index.ts") ||
+    (bundleRelative.length === 3 && bundleRelative[2] === "index.ts")
+  );
   return (
     filePath.endsWith(`/${toolFileName(toolName)}`) ||
-    filePath.endsWith(`src/bundles/${toolName.replaceAll("_", "-")}/index.ts`)
+    (bundleLayout && bundleRelative.at(-2) === directory)
   );
 }
 
@@ -686,19 +694,19 @@ function definitionSelfTest(checks: SelfTestChecks): SelfTestRow[] {
   if (!exemplar) return [[false, "definition invariant self-test has no exemplar"]];
   const unsafeQuery = { ...exemplar, name: "unsafe_query", category: "query" } as AnyToolDefinition;
   const fileNameChecks = [
-    ["send_message", "apps/openomni/src/tools/send-message.ts", 0],
-    ["send_message", "apps/openomni/src/tools/send_message.ts", 1],
-    ["read", "apps/openomni/src/tools/files/read.ts", 0],
-    ["read", "apps/openomni/src/tools/files/read-file.ts", 1],
+    ["send_message", "apps/openomni/src/bundles/tools/send-message.ts", 0],
+    ["send_message", "apps/openomni/src/bundles/tools/send_message.ts", 1],
+    ["read", "apps/openomni/src/bundles/tools/files/read.ts", 0],
+    ["read", "apps/openomni/src/bundles/tools/files/read-file.ts", 1],
   ] as const;
   const invalidDefinition = { ...exemplar, name: "", description: "" } as AnyToolDefinition;
   const invalidMessages = checks.definitionInvariantViolations(
-    [invalidDefinition], [{ definition: invalidDefinition, filePath: "apps/openomni/src/tools/.ts" }],
+    [invalidDefinition], [{ definition: invalidDefinition, filePath: "apps/openomni/src/bundles/tools/.ts" }],
   ).map(({ message }) => message);
   const unknownCategory: AnyToolDefinition = { ...exemplar };
   Object.defineProperty(unknownCategory, "category", { value: "unregistered" });
   return [
-    [checks.definitionInvariantViolations([], [{ definition: unsafeQuery, filePath: "apps/openomni/src/tools/query/unsafe.ts" }])
+    [checks.definitionInvariantViolations([], [{ definition: unsafeQuery, filePath: "apps/openomni/src/bundles/tools/query/unsafe.ts" }])
       .some(({ check }) => check === "earned-check"), "earned-check did not flag an uncatalogued definition"],
     ...fileNameChecks.map(([name, filePath, expected]): SelfTestRow => {
       const definition = { ...exemplar, name } as AnyToolDefinition;
@@ -710,7 +718,7 @@ function definitionSelfTest(checks: SelfTestChecks): SelfTestRow[] {
       invalidMessages.some((message) => message.startsWith("[tool-description]")),
     "definition invariants missed empty name or description"],
     [checks.definitionInvariantViolations([unknownCategory], [{ definition: unknownCategory,
-      filePath: `apps/openomni/src/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }])
+      filePath: `apps/openomni/src/bundles/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }])
       .some(({ message }) => message.startsWith("[tool-category]")),
     "definition invariants missed an unregistered tool category"],
   ];

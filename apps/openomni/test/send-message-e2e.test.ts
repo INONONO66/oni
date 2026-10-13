@@ -15,7 +15,7 @@ import { nextFrame } from "./helpers/ws";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { eventSignal } from "./helpers/event-signal";
 import { runEffect } from "./helpers/effect";
-import { DelegationRefusal } from "../src/bundles/delegation-policy";
+import { DelegationRefusal } from "../src/bundles/delegation-policy/index";
 import type { Message } from "@openomni/protocol";
 
 /** The text a model-transcript message carries (fake models read, never guess shapes). */

@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { messageDecisionRules } from "./message-decision";
-import { APPROVAL_POLICY } from "../bundles/approval-policy";
+import { APPROVAL_POLICY } from "../bundles/approval-policy/index";
 import { Core } from "@openomni/agent";
 type Executor = Core.Executor;
 const Entropy = Core.Entropy;

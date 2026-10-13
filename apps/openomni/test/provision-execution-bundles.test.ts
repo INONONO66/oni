@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import type { ToolExecutionContext } from "@openomni/protocol";
-import type { BundlePort } from "../src/provisioning/bundles";
-import type { ProvisionPort } from "../src/provisioning/channels";
-import { executeProvision } from "../src/provisioning/execution";
+import type { BundlePort } from "../src/bundles/provision/bundles";
+import type { ProvisionPort } from "../src/bundles/provision/channels";
+import { executeProvision } from "../src/bundles/provision/execution";
 
 function portWith(bundles: BundlePort): ProvisionPort {
   const partial: Pick<ProvisionPort, "bundles"> = { bundles };

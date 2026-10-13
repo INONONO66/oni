@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { captureOutput } from "./capture-output.test-helper";
 import { normalizeKnipIssues, runKnip } from "./check-dead-exports";
 import type { PlainValue } from "../packages/protocol/src/json";
-import type { AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool";
+import type { AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool/index";
 import {
   checkEarned,
   checkNaming,
@@ -49,7 +49,7 @@ function definition(
 function located(item: AnyToolDefinition, directory = item.category): LocatedDefinition {
   return {
     definition: item,
-    filePath: `apps/openomni/src/tools/${directory}/${item.name.replaceAll("_", "-")}.ts`,
+    filePath: `apps/openomni/src/bundles/tools/${directory}/${item.name.replaceAll("_", "-")}.ts`,
   };
 }
 
@@ -189,7 +189,7 @@ describe("lint-tools definition invariants", () => {
     expect(
       definitionInvariantViolations(
         [item],
-        [{ definition: item, filePath: "apps/openomni/src/tools/fs/read.ts" }],
+        [{ definition: item, filePath: "apps/openomni/src/bundles/tools/fs/read.ts" }],
       ),
     ).toEqual([]);
   });
@@ -199,12 +199,14 @@ describe("lint-tools definition invariants", () => {
     expect(
       definitionInvariantViolations(
         [item],
-        [{ definition: item, filePath: "apps/openomni/src/tools/send-message.ts" }],
+        [{ definition: item, filePath: "apps/openomni/src/bundles/tools/send-message.ts" }],
       ),
     ).toEqual([]);
     for (const filePath of [
-      "apps/openomni/src/tools/send_message.ts",
-      "apps/openomni/src/tools/messaging.ts",
+      "apps/openomni/src/bundles/tools/send_message.ts",
+      "apps/openomni/src/bundles/tools/messaging.ts",
+      "apps/openomni/src/bundles/tools/messaging/index.ts",
+      "apps/openomni/src/bundles/tools/a/b/send-message/index.ts",
     ]) {
       expect(messages([item], [{ definition: item, filePath }])).toContainEqual(
         expect.stringContaining("[tool-file-name]"),

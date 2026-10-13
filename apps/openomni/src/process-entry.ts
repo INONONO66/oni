@@ -33,19 +33,19 @@ import { createCompletionPort } from "./composition/completion";
 import { configureAuthority } from "./composition/generation-layers";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow } from "./composition/platform";
-import { createResident } from "./resident";
+import { createResident } from "./bundles/resident/index";
 import { type DeliverPayload, deliverPayload, prepareMessage } from "./composition/message-session";
 import { messageDecisionRules } from "./composition/message-decision";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "./policy-seed";
+import { gateRowPolicySeeds, seedKernelPolicyRows } from "./bundles/core-policy/index";
 import { AppPointTable } from "./composition/point-table";
 import { dispatchOutboundMessage, outboundMessage } from "./composition/terminal-message";
-import { settleChild } from "./bundles/delegation-policy";
-import { APPROVAL_POLICY } from "./bundles/approval-policy";
+import { settleChild } from "./bundles/delegation-policy/index";
+import { APPROVAL_POLICY } from "./bundles/approval-policy/index";
 import { createProcessReplyChannel } from "./composition/process-replies";
 import { appManifest } from "./manifest";
 import { createWatchPlane } from "./composition/watch-plane";
 import { composedHolderOf, alarmPortsSlot } from "./composition/composed";
-import { readHooksJson } from "./bundles/hooks-json";
+import { readHooksJson } from "./bundles/hooks-json/index";
 
 export const ProcessSessionRequest = z
   .object({

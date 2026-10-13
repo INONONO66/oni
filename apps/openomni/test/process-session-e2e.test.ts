@@ -10,7 +10,7 @@ import { Core } from "@openomni/agent";
 const projectTools = Core.projectTools;
 import { Bus } from "./helpers/bus";
 import { Database } from "bun:sqlite";
-import { catalogDefinitions } from "../src/tools/core/catalog";
+import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { sessionFilePath } from "../src/composition/cluster-runtime";

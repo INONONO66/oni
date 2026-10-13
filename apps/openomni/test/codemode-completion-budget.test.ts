@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { expect, test } from "bun:test";
 import { Cause, Effect, Layer } from "effect";
 import { Bundle } from "@openomni/agent";
@@ -10,7 +10,7 @@ import { catalogLayer, executorLayer } from "../../../packages/agent/test/helper
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
 import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { composeCodemode } from "../src/composition/codemode";
-import { catalogDefinitions } from "../src/tools/core/catalog";
+import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
 import { cellPorts } from "./helpers/cell-ports";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
 import { acquireEffect, acquireSyncEffect, runEffect } from "./helpers/scoped-effect";

@@ -7,10 +7,10 @@ import { Core } from "@openomni/agent";
 const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import type { PolicyRow } from "@openomni/protocol";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "../src/policy-seed";
-import { monitorBundle } from "../src/bundles/monitor";
-import { MESSAGE_POLICY_ROWS } from "../src/message-policy";
-import { PROVISION_POLICY_ROWS } from "../src/tools/provision";
+import { gateRowPolicySeeds, seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { monitorBundle } from "../src/bundles/alarms/monitor/index";
+import { MESSAGE_POLICY_ROWS } from "../src/bundles/messaging/index";
+import { PROVISION_POLICY_ROWS } from "../src/bundles/provision/provision";
 import { testClock } from "./helpers/test-entropy";
 
 // #1308: the wake-budget seed is the composed bundle row, projected the same

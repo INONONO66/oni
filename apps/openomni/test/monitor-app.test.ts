@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Core } from "@openomni/agent";
 import { Bus, newTraceId } from "./helpers/bus";
 import { L0Observation, type Tool } from "@openomni/protocol";
-import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
+import { foldAlarmChains, watchStateOf } from "../src/bundles/alarms/index";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";

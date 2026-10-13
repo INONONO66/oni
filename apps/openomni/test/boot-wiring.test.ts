@@ -25,7 +25,7 @@ import {
   createChannelSupervisor,
   type DesiredChannelRow,
   type DesiredChannels,
-} from "../src/provisioning/supervisor";
+} from "../src/bundles/provision/supervisor";
 import { assistantMessage } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";
 import { planeFixture } from "./helpers/plane-fixture";

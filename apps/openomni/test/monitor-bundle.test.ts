@@ -25,7 +25,7 @@ import { Effect } from "effect";
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
 import { newTraceId } from "./helpers/bus";
-import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
+import { foldAlarmChains, watchStateOf } from "../src/bundles/alarms/index";
 import { runAppEffect } from "../src/gateway";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { untilCommitted } from "./helpers/committed-state";

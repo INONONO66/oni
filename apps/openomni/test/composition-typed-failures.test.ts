@@ -6,7 +6,7 @@ import type { LedgerSession } from "@openomni/protocol";
 import { createIngressExecutor, GATEWAY_INGRESS_SESSION } from "../src/composition/ingress-executor";
 import { messageMaterialization, prepareMessage } from "../src/composition/message-session";
 import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
-import { seedKernelPolicyRows } from "../src/policy-seed";
+import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
 import { generationServices } from "./helpers/generation-services";
 import { adoptTestFence, testPlane } from "./helpers/ledger";
 import { runEffect, runSyncEffect, acquireSyncEffect } from "./helpers/effect";

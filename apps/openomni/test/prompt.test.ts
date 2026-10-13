@@ -1,7 +1,7 @@
 import type { Model } from "@openomni/protocol";
 import { describe, expect, test } from "bun:test";
-import { buildAgentPrompt } from "../src/prompt/build";
-import { RESIDENT_PRESET, type RolePreset } from "../src/prompt/roles";
+import { buildAgentPrompt } from "../src/bundles/prompt/build";
+import { RESIDENT_PRESET, type RolePreset } from "../src/bundles/prompt/roles";
 
 const residentBase = [
   RESIDENT_PRESET.identity,

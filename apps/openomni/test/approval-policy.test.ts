@@ -3,7 +3,7 @@ import { Bundle } from "@openomni/agent";
 import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { runEffect } from "./helpers/effect";
 
 test("the approval-policy bundle ships the product literals the core no longer owns (#1309)", () => {

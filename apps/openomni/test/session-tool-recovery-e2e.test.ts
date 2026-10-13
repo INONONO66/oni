@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { Effect } from "effect";
 import { allowConfigure, generationServices } from "./helpers/generation-services";
@@ -22,7 +22,7 @@ type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./helpers/bus";
 import { L0Observation, Tool } from "@openomni/protocol";
 import { z } from "zod";
-import { seedKernelPolicyRows } from "../src/policy-seed";
+import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
 import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { createAppLedger, drainSession, resolvedRuntimeFor } from "./helpers/ledger";
 

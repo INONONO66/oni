@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { L0Observation } from "@openomni/protocol";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
-import { foldAlarmChains, watchStateOf } from "../src/composition/alarm-plane";
+import { foldAlarmChains, watchStateOf } from "../src/bundles/alarms/index";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { Bus, newTraceId } from "./helpers/bus";
 import { planeOf } from "./helpers/ledger";

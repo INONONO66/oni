@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { testToolPorts } from "./helpers/tool-ports";
 import { executorLayer, catalogLayer } from "../../../packages/agent/test/helpers/service-layers";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
@@ -14,7 +14,7 @@ import { LedgerAction, type Machine, type PlainObject } from "@openomni/protocol
 import { z } from "zod";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
-import { catalogDefinitions } from "../src/tools/core/catalog";
+import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
 import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { seededPolicy } from "./helpers/executor";

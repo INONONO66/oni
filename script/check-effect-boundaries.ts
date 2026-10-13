@@ -22,6 +22,32 @@ const RUNNER_OWNERS = new Set([
   "packages/agent/bench/store.ts",
 ]);
 const runnerNames = new Set(["runPromise", "runPromiseExit", "runSync", "runSyncExit", "runFork", "runCallback"]);
+/** The sealed catalog's tool bodies; bundle roots and composition files are not tool bodies. */
+export const TOOL_BODY_PATHS: ReadonlyMap<string, string> = new Map([
+  ["read", "apps/openomni/src/bundles/tools/read/index.ts"],
+  ["write", "apps/openomni/src/bundles/tools/write/index.ts"],
+  ["edit", "apps/openomni/src/bundles/tools/edit/index.ts"],
+  ["ls", "apps/openomni/src/bundles/tools/ls/index.ts"],
+  ["find", "apps/openomni/src/bundles/tools/find/index.ts"],
+  ["grep", "apps/openomni/src/bundles/tools/grep/index.ts"],
+  ["bash", "apps/openomni/src/bundles/tools/bash/index.ts"],
+  ["eval", "apps/openomni/src/bundles/tools/eval/index.ts"],
+  ["monitor", "apps/openomni/src/bundles/alarms/monitor/index.ts"],
+  ["send_message", "apps/openomni/src/bundles/messaging/send-message/index.ts"],
+  ["provision", "apps/openomni/src/bundles/provision/provision.ts"],
+  ["completion", "apps/openomni/src/bundles/tools/completion/index.ts"],
+]);
+function isToolBodyPath(file: string): boolean {
+  return new Set(TOOL_BODY_PATHS.values()).has(file);
+}
+// pre-existing at origin/main (bundles/send-message/index.ts:3); follow-up #1454
+export const PREEXISTING_TOOL_EFFECT_PINS: ReadonlyMap<string, { readonly file: string; readonly line: number; readonly text: string }> = new Map([
+  ["send_message", {
+    file: "apps/openomni/src/bundles/messaging/send-message/index.ts",
+    line: 3,
+    text: 'import { Effect } from "effect";',
+  }],
+]);
 
 export type BoundaryFinding = {
   readonly code: string;
@@ -46,7 +72,7 @@ function isEffectSpecifier(value: string): boolean {
   return value === "effect" || value.startsWith("effect/") || value.startsWith("@effect/");
 }
 function excludedSurface(file: string): boolean {
-  return /^packages\/(protocol|ui)\/src\//.test(file) || file.startsWith("apps/desktop/src/") || file.startsWith("apps/openomni/src/tools/");
+  return /^packages\/(protocol|ui)\/src\//.test(file) || file.startsWith("apps/desktop/src/") || isToolBodyPath(file);
 }
 function sourcePath(file: string): boolean {
   return /^(apps|packages|script)\//.test(file) && /\.[cm]?tsx?$/.test(file) && !/(^|\/)(node_modules|dist|coverage|\.turbo|generated)\//.test(file);
@@ -232,10 +258,15 @@ function moduleSpecifier(node: ts.Node): string | undefined {
 function importFindings(source: ts.SourceFile, file: string): BoundaryFinding[] {
   const result: BoundaryFinding[] = [];
   if (!excludedSurface(file)) return result;
-  const code = file.startsWith("apps/openomni/src/tools/") ? "R1_TOOL_EFFECT_IMPORT" : "R1_EFFECT_IMPORT";
+  const code = isToolBodyPath(file) ? "R1_TOOL_EFFECT_IMPORT" : "R1_EFFECT_IMPORT";
   const visit = (node: ts.Node): void => {
     const specifier = moduleSpecifier(node);
-    if (specifier && isEffectSpecifier(specifier)) result.push(finding(code, file, lineOf(node)));
+    if (specifier && isEffectSpecifier(specifier)) {
+      const line = lineOf(node);
+      const pin = [...PREEXISTING_TOOL_EFFECT_PINS.values()].find((entry) => entry.file === file && entry.line === line);
+      const text = source.text.split(/\r?\n/)[line - 1];
+      result.push(pin && text === pin.text ? { ...finding(code, file, line), failing: false } : finding(code, file, line));
+    }
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -600,8 +631,7 @@ function readAllowlist(worktree: string): { readonly entries: readonly string[];
     return { entries: [], findings: [finding("R2_INVALID_ALLOWLIST", allowlistPath)] };
   }
 }
-
-function analyze(worktree: string, files: readonly string[]): Analysis {
+function analyze(worktree: string, files: readonly string[], pins: ReadonlyMap<string, { readonly file: string; readonly line: number; readonly text: string }>): Analysis {
   const program = ts.createProgram(files.filter(sourcePath).map((file: string) => join(worktree, file)), { target: ts.ScriptTarget.ESNext, jsx: ts.JsxEmit.Preserve, noResolve: true, noLib: true });
   const diagnostics = program.getSyntacticDiagnostics();
   if (diagnostics.length) return { sites: [], services: [], findings: diagnostics.map((diagnostic: ts.Diagnostic) => finding("ANALYSIS_ERROR", diagnostic.file ? relative(worktree, diagnostic.file.fileName) : "script", diagnostic.file ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1 : 1)) };
@@ -617,10 +647,15 @@ function analyze(worktree: string, files: readonly string[]): Analysis {
     if (productionSource(file)) boundaryRules(source, file, provenance, boundaries);
   }
   result.findings.push(...boundaries.findings);
+  for (const pin of pins.values()) {
+      const source = join(worktree, pin.file);
+      const line = existsSync(source) ? readFileSync(source, "utf8").split(/\r?\n/)[pin.line - 1] : undefined;
+      if (line !== pin.text) result.findings.push(finding("R1_STALE_TOOL_EFFECT_PIN", pin.file, pin.line));
+  }
   return result;
 }
 export function effectServiceInventory(worktree = root): readonly ServiceUsage[] {
-  const result = analyze(worktree, repositoryFiles(worktree));
+  const result = analyze(worktree, repositoryFiles(worktree), new Map());
   if (result.findings.some((entry) => entry.code === "ANALYSIS_ERROR")) throw new Error("Cannot inventory invalid source");
   return result.services;
 }
@@ -633,11 +668,14 @@ function staleFinding(worktree: string, entry: string): BoundaryFinding {
   const source = existsSync(path) ? ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.ESNext, true) : undefined;
   return finding("R2_STALE_ALLOWLIST", file, source ? declaredFunctions(source).find((entry: DeclaredFunction) => entry.exportedName === target)?.line ?? 1 : 1);
 }
-export function checkEffectBoundaryFindings(worktree = root): readonly BoundaryFinding[] {
+export function checkEffectBoundaryFindings(
+  worktree = root,
+  pins: ReadonlyMap<string, { readonly file: string; readonly line: number; readonly text: string }> = new Map(),
+): readonly BoundaryFinding[] {
   const allowlist = readAllowlist(worktree);
   let result: Analysis;
   try {
-    result = analyze(worktree, repositoryFiles(worktree));
+    result = analyze(worktree, repositoryFiles(worktree), pins);
   } catch {
     result = { sites: [], services: [], findings: [finding("ANALYSIS_ERROR", "script")] };
   }
@@ -660,7 +698,9 @@ export function main(args = Bun.argv.slice(2)): number {
     console.log(JSON.stringify({ code: "INVALID_ARGUMENTS", message: "Expected [--root <dir>]; baseline updates are forbidden" }));
     return 1;
   }
-  const findings = checkEffectBoundaryFindings(resolve(args[1] ?? root));
+  const worktree = resolve(args[1] ?? root);
+  const pins = worktree === root ? PREEXISTING_TOOL_EFFECT_PINS : new Map();
+  const findings = checkEffectBoundaryFindings(worktree, pins);
   for (const entry of findings) console.log(entry.code === "ANALYSIS_ERROR" ? JSON.stringify(entry) : formatFinding(entry));
   return findings.some((entry: BoundaryFinding) => entry.failing) ? 1 : 0;
 }

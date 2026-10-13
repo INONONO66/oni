@@ -1,5 +1,5 @@
 import { composedHolder } from "./helpers/bundle-fixture";
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

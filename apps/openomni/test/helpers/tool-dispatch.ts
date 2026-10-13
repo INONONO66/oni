@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
 import { testToolPorts } from "./tool-ports";
 import { Effect } from "effect";
 import { catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";
@@ -7,8 +7,8 @@ import { acquireSyncEffect } from "./effect";
 import { runEffect } from "./effect";
 import { spyOn } from "bun:test";
 import type { PlainObject } from "@openomni/protocol";
-import type { CatalogOrigin } from "../../src/tools/core/catalog";
-import { catalogDefinitions, type ToolPorts } from "../../src/tools/core/catalog";
+import type { CatalogOrigin } from "../../src/bundles/tools/core/catalog";
+import { catalogDefinitions, type ToolPorts } from "../../src/bundles/tools/core/catalog";
 import { Bundle } from "@openomni/agent";
 const createTurnDispatcher = Bundle.createTurnDispatcher;
 import { fixtureLedger, executorServices } from "./executor";

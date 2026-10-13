@@ -20,8 +20,8 @@ const compilePolicySnapshot = Core.compilePolicySnapshot;
 import { LedgerAction, type AnyToolDefinition, type LedgerSession, type PlainValue, type SessionGeneration } from "@openomni/protocol";
 import { type Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "effect";
 
-import { catalogDelegationReads, delegationGuardHandlers } from "../bundles/delegation-policy";
-import { catalogDefinitions, type ToolPorts } from "../tools/core/catalog";
+import { catalogDelegationReads, delegationGuardHandlers } from "../bundles/delegation-policy/index";
+import { catalogDefinitions, type ToolPorts } from "../bundles/tools/core/catalog";
 import { AppLedger, type SessionKernel } from "./cluster-runtime";
 import { ComposedGeneration, type ComposedContext } from "./composed";
 import { AppPointTable } from "./point-table";

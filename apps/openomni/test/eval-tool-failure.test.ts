@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
 const ToolRefused = Core.ToolRefused;
-import { createEvalTool } from "../src/tools/eval";
+import { createEvalTool } from "../src/bundles/tools/eval/index";
 
 const CONTEXT = {
   sessionId: "eval-session",

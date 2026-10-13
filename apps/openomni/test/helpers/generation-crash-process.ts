@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
 import { Core, Testing } from "@openomni/agent";
 const GenerationLayers = Core.GenerationLayers;
 const session = Testing.session;
@@ -7,7 +7,7 @@ import { z } from "zod";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../../src/gateway";
 import { AppLedger } from "../../src/composition/cluster-runtime";
 import { AppScope } from "../../src/runtime";
-import { seedKernelPolicyRows } from "../../src/policy-seed";
+import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
 import { auditBundle, composedHolder } from "./bundle-fixture";
 import { allowConfigure } from "./generation-services";
 import { Bus } from "./bus";

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
 import { loadConfig } from "../src/config";
-import { configuredCompaction } from "../src/compaction/strategy";
+import { configuredCompaction } from "../src/bundles/compaction/strategy";
 import { assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { executeBundleDisable, executeBundleEnable, type BundlePort } from "../src/provisioning/bundles";
+import { executeBundleDisable, executeBundleEnable, type BundlePort } from "../src/bundles/provision/bundles";
 
 function portOf(initialOff: readonly string[], composeError?: string) {
   const sets: (readonly string[])[] = [];

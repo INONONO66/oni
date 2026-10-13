@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { CommitReceipt } from "../packages/agent/src/core/store/services";
 import type { SessionWriteAdapter } from "../packages/agent/src/core/store/services";
-import type { IpcServer } from "../packages/machines/src/ipc";
+import type { IpcServer } from "../packages/machines/src/ipc/index";
 import { checkEffectBoundaryFindings, effectServiceInventory, type BoundaryFinding, type ServiceUsage } from "./check-effect-boundaries";
 
 /**

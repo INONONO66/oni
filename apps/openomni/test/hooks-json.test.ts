@@ -13,13 +13,13 @@ import {
   readHooksJson,
   SECRETS_GUARD_REF,
   secretsGuard,
-} from "../src/bundles/hooks-json";
+} from "../src/bundles/hooks-json/index";
 import { composedHolderOf, alarmPortsSlot } from "../src/composition/composed";
 import { createWatchPlane } from "../src/composition/watch-plane";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
-import { gateRowPolicySeeds } from "../src/policy-seed";
+import { gateRowPolicySeeds } from "../src/bundles/core-policy/index";
 import { AppInvariantError } from "../src/invariant";
 import { assistantMessage, requestToolStep, type AssistantMessageOptions } from "./helpers/assistant-message";
 import { planeOf } from "./helpers/ledger";

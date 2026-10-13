@@ -5,7 +5,7 @@ import { residentSuite } from "./helpers/resident-suite";
 import { automationFixture, automationRecord } from "./helpers/automation";
 import { commitArm, FIXTURE_BASE } from "./helpers/watch-fixture";
 import { runAppEffect } from "../src/gateway";
-import { CRON_TICK } from "../src/bundles/cron";
+import { CRON_TICK } from "../src/bundles/alarms/cron/index";
 import { automationAlarm } from "../src/composition/automation-alarm";
 
 const suite = residentSuite();

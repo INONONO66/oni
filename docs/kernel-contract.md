@@ -75,7 +75,7 @@ authority explicit. A bundle has exactly four extension points:
 | Tool catalog and system configuration | `ToolCatalog` supplies definitions; recorded `session.configure` operations `tools.add`, `tools.remove` and `system.blocks.set` select the next generation, never replace an in-flight catalog. | `packages/agent/src/core/ports.ts`, `packages/agent/src/core/run.ts` |
 | Policy rows | Data-only pre/post verdicts are `allow`, `deny`, `require_approval`, `transform` or `obligation`. Named implementations come from the captured bundle Layer, not a callback-registration API. | `packages/agent/src/core/gate/compile.ts`, `packages/agent/src/core/bundle.ts` |
 | Observation subscriptions | `ObservationSink.subscribe` observes committed execution; it never decides admission or writes durable truth. Subscriptions belong to their Scope. | `packages/agent/src/core/bus.ts`, `apps/openomni/src/composition/generation-layers.ts` |
-| Entity mailbox messages | A bundle addresses a session through `send_message` / gateway ingestion and entity-owned mailbox admission at a step boundary, not an injected executor or direct ledger writer. | `apps/openomni/src/tools/send-message.ts`, `apps/openomni/src/gateway.ts`, `packages/agent/src/core/entity.ts` |
+| Entity mailbox messages | A bundle addresses a session through `send_message` / gateway ingestion and entity-owned mailbox admission at a step boundary, not an injected executor or direct ledger writer. | `apps/openomni/src/bundles/messaging/send-message/index.ts`, `apps/openomni/src/gateway.ts`, `packages/agent/src/core/entity.ts` |
 
 Anything else requires a kernel change. No arbitrary code-callback registration,
 middleware registry, custom action writer, or raw ledger/control service is a
@@ -148,7 +148,7 @@ them. Bundle rows enter the existing durable policy generation before capture,
 not an unrecorded compiler overlay. Installing definitions affects new sessions;
 tools still require recorded catalog selection. W0.5 adds no membership setter
 or unmount operation (`apps/openomni/src/index.ts`,
-`apps/openomni/src/policy-seed.ts`, `createSessionConfiguration` in `packages/agent/src/core/run.ts`).
+`apps/openomni/src/bundles/core-policy/index.ts`, `createSessionConfiguration` in `packages/agent/src/core/run.ts`).
 
 Capture pins one context, policy, catalog, named registry and local observation
 bus. Same-session acquisition/configure is serialized; the same Id cannot
@@ -369,7 +369,7 @@ configured provider (never another credential), `system` is system text, and
 `schema` is a JSON Schema the answer must satisfy: the host validates the
 answer and returns canonical JSON text, or refuses. Names are lowercase
 snake_case and follow the senpi/pi file-tool vocabulary; the file is the tool
-(`apps/openomni/src/tools/<name>.ts`, with `_` written `-` in the file name
+(`apps/openomni/src/bundles/tools/<name>/index.ts`, with `_` written `-` in the directory name
 because the repo-wide kebab-case file rule applies; `lint:tools` checks the
 correspondence). Every multi-operation tool takes `operation: { op, ... }`
 with one discriminator named `op`: `eval.op = run | peek | stop`,

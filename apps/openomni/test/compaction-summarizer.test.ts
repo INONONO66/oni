@@ -11,7 +11,7 @@ import type { Message } from "@openomni/protocol";
 import {
   createCompactionSummarizer as summarizer,
   SummarizerError,
-} from "../src/compaction/summarizer";
+} from "../src/bundles/compaction/summarizer";
 const ExecutorContext = Core.ExecutorContext;
 import { executor } from "./helpers/executor";
 import { runEffect, runSyncEffect } from "./helpers/effect";

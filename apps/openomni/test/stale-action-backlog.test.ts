@@ -293,7 +293,7 @@ import { createSessionEntityRunTurn, type SessionKernel } from "../../../package
 import { resolveSessionRuntime, type SessionRuntime } from "../../../packages/agent/src/core/run";
 import type { SessionEntityPorts } from "../../../packages/agent/src/core/run";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
-import { openSessionStore } from "../../../packages/agent/src/core/store/session-file";
+import { openSessionStore } from "../../../packages/agent/src/core/store/session-file/index";
 import * as FenceStore from "../../../packages/agent/src/core/store/fence";
 import {
   clusterTempDir,
@@ -303,7 +303,7 @@ import {
   sessionFileFor,
 } from "../../../packages/agent/test/helpers/cluster-runtime";
 import { runAgent } from "../../../packages/agent/test/helpers/executor";
-import { settleChild } from "../src/bundles/delegation-policy";
+import { settleChild } from "../src/bundles/delegation-policy/index";
 
 const cluster = clusterTempDir("stale-entity-deliver-");
 afterAll(() => rmSync(cluster.dir, { recursive: true, force: true }));

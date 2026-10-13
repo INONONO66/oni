@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Bundle } from "@openomni/agent";
 import { AppInvariantError } from "../src/invariant";
-import { gateRowPolicySeeds } from "../src/policy-seed";
+import { gateRowPolicySeeds } from "../src/bundles/core-policy/index";
 
 const row = (over: Partial<Bundle.BundleGateRow>): Bundle.BundleGateRow => ({
   id: "probe/tool.pre#1",

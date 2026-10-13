@@ -1,6 +1,6 @@
 import { Vault } from "@openomni/channels";
 import { createAppLedger } from "./ledger";
-import type { KekResolution } from "../../src/provisioning/vault-key";
+import type { KekResolution } from "../../src/bundles/provision/vault-key";
 import { putChannelCredential } from "./channel-credential";
 import { testClock } from "./test-entropy";
 

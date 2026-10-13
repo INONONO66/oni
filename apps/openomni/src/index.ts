@@ -19,10 +19,10 @@ import {
 } from "./runtime";
 import { timingSafeEqual } from "node:crypto";
 import { statSync } from "node:fs";
-import { configuredCompaction } from "./compaction/strategy";
-import { readHooksJson } from "./bundles/hooks-json";
-import { APPROVAL_POLICY } from "./bundles/approval-policy";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "./policy-seed";
+import { configuredCompaction } from "./bundles/compaction/strategy";
+import { readHooksJson } from "./bundles/hooks-json/index";
+import { APPROVAL_POLICY } from "./bundles/approval-policy/index";
+import { gateRowPolicySeeds, seedKernelPolicyRows } from "./bundles/core-policy/index";
 import { AppPointTable } from "./composition/point-table";
 import { Core, Bundle } from "@openomni/agent";
 const Entropy = Core.Entropy;
@@ -65,9 +65,9 @@ import {
   selfEnrollment,
   type SelfMachine,
 } from "./composition/self-machine";
-import { desiredChannels, materializePersons } from "./provisioning/declared";
-import { type ChannelSupervisor, createChannelSupervisor } from "./provisioning/supervisor";
-import type { ProvisionPort } from "./provisioning/channels";
+import { desiredChannels, materializePersons } from "./bundles/provision/declared";
+import { type ChannelSupervisor, createChannelSupervisor } from "./bundles/provision/supervisor";
+import type { ProvisionPort } from "./bundles/provision/channels";
 import {
   assertWsExposure,
   ConfigurationError,
@@ -90,7 +90,7 @@ import {
   DELEGATION_DEADLINE,
   settleChild,
   type DelegationDeadlineDeps,
-} from "./bundles/delegation-policy";
+} from "./bundles/delegation-policy/index";
 import {
   AppLedger,
   createSessionLivePlane,
@@ -120,9 +120,9 @@ import {
   webSocketCallbacks,
 } from "./gateway";
 import { configureAuthority, type GenerationDefinitions } from "./composition/generation-layers";
-import { createResident } from "./resident";
+import { createResident } from "./bundles/resident/index";
 import { composeCodemode, sessionOutputsSource, type ComposedCodemode } from "./composition/codemode";
-import { createRequestDomainRevisions } from "./tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "./bundles/tools/core/request-domain-revisions";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {

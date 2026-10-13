@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
 import { Effect } from "effect";
 import { executorLayer } from "../../../../packages/agent/test/helpers/service-layers";
 import { runSyncEffect } from "./effect";

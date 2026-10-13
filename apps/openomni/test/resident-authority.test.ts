@@ -8,7 +8,7 @@ type Sink = Core.LlmSink;
 import type { Tool } from "@openomni/protocol";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { createResidentGateway } from "../src/gateway";
-import { refuseEvidenceOnly } from "../src/resident";
+import { refuseEvidenceOnly } from "../src/bundles/resident/index";
 import { prepareMessage } from "../src/composition/message-session";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { residentRunner } from "./helpers/resident-runner";

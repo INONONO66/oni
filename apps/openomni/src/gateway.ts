@@ -1,6 +1,6 @@
 import type { MachineHost } from "@openomni/machines";
 import type { ComposedCodemode } from "./composition/codemode";
-import type { ToolPorts } from "./tools/core/catalog";
+import type { ToolPorts } from "./bundles/tools/core/catalog";
 import type { createCompletionPort } from "./composition/completion";
 import {
   type ChannelDeliveryRoute,
@@ -34,8 +34,8 @@ import { type Context, Effect, Result, Exit, ManagedRuntime, Scope } from "effec
 import { AppLedger, type AppLedgerPlane } from "./composition/cluster-runtime";
 import type { ComposedGeneration } from "./composition/composed";
 import { captureNow } from "./composition/platform";
-import { createAlarmMonitorPorts } from "./composition/alarm-plane";
-import { MonitorRefused, type MonitorPorts } from "./tools/core/watch";
+import { createAlarmMonitorPorts } from "./bundles/alarms/index";
+import { MonitorRefused, type MonitorPorts } from "./bundles/tools/core/watch";
 import {
   AppLifecycleFailure,
   AppLive,

@@ -25,7 +25,7 @@ import {
   spawnDepthGuard,
   spendCapGuard,
   type DelegationReads,
-} from "../src/bundles/delegation-policy";
+} from "../src/bundles/delegation-policy/index";
 import { runEffect } from "./helpers/effect";
 
 const NEW_SESSION = { to: { kind: "new_session", role: "child" }, message: "go" };

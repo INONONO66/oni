@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Actor, Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
-import { type KekResolution, resolveKek } from "./provisioning/vault-key";
+import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
 import { Result } from "effect";
 import { z } from "zod";
 

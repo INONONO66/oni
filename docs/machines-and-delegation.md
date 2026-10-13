@@ -190,7 +190,7 @@ in-process daemon with the self exports/capabilities, dial the host's own
 unix listener and complete `machine.attach`, and only then publish tool
 ports. Every failure in that chain is the one typed startup refusal
 `self_attach_failed { cause }`; there is no local execution fallback — ever.
-`apps/openomni/src/tools/` contains no `node:fs`, no `Bun.spawn`, and no
+`apps/openomni/src/bundles/tools/<tool>/index.ts` and `apps/openomni/src/bundles/provision/provision.ts` contain no `node:fs`, no `Bun.spawn`, and no
 local locus: `parseLocus(input, { defaultMachine })` maps `/absolute/path`
 to the configured default machine and preserves explicit
 `machineId:/absolute/path`; relative paths refuse (no process cwd exists).

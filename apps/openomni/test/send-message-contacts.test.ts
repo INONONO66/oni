@@ -20,7 +20,7 @@ import {
   parseContactAddress,
   type ContactPorts,
   type MessagePort,
-} from "../src/bundles/send-message";
+} from "../src/bundles/messaging/send-message/index";
 import { assistantMessage } from "./helpers/assistant-message";
 import { runEffect } from "./helpers/effect";
 import { runAppEffect } from "../src/gateway";

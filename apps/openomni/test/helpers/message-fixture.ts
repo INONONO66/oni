@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy";
+import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,8 +21,8 @@ import {
 import { localDelivery } from "./ledger";
 import { allowConfigure, generationServices } from "./generation-services";
 const ToolCatalog = Core.ToolCatalog;
-import { seedKernelPolicyRows } from "../../src/policy-seed";
-import { createSendMessageTool } from "../../src/bundles/send-message";
+import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
+import { createSendMessageTool } from "../../src/bundles/messaging/send-message/index";
 import { dispatchOutboundMessage } from "../../src/composition/terminal-message";
 import type { z } from "zod";
 import { Effect } from "effect";

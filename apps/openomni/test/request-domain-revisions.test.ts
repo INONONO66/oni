@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { PlainValue } from "@openomni/protocol";
 import { approvalRequest } from "./helpers/approval-request";
-import { createRequestDomainRevisions } from "../src/tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "../src/bundles/tools/core/request-domain-revisions";
 import { testPlane } from "./helpers/ledger";
 
 const plane = testPlane();
