@@ -1,10 +1,10 @@
-import { Database } from "bun:sqlite";
+import { Database, SQLiteError } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ObservationSink, Storage as ProtocolStorage } from "@openomni/protocol";
 import { z } from "zod";
 import { LedgerSession } from "@openomni/protocol";
-import { CatalogVersionRefused, SessionNotFound } from "./errors";
+import { CatalogUpgradeRefused, CatalogVersionRefused, SessionNotFound } from "./errors";
 import { bootstrapStoreDatabase, SILENT_OBSERVATION_SINK, StoreHandle } from "./session-file/index.js";
 import { createPolicies } from "./storage/sqlite-l0-policies.js";
 
@@ -21,25 +21,13 @@ const sqlList = (values: readonly string[]): string =>
 const ROLE_LIST = sqlList(LedgerSession.Role.options);
 
 /**
- * Policy-row kinds are point kinds (#1251): the closed journal set plus the
+ * Policy-row kinds are point kinds: the closed journal set plus the
  * one historical seed kind the point mapping still converts (gate/migrate.ts).
  */
 const KIND_LIST = sqlList([
-  "prompt",
-  "signal",
-  "turn",
-  "llm",
-  "message",
-  "request",
-  "alarm",
-  "session.configure",
-  "policy.decision",
-  "tool",
-  "compaction",
-  "action",
-  "fold.checkpoint",
-  "ingress",
-  "alarm.fired",
+  "prompt", "signal", "turn", "llm", "message", "request", "alarm",
+  "session.configure", "policy.decision", "tool", "compaction", "action",
+  "fold.checkpoint", "ingress", "alarm.fired",
 ]);
 
 export const CATALOG_SCHEMA: readonly string[] = [
@@ -67,7 +55,7 @@ export const CATALOG_SCHEMA: readonly string[] = [
 ];
 
 /**
- * Catalog schemaVersion (#1252): stamped into `PRAGMA user_version` when the
+ * Catalog schemaVersion: stamped into `PRAGMA user_version` when the
  * catalog is created or opened by code at least this new. A file whose marker
  * is greater than this constant was written by newer code and opens read-only.
  */
@@ -217,8 +205,9 @@ interface OpenCatalogStoreOptions {
 
 /**
  * SQLite cannot alter a CHECK constraint, so older catalogs rebuild both constrained tables.
- * The copy rewrites retired role and ingress bytes to the current vocabulary; collisions or
- * invalid values fail the transaction. Session-file journal bytes and hashes are untouched.
+ * The copy rewrites only the retired role and ingress bytes to the current vocabulary, including
+ * role bytes in policy matches. Collisions and other invalid values fail the transaction.
+ * Session-file journal bytes and hashes are untouched.
  */
 function migrateCatalogChecks(db: Database): void {
   for (const table of ["session_index", "policy"] as const) {
@@ -227,11 +216,25 @@ function migrateCatalogChecks(db: Database): void {
   // The raw DDL list: pragmas cannot change inside the migration transaction.
   for (const statement of CATALOG_SCHEMA) db.run(statement);
   db.run(`INSERT INTO session_index (id, parent_id, role, fence, created_at, has_armed)
-    SELECT id, parent_id, CASE WHEN role IN (${ROLE_LIST}) THEN role ELSE 'child' END,
+    SELECT id, parent_id, CASE WHEN role = 'worker' THEN 'child' ELSE role END,
       fence, created_at, has_armed FROM session_index_old`);
   db.run(`INSERT INTO policy (name, kind, phase, match, verdict, encoding_version, priority, generation)
-    SELECT name, CASE WHEN phase = 'pre' AND kind NOT IN (${KIND_LIST}) THEN 'ingress' ELSE kind END,
-      phase, match, verdict, encoding_version, priority, generation FROM policy_old`);
+    SELECT name, CASE WHEN phase = 'pre' AND kind = 'inbox.deliver' THEN 'ingress' ELSE kind END,
+      phase,
+      CASE WHEN json_extract(match, '$.message.targetRole') = 'worker'
+        THEN json_set(
+          CASE WHEN json_extract(match, '$.message.senderRole') = 'worker'
+            THEN json_set(CASE WHEN json_extract(match, '$.role') = 'worker'
+              THEN json_set(match, '$.role', 'child') ELSE match END, '$.message.senderRole', 'child')
+            ELSE CASE WHEN json_extract(match, '$.role') = 'worker'
+              THEN json_set(match, '$.role', 'child') ELSE match END END,
+          '$.message.targetRole', 'child')
+        ELSE CASE WHEN json_extract(match, '$.message.senderRole') = 'worker'
+          THEN json_set(CASE WHEN json_extract(match, '$.role') = 'worker'
+            THEN json_set(match, '$.role', 'child') ELSE match END, '$.message.senderRole', 'child')
+          ELSE CASE WHEN json_extract(match, '$.role') = 'worker'
+            THEN json_set(match, '$.role', 'child') ELSE match END END END,
+      verdict, encoding_version, priority, generation FROM policy_old`);
   db.run("DROP TABLE session_index_old");
   db.run("DROP TABLE policy_old");
   // RENAME carried the old tables' indexes with them and DROP removed them;
@@ -255,15 +258,20 @@ export function openCatalogStore(path: string, options: OpenCatalogStoreOptions)
     }
     bootstrapStoreDatabase(db, CATALOG_SCHEMA);
     if (fileVersion > 0 && fileVersion < CATALOG_SCHEMA_VERSION) {
-      db.transaction(() => {
-        if (fileVersion === 1) {
-          // v1 -> v2: the one guarded column add; fresh files get it from CATALOG_SCHEMA.
-          db.run("ALTER TABLE session_index ADD COLUMN has_armed INTEGER NOT NULL DEFAULT 0");
-        }
-        // Rebuild older CHECK constraints and rewrite retired bytes during the copy.
-        migrateCatalogChecks(db);
-        db.run(`PRAGMA user_version = ${CATALOG_SCHEMA_VERSION}`);
-      }).immediate();
+      try {
+        db.transaction(() => {
+          if (fileVersion === 1) {
+            // v1 -> v2: the one guarded column add; fresh files get it from CATALOG_SCHEMA.
+            db.run("ALTER TABLE session_index ADD COLUMN has_armed INTEGER NOT NULL DEFAULT 0");
+          }
+          // Rebuild older CHECK constraints and rewrite retired bytes during the copy.
+          migrateCatalogChecks(db);
+          db.run(`PRAGMA user_version = ${CATALOG_SCHEMA_VERSION}`);
+        }).immediate();
+      } catch (cause) {
+        if (!(cause instanceof SQLiteError)) throw cause;
+        throw new CatalogUpgradeRefused({ fileVersion, codeVersion: CATALOG_SCHEMA_VERSION, cause });
+      }
     } else if (fileVersion < CATALOG_SCHEMA_VERSION) {
       db.run(`PRAGMA user_version = ${CATALOG_SCHEMA_VERSION}`);
     }

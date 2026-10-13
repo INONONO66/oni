@@ -10,7 +10,7 @@ export interface OldCatalogFixture {
   readonly roles: readonly string[];
   readonly kinds: readonly string[];
   readonly sessions: ReadonlyArray<readonly [id: string, parentId: string | null, role: string]>;
-  readonly policies: ReadonlyArray<readonly [name: string, kind: string, phase: string, generation: number]>;
+  readonly policies: ReadonlyArray<readonly [name: string, kind: string, phase: string, generation: number, match?: string]>;
 }
 
 /** Writes a catalog file exactly as the named older DDL generation persisted it. */
@@ -46,11 +46,11 @@ export function writeOldCatalog(path: string, fixture: OldCatalogFixture): void 
       index + 5,
     ]);
   }
-  for (const [name, kind, phase, generation] of fixture.policies) {
+  for (const [name, kind, phase, generation, match = "{}"] of fixture.policies) {
     db.run(
       `INSERT INTO policy (name, kind, phase, match, verdict, encoding_version, priority, generation)
-       VALUES (?, ?, ?, '{}', '{"type":"allow"}', 1, 0, ?)`,
-      [name, kind, phase, generation],
+       VALUES (?, ?, ?, ?, '{"type":"allow"}', 1, 0, ?)`,
+      [name, kind, phase, match, generation],
     );
   }
   db.run(`PRAGMA user_version = ${fixture.version}`);

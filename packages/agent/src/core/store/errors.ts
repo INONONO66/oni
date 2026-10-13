@@ -107,6 +107,17 @@ export class LedgerInvariant extends Data.TaggedError("LedgerInvariant")<{
   readonly cause?: Error;
 }> {}
 
+/** A catalog upgrade rejected by SQLite; its transaction leaves the old schema and rows intact. */
+export class CatalogUpgradeRefused extends Data.TaggedError("CatalogUpgradeRefused")<{
+  readonly fileVersion: number;
+  readonly codeVersion: number;
+  readonly cause: Error;
+}> {
+  override get message(): string {
+    return `catalog schemaVersion ${this.fileVersion} could not upgrade to ${this.codeVersion}: ${this.cause.message}`;
+  }
+}
+
 /**
  * SchemaVersion fence (): a store file whose `user_version` marker exceeds this build's was
  * written by newer code. A catalog opens read-only: reads work, Deliver (fence rotation) and fork
