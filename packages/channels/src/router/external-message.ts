@@ -13,7 +13,6 @@ import { recordKernelRoute, resolveKernelRoute } from "./routing-resolution";
 import { recordAutomationDuplicate } from "./automation/ledger.js";
 import type { GatewayRouterPorts } from "./message-ports";
 import { evaluateSocialBudget } from "./messaging/social-budget";
-import type { IngressFacts } from "../automation/facts.js";
 
 function admitWebSocketOwner(
   stores: ChannelStores,
@@ -33,7 +32,7 @@ function admitWebSocketOwner(
 
 function resolveIngress(
   stores: ChannelStores, sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: IngressFacts, ports: GatewayRouterPorts, at: number,
+  facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number,
   ingress: ReturnType<typeof ingressInput>,
 ) {
   const surfaceKey = Channel.SurfaceKey.fromChannel({
@@ -180,7 +179,7 @@ function buildMessage(
 export function externalMessage(
   stores: ChannelStores,
   sender: Extract<Gateway.IngestSender, { kind: "external" }>,
-  facts: IngressFacts,
+  facts: Gateway.IngressFacts,
   ports: GatewayRouterPorts,
   at: number,
   budgets: readonly Gateway.SocialBudget[],
@@ -218,7 +217,7 @@ export function externalMessage(
 
 /** Replays retain the frozen route; completed deliveries append only a dedupe observation. */
 export function replayExternal(stores: ChannelStores,
-  sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: IngressFacts,
+  sender: Extract<Gateway.IngestSender, { kind: "external" }>, facts: Gateway.IngressFacts,
   ports: GatewayRouterPorts, at: number, budgets: readonly Gateway.SocialBudget[],
   input: ReturnType<typeof ingressInput>) {
   return Effect.gen(function* () {
