@@ -409,7 +409,7 @@ export const RESIDUE_PINS: ResiduePins = {
   files: RESIDUE_FILE_PINS,
   // CEILING: measured after the 100-column rewrap (1682/23018); the package rule
   // is 800bp, the ceiling is the actual so any comment growth fails.
-  ratioBasisPoints: 730,
+  ratioBasisPoints: 710,
   jsdocOverSix: 0, // TIGHT: no JSDoc block may span more than six physical lines.
   durableByteNotes: DURABLE_BYTE_NOTES,
 };
