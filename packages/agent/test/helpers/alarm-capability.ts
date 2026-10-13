@@ -3,7 +3,6 @@ import type { Alarm } from "@openomni/protocol";
 import type { AlarmFired, AlarmWakeContext, ArmRefused, ArmVerb } from "../../src/core/api";
 import {
   alarmCapability,
-  composeAlarmPurposes,
   MONITOR_HIT,
   MONITOR_SOURCE,
   MONITOR_TIMEOUT,
@@ -85,7 +84,6 @@ export function stubCapability(input: {
           })),
         })),
       ],
-      compose: composeAlarmPurposes,
       arm: () => input.arm,
       watch: {
         install: ({ watchId }) =>

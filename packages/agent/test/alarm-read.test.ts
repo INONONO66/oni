@@ -27,7 +27,7 @@ function chains(actions: readonly LedgerAction.Node[], afterRevision = 0, throug
         nextRevision: remaining.length > page.length ? page.at(-1)?.ordinal ?? null : null,
       };
     },
-  } as unknown as Pick<SessionKernel, "historyPage">;
+  } as Pick<SessionKernel, "historyPage">;
   return foldAlarmChains(kernel, sessionId, { afterRevision, throughRevision });
 }
 

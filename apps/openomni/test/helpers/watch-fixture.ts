@@ -191,7 +191,6 @@ export async function withEntityAlarmPorts<A>(
         }),
         cronPurposes(),
       ],
-      compose: Core.composeAlarmPurposes,
       arm: registry.arm,
       watch: {
         install: ({ sessionId: armedSession, watchId, spec, occurrence }) =>

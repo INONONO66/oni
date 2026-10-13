@@ -1,4 +1,4 @@
-import { Journal, PlainObjectSchema, isReservedAlarmPurpose, type LedgerAction, type PlainObject } from "@openomni/protocol";
+import { Journal, PlainObjectSchema, isReservedAlarmPurpose, type LedgerAction, type PlainObject, type PlainValue } from "@openomni/protocol";
 import type { SessionKernel } from "./entity";
 
 /** The last committed arm, including a retirement arm with `at: null`. */
@@ -61,10 +61,9 @@ export function foldAlarmChains(
   }
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
+function record(value: PlainValue): PlainObject | undefined {
+  const parsed = PlainObjectSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function foldAlarmRow(chains: Map<string, MutableChain>, action: LedgerAction.Node): void {

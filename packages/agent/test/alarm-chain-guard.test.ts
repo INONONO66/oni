@@ -4,12 +4,12 @@ import { Alarm } from "@openomni/protocol";
 import {
   alarmDisposition,
   armAction,
-  composeAlarmPurposes,
   firedAction,
   type AlarmArmView,
   type AlarmChainReads,
   type AlarmSkipReason,
 } from "../src/core/alarm";
+import { composeAlarmPurposes } from "../src/plugins/alarm";
 import {
   ArmRefused,
   AlarmWakeError,

@@ -6,6 +6,7 @@ import {
   Capability,
   RESERVED_PURPOSES,
   type AlarmCapability,
+  type AlarmPurposeRegistry,
   type ArmVerb,
   type CapabilityDefinition,
   type SeamTag,
@@ -63,7 +64,7 @@ export class AlarmComposeError extends Schema.TaggedError<AlarmComposeError>(
 /** The sole purpose-registry assembler; the four loop purposes belong to core. */
 export function composeAlarmPurposes(input: {
   readonly capabilities: readonly { readonly bundle: string; readonly purposes: readonly string[] }[];
-}): Effect.Effect<ReadonlyMap<string, string>, AlarmComposeError> {
+}): Effect.Effect<AlarmPurposeRegistry, AlarmComposeError> {
   return Effect.suspend(() => {
     const registry = new Map<string, string>(RESERVED_PURPOSES.map((purpose) => [purpose, "core"] as const));
     for (const capability of input.capabilities) {
@@ -79,14 +80,8 @@ export function composeAlarmPurposes(input: {
   });
 }
 
-/** Temporary structural seam until caller migration in step 3. */
-export type ComposePurposesVerb<E> = (input: {
-  readonly capabilities: readonly { readonly bundle: string; readonly purposes: readonly string[] }[];
-}) => Effect.Effect<ReadonlyMap<string, string>, E>;
-
-export interface AlarmCapabilityOptions<E> {
+export interface AlarmCapabilityOptions {
   readonly bundles: readonly AlarmBundlePurposes[];
-  readonly compose: ComposePurposesVerb<E>;
   /** Scoped to the session AND the calling turn; the capability only guards and delegates. */
   readonly arm: (sessionId: string, turnId: string) => ArmVerb;
   readonly watch: WatchInstallDeps;
@@ -97,7 +92,7 @@ export interface AlarmCapabilityDefinition extends AlarmCapability {
   readonly name: "alarm";
   readonly points: readonly ["alarm.fired"];
   /** The core's reserved purposes map to "core". */
-  readonly registry: ReadonlyMap<string, string>;
+  readonly registry: AlarmPurposeRegistry;
   readonly verbs: {
     readonly arm: (sessionId: string, turnId: string) => ArmVerb;
     readonly watch: WatchVerb;
@@ -138,11 +133,10 @@ export function alarmContract(input: {
  * Reserved/`rescan`/duplicate purposes refuse with no partial activation; an unregistered purpose
  * is a typed wake failure with zero handler execution.
  */
-export function alarmCapability<E>(
-  options: AlarmCapabilityOptions<E>,
-): Effect.Effect<AlarmCapabilityDefinition, E> {
-  return options
-    .compose({
+export function alarmCapability(
+  options: AlarmCapabilityOptions,
+): Effect.Effect<AlarmCapabilityDefinition, AlarmComposeError> {
+  return composeAlarmPurposes({
       capabilities: options.bundles.map((declaration) => ({
         bundle: declaration.bundle,
         purposes: declaration.purposes.map((purpose) => purpose.name),

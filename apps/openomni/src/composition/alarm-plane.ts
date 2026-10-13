@@ -1,7 +1,6 @@
 import { type Bundle, Core } from "@openomni/agent";
-import { Alarm, Cron, type LedgerAction, type PlainObject, PlainObjectSchema } from "@openomni/protocol";
+import { Alarm, Cron, Journal, type PlainObject, PlainObjectSchema } from "@openomni/protocol";
 import { Effect } from "effect";
-import { z } from "zod";
 import { MonitorRefused, type MonitorPorts, type WatchState } from "../tools/core/watch";
 import { CRON_SOURCE, CRON_TICK, CronPayload } from "../bundles/cron";
 import type { SessionKernel } from "./cluster-runtime";
@@ -15,133 +14,9 @@ import type { SessionKernel } from "./cluster-runtime";
  * when no activation is registered.
  */
 
-const ArmIntent = z.object({
-  op: z.literal("arm"),
-  purpose: z.string(),
-  at: z.number().nullable(),
-  supersedes: z.string().nullable(),
-  alarmId: z.string(),
-  sourceKey: z.string(),
-  payload: PlainObjectSchema,
-});
-
-const FiredIntent = z.object({
-  op: z.literal("fired"),
-  occurrenceId: z.string(),
-  outcome: z.enum(["delivered", "stale", "exhausted"]),
-  alarmId: z.string(),
-});
-
-/** One folded arm row: the chain's current (or final) occurrence for its alarm. */
-interface AlarmArmRow {
-  readonly occurrenceId: string;
-  readonly purpose: string;
-  readonly at: number | null;
-  readonly supersedes: string | null;
-  readonly sourceKey: string;
-  readonly payload: PlainObject;
-  readonly ts: number;
-  readonly actionId: string;
-}
-
-/** One alarm chain folded from committed history. */
-export interface AlarmChainView {
-  readonly alarmId: string;
-  readonly latest: AlarmArmRow;
-  readonly firstTs: number;
-  readonly lastTs: number;
-  readonly armCount: number;
-  readonly delivered: number;
-  readonly settled: ReadonlySet<string>;
-}
-
-/** Pure fold of a session's alarm chains from paged committed history. */
-export function foldAlarmChains(
-  kernel: SessionKernel,
-  sessionId: string,
-): ReadonlyMap<string, AlarmChainView> {
-  interface Mutable {
-    alarmId: string;
-    latest: AlarmArmRow;
-    firstTs: number;
-    lastTs: number;
-    armCount: number;
-    delivered: number;
-    settled: Set<string>;
-  }
-  const chains = new Map<string, Mutable>();
-  let after = 0;
-  for (;;) {
-    const page = kernel.historyPage(sessionId, { afterRevision: after });
-    for (const action of page.actions) {
-      if (action.kind !== "alarm") continue;
-      foldAlarmAction(chains, action);
-    }
-    if (page.nextRevision === null) return chains;
-    after = page.nextRevision;
-  }
-}
-
-function foldAlarmAction(
-  chains: Map<
-    string,
-    {
-      alarmId: string;
-      latest: AlarmArmRow;
-      firstTs: number;
-      lastTs: number;
-      armCount: number;
-      delivered: number;
-      settled: Set<string>;
-    }
-  >,
-  action: LedgerAction.Node,
-): void {
-  const arm = ArmIntent.safeParse(action.intent.value);
-  if (arm.success) {
-    const effect = action.effect.value;
-    const occurrenceId =
-      effect !== null && typeof effect === "object" && !Array.isArray(effect)
-        ? effect.occurrenceId
-        : undefined;
-    if (typeof occurrenceId !== "string") return;
-    const row: AlarmArmRow = {
-      occurrenceId,
-      purpose: arm.data.purpose,
-      at: arm.data.at,
-      supersedes: arm.data.supersedes,
-      sourceKey: arm.data.sourceKey,
-      payload: arm.data.payload,
-      ts: action.ts,
-      actionId: action.id,
-    };
-    const existing = chains.get(arm.data.alarmId);
-    if (existing === undefined) {
-      chains.set(arm.data.alarmId, {
-        alarmId: arm.data.alarmId,
-        latest: row,
-        firstTs: action.ts,
-        lastTs: action.ts,
-        armCount: 1,
-        delivered: 0,
-        settled: new Set(),
-      });
-      return;
-    }
-    existing.latest = row;
-    existing.lastTs = Math.max(existing.lastTs, action.ts);
-    existing.armCount += 1;
-    return;
-  }
-  const fired = FiredIntent.safeParse(action.intent.value);
-  if (!fired.success) return;
-  const chain = chains.get(fired.data.alarmId);
-  if (chain === undefined) return;
-  chain.lastTs = Math.max(chain.lastTs, action.ts);
-  if (fired.data.outcome === "stale") return;
-  chain.settled.add(fired.data.occurrenceId);
-  if (fired.data.outcome === "delivered") chain.delivered += 1;
-}
+/** The app consumes the core's single rich alarm-chain projection. */
+export type AlarmChainView = Core.AlarmChainView;
+export const foldAlarmChains = Core.foldAlarmChains;
 
 /** `Core.AlarmChainReads` over the fold: what the chain guard consults at delivery. */
 export function alarmChainReads(kernel: SessionKernel, sessionId: string): Core.AlarmChainReads {
@@ -274,10 +149,12 @@ function chainSpec(deps: AlarmMonitorDeps, sessionId: string, id: string) {
     const page = kernel.historyPage(sessionId, { afterRevision: after });
     for (const action of page.actions) {
       if (action.kind !== "alarm") continue;
-      const arm = ArmIntent.safeParse(action.intent.value);
-      if (!arm.success || arm.data.alarmId !== id) continue;
-      if (arm.data.payload.spec !== undefined || arm.data.payload.expr !== undefined)
-        found = arm.data.payload;
+      if (!Journal.declarationFor("alarm")?.schema.safeParse({ intent: action.intent, effect: action.effect }).success) continue;
+      const intent = action.intent.value;
+      if (intent === null || typeof intent !== "object" || Array.isArray(intent) || intent.op !== "arm" || intent.alarmId !== id) continue;
+      const payload = PlainObjectSchema.safeParse(intent.payload);
+      if (payload.success && (payload.data.spec !== undefined || payload.data.expr !== undefined))
+        found = payload.data;
     }
     if (page.nextRevision === null) return found;
     after = page.nextRevision;

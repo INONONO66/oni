@@ -68,7 +68,6 @@ export function createWatchPlane(
   const capabilityFor = (onBundles: readonly string[]) =>
     Bundle.alarmCapability({
       bundles: declared.filter((declaration) => onBundles.includes(declaration.bundle)),
-      compose: Bundle.composeAlarmPurposes,
       watch,
       arm: arms.arm,
     });

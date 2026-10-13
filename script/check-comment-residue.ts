@@ -277,6 +277,7 @@ const DURABLE_BYTE_NOTES: readonly DurableByteNote[] = [];
 const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Map([
   ["packages/agent/src/bundle.ts", [0, 0]],
   ["packages/agent/src/core/admission.ts", [0, 0]],
+  ["packages/agent/src/core/alarm-read.ts", [0, 0]],
   ["packages/agent/src/core/alarm-ports.ts", [0, 0]],
   ["packages/agent/src/core/alarm.ts", [0, 0]],
   ["packages/agent/src/core/api.ts", [0, 0]],

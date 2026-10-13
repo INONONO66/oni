@@ -12,7 +12,7 @@ export { RunEvents } from "./run-events";
 // Alarm seam: exactly what an alarm capability needs.
 export {
   ArmRefused, AlarmWakeError, RESERVED_PURPOSES,
-  type AlarmCapability, type AlarmWakeContext, type ArmVerb, type AlarmFired, type AlarmWakeOutcome,
+  type AlarmCapability, type AlarmWakeContext, type ArmVerb, type AlarmFired, type AlarmWakeOutcome, type AlarmPurposeRegistry,
 } from "./alarm";
 // A plugin consumes `Capability.define` alone; `Bundle.define` / `Manifest.define`
 // are product-side, surfaced by the root `Bundle` barrel.

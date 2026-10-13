@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ArmVerb } from "../../src/core/alarm";
-import { AlarmComposeError, composeAlarmPurposes, alarmCapability, watchPurposes, type AlarmCapabilityDefinition, type WatchInstallDeps } from "../../src/plugins/alarm";
+import { type AlarmComposeError, alarmCapability, watchPurposes, type AlarmCapabilityDefinition, type WatchInstallDeps } from "../../src/plugins/alarm";
 import type { TestClusterOptions } from "./cluster-runtime";
 
 export interface LiveArmRegistry {
@@ -61,7 +61,6 @@ export function liveWatchCapability(
         }),
       },
     ],
-    compose: composeAlarmPurposes,
     arm: registry.arm,
     watch: { install },
   }).pipe(Effect.map((definition) => ({ definition, installs, closed })));

@@ -6,7 +6,6 @@ import { runEffect } from "./effect";
 export async function alarmDefinition(): Promise<Bundle.CapabilityDefinition<"alarm">> {
   const capability = await runEffect(Bundle.alarmCapability({
     bundles: [],
-    compose: Bundle.composeAlarmPurposes,
     arm: () => () => Effect.die(new Error("unused arm")),
     watch: { install: () => Effect.void },
   }));

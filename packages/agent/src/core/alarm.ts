@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { seam } from "./capability";
 import { interruptOn } from "./ports";
-import { Alarm, canonicalJson, isReservedAlarmPurpose, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
+import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
 import type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
 import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "./messages";
 
@@ -170,6 +170,7 @@ export interface AlarmDrainConfig {
  */
 export const MAX_OCCURRENCE_STRIKES = 3;
 
+
 /** The fired occurrence view a capability's `wake` receives. */
 export interface AlarmFired {
   readonly occurrenceId: string;
@@ -281,46 +282,8 @@ export interface AlarmCapability {
   readonly wake: (fired: AlarmFired, ctx: AlarmWakeContext) => Effect.Effect<AlarmWakeOutcome, AlarmWakeError>;
 }
 
-/** Typed purpose-registry compose failure (): no partial activation. */
-export class AlarmComposeError extends Schema.TaggedError<AlarmComposeError>(
-  "@openomni/agent/core/AlarmComposeError",
-)("AlarmComposeError", {
-  code: Schema.Literals(["reserved_purpose", "duplicate_purpose"]),
-  purpose: Schema.String,
-  bundle: Schema.String,
-}) {}
-
 /** purpose → owning bundle; the core's four reserved purposes are always present. */
 export type AlarmPurposeRegistry = ReadonlyMap<string, string>;
-
-/**
- * Composes the alarm purpose registry (): reserved names and the
- * entity-internal `rescan` are rejected, duplicates are rejected, and the
- * core's four loop-reserved purposes are always present.
- */
-export function composeAlarmPurposes(input: {
-  readonly capabilities: readonly { readonly bundle: string; readonly purposes: readonly string[] }[];
-}): Effect.Effect<AlarmPurposeRegistry, AlarmComposeError> {
-  return Effect.suspend(() => {
-    const registry = new Map<string, string>(
-      RESERVED_PURPOSES.map((purpose) => [purpose, "core"] as const),
-    );
-    for (const capability of input.capabilities) {
-      for (const purpose of capability.purposes) {
-        if (isReservedAlarmPurpose(purpose) || purpose === "rescan")
-          return Effect.fail(
-            new AlarmComposeError({ code: "reserved_purpose", purpose, bundle: capability.bundle }),
-          );
-        if (registry.has(purpose))
-          return Effect.fail(
-            new AlarmComposeError({ code: "duplicate_purpose", purpose, bundle: capability.bundle }),
-          );
-        registry.set(purpose, capability.bundle);
-      }
-    }
-    return Effect.succeed(registry);
-  });
-}
 
 /** Durable retry schedule over the alarm chain ( S4): `arm` commits one */
 export function createRetryAlarmPort(deps: RetryAlarmDeps): RetryAlarmPort {
