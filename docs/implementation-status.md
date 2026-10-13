@@ -2,7 +2,7 @@
 
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
-On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `b3d62bbc3`, PR #1461).
+On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `deb457307`, PR #1461).
 Webhook deliveries now emit `event: "webhook"` and the stored `secretRef`
 that verified their HMAC. GitHub deliveries emit `event: "github"` and a
 `githubEvent` key such as `pull_request.opened`. Both optional facts are
@@ -36,6 +36,8 @@ deliveries return `blocked_pre message.external.grant_tier`, a
 `channel_ceiling` block, zero commits and zero automation rows. Both positive
 cases fail on the pre-fix matcher or pre-fix drivers.
 
+## #1458 desktop ingress ledger winning-prompt link (PR #1460, base `deb457307`)
+
 ## #1349 — three-line comment rule across packages/agent (PR #1449, base `2c3efdb0a`)
 
 - Scope: `packages/agent/src`, `packages/agent/test`, `packages/agent/bench` plus `script/check-comment-residue.ts` and its test; nothing else (`git diff --name-only 2c3efdb0a..HEAD | grep -vE '^packages/agent/|^script/check-comment-residue'` is empty — this stamp is the lead's tail commit). The rung lands alone, after #1348, because every agent file it touches is also a rebase hazard for the other rungs.
@@ -59,7 +61,7 @@ and the desktop test renders that row shape through production `LedgerRows`.
 
 ## #1456 Owner bootstrap for the shipped desktop connection (epic #1337 follow-up)
 
-On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `b3d62bbc3`).
+On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `deb457307`).
 
 - The desktop connects with URL + token and no actor declaration; the upgrade
   mints `connection:<uuid>`. Chat already admits that sender as the Owner from
