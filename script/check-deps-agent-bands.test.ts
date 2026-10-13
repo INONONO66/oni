@@ -490,7 +490,9 @@ test("#1346 r1 M2: every spelling of a write door counts — element access, des
     ),
   ).toEqual([
     ["<alias>", "commit"],
+    ["<bare>", "commit"],
     ["<destructure>", "commit"],
+    ["<bare>", "commit"],
   ]);
 });
 

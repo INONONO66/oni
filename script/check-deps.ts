@@ -1273,7 +1273,7 @@ export function appsSessionWriteSites(source: string, filePath: string): AppsSes
   };
   // `commit` value forms, paired after the walk: bindings by bound name, bare calls by callee name.
   const commitBindings: { readonly node: ts.Node; readonly receiver: string; readonly bound: string }[] = [];
-  const bareCommitCalls: ts.Identifier[] = [];
+  const bareCalls: ts.Identifier[] = [];
   const valueForm = (member: { readonly name: string; readonly node: ts.Node }, receiver: string, bound: string): void => {
     if (member.name === "commit") commitBindings.push({ node: member.node, receiver, bound });
     else site(member.node, receiver, member.name);
@@ -1284,9 +1284,9 @@ export function appsSessionWriteSites(source: string, filePath: string): AppsSes
       if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
         const banned = bannedSessionWriteMember(callee);
         if (banned !== undefined) site(banned.node, receiverName(callee.expression) ?? "<expression>", banned.name);
-      } else if (ts.isIdentifier(callee) && APPS_SESSION_WRITE_MEMBERS.has(callee.text)) {
-        if (callee.text === "commit") bareCommitCalls.push(callee);
-        else site(callee, "<bare>", callee.text);
+      } else if (ts.isIdentifier(callee)) {
+        if (APPS_SESSION_WRITE_MEMBERS.has(callee.text) && callee.text !== "commit") site(callee, "<bare>", callee.text);
+        else bareCalls.push(callee);
       }
     } else if (
       ts.isVariableDeclaration(node) &&
@@ -1305,9 +1305,9 @@ export function appsSessionWriteSites(source: string, filePath: string): AppsSes
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  const calledBindings = commitBindings.filter((binding) => bareCommitCalls.some((call) => call.text === binding.bound));
+  const calledBindings = commitBindings.filter((binding) => bareCalls.some((call) => call.text === binding.bound));
   for (const binding of calledBindings) site(binding.node, binding.receiver, "commit");
-  for (const call of bareCommitCalls) {
+  for (const call of bareCalls) {
     if (calledBindings.some((binding) => binding.bound === call.text)) site(call, "<bare>", "commit");
   }
   return found.sort((a, b) => a.position - b.position).map((entry) => entry.site);
