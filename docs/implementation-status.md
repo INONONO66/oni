@@ -36,6 +36,35 @@ deliveries return `blocked_pre message.external.grant_tier`, a
 `channel_ceiling` block, zero commits and zero automation rows. Both positive
 cases fail on the pre-fix matcher or pre-fix drivers.
 
+## #1350 — alarm registry single owner and one chain fold (PR #1467, base `c99bb6d5c`)
+
+- Registry owner: `composeAlarmPurposes` is defined once, in
+  `packages/agent/src/plugins/alarm/index.ts`, and reaches the app only through
+  `Bundle`; the core `ComposePurposesVerb` definition, its `core/api.ts` and
+  `core/index.ts` exports and the compose-time injection are deleted (token
+  count 2 → 0 across `packages/agent/src` and `apps/openomni/src`). `plugins/alarm/**`
+  imports only `core/api`; core imports nothing from `plugins/`.
+- One chain fold: `packages/agent/src/core/alarm-read.ts` `foldAlarmChains`
+  walks `historyPage` in 256-row pages over `(afterRevision, throughRevision]`
+  and `openAlarmIds` drops reserved purposes and `at: null` retirements. It
+  replaces the loop fold inside `core/run.ts` (`sessionStopEvidence`, now typed
+  over `Pick<SessionKernel, "row" | "actionById" | "historyPage">`) and the app
+  fold in `apps/openomni/src/composition/alarm-plane.ts` (which aliases
+  `Core.foldAlarmChains`). Equivalence was reviewer-compared against both
+  deleted folds on revision bounds, reserved purposes, `at: null` retirement,
+  matching versus superseded stale firings and occurrence identity;
+  `packages/agent/test/alarm-read.test.ts` (4 cases) and
+  `test/alarm-stop-evidence.test.ts` pin the divergence cases with stub kernels
+  built through `SessionHistory.Page.parse` / `LedgerSession.Row.parse`.
+- The former manual watch-retirement check is
+  `apps/openomni/test/monitor-retire-restart.test.ts` over the real WS/monitor
+  path. `script/check-comment-residue.ts` pins lowered for `run.ts` and
+  `plugins/alarm/index.ts`; the new `alarm-read.ts` is pinned at 0.
+- Review r1: H2 (branch not rebased onto #1349; residue pins stale) and M2
+  (comment churn outside moved code; type-erasing test casts) fixed on the
+  rebased tip; 6 Lows recorded as PR comments. Stamp:
+  `docs/agents-stamps/1350-alarm-registry-owner.md`.
+
 ## #1349 — three-line comment rule across packages/agent (PR #1449, base `2c3efdb0a`)
 
 - Scope: `packages/agent/src`, `packages/agent/test`, `packages/agent/bench` plus `script/check-comment-residue.ts` and its test; nothing else (`git diff --name-only 2c3efdb0a..HEAD | grep -vE '^packages/agent/|^script/check-comment-residue'` is empty — this stamp is the lead's tail commit). The rung lands alone, after #1348, because every agent file it touches is also a rebase hazard for the other rungs.
