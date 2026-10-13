@@ -10,6 +10,7 @@ import {
   type LedgerAction,
   type PlainObject,
   PlainValueSchema,
+  SessionTurn,
 } from "@openomni/protocol";
 import { createRunState } from "../src/core/turn";
 import { evaluateBudget } from "../src/core/budget";
@@ -21,7 +22,15 @@ import { deliveryActions, foldCheckpointAction, turnTerminalAction } from "../sr
 import { bounded } from "./helpers/bounded";
 import { effectOf, intentOf } from "./helpers/crash-matrix";
 import { commitReceivedMessage } from "./helpers/ingress";
-import { isolatedLedger, isolatedRun, runTestSync } from "./helpers/isolated";
+import { isolated, isolatedLedger, isolatedRun, runTestSync } from "./helpers/isolated";
+import { reopenableLedger } from "./helpers/reopenable-ledger";
+import { allowConfigure, isolatedRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
+import { testTurnDispatcher } from "./helpers/service-layers";
+import { fixtureConfigHead, fixtureTraceContext, prepareChatFixture } from "./helpers/chat-services";
+import { seedPolicy } from "./helpers/seed-policy";
+import { uniqueEntropy } from "./helpers/time";
+import { createSessionChatRunner, resolveSessionRuntime, type SessionRunnerInput } from "../src/core/run";
+import { createController } from "../src/testing/controller";
 import { nth } from "./helpers/nth";
 import { requestLedger } from "./helpers/request-ledger";
 import { textMessage } from "./helpers/messages";
@@ -181,6 +190,84 @@ test("#1347 a reactivated turn resumes its checkpointed budget counters instead 
   // A fresh run (no restored counters) still starts from zero.
   expect(createRunState(runInput([{ role: "user", content: "hi" }]), { now: () => time, id: () => "m" }).budgetState).toEqual({ startTime: time, turns: 0, toolCalls: 0, toolRuntimeMs: 0, totalInputTokens: 0, totalOutputTokens: 0 });
 }));
+
+test("#1347 a crash-open reactivation hands the charged counters to the resumed run, which still stops with AgentStopError budget", () => {
+  const ledger = reopenableLedger("1347-budget-");
+  return isolated(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const id = "charged";
+        const turnId = `${id}:turn`;
+        const kernel = () => isolatedLedger().kernel;
+        seedPolicy();
+        yield* kernel().materialize({
+          id, role: "resident", parentId: null, tools: [], system: { preset: "", blocks: [] },
+          policyGeneration: 1, actionId: "initial", at: 1,
+        });
+        const generation = SessionHandleStore.latestGeneration(sessionTree(kernel(), id));
+        const lease = yield* kernel().adoptFence({ sessionId: id, owner: "crashed", fence: kernel().row(id).fence + 1 });
+        // One model step charged under an open turn, then the process dies: no turn terminal.
+        yield* kernel().commit({
+          sessionId: id, owner: "crashed", fence: lease.fence, now: 2,
+          expectedRevision: kernel().row(id).revision, state: "running",
+          actions: [
+            {
+              id: turnId, sessionId: id, parentId: "initial", kind: "turn", irreversible: true, ts: 2,
+              intent: {
+                encodingVersion: 1,
+                value: PlainValueSchema.parse(SessionTurn.DecodeIntent.parse({
+                  phase: "intent", resultId: `${id}:result`, deliveryIds: [], resumeCount: 0, boundaryActionId: "initial",
+                  toolsGeneration: 1, toolsHash: generation.toolsHash, systemHash: generation.systemHash, policyGeneration: 1,
+                })),
+              },
+              effect: { encodingVersion: 1, value: { phase: "pending" } },
+            },
+            ...chargedTurnRows(id, turnId),
+          ],
+        });
+        expect(hydrateSessionHistory(kernel(), id).state.budgetState).toMatchObject({ turns: 1, toolCalls: 1 });
+        ledger.reopen();
+        const runtime: SessionFixture = {
+          observations: { publish: () => undefined }, clock: () => 2_000, entropy: uniqueEntropy("boot2"),
+          authorizeConfigure: allowConfigure, ...isolatedRuntime(),
+        };
+        const inputs: SessionRunnerInput[] = [];
+        let modelCalls = 0;
+        const runner = createSessionChatRunner({
+          prepare: (input) => Effect.gen(function* () {
+            inputs.push(input);
+            return prepareChatFixture({
+              traceContext: fixtureTraceContext(input),
+              config: {
+                ...fixtureConfigHead((yield* testTurnDispatcher(input, runtime)).executor),
+                // The crashed turn already spent its one turn.
+                budget: testBudget({ maxTurns: 1 }),
+                llm: { run: () => Effect.sync(() => { modelCalls += 1; return { type: "stop" }; }) },
+              },
+            });
+          }),
+        });
+        const result = yield* withSessionServices(
+          Effect.gen(function* () {
+            const resolved = yield* resolveSessionRuntime(runtime);
+            const controller = yield* createController(kernel(), id, runner, resolved, {
+              reactivate: () => Effect.die("no reactivation in recovery test"),
+              release: () => undefined,
+            }, yield* Effect.scope);
+            return yield* controller.reconcile();
+          }),
+          runtime,
+        );
+        // Crash-open: the same turn resumes, and the restored counters stop it before any model call.
+        expect(inputs.map((input) => input.turnId)).toEqual([turnId]);
+        expect(result).toMatchObject({ kind: "error", cause: { code: "agent_stop", reason: "budget" } });
+        expect(modelCalls).toBe(0);
+        expect(kernel().latestTurnTerminal(id)?.effect.kind).toBe("error");
+      }),
+    ),
+    () => ledger,
+  );
+});
 
 test("#1347 checkpoint cadence folds `everyActions` from the configured policy, not a literal", () => isolatedRun((ledger) => {
   const recording = requestLedger();
