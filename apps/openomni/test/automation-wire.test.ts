@@ -3,6 +3,8 @@ import { Ingress } from "@openomni/protocol";
 import { residentSuite } from "./helpers/resident-suite";
 import { automationFixture, automationRecord, automationRequest } from "./helpers/automation";
 import { nextFrame } from "./helpers/ws";
+import { automationWire } from "../src/composition/automation-wire";
+import { runEffect } from "./helpers/effect";
 
 const suite = residentSuite();
 
@@ -63,4 +65,14 @@ test("invalid records produce correlated schema issues without a store write", a
   expect(Ingress.AutomationResponse.parse(await response))
     .toMatchObject({ type: "automation_add_refused", reason: "invalid_record", issues: expect.any(Array) });
   expect(f.stores.automations.list()).toEqual([]);
+});
+
+test("a store failure yields a correlated refusal frame instead of an unanswered request", async () => {
+  const f = await automationFixture(suite);
+  const wire = automationWire({
+    id: () => "new-id",
+    store: { ...f.stores.automations, list: () => { throw new Error("store read failed"); } },
+  });
+  expect(await runEffect(wire({ type: "automation_list", requestId: "failed-list" }, "owner")))
+    .toMatchObject({ type: "automation_list_refused", requestId: "failed-list", reason: "invalid_record" });
 });

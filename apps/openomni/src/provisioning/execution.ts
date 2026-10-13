@@ -18,7 +18,7 @@ import {
 } from "./channels";
 import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
-import { automationApproval, executeApprovedAutomation, executeAutomation } from "./automation";
+import { automationApproval, executeApprovedAutomation, executeAutomationTool } from "./automation";
 function provisionExecutors(port: ProvisionPort, now: () => number) {
   return {
     contact_add: executePersonDeclare(port, now),
@@ -44,7 +44,7 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
       case "automation_remove":
       case "automation_disable":
       case "automation_list":
-        return executeAutomation(port?.automations, operation, `session:${context.sessionId}`);
+        return executeAutomationTool(port?.automations, operation, `session:${context.sessionId}`);
     }
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return refusal("provision", "provisioning is not composed");

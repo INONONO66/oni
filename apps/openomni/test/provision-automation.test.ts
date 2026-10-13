@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { Ingress } from "@openomni/protocol";
 import { createProvisionTool, ProvisionInput } from "../src/tools/provision";
-import { AutomationRefused, executeAutomation } from "../src/provisioning/automation";
+import { executeAutomation } from "../src/provisioning/automation";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
@@ -91,9 +91,9 @@ test("record edits while approval is pending invalidate consent", async () => {
 test("a session cannot replace an Owner-approved id", () => {
   const { automations } = fixture();
   executeAutomation(automations, { op: "automation_add", args: { record: record() } }, "owner");
-  expect(() => executeAutomation(automations, {
+  expect(executeAutomation(automations, {
     op: "automation_add", args: { record: { ...record(), target: "session:attacker" } },
-  }, "session:agent")).toThrow(AutomationRefused);
+  }, "session:agent")).toMatchObject({ type: "error", reason: "invalid_record" });
   expect(automations.store.get("rule")?.record.target).toBe("new");
 });
 

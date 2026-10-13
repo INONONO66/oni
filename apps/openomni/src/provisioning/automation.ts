@@ -1,12 +1,29 @@
 import { Core } from "@openomni/agent";
-import { canonicalDigest, type ToolExecutionContext } from "@openomni/protocol";
-import { AutomationConfigurationError, type createAutomationStore } from "@openomni/channels";
+import { canonicalDigest, type Ingress, type ToolExecutionContext } from "@openomni/protocol";
+import { AutomationConfigurationError, AutomationEnableRefused, type createAutomationStore } from "@openomni/channels";
+import { Result } from "effect";
+import { ThrownError } from "../thrown";
 import type { AutomationOperation, AutomationResult, AutomationRefusal } from "./automation-schema";
 
-export class AutomationRefused extends Core.ToolRefused {
+class AutomationRefused extends Core.ToolRefused {
   constructor(readonly refusal: AutomationRefusal) {
     super("provision", refusal.reason);
   }
+}
+
+/** The one mapping from a channels store failure to an automation refusal reason. */
+function storeRefusal(error: Error, id: string | undefined): AutomationRefusal {
+  if (error instanceof AutomationEnableRefused)
+    return { type: "error", reason: error.reason === "not_found" ? "not_found" : "require_approval", id: error.id };
+  if (error instanceof AutomationConfigurationError && error.reason === "store_unconfigured")
+    return { type: "error", reason: "store_unconfigured", id };
+  return { type: "error", reason: "invalid_record", id };
+}
+
+/** The channels store reports failures by throwing; this is the single boundary that turns them into values. */
+function storeCall<A>(id: string | undefined, call: () => A): A | AutomationRefusal {
+  const result = Result.try({ try: call, catch: ThrownError.parse });
+  return Result.isSuccess(result) ? result.success : storeRefusal(result.failure, id);
 }
 
 export interface AutomationPort {
@@ -23,7 +40,7 @@ function addAutomation(
   port: AutomationPort,
   operation: Extract<AutomationOperation, { op: "automation_add" }>,
   caller: "owner" | `session:${string}`,
-): AutomationResult {
+): AutomationResult | AutomationRefusal {
   const record = {
     ...operation.args.record,
     id: operation.args.record.id ?? port.id(),
@@ -34,17 +51,11 @@ function addAutomation(
   const existing = port.store.get(record.id);
   if (caller !== "owner" && existing !== undefined) {
     if (canonicalDigest(existing.record) !== canonicalDigest(record))
-      throw new AutomationRefused({ type: "error", reason: "invalid_record", id: record.id });
+      return { type: "error", reason: "invalid_record", id: record.id };
     return { op: operation.op, result: { type: "require_approval", id: record.id } };
   }
-  try {
-    port.store.add(record, caller === "owner");
-  } catch (error) {
-    if (!(error instanceof AutomationConfigurationError)) throw error;
-    throw new AutomationRefused({
-      type: "error", reason: error.reason === "store_unconfigured" ? error.reason : "invalid_record", id: record.id,
-    });
-  }
+  const stored = storeCall(record.id, () => port.store.add(record, caller === "owner"));
+  if ("type" in stored) return stored;
   return { op: operation.op, result: caller === "owner"
     ? { record } : { type: "require_approval", id: record.id } };
 }
@@ -54,9 +65,25 @@ export function executeAutomation(
   port: AutomationPort | undefined,
   operation: AutomationOperation,
   caller: "owner" | `session:${string}`,
-): AutomationResult {
+): AutomationResult | AutomationRefusal {
   if (port === undefined)
-    throw new AutomationRefused({ type: "error", reason: "store_unconfigured" });
+    return { type: "error", reason: "store_unconfigured" };
+  return storeCall(operation.op === "automation_add" ? operation.args.record.id
+    : operation.op === "automation_list" ? undefined : operation.args.id,
+  () => dispatchAutomation(port, operation, caller));
+}
+
+/** Rows of the channels-owned automation ledger, read through the same failure mapping. */
+export function automationLedger(port: AutomationPort | undefined, query: Ingress.AutomationLedgerFilter) {
+  if (port === undefined) return { type: "error" as const, reason: "store_unconfigured" as const };
+  return storeCall(undefined, () => port.store.ledger(query));
+}
+
+function dispatchAutomation(
+  port: AutomationPort,
+  operation: AutomationOperation,
+  caller: "owner" | `session:${string}`,
+): AutomationResult | AutomationRefusal {
   const { store } = port;
   switch (operation.op) {
     case "automation_add":
@@ -68,7 +95,7 @@ export function executeAutomation(
     case "automation_disable": {
       const { id } = operation.args;
       if (store.get(id) === undefined)
-        throw new AutomationRefused({ type: "error", reason: "not_found", id });
+        return { type: "error", reason: "not_found", id };
       if (operation.op === "automation_remove") {
         store.remove(id);
         return { op: operation.op, result: { id } };
@@ -80,6 +107,17 @@ export function executeAutomation(
       return { op: operation.op, result: ownerEnable(store, id) };
     }
   }
+}
+
+/** Tool failures are thrown only at the tool boundary; wire callers retain refusal values. */
+export function executeAutomationTool(
+  port: AutomationPort | undefined,
+  operation: AutomationOperation,
+  caller: "owner" | `session:${string}`,
+): AutomationResult {
+  const result = executeAutomation(port, operation, caller);
+  if ("type" in result) throw new AutomationRefused(result);
+  return result;
 }
 
 /** A session proposal's id survives approval recovery without minting another draft. */
@@ -109,7 +147,7 @@ export function automationApproval(port: AutomationPort | undefined) {
   ) => {
     const id = automationId(operation, context);
     if (prepare)
-      executeAutomation(port, operation.op === "automation_add"
+      executeAutomationTool(port, operation.op === "automation_add"
         ? { ...operation, args: { record: { ...operation.args.record, id } } }
         : operation, `session:${context.sessionId}`);
     return { required: true, domainRevisions: automationDomainRevisions(port, id) };
@@ -126,7 +164,7 @@ export function executeApprovedAutomation(
   const scoped = operation.op === "automation_add"
     ? { ...operation, args: { record: { ...operation.args.record, id } } } : operation;
   if (context.domainRevisions === undefined)
-    return executeAutomation(port, scoped, `session:${context.sessionId}`);
+    return executeAutomationTool(port, scoped, `session:${context.sessionId}`);
   if (port === undefined)
     throw new AutomationRefused({ type: "error", reason: "store_unconfigured" });
   if (canonicalDigest({ ...context.domainRevisions }) !== canonicalDigest(automationDomainRevisions(port, id)))
