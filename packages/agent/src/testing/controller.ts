@@ -214,8 +214,8 @@ export function createController(
           pending: kernel.pendingMessages(sessionId),
           open: kernel.latestOpenTurn(sessionId),
           terminal: kernel.latestTurnTerminal(sessionId),
-          // #1310: the testing controller composes exactly the built-in
-          // capabilities; admission refuses a snapshot that declares none.
+          // The testing controller composes exactly the built-in capabilities;
+          // admission refuses a snapshot that declares none.
           capabilityKinds: ["tool", "compaction"],
         });
         switch (decision.kind) {
