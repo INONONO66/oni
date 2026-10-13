@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Retry } from "../../../src/model";
 import { providerFailure } from "../../helpers/mock-llm";
 
-/** Deterministic injected sources: frozen clock, zero jitter (#1245). */
+/** Deterministic injected sources: frozen clock, zero jitter. */
 const sources = { now: () => 0, random: () => 0 };
 
 for (const [statusCode, retryable, reason] of [

@@ -6,7 +6,7 @@ import { collector } from "./helpers/observation";
 import { FIXED_NOW, fixedNow, sequentialIds } from "./helpers/fixtures";
 
 /**
- * #1245: run() reads no ambient clock or entropy. Every emitted timestamp and
+ * run() reads no ambient clock or entropy. Every emitted timestamp and
  * identity comes from the injected `now`/`id` sources, so a fixed stub yields
  * exact values — identical inputs produce identical outputs.
  */

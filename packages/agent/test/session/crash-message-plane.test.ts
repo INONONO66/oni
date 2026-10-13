@@ -46,7 +46,7 @@ function pendingDeliveries(id = sessionId) {
 function results(kind: LedgerAction.Kind) {
   return actions().filter((action) => action.kind === kind && effectOf(action).phase === "result");
 }
-/** #1252: attempts share the llm kind; an attempt result settles an intent pinning its ordinal. */
+/** Attempts share the llm kind; an attempt result settles an intent pinning its ordinal. */
 function attemptIds() {
   return new Set(
     actions()
@@ -73,7 +73,7 @@ function terminalClass(action: LedgerAction.Node) {
 
 // A fresh kernel process loads agent+ledger, opens SQLite and runs one turn;
 // on a loaded shared runner that cold start alone has exceeded the 5 s in-process
-// bound (#1098). The child's exit is the signal; this is only the failure ceiling.
+// bound. The child's exit is the signal; this is only the failure ceiling.
 const SPAWNED_CHILD_MS = 30_000;
 
 async function crash(point: CrashPoint, dbPath: string, stage = "initial"): Promise<Witness> {
@@ -379,7 +379,7 @@ function recoverRetryAlarm(witness: Witness) {
     { phase: "intent", attempt: 1 },
     { phase: "result" },
   ]);
-  // #1254 S4: the retry port arms the occurrence chain `<attemptId>:retry`;
+  // The retry port arms the occurrence chain `<attemptId>:retry`;
   // the arm row id is `<chain>:arm:1` and the effect names the minted
   // occurrence.
   const alarmId = `${nth(attempts, 0).id}:retry`;
@@ -396,7 +396,7 @@ function recoverRetryAlarm(witness: Witness) {
   expect(pendingDeliveries()).toEqual([]);
   // Redelivered RetryScheduled: the settled attempt makes the delivery a chain-
   // guarded no-op; a second delivery no-ops identically (never a cancel CAS).
-  // #1254: the legacy-shape retry arm carries no occurrence chain, so the one
+  // The legacy-shape retry arm carries no occurrence chain, so the one
   // chain guard skips the redelivery (zero execution), idempotently. Reads
   // scan the real committed chain for new-shape arm/fired rows.
   const alarmRows = () => actions().filter((action) => action.kind === "alarm");

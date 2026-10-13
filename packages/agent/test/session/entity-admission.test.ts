@@ -34,9 +34,7 @@ type AdmissionDecision = ReturnType<typeof decideSessionAdmission>;
 type OpenTurn = NonNullable<AdmissionSnapshot["open"]>;
 type TurnTerminal = NonNullable<AdmissionSnapshot["terminal"]>;
 
-// ---------------------------------------------------------------------------
 // Shared fixtures (mirrors packages/agent/test/session-fsm.test.ts shapes).
-// ---------------------------------------------------------------------------
 
 const sessionRow = (state: LedgerSession.State) => kernelOwnedRow("S", state);
 
@@ -76,9 +74,7 @@ function normalize(decision: AdmissionDecision): { kind: string; ids: readonly s
   }
 }
 
-// ---------------------------------------------------------------------------
 // Table A: admission expected-decision rows (A01–A17).
-// ---------------------------------------------------------------------------
 
 interface AdmissionCase {
   readonly name: string;
@@ -262,9 +258,7 @@ describe("Table A: admission decisions over the chain-derived pending set", () =
   });
 });
 
-// ---------------------------------------------------------------------------
 // Table B: request transitions per message in FIFO order (B1–B8).
-// ---------------------------------------------------------------------------
 
 const requestRow = sessionRow("running");
 
@@ -427,9 +421,7 @@ describe("Table B: request commands in FIFO order keep the W1 resolutions", () =
   });
 });
 
-// ---------------------------------------------------------------------------
 // Integration on the real entity: C1 single-writer FIFO + A17 backlog drain.
-// ---------------------------------------------------------------------------
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-entity-admission-");
 
@@ -517,7 +509,7 @@ describe("Integration: entity mailbox is a single writer with whole-backlog drai
 
     // The resume behind the prompt was selected from the WHOLE backlog: the
     // interrupted turn resumed exactly once without consuming the prompt;
-    // #1253 turn-end consumption then ran the pending prompt as its own
+    // Turn-end consumption then ran the pending prompt as its own
     // follow-up turn before the entity went idle.
     expect(calls).toHaveLength(3);
     expect(calls[1]?.resumeCount).toBe(1);

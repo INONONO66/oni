@@ -746,7 +746,7 @@ describe("session kernel commit query budget (#1314)", () => {
     ];
     const counts = { exists: 0, parent: 0 };
     const original = Database.prototype.query;
-    // Query spy (#1314 lead ruling): count the two validation statements;
+    // Query spy: count the two validation statements;
     // `validActionBatch` is their single call site per action. Matched by
     // pattern, not string equality (review r1 L1), so a rephrased second
     // check cannot evade the count.
@@ -790,7 +790,7 @@ describe("session kernel commit query budget (#1314)", () => {
     const authority = adoptWriter(stores.kernel, sessionId, "owner");
     commitOne(authority, prompt(`${sessionId}-1`, sessionId, "one", `${sessionId}:configure`));
     // Both faults at once: the id is already on the chain AND the body fails
-    // the `prompt` declaration (`delivery` outside steer|followUp). The #1252
+    // the `prompt` declaration (`delivery` outside steer|followUp). The
     // fail-closed order says the schema refusal wins — the typed throw, never
     // a silent `undefined` from the duplicate-id existence check.
     const doubleFault: LedgerAction.Append = {

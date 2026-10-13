@@ -58,7 +58,7 @@ function withCorruptedPrompt(
 }
 
 /**
- * #1252 read degradation: a journal row whose stored payload no longer decodes
+ * Read degradation: a journal row whose stored payload no longer decodes
  * is kept verbatim on disk, emits exactly one `journal.corrupt{seq, kind,
  * reason}` observation, and folds as opaque — one bad row never blocks
  * session load.
@@ -71,12 +71,12 @@ test("a corrupt row degrades to opaque with one journal.corrupt observation and 
     expect(loaded.map((action) => action.id)).toEqual(["s1:configure"]);
     // Exactly one journal.corrupt observation names the row, and its reason is
     // the decoder's own schema diagnostic naming the rejected field — never a
-    // fabricated "append refused" from the write path (#1344 r1 M2).
+    // fabricated "append refused" from the write path.
     expect(corrupt).toMatchObject([{ seq: 2, kind: "prompt" }]);
     expect(corrupt[0]?.reason).toContain('"encodingVersion"');
     expect(corrupt[0]?.reason).not.toContain("append refused");
 
-    // Projection read ports degrade too (#1252): the corrupt prompt row is
+    // Projection read ports degrade too: the corrupt prompt row is
     // the only pending message candidate, so the port answers the exact empty
     // page instead of throwing, with exactly one more journal.corrupt
     // carrying the same diagnostic.
@@ -97,12 +97,10 @@ test("a corrupt row degrades to opaque with one journal.corrupt observation and 
 });
 
 /**
- * Malformed payload bytes (#1344 r1 M2): the `journal.corrupt` reason carries
- * the JSON parser's own diagnostic for the stored text, rendered as
- * `invalid JSON: <message>` with no fabricated row identity, and the row
- * still folds as opaque with its raw intent text carried as a string value.
- * The `revert` column is the corruptible one here: `intent`/`effect` sit
- * under `json_extract` expression indexes that refuse malformed bytes.
+ * Malformed payload bytes: the `journal.corrupt` reason carries the JSON parser's own diagnostic for the stored
+ * text, rendered as `invalid JSON: <message>` with no fabricated row identity, and the row still folds as opaque
+ * with its raw intent text carried as a string value. The `revert` column is the corruptible one here:
+ * `intent`/`effect` sit under `json_extract` expression indexes that refuse malformed bytes.
  */
 test("malformed JSON bytes report the parser diagnostic as the journal.corrupt reason", () => {
   const parserMessage = (() => {

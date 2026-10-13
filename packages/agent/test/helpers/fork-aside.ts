@@ -4,7 +4,7 @@ import { FORK_ASIDE_REF, forkAside } from "../../src/inspect/tree";
 
 /**
  * The registration-ready `prompt.pre` transformer that prepends the fork
- * aside to a string prompt value (#1312: test-only — no composition registers
+ * aside to a string prompt value (test-only — no composition registers
  * it, so it lives next to its only consumer). Anything else (a root session,
  * a non-string value) passes through unchanged.
  */

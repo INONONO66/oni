@@ -19,7 +19,7 @@ import {
 } from "./helpers/cluster-runtime";
 
 /**
- * #1255 S3 off-kind rows: rows already written by a now-off capability stay in
+ * Off-kind rows: rows already written by a now-off capability stay in
  * the journal byte-for-byte with their hashes intact, the fold treats them as
  * opaque (the off generation registers no reducer for the kind), and `deliver`
  * rejects that kind as input with the existing `unknown_kind` refusal.

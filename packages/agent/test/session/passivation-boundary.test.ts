@@ -1,16 +1,8 @@
 /**
- * #1254 S4 — keepAlive/passivation boundary against the REAL Session entity:
- *
- *  - a live detached turn holds the cluster keep-alive latch (observed through
- *    the `onKeepAlive` port) and releases it when the turn ends;
- *  - an activation closing with unconsumed input arms the reserved `resume`
- *    purpose (alarmId `<sessionId>:resume`, at = close + idleMs) into the
- *    durable armed index;
- *  - the closing activation itself persists the resume occurrence through the
- *    cluster's discard door (DeliverAt = close + idleMs): the NEXT runtime
- *    delivers it with no new send, recovers the open turn and consumes the
- *    leftover backlog;
- *  - a close with nothing pending arms nothing.
+ * KeepAlive/passivation boundary against the REAL Session entity: a live detached turn holds the keep-alive
+ * latch (observed through `onKeepAlive`) and releases it when the turn ends; an activation closing with
+ * unconsumed input arms the reserved `resume` purpose (`<sessionId>:resume`, at = close + idleMs) and persists the
+ * occurrence through the cluster's discard door so the NEXT runtime recovers the open turn; a close with nothing pending arms nothing.
  */
 import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

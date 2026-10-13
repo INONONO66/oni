@@ -82,7 +82,7 @@ test("decision facts keep fractional epoch instants without rounding", () => {
   expect(facts.head("route:fractional")?.timeCreated).toBe(1.5);
 });
 
-// #1246 (issue step 4): the ORM schema file is gone; the contract is proven by a
+// The ORM schema file is gone; the contract is proven by a
 // real round-trip through Effect `SqlClient` against the store's own file.
 test("decision_fact rows round-trip through Effect SqlClient in both directions", async () => {
   const directory = mkdtempSync(join(tmpdir(), "decision-fact-sql-"));

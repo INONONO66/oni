@@ -26,7 +26,6 @@ function agent(run: MockLlmFn) {
   });
 }
 
-
 test("agent foundation tags and failure evidence are runtime contracts", () => {
   expect([Entropy.key, ObservationSink.key, SessionLayer.key, ToolCatalog.key]).toEqual([
     "@openomni/agent/Entropy", "@openomni/agent/ObservationSink", "@openomni/agent/SessionLayer", "@openomni/agent/ToolCatalog",
@@ -45,7 +44,7 @@ test("agent foundation tags and failure evidence are runtime contracts", () => {
 });
 
 /**
- * #1344 r1 L1: `providerErrorName` names only the provider SDK error. A
+ * `providerErrorName` names only the provider SDK error. A
  * transport Error (the structured `TransportFailure.cause`) and a bare string
  * keep `null` and render exactly as the base journal did (`name: message`).
  */
@@ -209,7 +208,7 @@ describe("ChatAgent public run contract", () => {
 
 describe("ChatAgent provider boundary failures", () => {
   it("dies with AgentInvariantViolation when the provider stops without emitting a snapshot", async () => {
-    // #1245: the executor no longer synthesises an empty assistant; a stop
+    // The executor no longer synthesises an empty assistant; a stop
     // with no sink snapshot is a wiring defect, not a recoverable state.
     const defect = await isolated(failure(agent(async () => createStopOutcome())
       .run(runInput([{ role: "user", content: "hello" }]))));

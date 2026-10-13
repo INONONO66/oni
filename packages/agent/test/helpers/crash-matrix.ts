@@ -161,7 +161,7 @@ function beforeResult(point: CrashPoint, action: LedgerAction.Append, toolResult
   switch (point) {
     case "llm_body_before_attempt_result_commit":
     case "owner_reclaimed_before_stale_transcript_flush":
-      // #1252: attempts share the llm kind; the attempt result is the one
+      // Attempts share the llm kind; the attempt result is the one
       // carrying durable usage provenance.
       return action.kind === "llm" && effectOf(action).usageProvenance !== undefined;
     case "tool_wave_between_result_commits":

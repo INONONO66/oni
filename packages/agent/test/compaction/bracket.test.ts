@@ -108,7 +108,7 @@ describe("Compaction bracket", () => {
         sessionId: IDENTITY.sessionId,
         outcome: "cut",
       });
-      // #702 rider: when the caller supplies a runId, the bracket records it.
+      // When the caller supplies a runId, the bracket records it.
       expect(capture.started[0]?.runId).toBe(IDENTITY.runId);
       expect(capture.completed[0]?.runId).toBe(IDENTITY.runId);
       // Attribution survives the schema boundary: the compaction bracket

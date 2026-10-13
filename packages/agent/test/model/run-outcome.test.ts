@@ -39,7 +39,7 @@ test("the provider produces typed failure facts, never a legacy error shape", as
     visibleOutput: false,
     usage: { inputTokens: 0, outputTokens: 0 },
   });
-    // #1344: the structured cause is the thrown Error itself, not a rendering.
+    // The structured cause is the thrown Error itself, not a rendering.
     expect(result.error.cause).toBe(cause);
 });
 
@@ -71,11 +71,10 @@ test("stop and aborted are produced by the real attempt entry", async () => {
 });
 
 /**
- * Mirrors run()'s production stream creation minus module `ai`: sibling test
- * files install process-global mock.module("ai", ...) mocks, which must not
- * detach this test from the local HTTP server. Credential resolution, route
- * binding and the provider SDK's real fetch all stay on the wire; retry
- * ownership is asserted separately at the streamText argument surface.
+ * Mirrors run()'s production stream creation minus module `ai`: sibling test files install process-global
+ * mock.module("ai", ...) mocks, which must not detach this test from the local HTTP server. Credential
+ * resolution, route binding and the provider SDK's real fetch all stay on the wire; retry ownership is asserted
+ * separately at the streamText argument surface.
  */
 function overWire(call: Parameters<typeof run>[0]) {
   return async () => {

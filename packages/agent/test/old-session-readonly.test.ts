@@ -9,11 +9,10 @@ import { CatalogVersionRefused } from "../src/core/store/errors";
 import { testNow } from "./store/helpers/storage";
 
 /**
- * #1252 catalog schemaVersion: the catalog stamps `PRAGMA user_version` at
- * create; a file whose marker is greater than the code's version opens
- * read-only — reads succeed, Deliver (fence rotation) and fork (session
- * indexing) are refused with the typed CatalogVersionRefused, and the file
- * bytes are identical before and after the read-only session.
+ * Catalog schemaVersion: the catalog stamps `PRAGMA user_version` at create; a file whose marker is greater
+ * than the code's version opens read-only — reads succeed, Deliver (fence rotation) and fork (session indexing)
+ * are refused with the typed CatalogVersionRefused, and the file bytes are identical before and after the
+ * read-only session.
  */
 
 function fileHash(path: string): string {

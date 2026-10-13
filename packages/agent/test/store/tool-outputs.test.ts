@@ -28,7 +28,7 @@ describe("tool_outputs storage (#1305)", () => {
   });
 });
 
-/** A pre-anchor row whose effect carries a stored-output ref (#1305 fork rule). */
+/** A pre-anchor row whose effect carries a stored-output ref (fork rule). */
 function refRow(parentId: string, outputId: string, bytes: number): LedgerAction.Append {
   return {
     id: `ref-${outputId.slice(7, 13)}`,

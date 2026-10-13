@@ -22,7 +22,7 @@ import { clusterTempDir, readChain, runCluster, sendAlarm, sendKick, sendRescan,
 import { runAgent } from "./helpers/executor";
 import { fencedSession, withSessionHandles } from "./helpers/seeded-session";
 
-// #1254 S3: scheduling that survives a crash. The arm row's commit maintains
+// Scheduling that survives a crash. The arm row's commit maintains
 // the session file's `armed_alarms` index in the SAME transaction; the catalog
 // `has_armed` flag is 1 before the arming commit and 0 only after the index is
 // confirmed empty; an activation resends every armed row's ORIGINAL occurrence
@@ -528,7 +528,6 @@ describe("crash recovery through the cluster", () => {
   }, 30_000);
 
   test("supersede then crash: the new occurrence fires, the late old one folds stale with zero execution", async () => {
-
     const sessionId = "crash-supersede";
     let oldOccurrence = "";
     let newOccurrence = "";
@@ -569,11 +568,10 @@ describe("crash recovery through the cluster", () => {
 });
 
 /**
- * #1254 S4: a capability arm commits through the entity's commit door, and the
- * minted occurrence is forwarded to DeliverAt from the committed row itself
- * (not from the index the activation resend reads). Its `payload` must be the
- * arm's canonical JSON bytes — a non-empty payload, because `{}` serializes
- * identically under every profile and hides a wrong serializer.
+ * A capability arm commits through the entity's commit door, and the minted
+ * occurrence is forwarded to DeliverAt from the committed row itself (not from
+ * the index the activation resend reads). Its `payload` must be the arm's
+ * canonical JSON bytes — non-empty, because `{}` hides a wrong serializer.
  */
 describe("live arm forward through the cluster", () => {
   test("ctx.arm's forwarded occurrence carries the arm payload as parseable canonical JSON", async () => {

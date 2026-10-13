@@ -5,7 +5,7 @@ import { deliveryActions, inputRowKind, receivedMessageAction } from "../src/cor
 import { decideSessionAdmission } from "../src/core/admission";
 
 /**
- * #1252 input admission: delivered inputs are journal rows of the closed set —
+ * Input admission: delivered inputs are journal rows of the closed set —
  * `prompt` rows carry `delivery: steer|followUp` (default `followUp`), control
  * inputs (interrupt/resume) are `signal` rows — and each produced row passes
  * its kind's declared schema.
@@ -82,7 +82,7 @@ test("an input of a capability kind whose capability is off is rejected with unk
   const refused = decideSessionAdmission({ row: sessionRow, pending, capabilityKinds: ["tool", "compaction"] });
   expect(refused).toEqual({ kind: "refused", reason: "unknown_kind" });
   // The same input with the action capability composed is admitted and heads
-  // a turn like a prompt (#1256 r5 H-3): boundary consumption — not an idle
+  // a turn like a prompt: boundary consumption — not an idle
   // noop-consume — owns a pending action's delivery or stale closure.
   const admitted = decideSessionAdmission({
     row: sessionRow,

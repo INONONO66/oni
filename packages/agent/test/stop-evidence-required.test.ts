@@ -1,5 +1,5 @@
 /**
- * #1310 — `stopEvidence` is a REQUIRED port on `ChatAgentConfig`: the deleted
+ * `stopEvidence` is a REQUIRED port on `ChatAgentConfig`: the deleted
  * `?? Effect.succeed({progress:false,...})` fallback has no replacement, so a
  * runner wired without it is a compile error, and a wired port is consulted
  * by the loop's stop judgment on every turn.
@@ -17,7 +17,7 @@ const model = { provider: "anthropic", id: "claude-3-haiku-20240307" };
 
 test("runAgent without stopEvidence does not compile; the port has no runtime default", () => {
   const config = { model } as const;
-  // @ts-expect-error — stopEvidence is required on ChatAgentConfig (#1310)
+  // @ts-expect-error — stopEvidence is required on ChatAgentConfig
   const missing: ChatAgentConfig = config;
   // The loop itself is never reached here; the assertion is the type error.
   expect(missing.stopEvidence).toBeUndefined();

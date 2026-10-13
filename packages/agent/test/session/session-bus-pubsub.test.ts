@@ -10,7 +10,7 @@ const TestEvent = BusEvent.define(
   z.object({ sessionId: z.string(), value: z.number() }),
 );
 
-/** Deterministic injected sources: counter ids, counter times (#1245). */
+/** Deterministic injected sources: counter ids, counter times. */
 function sources() {
   let n = 0;
   return { id: () => `event-${++n}`, now: () => ++n };

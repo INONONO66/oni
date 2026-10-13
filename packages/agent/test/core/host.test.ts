@@ -150,7 +150,7 @@ test("memory mode: the entity and the plane share one in-memory store per sessio
         yield* materialize(sessionId);
         const receipt = yield* deliverPrompt(sessionId, "m1");
         const ledger = yield* Ledger;
-        // The entity's handle is a view over the plane's memoized store (#1345).
+        // The entity's handle is a view over the plane's memoized store.
         expect(ledger.handles.openSession(sessionId).sessions).toBe(
           ledger.sessionStore(sessionId).sessions,
         );

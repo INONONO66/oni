@@ -1,5 +1,5 @@
 /**
- * #1314: the memory guard runs on the production observation bus
+ * The memory guard runs on the production observation bus
  * (`makeObservationBus`, an Effect PubSub in a Scope), not a test substitute.
  * Subscriptions are acquired and released deterministically through Effect
  * Scopes, and leak-freedom is asserted on the bus's own `subscriberCount()`.

@@ -193,7 +193,7 @@ describe("one terminal record per started run", () => {
       })))).toBe(terminal);
       const event = await bounded(failed.promise, "pre-provider defect");
       expect(event.error).toBe("Symbol(terminal)");
-      // #1245: a defect with no failure facts publishes the machine-consumed
+      // A defect with no failure facts publishes the machine-consumed
       // `unclassified` reason instead of an absent one.
       expect(event.context?.reason).toBe("unclassified");
       expect(records.messages).toEqual(["agent.run.started", "agent.run.failed"]);

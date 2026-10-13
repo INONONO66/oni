@@ -305,7 +305,7 @@ function lifecycle() {
         sourceActionId: commission.id,
       },
     });
-    // #1254: a watch is an `alarm{arm}` chain row plus the `alarm{fired}` row
+    // A watch is an `alarm{arm}` chain row plus the `alarm{fired}` row
     // that settles its occurrence; the wake is the fired row's received
     // message plus a fresh activation.
     const kernel = isolatedLedger().kernel;
@@ -430,7 +430,7 @@ describe("action-based history and diagnostic projections", () => {
                 entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.op === op && entry.phase === phase,
             );
-          // #1252: attempts share the llm kind; an attempt intent is the llm
+          // Attempts share the llm kind; an attempt intent is the llm
           // row carrying its attempt ordinal.
           const attemptActionIds = new Set(
             tree
@@ -495,7 +495,7 @@ describe("action-based history and diagnostic projections", () => {
           expect(inspection.compactions).toHaveLength(1);
           expect(inspection.compactions[0]?.discarded.count).toBeGreaterThan(0);
           expect(inspection.compactions[0]?.restoredBy).toEqual([]);
-          // #1254: a fired alarm row's cause is its chain lineage (its arm
+          // A fired alarm row's cause is its chain lineage (its arm
           // action); the dedicated alarm cause variant is gone.
           const monitorFire = `${Alarm.occurrenceId("parent", "monitor", 1, "timer:1000")}:delivered`;
           const woke = inspection.transitions.find(

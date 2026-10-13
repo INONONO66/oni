@@ -174,7 +174,7 @@ function forkFixture(stores: LedgerStores, child: () => ChildStore) {
   }
 
   /**
-   * Pins the parent generation's copy cap (#1257): a real
+   * Pins the parent generation's copy cap: a real
    * `session.configure{settings.forkCopyByteCap}` row on the parent chain,
    * exactly how the composition root's resolved value arrives.
    */

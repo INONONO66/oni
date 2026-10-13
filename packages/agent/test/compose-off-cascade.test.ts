@@ -55,7 +55,7 @@ test("off cascades transitively through requires with the root recorded as becau
   expect(generation.capabilities).toEqual([]);
   expect(generation.bundles).toEqual([]);
   // The off capability's kind is not registered: its rows stay opaque in the
-  // fold and reject as deliver input (closed kind set, #1252).
+  // fold and reject as deliver input (closed kind set).
   expect(Object.keys(generation.kinds)).toEqual([]);
   expect(generation.points).not.toContain("alarm.fired");
 });

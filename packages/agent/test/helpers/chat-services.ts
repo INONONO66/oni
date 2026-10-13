@@ -10,7 +10,7 @@ import { TEST_BUDGET } from "./approval-policy";
 export { fixtureCompactionSeam } from "./fixture-compaction";
 
 /**
- * Fixture stop evidence (#1310): the port is required on `ChatAgentConfig`,
+ * Fixture stop evidence: the port is required on `ChatAgentConfig`,
  * so fixtures state the former implicit answer — no progress, not blocked,
  * nothing open — explicitly instead of relying on a deleted core default.
  */
@@ -67,7 +67,7 @@ export function prepareChatFixture(
 ): Prepared {
   const { events: _events, llm: _llm, ...rest } = prepared.config;
   const seamed = "compactionSeam" in rest ? rest : { ...rest, compactionSeam: fixtureCompactionSeam };
-  // #1309: the budget defaults are composition-owned; fixtures state them.
+  // The budget defaults are composition-owned; fixtures state them.
   const config = { stopEvidence: fixtureStopEvidence, defaultBudget: TEST_BUDGET, ...seamed };
   return {
     ...prepared,

@@ -31,11 +31,10 @@ export type TestObservationBus = SinkService & {
 };
 
 /**
- * Builds one PubSub observation bus fixture (#1249) in a Scope the fixture
- * itself owns. `subscribe` is the production sink's callback drain, so broad
- * integration tests exercise the real subscriber-failure path; `observe` is
- * the test-only all-events tap. `reset()` detaches every leftover
- * subscription between cases; `close()` releases the fixture's Scope.
+ * Builds one PubSub observation bus fixture in a Scope the fixture itself owns. `subscribe` is the production
+ * sink's callback drain, so broad integration tests exercise the real subscriber-failure path; `observe` is the
+ * test-only all-events tap. `reset()` detaches every leftover subscription between cases; `close()` releases the
+ * fixture's Scope.
  */
 export function testBusService(options: ObservationBusOptions): TestObservationBus {
   const scope = Effect.runSync(Scope.make());
@@ -78,7 +77,7 @@ export function testBusService(options: ObservationBusOptions): TestObservationB
   return fixture;
 }
 
-/** A bus fixture over deterministic counter sources (#1245: injected, never ambient). */
+/** A bus fixture over deterministic counter sources (injected, never ambient). */
 export function testBus(onError?: FailureReporter): TestObservationBus {
   let id = 0;
   let time = 0;
@@ -106,12 +105,10 @@ export const runnerTestLayer = Layer.mergeAll(
 );
 
 /**
- * One isolation's handle-scoped ledger (W5.2 F1): a fresh in-memory session
- * store shared by every session the test declares plus a fresh catalog, with
- * one observation bus wired as the stores' commit sink so `watch` planes see
- * ActionCommitted events. `openKernel` serves every session from the shared
- * store — the per-session-file split is a production layout, not a kernel
- * contract, and agent tests exercise the kernel contract.
+ * One isolation's handle-scoped ledger: a fresh in-memory session store shared by every session the test
+ * declares plus a fresh catalog, with one observation bus wired as the stores' commit sink so `watch` planes see
+ * ActionCommitted events. `openKernel` serves every session from the shared store — the per-session-file split
+ * is a production layout, not a kernel contract, and agent tests exercise the kernel contract.
  */
 export interface IsolatedLedger {
   readonly kernel: SessionHandleStore.SessionKernel;
@@ -187,17 +184,16 @@ export function runTestPromise<A, E>(program: Effect.Effect<A, E>): Promise<A> {
   return Effect.runPromise(program);
 }
 
-/** Execute an asynchronous test program and surface its Exit (#1246: model helpers delegate here). */
+/** Execute an asynchronous test program and surface its Exit (model helpers delegate here). */
 export function runTestExit<A, E>(program: Effect.Effect<A, E>): Promise<Exit.Exit<A, E>> {
   return Effect.runPromiseExit(program);
 }
 
 /**
- * Runs one scoped Effect program against a fresh handle-scoped ledger; the
- * only test-side runner for agent programs. Concurrent calls serialize so the
- * lazy `isolatedLedger()` pointer always names exactly one isolation.
- * NEVER nest isolated() inside a running isolated program: the module-level
- * chain serializes all calls, so the inner call deadlocks the whole process.
+ * Runs one scoped Effect program against a fresh handle-scoped ledger; the only test-side runner for agent
+ * programs. Concurrent calls serialize so the lazy `isolatedLedger()` pointer always names exactly one isolation.
+ * NEVER nest isolated() inside a running isolated program: the module-level chain serializes all calls, so the
+ * inner call deadlocks the whole process.
  */
 export function isolated<A, E>(
   program: IsolatedProgram<A, E> | ((ledger: IsolatedLedger) => IsolatedProgram<A, E>),

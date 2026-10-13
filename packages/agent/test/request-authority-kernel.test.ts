@@ -9,7 +9,7 @@ import { adoptSessionAuthority } from "../src/core/run";
 import { sessionTree } from "./helpers/session-tree";
 
 /**
- * W5.2 #1197 S1/S2 regressions: the boot request port borrows a live
+ * The boot request port borrows a live
  * activation's fence (`requestAuthorityKernel`), and child-session admissions
  * never ride the sender's single-session fenced batch.
  */

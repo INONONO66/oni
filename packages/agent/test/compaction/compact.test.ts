@@ -535,7 +535,7 @@ describe("Compaction", () => {
       expect(seen).toHaveLength(1);
       expect(seen[0]?.every((m: Message.WithParts) => m.info.role === "assistant")).toBe(true);
       // Every user message survives byte-exact, in order, after the anchor —
-      // each preceded by its policy-injected time marker (#737), which is a
+      // each preceded by its policy-injected time marker, which is a
       // separate part and never touches the user's bytes.
       const texts = textsOf(result.messages);
       expect(texts[0]).toContain("anchor-v1");
@@ -622,14 +622,13 @@ describe("Compaction", () => {
       const anchorPart = anchors[0]?.parts[0];
       if (anchorPart?.type !== "text") throw new Error("shape");
       expect(anchorPart.metadata?.anchorBody).toBe("anchor-v1+v2");
-      // #702 (L3): the anchor carries the ordered window selection as
-      // CONTENT (role/text) — ids do not survive the hydration seam (#722
-      // review) — so a product-side observer can persist the whole
-      // replacement record by persisting this message.
+      // The anchor carries the ordered window selection as CONTENT (role/text) —
+      // ids do not survive the hydration seam — so a product-side observer can
+      // persist the whole replacement record by persisting this message.
       const kept = anchorPart.metadata?.keptWindow;
       if (!Array.isArray(kept)) throw new Error("expected keptWindow");
       // Time markers are derived render — regenerated from the structured
-      // `time` at every cut — so the record excludes them (#737): recording
+      // `time` at every cut — so the record excludes them: recording
       // them as content would replay them as pseudo-speech after resume.
       expect(kept).toEqual(
         second.messages
@@ -830,7 +829,7 @@ describe("Compaction", () => {
       let called = 0;
       // All-user span within budget: the rebuild would be [same users, tail]
       // — not one char smaller. Committing it would count as progress toward
-      // the #651 disarm while reclaiming nothing, so it must be a recorded
+      // the disarm while reclaiming nothing, so it must be a recorded
       // non-action, and the summarizer must not be paid for it.
       const result = await isolated(
         Compaction.compact(

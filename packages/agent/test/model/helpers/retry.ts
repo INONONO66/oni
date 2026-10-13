@@ -28,7 +28,7 @@ export function rateLimitError(headers?: Record<string, string>) {
   });
 }
 
-/** Fixed injection sources for `Retry.decide` (#1245): pinned clock, zero jitter draw unless overridden. */
+/** Fixed injection sources for `Retry.decide`: pinned clock, zero jitter draw unless overridden. */
 export const FIXED_RETRY_NOW = Date.parse("2030-01-01T00:00:00.000Z");
 export function sources(
   overrides: Partial<{ now: () => number; random: () => number }> = {},

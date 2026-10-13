@@ -1,5 +1,5 @@
-// #1254 r2 H1 (issue line 77 "Fencing is atomic or checked against catalog at
-// commit"): the session file is the ONE fence authority. The catalog only
+// "Fencing is atomic or checked against catalog at commit": the session file
+// is the ONE fence authority. The catalog only
 // allocates fence numbers; authority transfers when the winner's `adoptFence`
 // CAS lands in the session file, serialized in the same file lock as every
 // fenced commit. Proven here with the real catalog + session stores: an

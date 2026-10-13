@@ -33,7 +33,7 @@ export namespace Processor {
   }
 }
 type NativeInput = Parameters<typeof nativeRun>[0];
-/** Fixed `now`/`id` stubs by default (#1245); a test overrides them to assert exact values. */
+/** Fixed `now`/`id` stubs by default; a test overrides them to assert exact values. */
 export type TestRunInput = Omit<NativeInput, "now" | "id" | "authFilePath"> & Partial<Pick<NativeInput, "now" | "id" | "authFilePath">>;
 export function run(input: TestRunInput, sink: Parameters<typeof nativeRun>[1], dependencies: { createStream?: Processor.ProcessorOptions["createStream"] } = {}) {
   const createStream = dependencies.createStream;

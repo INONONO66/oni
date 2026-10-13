@@ -23,7 +23,7 @@ import {
 import { runTestPromise } from "./helpers/isolated";
 
 /**
- * #1256 hook capability: the scoped JSON-lines process service. Every case
+ * Hook capability: the scoped JSON-lines process service. Every case
  * runs a REAL scripted child (bun -e) and synchronizes on stdout replies,
  * exit settlement or the TestClock — never on a fixed sleep.
  */
@@ -521,7 +521,7 @@ test("M-2: two rows with the same command and different timeouts share ONE PID; 
       Effect.gen(function* () {
         // The REAL consultant seed: two rows, identical command, different
         // per-call timeouts. Pool identity is the command, so ONE child serves
-        // both rows (#1256 r3 M-2).
+        // both rows.
         const seen: string[] = [];
         const script = `
 const decoder = new TextDecoder();

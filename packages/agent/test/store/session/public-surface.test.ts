@@ -8,7 +8,7 @@ import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 
 test("967 exports expose only canonical session authority", () => {
   expect(Object.hasOwn(ledgerExports, "Session")).toBe(false);
-  // The legacy process-global storage plane is gone (W5.2 #1197).
+  // The legacy process-global storage plane is gone.
   for (const retired of ["Storage", "SqliteStorageAdapter", "ActorRegistry", "SurfaceKey"]) {
     expect(Object.hasOwn(ledgerExports, retired)).toBe(false);
   }

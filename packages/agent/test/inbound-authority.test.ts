@@ -33,7 +33,7 @@ test("an unrecognized origin shape is unknown provenance: evidence plus a violat
   }
 });
 
-// #1310: a prompt with no recorded origin is a typed missing_origin refusal —
+// A prompt with no recorded origin is a typed missing_origin refusal —
 // never a default `act` grant — while a turn with no prompt stays kernel-driven.
 test("a prompt whose action row records no origin refuses typed with missing_origin", () => {
   const decision = promptInboundAuthority("prompt-1", undefined);
@@ -42,7 +42,7 @@ test("a prompt whose action row records no origin refuses typed with missing_ori
   expect(decision.violation?.reason).toBe("missing_origin");
   expect(decision.violation?.message).toBe("inbound authority violation: missing_origin");
   // The origin-less overload itself is gone: undefined no longer type-checks.
-  // @ts-expect-error — inboundAuthority requires a recorded origin (#1310)
+  // @ts-expect-error — inboundAuthority requires a recorded origin
   inboundAuthority(undefined);
 });
 

@@ -12,11 +12,10 @@ import { sessionTree } from "./helpers/session-tree";
 import { allowConfigure, isolatedRuntime, withSessionServices, type SessionFixture } from "./helpers/session-services";
 
 /**
- * #1255 S3 generation rotation: a manifest change recomputes the generation
- * from EMPTY state via `compose` (never patching the previous one); the
- * in-flight turn finishes on the generation it captured at turn start; each
- * session appends `session.configure{operation: "compose"}` through the single
- * writer at its NEXT turn start and only then adopts the new tables.
+ * Generation rotation: a manifest change recomputes the generation from EMPTY
+ * state via `compose` (never patching the previous one); the in-flight turn
+ * finishes on the generation it captured at turn start; each session appends
+ * `session.configure{operation: "compose"}` at its NEXT turn start and only then adopts the new tables.
  */
 
 class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/rotation/A") {}

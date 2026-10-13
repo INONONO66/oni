@@ -10,7 +10,6 @@ import { decodeLlmFailure } from "../../../src/model/error";
 import { useProcessor, capturingSink, failingStream, statusStates } from "../helpers/processor";
 import type { StreamEvent } from "../../../src/model/processor/stream-events";
 
-
 describe("Processor failures", () => {
   test("settles an interrupted attempt and publishes an aborted finish", async () => {
     const entered = Promise.withResolvers<void>();
@@ -153,7 +152,7 @@ describe("Processor failures", () => {
     expect(capture.finalParts()).toMatchObject([{ type: "tool", state: { status: "error" } }]);
   });
 
-  // #1344: a model-boundary throw keeps its structured cause — the original
+  // A model-boundary throw keeps its structured cause — the original
   // Error object rides TransportFailure.cause; nothing flattens to a string.
   test("a plain thrown Error becomes a TransportFailure carrying the structured cause", () => {
     const thrown = new Error("socket hangup");
@@ -167,7 +166,7 @@ describe("Processor failures", () => {
     expect(decoded._tag === "TransportFailure" ? decoded.cause : undefined).toBe(thrown);
   });
 
-  // #1344: the SDK call error still arrives as the structured APIError wrapper,
+  // The SDK call error still arrives as the structured APIError wrapper,
   // with the APICallError itself as the nested cause, never a rendering of it.
   test("an SDK call error decodes to APIError whose cause IS the APICallError", () => {
     const callError = sdkError({ message: "upstream 500", statusCode: 500, isRetryable: false });

@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { resolveAuthFilePath } from "../../src/model/model/loader";
 
 /**
- * #1245: the model loader is the llm package's one environment owner. The
+ * The model loader is the llm package's one environment owner. The
  * credential path is a pure function of an injected record, so `auth/storage`
  * can consume it without any ambient read of its own.
  */

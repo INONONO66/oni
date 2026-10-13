@@ -1,11 +1,8 @@
 /**
- * #1253/#1313 — `deliver` idempotency: the required caller key is the durable
- * row id. A missing key is a typed `missing_key` rejection with zero new
- * journal facts; a replayed key whose payload matches the stored row returns
- * the original seq as success (`{seq, existed: true}`) with zero new facts; a
- * replayed key whose payload differs is the typed `idempotency_conflict`; an
- * unbound `inputRegistrations` port is the typed `seam_missing` — none of the
- * refusals appends a row.
+ * `deliver` idempotency: the required caller key is the durable row id. A missing
+ * key is a typed `missing_key` rejection; a replayed key with a matching payload
+ * returns the original seq (`{seq, existed: true}`); a differing payload is the typed
+ * `idempotency_conflict`; an unbound `inputRegistrations` port is `seam_missing`. None appends a fact.
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

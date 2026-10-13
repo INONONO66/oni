@@ -1,13 +1,8 @@
 /**
- * #1254 S4 D3 — the per-session armed-alarm budget, against the REAL entity:
- * a capability wake arming through `ctx.arm` succeeds until the durable armed
- * index holds `maxArmed` rows, then receives the typed
- * `ArmRefused{code: alarm_budget}` — and reserved purposes are refused with
- * `reserved_purpose` regardless of budget headroom. At a full budget a re-arm
- * of an armed chain (upsert) and a retire (`at: null`, delete) still commit —
- * only an arm that adds a chain consults the budget — and the retire frees one
- * slot. The same wake commits one alarm-originated prompt through `ctx.prompt`
- * (origin fixed by the core).
+ * The per-session armed-alarm budget against the REAL entity: `ctx.arm` succeeds until the durable armed index
+ * holds `maxArmed` rows, then receives `ArmRefused{code: alarm_budget}`; reserved purposes get `reserved_purpose`
+ * regardless of headroom. At a full budget a re-arm (upsert) and a retire (`at: null`) still commit — only an arm
+ * that adds a chain consults the budget — and the retire frees one slot. The same wake commits one alarm-originated prompt.
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

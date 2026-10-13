@@ -1,4 +1,4 @@
-// W5.2 #1197 L2.1 (plan §4 "fence-rotation"): every entity activation rotates
+// Every entity activation rotates
 // the catalog fence (F5 CAS) and adopts it into the session file's fence CAS;
 // commits are authorized by owner+fence, so the previous activation's writer
 // is refused "stale" the moment a newer activation adopts - across OS
@@ -177,8 +177,8 @@ test("activation rotates and adopts the fence; every superseded writer is refuse
     expect(kernel.actionById("a-stale")).toBeUndefined();
     expect(kernel.row("s1").revision).toBe(revisionBefore);
 
-    // The adapter's typed refusal is the session file's own verdict (#1254 r2
-    // H1: the file is the one fence authority; the catalog never enters the
+    // The adapter's typed refusal is the session file's own verdict (the file is
+    // the one fence authority; the catalog never enters the
     // commit path): CommitRefused{reason:"fence"} carrying the file's fence.
     const refused = runLedgerSync(
       Effect.flip(
@@ -292,7 +292,7 @@ test("concurrent activations from two processes: one winner, stale loser refused
 
     // The higher fence always adopts and commits; the lower either committed
     // before the takeover or was refused - never anything else. `fence` is the
-    // session file's own CAS (the one fence authority, #1254 r2 H1);
+    // session file's own CAS (the one fence authority);
     // `activation_stale` is an adoption that lost the file CAS outright.
     expect(winner.committed).toBe(true);
     if (!loser.committed) expect(loser.reason).toMatch(/^(fence|activation_stale)$/);

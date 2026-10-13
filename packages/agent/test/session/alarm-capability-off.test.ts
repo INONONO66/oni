@@ -1,10 +1,8 @@
 /**
- * #1254 S4/S5 — capability-off conformance: with NO alarm capability composed,
- * the two loop-owned purposes still work end to end — a live `retry`
- * occurrence delivers (drain wake) and a live `deadline` occurrence expires
- * its open request — and the whole flow is deterministic: two independently
- * seeded worlds driven by the same injected clock produce BYTE-EQUAL journals
- * (every row id, ordinal, prev_hash and action_hash identical).
+ * Capability-off conformance: with NO alarm capability composed, the two loop-owned purposes still work end to
+ * end — a live `retry` occurrence delivers (drain wake) and a live `deadline` occurrence expires its open request
+ * — and the whole flow is deterministic: two independently seeded worlds driven by the same injected clock
+ * produce BYTE-EQUAL journals (every row id, ordinal, prev_hash and action_hash identical).
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";

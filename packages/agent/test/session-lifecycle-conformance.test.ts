@@ -63,7 +63,7 @@ import type {
 // finished trace is replayed from the file-backed SQLite image with zero
 // dispatch.
 //
-// Deleted with their planes (W5.2 #1197), not ported:
+// Deleted with their planes, not ported:
 // - "lifecycle v1 alarm takeover pause rearm and dedupe": the alarm-row
 //   adapter (arm/fire/acquire/rearm/cancel/due, alarm fences, notification
 //   budgets) is deleted; watch occurrences are chain actions now, proven by
@@ -77,7 +77,6 @@ import type {
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // 6.7 named registrations
-// ---------------------------------------------------------------------------
 describe("session lifecycle conformance", () => {
     test("lifecycle v1 ordinary and mixed-wave approved", () => traceTest(() => Effect.gen(function* () {
         seedPolicy([approvalRule]);
@@ -301,7 +300,7 @@ describe("session lifecycle conformance", () => {
                 ...TURN_PREFIX,
                 ...WAVE_PRE,
                 ...WAVE_INTENT,
-                // #1254 S4: a deadline request opens with its alarm arm row
+                // A deadline request opens with its alarm arm row
                 // and its terminal transition retires the chain in-batch.
                 ...(id === "REFUSED"
                     ? ["request:open", "alarm:-", "request:answered", "request:resolved", "alarm:-"]

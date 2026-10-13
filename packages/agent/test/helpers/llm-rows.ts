@@ -9,7 +9,7 @@ function record(value: PlainValue): PlainObject {
 }
 
 /**
- * #1252: physical attempts share the `llm` kind with the logical llm action.
+ * Physical attempts share the `llm` kind with the logical llm action.
  * An attempt intent is the llm row pinning its attempt ordinal; an attempt
  * result is the llm row settling such an intent.
  */

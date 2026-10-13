@@ -6,7 +6,7 @@ import { hookCapability } from "../src/plugins/hook";
 import { runTestPromise } from "./helpers/isolated";
 
 /**
- * #1304 action plugin: the capability lives in `plugins/action` and the hook
+ * Action plugin: the capability lives in `plugins/action` and the hook
  * capability's `requires: ["action"]` resolves it by NAME at compose — so
  * `off: ["action"]` cascades `hook` off with `action` recorded as the root.
  */

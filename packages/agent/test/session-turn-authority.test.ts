@@ -13,7 +13,7 @@ import { closeSessions, type SessionRunner } from "../src/core/run";
 import { session } from "../src/testing/registry";
 import { InboundAuthorityViolated, inboundAuthority } from "../src/core/run";
 
-// Unit seam: the perimeter verdicts the turn recognizes (issue #1245 (1)).
+// Unit seam: the perimeter verdicts the turn recognizes.
 test("unknown provenance never acts: evidence authority plus a typed violation fact", () => {
   const unknown = inboundAuthority({ kind: "spoofed", payload: "whatever" });
   expect(unknown.authority).toBe("evidence_only");
@@ -102,7 +102,7 @@ test("a turn over unknown-provenance mail runs as evidence and records the viola
   })));
 });
 
-// Integration seam (#1310): a prompt whose action row cannot be found fails
+// Integration seam: a prompt whose action row cannot be found fails
 // the turn typed — the runner never runs, no authority (not even evidence).
 test("a prompt with no recorded origin fails the turn typed and never runs the runner", () => {
   let runnerCalls = 0;

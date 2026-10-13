@@ -8,7 +8,7 @@ export { runAgent, runAgentSync } from "./isolated";
 
 /**
  * Acquire an executor with the fixture's services supplied through their
- * Layer. #1309: the approval policy is composition-owned; fixtures default to
+ * Layer. The approval policy is composition-owned; fixtures default to
  * the shipped values unless a case states its own.
  */
 export function testExecutor(

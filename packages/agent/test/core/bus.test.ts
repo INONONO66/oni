@@ -1,5 +1,5 @@
 /**
- * #1305 bus interest gate: a publish with zero matching subscriber interest
+ * Bus interest gate: a publish with zero matching subscriber interest
  * for that event name enqueues nothing — the payload never reaches the
  * PubSub — and the decision is observable through the `onPublish` seam
  * rung 16 measures with. Wildcard `observations` counts for every name.

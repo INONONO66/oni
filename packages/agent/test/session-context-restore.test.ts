@@ -186,7 +186,7 @@ describe("restore_context_projection", () => {
               foldSessionHistory("ctx", before),
             );
           }),
-        // The untouched base-era fixture: before #1251, restore restrictions
+        // The untouched base-era fixture: restore restrictions once
         // lived on `turn/post` through the retired v3 point mapping.
         // Migration must keep this exact historical row refusing restores.
         [{

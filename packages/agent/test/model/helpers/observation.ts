@@ -47,7 +47,7 @@ export function collector(): Collector {
 
 let traceCounter = 0;
 export function newTraceId(): string {
-  // Deterministic unique trace ids: tests must not read ambient entropy (#1245).
+  // Deterministic unique trace ids: tests must not read ambient entropy.
   traceCounter += 1;
   return `trace${traceCounter.toString(16).padStart(27, "0")}`;
 }
