@@ -491,7 +491,7 @@ const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["apps/openomni/src/bundles/hooks-json/index.ts", new Set(["../../invariant"])],
   ["apps/openomni/src/bundles/compaction/summarizer.ts", new Set(["../../composition/completion"])],
-  ["apps/openomni/src/bundles/compaction/strategy.ts", new Set(["../../config"])],
+  ["apps/openomni/src/bundles/compaction/index.ts", new Set(["../../config"])],
   ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../composition/point-table", "../../invariant"])],
   ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
   ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component", "../../composition/generation-layers"])],
