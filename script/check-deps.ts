@@ -1208,7 +1208,7 @@ interface AppsSessionWriteSite {
  * `adoptedExecutor` owns both (review-1346-r1 M1).
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1224, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/index.ts", line: 1219, receiver: "kernel", member: "commit" },
 ];
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
