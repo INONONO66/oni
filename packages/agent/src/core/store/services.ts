@@ -9,7 +9,6 @@ export type AdoptReceipt = { readonly ok: true; readonly fence: number };
 
 export interface SessionWriteAdapter
   extends Pick<ProtocolStorage.SessionSubAdapter, "get" | "list"> {
-  create(row: LedgerSession.Row): Effect.Effect<boolean, LedgerError>;
   materialize(
     input: LedgerSession.Materialize,
   ): Effect.Effect<LedgerSession.MaterializeResult, LedgerError>;

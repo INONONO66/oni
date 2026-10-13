@@ -96,35 +96,13 @@ function compileErrorMessage(options: CompileErrorOptions): string {
   }
 }
 
-/**
- * Rows written before the role rename persist the retired byte; compile folds it to `child`. Named
- * because an inline callback parameter would be contextually typed `unknown`.
- */
-function foldMatchRoles<Input>(input: Input) {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
-  return Object.fromEntries(
-    Object.entries(input).map(([key, value]) =>
-      (key === "senderRole" || key === "targetRole") && typeof value === "string"
-        ? [key, LedgerSession.foldLegacyRole(value)]
-        : [key, value],
-    ),
-  );
-}
-
-const FoldedRole = z
-  .string()
-  .transform((role) => LedgerSession.foldLegacyRole(role))
-  .pipe(LedgerSession.Role);
-
 export const Match = z
   .object({
     op: z.string().min(1).optional(),
     operation: z.string().min(1).optional(),
-    role: FoldedRole.optional(),
+    role: LedgerSession.Role.optional(),
     sessionId: z.string().min(1).optional(),
-    message: z
-      .preprocess(foldMatchRoles, z.union([Gateway.RuleTableA, Gateway.RuleTableB]))
-      .optional(),
+    message: z.union([Gateway.RuleTableA, Gateway.RuleTableB]).optional(),
   })
   .strict();
 export type Match = z.infer<typeof Match>;

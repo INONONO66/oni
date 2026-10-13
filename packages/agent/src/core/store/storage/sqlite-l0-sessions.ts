@@ -88,10 +88,6 @@ export function createSessions(
   limits: AppendLimits,
 ): SessionWriteAdapter {
   return {
-    create: (row) =>
-      writeEffect("session.create", () =>
-        transaction(() => insertSession(db, LedgerSession.Row.parse(row))),
-      ),
     materialize: (input) =>
       writeEffect("session.materialize", (refuse) => {
         const result = transaction(() =>

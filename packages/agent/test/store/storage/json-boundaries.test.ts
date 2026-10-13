@@ -1,6 +1,5 @@
 import { sessionTree } from "../helpers/session-tree";
-import { Effect, Result } from "effect";
-import { runLedgerSync } from "../helpers/effect";
+import { Effect } from "effect";
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import { parsePlainJson, readPlainJson } from "../../../src/core/store/json";
@@ -8,9 +7,14 @@ import { testExecutor } from "../../helpers/executor";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { requestLedger } from "../../helpers/effect-g1";
 import { isolated, isolatedLedger } from "../../helpers/isolated";
-import { LedgerSession, PlainObjectSchema } from "@openomni/protocol";
+import { PlainObjectSchema } from "@openomni/protocol";
 import { createSqliteDecisionFacts } from "../../../src/core/store/decision";
-import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
+import {
+  materializeRow,
+  openLedgerDatabase,
+  observedL0Adapters,
+  residentRow,
+} from "../helpers/ledger";
 
 test("raw recorded facts reject malformed JSON and non-finite JSON numbers", () => {
   using db = openLedgerDatabase();
@@ -36,24 +40,7 @@ test("raw recorded facts reject malformed JSON and non-finite JSON numbers", () 
 test("action reads validate scalar driver columns and JSON before replay", () => {
   using db = openLedgerDatabase();
   const { adapter: store } = observedL0Adapters(db);
-  Result.getOrThrowWith(
-    runLedgerSync(
-      Effect.result(
-        store.sessions.create(
-          LedgerSession.Row.parse({
-            id: "s",
-            parentId: null,
-            role: "resident",
-            fenceOwner: null,
-            fence: 0,
-            revision: 0,
-            state: "idle",
-          }),
-        ),
-      ),
-    ),
-    (error) => error,
-  );
+  expect(materializeRow(store.sessions, residentRow("s"))).toBe(true);
   store.actions.append(
     {
       id: "a",
@@ -65,7 +52,7 @@ test("action reads validate scalar driver columns and JSON before replay", () =>
       irreversible: true,
       ts: 1,
     },
-    0,
+    1,
   );
   db.run("PRAGMA ignore_check_constraints = ON");
   db.run("UPDATE action SET irreversible = 2");
@@ -74,7 +61,7 @@ test("action reads validate scalar driver columns and JSON before replay", () =>
   db.run("UPDATE action SET irreversible = 1, intent = '1e999'");
   expect(() => sessionTree("s", store.actions)).toThrow(z.ZodError);
   db.run("UPDATE action SET intent = '{}'");
-  expect(sessionTree("s", store.actions)).toHaveLength(1);
+  expect(sessionTree("s", store.actions)).toHaveLength(2);
 });
 
 // One throwing decoder owns strict JSON reads — malformed text is the
@@ -102,24 +89,38 @@ test("readPlainJson degrades malformed and schema-invalid payloads to undefined"
 // copy — mutating the body's own object after `run` resolves changes neither
 // the outcome handed back nor the committed result row.
 test("a tool result committed by the executor does not alias the body's returned object", () =>
-  isolated(Effect.gen(function* () {
-    const { ledger, identity, clock, entropy } = yield* requestLedger({ id: "alias-session" });
-    const executor = testExecutor({
-      ledger, identity, clock, entropy, random: () => 0,
-      policy: allowAllPolicy,
-      observations: { publish: () => undefined },
-    });
-    const returned = { nested: { items: [1, 2] } };
-    const outcome = yield* executor.run(
-      { kind: "tool", op: "alias", intent: {}, effect: { category: "query" } },
-      () => Effect.succeed(returned),
-    );
-    if (outcome.terminal !== "executed") throw new Error(`expected executed, got ${outcome.terminal}`);
-    returned.nested.items.push(3);
-    expect(outcome.value).toEqual({ nested: { items: [1, 2] } });
-    const page = isolatedLedger().kernel.historyPage("alias-session", { afterRevision: 0, limit: 256 });
-    const rows = page.actions.filter((action) =>
-      action.kind === "tool" && PlainObjectSchema.parse(action.effect.value).phase === "result");
-    expect(rows).toHaveLength(1);
-    expect(PlainObjectSchema.parse(rows[0]?.effect.value).result).toEqual({ nested: { items: [1, 2] } });
-  })));
+  isolated(
+    Effect.gen(function* () {
+      const { ledger, identity, clock, entropy } = yield* requestLedger({ id: "alias-session" });
+      const executor = testExecutor({
+        ledger,
+        identity,
+        clock,
+        entropy,
+        random: () => 0,
+        policy: allowAllPolicy,
+        observations: { publish: () => undefined },
+      });
+      const returned = { nested: { items: [1, 2] } };
+      const outcome = yield* executor.run(
+        { kind: "tool", op: "alias", intent: {}, effect: { category: "query" } },
+        () => Effect.succeed(returned),
+      );
+      if (outcome.terminal !== "executed")
+        throw new Error(`expected executed, got ${outcome.terminal}`);
+      returned.nested.items.push(3);
+      expect(outcome.value).toEqual({ nested: { items: [1, 2] } });
+      const page = isolatedLedger().kernel.historyPage("alias-session", {
+        afterRevision: 0,
+        limit: 256,
+      });
+      const rows = page.actions.filter(
+        (action) =>
+          action.kind === "tool" && PlainObjectSchema.parse(action.effect.value).phase === "result",
+      );
+      expect(rows).toHaveLength(1);
+      expect(PlainObjectSchema.parse(rows[0]?.effect.value).result).toEqual({
+        nested: { items: [1, 2] },
+      });
+    }),
+  ));

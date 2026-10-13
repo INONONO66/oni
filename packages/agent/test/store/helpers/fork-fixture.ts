@@ -195,8 +195,8 @@ function forkFixture(stores: LedgerStores, child: () => ChildStore) {
     ]);
   }
 
-  function forked(anchor: string): ForkReceipt {
-    return Result.getOrThrowWith(fork(anchor), (error) => error);
+  function forked(anchor: string, overrides: Partial<ForkPorts> = {}): ForkReceipt {
+    return Result.getOrThrowWith(fork(anchor, overrides), (error) => error);
   }
 
   function refusalOf(result: Result.Result<ForkReceipt, ForkRefused | LedgerError>): ForkRefused {

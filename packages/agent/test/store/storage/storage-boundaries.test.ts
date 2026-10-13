@@ -1,11 +1,15 @@
 import { Effect, Result } from "effect";
 import { expect, test } from "bun:test";
-import { LedgerSession } from "@openomni/protocol";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import { createDecisionFactPort } from "../../../src/core/store/decision";
 import { generationSnapshot, configureAction } from "../../../src/core/store/fence";
 import { runLedgerSync } from "../helpers/effect";
-import { openLedgerDatabase, observedL0Adapters } from "../helpers/ledger";
+import {
+  materializeRow,
+  openLedgerDatabase,
+  observedL0Adapters,
+  residentRow,
+} from "../helpers/ledger";
 import { useSqliteStores } from "../helpers/storage";
 
 const stores = useSqliteStores("storage-boundaries");
@@ -35,19 +39,7 @@ test("decision fact port shares rollback and subsequent commit boundaries", () =
 test("fence adoption reports a refused SQL compare-and-set without advancing its fence", () => {
   using db = openLedgerDatabase();
   const { adapter } = observedL0Adapters(db);
-  run(
-    adapter.sessions.create(
-      LedgerSession.Row.parse({
-        id: "fenced",
-        parentId: null,
-        role: "resident",
-        fenceOwner: null,
-        fence: 0,
-        revision: 0,
-        state: "idle",
-      }),
-    ),
-  );
+  materializeRow(adapter.sessions, residentRow("fenced"));
   db.run(
     "CREATE TRIGGER refuse_fence BEFORE UPDATE OF lease_fence ON session BEGIN SELECT RAISE(IGNORE); END",
   );
@@ -110,19 +102,7 @@ test("materialization refuses a mismatched initial action before creating any ro
 test("session commit savepoints roll back every refused write unit", () => {
   using db = openLedgerDatabase();
   const { adapter } = observedL0Adapters(db);
-  run(
-    adapter.sessions.create(
-      LedgerSession.Row.parse({
-        id: "savepoint",
-        parentId: null,
-        role: "resident",
-        fenceOwner: null,
-        fence: 0,
-        revision: 0,
-        state: "idle",
-      }),
-    ),
-  );
+  materializeRow(adapter.sessions, residentRow("savepoint"));
   run(adapter.sessions.adoptFence({ sessionId: "savepoint", owner: "owner", fence: 1 }));
   db.run(
     "CREATE TRIGGER refuse_revision BEFORE UPDATE OF revision ON session BEGIN SELECT RAISE(IGNORE); END",
@@ -142,7 +122,7 @@ test("session commit savepoints roll back every refused write unit", () => {
     owner: "owner",
     fence: 1,
     now: 2,
-    expectedRevision: 0,
+    expectedRevision: 1,
     actions: [action],
     state: "idle",
   };
@@ -150,8 +130,8 @@ test("session commit savepoints roll back every refused write unit", () => {
     expect.objectContaining({ _tag: "CommitRefused", reason: "revision" }),
   );
   expect(db.query("SELECT 1 FROM action WHERE id = 'refused-action'").get()).toBeNull();
-  expect(adapter.sessions.get("savepoint")?.revision).toBe(0);
+  expect(adapter.sessions.get("savepoint")?.revision).toBe(1);
   db.run("DROP TRIGGER refuse_revision");
   expect(run(adapter.sessions.commit(request)).ok).toBe(true);
-  expect(adapter.sessions.get("savepoint")?.revision).toBe(1);
+  expect(adapter.sessions.get("savepoint")?.revision).toBe(2);
 });

@@ -3,8 +3,16 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { runLedgerSync } from "../helpers/effect";
 import type { LedgerSession } from "@openomni/protocol";
-import { openLedgerDatabase, observedL0Adapters, type L0Adapters } from "../helpers/ledger";
+import {
+  materializeRow,
+  openLedgerDatabase,
+  observedL0Adapters,
+  residentRow,
+  type L0Adapters,
+} from "../helpers/ledger";
 import type { L0Observation } from "@openomni/protocol";
+
+const GENESIS_ID = "session:configure";
 
 function fixture(db: ReturnType<typeof openLedgerDatabase>): {
   adapter: L0Adapters;
@@ -12,26 +20,13 @@ function fixture(db: ReturnType<typeof openLedgerDatabase>): {
   input: LedgerSession.Commit;
 } {
   const { adapter, observations } = observedL0Adapters(db);
-  runLedgerSync(
-    adapter.sessions.create({
-      id: "session",
-      parentId: null,
-      role: "resident",
-      state: "idle",
-      revision: 0,
-      fenceOwner: null,
-      fence: 0,
-      toolsGeneration: 0,
-      systemHash: "",
-      policyGeneration: 0,
-    }),
-  );
+  expect(materializeRow(adapter.sessions, residentRow("session"))).toBe(true);
   const input: LedgerSession.Commit = {
     sessionId: "session",
     owner: "writer",
     fence: 1,
     now: 2,
-    expectedRevision: 0,
+    expectedRevision: 1,
     actions: [
       {
         id: "action",
@@ -55,13 +50,14 @@ function adopt(adapter: L0Adapters) {
   );
 }
 
+/** Only the genesis row and its one receipt exist: nothing from the refused write landed. */
 function expectUnchanged(
   f: ReturnType<typeof fixture>,
   before: ReturnType<L0Adapters["sessions"]["get"]>,
 ): void {
   expect(f.adapter.sessions.get("session")).toEqual(before);
-  expect(sessionTree("session", f.adapter.actions)).toEqual([]);
-  expect(f.observations).toEqual([]);
+  expect(sessionTree("session", f.adapter.actions).map((node) => node.id)).toEqual([GENESIS_ID]);
+  expect(f.observations.map((event) => event.id)).toEqual([GENESIS_ID]);
 }
 
 test("commit refusal is tagged with revision and fence and leaves no partial SQL or observation", () => {
@@ -70,14 +66,14 @@ test("commit refusal is tagged with revision and fence and leaves no partial SQL
   adopt(f.adapter);
   const before = f.adapter.sessions.get("session");
   const refused = runLedgerSync(
-    Effect.flip(f.adapter.sessions.commit({ ...f.input, expectedRevision: 1 })),
+    Effect.flip(f.adapter.sessions.commit({ ...f.input, expectedRevision: 2 })),
   );
   expect(refused).toMatchObject({
     _tag: "CommitRefused",
     sessionId: "session",
     reason: "revision",
-    expectedRevision: 1,
-    currentRevision: 0,
+    expectedRevision: 2,
+    currentRevision: 1,
     fence: 1,
     currentFence: 1,
   });
@@ -96,7 +92,7 @@ test("a late commit CAS refusal rolls back actions already appended in the same 
     _tag: "CommitRefused",
     reason: "fence",
     currentFence: 1,
-    currentRevision: 0,
+    currentRevision: 1,
   });
   expectUnchanged(f, before);
 });
@@ -156,7 +152,7 @@ test("a superseded fence commits in the typed channel after a successor adoption
     fence: 1,
     currentFence: 2,
   });
-  expect(sessionTree("session", f.adapter.actions)).toEqual([]);
+  expect(sessionTree("session", f.adapter.actions).map((node) => node.id)).toEqual([GENESIS_ID]);
 });
 
 test("successful writes return the existing adapter receipt and row values", () => {
@@ -169,9 +165,9 @@ test("successful writes return the existing adapter receipt and row values", () 
   expect(result.ok).toBe(true);
   expect(f.adapter.sessions.get("session")).toEqual(result.row);
   expect(result.receipts.map((receipt) => receipt.action)).toEqual(
-    sessionTree("session", f.adapter.actions),
+    sessionTree("session", f.adapter.actions).slice(1),
   );
-  expect(result.receipts.map((receipt) => receipt.revision)).toEqual([1]);
+  expect(result.receipts.map((receipt) => receipt.revision)).toEqual([2]);
   expect(f.adapter.actions.verifyChain("session")).toMatchObject({ kind: "intact" });
-  expect(f.observations.map((event) => event.id)).toEqual(["action"]);
+  expect(f.observations.map((event) => event.id)).toEqual([GENESIS_ID, "action"]);
 });

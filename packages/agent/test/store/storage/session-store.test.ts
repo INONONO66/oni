@@ -8,11 +8,13 @@ import { type LedgerAction, type SessionGeneration, SessionTurn } from "@openomn
 import { createSessionKernel } from "../../../src/core/store/fence";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 import { actionPayloadBytes } from "../../../src/core/store/action-hash";
-import { SchemaRefused } from "../../../src/core/store/errors";
+import { LedgerInvariant, SchemaRefused } from "../../../src/core/store/errors";
 import { openSessionStore, SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 import { runLedgerSync } from "../helpers/effect";
 import { materializeSession } from "../helpers/session";
 import { testNow, withDiskStores } from "../helpers/storage";
+import { RETIRED_ROLE } from "../helpers/old-catalog";
+import { materializeRow, residentRow } from "../helpers/ledger";
 import { expectBusyBeforeSchema, policyFixture } from "./store-fixtures";
 
 function tableCensus(path: string): Array<{ name: string }> {
@@ -358,4 +360,45 @@ test("#1347 row cap covers schema-exempt checkpoint rows and the materialize gen
     expect(refused).toMatchObject({ _tag: "SchemaRefused", kind: "fold.checkpoint", reason: "row_bytes" });
     expect(chainHead(path)).toEqual(settled);
   }, { sessionFile: "s3.sqlite", session: { rowByteCap: 512 } });
+});
+
+test("a retired session role byte refuses typed on read, stays byte-identical, and never blocks materialization (#1351)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "session-store-"));
+  const path = join(directory, "old-role.sqlite");
+  try {
+    const first = openSessionStore(path, { now: testNow });
+    expect(materializeRow(first.sessions, residentRow("old"))).toBe(true);
+    first.close();
+    // A pre-rename session file persisted the retired delegated-role byte
+    // under its own CHECK; plant that byte past the current CHECK.
+    const raw = new Database(path);
+    raw.run("PRAGMA ignore_check_constraints = ON");
+    raw.run("UPDATE session SET role = ? WHERE id = 'old'", [RETIRED_ROLE]);
+    raw.close();
+
+    const store = openSessionStore(path, { now: testNow });
+    try {
+      let refusal: LedgerInvariant | undefined;
+      try {
+        store.sessions.get("old");
+      } catch (error) {
+        if (error instanceof LedgerInvariant) refusal = error;
+      }
+      expect(refusal).toBeInstanceOf(LedgerInvariant);
+      expect(refusal).toMatchObject({ operation: "session.decode", message: expect.stringContaining("old") });
+      // Materialization through the same file is unaffected.
+      expect(materializeRow(store.sessions, residentRow("fresh"))).toBe(true);
+      expect(store.sessions.get("fresh")?.role).toBe("resident");
+    } finally {
+      store.close();
+    }
+    const after = new Database(path, { readonly: true });
+    try {
+      expect(after.query("SELECT role FROM session WHERE id = 'old'").get()).toEqual({ role: RETIRED_ROLE });
+    } finally {
+      after.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
 });

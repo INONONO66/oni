@@ -2,7 +2,7 @@ import type { GateRow, PlainValue, PointId } from "@openomni/protocol";
 import { matchesMessage, type MessagePolicyContext } from "./match";
 import { GateComposeError, type GatePointTable } from "../points";
 import { compileGateRows, type CompiledGate } from "./compose";
-import { legacyPointOf } from "./migrate";
+import { pointOfRow } from "./migrate";
 import type { CompiledRow, Match } from "./row-parse";
 import type { HandlerTable } from "./registry";
 import { gateRowId } from "./rows";
@@ -92,7 +92,7 @@ function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
 
 /** A wildcard `turn/post` row projects onto the compaction point too; op rows converted earlier. */
 function projectedPoints(row: CompiledRow, table: GatePointTable): PointId[] {
-  const point = legacyPointOf(row.kind, row.phase);
+  const point = pointOfRow(row.kind, row.phase);
   if (point === undefined || !table.has(point))
     throw new GateComposeError({ code: "unknown_point", point: `${row.kind}.${row.phase}` });
   if (point === "turn.post" && row.match.op === undefined && table.has("compaction.pre"))

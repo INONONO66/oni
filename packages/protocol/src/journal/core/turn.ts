@@ -3,8 +3,7 @@
  * phases, consumed input seqs (`deliveryIds`) plus `consumedStale` for
  * inputs closed without execution. Single writer: the session loop
  * (`packages/agent/src/core/commit.ts` turn constructors). Version 2
- * (#1315): intents name consumed inputs `deliveryIds`; version-1 rows fold
- * through the `prompt` declaration's `foldDeliveryPayload` reader.
+ * (#1315): intents name consumed inputs `deliveryIds`.
  */
 import { z } from "zod";
 import { RowBody, declare, refineField } from "../declaration.js";

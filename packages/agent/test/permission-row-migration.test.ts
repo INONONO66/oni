@@ -4,8 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertPointGenerationRows,
-  LEGACY_INGRESS_POLICY_KIND,
-  legacyPointOf,
+  pointOfRow,
   POINT_GENERATION_ROW,
   translateLegacyPolicyRow,
 } from "../src/core/gate/migrate";
@@ -20,7 +19,7 @@ const table = fullPointTable();
 const LEGACY_ROWS = [
   draft("compaction-arm", "compaction", "pre", { type: "allow", reasonCodes: [] }),
   draft("compaction-close", "compaction", "post", { type: "allow", reasonCodes: [] }),
-  draft("ingress-screen", LEGACY_INGRESS_POLICY_KIND, "pre", { type: "deny", reasonCodes: ["screen"] }),
+  draft("ingress-screen", "ingress", "pre", { type: "deny", reasonCodes: ["screen"] }),
   draft("alarm-route", "alarm.fired", "post", { type: "allow", reasonCodes: [] }),
   draft("tool-budget", "tool", "pre", { type: "require_approval", reasonCodes: ["budget"] }),
 ];
@@ -53,9 +52,9 @@ const pinnedSnapshot = (...rows: Parameters<typeof atGeneration>[0][]) =>
 describe("permission-row migration (#1251)", () => {
   it("maps every historical kind/phase pair the kernel ever wrote to a registered point", () => {
     expect(() => assertPointGenerationRows(LEGACY_ROWS, table)).not.toThrow();
-    expect(legacyPointOf("compaction", "post")).toBe("compaction.post");
-    expect(legacyPointOf(LEGACY_INGRESS_POLICY_KIND, "pre")).toBe("ingress.pre");
-    expect(legacyPointOf("alarm.fired", "post")).toBe("alarm.fired");
+    expect(pointOfRow("compaction", "post")).toBe("compaction.post");
+    expect(pointOfRow("ingress", "pre")).toBe("ingress.pre");
+    expect(pointOfRow("alarm.fired", "post")).toBe("alarm.fired");
   });
 
   it("rejects an unmappable historical row with `unknown_point`", () => {

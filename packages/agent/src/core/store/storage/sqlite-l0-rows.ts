@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
 import { parsePlainJson, SqliteCount, SqliteEpochMs } from "../json";
-import { foldDeliveryPayload, LedgerAction, LedgerSession, PolicyRow } from "@openomni/protocol";
+import { LedgerAction, LedgerSession, PolicyRow } from "@openomni/protocol";
 
 const actionRowSchema = LedgerAction.Node;
 
@@ -65,13 +65,16 @@ export const PolicySqlRow = z.object({
 export type PolicySqlRow = z.infer<typeof PolicySqlRow>;
 
 export function decodeSession(row: SessionSqlRow): LedgerSession.Row {
-  if (row.role === null)
-    throw new LedgerInvariant({ operation: "session.decode", message: `session ${row.id} has no L0 role` });
+  const role = LedgerSession.Role.safeParse(row.role);
+  if (!role.success)
+    throw new LedgerInvariant({
+      operation: "session.decode",
+      message: `session ${row.id} has no L0 role in the current vocabulary: ${JSON.stringify(row.role)}`,
+    });
   return LedgerSession.Row.parse({
     id: row.id,
     parentId: row.parent_id,
-    // Pre-rename files persist the retired role byte.
-    role: LedgerSession.foldLegacyRole(row.role),
+    role: role.data,
     fenceOwner: row.lease_owner,
     fence: row.lease_fence,
     revision: row.revision,
@@ -90,8 +93,8 @@ export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
     parentId: row.parent_id,
     sessionId: row.session_id,
     kind: row.kind,
-    intent: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parsePlainJson(row.intent)) },
-    effect: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parsePlainJson(row.effect)) },
+    intent: { encodingVersion: row.encoding_version, value: parsePlainJson(row.intent) },
+    effect: { encodingVersion: row.encoding_version, value: parsePlainJson(row.effect) },
     ts: row.ts,
     ordinal: row.ordinal,
     prevHash: row.prev_hash,
@@ -102,7 +105,7 @@ export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
       ? { ...common, irreversible: row.irreversible === 1 }
       : {
           ...common,
-          revert: { encodingVersion: row.encoding_version, value: foldDeliveryPayload(parsePlainJson(row.revert)) },
+          revert: { encodingVersion: row.encoding_version, value: parsePlainJson(row.revert) },
         },
   );
 }
