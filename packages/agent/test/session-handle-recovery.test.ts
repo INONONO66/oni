@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, } from "effect";
 import type { SessionTurn } from "@openomni/protocol";
-import type { SessionRunner, SessionRunnerInput } from "../src/core/run";
+import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { awaitSignal, boundedSignal as bounded } from "./helpers/g0-signals";
 import {

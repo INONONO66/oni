@@ -7,13 +7,13 @@ import { seedPolicy } from "./helpers/seed-policy";
 import { receiveOutbound, failure, foreign } from "./helpers/effect-g2";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import * as SessionHandleStore from "../src/core/store/fence";
-import { closeSessions, type SessionRunner } from "../src/core/run";
+import { closeSessions, type SessionRunner } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
-import { resolveSessionRuntime } from "../src/core/run";
+import { resolveSessionRuntime } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
 import { reopenableLedger } from "./helpers/reopenable-ledger";
 import { canonicalDigest } from "@openomni/protocol";
-import { createSessionRequests } from "../src/core/request";
+import { createSessionRequests } from "../src/core/session/request";
 import { fileRequest, planeAnswer } from "./helpers/session-request-plane";
 
 /**

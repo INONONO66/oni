@@ -19,10 +19,10 @@ import { EntityAddress, EntityId, EntityType, Envelope, ShardId, Snowflake, type
 import type { Rpc } from "effect/rpc";
 import { Headers } from "effect/http";
 import { CommitRefused } from "../../src/core/store/errors";
-import { armAction, AlarmWakeError, type AlarmCapability } from "../../src/core/alarm";
-import { writerLoop, type ActivationHandle, type SessionKernel } from "../../src/core/entity";
-import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type ReadRpc, type ResolveRpc } from "../../src/core/messages";
-import type { SessionEntityPorts } from "../../src/core/run";
+import { armAction, AlarmWakeError, type AlarmCapability } from "../../src/core/ports/alarm";
+import { writerLoop, type ActivationHandle, type SessionKernel } from "../../src/core/session/entity";
+import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type ReadRpc, type ResolveRpc } from "../../src/core/journal/messages";
+import type { SessionEntityPorts } from "../../src/core/session/run";
 import { clusterTempDir, makeTurnPort, resolvedRunner } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
 import type { Delivery } from "@openomni/protocol";

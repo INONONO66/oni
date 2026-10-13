@@ -1,7 +1,7 @@
-import type { CommitReceipt } from "./store/services";
-import type { LedgerError } from "./store/errors";
+import type { CommitReceipt } from "../store/services";
+import type { LedgerError } from "../store/errors";
 import { Effect } from "effect";
-import type { SessionKernel } from "./entity";
+import type { SessionKernel } from "../session/entity";
 import {
   canonicalDigest,
   type ConsumptionSettings,
@@ -16,16 +16,16 @@ import {
   type Delivery,
   type PlainValue,
 } from "@openomni/protocol";
-import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../inspect/history";
-import { actionPayloadBytes } from "./store/action-hash";
-import type { CompactionSeamService } from "./compaction-ports";
-import { SchemaRefused } from "./store/errors";
-import type * as SessionHandleStore from "./store/fence";
+import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../../inspect/history";
+import { actionPayloadBytes } from "../store/action-hash";
+import type { CompactionSeamService } from "../ports/compaction-ports";
+import { SchemaRefused } from "../store/errors";
+import type * as SessionHandleStore from "../store/fence";
 import { z } from "zod";
-import { RunReasonCode } from "./reason-codes";
-import { AgentInvariantViolation, GenerationUnavailable } from "./failure";
+import { RunReasonCode } from "../ports/reason-codes";
+import { AgentInvariantViolation, GenerationUnavailable } from "../ports/failure";
 import { SessionPolicyRefusal } from "./messages";
-import type { SessionRunnerResult, SessionTool } from "./run";
+import type { SessionRunnerResult, SessionTool } from "../session/run";
 /** Fails closed: a compaction append without the composed seam cannot be pinned. */
 function requireNoCompactionPin(action: LedgerAction.Append): LedgerAction.Append {
   if (action.kind === "compaction")

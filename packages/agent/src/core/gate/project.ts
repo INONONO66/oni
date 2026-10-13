@@ -1,11 +1,11 @@
 import type { GateRow, PlainValue, PointId } from "@openomni/protocol";
 import { matchesMessage, type MessagePolicyContext } from "./match";
-import { GateComposeError, type GatePointTable } from "../points";
+import { GateComposeError, type GatePointTable } from "./points";
 import { compileGateRows, type CompiledGate } from "./compose";
 import { pointOfRow } from "./migrate";
 import type { CompiledRow, Match } from "./row-parse";
 import type { HandlerTable } from "./registry";
-import { gateRowId } from "./rows";
+import { gateRowId } from "../ports/gate-rows";
 
 /** The gate is the single evaluator; this only formats its decision as a `PolicyEvaluation`. */
 export interface ProjectedGeneration {

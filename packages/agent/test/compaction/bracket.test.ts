@@ -3,7 +3,7 @@ import { providerFailure } from "../helpers/mock-llm";
 import { isolated } from "../helpers/isolated";
 import { afterEach, describe, expect, it } from "bun:test";
 import type { BusEvent } from "@openomni/protocol";
-import { RunEvents } from "../../src/core/turn";
+import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";
 import { collector } from "../helpers/observation-collector";
 import { Compaction } from "../../src/plugins/compaction/compact";

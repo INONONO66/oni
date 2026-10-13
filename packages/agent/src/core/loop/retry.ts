@@ -1,6 +1,6 @@
 import { LlmCall, Operational, type BusEvent } from "@openomni/protocol";
 import { z } from "zod";
-import { type FailureClass, isLlmRunFailure, type ProviderReason, type RetryableProviderReason } from "./llm";
+import { type FailureClass, isLlmRunFailure, type ProviderReason, type RetryableProviderReason } from "../ports/llm";
 
 export const RetryReason = z.enum([
   "timeout",

@@ -4,7 +4,7 @@ import {
   type GateRow,
   type PointRecord,
 } from "@openomni/protocol";
-import { GateComposeError, type GatePointTable } from "../points";
+import { GateComposeError, type GatePointTable } from "./points";
 
 /** One row validated against its point record and the handler set, rejecting fail-closed. */
 

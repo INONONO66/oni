@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { createController } from "../../src/testing/controller";
-import { resolveSessionRuntime, type SessionRunner, type SessionRunnerResult } from "../../src/core/run";
-import type { SessionError } from "../../src/core/failure";
-import type { SessionEntryServices } from "../../src/core/ports";
+import { resolveSessionRuntime, type SessionRunner, type SessionRunnerResult } from "../../src/core/session/run";
+import type { SessionError } from "../../src/core/ports/failure";
+import type { SessionEntryServices } from "../../src/core/ports/ports";
 
 /**
  * Entity-plane wake (W5.2 F5): one activation adopts the next fence, drains

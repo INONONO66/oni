@@ -1,5 +1,5 @@
-import { seam, type SeamTag } from "./capability";
-import type { ResolvedAgentBudget } from "./types";
+import { seam, type SeamTag } from "../ports/capability";
+import type { ResolvedAgentBudget } from "../ports/types";
 
 /**
  * Plain data only, no callbacks; the providing bundle owns the literals and the core has no

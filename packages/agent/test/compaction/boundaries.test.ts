@@ -4,7 +4,7 @@ import { Cause, Effect, Exit } from "effect";
 import { planAnchoredCut } from "../../src/plugins/compaction/candidate";
 import { createCompactionPlan, restoreCompactionProjection } from "../../src/plugins/compaction/durable";
 import { CompactionSession } from "../../src/plugins/compaction/speculate";
-import { AgentInvariantViolation } from "../../src/core/failure";
+import { AgentInvariantViolation } from "../../src/core/ports/failure";
 import { isolated } from "../helpers/isolated";
 import { withSummarizerDeadline } from "../../src/plugins/compaction/summary";
 import { textMessage } from "../helpers/messages";

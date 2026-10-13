@@ -14,7 +14,7 @@ import {
   sessionFileFor,
 } from "./helpers/cluster-runtime";
 import { seedSessionWithOpenRequest } from "./helpers/seed-request";
-import type { ResolveRefused } from "../src/core/messages";
+import type { ResolveRefused } from "../src/core/journal/messages";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-resolve-stale-");
 const options = { sessionsDir, catalogFile };

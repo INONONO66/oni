@@ -6,7 +6,7 @@ import {
   PlainValueSchema,
   type PlainValue,
 } from "@openomni/protocol";
-import { createAssistantMessage } from "../src/core/message-factory";
+import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { foldSessionHistory } from "../src/inspect/history";
 
 for (const terminal of [undefined, "interrupted", "error"] as const) {

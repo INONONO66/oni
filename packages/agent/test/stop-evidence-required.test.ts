@@ -8,7 +8,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { isolated } from "./helpers/isolated";
 import { createTestAgent } from "./helpers/effect-g3";
-import type { ChatAgentConfig } from "../src/core/types";
+import type { ChatAgentConfig } from "../src/core/ports/types";
 import { Bus } from "./helpers/bus";
 import { completeModel, mockLlm } from "./helpers/mock-llm";
 import { runInput } from "./helpers/run-input";

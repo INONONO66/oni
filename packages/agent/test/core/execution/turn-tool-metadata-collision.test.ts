@@ -5,7 +5,7 @@ import { failure } from "../../helpers/effect-g3";
 import { describe, expect, it } from "bun:test";
 import { Bus } from "../../helpers/bus";
 import { runTestAgent } from "../../helpers/effect-g3";
-import type {} from "../../../src/core/types";
+import type {} from "../../../src/core/ports/types";
 import { mockLlm, completeModel } from "../../helpers/mock-llm";
 import { runInput } from "../../helpers/run-input";
 

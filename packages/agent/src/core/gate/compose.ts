@@ -6,7 +6,7 @@ import {
   type PointId,
   canonicalDigest,
 } from "@openomni/protocol";
-import { GateComposeError, type GatePointTable } from "../points";
+import { GateComposeError, type GatePointTable } from "./points";
 import { admitRow } from "./admit";
 import {
   applyRow,

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { LedgerAction, PlainObject, PlainValue } from "@openomni/protocol";
-import type { ExecutionError } from "../../src/core/failure";
-import type { DurableExecutor, LlmAttempts } from "../../src/core/gate/decide";
+import type { ExecutionError } from "../../src/core/ports/failure";
+import type { DurableExecutor, LlmAttempts } from "../../src/core/loop/executor";
 import { fakeClassifyFailure } from "./fake-llm";
 
 /** Runs one recorded `llm/chat` action whose attempts all share the trivial prepare/admit shape. */

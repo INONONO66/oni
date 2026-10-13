@@ -1,9 +1,9 @@
 /** #1348: one executed assistant answer followed by a durable threshold compaction over it. */
 import { Effect } from "effect";
 import { PlainValueSchema } from "@openomni/protocol";
-import type { ExecutionError } from "../../src/core/failure";
-import type { Executor } from "../../src/core/gate/decide";
-import { createAssistantMessage } from "../../src/core/message-factory";
+import type { ExecutionError } from "../../src/core/ports/failure";
+import type { Executor } from "../../src/core/loop/executor";
+import { createAssistantMessage } from "../../src/core/journal/message-factory";
 import type { SessionKernel } from "../../src/core/store/fence";
 import { foldSessionHistory } from "../../src/inspect/history";
 import { createCompactionPlan } from "../../src/plugins/compaction/durable";

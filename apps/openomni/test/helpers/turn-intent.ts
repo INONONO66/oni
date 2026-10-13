@@ -1,5 +1,5 @@
 import type { LedgerAction } from "@openomni/protocol";
-import { turnIntentAction as recordTurnIntent } from "../../../../packages/agent/src/core/commit";
+import { turnIntentAction as recordTurnIntent } from "../../../../packages/agent/src/core/journal/commit";
 import type { SessionKernel } from "../../src/composition/cluster-runtime";
 
 /** A committed-shape turn intent action rooted at the session's configure action. */

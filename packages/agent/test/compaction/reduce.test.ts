@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { AgentFailure } from "../../src/core/failure";
+import { AgentFailure } from "../../src/core/ports/failure";
 import { isolated } from "../helpers/isolated";
 import { describe, expect, it } from "bun:test";
 import type { Message } from "@openomni/protocol";
@@ -7,7 +7,7 @@ import { collector } from "../helpers/observation-collector";
 import { Compaction } from "../../src/plugins/compaction/compact";
 import { elideToolOutputs } from "../../src/plugins/compaction/reduce";
 import { completedToolPart, messageSequence } from "../helpers/messages";
-import { RunEvents } from "../../src/core/turn";
+import { RunEvents } from "../../src/core/loop/turn";
 
 const { user: userMessage, assistant } = messageSequence("reduce-session");
 

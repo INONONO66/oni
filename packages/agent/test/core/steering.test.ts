@@ -1,10 +1,10 @@
-import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
+import type { RunInput, LlmSink as Sink } from "../../src/core/ports/llm";
 import { isolated } from "../helpers/isolated";
 import { bounded } from "../helpers/bounded";
 import { providerFailure } from "../helpers/mock-llm";
 import { createTestAgent } from "../helpers/g0-effect";
 import { describe, expect, it } from "bun:test";
-import { RunEvents } from "../../src/core/turn";
+import { RunEvents } from "../../src/core/loop/turn";
 import { stepSnapshot } from "../helpers/messages";
 import { Bus } from "../helpers/bus";
 import { completeModel, mockLlm, createStopOutcome } from "../helpers/mock-llm";

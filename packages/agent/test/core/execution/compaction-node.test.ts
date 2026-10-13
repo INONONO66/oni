@@ -9,7 +9,7 @@ import { runTestAgent } from "../../helpers/effect-g3";
 import { compiledPolicy } from "../../helpers/compiled-policy";
 import { recoveryRecording as recordingExecutor } from "../../helpers/effect-g3r";
 import { runInput } from "../../helpers/run-input";
-import { RunEvents } from "../../../src/core/turn";
+import { RunEvents } from "../../../src/core/loop/turn";
 import { executeCompaction } from "../../../src/plugins/compaction/execute-cut";
 import { createCompactionPlan, restoreCompactionProjection } from "../../../src/plugins/compaction/durable";
 import { Compaction } from "../../../src/plugins/compaction/compact";

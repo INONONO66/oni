@@ -4,11 +4,11 @@ import { Context, Effect } from "effect";
 import { z } from "zod";
 import { Delivery, Journal, type PlainValue } from "@openomni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
-import { Capability, Manifest, type SeamTag } from "../src/core/capability";
+import { Capability, Manifest, type SeamTag } from "../src/core/ports/capability";
 import { runTestPromise } from "./helpers/isolated";
-import { compose } from "../src/core/compose";
-import { decideSessionAdmission } from "../src/core/admission";
-import type { DeliverRefused } from "../src/core/messages";
+import { compose } from "../src/core/composition/compose";
+import { decideSessionAdmission } from "../src/core/session/admission";
+import type { DeliverRefused } from "../src/core/journal/messages";
 import {
   clusterTempDir,
   readChain,

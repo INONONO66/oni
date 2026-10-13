@@ -24,7 +24,7 @@ import type { CatalogStore } from "./catalog.js";
 import type { ArmedAlarmRow, SessionStore, ToolOutputRow, ToolOutputWrite, ToolOutputsAdapter } from "./session-file/index.js";
 import { armedAlarmDelta } from "./storage/sqlite-l0-write.js";
 import { writeEffect } from "./storage/write-effect";
-import { GATE_ROW_WRITER_VERSION } from "../gate/rows";
+import { GATE_ROW_WRITER_VERSION } from "../ports/gate-rows";
 
 export const RESUME_BUDGET = 10;
 

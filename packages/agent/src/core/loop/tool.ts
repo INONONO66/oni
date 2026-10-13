@@ -1,13 +1,13 @@
 import { Clock, Effect, Cause, Exit, Option } from "effect";
-import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty, thrownAsError } from "./failure";
-import type { ChatAgentConfig } from "./types";
+import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty, thrownAsError } from "../ports/failure";
+import type { ChatAgentConfig } from "../ports/types";
 import type { RunState, TurnArtifacts } from "./turn";
 import { recordToolCall } from "./budget";
 import { type Tool, type Message, type PlainValue, PlainValueSchema, type ToolDefinition, type ToolExecutionContext, listenForAbort, type AnyToolDefinition, type LedgerAction, SessionGeneration, type ToolCategory, toolResultText } from "@openomni/protocol";
-import { BOUNDED_CONCURRENCY } from "./ports";
+import { BOUNDED_CONCURRENCY } from "../ports/ports";
 import { z } from "zod";
-import { RawToolSlots, openInvocation, withExecutor, withInvocation, type InvocationFrame, type Executor, type ExecutionRequest } from "./gate/decide";
-import type { ToolOutputPorts } from "./tool-output";
+import { RawToolSlots, openInvocation, withExecutor, withInvocation, type InvocationFrame, type Executor, type ExecutionRequest } from "./executor";
+import type { ToolOutputPorts } from "../ports/tool-output";
 
 export function buildSystemPrompt(
   basePrompt: string | undefined,
@@ -391,4 +391,4 @@ export function projectTools(definitions: readonly ProjectableTool[]): ToolProje
   return { session: Object.freeze(session), specs: Object.freeze(specs), dispatch };
 }
 
-export { currentExecutor } from "./gate/decide";
+export { currentExecutor } from "./executor";

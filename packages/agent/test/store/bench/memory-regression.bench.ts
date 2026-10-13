@@ -8,7 +8,7 @@ import { sessionTree } from "../helpers/session-tree";
 import { describe, expect, test } from "bun:test";
 import { L0Observation } from "@openomni/protocol";
 import { Effect, Stream } from "effect";
-import { makeObservationBus } from "../../../src/core/bus";
+import { makeObservationBus } from "../../../src/core/observation/bus";
 import { runTestPromise } from "../../helpers/isolated";
 import { materializeSession } from "../helpers/session";
 import { useMemoryStores } from "../helpers/storage";

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { prepareChatFixture, type ChatFixture } from "./chat-services";
 import type { TraceContext } from "@openomni/protocol";
-import { createSessionChatRunner } from "../../src/core/run";
+import { createSessionChatRunner } from "../../src/core/session/run";
 import { completeModel, type MockLlmFn } from "./mock-llm";
 
 type Prepared = Effect.Success<ReturnType<Parameters<typeof createSessionChatRunner>[0]["prepare"]>>;

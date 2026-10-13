@@ -1,6 +1,6 @@
 import { messageSource } from "./message-source";
 import type { Message, PlainObject } from "@openomni/protocol";
-import { createAssistantMessage } from "../../src/core/message-factory";
+import { createAssistantMessage } from "../../src/core/journal/message-factory";
 
 export function assistantTextSnapshot(text: string, input: number, output: number): Message.WithParts {
   const message = createAssistantMessage(text, "", "session", messageSource);

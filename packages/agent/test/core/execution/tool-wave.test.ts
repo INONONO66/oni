@@ -1,6 +1,6 @@
 
 import { testExecutor, runAgentSync } from "../../helpers/executor";
-import type { ResolvedExecutorOptions } from "../../../src/core/gate/decide";
+import type { ResolvedExecutorOptions } from "../../../src/core/loop/executor";
 import { catalogLayer } from "../../helpers/service-layers";
 import { expect, it } from "bun:test";
 import { PlainObjectSchema, type LedgerAction, type ToolExecutionContext } from "@openomni/protocol";
@@ -11,13 +11,13 @@ import { createTestAgent } from "../../helpers/effect-g2";
 import { runInput } from "../../helpers/run-input";
 import { pendingTimedAssistant, readyWaveTurn } from "../../helpers/tool-wave";
 import { fixtureStopEvidence } from "../../helpers/chat-services";
-import { settleModelTools } from "../../../src/core/tool";
-import type { ObservedChatAgentConfig } from "../../../src/core/types";
-import { createRawSlots } from "../../../src/core/gate/decide";
-import { GenerationRawSlots } from "../../../src/core/run";
+import { settleModelTools } from "../../../src/core/loop/tool";
+import type { ObservedChatAgentConfig } from "../../../src/core/ports/types";
+import { createRawSlots } from "../../../src/core/loop/executor";
+import { GenerationRawSlots } from "../../../src/core/session/run";
 import { createDispatcher } from "../../../src/plugins/tool";
-import { executeToolBody } from "../../../src/core/tool";
-import { AgentFailure } from "../../../src/core/failure";
+import { executeToolBody } from "../../../src/core/loop/tool";
+import { AgentFailure } from "../../../src/core/ports/failure";
 
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { recordingLedger } from "../../helpers/effect-g2";

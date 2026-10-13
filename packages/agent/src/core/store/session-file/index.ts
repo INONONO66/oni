@@ -32,7 +32,7 @@ import { createSessions, materializeSession } from "../storage/sqlite-l0-session
 import { writeEffect, type RefuseWrite } from "../storage/write-effect.js";
 import type { Effect } from "effect";
 import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
-import { thrownAsError } from "../../failure";
+import { thrownAsError } from "../../ports/failure";
 
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";

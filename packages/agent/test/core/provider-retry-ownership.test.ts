@@ -2,14 +2,14 @@ import { Effect } from "effect";
 import { isolated } from "../helpers/isolated";
 import { createTestAgent, failure as effectFailure } from "../helpers/effect-g2";
 import { afterEach, describe, expect, it } from "bun:test";
-import { type FailureFacts, LlmRunFailure, type RunInput, type LlmSink } from "../../src/core/llm";
+import { type FailureFacts, LlmRunFailure, type RunInput, type LlmSink } from "../../src/core/ports/llm";
 import type { Model } from "@openomni/protocol";
-import { RunEvents } from "../../src/core/turn";
+import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";
-import { failureFacts } from "../../src/core/retry";
+import { failureFacts } from "../../src/core/loop/retry";
 import { runInput } from "../helpers/run-input";
 import { fakeClassifyFailure, FakeProviderError } from "../helpers/fake-llm";
-import { createAssistantMessage } from "../../src/core/message-factory";
+import { createAssistantMessage } from "../../src/core/journal/message-factory";
 import { messageSource } from "../helpers/message-source";
 
 /**
@@ -25,7 +25,7 @@ let providerFailure: (call: number) => Error | undefined = () => undefined;
 
 afterEach(() => Bus.reset());
 
-function providerError(message: string, retryable: boolean, failureClass: import("../../src/core/llm").FailureClass): Error {
+function providerError(message: string, retryable: boolean, failureClass: import("../../src/core/ports/llm").FailureClass): Error {
   return new FakeProviderError({
     message,
     isRetryable: retryable,
@@ -170,7 +170,7 @@ function failure(
   });
 }
 
-async function classifiedRun(providerFailure: LlmRunFailure, classifyFailure: import("../../src/core/llm").LlmPort["classifyFailure"]) {
+async function classifiedRun(providerFailure: LlmRunFailure, classifyFailure: import("../../src/core/ports/llm").LlmPort["classifyFailure"]) {
   let calls = 0;
   const thrown = await isolated(
     effectFailure(

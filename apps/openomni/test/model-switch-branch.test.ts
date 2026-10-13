@@ -1,6 +1,6 @@
 import { attemptIntentIds, isAttemptRow, isLogicalLlm } from "../../../packages/agent/test/helpers/llm-rows";
 import { expect, test } from "bun:test";
-import { LlmRunFailure, type FailureFacts } from "../../../packages/agent/src/core/llm";
+import { LlmRunFailure, type FailureFacts } from "../../../packages/agent/src/core/ports/llm";
 import { FakeProviderError } from "../../../packages/agent/test/helpers/fake-llm";
 import { PlainObjectSchema, type LedgerAction } from "@openomni/protocol";
 import { Effect } from "effect";

@@ -1,24 +1,24 @@
 import type { LedgerError } from "../store/errors";
 import { Effect, Scope, Context, Deferred, Exit, Cause, Option, Clock, Fiber } from "effect";
-import * as Failure from "../failure";
-import { renderBodyCause, thrownAsError } from "../failure";
-import { type ExecutionError, GenerationUnavailable, InvocationClosed, CommitFailed, ExecutionApprovalError, PolicyDenied, AgentFailure, Interrupted, OutcomeUnknown } from "../failure";
+import * as Failure from "../ports/failure";
+import { renderBodyCause, thrownAsError } from "../ports/failure";
+import { type ExecutionError, GenerationUnavailable, InvocationClosed, CommitFailed, ExecutionApprovalError, PolicyDenied, AgentFailure, Interrupted, OutcomeUnknown } from "../ports/failure";
 import { type BusEvent, GateDecision, LedgerAction, type LedgerSession, type ObservationSink as ObservationPort, type PlainValue, type SessionTransition, Tool, type PlainObject, L0Observation, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory, listenForAbort } from "@openomni/protocol";
-import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "./compile";
-import type { RetryAlarmPort, RetryAlarmDeps } from "../alarm-ports";
-import { createRetryAlarmPort } from "../alarm";
-import { turnStopAction } from "../commit";
-import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectResultValue } from "../tool-output";
-import type { WaveControl, Dispatcher } from "../tool";
+import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "../gate/compile";
+import type { RetryAlarmPort, RetryAlarmDeps } from "../ports/alarm-ports";
+import { createRetryAlarmPort } from "../ports/alarm";
+import { turnStopAction } from "../journal/commit";
+import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectResultValue } from "../ports/tool-output";
+import type { WaveControl, Dispatcher } from "./tool";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { onAbort, type CapturedGeneration, BOUNDED_CONCURRENCY, Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports";
-import { createApprovalRequest } from "../request-binding";
-import type { ApprovalPolicy } from "../approval-policy";
-import { attachFailureFacts, attemptReason, decide as decideRetry, isInstantFailure, MAX_ATTEMPTS, type Decision as RetryDecision, type RetryReason } from "../retry";
-import type { FailureClass } from "../llm";
-import { judgeStop, type StopState, type StopObservation, type StopMetric } from "../stop";
+import { onAbort, type CapturedGeneration, BOUNDED_CONCURRENCY, Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports/ports";
+import { createApprovalRequest } from "../journal/request-binding";
+import type { ApprovalPolicy } from "../composition/approval-policy";
+import { attachFailureFacts, attemptReason, decide as decideRetry, isInstantFailure, MAX_ATTEMPTS, type Decision as RetryDecision, type RetryReason } from "./retry";
+import type { FailureClass } from "../ports/llm";
+import { judgeStop, type StopState, type StopObservation, type StopMetric } from "./stop";
 import type * as SessionHandleStore from "../store/fence";
-import { executionPoint } from "../points";
+import { executionPoint } from "../gate/points";
 export interface ExecutionLedger {
   commit(action: LedgerAction.Append): Effect.Effect<LedgerAction.Receipt, LedgerError>;
     toolOutputBudgetBytes?(): number;
@@ -35,7 +35,7 @@ export interface ExecutionLedger {
     payload: SessionTransition.Payload,
     inputId: string,
     at: number,
-  ): Effect.Effect<import("../request").RequestDecision, ExecutionError>;
+  ): Effect.Effect<import("../session/request").RequestDecision, ExecutionError>;
 }
 
 interface ExecutionIdentity {
@@ -193,11 +193,11 @@ export interface DurableExecutor extends Executor {
     control: WaveControl,
   ): Effect.Effect<readonly ExecutionBatchResult[], ExecutionError, Exclude<R, RawToolSlots | Scope.Scope>>;
   judgeStop(
-    state: import("../stop").StopState,
-    observation: import("../stop").StopObservation,
+    state: import("./stop").StopState,
+    observation: import("./stop").StopObservation,
   ): Effect.Effect<{
-    state: import("../stop").StopState;
-    verdict: import("../stop").StopVerdict;
+    state: import("./stop").StopState;
+    verdict: import("./stop").StopVerdict;
   }, ExecutionError>;
   runExisting<T extends PlainValue, R>(
     request: ExecutionRequest,
@@ -1639,4 +1639,4 @@ function terminalStatus(outcome: ExecutionResult): ToolObservationStatus {
   return status === "success" || status === "timed_out" ? status : "error";
 }
 
-export { ExecutionApprovalError } from "../failure";
+export { ExecutionApprovalError } from "../ports/failure";

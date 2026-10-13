@@ -29,14 +29,14 @@ import { Context, Crypto, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
-import { SessionEntity, SessionEntityContext, createSessionEntityLayer, type SessionEntityEnv, } from "../../src/core/entity";
-import type { AlarmCapability, AlarmDrainConfig } from "../../src/core/alarm";
+import { SessionEntity, SessionEntityContext, createSessionEntityLayer, type SessionEntityEnv, } from "../../src/core/session/entity";
+import type { AlarmCapability, AlarmDrainConfig } from "../../src/core/ports/alarm";
 
 /** Integration-helper composition root: cluster fixtures run on the real wall clock. */
 const wallClock = () => Date.now();
-import type { SessionEntityPorts, SessionEntityTurnInput, } from "../../src/core/run";
-import type { SessionError } from "../../src/core/failure";
-import { deliveryActions, turnIntentAction, turnResumeAction, turnTerminalAction, } from "../../src/core/commit";
+import type { SessionEntityPorts, SessionEntityTurnInput, } from "../../src/core/session/run";
+import type { SessionError } from "../../src/core/ports/failure";
+import { deliveryActions, turnIntentAction, turnResumeAction, turnTerminalAction, } from "../../src/core/journal/commit";
 import { runAgent } from "./executor";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 

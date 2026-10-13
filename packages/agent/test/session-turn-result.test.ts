@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { RunnerOutputMissing } from "../src/core/failure";
-import { runnerOutputMissingResult } from "../src/core/run";
-import { SessionPolicyRefusal } from "../src/core/run";
-import { policyRefusalResult, sessionRunnerResultValue } from "../src/core/commit";
+import { RunnerOutputMissing } from "../src/core/ports/failure";
+import { runnerOutputMissingResult } from "../src/core/session/run";
+import { SessionPolicyRefusal } from "../src/core/session/run";
+import { policyRefusalResult, sessionRunnerResultValue } from "../src/core/journal/commit";
 
 // Absent runner output is a distinct typed failure, not a
 // policy rejection disguised as `invalid_output`.

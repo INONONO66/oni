@@ -6,8 +6,8 @@ import { runLedgerSync } from "../helpers/effect";
 import { adoptWriter } from "../helpers/session";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
-import { receivedMessageAction, turnTerminalAction } from "../../../src/core/commit";
-import { alarmDisposition, armAction, firedAction, type AlarmChainReads } from "../../../src/core/alarm";
+import { receivedMessageAction, turnTerminalAction } from "../../../src/core/journal/commit";
+import { alarmDisposition, armAction, firedAction, type AlarmChainReads } from "../../../src/core/ports/alarm";
 
 const { stores, child, fixture } = useForkFixture();
 

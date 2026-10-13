@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { abortError, isAbort } from "../../src/core/retry";
+import { abortError, isAbort } from "../../src/core/loop/retry";
 
 describe("isAbort (audit M4)", () => {
   it("recognizes an aborted signal regardless of the error message", () => {

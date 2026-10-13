@@ -24,7 +24,7 @@ import type { LedgerError } from "../src/core/store/errors";
 import { Alarm } from "@openomni/protocol";
 import { approvalAnswer } from "./helpers/request-fixtures";
 import { runAgent } from "./helpers/executor";
-import type { DeliverRefused } from "../src/core/messages";
+import type { DeliverRefused } from "../src/core/journal/messages";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-rpc-surface-");
 const options = { sessionsDir, catalogFile };

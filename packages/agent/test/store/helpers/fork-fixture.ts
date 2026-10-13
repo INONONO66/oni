@@ -5,9 +5,9 @@ import { runLedgerSync } from "./effect";
 import { type LedgerStores, testNow, useMemoryStores } from "./storage";
 import { adoptWriter, materializeSession } from "./session";
 import { openSessionStore, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
-import { deliveryActions, receivedMessageAction, turnTerminalAction } from "../../../src/core/commit";
-import { armAction } from "../../../src/core/alarm";
-import { forkSession, type ForkPorts, ForkRefused, type ForkReceipt } from "../../../src/core/fork";
+import { deliveryActions, receivedMessageAction, turnTerminalAction } from "../../../src/core/journal/commit";
+import { armAction } from "../../../src/core/ports/alarm";
+import { forkSession, type ForkPorts, ForkRefused, type ForkReceipt } from "../../../src/core/session/fork";
 import { configureAction } from "../../../src/core/store/fence";
 import type { LedgerError } from "../../../src/core/store/errors";
 

@@ -1,4 +1,4 @@
-import type { HandlerTable as PolicyRegistry, NamedConsultant } from "./gate/compile";
+import type { HandlerTable as PolicyRegistry, NamedConsultant } from "../gate/compile";
 import { canonicalDigest, CORE_POINT_RECORDS, type PlainValue } from "@openomni/protocol";
 import { type Clock, Context, Effect, Schema, type Scope } from "effect";
 import type {
@@ -8,7 +8,7 @@ import type {
   CapabilityDefinition,
   CapabilityKindDeclaration,
   ManifestDefinition,
-} from "./capability";
+} from "../ports/capability";
 
 export class GenerationHandlers extends Context.Service<GenerationHandlers, PolicyRegistry>()("@openomni/agent/GenerationHandlers") {}
 

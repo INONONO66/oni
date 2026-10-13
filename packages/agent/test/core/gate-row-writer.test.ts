@@ -15,8 +15,8 @@ import {
 } from "../../src/core/gate/compile";
 import { DEFAULT_COMPILE_KINDS, parseRow } from "../../src/core/gate/row-parse";
 import { projectGeneration } from "../../src/core/gate/project";
-import { GATE_ROW_WRITER_VERSION } from "../../src/core/gate/rows";
-import { composePointTable, KERNEL_CAPABILITY_POINTS } from "../../src/core/points";
+import { GATE_ROW_WRITER_VERSION } from "../../src/core/ports/gate-rows";
+import { composePointTable, KERNEL_CAPABILITY_POINTS } from "../../src/core/gate/points";
 import * as SessionHandleStore from "../../src/core/store/fence";
 
 const GENERATION = 1;

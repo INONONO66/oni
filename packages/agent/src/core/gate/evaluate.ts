@@ -10,7 +10,7 @@ import {
 import type { Effect } from "effect";
 import type { z } from "zod";
 import { clonePlain, type MessagePolicyContext } from "./match";
-import type { GatePointTable } from "../points";
+import type { GatePointTable } from "./points";
 import type { GateHandler, PendingConsult, PreparedResults } from "./compose";
 import { pointOfRow } from "./migrate";
 import type { CompileErrorData, CompiledRow, PolicyCompileError } from "./row-parse";

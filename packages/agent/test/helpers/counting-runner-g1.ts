@@ -2,10 +2,10 @@ import { testTurnDispatcher } from "./service-layers";
 import { fixtureConfigHead, fixtureTraceContext, prepareChatFixture } from "./chat-services";
 import type { SessionFixture as SessionRuntime } from "./session-services";
 import { Effect } from "effect";
-import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
-import type { SessionRunnerInput, SessionRunner } from "../../src/core/run";
-import { createSessionChatRunner } from "../../src/core/run";
-import type { ExecutionError } from "../../src/core/failure";
+import type { RunInput, LlmSink as Sink } from "../../src/core/ports/llm";
+import type { SessionRunnerInput, SessionRunner } from "../../src/core/session/run";
+import { createSessionChatRunner } from "../../src/core/session/run";
+import type { ExecutionError } from "../../src/core/ports/failure";
 import { completeModel } from "./mock-llm";
 
 /** A real session chat runner with an Effect-native model-entry barrier. */

@@ -1,6 +1,6 @@
 import type { BusEvent, FoldCheckpoint } from "@openomni/protocol";
 import { Actor, Operational } from "@openomni/protocol";
-import type { AgentBudget, ResolvedAgentBudget } from "./types";
+import type { AgentBudget, ResolvedAgentBudget } from "../ports/types";
 
 export interface BudgetState {
   startTime: number;

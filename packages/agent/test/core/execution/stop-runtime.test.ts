@@ -7,15 +7,15 @@ import { expect, test } from "bun:test";
 import { SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
 import { z } from "zod";
 import type { PolicyRow } from "@openomni/protocol";
-import { closeSessions } from "../../../src/core/run";
+import { closeSessions } from "../../../src/core/session/run";
 import { session } from "../../../src/testing/registry";
-import { defineTool, eraseTool, projectTools, } from "../../../src/core/tool";
-import { createSessionChatRunner } from "../../../src/core/run";
+import { defineTool, eraseTool, projectTools, } from "../../../src/core/loop/tool";
+import { createSessionChatRunner } from "../../../src/core/session/run";
 import { assistantStep } from "../../helpers/dispatching-runner";
 import { isolated, isolatedLedger } from "../../helpers/isolated";
 import { collector } from "../../helpers/observation-collector";
 import { commitReceivedMessage } from "../../helpers/ingress";
-import { armAction } from "../../../src/core/alarm";
+import { armAction } from "../../../src/core/ports/alarm";
 
 /**
  * The alarm table is gone: an armed alarm is an `alarm{arm}` chain row

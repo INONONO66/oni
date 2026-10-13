@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { LedgerAction, SessionHistory } from "@openomni/protocol";
-import { armAction, firedAction } from "../src/core/alarm";
-import { foldAlarmChains, openAlarmIds } from "../src/core/alarm-read";
-import type { SessionKernel } from "../src/core/entity";
+import { armAction, firedAction } from "../src/core/ports/alarm";
+import { foldAlarmChains, openAlarmIds } from "../src/core/session/alarm-read";
+import type { SessionKernel } from "../src/core/session/entity";
 
 const sessionId = "alarm-read";
 

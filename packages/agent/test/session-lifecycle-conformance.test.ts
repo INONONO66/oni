@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Cause, Effect, Exit, type Fiber, } from "effect";
 import { canonicalDigest, type Delivery, type LedgerAction, type L0Observation, type SessionTransition, type SessionTurn, } from "@openomni/protocol";
-import { CommitFailed, type SessionError } from "../src/core/failure";
+import { CommitFailed, type SessionError } from "../src/core/ports/failure";
 import * as SessionHandleStore from "../src/core/store/fence";
-import type { ExecutionApprovalRequest, ExecutionApprovals, } from "../src/core/gate/decide";
-import { closeSessions, type SessionRunner, type SessionRunnerInput, type SessionRunnerResult } from "../src/core/run";
+import type { ExecutionApprovalRequest, ExecutionApprovals, } from "../src/core/loop/executor";
+import { closeSessions, type SessionRunner, type SessionRunnerInput, type SessionRunnerResult } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
-import { createSessionRequests, } from "../src/core/request";
+import { createSessionRequests, } from "../src/core/session/request";
 import { type SessionFixture, withSessionServices } from "./helpers/session-services";
 import { failure } from "./helpers/effect-g1";
 import { seedPolicy } from "./helpers/seed-policy";

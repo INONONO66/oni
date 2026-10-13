@@ -1,9 +1,9 @@
 import { messageSource } from "./message-source";
 import type { ChatFixture as ChatAgentConfig } from "./chat-services";
-import { LlmRunFailure, type FailureClass, type LlmSink as Sink, type RunInput, type RunResult } from "../../src/core/llm";
+import { LlmRunFailure, type FailureClass, type LlmSink as Sink, type RunInput, type RunResult } from "../../src/core/ports/llm";
 import { Effect } from "effect";
-import type {} from "../../src/core/types";
-import { createAssistantMessage } from "../../src/core/message-factory";
+import type {} from "../../src/core/ports/types";
+import { createAssistantMessage } from "../../src/core/journal/message-factory";
 import { FakeProviderError, fakeClassifyFailure, fakeResolvedModel } from "./fake-llm";
 
 export type MockLlmFn = (input: RunInput, sink: Sink) => Promise<RunResult>;

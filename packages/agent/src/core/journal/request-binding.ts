@@ -1,6 +1,6 @@
 import { canonicalDigest, SessionTransition, type PlainValue } from "@openomni/protocol";
 
-type CapturedApproval = Omit<import("./gate/decide").ExecutionApprovalRequest, "durable">;
+type CapturedApproval = Omit<import("../loop/executor").ExecutionApprovalRequest, "durable">;
 
 function generationDefaults(captured: CapturedApproval) {
   return {

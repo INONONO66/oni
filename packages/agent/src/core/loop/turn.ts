@@ -1,23 +1,23 @@
 import { type BusEvent, Message, type Policy, type TraceContext, Operational, PlainValueSchema, type PlainValue } from "@openomni/protocol";
 import { Effect, Clock, Scope, Cause, Context } from "effect";
 import { stopState, type StopState, type StopVerdict } from "./stop";
-import { RunEvents } from "./run-events";
+import { RunEvents } from "../observation/run-events";
 export { stopState } from "./stop";
 export type { StopObservation, StopVerdict } from "./stop";
-export { RunEvents } from "./run-events";
-import { accumulateUsage, type RunInput, type LlmSink as Sink, type LlmFailure, Llm, type LlmPort, isLlmRunFailure, LlmRunFailure, type AttemptEvidence, type ResolvedModel, type RunResult } from "./llm";
+export { RunEvents } from "../observation/run-events";
+import { accumulateUsage, type RunInput, type LlmSink as Sink, type LlmFailure, Llm, type LlmPort, isLlmRunFailure, LlmRunFailure, type AttemptEvidence, type ResolvedModel, type RunResult } from "../ports/llm";
 import { selectModel } from "./model-select";
 import { createBudgetState, recordTokenUsage, recordTurn, resolveAgentBudget, restoreBudgetState, type BudgetState, effectiveMaxToolCalls, publishBudgetTelemetry, evaluateBudget } from "./budget";
-import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "./failure";
-import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfig, ObservedChatAgentConfig } from "./types";
-import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "./message-factory";
-import type { CompactionPort, CompactionReason, CompactionYield } from "./compaction-ports";
+import { AgentStopError, AgentInvariantViolation, AgentFailure, type ExecutionError, Interrupted, ContextAdmissionError, renderBodyCause, thrownAsError } from "../ports/failure";
+import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ChatAgentConfig, ObservedChatAgentConfig } from "../ports/types";
+import { createUserMessage, createAssistantMessage, withMessageId, type MessageSource } from "../journal/message-factory";
+import type { CompactionPort, CompactionReason, CompactionYield } from "../ports/compaction-ports";
 import * as Retry from "./retry";
 import { type RetryReason, type TerminalReason, failureFacts, MAX_ATTEMPTS, observeRetry } from "./retry";
 import { buildSystemPrompt, prepareTurnTools, settleModelTools, assertToolExecutor, assertUnambiguousToolMetadata } from "./tool";
-import { Entropy, ObservationSink } from "./ports";
-import { measuredContextTokens } from "./measure";
-import { ExecutorContext, type Executor } from "./gate/decide";
+import { Entropy, ObservationSink } from "../ports/ports";
+import { measuredContextTokens } from "../ports/measure";
+import { ExecutorContext, type Executor } from "./executor";
 
 function toMessagesWithParts(
   messages: ChatAgentInput["messages"],
@@ -123,7 +123,7 @@ export interface RunState {
 }
 
 export interface TurnArtifacts {
-  readonly toolExecutor?: import("./types").ChatAgentConfig["toolExecutor"];
+  readonly toolExecutor?: import("../ports/types").ChatAgentConfig["toolExecutor"];
   readonly runInput: RunInput;
   readonly trackingSink: Sink;
   /** The llm fold's latest boundary snapshot: the one source of what enters history at turn end. */

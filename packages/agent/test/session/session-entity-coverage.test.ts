@@ -6,7 +6,7 @@ import * as SessionHandleStore from "../../src/core/store/fence";
 import { Effect } from "effect";
 import { materializeSession as materializeUnindexed, type SessionHandles, sessionHandles } from "../helpers/seeded-session";
 import { clusterTempDir, readChain, runCluster, sendDeliver, sendPrompt, sendResolve, sessionFileFor, } from "../helpers/cluster-runtime";
-import type { ResolveRefused } from "../../src/core/messages";
+import type { ResolveRefused } from "../../src/core/journal/messages";
 import { runAgent } from "../helpers/executor";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-session-entity-coverage-");

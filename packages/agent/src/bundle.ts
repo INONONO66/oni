@@ -4,7 +4,7 @@
  * are the one legal meeting point of core and plugin bands; neither side
  * imports the other directly.
  */
-export * from "./core/compose";
+export * from "./core/composition/compose";
 export * from "./plugins/action";
 export * from "./plugins/alarm";
 export * from "./plugins/hook";
@@ -20,14 +20,14 @@ export {
   type CapabilityCore, type CapabilityDefinition, type CapabilityInput,
   type CapabilityInputRow, type CapabilityKindDeclaration, type CapabilityStep,
   type ManifestDefinition, type ManifestInput, type SeamTag,
-} from "./core/capability";
-export { AlarmSeam } from "./core/alarm";
+} from "./core/ports/capability";
+export { AlarmSeam } from "./core/ports/alarm";
 
 // The compaction capability needs the inspect band's fold/hydrate — an import
 // the plugin band may not make — so this root assembly file wires the history
 // ports into the published definition the app lists in its manifest.
-export { CompactionSeam } from "./core/compaction-ports";
-export type { CompactionOptions, CompactionSeamService } from "./core/compaction-ports";
+export { CompactionSeam } from "./core/ports/compaction-ports";
+export type { CompactionOptions, CompactionSeamService } from "./core/ports/compaction-ports";
 
 import { foldSessionHistory, hydrateSessionHistory } from "./inspect/history";
 import {

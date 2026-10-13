@@ -9,7 +9,7 @@ import {
   translateLegacyPolicyRow,
 } from "../src/core/gate/migrate";
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
-import { GateComposeError } from "../src/core/points";
+import { GateComposeError } from "../src/core/gate/points";
 import { openCatalogStore } from "../src/core/store/catalog";
 import { atGeneration, compaction, draft } from "./kernel/gate/row-fixtures";
 import { fullPointTable } from "./helpers/gate-rows";

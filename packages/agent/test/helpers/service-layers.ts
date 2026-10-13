@@ -1,9 +1,9 @@
 import * as SessionHandleStore from "../../src/core/store/fence";
 import type { AnyToolDefinition, Tool } from "@openomni/protocol";
 import { Clock, Context, Effect, Layer } from "effect";
-import type { ResolvedExecutorOptions } from "../../src/core/gate/decide";
-import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../../src/core/ports";
-import { scopeObservation } from "../../src/core/bus";
+import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
+import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../../src/core/ports/ports";
+import { scopeObservation } from "../../src/core/observation/bus";
 import { testBusService } from "./isolated";
 import { entropySource, fixedClock } from "./time";
 import { createTurnDispatcher } from "../../src/plugins/tool";

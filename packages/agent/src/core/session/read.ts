@@ -4,7 +4,7 @@
  * by construction: each model filters on its declared kinds only.
  */
 import type { LedgerAction, PlainValue } from "@openomni/protocol";
-import { attemptUsage } from "./metrics";
+import { attemptUsage } from "../observation/metrics";
 
 export const READ_MODELS = Object.freeze([
   "history",

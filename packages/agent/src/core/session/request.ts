@@ -1,15 +1,15 @@
 import { Alarm, canonicalDigest, PlainValueSchema, SessionTransition, type Delivery, type LedgerAction, type LedgerSession, type PlainValue, type SessionGeneration, type PlainObject } from "@openomni/protocol";
-import { armAction } from "./alarm";
+import { armAction } from "../ports/alarm";
 import { Clock, Effect } from "effect";
-import { AgentFailure, CommitFailed, type ExecutionError } from "./failure";
-import { receivedMessageAction } from "./commit";
-import { requestBindingDigest } from "./request-binding";
-export { requestBindingDigest } from "./request-binding";
-import * as SessionHandleStore from "./store/fence";
+import { AgentFailure, CommitFailed, type ExecutionError } from "../ports/failure";
+import { receivedMessageAction } from "../journal/commit";
+import { requestBindingDigest } from "../journal/request-binding";
+export { requestBindingDigest } from "../journal/request-binding";
+import * as SessionHandleStore from "../store/fence";
 import type { SessionKernel } from "./entity";
 import { type SessionRuntime, getSessionHandle, adoptSessionAuthority } from "./run";
-import { Entropy } from "./ports";
-import type { ApprovalRecentOpen } from "./approval-policy";
+import { Entropy } from "../ports/ports";
+import type { ApprovalRecentOpen } from "../composition/approval-policy";
 
 export interface RequestDecision {
   readonly resolution: SessionTransition.Resolution;

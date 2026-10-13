@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { LedgerAction } from "@openomni/protocol";
-import { type AttemptEvidence, LlmRunFailure } from "../src/core/llm";
+import { type AttemptEvidence, LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
 import { Effect } from "effect";
 import { testExecutor } from "./helpers/executor";
@@ -8,11 +8,11 @@ import { allowAllPolicy } from "./helpers/compiled-policy";
 import { requestLedger } from "./helpers/effect-g1";
 import { runChatAttempts } from "./helpers/chat-attempts";
 import { isolated, isolatedLedger } from "./helpers/isolated";
-import { attemptUsage, toolWallMs } from "../src/core/metrics";
+import { attemptUsage, toolWallMs } from "../src/core/observation/metrics";
 import { createTestAgent, recordingExecutor } from "./helpers/effect-g2";
 import { mockProviderModel } from "./helpers/mock-llm";
 import { runInput } from "./helpers/run-input";
-import { createAssistantMessage } from "../src/core/message-factory";
+import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { messageSource } from "./helpers/message-source";
 
 function result(id: string, parentId: string, evidence: LedgerAction.Node["effect"]["value"],

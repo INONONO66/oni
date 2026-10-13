@@ -2,9 +2,9 @@ import { Database } from "bun:sqlite";
 import { appendFileSync, writeSync } from "node:fs";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
-import { GenerationHandlers } from "../../src/core/compose";
+import { GenerationHandlers } from "../../src/core/composition/compose";
 import { AgentGenerationLive } from "./generation-layer";
-import { makeSessionGenerations } from "../../src/core/run";
+import { makeSessionGenerations } from "../../src/core/session/run";
 import * as SessionHandleStore from "../../src/core/store/fence";
 import { canonicalDigest, FoldCheckpoint, Message, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@openomni/protocol";
 import { z } from "zod";
@@ -12,9 +12,9 @@ import { computeActionHash, GENESIS_PREV_HASH } from "../../src/core/store/sessi
 import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
 import { recordedCompaction, restoreContextRequest, restoredContextProjection, } from "../../src/plugins/compaction/restore";
 import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
-import { GenerationUnavailable } from "../../src/core/failure";
-import { GenerationLayers, ObservationSink } from "../../src/core/ports";
-import { closeSessions } from "../../src/core/run";
+import { GenerationUnavailable } from "../../src/core/ports/failure";
+import { GenerationLayers, ObservationSink } from "../../src/core/ports/ports";
+import { closeSessions } from "../../src/core/session/run";
 import { reactivateSession } from "./wake-session";
 import { FoldCheckpointIntegrityError, hydrateSessionHistory, } from "../../src/inspect/history";
 import { compiledPolicy } from "./compiled-policy";
@@ -274,7 +274,7 @@ function restartGenerations(captures: number[], missing: boolean) {
         configure: <A>(
           _id: import("@openomni/protocol").SessionGeneration.Id,
           _snapshot: import("@openomni/protocol").SessionGeneration.Snapshot,
-          commit: Effect.Effect<A, import("../../src/core/failure").SessionError>,
+          commit: Effect.Effect<A, import("../../src/core/ports/failure").SessionError>,
         ) => commit,
         capture: (id: import("@openomni/protocol").SessionGeneration.Id) => {
           captures.push(id.generation);

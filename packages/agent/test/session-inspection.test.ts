@@ -1,22 +1,22 @@
 import { sessionTree } from "./helpers/session-tree";
-import type { ResolvedExecutorOptions } from "../src/core/gate/decide";
+import type { ResolvedExecutorOptions } from "../src/core/loop/executor";
 import { turnTestLayer, catalogLayer } from "./helpers/service-layers";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
 import { Effect, Fiber, Scope } from "effect";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { describe, expect, spyOn, test } from "bun:test";
 import { runChatAttempts, answerThenCompact, nullRetryAlarm } from "./helpers/effect-g2";
-import { armAction, firedAction } from "../src/core/alarm";
-import { OutcomeUnknown, CommitFailed } from "../src/core/failure";
+import { armAction, firedAction } from "../src/core/ports/alarm";
+import { OutcomeUnknown, CommitFailed } from "../src/core/ports/failure";
 import { seedPolicy } from "./helpers/seed-policy";
 import { approveWriteRow } from "./helpers/compiled-policy";
 import * as SessionHandleStore from "../src/core/store/fence";
-import { LlmRunFailure } from "../src/core/llm";
+import { LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
 import { Alarm, L0Observation, type PolicyRow, type SessionHistory } from "@openomni/protocol";
-import { closeSessions, type SessionRunner } from "../src/core/run";
+import { closeSessions, type SessionRunner } from "../src/core/session/run";
 import { createTurnDispatcher } from "../src/plugins/tool";
-import { resolveSessionRuntime } from "../src/core/run";
+import { resolveSessionRuntime } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
 import { commitReceivedMessage } from "./helpers/ingress";
 import { foldSessionHistory } from "../src/inspect/history";
@@ -132,7 +132,7 @@ function committed(sessionId: string, kind: string): Promise<L0Observation.Actio
  * One real turn: a retried model call, a refused tool, an approved tool carrying a
  * credential, an effect whose outcome is unknown, an answer, and a compaction.
  */
-const parentRunner: SessionRunner = (input: import("../src/core/run").SessionRunnerInput) =>
+const parentRunner: SessionRunner = (input: import("../src/core/session/run").SessionRunnerInput) =>
   Effect.scoped(
     Effect.gen(function* () {
       if (input.messages.at(-1)?.text !== "hello") return { kind: "result", text: "noted" };

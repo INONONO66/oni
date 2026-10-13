@@ -5,7 +5,7 @@
  * Scope, so consecutive tests share no PubSub and no collector.
  */
 import { Effect, type Scope } from "effect";
-import { makeObservationBus, type ObservationBus } from "../../src/core/bus";
+import { makeObservationBus, type ObservationBus } from "../../src/core/observation/bus";
 
 export interface PublishRecord {
   readonly name: string;

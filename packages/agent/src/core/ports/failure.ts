@@ -1,7 +1,7 @@
 import { Data, Cause, Option } from "effect";
-import type { StopVerdict } from "./turn";
-import type { LedgerError } from "./store/errors";
-import { AdmissionFailure } from "./messages";
+import type { StopVerdict } from "../loop/turn";
+import type { LedgerError } from "../store/errors";
+import { AdmissionFailure } from "../journal/messages";
 import { LlmRunFailure } from "./llm";
 import type { LedgerSession } from "@openomni/protocol";
 

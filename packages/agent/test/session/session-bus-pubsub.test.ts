@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { BusEvent } from "@openomni/protocol";
 import { Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect";
 import { z } from "zod";
-import { makeObservationBus } from "../../src/core/bus";
+import { makeObservationBus } from "../../src/core/observation/bus";
 import { runTestPromise } from "../helpers/isolated";
 
 const TestEvent = BusEvent.define(

@@ -5,7 +5,7 @@
  * in through the `FORK_ASIDE_REF` transformer and a matching `prompt.pre` row.
  */
 import { SessionGeneration } from "@openomni/protocol";
-import type { SessionKernel } from "../core/entity";
+import type { SessionKernel } from "../core/session/entity";
 
 /** Reads the fork pin off a session's genesis configure; null for a root. */
 export function forkAncestryOf(

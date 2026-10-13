@@ -4,8 +4,8 @@ import { Delivery, type SessionTransition } from "@openomni/protocol";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { allowConfigure, isolatedRuntime } from "./helpers/session-services";
 import { pendingRequest } from "./helpers/open-request";
-import { commitSessionRequest, requestAuthorityKernel } from "../src/core/request";
-import { adoptSessionAuthority } from "../src/core/run";
+import { commitSessionRequest, requestAuthorityKernel } from "../src/core/session/request";
+import { adoptSessionAuthority } from "../src/core/session/run";
 import { sessionTree } from "./helpers/session-tree";
 
 /**

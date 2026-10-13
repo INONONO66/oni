@@ -8,9 +8,9 @@ import {
   defineBundle,
   Manifest,
   type SeamTag,
-} from "../src/core/capability";
+} from "../src/core/ports/capability";
 import { runTestPromise } from "./helpers/isolated";
-import { compose } from "../src/core/compose";
+import { compose } from "../src/core/composition/compose";
 import { CompactionSeam } from "../src/core/api";
 import { compactionCapability } from "../src/bundle";
 

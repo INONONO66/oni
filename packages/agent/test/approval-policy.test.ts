@@ -1,12 +1,12 @@
 import { expect, it } from "bun:test";
 import { Effect } from "effect";
 import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
-import { defineBundle, Manifest } from "../src/core/capability";
-import { compose, ComposeRefused } from "../src/core/compose";
-import { ApprovalPolicySeam } from "../src/core/approval-policy";
-import { createApprovalRequest } from "../src/core/request-binding";
-import { resolveAgentBudget } from "../src/core/budget";
-import { decideRequestTransition } from "../src/core/request";
+import { defineBundle, Manifest } from "../src/core/ports/capability";
+import { compose, ComposeRefused } from "../src/core/composition/compose";
+import { ApprovalPolicySeam } from "../src/core/composition/approval-policy";
+import { createApprovalRequest } from "../src/core/journal/request-binding";
+import { resolveAgentBudget } from "../src/core/loop/budget";
+import { decideRequestTransition } from "../src/core/session/request";
 import { openRequest } from "./helpers/open-request";
 import { invocationNode, kernelOwnedRow, openRequestCommand } from "./helpers/request-fixtures";
 import { runTestPromise } from "./helpers/isolated";

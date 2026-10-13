@@ -13,13 +13,13 @@ import {
   PlainValueSchema,
   SessionTurn,
 } from "@openomni/protocol";
-import { createRunState } from "../src/core/turn";
-import { evaluateBudget } from "../src/core/budget";
+import { createRunState } from "../src/core/loop/turn";
+import { evaluateBudget } from "../src/core/loop/budget";
 import { testBudget } from "./helpers/approval-policy";
 import { runInput } from "./helpers/run-input";
 import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
 import { actionPayloadBytes } from "../src/core/store/action-hash";
-import { deliveryActions, foldCheckpointAction, turnTerminalAction } from "../src/core/commit";
+import { deliveryActions, foldCheckpointAction, turnTerminalAction } from "../src/core/journal/commit";
 import { bounded } from "./helpers/bounded";
 import { effectOf, intentOf } from "./helpers/crash-matrix";
 import { commitReceivedMessage } from "./helpers/ingress";
@@ -30,7 +30,7 @@ import { testTurnDispatcher } from "./helpers/service-layers";
 import { fixtureConfigHead, fixtureTraceContext, prepareChatFixture } from "./helpers/chat-services";
 import { seedPolicy } from "./helpers/seed-policy";
 import { uniqueEntropy } from "./helpers/time";
-import { createSessionChatRunner, resolveSessionRuntime, type SessionRunnerInput } from "../src/core/run";
+import { createSessionChatRunner, resolveSessionRuntime, type SessionRunnerInput } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
 import { nth } from "./helpers/nth";
 import { requestLedger } from "./helpers/request-ledger";

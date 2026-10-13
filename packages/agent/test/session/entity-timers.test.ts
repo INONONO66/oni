@@ -4,10 +4,10 @@ import type { LedgerAction } from "@openomni/protocol";
 import { runAgent } from "../helpers/executor";
 import { TestClock } from "effect/testing";
 import { CommitRefused } from "../../src/core/store/errors";
-import { CommitFailed } from "../../src/core/failure";
-import type { ExecutorOptions } from "../../src/core/gate/decide";
-import { createRetryAlarmPort, type AlarmFired } from "../../src/core/alarm";
-import type { RetryAlarmDeps } from "../../src/core/alarm-ports";
+import { CommitFailed } from "../../src/core/ports/failure";
+import type { ExecutorOptions } from "../../src/core/loop/executor";
+import { createRetryAlarmPort, type AlarmFired } from "../../src/core/ports/alarm";
+import type { RetryAlarmDeps } from "../../src/core/ports/alarm-ports";
 
 // Type-level drop-in proof: the chain-backed port replaces the timer port.
 type RetryPortSlot = NonNullable<ExecutorOptions["retryAlarm"]>;

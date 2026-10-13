@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { canonicalDigest, emittedRowKey } from "@openomni/protocol";
 import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
-import { GateComposeError } from "../src/core/points";
+import { GateComposeError } from "../src/core/gate/points";
 import {
   auditObserveGate,
   commandRewriteGate,

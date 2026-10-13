@@ -7,8 +7,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import type { Delivery, LedgerSession, SessionTransition } from "@openomni/protocol";
 import { Deferred, Effect } from "effect";
-import { decideRequestTransition } from "../../src/core/request";
-import { decideSessionAdmission } from "../../src/core/admission";
+import { decideRequestTransition } from "../../src/core/session/request";
+import { decideSessionAdmission } from "../../src/core/session/admission";
 import {
   fixtureOpenTurn,
   fixtureTerminal,

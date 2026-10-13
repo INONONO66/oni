@@ -10,15 +10,15 @@ import {
   type LlmPort,
   type RunInput,
   type LlmSink,
-} from "../../src/core/llm";
+} from "../../src/core/ports/llm";
 import type { Model } from "@openomni/protocol";
-import { RunEvents } from "../../src/core/turn";
+import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";
 import { runInput } from "../helpers/run-input";
 import { FakeProviderError } from "../helpers/fake-llm";
-import { createAssistantMessage } from "../../src/core/message-factory";
+import { createAssistantMessage } from "../../src/core/journal/message-factory";
 import { messageSource } from "../helpers/message-source";
-import { failureFacts } from "../../src/core/retry";
+import { failureFacts } from "../../src/core/loop/retry";
 
 /**
  * The reversed dependency (#1352): the core declares the `Llm` port and

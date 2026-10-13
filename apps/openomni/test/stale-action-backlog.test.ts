@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Delivery, type LedgerAction, type PlainValue, SessionGeneration } from "@openomni/protocol";
-import { staleActionBacklog, turnIntentAction } from "../../../packages/agent/src/core/commit";
+import { staleActionBacklog, turnIntentAction } from "../../../packages/agent/src/core/journal/commit";
 import type * as SessionHandleStore from "../../../packages/agent/src/core/store/fence";
 import { materializeSession } from "../../../packages/agent/test/store/helpers/session";
 import { useMemoryStores } from "../../../packages/agent/test/store/helpers/storage";
@@ -139,7 +139,7 @@ test("the chain fold: after rides the pending row, compactionHead is the execute
 // ---------------------------------------------------------------------------
 
 import { Deferred, Effect, Fiber } from "effect";
-import { boundaryConsumption, DEFAULT_CONSUMPTION } from "../../../packages/agent/src/core/commit";
+import { boundaryConsumption, DEFAULT_CONSUMPTION } from "../../../packages/agent/src/core/journal/commit";
 import { session } from "../../../packages/agent/src/testing/registry";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";
@@ -151,7 +151,7 @@ import {
   withSessionServices,
   type SessionFixture,
 } from "../../../packages/agent/test/helpers/session-services";
-import type { SessionRunner } from "../../../packages/agent/src/core/run";
+import type { SessionRunner } from "../../../packages/agent/src/core/session/run";
 
 test("boundaryConsumption applies the stale split at every boundary", () => {
   const staleSteer = { ...row("a1", "action", 3), delivery: "steer" as const };
@@ -289,9 +289,9 @@ test("a stale action delivered DURING a turn closes via turn.consumed.stale at t
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { afterAll } from "bun:test";
-import { createSessionEntityRunTurn, type SessionKernel } from "../../../packages/agent/src/core/entity";
-import { resolveSessionRuntime, type SessionRuntime } from "../../../packages/agent/src/core/run";
-import type { SessionEntityPorts } from "../../../packages/agent/src/core/run";
+import { createSessionEntityRunTurn, type SessionKernel } from "../../../packages/agent/src/core/session/entity";
+import { resolveSessionRuntime, type SessionRuntime } from "../../../packages/agent/src/core/session/run";
+import type { SessionEntityPorts } from "../../../packages/agent/src/core/session/run";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import { openSessionStore } from "../../../packages/agent/src/core/store/session-file/index";
 import * as FenceStore from "../../../packages/agent/src/core/store/fence";

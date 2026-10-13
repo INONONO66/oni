@@ -1,5 +1,5 @@
 import * as SessionHandleStore from "../core/store/fence";
-import type { SessionKernel } from "../core/entity";
+import type { SessionKernel } from "../core/session/entity";
 import { canonicalDigest, type LedgerAction, type PlainObject, type PlainValue, SessionHistory, SessionTransition, } from "@openomni/protocol";
 import { z } from "zod";
 
@@ -487,6 +487,6 @@ export function toolOutput(
   };
 }
 
-export { attemptUsage, toolWallMs } from "../core/metrics";
+export { attemptUsage, toolWallMs } from "../core/observation/metrics";
 
 export { FORK_ASIDE_REF, forkAncestryOf, forkAside, inspectTree, type InspectTreeRequest, type SessionTreeNode } from "./tree";

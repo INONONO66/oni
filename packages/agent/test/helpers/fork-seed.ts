@@ -6,8 +6,8 @@
  */
 import { Effect, type Scope } from "effect";
 import type { Delivery } from "@openomni/protocol";
-import { turnTerminalAction } from "../../src/core/commit";
-import { forkSession, type ForkReceipt, type ForkRefused } from "../../src/core/fork";
+import { turnTerminalAction } from "../../src/core/journal/commit";
+import { forkSession, type ForkReceipt, type ForkRefused } from "../../src/core/session/fork";
 import type { LedgerError } from "../../src/core/store/errors";
 import { openSessionStore, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../src/core/store/session-file";
 import { sessionFileFor } from "./cluster-runtime";

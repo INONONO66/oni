@@ -8,7 +8,7 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect, Result } from "effect";
 import type { Alarm } from "@openomni/protocol";
-import { armAction, firedAction, type AlarmCapability, type ArmRefused } from "../../src/core/alarm";
+import { armAction, firedAction, type AlarmCapability, type ArmRefused } from "../../src/core/ports/alarm";
 import { alarmCapability, WatchRefused } from "../../src/plugins/alarm";
 import { liveArmRegistry, liveWatchCapability } from "../helpers/alarm-budget";
 import { clusterTempDir, runCluster, sendAlarm, sendKick, sendPrompt } from "../helpers/cluster-runtime";

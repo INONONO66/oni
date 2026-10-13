@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { isolated } from "../../helpers/isolated";
 import { failure } from "../../helpers/effect-g3";
 import { describe, expect, it } from "bun:test";
-import { createAssistantMessage } from "../../../src/core/message-factory";
+import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { runTestAgent } from "../../helpers/effect-g3";
 import { Bus } from "../../helpers/bus";
 import { mockLlm, createStopOutcome } from "../../helpers/mock-llm";

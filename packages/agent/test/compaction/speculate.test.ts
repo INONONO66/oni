@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from "bun:test";
 import type { Message } from "@openomni/protocol";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { AgentFailure } from "../../src/core/failure";
+import { AgentFailure } from "../../src/core/ports/failure";
 import { Compaction, CompactionSession } from "../../src/plugins/compaction";
 import type { SummarizationBudget } from "../../src/plugins/compaction/contract";
 import { collector } from "../helpers/observation-collector";

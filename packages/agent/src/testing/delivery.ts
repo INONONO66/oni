@@ -1,8 +1,8 @@
 import type { Delivery } from "@openomni/protocol";
 import { Effect } from "effect";
-import { receivedMessageAction } from "../core/commit";
-import type { SessionKernel } from "../core/entity";
-import { adoptSessionAuthority } from "../core/run";
+import { receivedMessageAction } from "../core/journal/commit";
+import type { SessionKernel } from "../core/session/entity";
+import { adoptSessionAuthority } from "../core/session/run";
 import { CorruptRecord, type LedgerError } from "../core/store/errors";
 
 /**

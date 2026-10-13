@@ -8,12 +8,12 @@ import {
   type PublishedObservation,
   makeObservationBus,
   scopeObservation,
-} from "../../src/core/bus";
+} from "../../src/core/observation/bus";
 import { FakeLlmLive as LlmLive } from "./fake-llm";
 import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, compilePolicySnapshot } from "../../src/core/gate/compile";
-import { Entropy, GenerationOwnership, ObservationSink, SessionLayer, ToolCatalog, type GenerationServices, type RunnerServices } from "../../src/core/ports";
-import { GenerationHandlers } from "../../src/core/compose";
-import { makeSessionGenerations, type GenerationRawSlots } from "../../src/core/run";
+import { Entropy, GenerationOwnership, ObservationSink, SessionLayer, ToolCatalog, type GenerationServices, type RunnerServices } from "../../src/core/ports/ports";
+import { GenerationHandlers } from "../../src/core/composition/compose";
+import { makeSessionGenerations, type GenerationRawSlots } from "../../src/core/session/run";
 import { entropySource } from "./time";
 
 type FailureReporter = (error: Error, eventName: string) => void;

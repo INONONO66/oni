@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { thrownAsError } from "../../failure";
+import { thrownAsError } from "../../ports/failure";
 import { AgentFailure, type LedgerError } from "../errors";
 
 export type RefuseWrite = (error: LedgerError) => never;

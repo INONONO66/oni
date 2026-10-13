@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { RunEvents } from "../../../src/core/turn";
+import { RunEvents } from "../../../src/core/loop/turn";
 import { Operational, type PlainObject } from "@openomni/protocol";
 import { z } from "zod";
-import { createBudgetState, publishBudgetTelemetry } from "../../../src/core/budget";
+import { createBudgetState, publishBudgetTelemetry } from "../../../src/core/loop/budget";
 import { collector } from "../../helpers/observation-collector";
 import { TEST_BUDGET } from "../../helpers/approval-policy";
 describe("RunEvents BusEvents", () => {

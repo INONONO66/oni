@@ -8,7 +8,7 @@ import {
   type AlarmArmView,
   type AlarmChainReads,
   type AlarmSkipReason,
-} from "../src/core/alarm";
+} from "../src/core/ports/alarm";
 import { composeAlarmPurposes } from "../src/plugins/alarm";
 import {
   ArmRefused,

@@ -2,18 +2,18 @@ import { FakeLlmLive as LlmLive } from "./fake-llm";
 import { createPolicyCompiler, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { canonicalDigest, Delivery, LedgerAction, SessionTransition, type LedgerSession, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
 import { Clock, type Context, Effect, Layer, Scope, Semaphore } from "effect";
-import { GenerationHandlers } from "../../src/core/compose";
-import type { SessionKernel } from "../../src/core/entity";
-import { GenerationUnavailable, type SessionError } from "../../src/core/failure";
+import { GenerationHandlers } from "../../src/core/composition/compose";
+import type { SessionKernel } from "../../src/core/session/entity";
+import { GenerationUnavailable, type SessionError } from "../../src/core/ports/failure";
 import { AgentGenerationLive } from "./generation-layer";
-import { makeSessionGenerations, type GenerationBundle } from "../../src/core/run";
-import type { SessionRuntime } from "../../src/core/run";
-import { Entropy, GenerationLayers, ObservationSink, type SessionEntryServices } from "../../src/core/ports";
+import { makeSessionGenerations, type GenerationBundle } from "../../src/core/session/run";
+import type { SessionRuntime } from "../../src/core/session/run";
+import { Entropy, GenerationLayers, ObservationSink, type SessionEntryServices } from "../../src/core/ports/ports";
 import { isolatedLedger } from "./isolated";
 import { fixtureCompactionSeam } from "./fixture-compaction";
 import { observationService } from "./service-layers";
 import { entropySource, fixedClock } from "./time";
-import type { SessionRunnerResult } from "../../src/core/run";
+import type { SessionRunnerResult } from "../../src/core/session/run";
 
 /**
  * Seam stub for `SessionRuntime.settleChild`: core fixtures exercise the settlement SEAM only. The shipped

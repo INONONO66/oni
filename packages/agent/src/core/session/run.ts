@@ -1,30 +1,30 @@
 import { Clock, Effect, Context, type Fiber, Exit, Layer, Scope, Semaphore, Cause } from "effect";
-import * as Failure from "./failure";
-import { type SessionError, type ExecutionError, RunnerOutputMissing, CommitFailed, AgentFailure, GenerationUnavailable, GenerationUnsettled, AgentInvariantViolation, InboundAuthorityViolation } from "./failure";
-import { type ExecutionLedger, type ExecutionApprovals, type ExecutionResult, type ExecutorOptions, createRawSlots, createExecutor, type Executor } from "./gate/decide";
-import type { SessionPolicyRefusal } from "./messages";
-export { SessionPolicyRefusal } from "./messages";
-import { GenerationRawSlots } from "./gate/decide";
-export { GenerationRawSlots } from "./gate/decide";
+import * as Failure from "../ports/failure";
+import { type SessionError, type ExecutionError, RunnerOutputMissing, CommitFailed, AgentFailure, GenerationUnavailable, GenerationUnsettled, AgentInvariantViolation, InboundAuthorityViolation } from "../ports/failure";
+import { type ExecutionLedger, type ExecutionApprovals, type ExecutionResult, type ExecutorOptions, createRawSlots, createExecutor, type Executor } from "../loop/executor";
+import type { SessionPolicyRefusal } from "../journal/messages";
+export { SessionPolicyRefusal } from "../journal/messages";
+import { GenerationRawSlots } from "../loop/executor";
+export { GenerationRawSlots } from "../loop/executor";
 
-import * as SessionHandleStore from "./store/fence";
+import * as SessionHandleStore from "../store/fence";
 import type { SessionKernel } from "./entity";
 import { foldAlarmChains, openAlarmIds } from "./alarm-read";
-import type { InspectRequest, InspectionPage } from "../inspect";
+import type { InspectRequest, InspectionPage } from "../../inspect";
 import { Delivery, AlarmOp, type LedgerAction, type LedgerSession, type Model, type ObservationSink, type SessionGeneration, type ConfigureDisabled, type SessionHistory, type SessionTurn, SessionTransition, canonicalDigest, PlainValueSchema, BusEvent, type PlainValue, type TraceContext } from "@openomni/protocol";
-import type { ChatAgentConfig, AgentResult } from "./types";
+import type { ChatAgentConfig, AgentResult } from "../ports/types";
 import type { decideSessionAdmission } from "./admission";
-import type { Generation } from "./compose";
-import { projectTools } from "./tool";
-import { Entropy, ObservationSink as ObservationService, GenerationLayers, type SessionEntryServices, type RunnerServices, GenerationOwnership, type CapturedGeneration, type GenerationServices, interruptOn, } from "./ports";
-import type { CompactionSeamService } from "./compaction-ports";
-import type { ApprovalPolicy } from "./approval-policy";
-import { commitFoldBatch, turnCheckpointAction, deliveryActions, turnTerminalAction, policyRefusalResult, sessionRunnerResultValue, sessionRunnerResultFromValue, boundaryConsumption, consumptionSettings, } from "./commit";
-import { CorruptRecord, type LedgerError } from "./store/errors";
+import type { Generation } from "../composition/compose";
+import { projectTools } from "../loop/tool";
+import { Entropy, ObservationSink as ObservationService, GenerationLayers, type SessionEntryServices, type RunnerServices, GenerationOwnership, type CapturedGeneration, type GenerationServices, interruptOn, } from "../ports/ports";
+import type { CompactionSeamService } from "../ports/compaction-ports";
+import type { ApprovalPolicy } from "../composition/approval-policy";
+import { commitFoldBatch, turnCheckpointAction, deliveryActions, turnTerminalAction, policyRefusalResult, sessionRunnerResultValue, sessionRunnerResultFromValue, boundaryConsumption, consumptionSettings, } from "../journal/commit";
+import { CorruptRecord, type LedgerError } from "../store/errors";
 import { z } from "zod";
-import { hydrateSessionHistory, refreshSessionHistory } from "../inspect/history";
-import { observeDrained, scopeObservation } from "./bus";
-import { runAgent } from "./turn";
+import { hydrateSessionHistory, refreshSessionHistory } from "../../inspect/history";
+import { observeDrained, scopeObservation } from "../observation/bus";
+import { runAgent } from "../loop/turn";
 
 export interface SessionTool {
   readonly name: string;
@@ -308,7 +308,7 @@ export interface SessionEntityPorts {
    * A delivered occurrence whose purpose is neither loop-reserved nor declared here folds to a
    * recorded `fired{stale}` fact with zero execution.
    */
-  readonly alarmCapability?: import("./alarm").AlarmCapability;
+  readonly alarmCapability?: import("../ports/alarm").AlarmCapability;
   /** Test seam for keep-alive toggles around a detached turn; real one is `Entity.keepAlive`. */
   readonly onKeepAlive?: (enabled: boolean) => void;
   /** Absent is the typed `seam_missing` refusal at `deliver` — never a core fallback. */
@@ -326,8 +326,8 @@ export interface SessionEntityPorts {
      */
   readonly sendAlarm?: (
     sessionId: string,
-    occurrence: import("./alarm").AlarmFired,
-  ) => Effect.Effect<void, import("./alarm").AlarmSendRefused>;
+    occurrence: import("../ports/alarm").AlarmFired,
+  ) => Effect.Effect<void, import("../ports/alarm").AlarmSendRefused>;
   /**
    * The ONE committing arm path app-side verbs delegate to (`not_live` when no activation is
    * registered); the release runs at passivation.
@@ -335,13 +335,13 @@ export interface SessionEntityPorts {
   readonly onLive?: (
     sessionId: string,
     verbs: {
-      readonly arm: import("./alarm").ArmVerb;
+      readonly arm: import("../ports/alarm").ArmVerb;
       /** True iff this activation owns the turn: an effect never commits via a successor. */
       readonly ownsTurn: (turnId: string) => boolean;
     },
   ) => () => void;
   /** Fired synchronously after every committed arm so native handles follow the chain. */
-  readonly onArmed?: (notice: import("./alarm").AlarmArmNotice) => void;
+  readonly onArmed?: (notice: import("../ports/alarm").AlarmArmNotice) => void;
 }
 
 export interface SessionControllerState {

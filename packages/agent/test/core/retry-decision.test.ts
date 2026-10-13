@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { LlmCall, Operational } from "@openomni/protocol";
-import type { FailureClass } from "../../src/core/llm";
+import type { FailureClass } from "../../src/core/ports/llm";
 import {
   decide,
   INSTANT_FAILURE_STREAK_LIMIT,
@@ -14,7 +14,7 @@ import {
   RETRY_INITIAL_DELAY,
   RETRY_JITTER_RATIO,
   RETRY_MAX_DELAY_NO_HEADERS,
-} from "../../src/core/retry";
+} from "../../src/core/loop/retry";
 import { collector } from "../helpers/observation-collector";
 
 /**

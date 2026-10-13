@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import * as SessionHandleStore from "../core/store/fence";
-import type { SessionKernel } from "../core/entity";
-import { AgentInvariantViolation } from "../core/failure";
+import type { SessionKernel } from "../core/session/entity";
+import { AgentInvariantViolation } from "../core/ports/failure";
 import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
 import { actionPayloadBytes } from "../core/store/action-hash";
 

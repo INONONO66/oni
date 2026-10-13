@@ -6,18 +6,18 @@
  */
 import { Data, Effect } from "effect";
 import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@openomni/protocol";
-import type { SessionKernel } from "./store/fence";
-import { configureAction } from "./store/fence";
-import { actionPayloadBytes } from "./store/action-hash";
-import { consumptionSettings } from "./commit";
-import type { LedgerError } from "./store/errors";
+import type { SessionKernel } from "../store/fence";
+import { configureAction } from "../store/fence";
+import { actionPayloadBytes } from "../store/action-hash";
+import { consumptionSettings } from "../journal/commit";
+import type { LedgerError } from "../store/errors";
 import type {
   SessionForkReceipt,
   SessionIndexUnit,
   SessionStore,
   ToolOutputWrite,
-} from "./store/session-file/index.js";
-import { SESSION_FILE_SCHEMA_VERSION } from "./store/session-file/index.js";
+} from "../store/session-file/index.js";
+import { SESSION_FILE_SCHEMA_VERSION } from "../store/session-file/index.js";
 
 /**
  * A generation overrides this by pinning `settings.forkCopyByteCap`; the fork reads the cap off the

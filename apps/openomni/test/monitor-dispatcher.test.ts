@@ -9,7 +9,7 @@ import { createMonitorTool } from "../src/bundles/alarms/monitor/index";
 import { alarmChainReads, foldAlarmChains } from "../src/bundles/alarms/index";
 import { runEffect } from "./helpers/effect";
 import { FIXTURE_BASE, awaitScheduled, scheduledAt, withEntityAlarmPorts } from "./helpers/watch-fixture";
-import { activeInvocation } from "../../../packages/agent/src/core/gate/decide";
+import { activeInvocation } from "../../../packages/agent/src/core/loop/executor";
 
 test("monitor schema and dispatcher keep one strict create/rearm/cancel surface", async () => {
   const monitorTool = createMonitorTool(() => undefined);

@@ -1,22 +1,22 @@
 import { Effect } from "effect";
-import { CommitRefused, type LedgerError } from "./store/errors";
-import * as SessionHandleStore from "./store/fence";
-import type { CommitReceipt } from "./store/services";
-import { ObservationSink, type RunnerServices } from "./ports";
+import { CommitRefused, type LedgerError } from "../store/errors";
+import * as SessionHandleStore from "../store/fence";
+import type { CommitReceipt } from "../store/services";
+import { ObservationSink, type RunnerServices } from "../ports/ports";
 import { canonicalDigest, Journal, type SessionGeneration, type Delivery, type LedgerAction, type LedgerSession, type PlainValue, } from "@openomni/protocol";
-import { createExecutor } from "./gate/decide";
-import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "./tool-output";
-import { AgentFailure, CommitFailed, type ExecutionError, type SessionError } from "./failure";
-import { SessionPolicyRefusal } from "./messages";
+import { createExecutor } from "../loop/executor";
+import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../ports/tool-output";
+import { AgentFailure, CommitFailed, type ExecutionError, type SessionError } from "../ports/failure";
+import { SessionPolicyRefusal } from "../journal/messages";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
-import type { ExecutionLedger } from "./gate/decide";
+import type { ExecutionLedger } from "../loop/executor";
 import type { SessionKernel } from "./entity";
-import { turnIntentAction, deliveryActions, inputRowKind, policyRefusalResult, boundaryConsumption, consumptionSettings, } from "./commit";
+import { turnIntentAction, deliveryActions, inputRowKind, policyRefusalResult, boundaryConsumption, consumptionSettings, } from "../journal/commit";
 import type { SessionControllerState } from "./run";
-import { observeDrained } from "./bus";
+import { observeDrained } from "../observation/bus";
 import { commitSessionRequest } from "./request";
 
-import { commitFoldBatch } from "./commit";
+import { commitFoldBatch } from "../journal/commit";
 
 type AdmissionError = SessionError;
 

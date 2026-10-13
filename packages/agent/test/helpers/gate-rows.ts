@@ -4,7 +4,7 @@ import {
   composePointTable,
   KERNEL_CAPABILITY_POINTS,
   type GatePointTable,
-} from "../../src/core/points";
+} from "../../src/core/gate/points";
 
 /** The fully composed table: eight core points plus the four built-in capabilities. */
 export function fullPointTable(): GatePointTable {

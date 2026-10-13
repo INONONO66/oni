@@ -1,7 +1,7 @@
 import { Layer } from "effect";
 import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
 import type { AnyToolDefinition, SessionGeneration } from "@openomni/protocol";
-import { SessionLayer, ToolCatalog } from "../../src/core/ports";
+import { SessionLayer, ToolCatalog } from "../../src/core/ports/ports";
 
 export interface AgentLayerOptions {
   readonly snapshot: SessionGeneration.Snapshot;

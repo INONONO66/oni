@@ -1,11 +1,11 @@
 import { Effect, Scope } from "effect";
 import type { LedgerSession, SessionGeneration } from "@openomni/protocol";
-import { AgentFailure, AgentInvariantViolation, type SessionError } from "../core/failure";
-import { BOUNDED_CONCURRENCY, type SessionEntryServices } from "../core/ports";
+import { AgentFailure, AgentInvariantViolation, type SessionError } from "../core/ports/failure";
+import { BOUNDED_CONCURRENCY, type SessionEntryServices } from "../core/ports/ports";
 import * as SessionHandleStore from "../core/store/fence";
-import { toolSnapshot } from "../core/commit";
-import { resolveSessionRuntime, installSessionHandlePlane, type SessionRuntime, type ResolvedSessionRuntime, type SessionCreateOptions, type SessionHandle, type SessionController, type SessionControllerLifecycle, type SessionRunner, type SessionSystem, type RegistryEntry } from "../core/run";
-import type { SessionKernel } from "../core/entity";
+import { toolSnapshot } from "../core/journal/commit";
+import { resolveSessionRuntime, installSessionHandlePlane, type SessionRuntime, type ResolvedSessionRuntime, type SessionCreateOptions, type SessionHandle, type SessionController, type SessionControllerLifecycle, type SessionRunner, type SessionSystem, type RegistryEntry } from "../core/session/run";
+import type { SessionKernel } from "../core/session/entity";
 import { compactionCapability } from "../bundle";
 import { createController } from "./controller";
 

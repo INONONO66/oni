@@ -14,7 +14,7 @@ import type {
 } from "@openomni/protocol";
 import type { RunInput } from "./llm";
 import type { CompactionOptions, CompactionSeamService } from "./compaction-ports";
-import type { Executor } from "./gate/decide";
+import type { Executor } from "../loop/executor";
 
 export type TokenUsage = Token.AgentUsage;
 
@@ -25,10 +25,10 @@ export type ResolvedAgentBudget = AgentBudget &
   Required<Pick<AgentBudget, "maxTurns" | "maxToolCalls" | "maxWallTimeMs" | "maxToolRuntimeMs">>;
 
 interface AgentExecutionLifecycle {
-  judgeStop: import("./gate/decide").DurableExecutor["judgeStop"];
+  judgeStop: import("../loop/executor").DurableExecutor["judgeStop"];
   runAttempts<T extends PlainValue>(
     parent: LedgerAction.Receipt,
-    attempts: import("./gate/decide").LlmAttempts<T>,
+    attempts: import("../loop/executor").LlmAttempts<T>,
   ): Effect.Effect<T, ExecutionError>;
 }
 
@@ -44,7 +44,7 @@ export interface ChatAgentConfig {
     readonly openIntent: readonly string[];
     readonly alarmIds: readonly string[];
   }, ExecutionError>;
-  boundary?: import("./run").SessionRunnerInput["boundary"];
+  boundary?: import("../session/run").SessionRunnerInput["boundary"];
   toolWave?: (calls: readonly Tool.Call[], signal?: AbortSignal) => Effect.Effect<readonly Tool.Result[], ExecutionError>;
   executor?: Executor;
   systemPrompt?: string;

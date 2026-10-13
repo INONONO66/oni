@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Cause } from "effect";
-import { AgentFailure, Interrupted } from "../src/core/failure";
-import * as Failure from "../src/core/failure";
+import { AgentFailure, Interrupted } from "../src/core/ports/failure";
+import * as Failure from "../src/core/ports/failure";
 
 describe("Failure.of", () => {
   it("returns the typed error instance a Cause carries", () => {

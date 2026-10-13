@@ -5,7 +5,7 @@ import {
   composePointTable,
   GateComposeError,
   KERNEL_CAPABILITY_POINTS,
-} from "../src/core/points";
+} from "../src/core/gate/points";
 import { fullPointTable, gateRow } from "./helpers/gate-rows";
 
 function rejectionCode(run: () => void): string {

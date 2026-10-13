@@ -5,9 +5,9 @@ import { expect, test } from "bun:test";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import { Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
-import { makeSessionGenerations, GenerationRawSlots } from "../src/core/run";
-import { SessionLayer, ToolCatalog, ObservationSink } from "../src/core/ports";
-import { GenerationHandlers } from "../src/core/compose";
+import { makeSessionGenerations, GenerationRawSlots } from "../src/core/session/run";
+import { SessionLayer, ToolCatalog, ObservationSink } from "../src/core/ports/ports";
+import { GenerationHandlers } from "../src/core/composition/compose";
 
 function generation(number: number, close: () => void) {
   const snapshot = SessionHandleStore.generationSnapshot({ generation: number, revertTo: number - 1,

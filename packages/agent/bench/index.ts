@@ -4,7 +4,7 @@ import { Bench } from "tinybench";
 import type { Message, ObservationSink } from "@openomni/protocol";
 import { Effect } from "effect";
 import { Compaction } from "../src/plugins/compaction/compact";
-import { Entropy } from "../src/core/ports";
+import { Entropy } from "../src/core/ports/ports";
 import { entropySource } from "../test/helpers/time";
 import { addTurnBenchmarks, runBenchEffect } from "./turns";
 

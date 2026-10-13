@@ -1,26 +1,26 @@
 // The single import target for capability plugins: exactly the core ports
 // and types the removable plugins consume.
-export type { ExecutionRequest, Executor } from "./gate/decide";
+export type { ExecutionRequest, Executor } from "./loop/executor";
 export {
   AgentFailure, AgentInvariantViolation, CompactionExecutionError, ContextRestoreError,
   type ExecutionError, pretty, renderBodyCause, thrownAsError,
-} from "./failure";
-export type { SessionKernel } from "./entity";
+} from "./ports/failure";
+export type { SessionKernel } from "./session/entity";
 export { parsePlainJson, readPlainJson } from "./store/json";
-export { Entropy } from "./ports";
-export { RunEvents } from "./run-events";
+export { Entropy } from "./ports/ports";
+export { RunEvents } from "./observation/run-events";
 // Alarm seam: exactly what an alarm capability needs.
 export {
   ArmRefused, AlarmWakeError, RESERVED_PURPOSES,
   type AlarmCapability, type AlarmWakeContext, type ArmVerb, type AlarmFired, type AlarmWakeOutcome, type AlarmPurposeRegistry,
-} from "./alarm";
+} from "./ports/alarm";
 // A plugin consumes `Capability.define` alone; `Bundle.define` / `Manifest.define`
 // are product-side, surfaced by the root `Bundle` barrel.
-export { Capability, seam, type CapabilityDefinition, type SeamTag } from "./capability";
-export { AlarmSeam } from "./alarm";
+export { Capability, seam, type CapabilityDefinition, type SeamTag } from "./ports/capability";
+export { AlarmSeam } from "./ports/alarm";
 // Consulted-gate seam: what a hook-style capability needs to register an
 // asynchronous gate consultant without touching core internals.
-export type { ConsultantSeed } from "./compose";
+export type { ConsultantSeed } from "./composition/compose";
 export type { ConsultInput, NamedConsultant } from "./gate/registry";
 export type { GateHandlerResult } from "./gate/compose";
 // Tool-dispatcher seam: what `plugins/tool` needs to construct dispatchers
@@ -29,17 +29,17 @@ export {
   activeInvocation, createExecutor, immutableInput, requireExecutor,
   type DurableExecutor, type ExecutionApprovals, type ExecutionBatchResult,
   type ExecutionLedger, type ExecutorOptions, type InvocationFrame, type RawToolSlots,
-} from "./gate/decide";
-export { GenerationOwnership, SessionLayer, ToolCatalog, type ProcessServices } from "./ports";
+} from "./loop/executor";
+export { GenerationOwnership, SessionLayer, ToolCatalog, type ProcessServices } from "./ports/ports";
 export {
   DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectToolOutput, type ToolOutputPorts,
-} from "./tool-output";
+} from "./ports/tool-output";
 export {
   executeToolBody, projectTools, ToolBodyOutcome, ToolRefused,
   type CellToolDispatchResult, type DispatchContext, type Dispatcher,
   type DispatcherOptions, type ToolDispatchDefinition, type ToolDispatchResult,
   type ToolErrorKind,
-} from "./tool";
+} from "./loop/tool";
 // Compaction seam: the four operations the core consumes and the binding that yields them.
 export {
   CompactionSeam,
@@ -48,5 +48,5 @@ export {
   type CompactionSeamService, type CompactionWindow, type CompactionYield,
   type PinCompactionAction, type PrepareCompactionRestore, type SummarizationBudget,
   type ToolOutputElision,
-} from "./compaction-ports";
-export type { RunState } from "./turn";
+} from "./ports/compaction-ports";
+export type { RunState } from "./loop/turn";

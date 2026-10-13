@@ -11,9 +11,9 @@ import {
   DEFAULT_CONSUMPTION,
   boundaryConsumption,
   consumptionSettings,
-} from "../src/core/commit";
+} from "../src/core/journal/commit";
 import { configureAction } from "../src/core/store/fence";
-import type { SessionRunner } from "../src/core/run";
+import type { SessionRunner } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { queuePromptOnS } from "./helpers/ingress";

@@ -7,11 +7,11 @@ import type {
   PlainValue,
 } from "@openomni/protocol";
 import { seam, type SeamTag } from "./capability";
-import type { SessionKernel } from "./entity";
+import type { SessionKernel } from "../session/entity";
 import type { AgentFailure, ContextRestoreError, ExecutionError } from "./failure";
-import type { ExecutionRequest, Executor } from "./gate/decide";
+import type { ExecutionRequest, Executor } from "../loop/executor";
 import type { Entropy } from "./ports";
-import type { RunState } from "./turn";
+import type { RunState } from "../loop/turn";
 
 /**
  * The ONE core-owned contract to the removable compaction plugin; with no service wired the kernel

@@ -1,6 +1,6 @@
 import { canonicalDigest, type PolicyRow, type PlainValue, type Storage } from "@openomni/protocol";
 import { Effect } from "effect";
-import { composePointTable, GateComposeError, KERNEL_CAPABILITY_POINTS, type GatePointTable } from "../points";
+import { composePointTable, GateComposeError, KERNEL_CAPABILITY_POINTS, type GatePointTable } from "./points";
 import { translateLegacyPolicyRow } from "./migrate";
 import {
   contentIdentity,

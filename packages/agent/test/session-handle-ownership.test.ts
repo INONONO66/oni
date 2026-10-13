@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, } from "effect";
 import { type L0Observation, PlainValueSchema } from "@openomni/protocol";
-import type { ExecutionApprovals } from "../src/core/gate/decide";
-import type { ExecutionApprovalRequest } from "../src/core/gate/decide";
-import type { SessionHandle } from "../src/core/run";
+import type { ExecutionApprovals } from "../src/core/loop/executor";
+import type { ExecutionApprovalRequest } from "../src/core/loop/executor";
+import type { SessionHandle } from "../src/core/session/run";
 import type { SessionFixture } from "./helpers/session-services";
-import type { SessionRunner, SessionRunnerInput } from "../src/core/run";
+import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
 import * as SessionHandleStore from "../src/core/store/fence";
-import { GenerationOwnership } from "../src/core/ports";
-import { GenerationRawSlots } from "../src/core/run";
+import { GenerationOwnership } from "../src/core/ports/ports";
+import { GenerationRawSlots } from "../src/core/session/run";
 import { awaitSignal, failure, boundedSignal as bounded } from "./helpers/g0-signals";
 import {
   approvalRequest,

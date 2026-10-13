@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Token } from "@openomni/protocol";
-import { accumulateUsage, type FailureClass } from "../../src/core/llm";
-import { attemptReason } from "../../src/core/retry";
+import { accumulateUsage, type FailureClass } from "../../src/core/ports/llm";
+import { attemptReason } from "../../src/core/loop/retry";
 
 describe("public accounting and attempt classification", () => {
   test("accumulates billed counts without billing auxiliary counters twice", () => {

@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect";
 import { expect, test } from "bun:test";
 import { canonicalDigest } from "@openomni/protocol";
-import { AgentFailure } from "../src/core/failure";
+import { AgentFailure } from "../src/core/ports/failure";
 import { isolated } from "./helpers/isolated";
 import {
   appendSourceInvocation,

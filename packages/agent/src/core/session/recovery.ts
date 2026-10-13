@@ -1,15 +1,15 @@
 import { Effect } from "effect";
-import * as SessionHandleStore from "./store/fence";
-import type { CommitReceipt } from "./store/services";
-import type { LedgerError } from "./store/errors";
+import * as SessionHandleStore from "../store/fence";
+import type { CommitReceipt } from "../store/services";
+import type { LedgerError } from "../store/errors";
 import type { Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
-import { createExecutor, type ExecutionLedger, type ExecutionResult } from "./gate/decide";
-import { AgentFailure, type SessionError } from "./failure";
+import { createExecutor, type ExecutionLedger, type ExecutionResult } from "../loop/executor";
+import { AgentFailure, type SessionError } from "../ports/failure";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
 import type { SessionKernel } from "./entity";
-import { turnIntentAction, turnResumeAction, deliveryActions, generationForOpen } from "./commit";
+import { turnIntentAction, turnResumeAction, deliveryActions, generationForOpen } from "../journal/commit";
 import type { SessionTurnPorts } from "./admission";
-import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../inspect/history";
+import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../../inspect/history";
 
 type RecoveryError = SessionError;
 

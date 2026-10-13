@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { scopeObservation } from "../../src/core/bus";
+import { scopeObservation } from "../../src/core/observation/bus";
 import { newTraceId } from "../helpers/bus";
-import { ObservationDeliveryFailed } from "../../src/core/bus";
+import { ObservationDeliveryFailed } from "../../src/core/observation/bus";
 import { collector } from "../helpers/observation-collector";
 import { BusEvent, type ObservationSink } from "@openomni/protocol";
 import { z } from "zod";

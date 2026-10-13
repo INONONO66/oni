@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { LedgerAction, LedgerSession, SessionHistory } from "@openomni/protocol";
-import { armAction, firedAction } from "../src/core/alarm";
-import { sessionStopEvidence } from "../src/core/run";
-import type { SessionKernel } from "../src/core/entity";
+import { armAction, firedAction } from "../src/core/ports/alarm";
+import { sessionStopEvidence } from "../src/core/session/run";
+import type { SessionKernel } from "../src/core/session/entity";
 import { runTestSync } from "./helpers/isolated";
 
 const sessionId = "alarm-progress";

@@ -16,9 +16,9 @@ import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { isolated } from "../../helpers/isolated";
 import { toolOutput as inspectToolOutput } from "../../../src/inspect";
 import { configureAction } from "../../../src/core/store/fence";
-import { consumptionSettings } from "../../../src/core/commit";
-import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../../../src/core/tool-output";
-import type { ExecutionLedger } from "../../../src/core/gate/decide";
+import { consumptionSettings } from "../../../src/core/journal/commit";
+import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../../../src/core/ports/tool-output";
+import type { ExecutionLedger } from "../../../src/core/loop/executor";
 
 const SESSION = "projection-session";
 

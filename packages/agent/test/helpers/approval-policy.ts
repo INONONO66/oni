@@ -1,5 +1,5 @@
-import type { ApprovalPolicy } from "../../src/core/approval-policy";
-import type { AgentBudget, ResolvedAgentBudget } from "../../src/core/types";
+import type { ApprovalPolicy } from "../../src/core/composition/approval-policy";
+import type { AgentBudget, ResolvedAgentBudget } from "../../src/core/ports/types";
 
 /**
  * The fixture run budget: the values the core used to

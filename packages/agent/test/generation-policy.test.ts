@@ -5,10 +5,10 @@ import { createHandlerTable, createPolicyCompiler, KERNEL_POLICY_REGISTRY, SEEDE
 import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
 import { Clock, Effect, Layer } from "effect";
 import { z } from "zod";
-import { GenerationHandlers } from "../src/core/compose";
-import { makeSessionGenerations } from "../src/core/run";
-import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports";
-import { defineTool, projectTools } from "../src/core/tool";
+import { GenerationHandlers } from "../src/core/composition/compose";
+import { makeSessionGenerations } from "../src/core/session/run";
+import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports/ports";
+import { defineTool, projectTools } from "../src/core/loop/tool";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { effectValue, fiberSessionId, nativeExecutorOptions } from "./helpers/native-executor";

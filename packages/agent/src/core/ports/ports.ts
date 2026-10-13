@@ -1,11 +1,11 @@
 import { Context, Layer, Effect, type Scope } from "effect";
 import { listenForAbort, type AnyToolDefinition, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
-import type { CompiledPolicySnapshot } from "./gate/compile";
+import type { CompiledPolicySnapshot } from "../gate/compile";
 import type { Llm } from "./llm";
 import type { SessionError } from "./failure";
-import type { GenerationHandlers } from "./compose";
-import type { GenerationRawSlots } from "./run";
-import type { ToolDispatchDefinition } from "./tool";
+import type { GenerationHandlers } from "../composition/compose";
+import type { GenerationRawSlots } from "../session/run";
+import type { ToolDispatchDefinition } from "../loop/tool";
 
 /** Package code never reads ambient crypto or random sources itself. */
 export interface EntropySource {

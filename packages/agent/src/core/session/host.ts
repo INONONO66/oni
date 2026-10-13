@@ -5,19 +5,19 @@ import { Context, type Crypto, Data, Duration, Effect, Layer, type Scope } from 
 import { SingleRunner } from "effect/cluster";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { AlarmDrainConfig } from "./alarm";
+import type { AlarmDrainConfig } from "../ports/alarm";
 import {
   createSessionEntityLayer,
   createSessionEntityRunTurn,
   SessionEntityContext,
 } from "./entity";
-import { thrownAsError } from "./failure";
+import { thrownAsError } from "../ports/failure";
 import type { ResolvedSessionRuntime, SessionEntityPorts, SessionRunner } from "./run";
-import { type CatalogStore, openCatalogStore } from "./store/catalog";
-import * as SessionHandleStore from "./store/fence";
-import type { LedgerHandles } from "./store/services";
-import { openSessionStore, type SessionStore } from "./store/session-file";
-import type { ObservationFailurePort } from "./store/storage/sqlite-l0-observation";
+import { type CatalogStore, openCatalogStore } from "../store/catalog";
+import * as SessionHandleStore from "../store/fence";
+import type { LedgerHandles } from "../store/services";
+import { openSessionStore, type SessionStore } from "../store/session-file";
+import type { ObservationFailurePort } from "../store/storage/sqlite-l0-observation";
 
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 

@@ -7,7 +7,7 @@ import { fixtureStopEvidence, prepareChatFixture } from "../../../packages/agent
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices, } from "../../../packages/agent/test/helpers/session-services";
 import { KERNEL_POLICY_REGISTRY } from "../../../packages/agent/src/core/gate/compile";
 import { Cause, Effect, Exit } from "effect";
-import type { LlmSink, RunInput } from "../../../packages/agent/src/core/llm";
+import type { LlmSink, RunInput } from "../../../packages/agent/src/core/ports/llm";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
 import { providerFailure } from "../../../packages/agent/test/helpers/mock-llm";
 import { seedPolicy } from "../../../packages/agent/test/helpers/seed-policy";
@@ -15,10 +15,10 @@ import { describe, expect, it } from "bun:test";
 
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../../packages/agent/src/core/gate/compile";
 import { SessionTurn, type LedgerAction, type Model } from "@openomni/protocol";
-import { closeSessions, createSessionChatRunner } from "../../../packages/agent/src/core/run";
-import type { Executor } from "../../../packages/agent/src/core/gate/decide";
+import { closeSessions, createSessionChatRunner } from "../../../packages/agent/src/core/session/run";
+import type { Executor } from "../../../packages/agent/src/core/loop/executor";
 import { Bus } from "../../../packages/agent/test/helpers/bus";
-import type { SessionHandle, SessionRunnerInput } from "../../../packages/agent/src/core/run";
+import type { SessionHandle, SessionRunnerInput } from "../../../packages/agent/src/core/session/run";
 import { session } from "../../../packages/agent/src/testing/registry";
 import { turnExecutor, nullRetryAlarm, foreign } from "../../../packages/agent/test/helpers/effect-g2";
 import { recordingChatRunner } from "../../../packages/agent/test/helpers/session-chat";
@@ -169,7 +169,7 @@ function runDurably(
     };
     seedPolicy();
     const chatRunner = createSessionChatRunner({
-      prepare: (input: import("../../../packages/agent/src/core/run").SessionRunnerInput) =>
+      prepare: (input: import("../../../packages/agent/src/core/session/run").SessionRunnerInput) =>
         Effect.gen(function* () {
           return prepareChatFixture({
             config: {

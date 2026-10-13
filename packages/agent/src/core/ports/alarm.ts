@@ -3,7 +3,7 @@ import { seam } from "./capability";
 import { interruptOn } from "./ports";
 import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
 import type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
-import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "./messages";
+import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "../journal/messages";
 
 export type { RetryAlarmPort, RetryAlarmDeps } from "./alarm-ports";
 

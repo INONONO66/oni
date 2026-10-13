@@ -1,6 +1,6 @@
 import type { ChatFixture as ChatAgentConfig } from "./chat-services";
 import { Effect } from "effect";
-import type {} from "../../src/core/types";
+import type {} from "../../src/core/ports/types";
 import { collector } from "./observation-collector";
 
 export function toolBudgetConfig(maxToolCalls: number): Pick<ChatAgentConfig, "events" | "model" | "budget"> {

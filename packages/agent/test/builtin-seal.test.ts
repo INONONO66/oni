@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { CORE_POINT_RECORDS } from "@openomni/protocol";
-import { composePointTable, GateComposeError } from "../src/core/points";
+import { composePointTable, GateComposeError } from "../src/core/gate/points";
 
 describe("built-in seal (#1251)", () => {
   it("rejects a composition missing a sealed core point with typed `builtin_removed`", () => {
