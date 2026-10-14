@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction, PlainValueSchema } from "@openomni/protocol";
 import { type AttemptEvidence, LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
 import { Effect } from "effect";
@@ -14,6 +14,7 @@ import { mockProviderModel } from "./helpers/mock-llm";
 import { runInput } from "./helpers/run-input";
 import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { messageSource } from "./helpers/message-source";
+import { renderReadModel } from "../src/core/session/read";
 
 function result(id: string, parentId: string, evidence: LedgerAction.Node["effect"]["value"],
   usageProvenance: "reported" | "estimated" | "unknown" = "unknown") {
@@ -40,6 +41,7 @@ test("failed billed usage is read once from its settled physical attempt", () =>
   }, "reported");
   expect(attemptUsage([failed, failed])).toEqual([{
     attemptId: "physical-attempt",
+    purpose: null,
     provenance: "reported",
     inputTokens: 7,
     outputTokens: 0,
@@ -50,6 +52,7 @@ test("unmarked usage is unknown rather than an invented zero or provider report"
   const attempt = result("first", "uncounted-attempt", {});
   expect(attemptUsage([attempt])).toEqual([{
     attemptId: "uncounted-attempt",
+    purpose: null,
     provenance: "unknown",
     inputTokens: null,
     outputTokens: null,
@@ -64,6 +67,39 @@ test("overlapping tools consume wall duration by union rather than sum", () => {
   expect(toolWallMs([{ start: 10, end: 40 }, { start: 20, end: 50 }, { start: 60, end: 70 }]))
     .toBe(50);
 });
+
+test("metrics attribute settled attempts by purpose without counting enclosing results", () =>
+  isolated(Effect.gen(function* () {
+    const { executor, committed } = recordingExecutor();
+    for (const purpose of ["chat", "compaction", undefined, "compaction"]) {
+      yield* runChatAttempts(
+        executor,
+        () => Effect.succeed({ type: "stop" }),
+        () => PlainValueSchema.parse(evidenceOf("estimated")),
+        purpose === undefined ? {} : { purpose },
+      );
+    }
+    const rows = committed.map((action, index) => LedgerAction.Node.parse({
+      ...action, ordinal: index + 1, prevHash: "before", actionHash: "after",
+    }));
+    const usage = attemptUsage(rows);
+    expect(usage.map(({ purpose, inputTokens, outputTokens, provenance }) =>
+      ({ purpose, inputTokens, outputTokens, provenance }))).toEqual([
+      { purpose: "chat", inputTokens: 5, outputTokens: 2, provenance: "estimated" },
+      { purpose: "compaction", inputTokens: 5, outputTokens: 2, provenance: "estimated" },
+      { purpose: null, inputTokens: 5, outputTokens: 2, provenance: "estimated" },
+      { purpose: "compaction", inputTokens: 5, outputTokens: 2, provenance: "estimated" },
+    ]);
+    expect(usage.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(20);
+    expect(renderReadModel("metrics", rows)).toMatchObject({
+      usage,
+      usageByPurpose: [
+        { purpose: "chat", usage: [usage[0]] },
+        { purpose: "compaction", usage: [usage[1], usage[3]] },
+        { purpose: null, usage: [usage[2]] },
+      ],
+    });
+  })));
 
 test("a real committed failed attempt contributes billed usage once", () =>
   isolated(Effect.gen(function* () {
@@ -95,14 +131,14 @@ test("a real committed failed attempt contributes billed usage once", () =>
         },
       });
       return { type: "stop" };
-    }));
+    }), undefined, { purpose: "compaction" });
     const kernel = isolatedLedger().kernel;
     const page = kernel.historyPage("metrics-session", { afterRevision: 0, limit: 256 });
     const entries = attemptUsage(page.actions);
     expect(attempts).toBe(2);
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({
-      inputTokens: 7, outputTokens: 0, provenance: "reported",
+      inputTokens: 7, outputTokens: 0, provenance: "reported", purpose: "compaction",
     });
     expect(entries.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(7);
   })));

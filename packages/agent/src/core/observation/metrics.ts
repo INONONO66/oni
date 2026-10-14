@@ -2,6 +2,7 @@ import type { LedgerAction, PlainValue } from "@openomni/protocol";
 
 export interface AttemptUsage {
   readonly attemptId: string;
+  readonly purpose: string | null;
   readonly provenance: "reported" | "estimated" | "unknown";
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
@@ -19,7 +20,7 @@ function token(value: PlainValue | undefined): number | null {
 export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsage[] {
   const seen = new Set<string>();
   const usage: AttemptUsage[] = [];
-  const attemptIntents = attemptIntentIds(actions);
+  const attemptIntents = attemptPurposes(actions);
   for (const action of actions) {
     const result = attemptResult(action, attemptIntents);
     if (result === undefined || seen.has(result.attemptId)) continue;
@@ -30,19 +31,21 @@ export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsag
 }
 
 /** Physical attempts share the `llm` kind; an attempt intent carries the attempt ordinal. */
-function attemptIntentIds(actions: readonly LedgerAction.Node[]): ReadonlySet<string> {
-  const ids = new Set<string>();
+function attemptPurposes(actions: readonly LedgerAction.Node[]): ReadonlyMap<string, string | null> {
+  const purposes = new Map<string, string | null>();
   for (const action of actions) {
     if (action.kind !== "llm") continue;
     const intent = fields(action.intent.value);
-    if (intent.phase === "intent" && typeof intent.attempt === "number") ids.add(action.id);
+    if (intent.phase !== "intent" || typeof intent.attempt !== "number") continue;
+    const purpose = fields(intent.value).purpose;
+    purposes.set(action.id, typeof purpose === "string" ? purpose : null);
   }
-  return ids;
+  return purposes;
 }
 
 function attemptResult(
   action: LedgerAction.Node,
-  attemptIntents: ReadonlySet<string>,
+  attemptIntents: ReadonlyMap<string, string | null>,
 ): AttemptUsage | undefined {
   if (action.kind !== "llm" || action.parentId === null) return undefined;
   const effect = fields(action.effect.value);
@@ -55,6 +58,7 @@ function attemptResult(
   const origin = effect.usageProvenance;
   return {
     attemptId: action.parentId,
+    purpose: attemptIntents.get(action.parentId) ?? null,
     provenance: origin === "reported" || origin === "estimated" ? origin : "unknown",
     inputTokens: origin === "unknown" ? null : token(record.inputTokens),
     outputTokens: origin === "unknown" ? null : token(record.outputTokens),
