@@ -15,6 +15,7 @@ import type { LedgerError } from "../store/errors";
 import type { SessionForkReceipt, SessionIndexUnit, SessionStore } from "../store/session-file/index.js";
 import type { ToolOutputWrite } from "../store/session-file/outputs";
 import { SESSION_FILE_SCHEMA_VERSION } from "../store/session-file/index.js";
+import { sessionIdProblem } from "./session-id";
 
 /**
  * A generation overrides this by pinning `settings.forkCopyByteCap`; the fork reads the cap off the
@@ -29,7 +30,8 @@ export type ForkRefusalReason =
   | "anchor_not_found"
   | "anchor_not_boundary"
   | "byte_cap"
-  | "child_exists";
+  | "child_exists"
+  | "child_id_invalid";
 
 /** Every fork failure path lands here. */
 export class ForkRefused extends Data.TaggedError("ForkRefused")<{
@@ -179,6 +181,8 @@ interface ForkPlan {
 function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
   const refuse = (reason: ForkRefusalReason, detail: string) =>
     new ForkRefused({ sessionId: input.from, reason, detail });
+  const childIdProblem = sessionIdProblem(input.childId);
+  if (childIdProblem !== undefined) return refuse("child_id_invalid", childIdProblem);
   if (ports.parentSchemaVersion !== SESSION_FILE_SCHEMA_VERSION)
     return refuse(
       "schema_version",

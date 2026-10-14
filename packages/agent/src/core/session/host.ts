@@ -4,7 +4,7 @@ import type { LedgerSession, ObservationSink } from "@openomni/protocol";
 import { Context, type Crypto, Data, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { AlarmDrainConfig } from "../ports/alarm";
 import {
   createSessionEntityLayer,
@@ -18,14 +18,20 @@ import * as SessionHandleStore from "../store/fence";
 import type { LedgerHandles } from "../store/services";
 import { openSessionStore, type SessionStore } from "../store/session-file";
 import type { ObservationFailurePort } from "../store/storage/sqlite-l0-observation";
+import { sessionIdProblem } from "./session-id";
 
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
 type SessionKernel = SessionHandleStore.SessionKernel;
 
-/** The one place the layout is spelled. */
+/** The one place the layout is spelled; a path that leaves the sessions dir is refused before any open. */
 export function sessionFilePath(sessionsDir: string, sessionId: string): string {
-  return join(sessionsDir, `${sessionId}.sqlite`);
+  const path = join(sessionsDir, `${sessionId}.sqlite`);
+  const problem =
+    sessionIdProblem(sessionId) ??
+    (dirname(resolve(path)) === resolve(sessionsDir) ? undefined : "session file escapes the sessions dir");
+  if (problem !== undefined) throw refused("sessions", path, new Error(problem));
+  return path;
 }
 
 export interface LedgerStoreConfig {
