@@ -162,6 +162,16 @@ export class SlackClient implements ChannelClient {
     );
   }
 
+  async removeReaction(channelId: string, messageTs: string, name: string, traceId: string): Promise<void> {
+    await this.api(
+      "reactions.remove",
+      { channel: channelId, timestamp: messageTs, name },
+      traceId,
+      this.botToken,
+      { schema: OkSchema, malformed: "reactions.remove returned a malformed envelope" },
+    );
+  }
+
   /** DM channel for a user id (`conversations.open`). */
   async openDm(userId: string, traceId: string): Promise<string> {
     const data = await this.api("conversations.open", { users: userId }, traceId, this.botToken, {

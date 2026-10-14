@@ -1,0 +1,1 @@
+#1506, branch feat/app-ack-reaction, 2026-10-14, base 030d50500, PR pending: channel-origin turns acknowledge with pending and terminal reactions through the resident delivery route; receipt and replacement coverage in apps/openomni/test/resident-reply-to-origin.test.ts.

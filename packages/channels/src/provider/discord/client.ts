@@ -77,6 +77,15 @@ export class DiscordClient implements ChannelClient {
     );
   }
 
+  async removeReaction(channelId: string, messageId: string, emoji: string, traceId: string): Promise<void> {
+    await this.request(
+      `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      { method: "DELETE" },
+      traceId,
+      z.undefined(),
+    );
+  }
+
   /** `POST /channels/{id}/typing` shows the indicator for about ten seconds. */
   async typing(channelId: string, traceId: string): Promise<void> {
     await this.request(`/channels/${channelId}/typing`, { method: "POST" }, traceId, z.undefined());

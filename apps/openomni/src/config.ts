@@ -20,6 +20,7 @@ export const ConfigurationError = NamedError.create(
       "invalid_machines_tcp",
       "invalid_model_fallbacks",
       "invalid_tool_output_budget_bytes",
+      "invalid_ack_reaction",
       "invalid_ws_port",
       // #1271 r1 M4: the machine plane is not optional — a boot without a
       // `machines` block refuses before any listener exists.
@@ -156,6 +157,12 @@ export interface OpenOmniConfig {
    * the surface routes and the model decides whether to answer.
    */
   readonly channelMentionOnly?: readonly string[];
+  /** External channel reaction used to show a turn's pending and terminal state. */
+  readonly ackReaction?: {
+    readonly pending: string;
+    readonly ok: string;
+    readonly failed: string;
+  };
 }
 
 export interface RegisteredActor {
@@ -595,6 +602,21 @@ function channelMentionOnlyFromEnv(
   return parseEnvJson("OPENOMNI_CHANNEL_MENTION_ONLY", ChannelMentionOnly, env);
 }
 
+const AckReaction = z.object({
+  pending: z.string().min(1),
+  ok: z.string().min(1),
+  failed: z.string().min(1),
+}).strict();
+
+function ackReactionFromEnv(
+  env: Record<string, string | undefined>,
+): OpenOmniConfig["ackReaction"] {
+  const raw = env.OPENOMNI_ACK_REACTION?.trim();
+  if (raw === undefined || raw.length === 0 || raw === "off") return undefined;
+  const parsed = parseEnvJson("OPENOMNI_ACK_REACTION", AckReaction, env);
+  return parsed;
+}
+
 /** Declared ChannelInstance rows are the sole channel provisioning owner. */
 export function assertDeclaredChannelConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -742,6 +764,7 @@ export function loadConfig(
   const toolOutputBudgetBytes = toolOutputBudgetBytesFromEnv(env);
   const channelAllowedSenders = channelAllowedSendersFromEnv(env);
   const channelMentionOnly = channelMentionOnlyFromEnv(env);
+  const ackReaction = ackReactionFromEnv(env);
   const off = offFromEnv(env);
   const hooksPath = env.OPENOMNI_HOOKS_PATH?.trim() || undefined;
   return {
@@ -767,6 +790,7 @@ export function loadConfig(
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
     ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),
+    ...(ackReaction === undefined ? {} : { ackReaction }),
     ...(off === undefined ? {} : { off }),
     ...(hooksPath === undefined ? {} : { hooksPath }),
   };

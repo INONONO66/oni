@@ -20,11 +20,13 @@ interface Ingested {
 function capturingPort(
   ingested: Ingested[],
   admit: (send: Gateway.SendMessage) => boolean = () => true,
+  events?: string[],
 ): MessagePort {
   return {
     ingest: async (sender, message) => {
       const send = message as Gateway.SendMessage;
       ingested.push({ sender, to: send.to, content: send.content });
+      events?.push("report");
       if (!admit(send)) return { status: "blocked_pre", reasonCode: "message.resident.actor_grant" } satisfies Gateway.IngestResult;
       return {
         status: "executed",
@@ -85,6 +87,92 @@ async function deliverExternal(
 }
 
 const telegramOwner = { surface: "telegram", externalId: "7", actorId: "person:owner", messageId: "telegram::7:1" };
+
+test("a configured channel turn acknowledges before reporting and settles the reaction", async () => {
+  const ingested: Ingested[] = [];
+  const events: string[] = [];
+  const reactions: Outbound.React[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    ackReaction: { pending: "👀", ok: "✅", failed: "❌" },
+    reactionRoutes: () => new Map([
+      ["telegram", async (_externalId, payload) => {
+        if (payload.kind !== "react") throw new Error("expected reaction");
+        reactions.push(payload);
+        events.push(payload.remove === true ? "terminal" : "ack");
+        return { value: "accepted" as const, externalMessageId: payload.messageId };
+      }],
+    ]),
+    tools: { messages: capturingPort(ingested, () => true, events) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  await deliverExternal(
+    resident,
+    "reply-origin-ack",
+    {
+      ...telegramOwner,
+      conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false },
+    },
+    "ping",
+  );
+  expect(events).toEqual(["ack", "report", "terminal"]);
+  expect(reactions).toEqual([
+    { kind: "react", messageId: telegramOwner.messageId, emoji: "👀" },
+    { kind: "react", messageId: telegramOwner.messageId, emoji: "✅", remove: true },
+  ]);
+});
+
+test("ack reactions are off by default", async () => {
+  const reactions: Outbound.React[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    reactionRoutes: () => new Map([
+      ["telegram", async (_externalId, payload) => {
+        if (payload.kind === "react") reactions.push(payload);
+        return { value: "accepted" as const };
+      }],
+    ]),
+    tools: { messages: capturingPort([]) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  await deliverExternal(
+    resident,
+    "reply-origin-ack-off",
+    { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } },
+    "ping",
+  );
+  expect(reactions).toEqual([]);
+});
+
+test("a refused pending reaction does not fail the turn or add a terminal reaction", async () => {
+  const reactions: Outbound.React[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    ackReaction: { pending: "👀", ok: "✅", failed: "❌" },
+    reactionRoutes: () => new Map([
+      ["telegram", async (_externalId, payload) => {
+        if (payload.kind === "react") reactions.push(payload);
+        return { value: "rejected" as const };
+      }],
+    ]),
+    tools: { messages: capturingPort([]) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  const result = await deliverExternal(
+    resident,
+    "reply-origin-ack-refused",
+    { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } },
+    "ping",
+  );
+  expect(result.kind).toBe("result");
+  expect(reactions).toEqual([{ kind: "react", messageId: telegramOwner.messageId, emoji: "👀" }]);
+});
 
 test("a turn answering an approved person on a channel reports its result to that person", async () => {
   const ingested: Ingested[] = [];

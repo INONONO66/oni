@@ -55,7 +55,7 @@ const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
 export interface SurfaceSends {
   readonly text: (chunk: string) => Promise<string | undefined>;
   readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
-  readonly react?: (messageId: string, emoji: string) => Promise<void>;
+  readonly react?: (messageId: string, emoji: string, remove?: boolean) => Promise<void>;
 }
 
 /** `accepted` only when every step was; `externalMessageId` is the last message posted. */
@@ -179,7 +179,7 @@ export async function translate(
   if (payload.kind === "react") {
     if (sends.react === undefined)
       throw new DeliveryNotSent({ operation: "react", cause: "surface has no reactions" });
-    await sends.react(payload.messageId, payload.emoji);
+    await sends.react(payload.messageId, payload.emoji, payload.remove);
     return { accepted: true, externalMessageId: payload.messageId };
   }
   const media =

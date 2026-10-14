@@ -128,14 +128,16 @@ export class SlackAdapter implements Channel.Surface {
                 return {};
               },
             },
-            react: (messageId, emoji) => {
+            react: (messageId, emoji, remove) => {
               const name = slackEmojiName(emoji);
               if (name === undefined)
                 throw new DeliveryNotSent({
                   operation: "slack.react",
                   cause: `no slack name for ${emoji}`,
                 });
-              return this.client.react(channelId, messageId, name, traceId);
+              return remove === true
+                ? this.client.removeReaction(channelId, messageId, name, traceId)
+                : this.client.react(channelId, messageId, name, traceId);
             },
           },
           this.options.media,

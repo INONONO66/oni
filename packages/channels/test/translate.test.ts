@@ -244,6 +244,12 @@ describe("translate: reactions", () => {
     expect(r.sent).toEqual([{ kind: "react", messageId: "msg-9", emoji: "👍" }]);
   });
 
+  test("a reaction can remove an earlier emoji without becoming text", async () => {
+    const r = recorder({ react: true });
+    await translate({ ...react, remove: true }, UNBOUNDED, r.sends);
+    expect(r.sent).toEqual([{ kind: "react", messageId: "msg-9", emoji: "👍" }]);
+  });
+
   test("a surface without reactions refuses, never posts the emoji as text", async () => {
     const r = recorder();
     const error = await translate(react, UNBOUNDED, r.sends).catch((e) => e);

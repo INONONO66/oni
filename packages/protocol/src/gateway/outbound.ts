@@ -35,6 +35,7 @@ const MessageSchema = z
   .strict();
 const ReactSchema = z
   .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1) })
+  .extend({ remove: z.boolean().optional() })
   .strict();
 const PayloadSchema = z.discriminatedUnion("kind", [MessageSchema, ReactSchema]);
 

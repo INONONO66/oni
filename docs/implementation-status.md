@@ -1,5 +1,18 @@
 # Implementation Status
 
+## #1506 auto-ack reaction
+
+Configured channel-origin turns now send a pending reaction before model
+execution and replace it with an ok or failed reaction after the report. The
+setting is `OPENOMNI_ACK_REACTION` as JSON with `pending`, `ok`, and `failed`
+emoji values, or `off`; it is off by default. Telegram's default is documented
+as 👀 pending, ✅ ok, and ❌ failed when configured, and Slack/Discord remove
+the pending reaction before adding the terminal reaction. Rejected, unknown,
+or thrown reaction receipts are dropped so the turn continues. The focused
+order, default-off, and refusal tests live in
+`apps/openomni/test/resident-reply-to-origin.test.ts`; full gate evidence is
+pending this PR.
+
 ## #1496 bash sessions drain through command sentinels (PR #1539, base `030d50500`)
 
 On `fix/1496-bash-session-sentinel` (2026-10-14). Named bash sessions

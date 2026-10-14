@@ -18,6 +18,7 @@ import {
   type LedgerSession,
   type Model,
   type PlainValue,
+  type Outbound,
   type Tool,
 } from "@openomni/protocol";
 import { z } from "zod";
@@ -50,6 +51,7 @@ interface ReplyTarget {
   readonly surface: string;
   /** The chat and thread they wrote in; a group message is answered there, not in a DM (#1490). */
   readonly conversation?: Gateway.Conversation;
+  readonly reactionConversation?: Gateway.Conversation;
 }
 
 /**
@@ -79,15 +81,108 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
     if (origin === null || typeof origin !== "object" || Array.isArray(origin)) continue;
     if (origin.kind !== "external" || typeof origin.surface !== "string" || origin.surface === "ws") continue;
     if (typeof origin.actorId !== "string" || typeof origin.externalId !== "string") continue;
+    const rawConversation = OriginConversation.safeParse(origin.conversation);
     const conversation = originConversation(origin.conversation);
     return {
       actorId: origin.actorId,
       externalId: origin.externalId,
       surface: origin.surface,
       ...(conversation === undefined ? {} : { conversation }),
+      ...(rawConversation.success
+        ? {
+            reactionConversation: {
+              channelId: rawConversation.data.channelId,
+              ...(rawConversation.data.threadId === undefined ? {} : { threadId: rawConversation.data.threadId }),
+              replyToMessageId: rawConversation.data.messageId,
+            },
+          }
+        : {}),
     };
   }
   return undefined;
+}
+
+type ReactionRoute = (
+  externalId: string,
+  payload: Outbound.Payload,
+  idempotencyKey: string,
+  conversation?: Gateway.Conversation,
+) => Promise<Outbound.Receipt>;
+
+interface AckReactionSettings {
+  readonly pending: string;
+  readonly ok: string;
+  readonly failed: string;
+}
+
+async function sendReaction(
+  route: ReactionRoute | undefined,
+  target: ReplyTarget,
+  emoji: string,
+  idempotencyKey: string,
+  remove?: boolean,
+): Promise<boolean> {
+  if (route === undefined) return false;
+  const conversation = target.reactionConversation;
+  if (conversation === undefined) return false;
+  const messageId = conversation.replyToMessageId;
+  if (messageId === undefined) return false;
+  try {
+    const receipt = await route(
+      target.actorId,
+      { kind: "react", messageId, emoji, ...(remove === true ? { remove: true } : {}) },
+      idempotencyKey,
+      conversation,
+    );
+    return receipt.value === "accepted";
+  } catch {
+    return false;
+  }
+}
+
+interface ReactionPlan {
+  readonly target: ReplyTarget;
+  readonly route: ReactionRoute;
+  readonly ack: AckReactionSettings;
+}
+
+function reactionPlan(
+  options: ResidentOptions,
+  input: Parameters<SessionRunner>[0],
+): ReactionPlan | undefined {
+  const target = externalReplyTarget(input);
+  const ack = options.ackReaction;
+  if (target?.reactionConversation === undefined || ack === undefined) return undefined;
+  const route = options.reactionRoutes?.().get(target.surface);
+  if (route === undefined) return undefined;
+  return { target, route, ack };
+}
+
+function pendingReaction(plan: ReactionPlan | undefined, input: Parameters<SessionRunner>[0]): Effect.Effect<boolean> {
+  return Effect.promise(() =>
+    plan === undefined
+      ? Promise.resolve(false)
+      : sendReaction(plan.route, plan.target, plan.ack.pending, `ack:${input.sessionId}:${input.turnId}:pending`),
+  );
+}
+
+function terminalReaction(
+  plan: ReactionPlan | undefined,
+  pendingAck: boolean,
+  input: Parameters<SessionRunner>[0],
+  result: Core.SessionRunnerResult,
+): Effect.Effect<void> {
+  return Effect.promise(() =>
+    plan === undefined || !pendingAck
+      ? Promise.resolve()
+      : sendReaction(
+          plan.route,
+          plan.target,
+          result.kind === "result" ? plan.ack.ok : plan.ack.failed,
+          `ack:${input.sessionId}:${input.turnId}:terminal`,
+          true,
+        ).then(() => undefined),
+  );
 }
 
 /** The `send_message` contact a report is addressed to. */
@@ -183,6 +278,10 @@ export interface ResidentOptions {
    * (tests, unset env) leaves the core default.
    */
   readonly toolOutputBudgetBytes?: number;
+  /** Optional external-channel acknowledgement reactions; absent means off. */
+  readonly ackReaction?: AckReactionSettings;
+  /** Live provider routes, read when a turn starts so channel mounts can change. */
+  readonly reactionRoutes?: () => ReadonlyMap<string, ReactionRoute>;
 }
 
 /** Resident and child use the same session-owned runner and dispatcher. */
@@ -244,6 +343,8 @@ export function createResident(options: ResidentOptions) {
       // never duplicates an accepted send_message to the same person, and a
       // refused one leaves the person still owed the report.
       const repliedTo = new Set<string>();
+      const plan = reactionPlan(options, input);
+      const pendingAck = yield* pendingReaction(plan, input);
       const runner = createSessionChatRunner({
         prepare: () => Effect.succeed({
           config: {
@@ -310,6 +411,7 @@ export function createResident(options: ResidentOptions) {
           { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
         );
       }
+      yield* terminalReaction(plan, pendingAck, input, result);
       return result;
     });
   return {

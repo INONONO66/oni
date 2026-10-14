@@ -714,6 +714,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
     const typingRoutes = new Map<string, ProviderTypingRoute>();
+    const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
+    let wsHandler: WebSocketHandler | undefined;
     const resident = createResident({
       typingRoute: (surface) => typingRoutes.get(surface),
       // #1257: the app's resolved cap is the input the composition writes
@@ -725,6 +727,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
         ? {}
         : { toolOutputBudgetBytes: resolveToolOutput(config).budgetBytes }),
       ...residentModelOptions(config.model, transport),
+      ackReaction: config.ackReaction,
+      reactionRoutes: () => deliveryRoutes,
       compaction: (session) => compactionOptions(config, { now: services.now, id: services.entropy.id, ...session }),
       composed: { current: services.composed.current },
       tools: {
@@ -783,7 +787,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
         throw new MessageAdmissionRefused(admission.reasonCode);
       }
     };
-    let wsHandler: WebSocketHandler | undefined;
     const wsRoute = async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
       if (wsHandler === undefined)
         throw new AppInvariantError("ws delivery used before composition finished");
@@ -793,7 +796,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
     };
     // Live table: channel components register and revoke their own outbound
     // routes while the gateway keeps reading it per delivery.
-    const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
     deliveryRoutes.set("ws", wsRoute);
     // One runtime owner for external channels (provisioning §5): boot
     // reconcile and every tool-driven mutation run the SAME diff over
