@@ -218,6 +218,13 @@ const DelegationResult = z
   })
   .strict();
 
+/**
+ * Delegation caps are a protocol-level contract (#1454): the kernel's
+ * spawn-depth and active-children admission and the gateway's send_message
+ * guard read the same defaults from here, never from one another's bundle.
+ */
+const DelegationCaps = Object.freeze({ maxDepth: 3, maxActiveChildren: 4 });
+
 /** Internal schema assembly; public names are exposed through Gateway. */
 export const MessageContract = {
   SessionTarget,
@@ -232,4 +239,5 @@ export const MessageContract = {
   RuleTableB,
   Observation,
   DelegationResult,
+  DelegationCaps,
 } as const;

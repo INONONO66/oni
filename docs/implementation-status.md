@@ -1,5 +1,47 @@
 # Implementation Status
 
+## #1454 remove pinned sibling-bundle imports (PR #1540, base `030d50500`)
+
+On `refactor/1454-bundle-sibling-edges` (2026-10-14). The exact sibling
+ratchet in `script/check-deps.ts` shrinks from 16 imports across 10 files to
+zero. No sibling edge remains pinned. Cross-bundle construction belongs to
+the composing app; bundle-owned schemas and ports stay with their consumer.
+
+Paths below are relative to `apps/openomni/src/bundles/`.
+
+| Former importer | Former sibling targets | Before | After | Replacement |
+| --- | --- | ---: | ---: | --- |
+| `messaging/index.ts` | `delegation-policy/index` | 1 | 0 | Both read `Gateway.DelegationCaps` from `packages/protocol` (the Owner's #1454 ruling: delegation caps are a protocol-level contract); `seams.ts` keeps only the two capability ports. |
+| `core-policy/index.ts` | `messaging/index`, `provision/provision` | 2 | 0 | `composition/policy.ts` composes and seeds the mandatory rows in their original order; core-policy retains gate-row projection. |
+| `alarms/index.ts` | `tools/core/watch` | 1 | 0 | The existing monitor port contract moves to `alarms/monitor/ports.ts`. |
+| `alarms/monitor/index.ts` | `tools/core/watch` | 1 | 0 | The tool adapter consumes its own alarm-local ports; its live capability remains composition-injected. |
+| `resident/index.ts` | `prompt/build`, `prompt/roles`, `tools/core/catalog` | 3 | 0 | `composition/resident.ts` injects role presets, catalog definitions and the generation acquisition recipe. |
+| `tools/core/request-domain-revisions.ts` | `provision/automation-schema`, `provision/automation` | 2 | 0 | The request-precondition adapter moves to `composition/request-domain-revisions.ts`. |
+| `tools/core/catalog.ts` | `provision/provision`, `provision/channels`, `messaging/send-message/index` | 3 | 0 | `composition/catalog.ts` constructs the tool definitions from each owning bundle. |
+| `provision/provision.ts` | `tools/core/contact-mutations` | 1 | 0 | Contact schemas move unchanged into `provision/contact-mutations.ts`. |
+| `provision/contacts.ts` | `tools/core/contact-mutations` | 1 | 0 | Uses the provision-local contact schema and digest reader. |
+| `provision/execution.ts` | `tools/core/contact-mutations` | 1 | 0 | Uses the same provision-local digest reader; both directions of the provision/tools cycle change together. |
+| **Total** | | **16** | **0** | |
+
+The separate deep-relative ratchet also shrinks from 2 to 0: monitor ports
+use `Core.SessionKernel`, and the request-precondition adapter no longer
+traverses three parents. The independent bundle-to-app-module ratchet
+shrinks from 23 to 20; those remaining composition/configuration imports
+are not removed or concealed by this change.
+
+Hashed manifest names, row data/order, tool schemas/order and `Bundle.port`
+keys are unchanged. Default, tool-off, compaction-off and monitor-off manifest hashes, the
+catalog's tool names/order/schema digest and the kernel policy-row digest
+were compared before and after by a review probe (not committed; no
+repository receipt pins them). The
+dependency gate runs after each edge group; existing catalog-generation,
+policy-seeding, monitor, delegation and provision-consent tests exercise
+the affected behavior. This does not claim zero app-module dependencies,
+zero repository-wide debt, a complete mutation campaign, or any migration
+of stored policy rows. Still open on #1454: the `send_message` tool-body
+`effect` pin in `script/check-effect-boundaries.ts` and the remaining 20
+bundle-to-app pins.
+
 ## #1476 compaction purpose accounting, fallback reason, and fitting unchanged prefix (PR #1537, base `6deb863ad`)
 
 On `feat/1476-compaction-accounting` (2026-10-14), following the app half

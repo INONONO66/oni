@@ -26,12 +26,11 @@ import {
   type DelegationReads,
 } from "../src/bundles/delegation-policy/index";
 import { runEffect } from "./helpers/effect";
-import { DEFAULT_DELEGATION_CAPS } from "../src/bundles/seams";
 
 const NEW_SESSION = { to: { kind: "new_session", role: "child" }, message: "go" };
 
 test("#1422 the gateway admission depth cap is the guard's maxDepth", () => {
-  expect(ADMISSION_DEPTH_MAX).toBe(DEFAULT_DELEGATION_CAPS.maxDepth);
+  expect(ADMISSION_DEPTH_MAX).toBe(Gateway.DelegationCaps.maxDepth);
 });
 const service = () => {
   throw new Error("guards consult no services");
@@ -83,11 +82,11 @@ test("caps fail closed: an unknown session or a missing sessionId denies child c
     verdict: "deny",
     payload: {
       cap: "spawn_children",
-      limit: DEFAULT_DELEGATION_CAPS.maxActiveChildren,
+      limit: Gateway.DelegationCaps.maxActiveChildren,
       reason: JSON.stringify({
         code: "delegation_refused",
         cap: "spawn_children",
-        limit: DEFAULT_DELEGATION_CAPS.maxActiveChildren,
+        limit: Gateway.DelegationCaps.maxActiveChildren,
         reason: "catalog read unavailable",
       }),
     },
@@ -155,7 +154,7 @@ test("spawn_depth refuses the first spawn beyond the catalog parent-chain cap", 
   const decide = (sessionId: string) =>
     guard.decide({
       value: NEW_SESSION,
-      params: { limit: DEFAULT_DELEGATION_CAPS.maxDepth },
+      params: { limit: Gateway.DelegationCaps.maxDepth },
       when: { op: "send_message", sessionId },
       service,
     });
@@ -169,8 +168,8 @@ test("spawn_depth refuses the first spawn beyond the catalog parent-chain cap", 
   expect(DelegationRefusal.parse(JSON.parse(String(denied.payload.reason)))).toEqual({
     code: "delegation_refused",
     cap: "spawn_depth",
-    limit: DEFAULT_DELEGATION_CAPS.maxDepth,
-    observed: DEFAULT_DELEGATION_CAPS.maxDepth,
+    limit: Gateway.DelegationCaps.maxDepth,
+    observed: Gateway.DelegationCaps.maxDepth,
   });
 });
 
