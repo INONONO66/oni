@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { ZodError } from "zod";
-import { Tool, toolResultText, toolOutputRefSchema } from "../src/tool/index.js";
+import { Tool, toolResultText, toolOutputRefSchema, toolWireName } from "../src/tool/index.js";
 import { TOOL_OUTPUT_PREVIEW_MAX_BYTES } from "../src/tool/result.js";
 import type { PlainValue } from "../src/json.js";
 
@@ -444,4 +444,10 @@ describe("toolOutputRefSchema (#1305)", () => {
     expect(() => schema.parse({ outputId: "sha256:XYZ", bytes: 1, preview: "" })).toThrow(ZodError);
     expect(() => schema.parse({ outputId: "ab".repeat(32), bytes: 1, preview: "" })).toThrow(ZodError);
   });
+});
+
+test("toolWireName normalizes unsafe names and bounds their length", () => {
+  expect(toolWireName("my tool/v2!")).toBe("my_tool_v2_");
+  expect(toolWireName("a".repeat(200))).toBe("a".repeat(128));
+  expect(toolWireName("read_file-2")).toBe("read_file-2");
 });
