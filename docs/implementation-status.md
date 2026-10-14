@@ -1,6 +1,6 @@
 # Implementation Status
 
-## #1481 app port identifiers and durable keys (PR #TBD, base `030d50500`)
+## #1481 app port identifiers and durable keys (PR #1536, base `030d50500`)
 
 On `refactor/1481-app-pins-seams` (2026-10-14). Item 2 is implemented:
 `ToolCapabilitySeam` and `CompactionSummarizerSeam` become
