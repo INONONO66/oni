@@ -1,0 +1,1 @@
+#1049 (epic #945) on `ci/mutation-schedule-off` (2026-10-14, base `030d50500`, PR #TBD): `quality-mutation.yml` loses its nightly `41 2 * * *` schedule and stays manual-dispatch only after a month of 0-of-8-shard nights; `docs/ci.md` names the dispatch command and the return condition (one complete campaign receipt under #945); receipt in PR #TBD.

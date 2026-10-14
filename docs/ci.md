@@ -227,8 +227,11 @@ pinned Python.
 Python quality tools are installed from
 `script/conformance/quality-python-requirements.txt` under Python 3.12.12.
 
-Full mutation runs in the explicit `quality-mutation` daily scheduled/manual
-workflow, not in PR admission. It retains failed/incomplete process evidence
+Full mutation runs in the explicit `quality-mutation` manual-dispatch
+workflow (`gh workflow run quality-mutation.yml --ref main -f pilot_limit=0
+-f shard_count=8`), not in PR admission; its nightly schedule was removed on
+2026-10-14 after a month of runs that completed 0 of 8 shards each night, and
+returns only once a dispatch has completed a full campaign receipt (#945). It retains failed/incomplete process evidence
 and fails closed until a complete campaign exists; a complete campaign is
 recorded as one measurement receipt (`current.json`) whose findings are the
 surviving mutants, with no baseline to ratchet against. Candidates come only
