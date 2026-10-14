@@ -61,6 +61,15 @@ it("utf8Prefix encodes once and never returns a partial code point", () => {
   expect(preview).toBe("한".repeat(21));
 });
 
+it("utf8Prefix keeps a code point that ends exactly at the limit and drops one the limit splits", () => {
+  expect(utf8Prefix("한글abc", 6)).toBe("한글");
+  expect(utf8Prefix("a한b", 4)).toBe("a한");
+  expect(utf8Prefix("😀x", 4)).toBe("😀");
+  expect(utf8Prefix("😀😀", 5)).toBe("😀");
+  expect(utf8Prefix("한", 2)).toBe("");
+  expect(utf8Prefix("abc", 0)).toBe("");
+});
+
 function kernelLedger(
   authority: { sessionId: string; owner: string; fence: number },
   mode: "projecting" | "baseline" = "projecting",

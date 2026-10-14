@@ -33,17 +33,15 @@ export function utf8Prefix(
 ): string {
   const encoded = encoder.encode(text);
   if (encoded.byteLength <= maxBytes) return text;
-  let end = Math.min(Math.max(0, maxBytes), encoded.byteLength);
-  while (end > 0) {
-    const byte = encoded[end - 1] ?? 0;
-    if ((byte & 0xc0) === 0x80) {
-      end -= 1;
-      continue;
-    }
-    const width = byte < 0x80 ? 1 : byte < 0xe0 ? 2 : byte < 0xf0 ? 3 : 4;
-    if (end - 1 + width > end) end -= 1;
-    break;
-  }
+  const limit = Math.max(0, maxBytes);
+  // Walk back over continuation bytes to the lead byte of the code point the limit falls in.
+  let lead = limit;
+  while (lead > 0 && ((encoded[lead - 1] ?? 0) & 0xc0) === 0x80) lead -= 1;
+  if (lead === 0) return "";
+  const byte = encoded[lead - 1] ?? 0;
+  const width = byte < 0x80 ? 1 : byte < 0xe0 ? 2 : byte < 0xf0 ? 3 : 4;
+  // The code point is kept whole when it ends at or before the limit, else dropped whole.
+  const end = lead - 1 + width <= limit ? limit : lead - 1;
   return new TextDecoder().decode(encoded.subarray(0, end));
 }
 
