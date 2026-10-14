@@ -1,0 +1,1 @@
+#1496 on `fix/1496-bash-session-sentinel` (2026-10-14, base `030d50500`, PR TBD): named bash sessions synchronize shell readiness and command completion with nonce lines, strip echoed command and sentinel bytes, return the shell exit code, and report typed incomplete drains; receipt in `apps/openomni/test/bash-session.test.ts` and the concurrent e2e loop.

@@ -60,9 +60,8 @@ async function machineBash(args: z.output<typeof Input>, ports: FilePorts) {
 
 /** Long-poll quantum: each round waits for output events, never spins. */
 const SESSION_DRAIN_WAIT_MS = 600;
-// Bound on rounds, not time: non-empty reads return immediately, so a busy
-// terminal spends the cap fast and returns what it has; the loop only ends
-// early once the terminal stays quiet for a whole long-poll round.
+// Bound on rounds, not time. A quiet read is only a long-poll timeout; the
+// nonce, not quietness, decides when a command has completed.
 const SESSION_DRAIN_ROUNDS = 32;
 
 type SessionTarget = ReturnType<typeof machineTarget>["target"];
@@ -71,20 +70,98 @@ function refusedSession(result: SessionRefusal): never {
   throw new ToolRefused("bash", result.reason);
 }
 
+export class SessionIncomplete extends ToolRefused {
+  constructor(stage: "readiness" | "command") {
+    super("bash", `session ${stage} did not reach its nonce before the drain round cap`);
+    this.name = "SessionIncomplete";
+  }
+}
+
+type SessionReadPort = (
+  cursor: string,
+  waitMs: number,
+) => Promise<
+  | { readonly status: "ok"; readonly data: Uint8Array; readonly cursor: string; readonly truncated: boolean }
+  | { readonly status: "refused"; readonly reason: string }
+>;
+const normalizeTerminalText = (text: string) => text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+
+function stripEchoedCommand(text: string, command: string): string {
+  const normalized = normalizeTerminalText(text);
+  const echoed = `${command}\n`;
+  const at = normalized.indexOf(echoed);
+  return at < 0 ? normalized : `${normalized.slice(0, at)}${normalized.slice(at + echoed.length)}`;
+}
+
+function markerLine(text: string, marker: string): { readonly prefix: string; readonly suffix: string } | undefined {
+  const lines = normalizeTerminalText(text).split("\n");
+  const line = lines.findIndex(
+    (candidate, index) => index < lines.length - 1 && candidate.trimStart().startsWith(marker),
+  );
+  if (line < 0) return undefined;
+  const found = lines[line];
+  if (found === undefined) return undefined;
+  const markerAt = found.indexOf(marker);
+  return { prefix: lines.slice(0, line).join("\n"), suffix: found.slice(markerAt + marker.length) };
+}
+
+export type SessionMarkerResult = {
+  readonly prefix: string;
+  readonly suffix: string;
+  readonly cursor: string;
+  readonly truncated: boolean;
+};
+
+export async function readUntilMarker(
+  read: SessionReadPort,
+  cursor: string,
+  marker: string,
+  stage: "readiness" | "command",
+  onCursor?: (next: string) => void,
+): Promise<SessionMarkerResult> {
+  let output = "";
+  let nextCursor = cursor;
+  let truncated = false;
+  for (let round = 0; round < SESSION_DRAIN_ROUNDS; round += 1) {
+    const view = await read(nextCursor, SESSION_DRAIN_WAIT_MS);
+    if (view.status !== "ok") refusedSession(view);
+    nextCursor = view.cursor;
+    onCursor?.(nextCursor);
+    truncated = truncated || view.truncated;
+    output += Buffer.from(view.data).toString("utf8");
+    const found = markerLine(output, marker);
+    if (found !== undefined) return { ...found, cursor: nextCursor, truncated };
+  }
+  throw new SessionIncomplete(stage);
+}
+
 /**
  * First touch of a session in this process: open (reattach-or-create under
- * the daemon's export confinement) and consume the first read. A fresh shell
- * swallows bytes typed during startup, so the opening read long-polls for the
- * first prompt bytes; on reattach it returns the scrollback snapshot instead,
- * which is exactly the context worth showing once.
+ * the daemon's export confinement) and synchronize with the shell using a
+ * nonce. Writing the nonce before any command prevents a fresh shell from
+ * swallowing the first real command during startup.
  */
-async function openSessionCursor(target: SessionTarget, session: string, sink: Buffer[]) {
+async function openSessionCursor(
+  target: SessionTarget,
+  session: string,
+  sink: Buffer[],
+  onCursor: (cursor: string) => void,
+) {
   const opened = await target.pty.open(session, "/");
   if (opened.status !== "ok") refusedSession(opened);
-  const first = await target.pty.read(session, { cursor: opened.cursor, waitMs: 2000 });
-  if (first.status !== "ok") refusedSession(first);
-  sink.push(Buffer.from(first.data));
-  return { cursor: first.cursor, truncated: first.truncated };
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const ready = `printf '${nonce}\\n'`;
+  const written = await target.pty.write(session, Buffer.from(`${ready}\n`, "utf8"));
+  if (written.status !== "ok") refusedSession(written);
+  const result = await readUntilMarker(
+    (cursor, waitMs) => target.pty.read(session, { cursor, waitMs }),
+    opened.cursor,
+    nonce,
+    "readiness",
+    onCursor,
+  );
+  sink.push(Buffer.from(stripEchoedCommand(result.prefix, ready), "utf8"));
+  return { cursor: result.cursor, truncated: result.truncated };
 }
 
 async function sessionBash(args: z.output<typeof Input>, ports: FilePorts, cursors: Map<string, string>) {
@@ -96,23 +173,35 @@ async function sessionBash(args: z.output<typeof Input>, ports: FilePorts, curso
   let truncated = false;
   let cursor = cursors.get(key);
   if (cursor === undefined) {
-    const openedState = await openSessionCursor(target, session, chunks);
+    const openedState = await openSessionCursor(target, session, chunks, (next) => cursors.set(key, next));
     cursor = openedState.cursor;
     truncated = openedState.truncated;
   }
   if (args.command.length > 0) {
-    const written = await target.pty.write(session, Buffer.from(`${args.command}\n`, "utf8"));
+    const nonce = crypto.randomUUID().replaceAll("-", "");
+    const command = `${args.command}; printf '\\n${nonce}:%s\\n' $?`;
+    const written = await target.pty.write(session, Buffer.from(`${command}\n`, "utf8"));
     if (written.status !== "ok") refusedSession(written);
-  }
-  // Drain until the terminal goes quiet for one round; each round blocks on
-  // the daemon's long-poll, so there is no timing-based polling here.
-  for (let round = 0; round < SESSION_DRAIN_ROUNDS; round += 1) {
-    const view = await target.pty.read(session, { cursor, waitMs: SESSION_DRAIN_WAIT_MS });
-    if (view.status !== "ok") refusedSession(view);
-    cursor = view.cursor;
-    truncated = truncated || view.truncated;
-    if (view.data.length === 0) break;
-    chunks.push(Buffer.from(view.data));
+    const result = await readUntilMarker(
+      (nextCursor, waitMs) => target.pty.read(session, { cursor: nextCursor, waitMs }),
+      cursor,
+      `${nonce}:`,
+      "command",
+      (next) => cursors.set(key, next),
+    );
+    cursor = result.cursor;
+    truncated = truncated || result.truncated;
+    chunks.push(Buffer.from(stripEchoedCommand(result.prefix, command), "utf8"));
+    const exitCode = Number.parseInt(result.suffix, 10);
+    if (!Number.isInteger(exitCode)) throw new SessionIncomplete("command");
+    cursors.set(key, cursor);
+    return {
+      stdout: Buffer.concat(chunks).toString("utf8"),
+      stderr: "",
+      exitCode,
+      signal: null,
+      truncated,
+    };
   }
   cursors.set(key, cursor);
   return {
