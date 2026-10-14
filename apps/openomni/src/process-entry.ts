@@ -179,8 +179,7 @@ export function serveProcessSession(
     now,
     id: entropy.id,
     stores: createChannelStores(channelStoreSource(plane, now)),
-    transaction: channelTransaction(<T>(operation: () => T): T =>
-      plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction(operation)),
+    transaction: channelTransaction(plane),
     delivery: { commit: (input) => commitDelivery(input).pipe(Effect.mapError(decodeChannelFailure("message.commit"))) },
     prepare: prepareMessage(plane, resident.genesis),
     run: (sender, execution, body) => Effect.gen(function* () {

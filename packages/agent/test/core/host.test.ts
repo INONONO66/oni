@@ -276,6 +276,7 @@ test("file mode: failed indexed session open refuses with SQLite errno instead o
     expect(error?.cause).toHaveProperty("errno", 14);
     console.info(`A2 listing refusal=${error?._tag} errno=14`);
     expect(() => plane.openKernel("s0")).toThrow(OpenRefused);
+    expect(() => plane.handles.openSession("s0")).toThrow(OpenRefused);
   } finally {
     plane.close();
   }

@@ -655,14 +655,14 @@ export interface OutboundMessaging {
   readonly autoReplies?: () => ReadonlySet<string>;
 }
 
-/** One synchronous ledger unit on the ingress session file (decision facts live there). */
+/** One synchronous ledger unit on the ingress session file (decision facts live there), resolved per use. */
 export function channelTransaction(
-  run: <T>(operation: () => T) => T,
+  plane: AppLedgerPlane,
 ): <A>(operation: Effect.Effect<A, ChannelError>) => Effect.Effect<A, ChannelError> {
   return (operation) =>
     Effect.try({
       try: () =>
-        run(() =>
+        plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction(() =>
           Result.getOrThrowWith(Effect.runSync(Effect.result(operation)), (error) => error),
         ),
       catch: decodeChannelFailure("message.transaction"),
@@ -726,8 +726,7 @@ export function createResidentGateway(
     const externalRun = yield* createIngressExecutor(plane, approvalPolicy);
     return createGatewayRouter({
       ...ports,
-      transaction: channelTransaction(<T>(operation: () => T): T =>
-        plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction(operation)),
+      transaction: channelTransaction(plane),
       sink: scopeObservation(observations, { sessionId: "gateway-ingress" }, stamp).publish,
       run: (sender, request, body) =>
         Effect.gen(function* () {
