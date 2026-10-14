@@ -300,7 +300,7 @@ export interface SessionEntityPorts {
    * recorded `fired{stale}` fact with zero execution.
    */
   readonly alarmCapability?: import("../ports/alarm").AlarmCapability;
-  /** Test seam for keep-alive toggles around a detached turn; real one is `Entity.keepAlive`. */
+  /** Test port for keep-alive toggles around a detached turn; real one is `Entity.keepAlive`. */
   readonly onKeepAlive?: (enabled: boolean) => void;
   /** Absent is the typed `seam_missing` refusal at `deliver` — never a core fallback. */
   readonly inputRegistrations?: readonly string[];

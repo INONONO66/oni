@@ -1,6 +1,6 @@
 export type { ChatAgentConfig } from "./ports/types";
 export type { AgentBudget, ResolvedAgentBudget } from "./ports/types";
-// The approval-policy seam: product values behind one injected shape.
+// The approval-policy port: product values behind one injected shape.
 export { ApprovalPolicySeam, type ApprovalPolicy, type ApprovalRecentOpen } from "./composition/approval-policy";
 export { resolveAgentBudget } from "./loop/budget";
 export { createApprovalRequest } from "./journal/request-binding";

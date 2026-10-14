@@ -17,7 +17,7 @@ import type { BundleLayerServices } from "./ports";
  */
 
 /**
- * A seam is a KEY, deliberately not a `Context.Service`: nothing reads one today and the boundary
+ * A capability tag is a KEY, deliberately not a `Context.Service`: nothing reads one today and the boundary
  * gate refuses an unread tag. A service class carrying `key` may stand in.
  */
 export interface SeamTag {

@@ -14,7 +14,7 @@ import {
  * so `off: ["action"]` cascades them off with `action` as the root `because`.
  */
 
-/** The seam a product bundle's `requires` resolves against at compose. */
+/** The tag a product bundle's `requires` resolves against at compose. */
 export const ActionSeam: SeamTag = seam("@openomni/action/Action");
 
 /** Identity reducer: an action row is a deferred INPUT consumed by delivery, never folded state. */

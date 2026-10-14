@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
 import { commandOutput } from "./command-output";
@@ -10,15 +10,51 @@ import { runScriptMain } from "./main-runner";
 const ROOT = join(import.meta.dir, "..");
 const SRC = "packages/agent/src/";
 const CORE = `${SRC}core/`;
-const RETIRED = /ModelPort|model-port|@openomni\/model|retry-loop|seam|core\/mailbox|legacy-rows|\bworker\b/g;
-const QUOTED_IDENTIFIERS = /(["'`])(?:compaction_seam_missing|seam_missing)\1/g;
+const RETIRED = /\b(?:ModelPort|model-port|retry-loop|seam|worker)\b|@openomni\/model\b|core\/mailbox\b|legacy-rows\b/g;
+const QUOTED_IDENTIFIERS = new RegExp(`(["'\`])(?:${TARGET.vocabularyExclusions.quotedIdentifiers.join("|")})\\1`, "g");
+
+function capabilityFactoryReferences(file: string, parsed: ts.SourceFile): ReadonlySet<ts.Node> {
+  const factory = TARGET.vocabularyExclusions.capabilityFactory;
+  const allowed = new Set<ts.Node>();
+  const bindings = new Set<string>();
+  for (const statement of parsed.statements) {
+    if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) ||
+      !statement.moduleSpecifier || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    const target = normalize(join(dirname(file), statement.moduleSpecifier.text)).replace(/\.(?:js|ts)$/, "");
+    if (![factory.owner, ...factory.barrels].some((path) => path.slice(0, -3) === target)) continue;
+    const clause = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : statement.exportClause;
+    if (!clause || (!ts.isNamedImports(clause) && !ts.isNamedExports(clause))) continue;
+    for (const entry of clause.elements.filter((item) => (item.propertyName ?? item.name).text === factory.name)) {
+      allowed.add(entry.propertyName ?? entry.name);
+      allowed.add(entry.name);
+      if (ts.isImportSpecifier(entry)) bindings.add(entry.name.text);
+    }
+  }
+  const visit = (node: ts.Node): void => {
+    if (isCapabilityKey(node)) allowed.add(node);
+    if (ts.isFunctionDeclaration(node) && file === factory.owner && node.name?.text === factory.name) allowed.add(node.name);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && bindings.has(node.expression.text)) allowed.add(node.expression);
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return allowed;
+}
+
+function isCapabilityKey(node: ts.Node): boolean {
+  if (!ts.isIdentifier(node) && !ts.isStringLiteralLike(node)) return false;
+  if (!(TARGET.vocabularyExclusions.recordKeys as readonly string[]).includes(node.text)) return false;
+  const parent = node.parent;
+  if (ts.isElementAccessExpression(parent) && ts.isStringLiteralLike(node)) return parent.argumentExpression === node;
+  return (ts.isPropertyAccessExpression(parent) || ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) && parent.name === node;
+}
 
 export function agentSourceFacts(file: string, source: string) {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const quoted = [...source.matchAll(QUOTED_IDENTIFIERS)].map((match) => [match.index, match.index + match[0].length] as const);
+  const references = [...capabilityFactoryReferences(file, parsed)].map((node) => [node.getStart(parsed), node.end] as const);
   const retired = [...source.matchAll(RETIRED)].filter((match) =>
-    !quoted.some(([start, end]) => match.index >= start && match.index < end) &&
-    !(file === `${CORE}store/catalog.ts` && match[0] === "worker" &&
+    ![...quoted, ...references].some(([start, end]) => match.index >= start && match.index < end) &&
+    !(file === `${CORE}store/catalog.ts` && match[0] === TARGET.vocabularyExclusions.catalogRoleLiteral &&
       source.slice(match.index - 1, match.index + 7) === "'worker'"),
   );
   const facts = {
@@ -113,10 +149,16 @@ const CloneReport = z.object({
   }) }),
 });
 
-export function cloneEndStateViolations(source: string, scope: "production" | "test"): string[] {
+export function cloneEndStateViolations(source: string, scope: "production" | "test", inheritedPin?: number): string[] {
   const parsed = CloneReport.safeParse(JSON.parse(source));
   if (!parsed.success) return ["VIOLATION: missing or invalid clone census"];
   const total = parsed.data.statistics.total;
+  if (inheritedPin !== undefined) {
+    const actual = scope === "production" ? total.clones : total.duplicatedLines;
+    return actual === inheritedPin ? [] : [
+      `VIOLATION: ${scope} inherited clone count ${actual} != pin ${inheritedPin}: growth is forbidden; shrinkage must lower the pin`,
+    ];
+  }
   const actual = scope === "production" ? total.clones : 100 * total.duplicatedLines / total.lines;
   const target = scope === "production" ? TARGET.productionClones : TARGET.testClonePercent;
   return actual > target ? [`VIOLATION: ${scope} clones ${actual} > terminal ${target}`] : [];
@@ -129,7 +171,8 @@ async function checkClones(scope: "production" | "test"): Promise<string[]> {
       process.execPath, "run", `quality:clones:${scope}`, "--output", directory, "--fail-on-empty", "--silent",
     ], ROOT);
     if (result.exitCode !== 0) return [`VIOLATION: clone scan exited ${result.exitCode}: ${result.stderr}`];
-    return cloneEndStateViolations(await Bun.file(join(directory, "jscpd-report.json")).text(), scope);
+    const pin = scope === "production" ? TARGET.inheritedClones.production.count : TARGET.inheritedClones.test.duplicatedLines;
+    return cloneEndStateViolations(await Bun.file(join(directory, "jscpd-report.json")).text(), scope, pin);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -143,7 +186,7 @@ export async function main(): Promise<void> {
   ];
   for (const violation of violations) console.error(violation);
   if (violations.length > 0) process.exitCode = 1;
-  else console.log("OK: core terminal source, alarm, size, assertion and clone targets");
+  else console.log("OK: core terminal source, alarm, size and assertion targets; inherited clone pins match");
 }
 
 if (import.meta.main) await runScriptMain(main);

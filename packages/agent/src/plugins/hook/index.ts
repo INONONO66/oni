@@ -20,14 +20,14 @@ export {
 /**
  * The removable hook capability: no kind, point, input or model tool —
  * exactly one `how.ref` handler target (`hook/process`) plus the scoped
- * process-acquisition verb. `requires: ["action"]` is a seam NAME: hook
+ * process-acquisition verb. `requires: ["action"]` is a capability NAME: hook
  * results re-enter only as `action` rows, so `action` off cascades `hook` off.
  */
 
-/** The seam a product bundle's `requires` resolves against at compose. */
+/** The tag a product bundle's `requires` resolves against at compose. */
 export const HookSeam: SeamTag = seam("@openomni/hook/Hook");
 
-/** The verbs the hook capability publishes over its seam. */
+/** The verbs the hook capability publishes over its port. */
 export interface HookVerbs {
   /** Spawns ONE hook PID inside the caller's Scope — the generation lifetime. */
   readonly acquire: typeof acquireHookProcess;

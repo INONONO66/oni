@@ -122,7 +122,7 @@ export interface CompactionRunBinding {
   readonly signal?: AbortSignal;
 }
 
-/** The composed seam: the two run-free operations plus the binding that yields a run's port. */
+/** The composed service: the two run-free operations plus the binding that yields a run's port. */
 export interface CompactionSeamService {
   readonly pinAction: PinCompactionAction;
   readonly prepareRestore: PrepareCompactionRestore;

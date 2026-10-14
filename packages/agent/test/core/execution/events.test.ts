@@ -10,7 +10,7 @@ describe("RunEvents BusEvents", () => {
   const now = () => 1;
 
   test("TurnStart parses", () => {
-    expect(() => RunEvents.TurnStart.schema.parse({ ...base, turnIndex: 0 })).not.toThrow();
+    expect(RunEvents.TurnStart.schema.parse({ ...base, turnIndex: 0 })).toMatchObject({ ...base, turnIndex: 0 });
   });
 
   test("published run events round-trip actorId through the schema", () => {
@@ -31,13 +31,13 @@ describe("RunEvents BusEvents", () => {
   });
 
   test("TurnComplete parses", () => {
-    expect(() =>
+    expect(
       RunEvents.TurnComplete.schema.parse({
         ...base,
         turnIndex: 0,
         usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       }),
-    ).not.toThrow();
+    ).toMatchObject({ ...base, turnIndex: 0, usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 } });
   });
 
   test("TurnComplete requires total usage", () => {
@@ -72,7 +72,7 @@ describe("RunEvents BusEvents", () => {
   });
 
   test("CompactionStarted parses, with and without measurement", () => {
-    expect(() =>
+    expect(
       RunEvents.CompactionStarted.schema.parse({
         ...base,
         messagesBefore: 20,
@@ -80,15 +80,15 @@ describe("RunEvents BusEvents", () => {
         trigger: "threshold",
         summarizer: false,
       }),
-    ).not.toThrow();
-    expect(() =>
+    ).toMatchObject({ ...base, contextTokens: 180_000, trigger: "threshold", summarizer: false });
+    expect(
       RunEvents.CompactionStarted.schema.parse({
         ...base,
         messagesBefore: 20,
         trigger: "yield",
         summarizer: true,
       }),
-    ).not.toThrow();
+    ).toMatchObject({ ...base, trigger: "yield", summarizer: true });
   });
 
   test("CompactionStarted rejects an unknown trigger", () => {
@@ -110,7 +110,7 @@ describe("RunEvents BusEvents", () => {
       "no_user_boundary",
       "failed",
     ] as const) {
-      expect(() =>
+      expect(
         RunEvents.CompactionCompleted.schema.parse({
           ...base,
           outcome,
@@ -119,7 +119,7 @@ describe("RunEvents BusEvents", () => {
           removedCount: 15,
           elidedChars: 0,
         }),
-      ).not.toThrow();
+      ).toMatchObject({ ...base, outcome, messagesBefore: 20, messagesAfter: 5, removedCount: 15, elidedChars: 0 });
     }
     expect(() =>
       RunEvents.CompactionCompleted.schema.parse({
@@ -149,7 +149,7 @@ describe("RunEvents BusEvents", () => {
   });
 
   test("ErrorRetry parses", () => {
-    expect(() =>
+    expect(
       RunEvents.ErrorRetry.schema.parse({
         ...base,
         attempt: 2,
@@ -158,6 +158,6 @@ describe("RunEvents BusEvents", () => {
         reason: "transient_error",
         backoffMs: 2000,
       }),
-    ).not.toThrow();
+    ).toMatchObject({ ...base, attempt: 2, maxAttempts: 3, error: "rate limit", reason: "transient_error", backoffMs: 2000 });
   });
 });

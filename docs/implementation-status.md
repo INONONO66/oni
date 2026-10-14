@@ -1,29 +1,57 @@
 # Implementation Status
 
-## #1355 - terminal core gates (stacked development, final receipt pending)
+## #1355 - terminal core gates (rebased verification)
 
-`script/core-end-state-targets.ts` holds terminal acceptance values, not
-measurements of the unmerged #1354 base. The following commands are wired
-fail-closed; final measurements must be collected by the lead after #1473
-merges and this branch is rebased. No stacked-base result establishes closure.
+`script/core-end-state-targets.ts` holds terminal acceptance values.
+Verification on rebased `38e149bba` plus the #1355 follow-up, after #1473
+merged as `d6974ebd5`, establishes the source and structural counts below.
+Core terminal targets are met. The lead-authorized inherited pins below are
+separate obligations, not claims that the app and repository quality debt is zero.
 
 | Command | Required terminal result |
 | --- | --- |
 | `bun run script/check-deps.ts` | Core root exactly `api.ts`, `index.ts`; eight named bands; schema declarations in exactly `store/catalog.ts`, `store/session-file/index.ts`, both nonempty; nine workspaces; four root namespaces; zero forbidden value edges and agent value cycles. |
-| `bun run script/check-deps.ts` | Four inspection imports accounted for at `journal/compaction.ts`, `session/recovery.ts`, `session/run.ts`, `session/runtime.ts`; missing, renamed or changed owners fail. Pins cannot absorb plugin edges or another inspection target. App direct-token table is empty and remains armed. |
+| `bun run script/check-deps.ts` | Four inspection imports accounted for at `journal/compaction.ts`, `session/recovery.ts`, `session/run.ts`, `session/runtime.ts`; missing, renamed or changed owners fail. Pins cannot absorb plugin edges or another inspection target. The inherited app direct-token pin remains tight and shrink-only. |
 | `bun run script/check-core-end-state.ts` | Retired tokens and forbidden source patterns zero; one alarm-chain fold, one plugin-owned alarm-purpose composer and none in core; no source file over 600 lines, no test file over 1,000 lines, no empty `toThrow()`. |
 | `bun run script/check-comment-residue.ts` | Issue comments zero outside at most ten enumerated durable-byte notes; dividers and JSDoc blocks over six lines zero; comment ratio at most 8%, with the existing tighter ceiling retained. |
-| `bun run quality:clones:production`, `bun run quality:clones:test` | Fresh reports are consumed by `check-core-end-state.ts`: production clones zero, duplicated test lines at most 0.5%. Empty reports fail; percentages are computed from raw line counts. |
+| `bun run quality:clones:production`, `bun run quality:clones:test` | Fresh reports are consumed by `check-core-end-state.ts`. Terminal goals remain production clones zero and duplicated test lines at most 0.5%; the authorized inherited pins below require exact equality. Empty reports fail. |
 | `bun run lint:tools` | Source, alarm, assertion and file-size targets enforced along with existing conformance checks. |
 | `bun test packages/agent/test/structure-gates.test.ts` | Adversarial fixtures and a separate real-tree assertion; a failing real-tree target is not replaced by a stacked-base pin. |
+
+Measured: two root files, eight bands, two nonempty schema owners, nine
+workspaces, four namespaces, four accounted inspection imports, zero forbidden
+core value edges and zero cycles. Retired implementation tokens, forbidden
+source patterns, source files over 600 lines, test files over 1,000 lines and
+empty assertions are all zero. One alarm-chain fold and one plugin-owned
+alarm-purpose composer remain. The comment ratio is 704bp (1486/21106),
+below the retained 710bp ceiling; issue comments, dividers, long JSDoc and
+durable-byte exceptions are zero. The 19 former empty assertions were
+negated success checks; they now assert returned values, compiled rows or
+observed events. Compaction tests are split into independent `compact.test.ts`
+and `run.test.ts` describe blocks.
+
+Inherited pins authorized by the lead on 2026-10-14:
+
+| Surface | Exact inherited pin | Closure owner |
+| --- | --- | --- |
+| `apps/openomni/src/index.ts` direct agent-core tokens | 1, unchanged from main: the #1346 deferred `tools.add` configure commit | Apps/openomni entity-seam ruling; follow-up issue to be filed by the lead |
+| Repository production clones | 11 | #945 repository quality debt |
+| Repository duplicated test lines | 1006 (about 0.6815% of the measured test census) | #945 repository test-quality debt |
+
+All pins reject growth and slack. A removal requires lowering the pin in the
+same change. Test clones use an absolute duplicated-line count, so adding
+unrelated tests cannot dilute the allowance. The terminal clone goals remain
+0 production clones and at most 0.5% duplicated test lines in the target table.
 
 The inspection owner is `journal/compaction.ts`, not the issue's historical
 `journal/commit` wording. `session/runtime.ts` imports inspection types from
 the inspection barrel; the other three owners import history. The source
-scan permits quoted `seam_missing` and `compaction_seam_missing` identifiers,
-the catalog's quoted legacy role literal used in SQL migration, and the
-durable `inboxId` field. It does not exempt the retired interface word in
-ordinary prose or code. Comments that describe imports do not create edges.
+scan matches complete retired tokens, not substrings in longer identifiers.
+Its target-table exclusions name quoted error identifiers, durable record
+keys, the live capability-key factory and its resolved imports, and the
+catalog's quoted legacy role literal. Standalone retired implementation
+variables and prose remain forbidden. Comments that describe imports do not
+create edges.
 
 ## #1354 — core split into eight responsibility directories (PR #1473, base `5d2de7484`)
 

@@ -114,10 +114,18 @@ test.each(["ModelPort", "model-port", "@openomni/model", "retry-loop", "seam", "
   expect(agentSourceFacts("packages/agent/src/core/ports/types.ts", `// ${token}`).retiredTokens).toBe(1);
 });
 
-test("quoted durable identifiers and inboxId remain valid without blanket string exemptions", () => {
+test("quoted durable identifiers and longer words are not retired implementation names", () => {
   const file = "packages/agent/src/core/ports/types.ts";
   expect(agentSourceFacts(file, 'const x = "seam_missing"; // `compaction_seam_missing`\nconst inboxId = "wire";').retiredTokens).toBe(0);
-  expect(agentSourceFacts(file, 'const x = "new_seam_missing";').retiredTokens).toBe(1);
+  expect(agentSourceFacts(file, 'const seamOwner = "new_seam_missing";').retiredTokens).toBe(0);
+  expect(agentSourceFacts(file, 'const seam = 1;').retiredTokens).toBe(1);
+});
+
+test("live capability keys and factory imports do not exempt unrelated seam bindings", () => {
+  const file = "packages/agent/src/core/composition/probe.ts";
+  expect(agentSourceFacts(file, 'import { seam } from "../ports/capability"; const tag = seam("key"); const row = { "seam": tag }; row.seam; row["seam"];').retiredTokens).toBe(0);
+  expect(agentSourceFacts(file, 'import { seam } from "./retired"; seam("key");').retiredTokens).toBe(2);
+  expect(agentSourceFacts(file, 'const seam = 1; const row = { seam: seam };').retiredTokens).toBe(2);
 });
 
 test("source scans distinguish imports, definitions and assertions from comments", () => {
@@ -137,6 +145,16 @@ test("clone thresholds use raw counts and refuse absent census data", () => {
   expect(cloneEndStateViolations(report(1, 5), "test")).toEqual([]);
   expect(cloneEndStateViolations(report(1, 6), "test")).toHaveLength(1);
   expect(cloneEndStateViolations("{}", "test")).toHaveLength(1);
+  for (const [scope, clones, lines, pin, violations] of [
+    ["production", 1, 5, 1, 0],
+    ["production", 0, 0, 1, 1],
+    ["production", 2, 6, 1, 1],
+    ["test", 1, 5, 5, 0],
+    ["test", 1, 4, 5, 1],
+    ["test", 1, 6, 5, 1],
+  ] as const) {
+    expect(cloneEndStateViolations(report(clones, lines), scope, pin)).toHaveLength(violations);
+  }
 });
 
 test("real tree meets the exact structural targets", async () => {

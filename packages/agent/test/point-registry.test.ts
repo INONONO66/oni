@@ -87,9 +87,9 @@ describe("gate-row compose rejections (#1251)", () => {
     expect(
       rejectionCode(() => compile([gateRow("tool.pre", { how: { ref: "guard/absent" } })])),
     ).toBe("unknown_handler");
-    expect(() =>
+    expect(
       compile([gateRow("tool.pre", { how: { ref: "guard/present" } })], ["guard/present"]),
-    ).not.toThrow();
+    ).toMatchObject({ generation: 1 });
   });
 
   it("rejects a duplicate row id with `duplicate`", () => {
@@ -151,13 +151,14 @@ describe("gate-row compose rejections (#1251)", () => {
   });
 
   it("admits exactly the three gate execution modes: constant, consulted, obligation (#1251 r5)", () => {
-    expect(() => compile([gateRow("tool.pre", { how: { verdict: "deny" } })])).not.toThrow();
-    expect(() =>
+    const denied = gateRow("tool.pre", { how: { verdict: "deny" } });
+    expect(compile([denied]).rowsAt("tool.pre")).toEqual([denied]);
+    expect(
       compile([gateRow("tool.pre", { how: { ref: "guard/check" } })], ["guard/check"]),
-    ).not.toThrow();
+    ).toMatchObject({ generation: 1 });
     // The historical obligation projection: metric/limit under the projection-fixed
     // allow, with an optional obligation-handler ref - never a consulted gate.
-    expect(() =>
+    expect(
       compile(
         [
           gateRow("turn.post", {
@@ -166,10 +167,10 @@ describe("gate-row compose rejections (#1251)", () => {
         ],
         ["kernel/budget-clamp"],
       ),
-    ).not.toThrow();
-    expect(() =>
+    ).toMatchObject({ generation: 1 });
+    expect(
       compile([gateRow("turn.post", { how: { verdict: "allow", metric: "fanout", limit: 8 } })]),
-    ).not.toThrow();
+    ).toMatchObject({ generation: 1 });
     expect(
       rejectionCode(() =>
         compile([gateRow("turn.post", { how: { verdict: "deny", metric: "fanout", limit: 8 } })]),
@@ -233,9 +234,8 @@ describe("gate-row compose rejections (#1251)", () => {
       ).toBe("bad_action");
     }
     for (const emit of ["message", "alarm", "compaction"]) {
-      expect(() =>
-        compile([gateRow("tool.post", { do: "emit", how: { emit, intent: { body: "x" } } })]),
-      ).not.toThrow();
+      const row = gateRow("tool.post", { do: "emit", how: { emit, intent: { body: "x" } } });
+      expect(compile([row]).rowsAt("tool.post")).toEqual([row]);
     }
   });
 });

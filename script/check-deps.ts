@@ -1234,8 +1234,8 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
  * Direct agent-core responsibility tokens (ledger mutation and entity/SQLite
  * assembly names) an app file may reference only up to its pin. The
  * deep-import boundary above stays independent; this rule counts the tokens
- * themselves so barrel-legal call sites stay forbidden after retirement.
- * The empty terminal pin table leaves the ratchet armed at zero.
+ * themselves so barrel-legal call sites remain shrink-only. The inherited
+ * #1346 tools.add configure commit retains its exact main-branch pin.
  */
 const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map(
   Object.entries(CORE_END_STATE_TARGETS.appTokenPins),

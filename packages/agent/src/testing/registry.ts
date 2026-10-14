@@ -10,7 +10,7 @@ import type { SessionKernel } from "../core/session/entity";
 import { compactionCapability } from "../bundle";
 import { createController } from "./controller";
 
-// Harness-built runtimes get the real compaction seam by default so tests keep
+// Harness-built runtimes get the real compaction port by default so tests keep
 // exercising pin + restore; a test that wants it OFF sets `compaction: undefined`
 // explicitly, because defaulting fills only a runtime that never mentions the key.
 const testingCompactionSeam = compactionCapability().verbs;

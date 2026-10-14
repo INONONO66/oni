@@ -22,7 +22,7 @@ test("cleanup removes database sidecars and tolerates already absent files", () 
   try {
     removeSqliteFiles(path);
     for (const suffix of ["", "-wal", "-shm"]) expect(existsSync(`${path}${suffix}`)).toBe(false);
-    expect(() => removeSqliteFiles(path)).not.toThrow();
+    expect(removeSqliteFiles(path)).toBeUndefined();
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

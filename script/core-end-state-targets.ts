@@ -1,4 +1,4 @@
-/** Terminal acceptance values, not measurements of the unmerged stacked base. */
+/** Terminal core targets and separately identified inherited, shrink-only pins. */
 export const CORE_END_STATE_TARGETS = {
   rootFiles: ["api.ts", "index.ts"],
   schemaOwners: ["store/catalog.ts", "store/session-file/index.ts"],
@@ -12,10 +12,22 @@ export const CORE_END_STATE_TARGETS = {
     "session/runtime.ts": 1,
   },
   historicalInspectionImports: 4,
-  appTokenPins: {},
+  appTokenPins: { "apps/openomni/src/index.ts": 1 },
+  appTokenReason: "#1346: the one deferred tools.add configure commit; closure follows the apps/openomni entity-seam ruling, follow-up issue to be filed by the lead",
   forbiddenEdges: 0,
   cycles: 0,
   retiredTokens: 0,
+  vocabularyExclusions: {
+    matching: "complete tokens; substrings inside longer identifiers are not retired names",
+    quotedIdentifiers: ["seam_missing", "compaction_seam_missing"],
+    recordKeys: ["seam", "inboxId"],
+    capabilityFactory: {
+      name: "seam",
+      owner: "packages/agent/src/core/ports/capability.ts",
+      barrels: ["packages/agent/src/core/api.ts", "packages/agent/src/bundle.ts"],
+    },
+    catalogRoleLiteral: "worker",
+  },
   forbiddenPatterns: 0,
   alarmFolds: 1,
   alarmComposers: 1,
@@ -32,4 +44,8 @@ export const CORE_END_STATE_TARGETS = {
   emptyThrows: 0,
   productionClones: 0,
   testClonePercent: 0.5,
+  inheritedClones: {
+    production: { count: 11, reason: "#945 repository quality debt: cross-package copies inherited before #1355; closure is outside the agent-core layout change" },
+    test: { duplicatedLines: 1006, reason: "#945 repository test debt: inherited duplicated lines, pinned absolutely so adding unrelated tests cannot dilute the allowance" },
+  },
 } as const;

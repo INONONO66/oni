@@ -2,7 +2,7 @@
 
 | Row | Status | Receipt |
 | --- | --- | --- |
-| #1355 core end-state gates | Implemented for stacked development; final measurement pending | Exact root/schema/band ownership, inspection-pin accounting, source and inherited quality targets are fail-closed in the dependency and terminal gates. Values are acceptance targets, not measurements of #1354's unmerged base. Commands and final-measurement prerequisite: `docs/implementation-status.md`, #1355. |
+| #1355 core end-state gates | Rebased core targets met; inherited app and clone pins tracked separately | Exact root/schema/band ownership and four inspection pins hold; retired implementation tokens, empty assertions and oversized source/tests are zero. Comment ratio 704bp. Lead-authorized tight inherited pins: one direct app commit, 11 production clones and 1006 duplicated test lines. Closure owners and unchanged terminal clone goals: `docs/implementation-status.md`, #1355. |
 
 #969 cutover, 2026-09-07: request waiting, authenticated consent and outbound delivery now use canonical actions. The new receipt below covers the replacement; historical receipts retain their original source pins. Final HEAD and gate outputs are in the PR and local report.
 

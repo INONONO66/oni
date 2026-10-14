@@ -97,7 +97,7 @@ describe("compaction disabled: the kernel skips and records nothing new (#1307)"
     );
     expect(Exit.isFailure(exit)).toBe(true);
     const defect = Exit.isFailure(exit) ? exit.cause : undefined;
-    expect(String(defect)).toContain("compaction append without a composed compaction seam");
+    expect(String(defect)).toContain("compaction append without a composed compaction port");
   });
 
   it("prepareRestore refuses a foreign or absent intent typed, never improvises", async () => {

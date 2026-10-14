@@ -412,7 +412,7 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
   }
 });
 
-test("#1355: the empty app-token table accepts retired and deleted former owners", async () => {
+test("#1355: retiring or deleting the inherited app owner requires lowering its pin", async () => {
   const cases: readonly Record<string, string>[] = [
     { "index.ts": "export const clean = true;\n" },
     { "process-entry.ts": "export const clean = true;\n" },
@@ -421,19 +421,19 @@ test("#1355: the empty app-token table accepts retired and deleted former owners
     const root = scratchAppsTree(files, "dir");
     try {
       const violations = await validateAppsAgentTokens(root);
-      expect(violations).toEqual([]);
+      expect(violations).toEqual([
+        "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   }
 });
 
-test("#1355: the former app entry pin cannot admit a regrown commit", async () => {
+test("#1355: the unchanged inherited tools.add token remains exactly accounted for", async () => {
   const root = scratchAppsTree({ "composition/ingress-executor.ts": "export const clean = true;\n", "index.ts": "kernel.commit(a);\n" }, "dir");
   try {
-    expect(await validateAppsAgentTokens(root)).toEqual([
-      "VIOLATION: apps/openomni/src/index.ts references 1 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
-    ]);
+    expect(await validateAppsAgentTokens(root)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -457,19 +457,21 @@ test("#1343: outside a checkout a stubbed pinned path passes, and the skip is on
   }
 });
 
-test("#1355: a worktree with no app tokens passes the retired table without notices", async () => {
+test("#1355: a worktree with no app tokens refuses inherited pin slack without notices", async () => {
   const root = scratchAppsTree({ "index.ts": "export {};\n" }, "file");
   const notices: string[] = [];
   try {
     const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
     expect(notices).toEqual([]);
-    expect(violations).toEqual([]);
+    expect(violations).toEqual([
+      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("#1355: a former pin owner growing above zero reports the file and both numbers", async () => {
+test("#1355: inherited app-token growth reports the owner and both numbers", async () => {
   const root = scratchAppsTree(
     {
       "index.ts": [
@@ -483,7 +485,7 @@ test("#1355: a former pin owner growing above zero reports the file and both num
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
+      "VIOLATION: apps/openomni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 1 — shrink only, never grow",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

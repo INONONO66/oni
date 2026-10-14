@@ -19,7 +19,7 @@ import {
   type WatchVerb,
 } from "./watch";
 
-// The frozen core/api seam, surfaced through the Bundle namespace for the app.
+// The frozen core/api port, surfaced through the Bundle namespace for the app.
 export {
   AlarmWakeError,
   ArmRefused,

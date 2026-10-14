@@ -23,7 +23,7 @@ export function compactionSeamService(history: CompactionHistoryPorts): Compacti
 }
 
 /**
- * The removable compaction capability: no new kind, point, input or model tool — exactly the seam
+ * The removable compaction capability: no new kind, point, input or model tool — exactly the
  * service commit, restore and the run loop consume. Off = those paths skip and record nothing.
  */
 export function compactionCapability(

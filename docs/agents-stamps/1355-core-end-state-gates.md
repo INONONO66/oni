@@ -1,1 +1,1 @@
-#1355 (epic #1356), `epic1356/1355-end-state-gates`, 2026-10-14, stacked base `d32313126`, PR pending: terminal structural/source/quality gates and adversarial fixtures; final rebased-tree measurements pending in `docs/implementation-status.md`.
+#1355 (epic #1356), `epic1356/1355-end-state-gates`, 2026-10-14, merged base `d6974ebd5`, PR pending: terminal core gates, semantic vocabulary exclusions and stronger isolated tests; rebased measurements and separately authorized inherited app-token/clone pins in `docs/implementation-status.md`.
