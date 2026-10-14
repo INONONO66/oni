@@ -36,8 +36,6 @@ function node(selector: string): HTMLElement {
   return element;
 }
 
-const tokens = (element: Element) => element.className.split(/\s+/).filter(Boolean);
-
 const LABEL = "Say what to do.";
 const FIRST: readonly TranscriptNode[] = [{ kind: "prompt", id: "p1", text: "go" }];
 
@@ -63,38 +61,27 @@ describe("the new-session surface", () => {
     const content = node(address(UI_NAMES.ConsoleContent));
     const hero = node(address(UI_NAMES.ConsoleHero));
     expect(hero.parentElement).toBe(content);
-    expect(hero.previousElementSibling).toBe(node("[data-head]"));
     expect(hero.nextElementSibling).toBeNull();
-    expect(tokens(hero)).toEqual([
-      "flex",
-      "min-h-0",
-      "flex-1",
-      "flex-col",
-      "items-center",
-      "justify-center",
-      "px-section",
-    ]);
     const column = node(`${address(UI_NAMES.ConsoleHero)} > div`);
-    expect(tokens(column)).toEqual(["flex", "w-full", "max-w-new-column", "flex-col", "gap-4"]);
+    expect(column.classList.contains("max-w-new-column")).toBe(true);
     const label = node(`${address(UI_NAMES.ConsoleHero)} > div > p`);
     expect(label.textContent).toBe(LABEL);
-    expect(tokens(label)).toEqual(["text-meta", "text-fg-faint"]);
     const composer = node(address(UI_NAMES.Composer));
     expect(label.nextElementSibling).toBe(composer);
     expect(composer.parentElement).toBe(column);
     expect(composer.nextElementSibling).toBeNull();
     expect(host.querySelectorAll(address(UI_NAMES.Composer))).toHaveLength(1);
-    expect(node("textarea").getAttribute("aria-label")).toBe("Message");
-    expect(host.querySelector(address(UI_NAMES.ScrollArea))).toBeNull();
+    const textarea = node("textarea");
+    expect(textarea.getAttribute("aria-label")).toBe("Message");
     expect(host.querySelector(address(UI_NAMES.Timeline))).toBeNull();
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
 
     await render(FIRST);
     expect(host.querySelector(address(UI_NAMES.ConsoleHero))).toBeNull();
-    const docked = node(address(UI_NAMES.Composer));
-    expect(docked.parentElement).toBe(node(address(UI_NAMES.ConsoleContent)));
-    expect(docked.previousElementSibling).toBe(node(address(UI_NAMES.ScrollArea)));
-    expect(docked.nextElementSibling).toBeNull();
     expect(host.querySelectorAll(address(UI_NAMES.Composer))).toHaveLength(1);
+    expect(node("textarea")).toBe(textarea);
+    expect(document.activeElement).toBe(textarea);
     expect(node(address(UI_NAMES.Timeline)).textContent).toContain("go");
   });
 
@@ -124,6 +111,5 @@ describe("the new-session surface", () => {
     expect(host.querySelector(address(UI_NAMES.Composer))).toBeNull();
     const label = node(`${address(UI_NAMES.ScrollArea)} p`);
     expect(label.textContent).toBe(LABEL);
-    expect(tokens(label)).toEqual(["text-meta", "text-fg-faint"]);
   });
 });

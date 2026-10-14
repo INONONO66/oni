@@ -1,5 +1,5 @@
 import type { SessionRead } from "@openomni/protocol";
-import type { ConsoleStrip } from "@openomni/ui";
+import { type ConsoleStrip, UI_NAMES } from "@openomni/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ShellCommand } from "../../preload/api";
@@ -107,7 +107,7 @@ export function useTabTravel({
     (
       editor ??
       successor ??
-      document.querySelector<HTMLElement>(`button[aria-label="${createLabel}"]`)
+      document.querySelector<HTMLElement>(`[data-ui="${UI_NAMES.TabStripCreate}"]`)
     )?.focus();
   }, [state.activeTabId, state.tabs]);
 

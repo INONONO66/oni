@@ -17,6 +17,7 @@ import { AutomationView } from "./automation/view";
 import { IngressLedgerView } from "./ingress-ledger/view";
 import { sessionGlyphProps } from "./shell/session-glyph";
 import { SessionTree } from "./shell/session-tree";
+import type { GatewayStatus } from "./shell/gateway-status";
 import { shellShortcut } from "./shell/shortcuts";
 import { useSessionActions } from "./shell/use-session-actions";
 import { useTabTravel } from "./shell/use-tab-travel";
@@ -41,7 +42,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
   const state = useStore(consoleStore);
   const now = host.now();
   const { sessions: localSessions, tabs, collapsedProjectIds, sidebarOpen, sidebarFloating, sidebarWidth } = state;
-  const { transport, notice } = useChatEndpoint(host.id);
+  const { transport, notice, gateway } = useChatEndpoint(host.id);
   const sessions = useSessionReadModels(localSessions, transport);
   const tab = activeTab(state);
   const place = tab?.place ?? null;
@@ -102,6 +103,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
   const sidebar = (
     <SessionTree
       collapsedProjectIds={collapsedProjectIds}
+      gateway={gateway}
       onCreate={onCreate}
       onNavigate={(route, newTab) => {
         const place = { kind: "route", route } as const;
@@ -154,28 +156,53 @@ export function App({ platform, storage, host }: AppEnvironment) {
 
 function useChatEndpoint(id: () => string) {
   const endpoint = useGatewayEndpoint();
-  const selected = useMemo(
-    () => (endpoint.data ? selectChatTransport(endpoint.data, id) : null),
-    [endpoint.data, id],
-  );
-  const notice = endpoint.isPending
-    ? undefined
-    : (endpoint.error?.message ??
-      (selected === null
-        ? "gateway not configured"
-        : selected.kind === "misconfigured"
-          ? selected.problem
-          : undefined));
-  return { transport: selected?.transport ?? null, notice };
+  return useMemo(() => {
+    const selected = endpoint.data ? selectChatTransport(endpoint.data, id) : null;
+    const transport = selected?.transport ?? null;
+    if (endpoint.isPending) return { transport, notice: undefined, gateway: null };
+    if (endpoint.isError) {
+      const detail = endpoint.error.message;
+      return {
+        transport,
+        notice: detail,
+        gateway: { detail, tone: "danger" } satisfies GatewayStatus,
+      };
+    }
+    if (selected === null) {
+      return {
+        transport,
+        notice: "gateway not configured",
+        gateway: { detail: "Not configured", tone: "muted" } satisfies GatewayStatus,
+      };
+    }
+    if (selected.kind === "misconfigured") {
+      return {
+        transport,
+        notice: selected.problem,
+        gateway: {
+          detail: selected.problem,
+          tone: "danger",
+        } satisfies GatewayStatus,
+      };
+    }
+    return {
+      transport,
+      notice: undefined,
+      gateway: {
+        detail: `Configured: ${endpoint.data?.url}`,
+        tone: "muted",
+      } satisfies GatewayStatus,
+    };
+  }, [endpoint.data, endpoint.error, endpoint.isError, endpoint.isPending, id]);
 }
 
 function useShellLifecycle(storage: Storage | null): void {
   useLayoutEffect(() => {
+    ensureBootTab();
     if (storage === null) return;
     const remembered = readShellPreferences(storage);
     setSidebarOpen(remembered.open);
     setSidebarWidth(remembered.width);
-    ensureBootTab();
     const subscription = consoleStore.subscribe(() => {
       writeShellPreferences(storage, {
         open: consoleStore.state.sidebarOpen,

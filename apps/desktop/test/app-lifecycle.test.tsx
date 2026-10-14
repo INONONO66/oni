@@ -152,6 +152,14 @@ test("empty storage boots one empty session tab", async () => {
   expect(consoleStore.state.closedTabs).toHaveLength(0);
 });
 
+test("unavailable storage still boots one empty session tab", async () => {
+  await mount();
+
+  expect(consoleStore.state.tabs).toHaveLength(1);
+  expect(consoleStore.state.sessions).toHaveLength(1);
+  expect(activeTab(consoleStore.state)?.place.kind).toBe("session");
+});
+
 test("persisted tabs remain unchanged during boot hydration", async () => {
   const { first, second } = seed();
   await mount(undefined, browser.localStorage);

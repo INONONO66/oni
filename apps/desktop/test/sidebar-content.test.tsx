@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type Document, type Element, Window } from "happy-dom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { orderByAttention } from "../src/renderer/attention/order";
 import { formatRelative } from "../src/renderer/attention/reason";
 import { selectChatTransport } from "../src/renderer/chat/select-transport";
+import type { GatewayStatus } from "../src/renderer/shell/gateway-status";
 import { SessionTree } from "../src/renderer/shell/session-tree";
-import { queryKeys } from "../src/renderer/state/queries";
 import type { Session } from "../src/renderer/state/store";
 import { mountWindow } from "./helpers";
 import { TEST_NOW } from "./helpers/platform";
@@ -37,10 +36,15 @@ const sessions: readonly Session[] = [
 
 const NAV_ITEM = '[data-ui="Sidebar.Nav"] [data-ui="NavItem"]';
 
-function tree(onCreate: () => void = () => undefined, list: readonly Session[] = sessions) {
+function tree(
+  onCreate: () => void = () => undefined,
+  list: readonly Session[] = sessions,
+  gateway: GatewayStatus | null = null,
+) {
   return (
     <SessionTree
       collapsedProjectIds={new Set()}
+      gateway={gateway}
       now={TEST_NOW}
       onCreate={onCreate}
       onNavigate={() => undefined}
@@ -55,14 +59,21 @@ function tree(onCreate: () => void = () => undefined, list: readonly Session[] =
   );
 }
 
-/** The sidebar's static markup, parsed; `endpoint` seeds the real query cache, `"pending"` leaves it in flight. */
+/** The sidebar's static markup, parsed from the endpoint state App passes down. */
 function render(endpoint: GatewayEndpoint | null | "pending" = "pending") {
-  const client = new QueryClient();
-  if (endpoint !== "pending") client.setQueryData(queryKeys.gatewayEndpoint, endpoint);
+  let gateway: GatewayStatus | null = null;
+  if (endpoint !== "pending") {
+    if (endpoint === null) gateway = { detail: "Not configured", tone: "muted" };
+    else {
+      const selected = selectChatTransport(endpoint, () => "");
+      gateway =
+        selected.kind === "misconfigured"
+          ? { detail: selected.problem, tone: "danger" }
+          : { detail: `Configured: ${endpoint.url}`, tone: "muted" };
+    }
+  }
   const document = new Window().document;
-  document.body.innerHTML = renderToStaticMarkup(
-    <QueryClientProvider client={client}>{tree()}</QueryClientProvider>,
-  );
+  document.body.innerHTML = renderToStaticMarkup(tree(undefined, sessions, gateway));
   return document;
 }
 
@@ -91,17 +102,13 @@ describe("the nav leads with a way to start", () => {
   test("Given the New session row, When clicked, Then onCreate is called exactly once", async () => {
     const window = new Window({ url: "http://localhost" });
     const { host, restoreGlobals, root } = mountWindow(window);
-    const client = new QueryClient();
-    client.setQueryData(queryKeys.gatewayEndpoint, null);
     let created = 0;
     try {
       await act(() =>
         root.render(
-          <QueryClientProvider client={client}>
-            {tree(() => {
-              created++;
-            })}
-          </QueryClientProvider>,
+          tree(() => {
+            created++;
+          }),
         ),
       );
       const first = host.querySelector<HTMLButtonElement>(NAV_ITEM);
@@ -169,11 +176,8 @@ describe("a session row seats its glyph and its clock", () => {
 
   test("Given an active session, When rendered, Then the second line names the state and the clock still trails", () => {
     const running = [makeSession({ id: "r", phase: "running", projectId: "kernel", createdAt: 1 })];
-    const client = new QueryClient();
     const document = new Window().document;
-    document.body.innerHTML = renderToStaticMarkup(
-      <QueryClientProvider client={client}>{tree(() => undefined, running)}</QueryClientProvider>,
-    );
+    document.body.innerHTML = renderToStaticMarkup(tree(undefined, running));
     const row = element(document, "#session-row-r");
     expect(element(row, "[data-secondary]").textContent).toBe("running");
     expect(row.querySelectorAll("time")).toHaveLength(1);
@@ -241,12 +245,12 @@ describe("the footer says where the gateway is", () => {
     expect(row.textContent).not.toContain("not a token");
   });
 
-  test("Given a configured gateway, When rendered, Then the detail line is the wire URL and the token stays out", () => {
+  test("Given a configured gateway, When rendered, Then the neutral detail names the endpoint and the token stays out", () => {
     const document = render({ url: "ws://127.0.0.1:3000/ws", token: "secret" });
     const { row, glyph, title, detail } = workspaceRow(document);
-    expect(glyph.getAttribute("data-tone")).toBe("success");
+    expect(glyph.getAttribute("data-tone")).toBe("muted");
     expect(title.textContent).toBe("Gateway");
-    expect(detail.textContent).toBe("ws://127.0.0.1:3000/ws");
+    expect(detail.textContent).toBe("Configured: ws://127.0.0.1:3000/ws");
     expect(row.textContent).not.toContain("secret");
     expect(document.querySelectorAll('[data-ui="NavItem"]')).toHaveLength(4);
     expect(document.body.textContent).not.toContain("Settings");

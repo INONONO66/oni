@@ -28,8 +28,7 @@ import {
   type Session,
   type SessionId,
 } from "../state/store";
-import { useGatewayEndpoint } from "../state/queries";
-import { gatewayStatus, type GatewayStatus } from "./gateway-status";
+import type { GatewayStatus } from "./gateway-status";
 import { placeIcon } from "./place-icon";
 import { rowId, TREE_ID } from "./row-id";
 import { useSearch } from "./use-search";
@@ -39,7 +38,6 @@ const GATEWAY_GLYPH: Record<
   Pick<ComponentProps<typeof StatusGlyph>, "tone" | "shape">
 > = {
   muted: { tone: "muted", shape: "hollow" },
-  accent: { tone: "success", shape: "check" },
   danger: { tone: "destructive", shape: "cross" },
 };
 
@@ -58,6 +56,7 @@ export function SessionTree({
   onSearchingChange,
   defaultSearching = false,
   sidebarOpen = false,
+  gateway = null,
 }: {
   readonly ordered: Ordered;
   readonly now: number;
@@ -77,8 +76,8 @@ export function SessionTree({
   /** Whether the section opens in search mode; uncontrolled after mount. */
   readonly defaultSearching?: boolean;
   readonly sidebarOpen?: boolean;
+  readonly gateway?: GatewayStatus | null;
 }) {
-  const gateway = gatewayStatus(useGatewayEndpoint());
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
     [sessions],

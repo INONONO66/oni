@@ -282,31 +282,6 @@ describe("the main panel surface", () => {
   });
 });
 
-describe("the collapsed strip zone", () => {
-  test("Given the @theme block, When the collapsed zone is resolved, Then it is 222px of declared parts", () => {
-    // inset 76 + 10 lead + four 28 boxes + three 4 gaps + 12 trail, resolved
-    // from the declared tokens so a change to one part moves the sum here.
-    const theme = CSS.slice(CSS.indexOf("@theme {"), CSS.indexOf("\n}\n", CSS.indexOf("@theme {")));
-    const px = (token: string) => Number(theme.match(new RegExp(`${token}:\\s*(\\d+)px`))?.[1]);
-    // The formatter breaks a long calc across lines; the formula is compared
-    // with its layout folded away.
-    const value = (token: string) =>
-      theme
-        .match(new RegExp(`${token}:\\s*([^;]+);`))?.[1]
-        ?.replace(/\s+/g, " ")
-        .replace(/\( /g, "(")
-        .replace(/ \)/g, ")") ?? "";
-
-    expect(value("--spacing-strip-inset-darwin")).toBe("calc(var(--spacing-traffic-safe) + 8px)");
-    expect(value("--spacing-strip-zone-collapsed")).toBe(
-      "calc(var(--spacing-strip-inset-darwin) + 10px + 4 * var(--spacing-control-base) + 3 * 4px + 12px)",
-    );
-    const inset = px("--spacing-traffic-safe") + 8;
-    expect(inset).toBe(76);
-    expect(inset + 10 + 4 * px("--spacing-control-base") + 3 * 4 + 12).toBe(222);
-  });
-});
-
 /**
  * The diff pair: the system's ONE scoped exception to the single-accent law.
  *

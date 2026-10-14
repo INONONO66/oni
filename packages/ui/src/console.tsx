@@ -76,43 +76,48 @@ export function ConsoleContent({
   readonly children?: ReactNode;
 }) {
   const composer = transcript === undefined ? undefined : composerProps(transcript);
+  const hero = composer !== undefined && transcript?.nodes.length === 0;
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-ui={UI_NAMES.ConsoleContent}>
       {header}
-      {composer !== undefined && transcript?.nodes.length === 0 ? (
-        // A session with no turns yet has nothing to scroll and nothing to dock
-        // under: the label and the field sit together at the column's center.
-        <div
-          className="flex min-h-0 flex-1 flex-col items-center justify-center px-section"
-          data-ui={UI_NAMES.ConsoleHero}
-        >
-          <div className="flex w-full max-w-new-column flex-col gap-4">
+      <ScrollArea
+        className={hero ? "hidden" : "flex-1"}
+        contentClassName="mx-auto w-full max-w-measure px-section pt-4 pb-section"
+        pinToEnd={transcript !== undefined}
+      >
+        {hero ? null : transcript === undefined ? (
+          (children ?? (
             <Text as="p" level="meta" tone="faint">{emptyLabel}</Text>
-            <Composer {...composer} />
+          ))
+        ) : (
+          <Timeline
+            costs={transcript.costs}
+            emptyLabel={emptyLabel}
+            nodes={transcript.nodes}
+            sessionId={transcript.id}
+          />
+        )}
+      </ScrollArea>
+      {composer !== undefined && (
+        <div
+          className={
+            hero
+              ? "flex min-h-0 flex-1 flex-col items-center justify-center px-section"
+              : "contents"
+          }
+          data-ui={hero ? UI_NAMES.ConsoleHero : undefined}
+        >
+          <div
+            className={hero ? "flex w-full max-w-new-column flex-col gap-4" : "contents"}
+          >
+            {hero && (
+              <Text as="p" key="empty-label" level="meta" tone="faint">
+                {emptyLabel}
+              </Text>
+            )}
+            <Composer {...composer} key="composer" />
           </div>
         </div>
-      ) : (
-        <>
-          <ScrollArea
-            className="flex-1"
-            contentClassName="mx-auto w-full max-w-measure px-section pt-4 pb-section"
-            pinToEnd={transcript !== undefined}
-          >
-            {transcript === undefined ? (
-              (children ?? (
-                <Text as="p" level="meta" tone="faint">{emptyLabel}</Text>
-              ))
-            ) : (
-              <Timeline
-                costs={transcript.costs}
-                emptyLabel={emptyLabel}
-                nodes={transcript.nodes}
-                sessionId={transcript.id}
-              />
-            )}
-          </ScrollArea>
-          {composer !== undefined && <Composer {...composer} />}
-        </>
       )}
     </div>
   );

@@ -4,7 +4,7 @@
 
 On `feat/desktop-shell-baseline` (2026-10-14, stacked on #1472
 `fix/protocol-crypto-builtin`). `packages/ui` owns the shell geometry as
-tokens and frame components: tab strip 40px with a 252px window-controls zone,
+tokens, utilities, and frame components: tab strip 40px with a 252px window-controls zone,
 28px tabs with an 8px radius, a 44px sidebar header, 28px nav rows at
 13px/500, two-line session rows, a 42px footer row, and the panel at a
 0.75rem radius with an 8px margin; `--spacing-new-column` (712px) bounds the
@@ -17,7 +17,7 @@ single `data-ui` owner (`Console.Hero` added).
 `apps/desktop` composes the sidebar from those parts: brand header, the
 New session / Sessions / Automations / Ingress ledger nav, attention-ordered
 project groups with counts, `StatusGlyph` session rows, and a gateway footer
-showing the live endpoint from the one preload call. `ensureBootTab` opens
+showing the configured endpoint from the one preload call. `ensureBootTab` opens
 one new-session tab when the store has no tabs and is called once from the
 shell lifecycle, so every boot lands on the hero. Shell hooks moved out of
 `app.tsx` into `shell/`. No local data, no mock sessions: the sessions list
