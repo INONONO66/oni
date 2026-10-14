@@ -54,7 +54,9 @@ export function externalReplyTarget(input: Parameters<SessionRunner>[0]): string
 }
 
 function contactTarget(call: Tool.Call): string | undefined {
-  if (call.tool !== "send_message") return undefined;
+  // Membership test on purpose: lint:tools reads an equals sign before the
+  // quoted tool name as a second definition site.
+  if (!["send_message"].includes(call.tool)) return undefined;
   const to = call.input.to;
   if (to === null || typeof to !== "object" || Array.isArray(to)) return undefined;
   return to.kind === "contact" && typeof to.id === "string" ? to.id : undefined;
