@@ -70,6 +70,50 @@ test("drain refuses retained owners and retires every settled generation", () =>
   })),
 );
 
+/** Retained heap after two full collections, so dropped generation payloads are already swept. */
+function retainedHeap() {
+  Bun.gc(true);
+  Bun.gc(true);
+  return process.memoryUsage().heapUsed;
+}
+
+// A retired generation keeps only a tombstone, so its built Context is unreachable;
+// retaining the Context costs ~14 KB per generation even with this light test Layer.
+const RETIRED_GENERATION_CEILING_BYTES = 4 * 1024;
+
+test("retired generations keep their identity guard without retaining their Context", () =>
+  isolated(Effect.gen(function* () {
+    const closed: number[] = [];
+    let acquired = 0;
+    const counted = (generation: number) => {
+      const selected = bundle(generation, closed);
+      return { ...selected, layer: Layer.merge(selected.layer,
+        Layer.effectDiscard(Effect.sync(() => { acquired += 1; }))) };
+    };
+    const manager = yield* makeSessionGenerations(counted(1));
+    const before = retainedHeap();
+    for (let generation = 2; generation <= 1001; generation++) {
+      yield* manager.configure(counted(generation), Effect.void);
+    }
+    const after = retainedHeap();
+    const perGeneration = (after - before) / 1000;
+    console.log(`generation heap: before=${before} after=${after} perRetired=${(perGeneration / 1024).toFixed(1)}KB`);
+    expect(perGeneration).toBeLessThan(RETIRED_GENERATION_CEILING_BYTES);
+    expect(acquired).toBe(1001);
+    expect(closed).toHaveLength(1000);
+    for (const generation of [1, 501]) {
+      expect(yield* Effect.result(manager.configure(counted(generation), Effect.void))).toMatchObject({
+        _tag: "Failure", failure: { _tag: "GenerationUnavailable", generation },
+      });
+    }
+    expect(yield* Effect.scoped(Effect.result(manager.capture(counted(1))))).toMatchObject({
+      _tag: "Failure", failure: { _tag: "GenerationUnavailable", generation: 1 },
+    });
+    expect(acquired).toBe(1001);
+    expect(yield* Effect.scoped(Effect.map(manager.capture(), (live) => live.id.generation))).toBe(1001);
+  })),
+);
+
 // W5.2 S4: `settle` waits for live owners without flipping `stopping`, so a
 // shutdown that interrupts turns first can hand a clean zero-owner state to
 // the fail-fast drain. The join can only complete after the release.

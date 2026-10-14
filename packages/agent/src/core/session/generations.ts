@@ -88,7 +88,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
     const lock = yield* Semaphore.make(1);
     const first = yield* acquire(initial);
     yield* initial.activate;
-    const entries = new Map([[initial.id.generation, first]]);
+    const entries = new Map<number, Entry | null>([[initial.id.generation, first]]);
     let current = first;
     let stopping = false;
 
@@ -97,6 +97,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
       if (entry.closed) return;
       entry.closed = true;
       yield* Scope.close(entry.scope, Exit.void);
+      entries.set(entry.bundle.id.generation, null);
     }));
     const retire = (entry: Entry) => Effect.gen(function* () {
       if (entry.retired) return;
@@ -106,7 +107,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
     });
     yield* Effect.addFinalizer(() => Effect.gen(function* () {
       stopping = true;
-      yield* Effect.forEach(entries.values(), close, { discard: true });
+      yield* Effect.forEach(entries.values(), (entry) => entry === null ? Effect.void : close(entry), { discard: true });
     }));
 
     function validate(bundle: GenerationBundle): Effect.Effect<void, SessionError> {
@@ -130,6 +131,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
       return lock.withPermits(1)(Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
         yield* validate(bundle);
         let entry = entries.get(bundle.id.generation);
+        if (entry === null) return yield* new GenerationUnavailable({ generation: bundle.id.generation });
         yield* admitCapture(bundle, entry);
         if (entry === undefined) {
           entry = yield* restore(acquire(bundle));
@@ -173,7 +175,7 @@ export function makeSessionGenerations(initial: GenerationBundle) {
      * owners; loops because a detached turn may briefly hand its capture to a successor entry.
      */
     const settle: Effect.Effect<void> = Effect.suspend(() => {
-      const pending = [...entries.values()].filter((entry) => entry.owners.pending() > 0);
+      const pending = [...entries.values()].filter((entry): entry is Entry => entry !== null && entry.owners.pending() > 0);
       if (pending.length === 0) return Effect.void;
       return Effect.forEach(pending, (entry) => entry.owners.awaitSettled, { discard: true }).pipe(
         Effect.andThen(Effect.suspend(() => settle)),
@@ -182,11 +184,12 @@ export function makeSessionGenerations(initial: GenerationBundle) {
     const drain = lock.withPermits(1)(Effect.gen(function* () {
       stopping = true;
       for (const entry of entries.values()) {
+        if (entry === null) continue;
         if (entry.owners.pending() > 0) return yield* new GenerationUnsettled({
           ...entry.bundle.id, owners: entry.owners.pending(),
         });
       }
-      yield* Effect.forEach(entries.values(), retire, { discard: true });
+      yield* Effect.forEach(entries.values(), (entry) => entry === null ? Effect.void : retire(entry), { discard: true });
     }));
     return { capture, configure, drain, settle };
   });
