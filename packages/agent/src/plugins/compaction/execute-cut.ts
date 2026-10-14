@@ -63,6 +63,6 @@ function recordedValue(result: CompactionResult): PlainValue {
   return PlainValueSchema.parse({
     ...result.record,
     projection: result.messages,
-    ...(result.summarizerFailed === true ? { summarizerFailed: true } : {}),
+    ...(result.summarizerFailed === true ? { summarizerFailed: true, reason: "fallback" } : {}),
   });
 }
