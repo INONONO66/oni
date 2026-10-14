@@ -8,6 +8,7 @@ import { BOUNDED_CONCURRENCY } from "../ports/ports";
 import { z } from "zod";
 import { RawToolSlots, openInvocation, withExecutor, withInvocation, type InvocationFrame, type Executor, type ExecutionRequest } from "./executor";
 import type { ToolOutputPorts } from "../ports/tool-output";
+import { toolInputSchema } from "../ports/capability";
 
 export function buildSystemPrompt(
   basePrompt: string | undefined,
@@ -337,18 +338,6 @@ export function eraseTool<In extends z.ZodType, Out extends z.ZodType>(
   definition: ToolDefinition<In, Out>,
 ): AnyToolDefinition {
   return definition;
-}
-
-type JsonSchemaObject = Record<string, PlainValue>;
-
-export function toolInputSchema(definition: AnyToolDefinition): JsonSchemaObject {
-  const { $schema: _dialect, ...projected } = z
-    .record(z.string(), PlainValueSchema)
-    .parse(z.toJSONSchema(definition.input, { io: "input", target: "draft-7" }));
-  if (projected.type !== "object") {
-    throw new AgentInvariantViolation(`${definition.name} input schema root must be an object`);
-  }
-  return projected;
 }
 
 export type ProjectableTool = ToolDispatchDefinition & { readonly idempotent?: boolean };

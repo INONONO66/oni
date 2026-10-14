@@ -76,6 +76,19 @@ test("recompute is from empty state: compose is deterministic per manifest and r
   expect(composedManifest(off).disabled).toEqual([{ name: "m", because: "m" }]);
 });
 
+test("#1487: a tool input schema change alone recomputes the hash, so sessions rotate to the schema the dispatcher digests", async () => {
+  const widened = defineBundle({
+    name: "m",
+    requires: [SeamA],
+    tools: [{ ...echoTool, input: z.object({ surface: z.string().optional() }) }],
+  });
+  const manifestWidened = Manifest.define({ capabilities: [alpha], bundles: [widened], off: [] });
+  const first = await runTestPromise(compose(manifestOn));
+  const changed = await runTestPromise(compose(manifestWidened));
+  expect(changed.hash).not.toBe(first.hash);
+  expect((await runTestPromise(compose(manifestWidened))).hash).toBe(changed.hash);
+});
+
 test("in-flight turn keeps its captured generation; the next turn start appends session.configure and adopts", () =>
   isolated(
     Effect.gen(function* () {
