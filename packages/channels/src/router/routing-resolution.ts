@@ -12,7 +12,7 @@ import { claimGrantedDirect, grantedDirectSession } from "./automation/granted-d
 import { recordRouteDecided } from "./route-record";
 import { applyChannelGrantTreatment } from "./authority.js";
 import { matchBlacklist } from "./blacklist.js";
-import { resolveChannelGrant } from "./channel-grant.js";
+import type { ChannelGrantResolution } from "./channel-grant.js";
 import { replyGrantEndpointFacts } from "./messaging/reply-grant.js";
 import { resolveRoute, type RouteState } from "./resolve-route.js";
 import { findRequestCandidates, type RequestResolution } from "./request/correlation.js";
@@ -92,7 +92,7 @@ function kernelRequestExecution(
   }
 }
 
-type ChannelResolution = ReturnType<typeof resolveChannelGrant>;
+type ChannelResolution = ChannelGrantResolution | undefined;
 
 function channelState(
   resolution: ChannelResolution,
@@ -198,6 +198,7 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   requests: GatewayRouterPorts["requests"],
   at: number,
   id: () => string,
+  channelResolution: ChannelResolution,
 ): KernelRouteResolution<Event> {
   const correlation = parseCorrelation(event);
   const payload = RequestActionPayload.safeParse(event.payload);
@@ -210,12 +211,6 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
   const request = routeRequestState(gatheredRequest);
   const target = targetKey(resolveTarget(event));
   const blacklist = blacklistState(stores, event, correlation, at);
-  const channelResolution = resolveChannelGrant(stores, {
-    surface: event.surface,
-    workspace: event.workspace,
-    channel: event.channel,
-    ...(event.userId === undefined ? {} : { sender: event.userId }),
-  });
   const channel = channelState(channelResolution, event.meta?.inboundTreatment === "evidence_only");
   const surfaceSessionId = channel === undefined ? undefined : grantedDirectSession(stores, event, key);
   const actor = actorState(event);

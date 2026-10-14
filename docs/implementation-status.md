@@ -925,6 +925,16 @@ key:
   `conversations.replies` (`THREAD_HISTORY_LIMIT` 20, the bot's own
   messages as `assistant`) and delivers without it when the call fails;
   Telegram carries `reply_to_message` text as the quote.
+- `packages/channels/src/router/automation/mention-only.ts` (#1494): an
+  opt-in mention-only posture per surface. `Actor.ChannelGrant.mentionOnly`
+  rides the surface's mount grant (`OPENOMNI_CHANNEL_MENTION_ONLY`, a JSON
+  array of surface ids, `config.channelMentionOnly`); the perimeter rule
+  table (`automation/rules.ts`) filters a channel message that does not
+  address the Resident as `mention_only` (`by: rule/mention-only`, one
+  `filtered` decision, no route, no delivery). Addressed = DM, a mention,
+  a reply quoting the Resident (`context.quoted.author === "assistant"`),
+  or a thread whose label the surface map already knows; a channel label
+  alone never counts. Absent flag = every admitted message routes, as before.
 - `apps/openomni/test/capability-off-boot.test.ts` (8 pass / 0 fail): one
   boot per row through `suite.boot` with injected clock and entropy. Measured
   cascades on this base: alarm → alarm, monitor, cron, delegation-policy;

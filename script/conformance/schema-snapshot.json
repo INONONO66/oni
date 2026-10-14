@@ -18,6 +18,7 @@
     "id",
     "inboundTreatment",
     "kind",
+    "mentionOnly",
     "provisionalMint",
     "surface",
     "updatedAt",

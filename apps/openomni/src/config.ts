@@ -149,6 +149,13 @@ export interface OpenOmniConfig {
    * open posture — acceptable only for loopback-bound surfaces like ws.
    */
   readonly channelAllowedSenders?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Surfaces whose channel (non-DM) messages reach a session only when they
+   * address the Resident: a mention, a reply to its message, or a thread it
+   * already answers in. DMs always route. Absent = every admitted message on
+   * the surface routes and the model decides whether to answer.
+   */
+  readonly channelMentionOnly?: readonly string[];
 }
 
 export interface RegisteredActor {
@@ -580,6 +587,14 @@ function channelAllowedSendersFromEnv(
   return parseEnvJson("OPENOMNI_CHANNEL_ALLOWED_SENDERS", ChannelAllowedSenders, env);
 }
 
+const ChannelMentionOnly = z.array(z.string().min(1)).min(1);
+
+function channelMentionOnlyFromEnv(
+  env: Record<string, string | undefined>,
+): OpenOmniConfig["channelMentionOnly"] {
+  return parseEnvJson("OPENOMNI_CHANNEL_MENTION_ONLY", ChannelMentionOnly, env);
+}
+
 /** Declared ChannelInstance rows are the sole channel provisioning owner. */
 export function assertDeclaredChannelConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -726,6 +741,7 @@ export function loadConfig(
   const forkCopyByteCap = forkCopyByteCapFromEnv(env);
   const toolOutputBudgetBytes = toolOutputBudgetBytesFromEnv(env);
   const channelAllowedSenders = channelAllowedSendersFromEnv(env);
+  const channelMentionOnly = channelMentionOnlyFromEnv(env);
   const off = offFromEnv(env);
   const hooksPath = env.OPENOMNI_HOOKS_PATH?.trim() || undefined;
   return {
@@ -750,6 +766,7 @@ export function loadConfig(
     ...(actors === undefined ? {} : { actors }),
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
+    ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),
     ...(off === undefined ? {} : { off }),
     ...(hooksPath === undefined ? {} : { hooksPath }),
   };

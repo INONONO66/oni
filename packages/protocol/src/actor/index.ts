@@ -135,6 +135,11 @@ export namespace Actor {
     // finds no grant and the perimeter blocks fail-closed. Absent = the grant
     // covers every sender on the surface (the loopback-ws posture).
     allowedSenders: z.array(z.string().min(1)).optional(),
+    // Owner-scoped posture: when true, a channel (non-DM) message on this
+    // grant reaches a session only when it addresses the Resident — a
+    // mention, a reply to its own message, or a thread it already answers
+    // in. DMs always route. Absent = every admitted message routes.
+    mentionOnly: z.boolean().optional(),
     provisionalMint: ProvisionalMintPolicy.optional(),
     createdBy: z.string().min(1),
     createdAt: EpochMs.optional(),
