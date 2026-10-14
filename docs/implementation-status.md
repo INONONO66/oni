@@ -1,6 +1,6 @@
 # Implementation Status
 
-## #1497 one outbound payload for every channel: parts, media, reactions (base `55ac51ecd`)
+## #1497 one outbound payload for every channel: parts, media, reactions (PR #1504, base `55ac51ecd`)
 
 On `feat/channels-unified-outbound` (2026-10-14). The agent produces one
 value for a person and every channel translates it from its declared
