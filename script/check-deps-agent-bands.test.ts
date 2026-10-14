@@ -64,6 +64,17 @@ test("#1354 rejects reverse value edges and core barrel bypasses", () => {
   }
 });
 
+test("#1354 rejects importers outside the eight core directories", () => {
+  for (const from of ["newdir/x.ts"]) {
+    const found = agentBandViolations(
+      `packages/agent/src/core/${from}`,
+      `import { value } from "./ports/types";`,
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("#1354 core layout:");
+  }
+});
+
 test("#1354 erases type-only edges but retains mixed, default and bare imports", () => {
   const path = "packages/agent/src/core/ports/types.ts";
   for (const source of [

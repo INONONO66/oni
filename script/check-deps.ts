@@ -1006,6 +1006,8 @@ function agentCoreValueViolations(filePath: string, source: string): string[] {
   if (rest === "api.ts" || rest === "index.ts") return [];
   const importer = rest.split("/")[0] ?? "";
   const allowed = AGENT_CORE_EDGES[importer];
+  if (allowed === undefined && rest.includes("/"))
+    return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not one of the eight core directories`];
   if (allowed === undefined) return [];
   const violations: string[] = [];
   for (const spec of valueImportSpecifiers(source)) {
