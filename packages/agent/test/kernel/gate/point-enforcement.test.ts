@@ -1,6 +1,6 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
 import { describe, expect, it, mock } from "bun:test";
-import { compilePolicySnapshot, createPolicyCompiler, PolicyCompileError, SEEDED_POLICY_ROWS, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
+import { compilePolicySnapshot, PolicyCompileError, SEEDED_POLICY_ROWS, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
 import type { PolicyRow, Storage } from "@openomni/protocol";
 import { atGeneration, compaction, draft, MemoryPolicyRows, withPolicyRows, type PolicyRowDraft } from "./row-fixtures";
 
@@ -54,57 +54,32 @@ describe("policy row compiler enforcement", () => {
     }));
   });
 
-  it("turns storage load failure into a typed deny and never invokes a body", () => {
+  it("propagates storage load failure before compiling or invoking a body", () => {
     const source: MemoryPolicyRows = new MemoryPolicyRows();
     source.rows = () => {
       throw new Error("database unavailable");
     };
-    const compiler = createPolicyCompiler({
-      registry: KERNEL_POLICY_REGISTRY,
-      source,
-      mandatory: ["compaction"],
-    });
-    const evaluator = compiler.pin(9);
     const body = mock(() => "must not run");
-    const decision = evaluator.evaluate(input);
-    if (decision.verdict === "allow") body();
-
+    expect(() => compilePolicySnapshot({
+      registry: KERNEL_POLICY_REGISTRY, rows: source.rows(9), generation: 9,
+      mandatory: ["compaction"],
+    }).evaluate(input)).toThrow("database unavailable");
     expect(body).toHaveBeenCalledTimes(0);
-    expect(decision).toMatchObject({
-      generation: 9,
-      verdict: "deny",
-      matchedRuleIds: [],
-      reason: "snapshot_load_failed",
-      error: {
-        code: "snapshot_load_failed",
-        generation: 9,
-      },
-    });
   });
 
   it("preserves exact compile failures after storage loads", () => {
-    const compiler = createPolicyCompiler({
-      registry: KERNEL_POLICY_REGISTRY,
-      source: new MemoryPolicyRows([
-        atGeneration(compaction, 1),
-        atGeneration(draft("bad-kind", "extension.unregistered", "pre", { type: "allow" }), 1),
-      ]),
+    const source = new MemoryPolicyRows([
+      atGeneration(compaction, 1),
+      atGeneration(draft("bad-kind", "extension.unregistered", "pre", { type: "allow" }), 1),
+    ]);
+    expect(() => compilePolicySnapshot({
+      registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1,
       mandatory: ["compaction"],
-    });
-
-    const decision = compiler.pin(1).evaluate(input);
-
-    expect(decision).toMatchObject({
-      generation: 1,
-      verdict: "deny",
-      matchedRuleIds: [],
-      reason: "unknown_kind",
-      error: {
-        code: "unknown_kind",
-        generation: 1,
-        ruleName: "bad-kind",
-      },
-    });
+    })).toThrow(expect.objectContaining({
+      data: expect.objectContaining({
+        code: "unknown_kind", generation: 1, ruleName: "bad-kind",
+      }),
+    }));
   });
 
   it.each([
@@ -256,8 +231,8 @@ describe("policy row compiler enforcement", () => {
     }));
     expect(source.rows()).toEqual([]);
     expect(source.appendGeneration(() => [compaction])).toBe(1);
-    const compiler = createPolicyCompiler({ registry: KERNEL_POLICY_REGISTRY, source });
-    expect(compiler.pin(1).evaluate(input).verdict).toBe("allow");
+    const snapshot = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1 });
+    expect(snapshot.evaluate(input).verdict).toBe("allow");
     expect(source.appendGeneration(() => undefined)).toBe(1);
   }));
 

@@ -20,7 +20,7 @@ import { answerThenCompaction } from "../../helpers/durable-compaction";
 import { testExecutor } from "../../helpers/executor";
 import { sessionTree } from "../../helpers/session-tree";
 import { runLedgerSync } from "../helpers/effect";
-import { CatalogVersionRefused } from "../../../src/core/store/errors";
+import { CatalogVersionRefused, SessionFileUnreadable } from "../../../src/core/store/errors";
 
 const { stores, child, fixture } = useForkFixture();
 
@@ -32,6 +32,35 @@ const ForkGenesisIntent = z.looseObject({
 const DeliveryIntent = z.looseObject({ deliveryId: z.string() });
 
 describe("Session.fork", () => {
+  test("a locked schema file retains SQLite errno rather than appearing unstamped", () => {
+    const directory = mkdtempSync(join(tmpdir(), "fork-locked-"));
+    const path = join(directory, "locked.sqlite");
+    const db = new Database(path);
+    try {
+      db.run("PRAGMA user_version = 2");
+      expect(readSessionFileSchemaVersion(join(directory, "missing.sqlite"))).toBe(0);
+      db.run("BEGIN EXCLUSIVE");
+      let refusal: SessionFileUnreadable | undefined;
+      try {
+        readSessionFileSchemaVersion(path);
+      } catch (error) {
+        if (error instanceof SessionFileUnreadable) refusal = error;
+        else throw error;
+      }
+      expect(refusal).toMatchObject({
+        _tag: "SessionFileUnreadable",
+        code: "SQLITE_BUSY",
+        errno: 5,
+        path,
+      });
+      console.log(`A7 locked schema before=0 after_errno=${refusal?.errno}`);
+    } finally {
+      db.run("ROLLBACK");
+      db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("forks at a turn terminal into an independently verifiable child chain", () => {
     const parent = fixture.buildParent();
     const receipt = fixture.forked(parent.hashOf("turn-1:terminal"));

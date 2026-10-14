@@ -18,7 +18,7 @@ import { isolated } from "../../helpers/isolated";
 import { toolOutput as inspectToolOutput } from "../../../src/inspect";
 
 import { consumptionSettings } from "../../../src/core/journal/delivery";
-import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../../../src/core/ports/tool-output";
+import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectToolOutput } from "../../../src/core/ports/tool-output";
 import type { ExecutionLedger } from "../../../src/core/loop/executor";
 
 const SESSION = "projection-session";
@@ -26,6 +26,21 @@ const SESSION = "projection-session";
 const stores = useMemoryStores();
 
 let entropySeq = 0;
+
+it("bounds even a marker larger than the configured output budget", () => {
+  const budgetBytes = 8;
+  const writes: string[] = [];
+  const output = projectToolOutput("x".repeat(1000), {
+    budgetBytes,
+    put: ({ outputId }) => { writes.push(outputId); },
+  });
+  const afterBytes = Buffer.byteLength(output.content, "utf8");
+  expect(afterBytes).toBeLessThanOrEqual(budgetBytes);
+  const outputId = output.outputRef?.outputId;
+  if (outputId === undefined) throw new Error("missing stored output reference");
+  expect(writes).toEqual([outputId]);
+  console.log(`A7 tiny output bytes before>8 after=${afterBytes}`);
+});
 
 function kernelLedger(
   authority: { sessionId: string; owner: string; fence: number },

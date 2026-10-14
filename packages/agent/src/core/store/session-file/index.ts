@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   LedgerAction,
@@ -9,7 +9,7 @@ import {
 } from "@openomni/protocol";
 
 import { z } from "zod";
-import { CatalogVersionRefused, CorruptRecord, CreateRefused, MaterializeRefused, type LedgerError } from "../errors";
+import { CatalogVersionRefused, CorruptRecord, CreateRefused, MaterializeRefused, SessionFileUnreadable, type LedgerError } from "../errors";
 import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import type { SessionWriteAdapter } from "../services";
 import { createSqliteDecisionFacts } from "../decision.js";
@@ -130,15 +130,29 @@ const SessionUserVersion = z.object({ user_version: z.number().int().nonnegative
 
 /** The `readonly` `PRAGMA user_version` read behind the probe; a missing file reads as 0. */
 function probeSessionFileSchemaVersion(path: string): number {
+  try {
+    statSync(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return 0;
+    throw unreadableSessionFile(path, error);
+  }
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
     return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-  } catch {
-    return 0;
+  } catch (error) {
+    throw unreadableSessionFile(path, error);
   } finally {
     db?.close();
   }
+}
+
+function unreadableSessionFile(path: string, error: unknown): SessionFileUnreadable {
+  return new SessionFileUnreadable({
+    path,
+    ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+    ...(error instanceof Error && "errno" in error && typeof error.errno === "number" ? { errno: error.errno } : {}),
+  });
 }
 
 /**

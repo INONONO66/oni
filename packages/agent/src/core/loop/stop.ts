@@ -15,6 +15,7 @@ import type { ResolvedExecutorOptions } from "./invocation";
 export interface StopObservation {
   readonly text: string;
   readonly toolCalls: number;
+  readonly calls?: readonly { readonly tool: string; readonly input: PlainValue }[];
   readonly continueRequested?: boolean;
   readonly interrupted: boolean;
   readonly exhausted: boolean;
@@ -46,7 +47,10 @@ export function stopState(): StopState {
 }
 
 function advanceStopState(previous: StopState, observation: StopObservation): StopState {
-  const outputHash = canonicalDigest(observation.text);
+  const outputHash = canonicalDigest({
+    text: observation.text,
+    calls: observation.calls ?? [],
+  });
   return {
     outputHash,
     repetition: observation.progress
@@ -54,6 +58,7 @@ function advanceStopState(previous: StopState, observation: StopObservation): St
       : outputHash === previous.outputHash ? previous.repetition + 1 : 1,
     stall: observation.progress || observation.toolCalls > 0 ? 0 : previous.stall + 1,
     blocked: observation.blocked && !observation.progress ? previous.blocked + 1 : 0,
+    // This is the per-invocation step budget, independent of progress and repeat detection.
     continuation: previous.continuation + 1,
   };
 }

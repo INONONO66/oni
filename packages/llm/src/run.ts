@@ -76,25 +76,20 @@ export namespace Run {
     | { readonly type: "error"; readonly error: Failure };
 }
 
-/**
- * MCP tool names are `${server}.${name}` with arbitrary segments, so two
- * originals can sanitize to the same wire key; a taken key gets a
- * deterministic `_2`/`_3` suffix and the reverse map restores the dotted name.
- */
 function assignWireToolNames(tools: Tool.Spec[]): {
   wireNames: string[];
   originalByWire: Map<string, string>;
-} {
+} | InvalidProviderData {
   const wireNames: string[] = [];
   const originalByWire = new Map<string, string>();
   for (const spec of tools) {
-    const base = ProviderTransform.sanitizeToolName(spec.name);
-    let wire = base;
-    let suffix = 2;
-    while (originalByWire.has(wire)) {
-      const tail = `_${suffix++}`;
-      wire = base.slice(0, 128 - tail.length) + tail;
-    }
+    const wire = ProviderTransform.sanitizeToolName(spec.name);
+    if (wire.length === 0 || originalByWire.has(wire))
+      return new InvalidProviderData({
+        operation: "run.tools",
+        cause: `ambiguous provider tool name: ${spec.name}`,
+        message: "provider tool names must be distinct after normalization",
+      });
     originalByWire.set(wire, spec.name);
     wireNames.push(wire);
   }
@@ -153,7 +148,9 @@ export function run(
   const parentID = messages[messages.length - 1]?.info.id || "";
 
   // Wire names and history share the sanitizer; invocation identity stays dotted.
-  const { wireNames, originalByWire } = assignWireToolNames(input.tools);
+  const names = assignWireToolNames(input.tools);
+  if (names instanceof InvalidProviderData) return names;
+  const { wireNames, originalByWire } = names;
 
   const assistantMessage: Message.AssistantMessage = {
     id: messageID,
@@ -164,7 +161,6 @@ export function run(
     modelID: model.id,
     providerID: model.providerID,
     agent: "default",
-    path: { cwd: process.cwd(), root: process.cwd() },
     tokens: {
       input: 0,
       output: 0,

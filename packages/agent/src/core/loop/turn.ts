@@ -103,6 +103,8 @@ function handleStop(
     ...evidence,
     text: turnText,
     toolCalls,
+    calls: assistantMessage.parts.flatMap((part) =>
+      part.type === "tool" ? [{ tool: part.tool, input: part.state.input }] : []),
     continueRequested:
       yielded === "window" || yielded === "steer" || afterModelPrompts + afterWavePrompts > 0,
     interrupted: config.signal?.aborted === true,
@@ -270,7 +272,6 @@ function runModelStep(
     if (overflowsWindow(state, compaction)) yield* compact("yield");
     emitTurnStart(config.events, state, base, source.now);
     const built = buildTurn(state, config, model, config.toolChoice, trace, source, sink, compaction);
-    if (built.type !== "ready") return yield* new AgentFailure({ operation: "agent.turn", cause: "not_ready" });
     turn = built.turn;
     const prepared = turn;
     return {

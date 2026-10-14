@@ -3,7 +3,7 @@ import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty, t
 import type { ChatAgentConfig } from "../ports/types";
 import type { RunState, TurnArtifacts } from "./turn";
 import { recordToolCall } from "./budget";
-import { type Tool, type Message, type PlainValue, PlainValueSchema, type ToolDefinition, type ToolExecutionContext, listenForAbort, type AnyToolDefinition, type LedgerAction, SessionGeneration, type ToolCategory, toolResultText } from "@openomni/protocol";
+import { type Tool, type Message, type PlainValue, PlainValueSchema, type ToolDefinition, type ToolExecutionContext, listenForAbort, type AnyToolDefinition, type LedgerAction, SessionGeneration, type ToolCategory, toolResultText, toolWireName } from "@openomni/protocol";
 import { BOUNDED_CONCURRENCY } from "../ports/ports";
 import { z } from "zod";
 import { RawToolSlots, openInvocation, withExecutor, withInvocation, type InvocationFrame, type Executor, type ExecutionRequest } from "./executor";
@@ -47,8 +47,10 @@ export function assertUnambiguousToolMetadata(config: ChatAgentConfig): void {
     owners.set(key, { name: tool.name, tool });
   };
   for (const tool of tools ?? []) {
+    const wireName = toolWireName(tool.name);
+    if (wireName.length === 0) throw new AgentInvariantViolation(`invalid tool name: "${tool.name}"`);
+    claim(wireName, tool);
     const labels = tool.labels ?? tool.descriptor?.labels;
-    if (labels === undefined && tool.descriptor === undefined) continue;
     claim(tool.name, tool);
     const canonical = labels?.find((label) => label.startsWith("tool:"))?.slice(5);
     if (canonical) claim(canonical, tool);

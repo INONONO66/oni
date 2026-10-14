@@ -1,3 +1,4 @@
+import { toolWireName } from "@openomni/protocol";
 import type { SDKMessage } from "../message";
 import type { Provider } from ".";
 
@@ -123,7 +124,7 @@ export namespace ProviderTransform {
      * vocabulary is unchanged and the SDK's key-match dispatch makes the reverse map free.
      */
   export function sanitizeToolName(name: string): string {
-    return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
+    return toolWireName(name);
   }
 
   function buildMessageWithContent(

@@ -122,7 +122,7 @@ export namespace Message {
     path: z.object({
       cwd: z.string(),
       root: z.string(),
-    }),
+    }).optional(),
     tokens: z.object({
       input: Token.Count,
       output: Token.Count,

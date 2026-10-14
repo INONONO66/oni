@@ -53,7 +53,9 @@ export function projectToolOutput(
   const markerText = marker(outputId, bytes);
   const preview = previewOf(rendered, ports.budgetBytes, markerText);
   return {
-    content: `${preview}${markerText}`,
+    content: Buffer.byteLength(markerText, "utf8") > ports.budgetBytes
+      ? utf8Prefix(markerText, ports.budgetBytes)
+      : `${preview}${markerText}`,
     outputRef: { outputId, bytes, mediaType: "text/plain", preview },
   };
 }
