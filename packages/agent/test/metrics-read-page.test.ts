@@ -31,7 +31,7 @@ test("a metrics page attributes a result whose attempt intent precedes its curso
     return intent.ordinal;
   })));
   const page = await runCluster(options, sendRead(sessionId, { model: "metrics", cursor }));
-  const usage = [{ attemptId: "attempt", purpose: "compaction", provenance: "reported", inputTokens: 7, outputTokens: 3 }];
+  const usage = [{ attemptId: "attempt", provenance: "reported", inputTokens: 7, outputTokens: 3 }];
   expect(PlainValueSchema.parse(JSON.parse(page.body))).toEqual({
     usage, usageByPurpose: [{ purpose: "compaction", usage }], turns: [],
   });

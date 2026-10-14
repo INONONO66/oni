@@ -2,7 +2,6 @@ import type { LedgerAction, PlainValue } from "@openomni/protocol";
 
 export interface AttemptUsage {
   readonly attemptId: string;
-  readonly purpose: string | null;
   readonly provenance: "reported" | "estimated" | "unknown";
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
@@ -28,6 +27,22 @@ export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsag
     usage.push(result);
   }
   return usage;
+}
+
+/** Purpose is a metrics dimension; the public flat usage DTO remains unchanged. */
+export function groupUsageByPurpose(
+  actions: readonly LedgerAction.Node[],
+  usage: readonly AttemptUsage[],
+): { readonly purpose: string | null; readonly usage: AttemptUsage[] }[] {
+  const purposes = attemptPurposes(actions);
+  const groups = new Map<string | null, AttemptUsage[]>();
+  for (const entry of usage) {
+    const purpose = purposes.get(entry.attemptId) ?? null;
+    const group = groups.get(purpose);
+    if (group === undefined) groups.set(purpose, [entry]);
+    else group.push(entry);
+  }
+  return Array.from(groups, ([purpose, entries]) => ({ purpose, usage: entries }));
 }
 
 /** Physical attempts share the `llm` kind; an attempt intent carries the attempt ordinal. */
@@ -58,7 +73,6 @@ function attemptResult(
   const origin = effect.usageProvenance;
   return {
     attemptId: action.parentId,
-    purpose: attemptIntents.get(action.parentId) ?? null,
     provenance: origin === "reported" || origin === "estimated" ? origin : "unknown",
     inputTokens: origin === "unknown" ? null : token(record.inputTokens),
     outputTokens: origin === "unknown" ? null : token(record.outputTokens),

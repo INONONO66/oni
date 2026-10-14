@@ -181,10 +181,10 @@ test("tree renders session.configure lineage", () => {
 
 test("metrics render turn rows plus llm attempt usage", () => {
   expect(renderReadModel("metrics", ACTIONS)).toEqual({
-    usage: [{ attemptId: "llm-1", purpose: null, provenance: "reported", inputTokens: 3, outputTokens: 2 }],
+    usage: [{ attemptId: "llm-1", provenance: "reported", inputTokens: 3, outputTokens: 2 }],
     usageByPurpose: [{
       purpose: null,
-      usage: [{ attemptId: "llm-1", purpose: null, provenance: "reported", inputTokens: 3, outputTokens: 2 }],
+      usage: [{ attemptId: "llm-1", provenance: "reported", inputTokens: 3, outputTokens: 2 }],
     }],
     turns: [{ seq: 4, id: "turn-1", at: 1_004 }],
   });

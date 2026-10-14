@@ -41,7 +41,6 @@ test("failed billed usage is read once from its settled physical attempt", () =>
   }, "reported");
   expect(attemptUsage([failed, failed])).toEqual([{
     attemptId: "physical-attempt",
-    purpose: null,
     provenance: "reported",
     inputTokens: 7,
     outputTokens: 0,
@@ -52,7 +51,6 @@ test("unmarked usage is unknown rather than an invented zero or provider report"
   const attempt = result("first", "uncounted-attempt", {});
   expect(attemptUsage([attempt])).toEqual([{
     attemptId: "uncounted-attempt",
-    purpose: null,
     provenance: "unknown",
     inputTokens: null,
     outputTokens: null,
@@ -83,13 +81,8 @@ test("metrics attribute settled attempts by purpose without counting enclosing r
       ...action, ordinal: index + 1, prevHash: "before", actionHash: "after",
     }));
     const usage = attemptUsage(rows);
-    expect(usage.map(({ purpose, inputTokens, outputTokens, provenance }) =>
-      ({ purpose, inputTokens, outputTokens, provenance }))).toEqual([
-      { purpose: "chat", inputTokens: 5, outputTokens: 2, provenance: "estimated" },
-      { purpose: "compaction", inputTokens: 5, outputTokens: 2, provenance: "estimated" },
-      { purpose: null, inputTokens: 5, outputTokens: 2, provenance: "estimated" },
-      { purpose: "compaction", inputTokens: 5, outputTokens: 2, provenance: "estimated" },
-    ]);
+    expect(usage).toHaveLength(4);
+    expect(usage.every((entry) => entry.provenance === "estimated" && entry.outputTokens === 2)).toBe(true);
     expect(usage.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(20);
     expect(renderReadModel("metrics", rows)).toMatchObject({
       usage,
@@ -138,7 +131,10 @@ test("a real committed failed attempt contributes billed usage once", () =>
     expect(attempts).toBe(2);
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({
-      inputTokens: 7, outputTokens: 0, provenance: "reported", purpose: "compaction",
+      inputTokens: 7, outputTokens: 0, provenance: "reported",
+    });
+    expect(renderReadModel("metrics", page.actions)).toMatchObject({
+      usageByPurpose: [{ purpose: "compaction", usage: entries }],
     });
     expect(entries.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(7);
   })));
