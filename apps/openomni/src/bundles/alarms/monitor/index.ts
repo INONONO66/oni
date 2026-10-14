@@ -2,7 +2,7 @@ import { Bundle, Core } from "@openomni/agent";
 import { Alarm } from "@openomni/protocol";
 import { z } from "zod";
 import { ToolCapabilityPort } from "../../seams";
-import { armCron, armWatch, type MonitorPorts, WatchState } from "../../tools/core/watch";
+import { armCron, armWatch, type MonitorPorts, WatchState } from "./ports";
 
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;

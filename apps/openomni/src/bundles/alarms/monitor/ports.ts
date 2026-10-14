@@ -5,7 +5,7 @@ const ToolRefused = Core.ToolRefused;
 type LedgerError = Core.LedgerError;
 import { Alarm, Cron, type PlainValue, type ToolExecutionContext } from "@openomni/protocol";
 import { z } from "zod";
-import type { SessionKernel } from "../../../composition/cluster-runtime";
+type SessionKernel = Core.SessionKernel;
 
 /**
  * The monitor tool's Effect-free surface (boundary law R1): schemas, the

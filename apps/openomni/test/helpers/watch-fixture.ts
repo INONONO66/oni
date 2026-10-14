@@ -12,7 +12,7 @@ import { cronPurposes } from "../../src/bundles/alarms/cron/index";
 import { monitorBundle, monitorPurposes } from "../../src/bundles/alarms/monitor/index";
 import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
 import { createAppLedger } from "./ledger";
-import type { MonitorPorts } from "../../src/bundles/tools/core/watch";
+import type { MonitorPorts } from "../../src/bundles/alarms/monitor/ports";
 import type { ArmedWatch, WatchSources } from "../../src/composition/watch-sources";
 import { gateRowPolicySeeds } from "../../src/bundles/core-policy/index";
 import { seedKernelPolicyRows } from "../../src/composition/policy";
