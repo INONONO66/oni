@@ -5,14 +5,17 @@ import {
   SectionList,
   SectionSearchInput,
   SidebarFooter,
+  SidebarHeader,
   SidebarNav,
   SidebarSection,
+  SidebarToggle,
+  StatusGlyph,
   Text,
   TreeRow,
 } from "@openomni/ui";
 import { SessionRow } from "./session-row";
-import { Settings } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { SquarePen } from "lucide-react";
+import { type ComponentProps, useCallback, useMemo, useRef } from "react";
 import { ATTENTION_LABEL } from "../attention/order";
 import type { Boundary, Ordered } from "../attention";
 import { highlightRuns } from "../search";
@@ -25,9 +28,18 @@ import {
   type Session,
   type SessionId,
 } from "../state/store";
+import type { GatewayStatus } from "./gateway-status";
 import { placeIcon } from "./place-icon";
 import { rowId, TREE_ID } from "./row-id";
 import { useSearch } from "./use-search";
+
+const GATEWAY_GLYPH: Record<
+  GatewayStatus["tone"],
+  Pick<ComponentProps<typeof StatusGlyph>, "tone" | "shape">
+> = {
+  muted: { tone: "muted", shape: "hollow" },
+  danger: { tone: "destructive", shape: "cross" },
+};
 
 export function SessionTree({
   ordered,
@@ -40,8 +52,11 @@ export function SessionTree({
   onToggleProject,
   onSelect,
   onNavigate,
+  onCreate,
   onSearchingChange,
   defaultSearching = false,
+  sidebarOpen = false,
+  gateway = null,
 }: {
   readonly ordered: Ordered;
   readonly now: number;
@@ -56,9 +71,12 @@ export function SessionTree({
   readonly onSelect: (id: SessionId, boundary?: Boundary | null, newTab?: boolean) => void;
   /** `newTab` is the ⌘/Ctrl-click intent: open the route in a new tab instead of moving this one. */
   readonly onNavigate: (route: Route, newTab: boolean) => void;
+  readonly onCreate: () => void;
   readonly onSearchingChange?: (searching: boolean) => void;
   /** Whether the section opens in search mode; uncontrolled after mount. */
   readonly defaultSearching?: boolean;
+  readonly sidebarOpen?: boolean;
+  readonly gateway?: GatewayStatus | null;
 }) {
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
@@ -107,7 +125,18 @@ export function SessionTree({
 
   return (
     <>
+      <SidebarHeader
+        actions={sidebarOpen ? <SidebarToggle /> : null}
+        brand={
+          <Text className="font-semibold" level="label" tone="fg">
+            OpenOmni
+          </Text>
+        }
+      />
       <SidebarNav>
+        <NavItem icon={<SquarePen />} onClick={() => onCreate()}>
+          New session
+        </NavItem>
         {ROUTES.map((destination) => (
           <NavItem
             active={destination === route}
@@ -142,7 +171,7 @@ export function SessionTree({
           <div aria-label="Sessions" id={TREE_ID} role="tree">
             {sessions.length === 0 && (
               <Text as="p" className="px-2" level="meta" tone="faint">
-                No sessions yet — press +
+                No sessions yet
               </Text>
             )}
             {filtered.groups.flatMap((attention) =>
@@ -162,6 +191,7 @@ export function SessionTree({
                       level={0}
                       onClick={() => onToggleProject(group.id)}
                       role="treeitem"
+                      trailing={group.sessions.length}
                     >
                       <span className="flex items-center gap-2">
                         <span className="truncate">{group.id ?? "no project"}</span>
@@ -200,9 +230,21 @@ export function SessionTree({
         </SectionList>
       </SidebarSection>
       <SidebarFooter>
-        <NavItem icon={<Settings />} disabled>
-          Settings
-        </NavItem>
+        {gateway !== null && (
+          <div className="flex w-full min-w-0 items-center gap-2 rounded-md p-1.5">
+            <div className="flex size-6 shrink-0 items-center justify-center">
+              <StatusGlyph {...GATEWAY_GLYPH[gateway.tone]} />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <Text className="truncate font-medium leading-4" level="label" tone="fg">
+                Gateway
+              </Text>
+              <Text className="truncate" level="meta" tone="subtle">
+                {gateway.detail}
+              </Text>
+            </div>
+          </div>
+        )}
       </SidebarFooter>
     </>
   );

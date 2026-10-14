@@ -1,5 +1,6 @@
-import { StatusGlyph, TreeRow } from "@openomni/ui";
+import { StatusGlyph, Text, TreeRow } from "@openomni/ui";
 import type { ComponentProps } from "react";
+import { formatRelative } from "../attention/reason";
 import type { Session } from "../state/store";
 import { sessionGlyphProps } from "./session-glyph";
 import { SessionSecondary } from "./session-secondary";
@@ -17,6 +18,7 @@ export function SessionRow({
   return (
     <TreeRow
       {...props}
+      leading={<StatusGlyph {...sessionGlyphProps(session.phase)} />}
       secondary={
         <SessionSecondary
           session={session}
@@ -24,7 +26,13 @@ export function SessionRow({
           {...(project === undefined ? {} : { project })}
         />
       }
-      trailing={<StatusGlyph {...sessionGlyphProps(session.phase)} />}
+      trailing={
+        <Text level="meta" tone="faint">
+          <time dateTime={new Date(session.lastActivityAt).toISOString()}>
+            {formatRelative(now, session.lastActivityAt)}
+          </time>
+        </Text>
+      }
     />
   );
 }

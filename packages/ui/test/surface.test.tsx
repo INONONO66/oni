@@ -10,8 +10,8 @@ describe("Panel", () => {
     expect(classes(<Panel edge="left">x</Panel>)).toContain("border-l");
     expect(classes(<Panel>x</Panel>).filter((token) => token.startsWith("border"))).toEqual([]);
   });
-  test("Given each tone, When rendered, Then the tonal ramp is three steps", () => {
-    for (const tone of ["bg", "sunken", "raised"] as const)
+  test("Given each tone, When rendered, Then the tonal ramp is four steps", () => {
+    for (const tone of ["bg", "sunken", "raised", "panel"] as const)
       expect(classes(<Panel tone={tone}>x</Panel>)).toContain(`bg-${tone}`);
   });
 });

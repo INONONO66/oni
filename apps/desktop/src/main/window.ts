@@ -15,17 +15,12 @@ export function windowOptions(
     minHeight: WINDOW_MIN.height,
     show: false,
     backgroundColor: dark ? BACKGROUND.dark : BACKGROUND.light,
-    // Custom chrome: the native title bar is hidden and the traffic lights sit
-    // in the 42px tab strip (`--shell-top` / `--spacing-shell-strip` in
-    // @openomni/ui), which drags the window via `-webkit-app-region` (see
-    // `drag-region` / `no-drag`). `y` is the TOP of the lights, so centring
-    // them on the strip's midline is y = (strip - lights) / 2 = (42 - 14) / 2
-    // = 14: the lights measure 14pt tall on this macOS (screen-captured, Darwin
-    // 25; the classic 12pt would give 15), and the strip's 28px controls sit at
-    // top 7, so both centre on 21. `x: 17` + the 52px cluster + 12 = the
-    // strip's 81px traffic safe zone.
+    // The strip is 40px (`--shell-top` / `--spacing-shell-strip` in packages/ui).
+    // Lights are 12 wide, 8 apart: 16 + 3*12 + 2*8 = 68 =
+    // `--spacing-traffic-safe`, + 8 = `--spacing-strip-inset-darwin` 76 where
+    // the zone's content starts.
     titleBarStyle: "hiddenInset" as const,
-    trafficLightPosition: { x: 17, y: 14 },
+    trafficLightPosition: { x: 16, y: 12 },
     webPreferences: {
       preload,
       contextIsolation: true,

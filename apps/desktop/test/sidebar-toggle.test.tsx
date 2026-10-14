@@ -9,8 +9,8 @@ import {
 import { renderShell, tag } from "./helpers";
 
 /**
- * The sidebar toggle as the WINDOW renders it, from the store: one button in
- * the strip in every state, its ARIA telling the truth, and the hover reveal
+ * The sidebar toggle as the window renders it, from the store: one button in
+ * the header or strip, its ARIA telling the truth, and the hover reveal
  * rendering the same column as an overlay. No DOM: the contract is what each
  * store state renders TO.
  */
@@ -21,24 +21,22 @@ beforeEach(() => {
 const shell = () => renderShell(null);
 
 describe("the one toggle", () => {
-  test("Given the sidebar open, When rendered, Then the toggle leads the strip's zone and says it will collapse", () => {
+  test("Given the sidebar open, When rendered, Then the toggle closes the header and says it will collapse", () => {
     const html = shell();
     expect(html.match(/data-ui="Sidebar.Toggle"/g)).toHaveLength(1);
     const toggle = tag(html, "Sidebar.Toggle");
     expect(toggle).toContain('aria-label="Collapse sidebar"');
     expect(toggle).toContain('aria-expanded="true"');
-    // Inside the strip's controls zone, before the history trio, above the nav.
-    const zone = html.indexOf('data-ui="TabStrip.Controls"');
-    expect(zone).toBeLessThan(html.indexOf('data-ui="Sidebar.Toggle"'));
-    expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeLessThan(
-      html.indexOf('aria-label="History"'),
+    expect(html.indexOf('data-ui="TabStrip.List"')).toBeLessThan(
+      html.indexOf('data-ui="Sidebar.Toggle"'),
+    );
+    expect(html.indexOf('data-ui="Sidebar.Header"')).toBeLessThan(
+      html.indexOf('data-ui="Sidebar.Toggle"'),
     );
     expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeLessThan(
       html.indexOf('data-ui="Sidebar.Nav"'),
     );
-    // No header row: the column starts with the nav, and the one search entry
-    // point is the section header's toggle.
-    expect(html).not.toContain('data-ui="Sidebar.Header"');
+    expect(html).toContain('data-ui="Sidebar.Header"');
     expect(html).not.toContain('aria-label="Search (⌘K)"');
     expect(html.match(/data-ui="SectionHeader.Toggle"/g)).toHaveLength(1);
     // Pinned: the zone and the container ride the same runtime variable.
@@ -47,7 +45,7 @@ describe("the one toggle", () => {
     expect(html).not.toContain('aria-label="Expand sidebar"');
   });
 
-  test("Given the sidebar collapsed, When rendered, Then the same toggle stays put and says it will expand", () => {
+  test("Given the sidebar collapsed, When rendered, Then the toggle moves to the strip and says it will expand", () => {
     toggleSidebar();
     const html = shell();
     expect(html.match(/data-ui="Sidebar.Toggle"/g)).toHaveLength(1);
@@ -56,6 +54,9 @@ describe("the one toggle", () => {
     expect(toggle).toContain('aria-expanded="false"');
     expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeLessThan(
       html.indexOf('aria-label="History"'),
+    );
+    expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeLessThan(
+      html.indexOf('data-ui="TabStrip.Trio"'),
     );
     expect(tag(html, "Sidebar.Container")).toContain('data-mode="hidden"');
     expect(html).toContain('data-ui="Sidebar.Edge"');
@@ -74,9 +75,8 @@ describe("the one toggle", () => {
     // One tree, one nav: the overlay IS the sidebar, not a copy of it.
     expect(html.match(/role="tree"/g)).toHaveLength(1);
     expect(html.match(/data-ui="Sidebar.Nav"/g)).toHaveLength(1);
-    // Collapsed: the zone and the overlay share one width token.
     expect(container).toContain("w-sidebar-overlay");
-    expect(tag(html, "TabStrip.Controls")).toContain("w-sidebar-overlay");
+    expect(tag(html, "TabStrip.Controls")).toContain("w-strip-zone-collapsed");
     expect(tag(html, "Sidebar.Content")).not.toContain("inert");
     expect(tag(html, "Sidebar")).toContain('data-sidebar-state="collapsed"');
   });
@@ -96,7 +96,7 @@ describe("the one toggle", () => {
     const html = shell();
     const trio = tag(html, "TabStrip.Trio");
     expect(trio).toContain("ml-auto");
-    expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeLessThan(
+    expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeGreaterThan(
       html.indexOf('data-ui="TabStrip.Trio"'),
     );
     expect(tag(html, "Sidebar.Toggle")).toContain('data-size="base"');

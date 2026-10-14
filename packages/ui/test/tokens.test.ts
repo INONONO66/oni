@@ -263,6 +263,25 @@ describe("both themes stay readable", () => {
   });
 });
 
+describe("the main panel surface", () => {
+  test("Given each theme, When the panel tone is read, Then it sits between bg and raised and stays quiet", () => {
+    // A literal rather than a ramp step: one tone between the window and a
+    // raised fill, so the panel reads as lifted material, never as a filled box.
+    for (const theme of THEMES) {
+      const panel = literal(theme.block, "--color-panel");
+      const bg = ramp(theme.block, "--color-bg");
+      const raised = ramp(theme.block, "--color-raised");
+
+      expect(panel.lightness * 100, `${theme.name} panel`).toBeGreaterThan(Math.min(bg, raised));
+      expect(panel.lightness * 100, `${theme.name} panel`).toBeLessThan(Math.max(bg, raised));
+
+      const measured = ratio(panel, color(theme.block, "--color-bg"));
+      expect(measured, `${theme.name} --color-panel vs bg`).toBeGreaterThan(1.02);
+      expect(measured, `${theme.name} --color-panel vs bg`).toBeLessThan(1.4);
+    }
+  });
+});
+
 /**
  * The diff pair: the system's ONE scoped exception to the single-accent law.
  *

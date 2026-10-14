@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "../src/sidebar";
-import { TabStrip, type WindowPlatform } from "../src/tab-strip";
+import { SidebarHeader } from "../src/sidebar-nav";
+import { SidebarToggle, TabStrip, type WindowPlatform } from "../src/tab-strip";
 import { STRIP } from "./fixture";
 
 export function SidebarFrame({
@@ -21,11 +22,14 @@ export function SidebarFrame({
       onToggle={() => undefined}
       onWidthCommit={() => undefined}
       open={open}
-      width={240}
+      width={252}
     >
       <TabStrip {...STRIP} platform={platform} />
       <Sidebar.Gap />
-      {children}
+      <Sidebar.Container>
+        <SidebarHeader actions={open ? <SidebarToggle /> : null} brand={null} />
+        {children}
+      </Sidebar.Container>
     </Sidebar>
   );
 }

@@ -1,5 +1,42 @@
 # Implementation Status
 
+## #1479 desktop shell baseline (PR #1480, base `5a1a83cb2`)
+
+On `feat/desktop-shell-baseline` (2026-10-14, stacked on #1472
+`fix/protocol-crypto-builtin`). `packages/ui` owns the shell geometry as
+tokens, utilities, and frame components: tab strip 40px with a 252px window-controls zone,
+28px tabs with an 8px radius, a 44px sidebar header, 28px nav rows at
+13px/500, two-line session rows, a 42px footer row, and the panel at a
+0.75rem radius with an 8px margin; `--spacing-new-column` (712px) bounds the
+new-session column. `Console.Hero` renders the empty label and the same
+`Composer` centered in that column while a sendable transcript has no nodes
+and docks the composer to the bottom of `Console.Content` once the first node
+exists; both branches share one `composerProps`. `src/names.ts` remains the
+single `data-ui` owner (`Console.Hero` added).
+
+`apps/desktop` composes the sidebar from those parts: brand header, the
+New session / Sessions / Automations / Ingress ledger nav, attention-ordered
+project groups with counts, `StatusGlyph` session rows, and a gateway footer
+showing the configured endpoint from the one preload call. `ensureBootTab` opens
+one new-session tab when the store has no tabs and is called once from the
+shell lifecycle, so every boot lands on the hero. Shell hooks moved out of
+`app.tsx` into `shell/`. No mock sessions: the sessions list is the client
+store's session handles (`state/store.ts`, created by New session and the boot
+tab) enriched per durable session by the gateway's session read pages
+(`useSessionReadModels` in `state/queries.ts`: phase, ancestry, fork anchors,
+last activity), and the transcript comes from the gateway transport.
+
+Verified on this branch: build, check-types, lint, lint:tools, topology,
+deps, import cycles, dead exports, effect boundaries, journal writers,
+tsconfig inheritance, patch coverage, and the hosted CI test lanes (every
+lane green on the branch head). The local root `bun test --timeout 15000`
+run passed every `packages/ui`, `apps/desktop`, and `packages/protocol` test;
+its remaining failures are host-environment classes (the Python mutation
+worker fixture without `D945_PYTHON`, Playwright without Chromium) that the
+hosted lanes do not share.
+Screenshots at 1280x800 and 1000x700 in dark and light with a `data-ui`
+geometry dump match the token values above within 1px.
+
 ## #1355 - terminal core gates (rebased verification)
 
 `script/core-end-state-targets.ts` holds terminal acceptance values.
@@ -120,6 +157,7 @@ The comment gate has one enforcement layer, its existing exact per-file pins.
 - Review r1: High 1 — the tool-call continue path called `compact("threshold")` and could execute a compaction where main only prepared; prepare-only semantics restored through the port with a test proving a continue step above threshold writes zero `compaction` rows while end-of-turn still compacts. Medium 5 — M1 the speculative-grace deferral applies to `yield` again (a window yield with a speculative summary in flight defers instead of launching a second summarizer), M2 the yield point is armed from the model window only, M3 `compaction-off.test.ts` now fails the second call as a real context overflow and asserts zero compaction rows: the first turn stops normally and the second settles with the original typed provider failure (a successful second turn is impossible under the no-retry contract with compaction off), M4 `DEFAULT_TOOL_OUTPUT_ELISION` is no longer exported and elision is tested by behavior, M5 this stamp and this section replace the stale `applyCompaction` description. Lows carried as PR comments.
 - Verification: packages/agent 1441 pass / 0 fail (217 files), apps/openomni 846 / 0 (117 files); check-types, lint, lint:tools, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types and check-comment-residue exit 0; the full local gate (`gate-1353.log`) exits 0 on the reviewed head. Four app bundle-list pins gained the shipped `compaction-summarizer` / `compaction-strategy` bundles (test-only).
 
+||||||| parent of e83096bf0 (docs: stamp and implementation status for the desktop shell baseline (#1479))
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
 On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `e7677bbad`, PR #1461).

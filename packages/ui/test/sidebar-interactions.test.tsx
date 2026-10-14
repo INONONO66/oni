@@ -162,10 +162,17 @@ test("mounted splitter coalesces pointer frames, commits or cancels, and support
     expect(handle.getAttribute("aria-valuenow")).toBe("304");
     await key(handle, "x");
     expect(handle.getAttribute("aria-valuenow")).toBe("304");
+    const header = element(host, '[data-ui="SectionHeader"] > div');
+    expect(header.classList.contains("h-7")).toBe(true);
+    expect(element(host, '[data-ui="SectionHeader.Toggle"]').dataset.size).toBe("base");
     await act(() => element(host, '[data-ui="SectionHeader.Toggle"]').click());
     expect(host.querySelector("input")).not.toBeNull();
+    expect(header.hasAttribute("data-searching")).toBe(true);
+    expect(header.classList.contains("h-7")).toBe(true);
+    expect(element(host, '[data-ui="SectionHeader.Toggle"]').dataset.size).toBe("base");
     await act(() => element(host, '[data-ui="SectionHeader.Toggle"]').click());
     expect(host.querySelector("input")).toBeNull();
+    expect(header.hasAttribute("data-searching")).toBe(false);
   } finally {
     request.mockRestore();
     cancel.mockRestore();

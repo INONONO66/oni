@@ -2,12 +2,11 @@ import type { ComponentProps, ReactNode } from "react";
 import { Composer } from "./composer";
 import { UI_NAMES } from "./names";
 import { ScrollArea } from "./primitives/scroll-area";
-import { Panel } from "./primitives/surface";
+import { Panel, Text } from "./primitives/surface";
 import { Sidebar } from "./sidebar";
 import { TabStrip } from "./tab-strip";
 import type { PendingApproval, TranscriptNode, TurnCost } from "./timeline/model";
 import { Timeline } from "./timeline/timeline";
-import { Voice } from "./timeline/voice";
 
 export function Console({
   shell,
@@ -42,7 +41,7 @@ export function Console({
         as="main"
         className="mr-2 mb-2 flex min-w-0 flex-1 flex-col transition-[margin-left] duration-base ease-frame group-data-[sidebar-state=collapsed]/sidebar:ml-2 group-data-[resizing]/sidebar:duration-0 motion-reduce:transition-none"
         edge="box"
-        tone="bg"
+        tone="panel"
       >
         <div
           className="flex min-h-0 flex-1 flex-col"
@@ -76,19 +75,19 @@ export function ConsoleContent({
   readonly emptyLabel?: string | undefined;
   readonly children?: ReactNode;
 }) {
+  const composer = transcript === undefined ? undefined : composerProps(transcript);
+  const hero = composer !== undefined && transcript?.nodes.length === 0;
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-ui={UI_NAMES.ConsoleContent}>
       {header}
       <ScrollArea
-        className="flex-1"
+        className={hero ? "hidden" : "flex-1"}
         contentClassName="mx-auto w-full max-w-measure px-section pt-4 pb-section"
         pinToEnd={transcript !== undefined}
       >
-        {transcript === undefined ? (
+        {hero ? null : transcript === undefined ? (
           (children ?? (
-            <Voice className="text-voice-ambient" voice="meta">
-              {emptyLabel}
-            </Voice>
+            <Text as="p" level="meta" tone="faint">{emptyLabel}</Text>
           ))
         ) : (
           <Timeline
@@ -99,26 +98,54 @@ export function ConsoleContent({
           />
         )}
       </ScrollArea>
-      {transcript !== undefined &&
-        transcript.onDraftChange !== undefined &&
-        transcript.onSubmit !== undefined && (
-          <Composer
-            disabled={transcript.composerDisabled}
-            hint={transcript.composerHint}
-            meta={transcript.composerMeta}
-            onApprove={transcript.onApprove}
-            onDeny={transcript.onDeny}
-            onNext={transcript.onNextApproval}
-            onStop={transcript.onStop}
-            onSubmit={transcript.onSubmit}
-            onValueChange={transcript.onDraftChange}
-            pending={transcript.pending}
-            sending={transcript.sending}
-            value={transcript.draft ?? ""}
-          />
-        )}
+      {composer !== undefined && (
+        <div
+          className={
+            hero
+              ? "flex min-h-0 flex-1 flex-col items-center justify-center px-section"
+              : "contents"
+          }
+          data-ui={hero ? UI_NAMES.ConsoleHero : undefined}
+        >
+          <div
+            className={hero ? "flex w-full max-w-new-column flex-col gap-4" : "contents"}
+          >
+            {hero && (
+              <Text as="p" key="empty-label" level="meta" tone="faint">
+                {emptyLabel}
+              </Text>
+            )}
+            <Composer {...composer} key="composer" />
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * The one props object both composer positions render from, or nothing when
+ * the transcript has no way to send: the hero and the docked field must never
+ * drift apart by a prop.
+ */
+function composerProps(
+  transcript: ConsoleTranscript,
+): ComponentProps<typeof Composer> | undefined {
+  if (transcript.onDraftChange === undefined || transcript.onSubmit === undefined) return undefined;
+  return {
+    disabled: transcript.composerDisabled,
+    hint: transcript.composerHint,
+    meta: transcript.composerMeta,
+    onApprove: transcript.onApprove,
+    onDeny: transcript.onDeny,
+    onNext: transcript.onNextApproval,
+    onStop: transcript.onStop,
+    onSubmit: transcript.onSubmit,
+    onValueChange: transcript.onDraftChange,
+    pending: transcript.pending,
+    sending: transcript.sending,
+    value: transcript.draft ?? "",
+  };
 }
 
 /** The frame's state: the app owns it, persists it, and hands it down. */

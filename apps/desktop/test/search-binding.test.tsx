@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { orderByAttention } from "../src/renderer/attention/order";
 import { SessionTree } from "../src/renderer/shell/session-tree";
 import { useSearch, type Search } from "../src/renderer/shell/use-search";
@@ -103,9 +104,11 @@ test("session tree arrows move focus only to an adjacent row", async () => {
   try {
     await act(() =>
       root.render(
+        <QueryClientProvider client={new QueryClient()}>
         <SessionTree
           collapsedProjectIds={new Set()}
           now={TEST_NOW}
+          onCreate={() => undefined}
           onNavigate={() => undefined}
           onSelect={() => undefined}
           onToggleProject={() => undefined}
@@ -114,7 +117,8 @@ test("session tree arrows move focus only to an adjacent row", async () => {
           route="sessions"
           selectedId={null}
           sessions={sessions}
-        />,
+        />
+        </QueryClientProvider>,
       ),
     );
     const rows = container.querySelectorAll<HTMLElement>('[role="treeitem"]');

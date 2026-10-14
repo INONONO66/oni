@@ -19,9 +19,11 @@ export {
   SectionList,
   SectionSearchInput,
   SidebarFooter,
+  SidebarHeader,
   SidebarNav,
   SidebarSection,
 } from "./sidebar-nav";
+export { SidebarToggle } from "./tab-strip";
 export type { WindowPlatform } from "./tab-strip";
 export type { PendingApproval, TranscriptNode, TurnCost } from "./timeline/model";
 export { Timeline } from "./timeline/timeline";
@@ -29,3 +31,4 @@ export { segmentTurns } from "./timeline/turns";
 export { TreeRow } from "./tree-row";
 export { StatusGlyph } from "./status-glyph";
 export { isOriginSurface, OriginMark } from "./origin-mark";
+export { UI_NAMES } from "./names";

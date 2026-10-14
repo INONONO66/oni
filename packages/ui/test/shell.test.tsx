@@ -15,12 +15,6 @@ import { Sidebar } from "../src/sidebar";
 import { STRIP } from "./fixture";
 import { SidebarFrame } from "./sidebar-frame";
 
-/**
- * The frame's class-state contract, asserted on static markup: which classes
- * and attributes each sidebar state produces. The numbers are the reference console's
- * (docs/desktop-shell.md); the tests pin the ones a regression would move.
- */
-
 function frame(
   open: boolean,
   children: ReactNode,
@@ -57,7 +51,7 @@ describe("the sidebar root", () => {
   test("Given an open sidebar, When rendered, Then the root states it and carries the width", () => {
     const root = tag(frame(true, null), "Sidebar");
     expect(root).toContain('data-sidebar-state="open"');
-    expect(root).toContain("--sidebar-width:240px");
+    expect(root).toContain("--sidebar-width:252px");
   });
 
   test("Given a collapsed sidebar, When rendered, Then the column is hidden, inert, and has no handle", () => {
@@ -120,10 +114,9 @@ describe("the hover reveal", () => {
     expect(container).toContain("rounded-panel");
     expect(container).toContain("shadow-panel");
     expect(container).toContain("z-(--z-drawer)");
-    // The overlay's width is the strip's collapsed zone's width: one token.
     expect(container).toContain("w-sidebar-overlay");
     expect(container).not.toContain("w-(--sidebar-width)");
-    expect(tag(html, "TabStrip.Controls")).toContain("w-sidebar-overlay");
+    expect(tag(html, "TabStrip.Controls")).toContain("w-strip-zone-collapsed");
     expect(container).not.toContain("-translate-x-full");
     // Live: the rows are reachable and there is exactly one of them.
     expect(tag(html, "Sidebar.Content")).not.toContain("inert");
@@ -272,18 +265,19 @@ describe("the tab strip's controls zone", () => {
   /** The toggle's opening tag: the one element named `Sidebar.Toggle`. */
   const toggle = (html: string) => tag(html, "Sidebar.Toggle");
 
-  test("Given an open sidebar, When rendered, Then the zone is the sidebar's width and leads with the one toggle", () => {
+  test("Given an open sidebar, When rendered, Then the zone tracks the sidebar and the toggle sits in the header", () => {
     const html = frame(true, null);
     const zone = tag(html, "TabStrip.Controls");
     expect(zone).toContain("w-(--sidebar-width)");
     expect(zone).toContain("pl-strip-inset-darwin");
-    expect(zone).toContain("pr-3");
+    expect(zone).toContain("pr-2");
     expect(zone).toContain("gap-1");
     expect(html.match(/data-ui="Sidebar.Toggle"/g)).toHaveLength(1);
     expect(toggle(html)).toContain('aria-label="Collapse sidebar"');
     expect(toggle(html)).toContain('aria-expanded="true"');
-    expect(html.indexOf('data-ui="Sidebar.Toggle"')).toBeLessThan(
-      html.indexOf('aria-label="History"'),
+    expect(zone).not.toContain('data-ui="Sidebar.Toggle"');
+    expect(html.indexOf('data-ui="Sidebar.Header"')).toBeLessThan(
+      html.indexOf('data-ui="Sidebar.Toggle"'),
     );
     expect(html.indexOf('aria-label="History"')).toBeLessThan(html.indexOf('aria-label="Back"'));
     expect(html.indexOf('aria-label="Back"')).toBeLessThan(html.indexOf('aria-label="Forward"'));
@@ -295,11 +289,9 @@ describe("the tab strip's controls zone", () => {
       html.indexOf('data-ui="TabStrip.Controls"'),
       html.indexOf('data-ui="TabStrip.List"'),
     );
-    // Children in order: toggle, trio — and nothing after the trio's closing tag.
-    const toggleAt = zone.indexOf('data-ui="Sidebar.Toggle"');
     const trioAt = zone.indexOf('data-ui="TabStrip.Trio"');
-    expect(toggleAt).toBeGreaterThan(0);
-    expect(trioAt).toBeGreaterThan(toggleAt);
+    expect(zone).not.toContain('data-ui="Sidebar.Toggle"');
+    expect(trioAt).toBeGreaterThan(0);
     const trio = tag(html, "TabStrip.Trio");
     expect(trio).toContain("ml-auto");
     expect(trio).toContain("gap-1");
@@ -335,11 +327,11 @@ describe("the tab strip's controls zone", () => {
     expect(icon(frame(false, null))).toContain('height="6" rx="0.75"');
   });
 
-  test("Given a collapsed sidebar on darwin, When rendered, Then the zone clears the traffic lights, is as wide as the overlay, and the same toggle leads it", () => {
+  test("Given a collapsed sidebar on darwin, When rendered, Then the 222px zone clears the traffic lights and leads with the toggle", () => {
     const html = frame(false, null);
     const zone = tag(html, "TabStrip.Controls");
-    expect(zone).toContain("pl-strip-inset-darwin");
-    expect(zone).toContain("w-sidebar-overlay");
+    expect(zone).toContain("pl-[calc(var(--spacing-strip-inset-darwin)+10px)]");
+    expect(zone).toContain("w-strip-zone-collapsed");
     expect(zone).not.toContain("w-(--sidebar-width)");
     expect(html.match(/data-ui="Sidebar.Toggle"/g)).toHaveLength(1);
     expect(toggle(html)).toContain('aria-label="Expand sidebar"');
@@ -357,13 +349,13 @@ describe("the tab strip's controls zone", () => {
 
   test("Given a collapsed sidebar elsewhere, When rendered, Then the zone starts at the window edge", () => {
     const zone = tag(frame(false, null, "other"), "TabStrip.Controls");
-    expect(zone).toContain("w-sidebar-overlay");
+    expect(zone).toContain("w-auto");
     expect(zone).not.toContain("pl-strip-inset-darwin");
   });
 
   test("Given the zone, When rendered, Then it animates width on the frame's curve and yields to reduced motion", () => {
     const zone = tag(frame(true, null), "TabStrip.Controls");
-    expect(zone).toContain("transition-[width]");
+    expect(zone).toContain("transition-[width,padding]");
     expect(zone).toContain("duration-base");
     expect(zone).toContain("ease-frame");
     expect(zone).toContain("motion-reduce:transition-none");
@@ -376,7 +368,7 @@ describe("the tab strip's controls zone", () => {
     expect(html).toContain('aria-label="New"');
   });
 
-  test("Given a title, When rendered, Then the tab is a 26px card with no status mark", () => {
+  test("Given a title, When rendered, Then the tab is a 28px card with no status mark", () => {
     const html = renderToStaticMarkup(
       <Sidebar
         floating={false}
@@ -384,7 +376,7 @@ describe("the tab strip's controls zone", () => {
         onToggle={() => undefined}
         onWidthCommit={() => undefined}
         open
-        width={240}
+        width={252}
       >
         <TabStrip
           {...STRIP}
@@ -434,15 +426,15 @@ describe("the section header", () => {
     </SectionHeader>,
   );
 
-  test("Given a section at rest, When rendered, Then it is a 32px row with the label on the text x and a search toggle", () => {
-    expect(rest).toContain("h-8");
-    expect(rest).toContain("pl-4");
+  test("Given a section at rest, When rendered, Then it is a 28px row with the label on the text x and a search toggle", () => {
+    expect(rest).toContain("h-7");
+    expect(rest).toContain("pl-2");
     expect(rest).toContain("Sessions");
     expect(rest).toContain('aria-label="Search sessions"');
     expect(rest).not.toContain("<input");
   });
 
-  test("Given a searching section, When rendered, Then the field replaces the label, the inset tightens, and the toggle closes", () => {
+  test("Given a searching section, When rendered, Then the field replaces the label in place and the toggle closes", () => {
     expect(searching).toContain("<input");
     expect(searching).not.toContain(">Sessions<");
     expect(searching).toContain("pl-2");
@@ -470,25 +462,22 @@ describe("a tree row", () => {
     expect(html).not.toContain("StatusDot");
   });
 
-  test("Given the current row, When rendered, Then it says so and takes the raised fill", () => {
+  test("Given the current row, When rendered, Then it says so and takes the active fill", () => {
     const html = renderToStaticMarkup(<TreeRow current>a</TreeRow>);
     expect(html).toContain('aria-current="true"');
-    expect(html).toContain("bg-raised");
+    expect(html).toContain("bg-active");
   });
 
   test("Given a group row, When rendered, Then it reads as a heading, not a sibling", () => {
-    // The group name is a boundary the eye reads only when it wants one: meta
-    // size, faint tone, a shorter line, and never a fill of its own.
     const html = renderToStaticMarkup(<TreeRow expanded>a</TreeRow>);
-    expect(html).toContain("text-meta");
-    expect(html).toContain("text-fg-faint");
-    expect(html).toContain("h-6");
-    expect(html).not.toContain("h-7");
-    expect(html).not.toContain("bg-raised");
+    expect(html).toContain("text-label");
+    expect(html).toContain("text-fg-subtle");
+    expect(html).toContain("h-7");
+    expect(html).not.toContain('aria-current="true"');
     expect(html).not.toContain("hover:bg-hover");
     const leaf = renderToStaticMarkup(<TreeRow>a</TreeRow>);
     expect(leaf).toContain("text-label");
-    expect(leaf).not.toContain("text-fg-faint");
+    expect(leaf).toContain("text-fg-muted");
   });
 
   test("Given a group row, When rendered, Then only it carries the chevron and its state", () => {

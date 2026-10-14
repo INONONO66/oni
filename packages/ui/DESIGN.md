@@ -32,6 +32,23 @@ All primitive addresses come from `src/names.ts`.
 
 ## Composition and scrolling
 
+The sidebar column (`sidebar-nav.tsx`, `tree-row.tsx`) stacks four rows and
+lands every first glyph or label on one x, 8px of column inset plus 8px of
+row inset. `SidebarHeader` is a 44px row: brand at the left, actions at the
+right, the collapse toggle last. `SidebarNav` holds 28px `NavItem`s, each a
+14px glyph at the 1.5px line and a `label` weight 500 text, `bg-active` when
+`aria-current="page"`. `SidebarSection` takes the remaining height: a 28px
+`SectionHeader` whose label gives way to `SectionSearchInput` on the same x
+when its one control turns from magnifier to close, and a `SectionList` that
+owns the scroll and the 1px row rhythm. `TreeRow` draws three shapes from its
+props: a group row (`expanded` set) with a chevron in the 16px slot, the label,
+and a `trailing` count in `fg-faint`; a two-line session row (`secondary` set)
+on a `1rem 1fr` grid, minimum 44px tall, the `leading` glyph seated on the
+title line, the title with `trailing` right-aligned in tabular `meta`, and the
+`secondary` line under it in `fg-subtle`; and a bare leaf that alone steps in
+by `level`. `SidebarFooter` is the last row, padded 8px over a 0.5px hairline;
+the consumer fills it (desktop puts its gateway status row there).
+
 `ConsoleContent` retains the existing bounded `ScrollArea` as the view's
 vertical scroll owner. Record sections stack in schema order. Related pairs
 use two columns when room permits and one column at narrow widths. Action

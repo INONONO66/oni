@@ -139,7 +139,12 @@ describe("real tabs", () => {
     expect(list.getAttribute("role")).toBe("tablist");
     expect(list.getAttribute("aria-label")).toBeTruthy();
     expect(list.className).toContain("overflow-x-auto");
-    expect(list.contains(node(host, '[data-ui="TabStrip.Create"]'))).toBe(false);
+    expect(list.className).toContain("items-center gap-1.5 overflow-x-auto pr-2");
+    const create = node(host, '[data-ui="TabStrip.Create"]');
+    expect(list.contains(create)).toBe(false);
+    expect(list.nextElementSibling).toBe(create);
+    expect(create.dataset.size).toBe("base");
+    expect(list.parentElement?.className).toContain("items-center gap-1.5");
     expect(host.querySelectorAll('[data-ui="Tab"]')).toHaveLength(3);
     for (const record of records) {
       const button = node(host, `#tab-${record.id}`);
@@ -147,8 +152,13 @@ describe("real tabs", () => {
       if (wrapper === null) throw new Error("Missing wrapper");
       expect(wrapper.dataset.ui).toBe("Tab");
       expect(wrapper.className).toContain("group/tab no-drag");
-      expect(wrapper.className).toContain("min-w-24");
-      expect(wrapper.className).toContain("max-w-56");
+      expect(wrapper.className).toContain("h-tab-height w-56 min-w-24 max-w-56");
+      expect(wrapper.className).toContain("gap-1.5 rounded-card border-[0.5px] px-2.5");
+      expect(wrapper.className).toContain("font-medium text-label");
+      expect(wrapper.className).toContain(
+        record.active ? "border-line bg-raised text-fg" : "border-transparent text-fg-muted hover:bg-hover",
+      );
+      expect(button.className).not.toMatch(/\bp[lrxy]?-/);
       expect(button.tagName).toBe("BUTTON");
       expect(button.getAttribute("role")).toBe("tab");
       expect(button.getAttribute("aria-label")).toBe(record.title);

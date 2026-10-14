@@ -44,12 +44,12 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     await act(() => key("["));
     expect(consoleStore.state.sidebarOpen).toBe(true);
     expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
-    await click('[data-ui="Sidebar.Nav"] button:nth-child(2)');
+    await click('[data-ui="Sidebar.Nav"] button:nth-child(3)');
     expect(activeTab(consoleStore.state)?.place ?? null).toEqual({ kind: "route", route: "automations" });
     // A plain click moves the current tab (the empty column materializes exactly one); it never grows the strip.
     const tabsBefore = consoleStore.state.tabs.length;
     expect(tabsBefore).toBe(1);
-    await click('[data-ui="Sidebar.Nav"] button:nth-child(1)');
+    await click('[data-ui="Sidebar.Nav"] button:nth-child(2)');
     expect(activeTab(consoleStore.state)?.place ?? null).toEqual({
       kind: "route",
       route: "sessions",
@@ -57,7 +57,7 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     expect(consoleStore.state.tabs.length).toBe(tabsBefore);
     await act(() =>
       window.document
-        .querySelector('[data-ui="Sidebar.Nav"] button:nth-child(2)')
+        .querySelector('[data-ui="Sidebar.Nav"] button:nth-child(3)')
         ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true })),
     );
     expect(consoleStore.state.tabs.length).toBe(tabsBefore + 1);
@@ -69,18 +69,22 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     expect(consoleStore.state.sidebarOpen).toBe(false);
     await act(() => key("["));
     expect(consoleStore.state.sidebarOpen).toBe(true);
-    await click('button[aria-label="New session"]');
-    expect(consoleStore.state.sessions).toHaveLength(1);
-    const selected = consoleStore.state.sessions[0]?.id ?? "";
+    // Boot already opened one session tab; New session adds a second and activates it.
+    const booted = consoleStore.state.sessions[0]?.id ?? "";
+    expect(booted).not.toBe("");
+    await click('[data-ui="Sidebar.Nav"] button:first-child');
+    expect(consoleStore.state.sessions).toHaveLength(2);
+    const selected = consoleStore.state.sessions[1]?.id ?? "";
     expect(selected).not.toBe("");
+    expect(selected).not.toBe(booted);
     expect(activeTab(consoleStore.state)?.place ?? null).toEqual({
       kind: "session",
       sessionId: selected,
     });
     expect(host.querySelector("textarea")?.disabled).toBe(true);
-    await click('button[aria-label="New session"]');
-    expect(consoleStore.state.sessions).toHaveLength(2);
-    // Neither session has been prompted: the tree lists nothing until one earns a title.
+    await click('[data-ui="Sidebar.Nav"] button:first-child');
+    expect(consoleStore.state.sessions).toHaveLength(3);
+    // No session has been prompted: the tree lists nothing until one earns a title.
     expect(host.querySelector(`#session-row-${selected}`)).toBeNull();
     await act(() => setSessionTitleIfPlaceholder(selected, "fix the build"));
     expect(host.querySelectorAll('[id^="session-row-"]')).toHaveLength(1);
@@ -98,7 +102,7 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     );
     expect(host.querySelector('[role="combobox"]')).toBeNull();
     await act(() => key("x"));
-    expect(consoleStore.state.sessions).toHaveLength(2);
+    expect(consoleStore.state.sessions).toHaveLength(3);
 
     const messages: OpenOmniUIMessage[] = [
       {
