@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { DecisionFact, type Storage, type Storage as ProtocolStorage } from "@openomni/protocol";
 import { z } from "zod";
-import { parsePlainJson } from "./json";
+import { parsePlainJson } from "./storage/sqlite-l0-rows";
 
 namespace DecisionFacts {
   export type Port = ProtocolStorage.DecisionFactSubAdapter;

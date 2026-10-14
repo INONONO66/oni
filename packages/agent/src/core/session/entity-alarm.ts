@@ -1,5 +1,5 @@
 import type { LedgerError } from "../store/errors";
-import { parsePlainJson } from "../store/json";
+import { parsePlainJson } from "../store/storage/sqlite-l0-rows";
 import { canonicalJson, PlainValueSchema } from "@openomni/protocol";
 import { Effect, Schema } from "effect";
 import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, DeadlineAlarmBody } from "../journal/messages";

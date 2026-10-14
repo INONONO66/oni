@@ -2,7 +2,7 @@ import { sessionTree } from "../helpers/session-tree";
 import { Effect } from "effect";
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { parsePlainJson, readPlainJson } from "../../../src/core/store/json";
+import { parsePlainJson, readPlainJson } from "../../../src/core/store/storage/sqlite-l0-rows";
 import { testExecutor } from "../../helpers/executor";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { requestLedger } from "../../helpers/effect-g1";

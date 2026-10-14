@@ -10,7 +10,8 @@ import { createDispatcher, defineTool } from "../../helpers/effect-g3-dispatcher
 import { z } from "zod";
 import { dispatchEcho } from "../../helpers/echo-dispatch";
 import { expectFailedToolCommit } from "../../helpers/execution-assertions";
-import { recordingExecutor } from "../../helpers/effect-g3";
+import { recordingExecutor, recordingLedger } from "../../helpers/effect-g3";
+import { createExecutionRecord } from "../../../src/core/loop/record";
 import {
   actionCommitGate,
   compiledPolicy,
@@ -151,3 +152,25 @@ it("publishes TimedOut and Completed exactly once after the timeout result commi
     ]);
   }).pipe(Effect.provide(TestClock.layer())),
 ));
+
+it("publishes tool lifecycle events to a sink without scope", () => {
+  const observations = recordingToolObservations();
+  const record = createExecutionRecord({
+    ...recordingLedger(),
+    identity: { sessionId: "session-1", role: "resident", parentActionId: null },
+    observations: { publish: (event) => observations.observe(event.name) },
+    clock: () => 10,
+  });
+  const request = {
+    kind: "tool",
+    op: "echo",
+    intent: {},
+    effect: {},
+    toolObservation: { turnId: "turn-1", callId: "call-1" },
+  };
+
+  const startedAt = record.publishToolStarted(request);
+  record.publishToolTerminal(request, startedAt, "success");
+
+  expect(observations.names).toEqual([Tool.Events.Started.name, Tool.Events.Completed.name]);
+});

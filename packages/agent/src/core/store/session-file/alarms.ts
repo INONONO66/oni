@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { canonicalJson, PlainObjectSchema } from "@openomni/protocol";
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
-import { parsePlainJson } from "../json";
+import { parsePlainJson } from "../storage/sqlite-l0-rows";
 
 /** One armed occurrence restored from the `armed_alarms` index ( S3). */
 export interface ArmedAlarmRow {

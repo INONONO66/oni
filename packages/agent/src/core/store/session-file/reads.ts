@@ -3,7 +3,7 @@ import { Journal, type LedgerAction, SessionTransition, type ObservationSink, ty
 import { z } from "zod";
 import { thrownAsError } from "../../ports/failure";
 import { LedgerInvariant } from "../errors";
-import { parsePlainJson } from "../json";
+import { parsePlainJson } from "../storage/sqlite-l0-rows";
 import { ActionSqlRow, decodeAction } from "../storage/sqlite-l0-rows.js";
 
 const pageSize = z.number().int().positive().max(256);

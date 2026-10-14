@@ -6,7 +6,7 @@ export {
   type ExecutionError, pretty, renderBodyCause, thrownAsError,
 } from "./ports/failure";
 export type { SessionKernel } from "./session/entity";
-export { parsePlainJson, readPlainJson } from "./store/json";
+export { parsePlainJson, readPlainJson } from "./store/storage/sqlite-l0-rows";
 export { Entropy } from "./ports/ports";
 export { RunEvents } from "./observation/run-events";
 // Alarm seam: exactly what an alarm capability needs.
