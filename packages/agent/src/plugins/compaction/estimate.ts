@@ -61,39 +61,15 @@ export function isIneffectiveCompaction(savedTokens: number, tokensBefore: numbe
 export function prepareSummarizerInput(
   messages: readonly Message.WithParts[],
   contextWindowTokens: number,
-  previousAnchor?: string,
 ): { readonly messages: Message.WithParts[]; readonly budget: SummarizationBudget } {
   const halfWindow = Math.max(0, Math.floor(contextWindowTokens * 0.5));
-  const messageBudget = Math.max(
-    0,
-    halfWindow - Math.ceil(weightedTextChars(previousAnchor ?? "") / ESTIMATED_CHARS_PER_TOKEN),
-  );
   const budget = {
     maxInputTokens: halfWindow,
     maxOutputTokens: Math.min(32_768, halfWindow),
     contextWindowTokens,
   };
-  const elided = messages.map((message) => {
-    let changed = false;
-    const parts = message.parts.map((part) => {
-      if (part.type !== "tool" || part.state.status !== "completed") return part;
-      const marker = `[tool output elided for summarization: ${part.state.output.length} chars]`;
-      if (marker.length >= part.state.output.length) return part;
-      changed = true;
-      return { ...part, state: { ...part.state, output: marker } };
-    });
-    return changed ? { ...message, parts } : message;
-  });
-  // Linear prefix drop: per-message weights summed once, byte-identical to the quadratic re-scan.
-  const weights = elided.map(weightedMessageChars);
-  let suffixChars = 0;
-  for (const weight of weights) suffixChars += weight;
-  let first = 0;
-  while (first < elided.length && Math.ceil(suffixChars / ESTIMATED_CHARS_PER_TOKEN) > messageBudget) {
-    suffixChars -= weights[first] ?? 0;
-    first += 1;
-  }
-  return { messages: elided.slice(first), budget };
+  // The budget advises the summarizer; rewriting the supplied prefix breaks cache identity.
+  return { messages: [...messages], budget };
 }
 
 export function resolveThresholdTokens(

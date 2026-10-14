@@ -1,7 +1,7 @@
 import type { Message } from "@openomni/protocol";
 import type { CompactionCandidate } from "./speculate";
 
-// User messages and prior anchor renders never enter summarizer content.
+// A summary sees the original leading prefix; preservation is decided separately.
 export function planAnchoredCut(
   messages: readonly Message.WithParts[],
   protectRecentMessages: number,
@@ -17,13 +17,13 @@ export function planAnchoredCut(
   const cutoff = messages.length - protectRecentMessages;
   if (cutoff <= 0) return undefined;
   const toRemove = messages.slice(0, cutoff);
+  if (!toRemove.some((message) => message.info.role !== "user" && !isAnchorMessage(message)))
+    return undefined;
   return {
     prefixIds: toRemove.map((message) => message.info.id),
     prefixFingerprint: canonicalPrefixFingerprint(toRemove),
     previousAnchor: latestAnchorBody(toRemove),
-    summarizerInput: toRemove.filter(
-      (message) => message.info.role !== "user" && !isAnchorMessage(message),
-    ),
+    summarizerInput: toRemove,
   };
 }
 

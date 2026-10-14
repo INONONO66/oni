@@ -109,6 +109,7 @@ function replacementRecord(
 
 export function attemptAnchoredCut(
   cutSpan: Message.WithParts[],
+  summaryPrefix: Message.WithParts[],
   keepSpan: Message.WithParts[],
   precomputed: string | undefined,
   working: Message.WithParts[],
@@ -121,18 +122,17 @@ export function attemptAnchoredCut(
   const { id } = yield* Entropy;
   const anchorTime = yield* Clock.currentTimeMillis;
   const previousAnchor = latestAnchorBody(cutSpan);
-  const summarizerInput = cutSpan.filter(
+  const hasSummarizableContent = cutSpan.some(
     (message) => message.info.role !== "user" && !isAnchorMessage(message),
   );
-  const { messages: boundedInput, budget } = prepareSummarizerInput(
-    summarizerInput,
+  const { messages: summarizerInput, budget } = prepareSummarizerInput(
+    summaryPrefix,
     contextWindowTokens,
-    previousAnchor,
   );
   let anchorText = precomputed ?? previousAnchor;
   let summarizerError: Error | undefined;
-  if (precomputed === undefined && boundedInput.length > 0) {
-    const merged = yield* Effect.result(onSummarize(boundedInput, previousAnchor, budget));
+  if (precomputed === undefined && hasSummarizableContent) {
+    const merged = yield* Effect.result(onSummarize(summarizerInput, previousAnchor, budget));
     if (Result.isSuccess(merged)) {
       anchorText = merged.success.trim().length > 0 ? merged.success : previousAnchor;
     } else {

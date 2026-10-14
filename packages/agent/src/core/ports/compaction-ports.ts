@@ -25,6 +25,7 @@ export interface CompactionYield {
 }
 
 export interface SummarizationBudget {
+  /** Advisory input allocation; the leading messages are delivered without trimming. */
   readonly maxInputTokens: number;
   readonly maxOutputTokens: number;
   readonly contextWindowTokens: number;
@@ -40,7 +41,7 @@ export interface CompactionOptions {
   contextWindowTokens?: number;
   reserveTokens?: number;
   protectRecentMessages?: number;
-  /** Merges the newly cut span into the previous anchor body; it never regenerates. */
+  /** Receives the unchanged leading prefix, including users and the prior anchor render. */
   onSummarize?: (
     messages: Message.WithParts[],
     previousAnchor: string | undefined,

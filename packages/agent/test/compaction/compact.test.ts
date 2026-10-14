@@ -192,7 +192,7 @@ describe("Compaction", () => {
       expect(texts).not.toContain("old-1");
     });
 
-    it("passes a bounded summarizer budget contract", async () => {
+    it("passes an advisory budget without rewriting the leading prefix", async () => {
       const messages = Array.from({ length: 8 }, (_: undefined, index: number) =>
         index % 2 === 0
           ? makeUserMessage(`user ${index}`)
@@ -228,7 +228,7 @@ describe("Compaction", () => {
       );
       expect(observed?.maxInputTokens).toBe(1000);
       expect(observed?.maxOutputTokens).toBe(1000);
-      expect(estimateMessagesTokens(observed?.input ?? [])).toBeLessThanOrEqual(1000);
+      expect(observed?.input).toEqual(messages.slice(0, -2));
     });
 
     it("weights long base64-like runs at four times their character length", () => {
@@ -238,7 +238,7 @@ describe("Compaction", () => {
         300,
       );
       const bounded = prepareSummarizerInput([encoded], 1000);
-      expect(bounded.messages).toHaveLength(0);
+      expect(bounded.messages).toEqual([encoded]);
     });
 
     it("inserts summary message when onSummarize is provided", async () => {
@@ -263,55 +263,35 @@ describe("Compaction", () => {
     });
   });
 
-  describe("summarizer input trimming (#1314)", () => {
-    // The quadratic reference this replaced: re-estimate the shrinking
-    // suffix with the public estimator until it fits the half-window budget.
-    function quadraticReference(
-      messages: readonly Message.WithParts[],
-      contextWindowTokens: number,
-    ): readonly Message.WithParts[] {
-      const budget = Math.max(0, Math.floor(contextWindowTokens * 0.5));
-      let first = 0;
-      while (first < messages.length && estimateMessagesTokens(messages.slice(first)) > budget) {
-        first += 1;
-      }
-      return messages.slice(first);
-    }
-
-    it("matches the quadratic reference on 500 individually over-budget messages", () => {
+  describe("unchanged summarizer input", () => {
+    it("preserves all 500 individually over-budget messages", () => {
       const messages = Array.from({ length: 500 }, (_: undefined, i: number) =>
         i % 2 === 0
           ? makeUserMessage(`user ${i} ${"content ".repeat(600)}`)
           : makeAssistantMessage(`assistant ${i} ${"content ".repeat(600)}`),
       );
       const result = prepareSummarizerInput(messages, 2000);
-      expect(result.messages).toEqual([...quadraticReference(messages, 2000)]);
+      expect(result.messages).toEqual(messages);
     });
 
-    it("matches the quadratic reference when the drop stops mid-list", () => {
+    it("preserves the leading messages when their total exceeds the advisory allocation", () => {
       const messages = Array.from({ length: 64 }, (_: undefined, i: number) =>
         i % 2 === 0
           ? makeUserMessage(`user ${i} ${"content ".repeat(20)}`)
           : makeAssistantMessage(`assistant ${i} ${"content ".repeat(20)}`),
       );
       const result = prepareSummarizerInput(messages, 8000);
-      const expected = quadraticReference(messages, 8000);
-      expect(expected.length).toBeGreaterThan(0);
-      expect(expected.length).toBeLessThan(messages.length);
-      expect(result.messages).toEqual([...expected]);
+      expect(estimateMessagesTokens(messages)).toBeGreaterThan(result.budget.maxInputTokens);
+      expect(result.messages).toEqual(messages);
     });
 
-    it("matches the quadratic reference when the kept suffix lands exactly on the budget", () => {
-      // Review r1 L2: the `>` stop edge. Four 400-char user messages are 100
-      // tokens each (400/4, no rounding); at a 400-token window the budget is
-      // 200, so the drop stops when the suffix estimate EQUALS the budget.
+    it("preserves the prefix even when a suffix would fit exactly", () => {
       const messages = Array.from({ length: 4 }, (_: undefined, i: number) =>
         makeUserMessage(`${i}`.padEnd(400, "x")),
       );
       const result = prepareSummarizerInput(messages, 400);
-      expect(result.messages).toEqual([...quadraticReference(messages, 400)]);
-      expect(result.messages).toHaveLength(2);
-      expect(estimateMessagesTokens(result.messages)).toBe(200);
+      expect(result.messages).toEqual(messages);
+      expect(estimateMessagesTokens(result.messages)).toBe(400);
     });
 
     it("returns no messages and an intact budget for zero inputs", () => {
@@ -503,7 +483,7 @@ describe("Compaction", () => {
     const trace = { traceId: TEST_TRACE_ID, sessionId: "test" };
     const opts = { contextWindowTokens: 1000, protectRecentMessages: 2 };
 
-    it("excludes user messages from the summarizer and preserves them byte-exact", async () => {
+    it("includes user messages in the summarizer and preserves them byte-exact", async () => {
       const userText = `제약: 절대 요약하지 마라\n${"x".repeat(50)}\t🧭`;
       const seen: Message.WithParts[][] = [];
       const messages = [
@@ -531,9 +511,9 @@ describe("Compaction", () => {
         ),
       );
 
-      // Summarizer saw assistants only.
+      // Summarizer receives the original prefix, independently of preservation.
       expect(seen).toHaveLength(1);
-      expect(seen[0]?.every((m: Message.WithParts) => m.info.role === "assistant")).toBe(true);
+      expect(seen[0]).toEqual(messages.slice(0, -2));
       // Every user message survives byte-exact, in order, after the anchor —
       // each preceded by its policy-injected time marker, which is a
       // separate part and never touches the user's bytes.
@@ -555,7 +535,7 @@ describe("Compaction", () => {
       );
     });
 
-    it("threads the previous anchor body through the second cut — no recursive re-summarization", async () => {
+    it("threads the previous anchor body alongside the unchanged second prefix", async () => {
       const calls: Array<{ input: Message.WithParts[]; previous: string | undefined }> = [];
       const summarize = (input: Message.WithParts[], previous?: string) =>
         Effect.sync(() => {
@@ -604,14 +584,9 @@ describe("Compaction", () => {
       );
 
       expect(calls).toHaveLength(2);
-      // The previous anchor arrived as state, not as content:
+      // The previous anchor remains explicit state as well as original prefix content.
       expect(calls[1]?.previous).toBe("anchor-v1");
-      // ...and the anchor RENDER never re-entered the summarizer input.
-      const secondInputTexts = calls[1] === undefined ? undefined : textsOf(calls[1].input);
-      expect(secondInputTexts?.some((t: string) => t.includes("anchor-v1"))).toBe(false);
-      expect(calls[1]?.input.every((m: Message.WithParts) => m.info.role === "assistant")).toBe(
-        true,
-      );
+      expect(calls[1]?.input).toEqual(grown.slice(0, -2));
       // Exactly one anchor message in the result — replaced, not stacked.
       const anchors = second.messages.filter((m: Message.WithParts) =>
         m.parts.some(
