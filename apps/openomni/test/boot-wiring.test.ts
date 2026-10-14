@@ -177,7 +177,7 @@ describe("channel supervisor", () => {
   test("a stage owns its grant, route, and webhook; stopAll revokes all of them", async () => {
     const calls: string[] = [];
     const route: ProviderDeliveryRoute = async () => ({ value: "accepted" });
-    const typing: ProviderTypingRoute = async () => undefined;
+    const typing: ProviderTypingRoute = { everyMs: 4_000, open: async (externalId) => ({ channelId: externalId }), pulse: async () => undefined };
     const routed = fakeChannel("telegram", calls, { deliveryRoute: route, typingRoute: typing });
     const ingressOnly = fakeChannel("github", calls, { webhook: true });
     const { supervisor, deliveryRoutes, typingRoutes, webhookHandlers } = supervisorFor(() => ({

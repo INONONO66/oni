@@ -93,7 +93,8 @@ describe("Discord outbound calls", () => {
       () => undefined,
       injectedOptions(),
     );
-    await runtime.typingRoute?.("U1", { channelId: "C1" });
+    if (runtime.typingRoute === undefined) throw new Error("discord has no typing route");
+    await runtime.typingRoute.pulse(await runtime.typingRoute.open("U1", { channelId: "C1" }));
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe("https://discord.com/api/v10/channels/C1/typing");
     expect(calls[0]?.method).toBe("POST");

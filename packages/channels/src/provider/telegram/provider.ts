@@ -32,7 +32,12 @@ export const TelegramProvider: ChannelProvider<TelegramCredentials, "telegram"> 
         surface
           .deliver(externalId, payload, idempotencyKey, conversation)
           .then(kernelDeliveryReceipt),
-      typingRoute: (externalId, conversation) => surface.typing(externalId, conversation),
+      // sendChatAction shows "typing" for about five seconds.
+      typingRoute: {
+        everyMs: 4_000,
+        open: (externalId, conversation) => surface.openTyping(externalId, conversation),
+        pulse: (conversation) => surface.typing(conversation),
+      },
     };
   },
 };

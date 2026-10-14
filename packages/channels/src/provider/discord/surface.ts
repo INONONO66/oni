@@ -151,10 +151,14 @@ export class DiscordAdapter implements Channel.Surface {
     );
   }
 
-  async typing(externalId: string, conversation?: Gateway.Conversation): Promise<void> {
-    const traceId = newTraceId(this.options.id);
-    const channelId = conversation?.channelId ?? (await this.dmChannel(externalId, traceId));
-    await this.client.typing(channelId, traceId);
+  /** A DM channel is created once per turn, not once per pulse. */
+  async openTyping(externalId: string, conversation?: Gateway.Conversation): Promise<Gateway.Conversation> {
+    if (conversation !== undefined) return conversation;
+    return { channelId: await this.dmChannel(externalId, newTraceId(this.options.id)) };
+  }
+
+  typing(conversation: Gateway.Conversation): Promise<void> {
+    return this.client.typing(conversation.channelId, newTraceId(this.options.id));
   }
 
   private dmChannel(externalId: string, traceId: string): Promise<string> {

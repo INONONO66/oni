@@ -40,7 +40,12 @@ export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord"> = {
         surface
           .deliver(externalId, payload, idempotencyKey, conversation)
           .then(kernelDeliveryReceipt),
-      typingRoute: (externalId, conversation) => surface.typing(externalId, conversation),
+      // POST /channels/{id}/typing shows the indicator for about ten seconds.
+      typingRoute: {
+        everyMs: 8_000,
+        open: (externalId, conversation) => surface.openTyping(externalId, conversation),
+        pulse: (conversation) => surface.typing(conversation),
+      },
     };
   },
 };
