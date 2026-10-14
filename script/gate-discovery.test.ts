@@ -24,7 +24,6 @@ function fixture(): string {
   for (const name of [
     "topology.ts",
     "check-deps.ts",
-    "check-core-end-state.ts",
     "core-end-state-targets.ts",
     "check-import-cycles.ts",
     "lint-side-effects.ts",

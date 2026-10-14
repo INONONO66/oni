@@ -58,8 +58,6 @@ URLs require bot-token authentication when retrieved; Telegram file IDs
 require platform resolution. Automation rules and conditions, animated/video
 stickers, and inbound download/authentication tooling are not changed here.
 
-||||||| parent of b1e8f9b38 (ci(mutation): drop the nightly schedule that never completed a shard (#1049))
-||||||| parent of ad0cacb1b (refactor(app): direct-token pin to 0 via entity deliver; seam identifiers renamed (#1481))
 ## #1497 one outbound payload for every channel: parts, media, reactions (PR #1504, base `55ac51ecd`)
 
 On `feat/channels-unified-outbound` (2026-10-14). The agent produces one
@@ -328,7 +326,6 @@ The comment gate has one enforcement layer, its existing exact per-file pins.
 - Review r1: High 1 — the tool-call continue path called `compact("threshold")` and could execute a compaction where main only prepared; prepare-only semantics restored through the port with a test proving a continue step above threshold writes zero `compaction` rows while end-of-turn still compacts. Medium 5 — M1 the speculative-grace deferral applies to `yield` again (a window yield with a speculative summary in flight defers instead of launching a second summarizer), M2 the yield point is armed from the model window only, M3 `compaction-off.test.ts` now fails the second call as a real context overflow and asserts zero compaction rows: the first turn stops normally and the second settles with the original typed provider failure (a successful second turn is impossible under the no-retry contract with compaction off), M4 `DEFAULT_TOOL_OUTPUT_ELISION` is no longer exported and elision is tested by behavior, M5 this stamp and this section replace the stale `applyCompaction` description. Lows carried as PR comments.
 - Verification: packages/agent 1441 pass / 0 fail (217 files), apps/openomni 846 / 0 (117 files); check-types, lint, lint:tools, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types and check-comment-residue exit 0; the full local gate (`gate-1353.log`) exits 0 on the reviewed head. Four app bundle-list pins gained the shipped `compaction-summarizer` / `compaction-strategy` bundles (test-only).
 
-||||||| parent of e83096bf0 (docs: stamp and implementation status for the desktop shell baseline (#1479))
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
 On `fix1337/1457-driver-trigger-contract` (2026-10-13, base `e7677bbad`, PR #1461).

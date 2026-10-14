@@ -358,11 +358,12 @@ test("#1481: persisted keys, module paths and prose are not TypeScript identifie
   expect(appPortVocabularyViolations("apps/openomni/test/probe.ts", "const CustomSeam = 1;")).toEqual([]);
 });
 
-test("#1481: dependency and end-state scans both reject a returning app port identifier", async () => {
+test("#1481: the end-state scan alone rejects a returning app port identifier", async () => {
   const root = scratchAppsTree({ "bundles/probe.ts": "export const ToolCapabilitySeam = {};\n" });
   const violation = "VIOLATION: apps/openomni/src/bundles/probe.ts:1 names retired app port identifier ToolCapabilitySeam";
   try {
-    expect(await validateAppsAgentBarrel(root)).toEqual([violation]);
+    // One enforcement layer per invariant: the dependency scan does not repeat it.
+    expect(await validateAppsAgentBarrel(root)).toEqual([]);
     expect(await checkCoreEndState(root)).toContain(violation);
   } finally {
     rmSync(root, { recursive: true, force: true });
