@@ -3,7 +3,7 @@ import { typingPulse, type ProviderTypingRoute } from "@openomni/channels";
 import { Bundle, Core } from "@openomni/agent";
 const ObservationSink = Core.ObservationSink;
 type ObservationSink = Core.ObservationSink;
-import { Effect } from "effect";
+import { Effect, Exit, Fiber } from "effect";
 const createSessionChatRunner = Core.createSessionChatRunner;
 const createTurnDispatcher = Bundle.createTurnDispatcher;
 const failureFacts = Core.failureFacts;
@@ -18,7 +18,6 @@ import {
   type LedgerSession,
   type Model,
   type PlainValue,
-  type Outbound,
   type Tool,
 } from "@openomni/protocol";
 import { z } from "zod";
@@ -102,86 +101,92 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
   return undefined;
 }
 
-type ReactionRoute = (
-  externalId: string,
-  payload: Outbound.Payload,
-  idempotencyKey: string,
-  conversation?: Gateway.Conversation,
-) => Promise<Outbound.Receipt>;
-
 interface AckReactionSettings {
   readonly pending: string;
   readonly ok: string;
   readonly failed: string;
 }
 
-async function sendReaction(
-  route: ReactionRoute | undefined,
-  target: ReplyTarget,
-  emoji: string,
-  idempotencyKey: string,
-  remove?: boolean,
-): Promise<boolean> {
-  if (route === undefined) return false;
-  const conversation = target.reactionConversation;
-  if (conversation === undefined) return false;
-  const messageId = conversation.replyToMessageId;
-  if (messageId === undefined) return false;
-  try {
-    const receipt = await route(
-      target.actorId,
-      { kind: "react", messageId, emoji, ...(remove === true ? { remove: true } : {}) },
-      idempotencyKey,
-      conversation,
-    );
-    return receipt.value === "accepted";
-  } catch {
-    return false;
-  }
+/** The gateway's send door a reaction goes through; the composing app hands over its message port. */
+interface ReactionPort {
+  ingest(sender: Gateway.IngestSender, message: Gateway.SendMessage): Promise<Gateway.IngestResult>;
 }
 
 interface ReactionPlan {
-  readonly target: ReplyTarget;
-  readonly route: ReactionRoute;
+  readonly port: ReactionPort;
+  readonly sessionId: string;
+  readonly actorId: string;
+  readonly surface: string;
+  readonly conversation: Gateway.Conversation;
+  readonly messageId: string;
   readonly ack: AckReactionSettings;
 }
 
-function reactionPlan(
-  options: ResidentOptions,
-  input: Parameters<SessionRunner>[0],
-): ReactionPlan | undefined {
-  const target = externalReplyTarget(input);
+/**
+ * The acknowledgement reactions one channel turn owes (#1506): the person's
+ * message, the surface it sits on and the three emoji. None when reactions
+ * are off, the turn only observes (evidence-only input is never answered,
+ * not even with an emoji), or the origin names no message to react to.
+ */
+function reactionPlan(options: ResidentOptions, input: Parameters<SessionRunner>[0]): ReactionPlan | undefined {
   const ack = options.ackReaction;
-  if (target?.reactionConversation === undefined || ack === undefined) return undefined;
-  const route = options.reactionRoutes?.().get(target.surface);
-  if (route === undefined) return undefined;
-  return { target, route, ack };
+  const port = options.reactions;
+  if (ack === undefined || port === undefined || input.authority === "evidence_only") return undefined;
+  const target = externalReplyTarget(input);
+  const conversation = target?.reactionConversation;
+  const messageId = conversation?.replyToMessageId;
+  if (target === undefined || conversation === undefined || messageId === undefined) return undefined;
+  return { port, sessionId: input.sessionId, actorId: target.actorId, surface: target.surface, conversation, messageId, ack };
 }
 
-function pendingReaction(plan: ReactionPlan | undefined, input: Parameters<SessionRunner>[0]): Effect.Effect<boolean> {
+/**
+ * One reaction through the gateway's send door, so grants, budget and the
+ * sent audit apply as to any letter. A refusal or a failed send never fails
+ * the turn: the person still gets the report.
+ */
+function react(plan: ReactionPlan, emoji: string, replaces?: string): Effect.Effect<void> {
   return Effect.promise(() =>
-    plan === undefined
-      ? Promise.resolve(false)
-      : sendReaction(plan.route, plan.target, plan.ack.pending, `ack:${input.sessionId}:${input.turnId}:pending`),
+    plan.port
+      .ingest(
+        { kind: "session", id: plan.sessionId },
+        {
+          to: { kind: "actor", actorId: plan.actorId, surface: plan.surface, conversation: plan.conversation },
+          type: "message",
+          content: { kind: "react", messageId: plan.messageId, emoji, ...(replaces === undefined ? {} : { replaces }) },
+        },
+      )
+      .then(
+        () => undefined,
+        () => undefined,
+      ),
   );
 }
 
-function terminalReaction(
+/**
+ * The pending emoji goes up while the model runs; once the turn settles the
+ * surface swaps it for the terminal one. An interrupted or failed turn is a
+ * failed one; a refused pending reaction still ends with the terminal emoji,
+ * the swap tolerating an emoji that was never there.
+ */
+function acknowledged<A, E, R>(
   plan: ReactionPlan | undefined,
-  pendingAck: boolean,
-  input: Parameters<SessionRunner>[0],
-  result: Core.SessionRunnerResult,
-): Effect.Effect<void> {
-  return Effect.promise(() =>
-    plan === undefined || !pendingAck
-      ? Promise.resolve()
-      : sendReaction(
-          plan.route,
-          plan.target,
-          result.kind === "result" ? plan.ack.ok : plan.ack.failed,
-          `ack:${input.sessionId}:${input.turnId}:terminal`,
-          true,
-        ).then(() => undefined),
+  turn: Effect.Effect<A, E, R>,
+  succeeded: (value: A) => boolean,
+): Effect.Effect<A, E, R> {
+  if (plan === undefined) return turn;
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const pending = yield* Effect.forkScoped(react(plan, plan.ack.pending), { startImmediately: true });
+      return yield* turn.pipe(
+        Effect.onExit((exit) =>
+          Fiber.await(pending).pipe(
+            Effect.andThen(
+              react(plan, Exit.isSuccess(exit) && succeeded(exit.value) ? plan.ack.ok : plan.ack.failed, plan.ack.pending),
+            ),
+          ),
+        ),
+      );
+    }),
   );
 }
 
@@ -278,10 +283,10 @@ export interface ResidentOptions {
    * (tests, unset env) leaves the core default.
    */
   readonly toolOutputBudgetBytes?: number;
-  /** Optional external-channel acknowledgement reactions; absent means off. */
+  /** Acknowledgement reactions on channel messages (#1506); absent means off. */
   readonly ackReaction?: AckReactionSettings;
-  /** Live provider routes, read when a turn starts so channel mounts can change. */
-  readonly reactionRoutes?: () => ReadonlyMap<string, ReactionRoute>;
+  /** Where those reactions are sent; absent means no surface can carry them. */
+  readonly reactions?: ReactionPort;
 }
 
 /** Resident and child use the same session-owned runner and dispatcher. */
@@ -343,8 +348,6 @@ export function createResident(options: ResidentOptions) {
       // never duplicates an accepted send_message to the same person, and a
       // refused one leaves the person still owed the report.
       const repliedTo = new Set<string>();
-      const plan = reactionPlan(options, input);
-      const pendingAck = yield* pendingReaction(plan, input);
       const runner = createSessionChatRunner({
         prepare: () => Effect.succeed({
           config: {
@@ -388,31 +391,33 @@ export function createResident(options: ResidentOptions) {
         // #1276: product choice injected into the core seam.
         pinnedModel: pinnedModelSelection,
       });
-      // The typing scope closes with the model run, before the report goes out,
-      // so no pulse can land after the reply and show "composing" again.
-      const result = yield* Effect.scoped(Effect.gen(function* () {
-        const pulse = typingFor(row.role, input, options.typingRoute);
-        if (pulse !== undefined) yield* pulse.pipe(Effect.forkScoped);
-        return yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
-      }));
-      // An approved person who wrote in on a channel is reported to directly;
-      // sessions and other contacts are reached only by an explicit send_message.
-      const report = pendingReport(input, result, repliedTo);
-      if (report !== undefined) {
-        yield* dispatcher.execute(
-          {
-            id: options.id(),
-            tool: "send_message",
-            input: {
-              to: contactFor(report.target),
-              message: report.text,
+      const turn = Effect.gen(function* () {
+        // The typing scope closes with the model run, before the report goes out,
+        // so no pulse can land after the reply and show "composing" again.
+        const result = yield* Effect.scoped(Effect.gen(function* () {
+          const pulse = typingFor(row.role, input, options.typingRoute);
+          if (pulse !== undefined) yield* pulse.pipe(Effect.forkScoped);
+          return yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
+        }));
+        // An approved person who wrote in on a channel is reported to directly;
+        // sessions and other contacts are reached only by an explicit send_message.
+        const report = pendingReport(input, result, repliedTo);
+        if (report !== undefined) {
+          yield* dispatcher.execute(
+            {
+              id: options.id(),
+              tool: "send_message",
+              input: {
+                to: contactFor(report.target),
+                message: report.text,
+              },
             },
-          },
-          { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
-        );
-      }
-      yield* terminalReaction(plan, pendingAck, input, result);
-      return result;
+            { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
+          );
+        }
+        return result;
+      });
+      return yield* acknowledged(reactionPlan(options, input), turn, (result) => result.kind === "result");
     });
   return {
     runnerFor,

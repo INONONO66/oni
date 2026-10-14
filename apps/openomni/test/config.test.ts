@@ -639,7 +639,12 @@ describe("ws exposure enforcement", () => {
     process.env.OPENOMNI_ACK_REACTION = JSON.stringify({ pending: "👀", ok: "✅", failed: "❌" });
     expect(loadConfig().ackReaction).toEqual({ pending: "👀", ok: "✅", failed: "❌" });
     process.env.OPENOMNI_ACK_REACTION = JSON.stringify({ pending: "👀" });
-    expect(() => loadConfig()).toThrow("OPENOMNI_ACK_REACTION");
+    expect(() => loadConfig()).toThrow(
+      expect.objectContaining({
+        name: "OpenOmniConfigurationError",
+        data: containing({ code: "invalid_ack_reaction" }),
+      }),
+    );
   });
 });
 

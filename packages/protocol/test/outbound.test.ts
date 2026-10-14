@@ -6,7 +6,7 @@ describe("Outbound (#1497)", () => {
     expect(Outbound.payload("hi")).toEqual({ kind: "message", parts: [{ kind: "text", text: "hi" }] });
     const react = { kind: "react", messageId: "m-1", emoji: "\u{1F44D}" } as const;
     expect(Outbound.payload(react)).toBe(react);
-    expect(Outbound.React.parse({ ...react, remove: true })).toEqual({ ...react, remove: true });
+    expect(Outbound.React.parse({ ...react, replaces: "\u{1F440}" })).toEqual({ ...react, replaces: "\u{1F440}" });
   });
 
   test("every part kind parses strictly and unknown kinds or extra keys are refused", () => {

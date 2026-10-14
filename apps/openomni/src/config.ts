@@ -564,16 +564,17 @@ function parseEnvJson<T>(
   name: string,
   schema: z.ZodType<T>,
   env: Record<string, string | undefined>,
+  code: ConfigurationError["data"]["code"] = "invalid_env_json",
 ): T | undefined {
   const raw = env[name]?.trim();
   if (raw === undefined || raw.length === 0) return undefined;
   const json = Result.try({ try: (): PlainValue => JSON.parse(raw), catch: String });
   if (Result.isFailure(json)) {
-    throw new ConfigurationError({ code: "invalid_env_json", message: `${name} is invalid JSON: ${json.failure}` });
+    throw new ConfigurationError({ code, message: `${name} is invalid JSON: ${json.failure}` });
   }
   const parsed = schema.safeParse(json.success);
   if (!parsed.success) {
-    throw new ConfigurationError({ code: "invalid_env_json", message: `${name} is invalid: ${parsed.error.issues[0]?.message}` });
+    throw new ConfigurationError({ code, message: `${name} is invalid: ${parsed.error.issues[0]?.message}` });
   }
   return parsed.data;
 }
@@ -611,10 +612,8 @@ const AckReaction = z.object({
 function ackReactionFromEnv(
   env: Record<string, string | undefined>,
 ): OpenOmniConfig["ackReaction"] {
-  const raw = env.OPENOMNI_ACK_REACTION?.trim();
-  if (raw === undefined || raw.length === 0 || raw === "off") return undefined;
-  const parsed = parseEnvJson("OPENOMNI_ACK_REACTION", AckReaction, env);
-  return parsed;
+  if (env.OPENOMNI_ACK_REACTION?.trim() === "off") return undefined;
+  return parseEnvJson("OPENOMNI_ACK_REACTION", AckReaction, env, "invalid_ack_reaction");
 }
 
 /** Declared ChannelInstance rows are the sole channel provisioning owner. */

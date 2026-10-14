@@ -5,7 +5,7 @@ import { createResident as createResidentBundle, type ResidentOptions as Residen
 import { catalogDefinitions, type ToolPorts } from "./catalog";
 import { toolCatalogLayer } from "./generation-layers";
 
-export type ResidentOptions = Omit<ResidentBundleOptions, "tools" | "presets" | "id" | "clock"> & {
+export type ResidentOptions = Omit<ResidentBundleOptions, "tools" | "presets" | "id" | "clock" | "reactions"> & {
   readonly tools: ToolPorts;
 };
 
@@ -28,5 +28,6 @@ export function createResident(options: ResidentOptions) {
     },
     id: ports.id,
     clock: ports.clock,
+    reactions: ports.messages,
   });
 }

@@ -158,7 +158,7 @@ export class SlackClient implements ChannelClient {
       { channel: channelId, timestamp: messageTs, name },
       traceId,
       this.botToken,
-      { schema: OkSchema, malformed: "reactions.add returned a malformed envelope" },
+      { schema: OkSchema, malformed: "reactions.add returned a malformed envelope", settled: ["already_reacted"] },
     );
   }
 
@@ -168,7 +168,7 @@ export class SlackClient implements ChannelClient {
       { channel: channelId, timestamp: messageTs, name },
       traceId,
       this.botToken,
-      { schema: OkSchema, malformed: "reactions.remove returned a malformed envelope" },
+      { schema: OkSchema, malformed: "reactions.remove returned a malformed envelope", settled: ["no_reaction"] },
     );
   }
 
@@ -186,7 +186,12 @@ export class SlackClient implements ChannelClient {
     body: Record<string, PlainValue>,
     traceId: string,
     token: string,
-    shape: { readonly schema: z.ZodType<T>; readonly malformed: string },
+    shape: {
+      readonly schema: z.ZodType<T>;
+      readonly malformed: string;
+      /** Platform errors that mean the requested state already holds; their envelope is returned, not refused. */
+      readonly settled?: readonly string[];
+    },
   ): Promise<T> {
     const res = await fetchWithRetry(
       `${BASE_URL}/${method}`,
@@ -210,7 +215,7 @@ export class SlackClient implements ChannelClient {
     if (!envelope.success) {
       throw new SlackApiError({ message: `slack ${method} returned a malformed envelope` });
     }
-    if (!envelope.data.ok) {
+    if (!envelope.data.ok && !shape.settled?.includes(envelope.data.error ?? "")) {
       throw new SlackApiError({
         message: `slack ${method} refused: ${envelope.data.error ?? "unspecified error"}`,
         rejected: true,

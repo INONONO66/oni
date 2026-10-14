@@ -14,19 +14,17 @@ import { providerFailure } from "./helpers/provider-failure";
 interface Ingested {
   readonly sender: Gateway.IngestSender;
   readonly to: Gateway.SendMessage["to"];
-  readonly content: Gateway.SendMessage["content"];
+  readonly content: Outbound.Payload;
 }
 
 function capturingPort(
   ingested: Ingested[],
   admit: (send: Gateway.SendMessage) => boolean = () => true,
-  events?: string[],
 ): MessagePort {
   return {
     ingest: async (sender, message) => {
       const send = message as Gateway.SendMessage;
-      ingested.push({ sender, to: send.to, content: send.content });
-      events?.push("report");
+      ingested.push({ sender, to: send.to, content: Outbound.payload(send.content) });
       if (!admit(send)) return { status: "blocked_pre", reasonCode: "message.resident.actor_grant" } satisfies Gateway.IngestResult;
       return {
         status: "executed",
@@ -62,6 +60,7 @@ interface ExternalOrigin {
   readonly actorId: string;
   readonly messageId: string;
   readonly conversation?: Readonly<Record<string, string | boolean>>;
+  readonly inboundTreatment?: "full_access" | "evidence_only";
 }
 
 async function deliverExternal(
@@ -88,116 +87,120 @@ async function deliverExternal(
 
 const telegramOwner = { surface: "telegram", externalId: "7", actorId: "person:owner", messageId: "telegram::7:1" };
 
-test("a configured channel turn acknowledges before reporting and settles the reaction", async () => {
+const ACK = { pending: "👀", ok: "✅", failed: "❌" };
+const ackOrigin = { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } };
+
+/** The reactions a turn sent through the gateway door, in order. */
+const reactionsOf = (ingested: readonly Ingested[]) =>
+  ingested.flatMap((entry) => (entry.content.kind === "react" ? [entry.content] : []));
+
+test("a configured channel turn acknowledges through the gateway door, reports, then swaps in the terminal emoji", async () => {
   const ingested: Ingested[] = [];
-  const events: string[] = [];
-  const reactions: Outbound.React[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
-    ackReaction: { pending: "👀", ok: "✅", failed: "❌" },
-    reactionRoutes: () => new Map([
-      ["telegram", async (_externalId, payload) => {
-        if (payload.kind !== "react") throw new Error("expected reaction");
-        reactions.push(payload);
-        events.push(payload.remove === true ? "terminal" : "ack");
-        return { value: "accepted" as const, externalMessageId: payload.messageId };
-      }],
-    ]),
-    tools: { messages: capturingPort(ingested, () => true, events) },
+    ackReaction: ACK,
+    tools: { messages: capturingPort(ingested) },
     sessionRuntime: { clock: () => 10 },
     llm: replyingLlm("pong"),
   });
-  await deliverExternal(
-    resident,
-    "reply-origin-ack",
-    {
-      ...telegramOwner,
-      conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false },
-    },
-    "ping",
-  );
-  expect(events).toEqual(["ack", "report", "terminal"]);
-  expect(reactions).toEqual([
+  await deliverExternal(resident, "reply-origin-ack", ackOrigin, "ping");
+  expect(ingested.map((entry) => entry.content.kind)).toEqual(["react", "message", "react"]);
+  expect(reactionsOf(ingested)).toEqual([
     { kind: "react", messageId: telegramOwner.messageId, emoji: "👀" },
-    { kind: "react", messageId: telegramOwner.messageId, emoji: "✅", remove: true },
+    { kind: "react", messageId: telegramOwner.messageId, emoji: "✅", replaces: "👀" },
   ]);
+  expect(ingested[0]).toMatchObject({
+    sender: { kind: "session", id: "reply-origin-ack" },
+    to: { kind: "actor", actorId: "person:owner", surface: "telegram", conversation: { channelId: "7", replyToMessageId: telegramOwner.messageId } },
+  });
 });
 
 test("ack reactions are off by default", async () => {
-  const reactions: Outbound.React[] = [];
+  const ingested: Ingested[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
-    reactionRoutes: () => new Map([
-      ["telegram", async (_externalId, payload) => {
-        if (payload.kind === "react") reactions.push(payload);
-        return { value: "accepted" as const };
-      }],
-    ]),
-    tools: { messages: capturingPort([]) },
+    tools: { messages: capturingPort(ingested) },
     sessionRuntime: { clock: () => 10 },
     llm: replyingLlm("pong"),
   });
-  await deliverExternal(
-    resident,
-    "reply-origin-ack-off",
-    { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } },
-    "ping",
-  );
-  expect(reactions).toEqual([]);
+  await deliverExternal(resident, "reply-origin-ack-off", ackOrigin, "ping");
+  expect(reactionsOf(ingested)).toEqual([]);
 });
 
-test("a reaction route that throws does not fail the turn", async () => {
+test("a failed turn settles the reaction as failed", async () => {
+  const ingested: Ingested[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    ackReaction: ACK,
+    tools: { messages: capturingPort(ingested) },
+    sessionRuntime: { clock: () => 10 },
+    llm: {
+      ...replyingLlm("unused"),
+      run: () => Effect.succeed({ type: "error" as const, error: providerFailure("model down", new Error("model down")) }),
+    },
+  });
+  const result = await deliverExternal(resident, "reply-origin-ack-failed", ackOrigin, "ping");
+  expect(result.kind).toBe("error");
+  expect(reactionsOf(ingested).map((reaction) => reaction.emoji)).toEqual(["👀", "❌"]);
+});
+
+test("an evidence-only message is never reacted to", async () => {
+  const ingested: Ingested[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    ackReaction: ACK,
+    tools: { messages: capturingPort(ingested) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  await deliverExternal(resident, "reply-origin-ack-evidence", { ...ackOrigin, inboundTreatment: "evidence_only" }, "ping");
+  expect(ingested).toEqual([]);
+});
+
+test("a port that throws on reactions does not fail the turn", async () => {
   let attempts = 0;
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
-    ackReaction: { pending: "👀", ok: "✅", failed: "❌" },
-    reactionRoutes: () => new Map([
-      ["telegram", async () => {
-        attempts += 1;
-        throw new Error("platform unreachable");
-      }],
-    ]),
-    tools: { messages: capturingPort([]) },
+    ackReaction: ACK,
+    tools: {
+      messages: {
+        ingest: async (_sender, message) => {
+          if (Outbound.payload((message as Gateway.SendMessage).content).kind !== "react")
+            return { status: "blocked_pre", reasonCode: "message.resident.actor_grant" };
+          attempts += 1;
+          throw new Error("gateway unreachable");
+        },
+      },
+    },
     sessionRuntime: { clock: () => 10 },
     llm: replyingLlm("pong"),
   });
-  const result = await deliverExternal(
-    resident,
-    "reply-origin-ack-thrown",
-    { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } },
-    "ping",
-  );
+  const result = await deliverExternal(resident, "reply-origin-ack-thrown", ackOrigin, "ping");
   expect(result.kind).toBe("result");
-  expect(attempts).toBe(1);
+  expect(attempts).toBe(2);
 });
 
-test("a refused pending reaction does not fail the turn or add a terminal reaction", async () => {
-  const reactions: Outbound.React[] = [];
+test("a refused pending reaction does not fail the turn and still ends with the terminal emoji", async () => {
+  const ingested: Ingested[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
-    ackReaction: { pending: "👀", ok: "✅", failed: "❌" },
-    reactionRoutes: () => new Map([
-      ["telegram", async (_externalId, payload) => {
-        if (payload.kind === "react") reactions.push(payload);
-        return { value: "rejected" as const };
-      }],
-    ]),
-    tools: { messages: capturingPort([]) },
+    ackReaction: ACK,
+    tools: { messages: capturingPort(ingested, (send) => {
+        const content = Outbound.payload(send.content);
+        return content.kind !== "react" || content.emoji !== "👀";
+      }) },
     sessionRuntime: { clock: () => 10 },
     llm: replyingLlm("pong"),
   });
-  const result = await deliverExternal(
-    resident,
-    "reply-origin-ack-refused",
-    { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } },
-    "ping",
-  );
+  const result = await deliverExternal(resident, "reply-origin-ack-refused", ackOrigin, "ping");
   expect(result.kind).toBe("result");
-  expect(reactions).toEqual([{ kind: "react", messageId: telegramOwner.messageId, emoji: "👀" }]);
+  expect(reactionsOf(ingested).map((reaction) => reaction.emoji)).toEqual(["👀", "✅"]);
 });
 
 test("a turn answering an approved person on a channel reports its result to that person", async () => {
