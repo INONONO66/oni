@@ -1,4 +1,4 @@
-import type { ChannelDeliveryRoute } from "@openomni/channels";
+import type { ChannelDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { ThrownError } from "../../thrown";
 import type { Actor } from "@openomni/protocol";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
@@ -58,6 +58,7 @@ export interface SupervisorDeps {
   /** Registers the surface's trusted grant at the row's declared tier; returns its revoker. */
   readonly grant: (surfaceId: string, defaultTier: Actor.TrustTier) => () => void;
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
+  readonly typingRoutes: Map<string, ProviderTypingRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
   readonly traceId: () => string;
   /** Consecutive start failures before the breaker pauses the instance. */
@@ -99,6 +100,9 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     if (built.deliveryRoute !== undefined) {
       deps.deliveryRoutes.set(surfaceId, built.deliveryRoute);
     }
+    if (built.typingRoute !== undefined) {
+      deps.typingRoutes.set(surfaceId, built.typingRoute);
+    }
     if (built.webhookHandler !== undefined) {
       deps.webhookHandlers.set(surfaceId, built.webhookHandler);
     }
@@ -106,6 +110,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       if (stopSurface) await built.surface.stop(deps.traceId());
       deps.webhookHandlers.delete(surfaceId);
       deps.deliveryRoutes.delete(surfaceId);
+      deps.typingRoutes.delete(surfaceId);
       revokeGrant();
     };
     const failure = await built.surface.start(deps.traceId()).then(() => undefined, ThrownError.parse);

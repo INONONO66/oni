@@ -9,6 +9,7 @@ import { residentRunner } from "./helpers/resident-runner";
 import { requestToolStep, assistantMessage } from "./helpers/assistant-message";
 import { localDelivery } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
+import { providerFailure } from "./helpers/provider-failure";
 
 interface Ingested {
   readonly sender: Gateway.IngestSender;
@@ -103,6 +104,58 @@ test("a turn answering an approved person on a channel reports its result to tha
       content: Outbound.payload("pong"),
     },
   ]);
+});
+
+test.each([
+  { outcome: "result", stop: "stop" as const },
+  { outcome: "error", stop: "error" as const },
+])("an external turn pulses its recorded conversation until the model run ends ($outcome), before any report", async ({ outcome, stop }) => {
+  const ingested: Ingested[] = [];
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const events: string[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(ingested, () => { events.push("report"); return true; }) },
+    typingRoute: (surface) => surface === "telegram"
+      ? {
+          everyMs: 4_000,
+          open: async (externalId, conversation) => {
+            events.push(`open ${externalId} ${JSON.stringify(conversation)}`);
+            return conversation ?? { channelId: externalId };
+          },
+          pulse: async () => {
+            events.push("pulse");
+            throw new Error("platform rejected typing");
+          },
+        }
+      : undefined,
+    sessionRuntime: { clock: () => 10 },
+    llm: {
+      ...replyingLlm("unused"),
+      run: (input: RunInput, sink: Sink) => Effect.gen(function* () {
+        started.resolve();
+        yield* Effect.promise(() => release.promise);
+        if (stop === "error") return { type: "error" as const, error: providerFailure("model down", new Error("model down")) };
+        sink.onMessage(assistantMessage(input, { text: "pong" }));
+        return { type: "stop" as const };
+      }),
+    },
+  });
+  const turn = deliverExternal(resident, `reply-origin-typing-${outcome}`, {
+    ...telegramOwner,
+    conversation: { channelId: "C1", messageId: "m-1", dm: false },
+  }, "ping");
+  await started.promise;
+  expect(events).toEqual(['open 7 {"channelId":"C1","replyToMessageId":"m-1"}', "pulse"]);
+  release.resolve();
+  expect((await turn).kind).toBe(outcome);
+  // The pulse scope closed with the model run; the report (the answer, or the
+  // failure text) always comes after the last pulse.
+  expect(events.slice(2)).toEqual(["report"]);
+  expect(ingested).toHaveLength(1);
+  if (outcome === "result") expect(ingested[0]?.content).toEqual(Outbound.payload("pong"));
 });
 
 test("the report goes back on the channel the person wrote on, not another of their endpoints (#1485)", async () => {

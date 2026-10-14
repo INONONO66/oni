@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type ChannelDeliveryRoute,
   type ProviderDeliveryRoute,
+  type ProviderTypingRoute,
   resolveChannelGrant,
 } from "@openomni/channels";
 import { Database } from "bun:sqlite";
@@ -106,7 +107,7 @@ describe("channel supervisor", () => {
   function fakeChannel(
     id: ChannelComponent["id"],
     calls: string[],
-    options: { deliveryRoute?: ProviderDeliveryRoute; webhook?: boolean } = {},
+    options: { deliveryRoute?: ProviderDeliveryRoute; typingRoute?: ProviderTypingRoute; webhook?: boolean } = {},
   ): FakeChannel {
     const channel: FakeChannel = {
       calls,
@@ -136,6 +137,7 @@ describe("channel supervisor", () => {
             ...(options.deliveryRoute === undefined
               ? {}
               : { deliveryRoute: options.deliveryRoute }),
+            ...(options.typingRoute === undefined ? {} : { typingRoute: options.typingRoute }),
             ...(options.webhook === true ? { webhookHandler: async () => new Response("ok") } : {}),
           };
         },
@@ -147,19 +149,22 @@ describe("channel supervisor", () => {
   function supervisorFor(desired: () => DesiredChannels): {
     supervisor: ChannelSupervisor;
     deliveryRoutes: Map<string, ChannelDeliveryRoute>;
+    typingRoutes: Map<string, ProviderTypingRoute>;
     webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
   } {
     const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
+    const typingRoutes = new Map<string, ProviderTypingRoute>();
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
     const supervisor = createChannelSupervisor({
       desired,
       build: (component) => component.build(async () => undefined),
       grant: (surface, defaultTier) => registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier }),
       deliveryRoutes,
+      typingRoutes,
       webhookHandlers,
       traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
     });
-    return { supervisor, deliveryRoutes, webhookHandlers };
+    return { supervisor, deliveryRoutes, typingRoutes, webhookHandlers };
   }
 
   const row = (channel: FakeChannel, key: string, instanceId?: string): DesiredChannelRow => ({
@@ -172,9 +177,10 @@ describe("channel supervisor", () => {
   test("a stage owns its grant, route, and webhook; stopAll revokes all of them", async () => {
     const calls: string[] = [];
     const route: ProviderDeliveryRoute = async () => ({ value: "accepted" });
-    const routed = fakeChannel("telegram", calls, { deliveryRoute: route });
+    const typing: ProviderTypingRoute = { everyMs: 4_000, open: async (externalId) => ({ channelId: externalId }), pulse: async () => undefined };
+    const routed = fakeChannel("telegram", calls, { deliveryRoute: route, typingRoute: typing });
     const ingressOnly = fakeChannel("github", calls, { webhook: true });
-    const { supervisor, deliveryRoutes, webhookHandlers } = supervisorFor(() => ({
+    const { supervisor, deliveryRoutes, typingRoutes, webhookHandlers } = supervisorFor(() => ({
       source: "declared",
       rows: [row(routed, "0:0"), row(ingressOnly, "0:0")],
       statuses: [],
@@ -185,6 +191,7 @@ describe("channel supervisor", () => {
     expect(statuses.map((status) => status.state)).toEqual(["mounted", "mounted"]);
     expect(calls).toEqual(["start:telegram", "start:github"]);
     expect(deliveryRoutes.get("telegram")).toBe(route);
+    expect(typingRoutes.get("telegram")).toBe(typing);
     // Ingress-only channels register no outbound route; webhook channels land
     // in the live webhook table the HTTP surface reads per request.
     expect(deliveryRoutes.has("github")).toBe(false);
@@ -204,6 +211,7 @@ describe("channel supervisor", () => {
 
     expect(calls).toEqual(["start:telegram", "start:github", "stop:github", "stop:telegram"]);
     expect(deliveryRoutes.has("telegram")).toBe(false);
+    expect(typingRoutes.has("telegram")).toBe(false);
     expect(webhookHandlers.has("github")).toBe(false);
     expect(resolveChannelGrant(channelStores(), { surface: "telegram" })).toBeUndefined();
     expect(resolveChannelGrant(channelStores(), { surface: "github" })).toBeUndefined();
@@ -346,6 +354,7 @@ describe("channel supervisor", () => {
 describe("supervisor status passthrough", () => {
   test("profile statuses surface verbatim in the reconcile verdict, detail included", async () => {
     const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
+    const typingRoutes = new Map<string, ProviderTypingRoute>();
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
     const supervisor = createChannelSupervisor({
       desired: () => ({
@@ -368,6 +377,7 @@ describe("supervisor status passthrough", () => {
         throw new Error("nothing to grant");
       },
       deliveryRoutes,
+      typingRoutes,
       webhookHandlers,
       traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
     });

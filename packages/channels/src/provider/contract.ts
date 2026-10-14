@@ -19,14 +19,17 @@ export type ProviderDeliveryRoute = (
 ) => Promise<Outbound.Receipt>;
 
 /**
- * One typing pulse toward an actor: the platform shows "composing" for the
- * few seconds it allows (telegram ~5 s, discord ~10 s). The composition root
- * repeats it while a turn runs; the surface never owns that loop.
+ * Typing toward an actor: `pulse` makes the platform show "composing" for the
+ * window it allows, `everyMs` is how often the composition root repeats it
+ * while a turn runs (telegram shows ~5 s, discord ~10 s). `open` resolves the
+ * conversation once per turn so a DM pulse does not re-create its channel.
+ * The surface never owns the loop.
  */
-type ProviderTypingRoute = (
-  externalId: string,
-  conversation?: Gateway.Conversation,
-) => Promise<void>;
+export interface ProviderTypingRoute {
+  readonly everyMs: number;
+  readonly open: (externalId: string, conversation?: Gateway.Conversation) => Promise<Gateway.Conversation>;
+  readonly pulse: (conversation: Gateway.Conversation) => Promise<void>;
+}
 
 /**
  * How a provider receives platform events. The runner does not interpret the

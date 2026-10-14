@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { ChannelProvider, EffectRunner, MediaResolver, ProviderDeliveryRoute } from "@openomni/channels";
+import type { ChannelProvider, EffectRunner, MediaResolver, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { ChannelProviders, createWebhookProvider } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
@@ -37,6 +37,7 @@ export interface BuiltChannel {
   readonly surface: Channel.Surface;
   /** Outbound seam, keyed by `surface.id`: present only for channels the Resident can message into. */
   readonly deliveryRoute?: ProviderDeliveryRoute;
+  readonly typingRoute?: ProviderTypingRoute;
   /** Ingress seam: present only for webhook-fed channels. */
   readonly webhookHandler?: (request: Request) => Promise<Response>;
 }
@@ -72,6 +73,7 @@ function providerRow<TCredentials, TId extends keyof typeof ChannelProviders>(
       return {
         surface: runtime.surface,
         ...(runtime.deliveryRoute === undefined ? {} : { deliveryRoute: runtime.deliveryRoute }),
+        ...(runtime.typingRoute === undefined ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
       };
     },

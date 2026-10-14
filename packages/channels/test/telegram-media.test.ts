@@ -110,7 +110,8 @@ describe("Telegram outbound calls", () => {
       () => undefined,
       injectedOptions(),
     );
-    await runtime.typingRoute?.("123", { channelId: "456" });
+    if (runtime.typingRoute === undefined) throw new Error("telegram has no typing route");
+    await runtime.typingRoute.pulse(await runtime.typingRoute.open("123", { channelId: "456" }));
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe("https://api.telegram.org/bottg-test/sendChatAction");
     expect(calls[0]?.method).toBe("POST");

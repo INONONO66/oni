@@ -133,12 +133,13 @@ export class TelegramAdapter implements Channel.Surface {
     );
   }
 
-  typing(externalId: string, conversation?: Gateway.Conversation): Promise<void> {
-    return this.client.typing(
-      conversation?.channelId ?? externalId,
-      newTraceId(this.options.id),
-      conversation,
-    );
+  /** A Telegram chat is addressed directly: the actor id is its DM chat id. */
+  openTyping(externalId: string, conversation?: Gateway.Conversation): Promise<Gateway.Conversation> {
+    return Promise.resolve(conversation ?? { channelId: externalId });
+  }
+
+  typing(conversation: Gateway.Conversation): Promise<void> {
+    return this.client.typing(conversation.channelId, newTraceId(this.options.id), conversation);
   }
 
   private async handleMessage(
