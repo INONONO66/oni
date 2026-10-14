@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { Deferred, Effect, Exit } from "effect";
 import { decodeLlmFailure } from "../error";
@@ -26,12 +25,6 @@ function normalizeModelsURL(baseURL: string): string {
   return `${root}/v1/models`;
 }
 
-function credentialFingerprint(apiKey: string | undefined): string {
-  return createHash("sha256")
-    .update(apiKey === undefined ? "no-api-key" : `api-key:${apiKey}`)
-    .digest("hex");
-}
-
 const ModelEntry = z.object({ id: z.string().min(1) }).loose();
 const ModelListing = z.object({ data: z.array(z.json()) });
 
@@ -43,7 +36,8 @@ const ModelListing = z.object({ data: z.array(z.json()) });
 export function fetchProxyModels(baseURL: string, now: () => number, apiKey?: string): Effect.Effect<string[], LlmError> {
   return Effect.suspend(() => {
     const url = normalizeModelsURL(baseURL);
-    const cacheKey = `${url}:${credentialFingerprint(apiKey)}`;
+    // The raw key is already resident in memory as the Authorization header, so keying by it adds no exposure.
+    const cacheKey = JSON.stringify([url, apiKey ?? null]);
     const cached = modelCache.get(cacheKey);
     if (cached !== undefined) {
       modelCache.delete(cacheKey);
