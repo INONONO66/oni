@@ -5,6 +5,7 @@ export const scriptsLanes = {
   "scripts-contracts": [
     "benchmark-workflow.test.ts",
     "check-benchmark-regression.test.ts",
+    "check-core-end-state.test.ts",
     "check-dead-exports.test.ts",
     "check-import-cycles.test.ts",
     "check-journal-writers.test.ts",
