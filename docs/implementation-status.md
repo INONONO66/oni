@@ -1,5 +1,32 @@
 # Implementation Status
 
+## #1498 app test lane bounds a synchronous Bun PTY wait (PR #1535, base `2047087ba`)
+
+On `fix/1498-watch-sources-hang` (2026-10-14), the generated `Test (openomni
+app)` step in `.github/workflows/ci.yml` has a 10-minute deadline, beneath the
+matrix job's 30-minute limit. `script/topology.ts` owns the generated step and
+`script/check-topology.test.ts` pins the app-specific timeout.
+
+On Bun 1.4.1/macOS arm64, 35 completed, externally bounded trials of the
+filtered command-watch test under concurrent app-suite load passed 31 times
+and hit the 120-second alarm 4 times (iterations 14, 17, 22, and 26). A
+five-second `sample` of iteration 14 captured all 2,702 main-thread frames
+ending in `__wait4_nocancel` under Bun frames; the test's JS deadline cannot
+run while that thread is blocked. The concurrent suite exceeded its separate
+300-second measurement cap; a second complete-app attempt under continued
+machine contention also reached its external 600-second cap before finishing.
+The standalone `/tmp` PTY reproducer completed 50/50 iterations; the PR
+carries its text and the sample excerpt.
+
+`apps/openomni/src/composition/watch-sources.ts` kills the detached process
+group, awaits `child.exited`, then closes the terminal; that order is unchanged.
+One repo-side teardown defect was fixed: when `killCommandGroup` throws the
+typed `AlarmProcessGroupError`, the PTY master was never closed and EOF never
+resolved; `terminate()` now closes the master in a `finally`, and the
+kill-failure tests assert the close. This PR bounds CI's failure time; it does
+not fix Bun's internal synchronous wait or establish that every runner
+triggers it, so the issue stays open.
+
 ## #1454 remove pinned sibling-bundle imports (PR #1540, base `030d50500`)
 
 On `refactor/1454-bundle-sibling-edges` (2026-10-14). The exact sibling
@@ -104,33 +131,6 @@ Not in this change: Slack typing (`assistant.threads.setStatus` needs the
 `assistant:write` scope; Slack declares `typing: false` until that scope and
 route land); outbound emoji reactions, already shipped in #1504; inbound
 media normalization and automated reactions remain outside this lane.
-
-## #1498 app test lane bounds a synchronous Bun PTY wait (PR #TBD, base `74742e978`)
-
-On `fix/1498-watch-sources-hang` (2026-10-14), the generated `Test (openomni
-app)` step in `.github/workflows/ci.yml` has a 10-minute deadline, beneath the
-matrix job's 30-minute limit. `script/topology.ts` owns the generated step and
-`script/check-topology.test.ts` pins the app-specific timeout.
-
-On Bun 1.4.1/macOS arm64, 35 completed, externally bounded trials of the
-filtered command-watch test under concurrent app-suite load passed 31 times
-and hit the 120-second alarm 4 times (iterations 14, 17, 22, and 26). A
-five-second `sample` of iteration 14 captured all 2,702 main-thread frames
-ending in `__wait4_nocancel` under Bun frames; the test's JS deadline cannot
-run while that thread is blocked. The concurrent suite exceeded its separate
-300-second measurement cap; a second complete-app attempt under continued
-machine contention also reached its external 600-second cap before finishing.
-The standalone `/tmp` PTY reproducer completed 50/50 iterations; the PR
-carries its text and the sample excerpt.
-
-`apps/openomni/src/composition/watch-sources.ts` kills the detached process
-group, awaits `child.exited`, then closes the terminal; that order is unchanged.
-One repo-side teardown defect was fixed: when `killCommandGroup` throws the
-typed `AlarmProcessGroupError`, the PTY master was never closed and EOF never
-resolved; `terminate()` now closes the master in a `finally`, and the
-kill-failure tests assert the close. This PR bounds CI's failure time; it does
-not fix Bun's internal synchronous wait or establish that every runner
-triggers it, so the issue stays open.
 
 ## #1481 app port identifiers and durable keys (PR #1536, base `030d50500`)
 
