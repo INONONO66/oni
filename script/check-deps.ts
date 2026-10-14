@@ -479,7 +479,6 @@ export async function checkBundleImports(
 
 /** #1428: moved-tree edges, measured with checkBundleImports; #1454 removes them. */
 const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["apps/openomni/src/bundles/messaging/index.ts", new Set(["../delegation-policy/index"])],
   ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../messaging/index", "../provision/provision"])],
   ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../tools/core/watch"])],
   ["apps/openomni/src/bundles/alarms/monitor/index.ts", new Set(["../../tools/core/watch"])],

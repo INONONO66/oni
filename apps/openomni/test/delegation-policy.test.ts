@@ -14,7 +14,6 @@ import { Gateway, Delivery, type LedgerAction, LedgerSession } from "@openomni/p
 import {
   ADMISSION_DEPTH_MAX,
   catalogDelegationReads,
-  DEFAULT_DELEGATION_CAPS,
   DELEGATION_DEADLINE,
   DelegationRefusal,
   delegationPolicyBundle,
@@ -27,6 +26,7 @@ import {
   type DelegationReads,
 } from "../src/bundles/delegation-policy/index";
 import { runEffect } from "./helpers/effect";
+import { DEFAULT_DELEGATION_CAPS } from "../src/bundles/seams";
 
 const NEW_SESSION = { to: { kind: "new_session", role: "child" }, message: "go" };
 

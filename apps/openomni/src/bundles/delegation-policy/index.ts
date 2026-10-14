@@ -10,7 +10,7 @@ import {
 } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
-import { ToolCapabilityPort } from "../seams";
+import { DEFAULT_DELEGATION_CAPS, ToolCapabilityPort } from "../seams";
 
 /**
  * The `delegation-policy` bundle (#1258): the caps on child-session creation
@@ -21,8 +21,6 @@ import { ToolCapabilityPort } from "../seams";
  * cascades delegation policy off with it.
  */
 
-/** The default caps; the rows carry them as `how.params`, so policy data stays in rows. */
-export const DEFAULT_DELEGATION_CAPS = Object.freeze({ maxDepth: 3, maxActiveChildren: 4 });
 /**
  * The guard counts root = 0 and denies at >= maxDepth; admission counts root = 1
  * and denies above its inclusive max, so both use the same number.
