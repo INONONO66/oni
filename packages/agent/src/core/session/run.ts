@@ -79,7 +79,7 @@ export function createSessionTurn(
       });
       const boundary = (kind: SessionTurn.Boundary): Effect.Effect<SessionBoundaryResult, ExecutionError> => Effect.gen(function* () {
         if (controller.signal.aborted) return { messages: [], interrupted: true };
-        const drained = yield* drainBoundary(input, kind, parentActionId);
+        const drained = yield* drainBoundary(input, kind, parentActionId, boundaryActionId);
         parentActionId = drained.parentActionId;
         boundaryActionId = drained.boundaryActionId;
         if (drained.interrupted) controller.abort();
@@ -154,7 +154,7 @@ export function createSessionTurn(
     });
   }
 
-  function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string) {
+  function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string, boundaryActionId: string | null) {
     return Effect.gen(function* () {
       const observations = yield* ObservationService;
       // Steer rows drain at tool.post boundaries, followUp rows at turn end. EVERY boundary
@@ -165,6 +165,8 @@ export function createSessionTurn(
         consumptionSettings(kernel, sessionId),
         kernel.compactionHead(sessionId),
       );
+      if (pending.length === 0 && stale.length === 0)
+        return { messages: [], interrupted: false, parentActionId, boundaryActionId };
       const evaluated = yield* ports.evaluatePromptPolicies(pending);
       if (evaluated.refusal !== undefined) {
         yield* ports.consumePolicyBlockedDeliveries(pending);
