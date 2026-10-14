@@ -1,9 +1,9 @@
 # Implementation Status
 
-## #1479 desktop shell baseline (PR #1480, base `5a1a83cb2`)
+## #1479 desktop shell baseline (PR #1480)
 
-On `feat/desktop-shell-baseline` (2026-10-14, stacked on #1472
-`fix/protocol-crypto-builtin`). `packages/ui` owns the shell geometry as
+Landed on main as `63cc2e001` (2026-10-14) after #1472
+`fix/protocol-crypto-builtin` landed as `3c27d4a95`. `packages/ui` owns the shell geometry as
 tokens, utilities, and frame components: tab strip 40px with a 252px window-controls zone,
 28px tabs with an 8px radius, a 44px sidebar header, 28px nav rows at
 13px/500, two-line session rows, a 42px footer row, and the panel at a
@@ -26,10 +26,10 @@ tab) enriched per durable session by the gateway's session read pages
 (`useSessionReadModels` in `state/queries.ts`: phase, ancestry, fork anchors,
 last activity), and the transcript comes from the gateway transport.
 
-Verified on this branch: build, check-types, lint, lint:tools, topology,
+Verified before landing: build, check-types, lint, lint:tools, topology,
 deps, import cycles, dead exports, effect boundaries, journal writers,
 tsconfig inheritance, patch coverage, and the hosted CI test lanes (every
-lane green on the branch head). The local root `bun test --timeout 15000`
+lane green on the PR head and on the main run after the squash). The local root `bun test --timeout 15000`
 run passed every `packages/ui`, `apps/desktop`, and `packages/protocol` test;
 its remaining failures are host-environment classes (the Python mutation
 worker fixture without `D945_PYTHON`, Playwright without Chromium) that the
