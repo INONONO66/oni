@@ -23,7 +23,7 @@ export type ProviderDeliveryRoute = (
  * few seconds it allows (telegram ~5 s, discord ~10 s). The composition root
  * repeats it while a turn runs; the surface never owns that loop.
  */
-type ProviderTypingRoute = (
+export type ProviderTypingRoute = (
   externalId: string,
   conversation?: Gateway.Conversation,
 ) => Promise<void>;

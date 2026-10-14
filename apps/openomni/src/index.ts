@@ -37,6 +37,7 @@ const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionGeneration, SessionTransition, type PlainValue } from "@openomni/protocol";
 import {
   type ChannelDeliveryRoute,
+  type ProviderTypingRoute,
   type GatewayRouter,
   createChannelStores,
   decodeChannelFailure,
@@ -711,7 +712,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // #1308: bind the live alarm ports the wake bundle's ONE tool
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
+    const typingRoutes = new Map<string, ProviderTypingRoute>();
     const resident = createResident({
+      typingRoute: (surface) => typingRoutes.get(surface),
       // #1257: the app's resolved cap is the input the composition writes
       // into every new session's genesis generation settings.
       forkCopyByteCap: resolveSessionFork(config).copyByteCap,
@@ -818,6 +821,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         config.channelMentionOnly,
       ),
       deliveryRoutes,
+      typingRoutes,
       webhookHandlers,
       traceId: () => traceIdFromUuid(services.entropy.id()),
     });

@@ -105,6 +105,49 @@ test("a turn answering an approved person on a channel reports its result to tha
   ]);
 });
 
+test("an external turn pulses its recorded channel conversation until the turn completes", async () => {
+  const ingested: Ingested[] = [];
+  const typed = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const calls: { externalId: string; conversation?: Gateway.Conversation }[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(ingested) },
+    typingRoute: (surface) => surface === "telegram"
+      ? async (externalId, conversation) => {
+          calls.push({ externalId, ...(conversation === undefined ? {} : { conversation }) });
+          typed.resolve();
+          throw new Error("platform rejected typing");
+        }
+      : undefined,
+    sessionRuntime: { clock: () => 10 },
+    llm: {
+      ...replyingLlm("unused"),
+      run: (input: RunInput, sink: Sink) => Effect.gen(function* () {
+        started.resolve();
+        yield* Effect.promise(() => release.promise);
+        sink.onMessage(assistantMessage(input, { text: "pong" }));
+        return { type: "stop" as const };
+      }),
+    },
+  });
+  const turn = deliverExternal(resident, "reply-origin-typing", {
+    ...telegramOwner,
+    conversation: { channelId: "C1", messageId: "m-1", dm: false },
+  }, "ping");
+  await typed.promise;
+  await started.promise;
+  expect(calls).toEqual([{
+    externalId: "7",
+    conversation: { channelId: "C1", replyToMessageId: "m-1" },
+  }]);
+  release.resolve();
+  expect((await turn).kind).toBe("result");
+  expect(ingested[0]?.content).toEqual(Outbound.payload("pong"));
+});
+
 test("the report goes back on the channel the person wrote on, not another of their endpoints (#1485)", async () => {
   const ingested: Ingested[] = [];
   const resident = residentRunner({

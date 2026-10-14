@@ -1,5 +1,24 @@
 # Implementation Status
 
+## #1495 typing during channel-origin Resident turns (base `030d50500`)
+
+On `feat/channels-typing-pulse` (2026-10-14). Mounted channel instances
+register and revoke their optional `typingRoute` alongside delivery and
+webhook routes. A Resident turn with a recorded external channel origin starts
+one scoped Effect fiber, calls that route immediately, then refreshes it every
+four seconds until the turn and its post-turn report finish. The fiber uses the
+injected runtime clock, is interrupted when the turn scope closes, and treats
+platform typing refusals as non-fatal. The recorded origin's external id and
+conversation select the same chat or thread the report answers. Channels
+without a typing route, WebSocket owners, and child sessions start no pulse.
+
+Tests: virtual-clock calls and cancellation with Telegram and Discord
+fake-fetch routes (`packages/channels/test/typing-pulse.test.ts`), mounted route
+cleanup (`apps/openomni/test/boot-wiring.test.ts`), and an external Resident
+turn with a refused typing receipt (`apps/openomni/test/resident-reply-to-origin.test.ts`).
+Not in this change: outbound emoji reactions, already shipped in #1504; inbound
+media normalization and automated reactions remain outside this lane.
+
 ## #1481 app port identifiers and durable keys (PR #1536, base `030d50500`)
 
 On `refactor/1481-app-pins-seams` (2026-10-14). Item 2 is implemented:

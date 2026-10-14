@@ -1,4 +1,5 @@
 import { AppInvariantError } from "../../invariant";
+import { typingPulse, type ProviderTypingRoute } from "@openomni/channels";
 import { Bundle, Core } from "@openomni/agent";
 const ObservationSink = Core.ObservationSink;
 type ObservationSink = Core.ObservationSink;
@@ -47,6 +48,7 @@ export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly er
 
 interface ReplyTarget {
   readonly actorId: string;
+  readonly externalId: string;
   /** The channel the person wrote on: a person on several channels is answered where they asked (#1485). */
   readonly surface: string;
   /** The chat and thread they wrote in; a group message is answered there, not in a DM (#1490). */
@@ -79,10 +81,11 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
     const origin = input.kernel.actionById(message.id)?.intent.value;
     if (origin === null || typeof origin !== "object" || Array.isArray(origin)) continue;
     if (origin.kind !== "external" || typeof origin.surface !== "string" || origin.surface === "ws") continue;
-    if (typeof origin.actorId !== "string") continue;
+    if (typeof origin.actorId !== "string" || typeof origin.externalId !== "string") continue;
     const conversation = originConversation(origin.conversation);
     return {
       actorId: origin.actorId,
+      externalId: origin.externalId,
       surface: origin.surface,
       ...(conversation === undefined ? {} : { conversation }),
     };
@@ -140,6 +143,8 @@ function pendingReport(
 }
 
 export interface ResidentOptions {
+  /** Mounted channel pulse routes; absent for non-channel test compositions. */
+  readonly typingRoute?: (surface: string) => ProviderTypingRoute | undefined;
   readonly model: Model.Ref;
   readonly modelFallbacks?: readonly Model.Ref[];
   readonly apiKey: string;
@@ -278,24 +283,31 @@ export function createResident(options: ResidentOptions) {
         // #1276: product choice injected into the core seam.
         pinnedModel: pinnedModelSelection,
       });
-      const result = yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
-      // An approved person who wrote in on a channel is reported to directly;
-      // sessions and other contacts are reached only by an explicit send_message.
-      const report = pendingReport(input, result, repliedTo);
-      if (report !== undefined) {
-        yield* dispatcher.execute(
-          {
-            id: ports.id(),
-            tool: "send_message",
-            input: {
-              to: contactFor(report.target),
-              message: report.text,
+      return yield* Effect.scoped(Effect.gen(function* () {
+        const target = row.role === "resident" ? externalReplyTarget(input) : undefined;
+        const route = target === undefined ? undefined : options.typingRoute?.(target.surface);
+        if (route !== undefined && target !== undefined) {
+          yield* typingPulse(route, target.externalId, target.conversation).pipe(Effect.forkScoped);
+        }
+        const result = yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
+        // An approved person who wrote in on a channel is reported to directly;
+        // sessions and other contacts are reached only by an explicit send_message.
+        const report = pendingReport(input, result, repliedTo);
+        if (report !== undefined) {
+          yield* dispatcher.execute(
+            {
+              id: ports.id(),
+              tool: "send_message",
+              input: {
+                to: contactFor(report.target),
+                message: report.text,
+              },
             },
-          },
-          { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
-        );
-      }
-      return result;
+            { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
+          );
+        }
+        return result;
+      }));
     });
   return {
     runnerFor,
