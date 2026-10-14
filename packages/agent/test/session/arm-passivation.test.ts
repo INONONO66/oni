@@ -30,6 +30,7 @@ import {
   sessionFileFor,
   type TestClusterOptions,
 } from "../helpers/cluster-runtime";
+import { forkArm, sendPromptAndGetArm } from "../helpers/arm-passivation";
 
 const home = clusterTempDir("a4-arm-passivation-");
 const { dir, sessionsDir, catalogFile } = home;
@@ -137,12 +138,7 @@ for (const mode of ["pre", "post"] as const) {
         const verb = yield* harness.live.live(sessionId);
         harness.holdNextArm();
         const done = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
-        yield* Effect.forkChild(
-          verb({ purpose: "test.tick", at: FAR, alarmId: "a-held", sourceKey: "t", payload: {} }).pipe(
-            Effect.exit,
-            Effect.flatMap((exit) => Deferred.succeed(done, exit)),
-          ),
-        );
+        yield* forkArm(verb, { purpose: "test.tick", at: FAR, alarmId: "a-held", sourceKey: "t", payload: {} }, done);
         yield* Effect.promise(() => boundedAwait("arm commit held", harness.entered.done));
         yield* Effect.promise(() => boundedAwait("releaseLive finalizer", harness.liveReleased.done));
         harness.released.fire();
@@ -180,12 +176,7 @@ test("the store-close wait is bounded; an arm queued behind the held one refuses
       const verb = yield* harness.live.live(sessionId);
       harness.holdNextArm();
       const first = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
-      yield* Effect.forkChild(
-        verb({ purpose: "test.tick", at: FAR, alarmId: "a-held", sourceKey: "t", payload: {} }).pipe(
-          Effect.exit,
-          Effect.flatMap((exit) => Deferred.succeed(first, exit)),
-        ),
-      );
+      yield* forkArm(verb, { purpose: "test.tick", at: FAR, alarmId: "a-held", sourceKey: "t", payload: {} }, first);
       yield* Effect.promise(() => boundedAwait("arm commit held", harness.entered.done));
       yield* Effect.promise(() => boundedAwait("releaseLive finalizer", harness.liveReleased.done));
       const queued = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
@@ -240,8 +231,7 @@ test("one forwarder per activation: 1000 arms behind a held send start one send,
         }),
     },
     Effect.gen(function* () {
-      yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
-      const arm = yield* live.live(sessionId);
+      const arm = yield* sendPromptAndGetArm(sessionId, live);
       let refused = 0;
       for (let i = 0; i < 1000; i++) {
         if (Exit.isFailure(yield* Effect.exit(arm(armInput(i))))) refused += 1;
@@ -271,8 +261,7 @@ test("re-arms of a sent occurrence count as orphans: 872 of 1000 refused, 128 du
         persisted(target, occurrence).pipe(Effect.andThen(Queue.offer(sentQueue, occurrence.occurrenceId)), Effect.asVoid),
     },
     Effect.gen(function* () {
-      yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
-      const arm = yield* live.live(sessionId);
+      const arm = yield* sendPromptAndGetArm(sessionId, live);
       let refused = 0;
       for (let i = 0; i < 1000; i++) {
         const exit = yield* Effect.exit(arm(armInput(i)));

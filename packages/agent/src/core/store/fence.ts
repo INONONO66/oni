@@ -5,7 +5,7 @@ import { configurationSnapshot, generationSnapshot, latestGenerationForIn, lates
 import { StorageUnavailable, type LedgerError } from "./errors";
 import { latestFoldCheckpointIn, openTurnsPageIn, latestOpenTurnIn, resultForIn, historyPageIn, stateEffect, requestStatesPageIn, requestRowsIn, outboundStatesPageIn, outboundRowsIn, inputMessagesIn, pendingMessagesIn, pendingMessagesSinceIn, type PendingSnapshot, rowIn, policyRowsIn, getSnapshotIn, watchSnapshotIn, requiredSessionsIn, requiredActionsIn, turnTerminal, type OpenTurn } from "./session-reads";
 import type { AdoptReceipt, CommitReceipt, SessionWriteAdapter } from "./services";
-import type { ArmedAlarmRow, ArmedOccurrence } from "./session-file/alarms";
+import type { ArmedAlarmPorts, ArmedAlarmRow, ArmedOccurrence } from "./session-file/alarms";
 import type { SessionStore } from "./session-file/index.js";
 import type { ToolOutputRow, ToolOutputWrite, ToolOutputsAdapter } from "./session-file/outputs";
 import { armedAlarmDelta } from "./storage/sqlite-l0-write.js";
@@ -18,13 +18,7 @@ interface SessionKernelStores {
   readonly sessions?: SessionWriteAdapter;
   readonly actions?: ProtocolStorage.ActionSubAdapter;
   readonly policies?: ProtocolStorage.PolicyRowSubAdapter;
-  readonly armed?: {
-    armedAlarms(): readonly ArmedAlarmRow[];
-    armedAlarm(alarmId: string): ArmedOccurrence | undefined;
-    armedCount(): number;
-    strikeArmedAlarm(occurrenceId: string): number | undefined;
-    requeueArmedAlarm(occurrenceId: string, at: number): boolean;
-  };
+  readonly armed?: ArmedAlarmPorts;
   readonly toolOutputs: ToolOutputsAdapter;
 }
 

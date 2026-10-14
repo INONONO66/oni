@@ -26,6 +26,14 @@ export interface ArmedOccurrence {
   readonly fireAt: number;
 }
 
+export interface ArmedAlarmPorts {
+  armedAlarms(): readonly ArmedAlarmRow[];
+  armedAlarm(alarmId: string): ArmedOccurrence | undefined;
+  armedCount(): number;
+  strikeArmedAlarm(occurrenceId: string): number | undefined;
+  requeueArmedAlarm(occurrenceId: string, at: number): boolean;
+}
+
 const ArmedAlarmSqlRow = z.object({
   alarm_id: z.string(),
   occurrence_id: z.string(),
@@ -60,13 +68,7 @@ function armSeqFromArmRowId(armRowId: string): number {
 }
 
 /** `armed_alarms` ports; `strikeArmedAlarm`/`requeueArmedAlarm` write index state only, no row. */
-export function createArmedAlarmPorts(db: Database): {
-  armedAlarms(): readonly ArmedAlarmRow[];
-  armedAlarm(alarmId: string): ArmedOccurrence | undefined;
-  armedCount(): number;
-  strikeArmedAlarm(occurrenceId: string): number | undefined;
-  requeueArmedAlarm(occurrenceId: string, at: number): boolean;
-} {
+export function createArmedAlarmPorts(db: Database): ArmedAlarmPorts {
   return {
     armedAlarms() {
       const rows = ArmedAlarmSqlRow.array().parse(
