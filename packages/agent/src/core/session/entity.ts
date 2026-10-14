@@ -17,8 +17,16 @@ function readProjection(
   const { kernel, authority } = handle;
   return Effect.sync(() => {
     const page = kernel.historyPage(authority.sessionId, { afterRevision: payload.cursor, limit: 256 });
+    const actions = [...page.actions];
+    if (payload.model === "metrics") {
+      for (const action of page.actions) {
+        if (action.kind !== "llm" || action.parentId === null) continue;
+        const parent = kernel.actionById(action.parentId);
+        if (parent?.kind === "llm" && parent.ordinal <= payload.cursor) actions.push(parent);
+      }
+    }
     return {
-      body: JSON.stringify(renderReadModel(payload.model, page.actions)),
+      body: JSON.stringify(renderReadModel(payload.model, actions)),
       nextCursor: page.nextRevision,
     };
   });
