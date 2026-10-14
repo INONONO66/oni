@@ -1,7 +1,7 @@
 import { setSessionTitleIfPlaceholder } from "../src/renderer/state/session-actions";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as ui from "@openomni/ui";
-import { QueryClient } from "@tanstack/react-query";
+import { notifyManager, QueryClient } from "@tanstack/react-query";
 import type { ServerWebSocket } from "bun";
 import { Window } from "happy-dom";
 import { serveChat, type ClientFrame } from "./helpers/chat-server";
@@ -13,7 +13,7 @@ import { App } from "../src/renderer/app";
 import { SessionList } from "../src/renderer/shell/session-list";
 import { makeSession } from "./helpers/session";
 import { StateProvider } from "../src/renderer/state/provider";
-import { queryKeys } from "../src/renderer/state/queries";
+import { fetchGatewayEndpoint, queryKeys } from "../src/renderer/state/queries";
 import { SIDEBAR_OPEN_KEY, SIDEBAR_WIDTH_KEY } from "../src/renderer/state/shell-preferences";
 import {
   activateTab,
@@ -168,6 +168,41 @@ test("persisted tabs remain unchanged during boot hydration", async () => {
   expect(consoleStore.state.sessions).toHaveLength(3);
   expect(consoleStore.state.sessions.map((session) => session.id)).toContain(first);
   expect(consoleStore.state.sessions.map((session) => session.id)).toContain(second);
+});
+
+test("a refused endpoint reaches the footer as a danger glyph and the composer as the notice", async () => {
+  const bridge = Reflect.get(browser, "desktop") as ReturnType<typeof commandBridge>;
+  const refusal = spyOn(bridge, "gateway").mockRejectedValue(new Error("preload refused the endpoint"));
+  cleanups.push(() => refusal.mockRestore());
+  // Settle the refusal in the cache first; mounting then retries once (retryOnMount)
+  // and the paint under test is the one after that retry has failed too. The query
+  // library hands that failure to React on its own timer tick, which is outside act,
+  // so this test delivers notifications synchronously and restores the default after.
+  await client.prefetchQuery({ queryKey: queryKeys.gatewayEndpoint, queryFn: fetchGatewayEndpoint, retry: false });
+  expect(client.getQueryState(queryKeys.gatewayEndpoint)?.status).toBe("error");
+  notifyManager.setScheduler((callback) => callback());
+  cleanups.push(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
+  const retried = new Promise<void>((resolve) => {
+    const unsubscribe = client.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || event.action.type !== "error") return;
+      unsubscribe();
+      resolve();
+    });
+  });
+
+  await act(() =>
+    root.render(
+      <StateProvider client={client}>
+        <App platform="darwin" storage={null} host={suitePlatform} />
+      </StateProvider>,
+    ),
+  );
+  await act(() => retried);
+
+  const footer = node(`[data-ui="${ui.UI_NAMES.SidebarFooter}"]`);
+  expect(footer.textContent).toContain("preload refused the endpoint");
+  expect(footer.querySelector('[data-tone="destructive"]')).not.toBeNull();
+  expect(host.textContent).toContain("preload refused the endpoint");
 });
 
 test("closing the last boot tab does not create another tab", async () => {

@@ -85,4 +85,14 @@ describe("one session", () => {
     expect(field).toContain("disabled");
     expect(html).not.toContain("gateway not configured");
   });
+
+  test("Given a token the wire cannot offer, When the app renders, Then the footer names the misconfiguration", () => {
+    newSessionTab();
+    const html = shell({ url: "ws://127.0.0.1:3000/ws", token: "has a space" });
+    const footer = html.slice(html.indexOf('data-ui="Sidebar.Footer"'));
+
+    expect(footer).toContain("OPENOMNI_WS_TOKEN cannot be offered as a WebSocket subprotocol");
+    expect(footer).toContain('data-tone="destructive"');
+    expect(footer).not.toContain("Configured:");
+  });
 });
