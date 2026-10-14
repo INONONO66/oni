@@ -34,6 +34,7 @@ function machineWith(
           op: "read",
           data: slice,
           bytesRead: slice.byteLength,
+          size: sizes[path] ?? data.byteLength,
           truncated: offset + slice.byteLength < data.byteLength,
         });
       },
@@ -54,8 +55,6 @@ function machineWith(
     pty: {
       open: unsupported,
       write: unsupported,
-      resize: unsupported,
-      close: unsupported,
       read: unsupported,
     },
   };
