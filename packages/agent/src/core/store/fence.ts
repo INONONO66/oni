@@ -99,7 +99,24 @@ function requiredArmedIn(context: SessionKernelContext) {
   return adapter;
 }
 
+function revisionMemo<T>(context: SessionKernelContext, read: (sessionId: string) => T) {
+  const entries = new Map<string, { readonly revision: number; readonly value: T }>();
+  return (sessionId: string): T => {
+    const revision = requiredSessionsIn(context).get(sessionId)?.revision;
+    if (revision === undefined) return read(sessionId);
+    const hit = entries.get(sessionId);
+    if (hit?.revision === revision) return hit.value;
+    const value = read(sessionId);
+    entries.set(sessionId, { revision, value });
+    return value;
+  };
+}
+
 function makeSessionKernel(context: SessionKernelContext) {
+  const latestGeneration = revisionMemo(context, (sessionId) =>
+    latestGenerationForIn(requiredActionsIn(context), sessionId));
+  const latestSettings = revisionMemo(context, (sessionId) =>
+    latestSettingsIn(requiredActionsIn(context), sessionId));
   return {
     materialize: (input: MaterializeInput) => materializeIn(context, input),
     adoptFence: (input: LedgerSession.AdoptFence): Effect.Effect<AdoptReceipt, LedgerError> =>
@@ -153,10 +170,8 @@ function makeSessionKernel(context: SessionKernelContext) {
       requiredActionsIn(context).operationChildrenPage(sessionId, parentId, cursor, limit),
     actionById: (id: string): LedgerAction.Node | undefined =>
       requiredActionsIn(context).actionById(id),
-    latestGenerationFor: (sessionId: string): SessionGeneration.Snapshot =>
-      latestGenerationForIn(requiredActionsIn(context), sessionId),
-    latestSettings: (sessionId: string): ConsumptionSettings | undefined =>
-      latestSettingsIn(requiredActionsIn(context), sessionId),
+    latestGenerationFor: (sessionId: string): SessionGeneration.Snapshot => latestGeneration(sessionId),
+    latestSettings: (sessionId: string): ConsumptionSettings | undefined => latestSettings(sessionId),
     /** inputHash is an exact persisted key, not a policy evaluation or JSON-path query API. */
     policyDecisionRuleIds: (sessionId: string, inputHash: string): string[] | undefined =>
       requiredActionsIn(context).policyDecisionRuleIds(sessionId, inputHash),

@@ -90,9 +90,7 @@ function resolveTail(
 export function commitFoldBatch(
   kernel: SessionKernel,
   input: LedgerSession.Commit,
-  // The composed compaction port decorates compaction appends with
-  // their successor proof. Absent port + compaction append = typed defect —
-  // the kernel never pins without the capability, and never commits unpinned.
+  // Compaction appends carry the composed port's successor proof; without the port they are a typed defect.
   compaction?: Pick<CompactionPortService, "pinAction">,
 ): Effect.Effect<CommitReceipt, LedgerError> {
   return Effect.gen(function* () {

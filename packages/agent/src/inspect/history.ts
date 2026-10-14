@@ -281,6 +281,10 @@ export interface HydratedSessionHistory {
   readonly telemetry: RestoreTelemetry;
 }
 
+const validatedSeeds = new WeakMap<SessionKernel, { hash: string; seed: ReturnType<typeof checkpointSeed> }>();
+const validatedSeed = (kernel: SessionKernel, sessionId: string, checkpoint: LedgerAction.Node) =>
+  validatedSeeds.get(kernel)?.hash === checkpoint.actionHash ? validatedSeeds.get(kernel)?.seed : validatedSeeds.set(kernel, { hash: checkpoint.actionHash, seed: checkpointSeed(sessionId, checkpoint) }).get(kernel)?.seed;
+
 /** Validate the durable seed even when a commit does not need to materialize its suffix. */
 export function readHistoryCheckpoint(
   kernel: SessionKernel,
@@ -296,7 +300,7 @@ export function readHistoryCheckpoint(
   restore: (maxTailBytes: number) => HydratedSessionHistory | RestoreRefused;
 } {
   const { revision, checkpoint } = kernel.latestFoldCheckpoint(sessionId, throughRevision);
-  const seed = checkpoint === undefined ? undefined : checkpointSeed(sessionId, checkpoint);
+  const seed = checkpoint === undefined ? undefined : validatedSeed(kernel, sessionId, checkpoint);
   const afterRevision = seed?.revision ?? 0;
   const initial = () => foldHistoryState(sessionId, [], seed?.state);
   return {

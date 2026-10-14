@@ -1,7 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import type { Database } from "bun:sqlite";
 import type { LedgerSession, ObservationSink } from "@openomni/protocol";
-import { Context, type Crypto, Data, Duration, Effect, Layer, type Scope } from "effect";
+import { type Crypto, Data, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +12,7 @@ import {
   SessionEntityContext,
 } from "./entity";
 import { thrownAsError } from "../ports/failure";
+import { Ledger } from "../ports/ports";
 import type { ResolvedSessionRuntime, SessionEntityPorts, SessionRunner } from "./run";
 import { type CatalogStore, openCatalogStore } from "../store/catalog";
 import * as SessionHandleStore from "../store/fence";
@@ -52,6 +53,7 @@ export interface LedgerPlane {
   readonly handles: LedgerHandles;
   /** Both valid until the session's next passivation closes them: resolve per use, never hold across an await. */
   openKernel(sessionId: string): SessionKernel;
+  scanSessions<A>(read: (kernel: SessionKernel, row: LedgerSession.Row) => A[]): A[];
   sessionStore(sessionId: string): SessionStore;
   releaseSession(sessionId: string): void;
   discardSession(sessionId: string): void;
@@ -64,7 +66,7 @@ export interface LedgerPlane {
   close(): void;
 }
 
-export class Ledger extends Context.Service<Ledger, LedgerPlane>()("@openomni/agent/core/Ledger") {}
+export { Ledger };
 
 export class OpenRefused extends Data.TaggedError("OpenRefused")<{
   readonly code: "catalog" | "sessions";
@@ -172,6 +174,29 @@ function planeOver(
     });
     return view;
   }
+  function scanSessions<A>(read: (kernel: SessionKernel, row: LedgerSession.Row) => A[]): A[] {
+    const live = [...memo].filter(([id, entry]) => entry.store.sessions.get(id) !== undefined);
+    if (sessionsDir === undefined) return live.flatMap(([id, entry]) => readRow(entry.kernel, id, ":memory:", read));
+    return [...new Set([...catalog.sessionIds(), ...live.map(([id]) => id)])].flatMap((id) => {
+      // A second handle's bootstrap would wait on a write transaction held through the memo.
+      const entry = memo.get(id);
+      const path = sessionFilePath(sessionsDir, id);
+      if (entry !== undefined) return readRow(entry.kernel, id, path, read);
+      // An index row without a file was never created: skipped, unlike a file that will not open.
+      if (!existsSync(path)) return [];
+      let store: SessionStore;
+      try {
+        store = openSessionStore(path, sessionOptions);
+      } catch (cause) {
+        throw refused("sessions", path, cause);
+      }
+      try {
+        return readRow(SessionHandleStore.createSessionKernel(store, catalog), id, path, read);
+      } finally {
+        store.close();
+      }
+    });
+  }
   return {
     catalog,
     catalogDatabase: catalog.database,
@@ -192,6 +217,7 @@ function planeOver(
         ? { ...kernel, [SessionHandleStore.releaseSessionKernel]: () => releaseSession(sessionId) }
         : kernel;
     },
+    scanSessions,
     sessionStore: (sessionId) => opened(sessionId).store,
     releaseSession,
     discardSession: (sessionId) => {
@@ -200,31 +226,7 @@ function planeOver(
       releaseSession(sessionId);
       if (sessionsDir !== undefined) rmSync(sessionFilePath(sessionsDir, sessionId));
     },
-    listSessions: () => {
-      if (sessionsDir === undefined)
-        return [...memo]
-          .filter(([id, entry]) => entry.store.sessions.get(id) !== undefined)
-          .map(([id, entry]) => entry.kernel.row(id));
-      const liveIds = [...memo].filter(([id, entry]) => entry.store.sessions.get(id) !== undefined).map(([id]) => id);
-      return [...new Set([...catalog.sessionIds(), ...liveIds])].flatMap((id) => {
-        // A second handle's bootstrap would wait on a write transaction held through the memo.
-        const live = memo.get(id);
-        const path = sessionFilePath(sessionsDir, id);
-        // An index row without a file was never created: skipped, unlike a file that will not open.
-        if (live === undefined && !existsSync(path)) return [];
-        try {
-          if (live !== undefined) return [live.kernel.row(id)];
-          const store = openSessionStore(path, sessionOptions);
-          try {
-            return [SessionHandleStore.createSessionKernel(store, catalog).row(id)];
-          } finally {
-            store.close();
-          }
-        } catch (cause) {
-          throw refused("sessions", path, cause);
-        }
-      });
-    },
+    listSessions: () => scanSessions((_, row) => [row]),
     turnPort: createSessionEntityRunTurn,
     close: () => {
       for (const entry of memo.values()) entry.store.close();
@@ -232,6 +234,21 @@ function planeOver(
       catalog.close();
     },
   };
+}
+
+function readRow<A>(
+  kernel: SessionKernel,
+  id: string,
+  path: string,
+  read: (kernel: SessionKernel, row: LedgerSession.Row) => A[],
+): A[] {
+  let row: LedgerSession.Row;
+  try {
+    row = kernel.row(id);
+  } catch (cause) {
+    throw refused("sessions", path, cause);
+  }
+  return read(kernel, row);
 }
 
 /** `close` is a no-op: the plane closes the store, never the entity. */
