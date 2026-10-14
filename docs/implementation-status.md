@@ -11,7 +11,7 @@ in the workflow or `run-quality-mutations.ts` changed; the complete-campaign
 receipt requirement, shard inputs and resume logic are as before. The
 schedule returns once one dispatch completes a full campaign receipt; that
 remains the open acceptance item under #945. Receipt: `docs/ci.md` and the
-workflow trigger comment, PR #TBD.
+workflow trigger comment, PR #1529.
 
 ## #1505 inbound attachment references
 
