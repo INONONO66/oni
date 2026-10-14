@@ -13,10 +13,12 @@ export function sendPromptAndGetArm(
   });
 }
 
+export type ArmExit = Exit.Exit<Effect.Success<ReturnType<ArmVerb>>, Effect.Error<ReturnType<ArmVerb>>>;
+
 export function forkArm(
   arm: ArmVerb,
   input: Parameters<ArmVerb>[0],
-  done: Deferred.Deferred<Exit.Exit<unknown, unknown>>,
+  done: Deferred.Deferred<ArmExit>,
 ): Effect.Effect<void> {
   return Effect.forkChild(
     arm(input).pipe(

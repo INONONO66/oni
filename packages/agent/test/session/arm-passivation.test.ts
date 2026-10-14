@@ -30,7 +30,7 @@ import {
   sessionFileFor,
   type TestClusterOptions,
 } from "../helpers/cluster-runtime";
-import { forkArm, sendPromptAndGetArm } from "../helpers/arm-passivation";
+import { type ArmExit, forkArm, sendPromptAndGetArm } from "../helpers/arm-passivation";
 import { runTestSync } from "../helpers/isolated";
 
 const home = clusterTempDir("a4-arm-passivation-");
@@ -71,7 +71,7 @@ function heldArmHarness(mode: "pre" | "post") {
         : sessions.commit(input).pipe(Effect.tap(enter), Effect.tap(wait), Effect.tap(returned));
     };
     return new Proxy(store, {
-      get(target, key, receiver) {
+      get(target, key) {
         if (key === "sessions") return { ...sessions, commit };
         if (key === "close")
           return () => {
@@ -79,7 +79,7 @@ function heldArmHarness(mode: "pre" | "post") {
             target.close();
             closed.fire();
           };
-        const value: unknown = Reflect.get(target, key, receiver);
+        const value = target[key as keyof typeof target];
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
@@ -138,7 +138,7 @@ for (const mode of ["pre", "post"] as const) {
         yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
         const verb = yield* harness.live.live(sessionId);
         harness.holdNextArm();
-        const done = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
+        const done = yield* Deferred.make<ArmExit>();
         yield* forkArm(verb, { purpose: "test.tick", at: FAR, alarmId: "a-held", sourceKey: "t", payload: {} }, done);
         yield* Effect.promise(() => boundedAwait("arm commit held", harness.entered.done));
         yield* Effect.promise(() => boundedAwait("releaseLive finalizer", harness.liveReleased.done));
@@ -176,11 +176,11 @@ test("the store-close wait is bounded; an arm queued behind the held one refuses
       yield* sendPrompt(sessionId, `${sessionId}:m-1`, "hello");
       const verb = yield* harness.live.live(sessionId);
       harness.holdNextArm();
-      const first = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
+      const first = yield* Deferred.make<ArmExit>();
       yield* forkArm(verb, { purpose: "test.tick", at: FAR, alarmId: "a-held", sourceKey: "t", payload: {} }, first);
       yield* Effect.promise(() => boundedAwait("arm commit held", harness.entered.done));
       yield* Effect.promise(() => boundedAwait("releaseLive finalizer", harness.liveReleased.done));
-      const queued = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
+      const queued = yield* Deferred.make<ArmExit>();
       yield* Effect.forkChild(
         verb({ purpose: "test.tick", at: FAR, alarmId: "a-queued", sourceKey: "t", payload: {} }).pipe(
           Effect.exit,
@@ -341,13 +341,13 @@ test("latestArm reads one armed_alarms row by primary key: no scan, no temp b-tr
   try {
     const statements: string[] = [];
     const recording = new Proxy(db, {
-      get(target, key, receiver) {
+      get(target, key) {
         if (key === "query")
           return (sql: string) => {
             statements.push(sql);
             return target.query(sql);
           };
-        const value: unknown = Reflect.get(target, key, receiver);
+        const value = target[key as keyof typeof target];
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
