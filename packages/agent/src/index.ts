@@ -9,5 +9,5 @@ export * as Testing from "./testing";
 // retiring it is a separate decision, owned by no lane.
 export { decisionFromEvaluation, evaluatePermission } from "./core/gate/match";
 export type { PolicyEvaluationInput } from "./core/gate/compile";
-export { requireSubAdapter, withStoreTimestamps } from "./core/store/storage/timestamped-store";
+export { requireSubAdapter, withStoreTimestamps } from "./core/store/storage/sqlite-l0-sessions";
 export { createDecisionFactPort } from "./core/store/decision";

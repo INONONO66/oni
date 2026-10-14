@@ -1,7 +1,7 @@
 /**
  * Test cluster runtime hosting the REAL Session entity on a SingleRunner: sql message/runner storage plus the ledger
  * catalog schema in one catalog file, per-session ledger files under `sessionsDir`; every Effect runs through the
- * allowlisted `runAgent` helper. Wire contract: `src/core/messages.ts` (Deliver/Resolve/Alarm/Read). Composition seam:
+ * allowlisted `runAgent` helper. Wire contract: `src/core/journal/messages.ts` (Deliver/Resolve/Alarm/Read). Composition seam:
  * `SessionEntityContext` — this file supplies the catalog handle, the store opener and a minimal REAL turn port around `TestTurnRunner`.
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -29,14 +29,15 @@ import { Context, Crypto, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
-import { SessionEntity, SessionEntityContext, createSessionEntityLayer, type SessionEntityEnv, } from "../../src/core/entity";
-import type { AlarmCapability, AlarmDrainConfig } from "../../src/core/alarm";
+import { SessionEntity, SessionEntityContext, createSessionEntityLayer, type SessionEntityEnv, } from "../../src/core/session/entity";
+import type { AlarmCapability, AlarmDrainConfig } from "../../src/core/ports/alarm";
 
 /** Integration-helper composition root: cluster fixtures run on the real wall clock. */
 const wallClock = () => Date.now();
-import type { SessionEntityPorts, SessionEntityTurnInput, } from "../../src/core/run";
-import type { SessionError } from "../../src/core/failure";
-import { deliveryActions, turnIntentAction, turnResumeAction, turnTerminalAction, } from "../../src/core/commit";
+import type { SessionEntityPorts, SessionEntityTurnInput, } from "../../src/core/session/run";
+import type { SessionError } from "../../src/core/ports/failure";
+import { deliveryActions } from "../../src/core/journal/delivery";
+import { turnIntentAction, turnResumeAction, turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { runAgent } from "./executor";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 

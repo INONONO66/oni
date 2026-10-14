@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { Effect, Result } from "effect";
 import ts from "typescript";
 import { runSyncEffect } from "../apps/openomni/test/helpers/effect";
-import * as Agent from "../packages/agent/src/core/failure";
+import * as Agent from "../packages/agent/src/core/ports/failure";
 import * as Llm from "../packages/llm/src/errors";
-import * as CoreLlm from "../packages/agent/src/core/llm";
+import * as CoreLlm from "../packages/agent/src/core/ports/llm";
 import * as Store from "../packages/agent/src/core/store/errors";
 import { sdkError } from "../packages/llm/test/helpers/retry";
 import * as Channels from "../packages/channels/src/errors";
@@ -140,7 +140,7 @@ const carrierOwners: Readonly<Record<string, object>> = {
 };
 
 const packages: readonly PackageEntry[] = [
-  { name: "agent", path: "agent/src/core/failure", module: Agent, union: "SessionError", carrier: "AgentFailure", carrierPath: "agent/src/core/failure", failures: agent, thrown: [Agent.AgentInvariantViolation, Agent.SessionCommitError] },
+  { name: "agent", path: "agent/src/core/ports/failure", module: Agent, union: "SessionError", carrier: "AgentFailure", carrierPath: "agent/src/core/ports/failure", failures: agent, thrown: [Agent.AgentInvariantViolation, Agent.SessionCommitError] },
   { name: "agent store", path: "agent/src/core/store/errors", module: Store, union: "LedgerError", carrier: "AgentFailure", carrierPath: "agent/src/core/store/errors", failures: store, thrown: [Store.LedgerInvariant, Store.CatalogUpgradeRefused] },
   { name: "llm", path: "llm/src/errors", module: Llm, union: "LlmError", carrier: "LlmOperationFailure", carrierPath: "llm/src/errors", failures: llm, thrown: [] },
   { name: "channels", path: "channels/src/errors", module: Channels, union: "ChannelError", carrier: "ChannelsFailure", carrierPath: "channels/src/errors", failures: channels, thrown: [] },

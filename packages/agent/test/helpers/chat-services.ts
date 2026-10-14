@@ -1,8 +1,8 @@
-import { Llm, type LlmPort } from "../../src/core/llm";
+import { Llm, type LlmPort } from "../../src/core/ports/llm";
 import { Effect, Layer } from "effect";
-import type { ChatAgentConfig, ObservedChatAgentConfig } from "../../src/core/types";
-import type { createSessionChatRunner } from "../../src/core/run";
-import { ObservationSink } from "../../src/core/ports";
+import type { ChatAgentConfig, ObservedChatAgentConfig } from "../../src/core/ports/types";
+import type { createSessionChatRunner } from "../../src/core/session/run";
+import { ObservationSink } from "../../src/core/ports/ports";
 import { fixtureCompactionSeam } from "./fixture-compaction";
 import { observationService } from "./service-layers";
 import { TEST_BUDGET } from "./approval-policy";

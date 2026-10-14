@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { AgentFailure } from "../../src/core/failure";
+import { AgentFailure } from "../../src/core/ports/failure";
 import { isolated } from "../helpers/isolated";
 import { describe, expect, it } from "bun:test";
 import type { Message } from "@openomni/protocol";

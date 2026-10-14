@@ -4,7 +4,7 @@ import type { LedgerAction } from "@openomni/protocol";
 import { isolated } from "../../helpers/isolated";
 import { expect, test } from "bun:test";
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
-import { stopState, type StopObservation } from "../../../src/core/turn";
+import { stopState, type StopObservation } from "../../../src/core/loop/turn";
 import { recordingLedger } from "../../helpers/g0-effect";
 
 function harness(limit = 3) {

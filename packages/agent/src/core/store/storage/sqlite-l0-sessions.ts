@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { LedgerSession, type ObservationSink } from "@openomni/protocol";
 import {
   CommitRefused,
+  LedgerInvariant,
   CorruptRecord,
   FenceRefused,
   MaterializeRefused,
@@ -19,6 +20,21 @@ import {
 } from "./sqlite-l0-write.js";
 import { reportCommitted, type ObservationFailurePort } from "./sqlite-l0-observation.js";
 import { writeEffect, type RefuseWrite } from "./write-effect";
+
+export function requireSubAdapter<T>(adapter: T | null | undefined, message: string): T {
+  if (!adapter) throw new LedgerInvariant({ operation: "storage.subAdapter", message });
+  return adapter;
+}
+
+export function withStoreTimestamps<
+  T extends { readonly createdAt?: number; readonly updatedAt?: number },
+>(record: T, existing: T | undefined, now: number): T {
+  return {
+    ...record,
+    createdAt: record.createdAt ?? existing?.createdAt ?? now,
+    updatedAt: existing === undefined ? (record.updatedAt ?? now) : now,
+  };
+}
 
 export function materializeSession(
   db: Database,

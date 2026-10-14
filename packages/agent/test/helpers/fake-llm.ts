@@ -6,7 +6,7 @@ import {
   type LlmPort,
   type ResolvedModel,
   isLlmRunFailure,
-} from "../../src/core/llm";
+} from "../../src/core/ports/llm";
 
 /** A provider-shaped error with the verdict supplied by the test, not inferred from its fields. */
 export class FakeProviderError extends Error {

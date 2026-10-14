@@ -1,36 +1,36 @@
-export type { ChatAgentConfig } from "./types";
-export type { AgentBudget, ResolvedAgentBudget } from "./types";
+export type { ChatAgentConfig } from "./ports/types";
+export type { AgentBudget, ResolvedAgentBudget } from "./ports/types";
 // The approval-policy seam: product values behind one injected shape.
-export { ApprovalPolicySeam, type ApprovalPolicy, type ApprovalRecentOpen } from "./approval-policy";
-export { resolveAgentBudget } from "./budget";
-export { createApprovalRequest } from "./request-binding";
-export { failureFacts, MAX_ATTEMPTS } from "./retry";
+export { ApprovalPolicySeam, type ApprovalPolicy, type ApprovalRecentOpen } from "./composition/approval-policy";
+export { resolveAgentBudget } from "./loop/budget";
+export { createApprovalRequest } from "./journal/request-binding";
+export { failureFacts, MAX_ATTEMPTS } from "./loop/retry";
 export {
   Llm, LlmRunFailure, isLlmRunFailure, accumulateUsage,
   type LlmPort, type LlmSink, type RunInput, type RunResult, type ResolvedModel, type LlmCredential, type LlmTransport,
   type AttemptEvidence, type AttemptUsage, type UsageProvenance, type FailureFacts, type FailureClass, type LlmFailure,
   type ProviderReason, type RetryableProviderReason,
-} from "./llm";
-export * from "./failure";
-export * from "./ports";
-export * from "./alarm-ports";
-export type { CompactionOptions, CompactionSeamService } from "./compaction-ports";
+} from "./ports/llm";
+export * from "./ports/failure";
+export * from "./ports/ports";
+export type { RetryAlarmPort, RetryAlarmDeps } from "./ports/alarm";
+export type { CompactionOptions, CompactionSeamService } from "./ports/compaction-ports";
 export {
   createExecutor, ExecutionApprovalError, ExecutorContext, executorContext, ExecutorContextError,
   currentInvocation, forkInvocation,
   type InvocationFrame, type ExecutionApprovalRequest, type Executor,
-} from "./gate/decide";
+} from "./loop/executor";
 export { compilePolicySnapshot, createPolicyCompiler, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, type HandlerTable, type NamedTransformer, type NamedConsultant, type ConsultInput, type NamedGuard, type PolicyEvaluationInput } from "./gate/compile";
 export { decisionFromEvaluation, evaluatePermission } from "./gate/match";
 export {
   composePointTable, executionPoint, GateComposeError, KERNEL_CAPABILITY_POINTS,
   type CapabilityPointRegistration, type GatePointTable,
-} from "./points";
+} from "./gate/points";
 export { assertPointGenerationRows, POINT_GENERATION_ROW, translateLegacyPolicyRow } from "./gate/migrate";
 export {
   currentExecutor, defineTool, eraseTool, projectTools,
   ToolRefused, toolInputSchema, type ToolProjections, type ProjectableTool,
-} from "./tool";
+} from "./loop/tool";
 
 export {
   adoptedExecutor, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,
@@ -39,18 +39,18 @@ export {
   type SessionEntityPorts, type SessionEntityTurnInput,
   type SessionSystem, type ResolvedSessionRuntime,
   composedManifest, type ComposedManifest,
-} from "./run";
-export { decideSessionAdmission } from "./admission";
-export { requestAuthorityKernel } from "./request";
-export { createSessionRequests, decideRequestTransition, requestBindingDigest } from "./request";
-export { receivedMessageAction, staleActionBacklog } from "./commit";
-export { armAction, firedAction, alarmDisposition, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./alarm";
-export { foldAlarmChains, openAlarmIds, type AlarmArmRow, type AlarmChainView } from "./alarm-read";
-export { SessionEntity, SessionEntityContext, type SessionKernel } from "./entity";
-export { Ledger, OpenRefused, openLedger, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./host";
-export { makeObservationBus, observationBusLayer, scopeObservation } from "./bus";
-export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./fork";
-export { createSession, CreateRefused, type CreateSessionInput, type SessionReceipt } from "./create";
+} from "./session/run";
+export { decideSessionAdmission } from "./session/admission";
+export { requestAuthorityKernel } from "./session/request";
+export { createSessionRequests, decideRequestTransition, requestBindingDigest } from "./session/request";
+export { receivedMessageAction, staleActionBacklog } from "./journal/delivery";
+export { armAction, firedAction, alarmDisposition, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./ports/alarm";
+export { foldAlarmChains, openAlarmIds, type AlarmArmRow, type AlarmChainView } from "./session/alarm-read";
+export { SessionEntity, SessionEntityContext, type SessionKernel } from "./session/entity";
+export { Ledger, OpenRefused, openLedger, sessionFilePath, type ClusterServices, type LedgerConfig, type LedgerPlane, type LedgerStoreConfig } from "./session/host";
+export { makeObservationBus, observationBusLayer, scopeObservation } from "./observation/bus";
+export { forkSession, ForkRefused, isForkBoundary, DEFAULT_FORK_COPY_BYTE_CAP, type ForkInput, type ForkPorts, type ForkReceipt, type ForkRefusalReason } from "./session/fork";
+export { createSession, CreateRefused, type CreateSessionInput, type SessionReceipt } from "./session/create";
 
 export {
   CATALOG_SCHEMA, bootstrapStoreDatabase,

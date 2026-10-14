@@ -1,23 +1,25 @@
+import { openTurns } from "../../src/core/store/session-reads";
+import { configureCrashPoint } from "./crash-configure";
 import { sessionTree } from "./session-tree";
 import { runAgent, testExecutor } from "./executor";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { foldCrashMain, foldCrashPoint, foldCrashProof } from "./fold-crash";
-import { configureCrashPoint } from "./crash-configure";
+
 import { reconstructionCut, reconstructionPoint } from "./crash-reconstruction";
 import { turnTestLayer, catalogLayer } from "./service-layers";
 import { runnerTestLayer } from "./isolated";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices } from "./session-services";
 import { activeIsolation, isolatedLedger, isolatedRun } from "./isolated";
 import { openCrashStores } from "./crash-stores";
-import type { ResolvedExecutorOptions } from "../../src/core/gate/decide";
+import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
 import { Effect } from "effect";
 import { appendFileSync, writeSync } from "node:fs";
-import * as SessionHandleStore from "../../src/core/store/fence";
+
 import type { LedgerError } from "../../src/core/store/errors";
 import { LedgerAction, Message, PlainObjectSchema, PlainValueSchema, type PlainValue, } from "@openomni/protocol";
 import { z } from "zod";
-import type { ExecutionLedger } from "../../src/core/gate/decide";
-import { createLedgerRetryAlarmPort } from "../../src/core/gate/decide";
+import type { ExecutionLedger } from "../../src/core/loop/executor";
+import { createLedgerRetryAlarmPort } from "../../src/core/loop/executor";
 import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
 import { session } from "../../src/testing/registry";
 import { reactivateSession } from "./wake-session";
@@ -33,7 +35,7 @@ import { stringQueryTool } from "./query-tool";
 import { textMessage } from "./messages";
 import { seedPolicy } from "./seed-policy";
 import { uniqueEntropy } from "./time";
-import { CommitFailed, AgentFailure, type SessionError } from "../../src/core/failure";
+import { CommitFailed, AgentFailure, type SessionError } from "../../src/core/ports/failure";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 
 export const crashPoint = z.enum([
@@ -144,7 +146,7 @@ function stop(point: z.infer<typeof allCrashPoints>, bodies: string[], pending?:
     bodies,
     ...(fold === undefined ? {} : { fold }),
     lease: { owner: row.fenceOwner, fence: row.fence },
-    openTurns: SessionHandleStore.openTurns(sessionTree(kernel, sessionId)),
+    openTurns: openTurns(sessionTree(kernel, sessionId)),
     ...(pending === undefined
       ? {}
       : { pending: { kind: pending.kind, effect: pending.effect.value } }),

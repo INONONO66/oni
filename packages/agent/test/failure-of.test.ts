@@ -1,12 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { Cause } from "effect";
-import { AgentFailure, Interrupted } from "../src/core/failure";
-import * as Failure from "../src/core/failure";
+import { AgentFailure, Interrupted } from "../src/core/ports/failure";
+import * as Failure from "../src/core/ports/failure";
 
 describe("Failure.of", () => {
   it("returns the typed error instance a Cause carries", () => {
-    const error = new Interrupted();
-    expect(Failure.of(Cause.fail(error), "op")).toBe(error);
+    const error = new Failure.BundleError({ code: "metadata", bundle: "fixture", detail: "invalid" });
+    const failure = Failure.of(Cause.fail(error), "op");
+    expect(failure).toBe(error);
+    expect(failure.message).toBe("metadata: fixture: invalid");
   });
 
   it("synthesizes a AgentFailure for a defect, carrying the pretty-printed cause", () => {

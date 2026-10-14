@@ -6,7 +6,7 @@ import { runTestAgent } from "../../helpers/effect-g1";
 import { collector } from "../../helpers/observation-collector";
 import { runInput } from "../../helpers/run-input";
 import { overflowCompactionConfig } from "../../helpers/run-config";
-import { RunEvents } from "../../../src/core/turn";
+import { RunEvents } from "../../../src/core/loop/turn";
 
 const model = {
   id: "model",

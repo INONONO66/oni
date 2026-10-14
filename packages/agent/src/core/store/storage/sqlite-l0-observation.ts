@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
-import { thrownAsError } from "../../failure";
-import { parsePlainJson } from "../json";
+import { thrownAsError } from "../../ports/failure";
+import { parsePlainJson } from "./sqlite-l0-rows";
 import type { Database } from "bun:sqlite";
 import { Gateway, Delivery, type LedgerAction, PlainValueSchema, SessionTransition, L0Observation, type ObservationSink, } from "@openomni/protocol";
 

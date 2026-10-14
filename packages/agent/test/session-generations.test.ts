@@ -1,17 +1,18 @@
+import { generationSnapshot } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
 import { Effect, Fiber, Layer } from "effect";
-import { GenerationHandlers } from "../src/core/compose";
+import { GenerationHandlers } from "../src/core/composition/compose";
 import { AgentGenerationLive } from "./helpers/generation-layer";
-import { ObservationSink } from "../src/core/ports";
-import { GenerationRawSlots, makeSessionGenerations, type GenerationBundle } from "../src/core/run";
+import { ObservationSink } from "../src/core/ports/ports";
+import { GenerationRawSlots, makeSessionGenerations, type GenerationBundle } from "../src/core/session/run";
 import { allowAllPolicy } from "./helpers/compiled-policy";
 import { isolated } from "./helpers/isolated";
 
 function bundle(generation: number, closed: number[]): GenerationBundle {
-  const snapshot = SessionHandleStore.generationSnapshot({
+  const snapshot = generationSnapshot({
     generation, revertTo: generation - 1, tools: [],
     system: { preset: "", blocks: [] }, policyGeneration: allowAllPolicy.generation,
   });

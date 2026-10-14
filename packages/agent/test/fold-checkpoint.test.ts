@@ -1,3 +1,4 @@
+import { configureAction, latestGeneration } from "../src/core/store/configure";
 import { Effect, Logger, References } from "effect";
 import { z } from "zod";
 import { runAgentSync } from "./helpers/executor";
@@ -13,13 +14,15 @@ import {
   PlainValueSchema,
   SessionTurn,
 } from "@openomni/protocol";
-import { createRunState } from "../src/core/turn";
-import { evaluateBudget } from "../src/core/budget";
+import { createRunState } from "../src/core/loop/turn";
+import { evaluateBudget } from "../src/core/loop/budget";
 import { testBudget } from "./helpers/approval-policy";
 import { runInput } from "./helpers/run-input";
 import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
 import { actionPayloadBytes } from "../src/core/store/action-hash";
-import { deliveryActions, foldCheckpointAction, turnTerminalAction } from "../src/core/commit";
+import { deliveryActions } from "../src/core/journal/delivery";
+import { foldCheckpointAction } from "../src/core/journal/compaction";
+import { turnTerminalAction } from "../src/core/journal/turn-rows";
 import { bounded } from "./helpers/bounded";
 import { effectOf, intentOf } from "./helpers/crash-matrix";
 import { commitReceivedMessage } from "./helpers/ingress";
@@ -30,7 +33,7 @@ import { testTurnDispatcher } from "./helpers/service-layers";
 import { fixtureConfigHead, fixtureTraceContext, prepareChatFixture } from "./helpers/chat-services";
 import { seedPolicy } from "./helpers/seed-policy";
 import { uniqueEntropy } from "./helpers/time";
-import { createSessionChatRunner, resolveSessionRuntime, type SessionRunnerInput } from "../src/core/run";
+import { createSessionChatRunner, resolveSessionRuntime, type SessionRunnerInput } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
 import { nth } from "./helpers/nth";
 import { requestLedger } from "./helpers/request-ledger";
@@ -108,7 +111,7 @@ function pinCheckpointPolicy(
 ) {
   const id = recording.identity.sessionId;
   const committed = recording.commitBatch([
-    SessionHandleStore.configureAction({
+    configureAction({
       id: `${id}:configure:checkpoint`,
       sessionId: id,
       parentId: kernel.latestAction(id)?.id ?? null,
@@ -205,7 +208,7 @@ test("#1347 a crash-open reactivation hands the charged counters to the resumed 
           id, role: "resident", parentId: null, tools: [], system: { preset: "", blocks: [] },
           policyGeneration: 1, actionId: "initial", at: 1,
         });
-        const generation = SessionHandleStore.latestGeneration(sessionTree(kernel(), id));
+        const generation = latestGeneration(sessionTree(kernel(), id));
         const lease = yield* kernel().adoptFence({ sessionId: id, owner: "crashed", fence: kernel().row(id).fence + 1 });
         // One model step charged under an open turn, then the process dies: no turn terminal.
         yield* kernel().commit({

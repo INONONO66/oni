@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { attemptReason, decide } from "../../../src/core/retry";
-import type { FailureClass } from "../../../src/core/llm";
+import { attemptReason, decide } from "../../../src/core/loop/retry";
+import type { FailureClass } from "../../../src/core/ports/llm";
 
 /** Deterministic injected draw: zero jitter. */
 const random = () => 0;

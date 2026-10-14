@@ -13,8 +13,8 @@ import { RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "../helpers/old-ca
 import { openCatalogStore } from "../../../src/core/store/catalog";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION } from "../../../src/core/store/session-file";
-import { receivedMessageAction } from "../../../src/core/commit";
-import { forkSession, isForkBoundary } from "../../../src/core/fork";
+import { receivedMessageAction } from "../../../src/core/journal/delivery";
+import { forkSession, isForkBoundary } from "../../../src/core/session/fork";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { answerThenCompaction } from "../../helpers/durable-compaction";
 import { testExecutor } from "../../helpers/executor";

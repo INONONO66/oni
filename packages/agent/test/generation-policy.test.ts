@@ -1,14 +1,15 @@
+import { generationSnapshot } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { createHandlerTable, createPolicyCompiler, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
 import { Clock, Effect, Layer } from "effect";
 import { z } from "zod";
-import { GenerationHandlers } from "../src/core/compose";
-import { makeSessionGenerations } from "../src/core/run";
-import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports";
-import { defineTool, projectTools } from "../src/core/tool";
+import { GenerationHandlers } from "../src/core/composition/compose";
+import { makeSessionGenerations } from "../src/core/session/run";
+import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports/ports";
+import { defineTool, projectTools } from "../src/core/loop/tool";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { effectValue, fiberSessionId, nativeExecutorOptions } from "./helpers/native-executor";
@@ -44,7 +45,7 @@ function generationFixture(rows: readonly SeedRow[], bodies: PlainValue[]) {
     const tools = [tool];
     const source = isolatedLedger().catalog.policies;
     const policyGeneration = source.appendGeneration(() => [...SEEDED_POLICY_ROWS, ...rows]);
-    const snapshot = SessionHandleStore.generationSnapshot({
+    const snapshot = generationSnapshot({
       generation: 1, revertTo: 0, policyGeneration, bundles: ["demo"],
       tools: projectTools(tools).session, system: { preset: "", blocks: [] },
     });

@@ -7,14 +7,14 @@ import { isolated } from "../../helpers/isolated";
 import { createTestAgent } from "../../helpers/effect-g1";
 import { beforeEach, describe, expect, it } from "bun:test";
 import type { Tool } from "@openomni/protocol";
-import { defineTool } from "../../../src/core/tool";
+import { defineTool } from "../../../src/core/loop/tool";
 import { createDispatcher } from "../../../src/plugins/tool";
 import { Bus } from "../../helpers/bus";
 import { recordingExecutor } from "../../helpers/effect-g1";
 import { compiledPolicy } from "../../helpers/compiled-policy";
 import { z } from "zod";
-import { createAssistantMessage } from "../../../src/core/message-factory";
-import type {} from "../../../src/core/types";
+import { createAssistantMessage } from "../../../src/core/journal/message-factory";
+import type {} from "../../../src/core/ports/types";
 
 // Catalog metadata does not bypass the executor's compiled policy.
 const tools: Tool.Spec[] = [

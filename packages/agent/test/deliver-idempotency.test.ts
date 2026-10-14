@@ -20,10 +20,10 @@ import {
   sessionFileFor,
   type TestClusterOptions,
 } from "./helpers/cluster-runtime";
-import { receivedMessageAction } from "../src/core/commit";
+import { receivedMessageAction } from "../src/core/journal/delivery";
 import { runAgent } from "./helpers/executor";
 import { fencedSession } from "./helpers/seeded-session";
-import type { DeliverRefused } from "../src/core/messages";
+import type { DeliverRefused } from "../src/core/journal/messages";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-deliver-idempotency-");
 const options = { sessionsDir, catalogFile };

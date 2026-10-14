@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Operational } from "@openomni/protocol";
 import { Effect } from "effect";
-import { RunEvents } from "../../../src/core/turn";
+import { RunEvents } from "../../../src/core/loop/turn";
 import { Bus } from "../../helpers/bus";
 import { bounded } from "../../helpers/bounded";
 import { compiledPolicy } from "../../helpers/compiled-policy";

@@ -1,9 +1,10 @@
-import * as SessionHandleStore from "../../src/core/store/fence";
+import { generationSnapshot } from "../../src/core/store/configure";
+import { turnTerminal } from "../../src/core/store/session-reads";
 import type { LedgerAction } from "@openomni/protocol";
-import { turnIntentAction, turnTerminalAction } from "../../src/core/commit";
+import { turnIntentAction, turnTerminalAction } from "../../src/core/journal/turn-rows";
 
 /** Canonical generation-1 snapshot shared by FSM and admission fixtures. */
-export const fixtureGeneration = SessionHandleStore.generationSnapshot({
+export const fixtureGeneration = generationSnapshot({
   generation: 1,
   revertTo: 0,
   tools: [],
@@ -48,7 +49,7 @@ export function fixtureTerminal(kind: "result" | "interrupted") {
     id: "R", parentId: "T", sessionId: "S", turnId: "T", result: { kind, text: "" },
     resumeCount: 0, boundaryActionId: null, at: 2,
   }));
-  const effect = SessionHandleStore.turnTerminal(action);
+  const effect = turnTerminal(action);
   if (effect === undefined) throw new Error("invalid terminal fixture");
   return { action, effect };
 }

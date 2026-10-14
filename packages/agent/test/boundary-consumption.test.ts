@@ -1,3 +1,4 @@
+import { configureAction } from "../src/core/store/configure";
 /**
  * Boundary consumption rule: control signals drain at every boundary,
  * `steer` rows at tool.post boundaries and turn end, `followUp` rows only at
@@ -7,13 +8,9 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import type { Delivery, LedgerAction } from "@openomni/protocol";
-import {
-  DEFAULT_CONSUMPTION,
-  boundaryConsumption,
-  consumptionSettings,
-} from "../src/core/commit";
-import { configureAction } from "../src/core/store/fence";
-import type { SessionRunner } from "../src/core/run";
+import { DEFAULT_CONSUMPTION, boundaryConsumption, consumptionSettings } from "../src/core/journal/delivery";
+
+import type { SessionRunner } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { queuePromptOnS } from "./helpers/ingress";

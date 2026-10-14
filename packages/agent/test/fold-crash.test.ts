@@ -1,5 +1,6 @@
+import { turnIntent } from "../src/core/store/session-reads";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { sessionTree } from "./helpers/session-tree";
 import { canonicalDigest, PlainValueSchema, SessionTurn } from "@openomni/protocol";
 import { FoldCheckpointIntegrityError, foldHistoryState, hydrateSessionHistory, } from "../src/inspect/history";
@@ -32,7 +33,7 @@ for (const point of foldCrashPoint.options) {
       }
       if (point === "turn_context_snapshot_committed_before_model_entry") {
         const opened = actions.find(
-          (action) => SessionHandleStore.turnIntent(action) !== undefined,
+          (action) => turnIntent(action) !== undefined,
         );
         const pin = SessionTurn.Intent.parse(opened?.intent.value).context;
         expect(opened?.id).toBe(pin.snapshotActionId);

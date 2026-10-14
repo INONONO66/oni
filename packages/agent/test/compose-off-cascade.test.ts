@@ -1,16 +1,17 @@
+import { configureAction } from "../src/core/store/configure";
 import { expect, test } from "bun:test";
 import { Context } from "effect";
 import { z } from "zod";
 import { Journal, type PlainValue } from "@openomni/protocol";
-import { configureAction } from "../src/core/store/fence";
+
 import {
   Capability,
   defineBundle,
   Manifest,
   type SeamTag,
-} from "../src/core/capability";
+} from "../src/core/ports/capability";
 import { runTestPromise } from "./helpers/isolated";
-import { compose } from "../src/core/compose";
+import { compose } from "../src/core/composition/compose";
 import { CompactionSeam } from "../src/core/api";
 import { compactionCapability } from "../src/bundle";
 

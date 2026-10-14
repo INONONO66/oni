@@ -39,7 +39,7 @@ const inlineAuthorizationThrowPatterns = [
 ];
 /**
  * The run loop's closed reason-code vocabulary, declared once in
- * `packages/agent/src/core/reason-codes.ts` and produced from another
+ * `packages/agent/src/core/ports/reason-codes.ts` and produced from another
  * package, so a literal at the producer is a coupling the compiler cannot see:
  * rename one end and the loop silently stops reacting.
  *
@@ -52,7 +52,7 @@ const inlineAuthorizationThrowPatterns = [
  * reaching a `reasonCodes` array through a variable or helper parameter is
  * also out of reach; the test pins are the layer that catches a wrong value.
  */
-const runReasonCodeSource = "packages/agent/src/core/reason-codes.ts";
+const runReasonCodeSource = "packages/agent/src/core/ports/reason-codes.ts";
 const runReasonCodeLiteralPattern =
   /reasonCodes:\s*\[[^\]]*?["'`](stalled|budget_warning|budget_reassurance)["'`]/g;
 const runReasonCodeComparisonPattern =

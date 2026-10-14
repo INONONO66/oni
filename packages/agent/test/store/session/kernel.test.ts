@@ -1,3 +1,6 @@
+import { generationSnapshot, configureAction, latestGeneration, generationByNumber } from "../../../src/core/store/configure";
+import { turnCheckpoint, turnTerminal, openTurns } from "../../../src/core/store/session-reads";
+import * as SessionReads from "../../../src/core/store/session-reads";
 import { sessionTree } from "../helpers/session-tree";
 import { runLedgerSync } from "../helpers/effect";
 import { Effect, Result } from "effect";
@@ -6,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { type BusEvent, type LedgerAction, type LedgerSession, L0Observation, type SessionGeneration, SessionTurn, } from "@openomni/protocol";
 import { Bus } from "../helpers/observation";
-import * as SessionHandleStore from "../../../src/core/store/fence";
+
 import type { ObservationSink } from "@openomni/protocol";
 import { useMemoryStores } from "../helpers/storage";
 import { adoptWriter } from "../helpers/session";
@@ -323,7 +326,7 @@ function commitWithDroppedMiddle(authority: { sessionId: string; owner: string; 
 
 describe("session kernel folds", () => {
   test("canonicalizes generations and decodes every turn action shape", () => {
-    const generation = SessionHandleStore.generationSnapshot({
+    const generation = generationSnapshot({
       generation: 2,
       revertTo: 1,
       tools,
@@ -334,7 +337,7 @@ describe("session kernel folds", () => {
     expect(generation.systemValue).toBe("Session preset\n\nFollow the rules.");
 
     const configured = node(
-      SessionHandleStore.configureAction({
+      configureAction({
         id: "configured",
         sessionId: "folded",
         parentId: null,
@@ -344,13 +347,13 @@ describe("session kernel folds", () => {
       }),
       1,
     );
-    expect(SessionHandleStore.latestGeneration([configured])).toEqual(generation);
-    expect(SessionHandleStore.generationByNumber([configured], 2)).toEqual(generation);
-    expect(SessionHandleStore.generationByNumber([configured], 1)).toBeUndefined();
-    expect(() => SessionHandleStore.latestGeneration([])).toThrow("no configured generation");
+    expect(latestGeneration([configured])).toEqual(generation);
+    expect(generationByNumber([configured], 2)).toEqual(generation);
+    expect(generationByNumber([configured], 1)).toBeUndefined();
+    expect(() => latestGeneration([])).toThrow("no configured generation");
 
     expect(() =>
-      SessionHandleStore.generationSnapshot({
+      generationSnapshot({
         generation: 1,
         revertTo: 0,
         tools: [writeTool, writeTool],
@@ -359,7 +362,7 @@ describe("session kernel folds", () => {
       }),
     ).toThrow("duplicate tool name");
     expect(() =>
-      SessionHandleStore.generationSnapshot({
+      generationSnapshot({
         generation: 1,
         revertTo: 0,
         tools: [],
@@ -428,15 +431,15 @@ describe("session kernel folds", () => {
       6,
     );
 
-    expect(SessionHandleStore.turnIntent(intent)?.resultId).toBe("result-1");
-    expect(SessionHandleStore.turnResume(resumed)?.resumeCount).toBe(1);
-    expect(SessionHandleStore.turnCheckpoint(checked)?.boundaryActionId).toBe("checkpoint-1");
-    expect(SessionHandleStore.delivery(delivered)?.content).toBe("continue");
-    expect(SessionHandleStore.turnTerminal(closed)?.kind).toBe("result");
-    expect(SessionHandleStore.turnIntent(configured)).toBeUndefined();
-    expect(SessionHandleStore.delivery(intent)).toBeUndefined();
+    expect(SessionReads.turnIntent(intent)?.resultId).toBe("result-1");
+    expect(SessionReads.turnResume(resumed)?.resumeCount).toBe(1);
+    expect(turnCheckpoint(checked)?.boundaryActionId).toBe("checkpoint-1");
+    expect(SessionReads.delivery(delivered)?.content).toBe("continue");
+    expect(turnTerminal(closed)?.kind).toBe("result");
+    expect(SessionReads.turnIntent(configured)).toBeUndefined();
+    expect(SessionReads.delivery(intent)).toBeUndefined();
 
-    expect(SessionHandleStore.openTurns([configured, intent, resumed, checked])).toEqual([
+    expect(openTurns([configured, intent, resumed, checked])).toEqual([
       expect.objectContaining({
         turnId: "turn-1",
         resultId: "result-1",
@@ -445,7 +448,7 @@ describe("session kernel folds", () => {
         action: checked,
       }),
     ]);
-    expect(SessionHandleStore.openTurns([configured, intent, resumed, checked, closed])).toEqual(
+    expect(openTurns([configured, intent, resumed, checked, closed])).toEqual(
       [],
     );
   });
@@ -454,7 +457,7 @@ describe("session kernel folds", () => {
     const kernel = stores.kernel;
     const sessionId = "snapshot-session";
     materialize(sessionId);
-    const generation = SessionHandleStore.latestGeneration(
+    const generation = latestGeneration(
       sessionTree(sessionId, stores.session.actions),
     );
     const authority = adoptWriter(kernel, sessionId, "owner");

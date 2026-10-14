@@ -1,3 +1,6 @@
+import { turnTerminal, openTurns } from "../../src/core/store/session-reads";
+import * as SessionReads from "../../src/core/store/session-reads";
+import { latestGeneration, generationSnapshot, configureAction } from "../../src/core/store/configure";
 /** #1348: the session lifecycle conformance harness (docs/session-lifecycle-contract.md section 6). */
 import { expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -6,18 +9,18 @@ import { join } from "node:path";
 import { Effect, type Exit, Fiber, Scope } from "effect";
 import { z } from "zod";
 import { type BusEvent, canonicalDigest, type Delivery, type LedgerAction, type LedgerSession, L0Observation, type ObservationSink, type PlainValue, type PolicyRow, type SessionTransition, type SessionTurn, } from "@openomni/protocol";
-import { AgentFailure, type ExecutionError, type SessionError } from "../../src/core/failure";
-import type { SessionHandle } from "../../src/core/run";
+import { AgentFailure, type ExecutionError, type SessionError } from "../../src/core/ports/failure";
+import type { SessionHandle } from "../../src/core/session/run";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
-import type { SessionKernel } from "../../src/core/entity";
-import { createExecutor } from "../../src/core/gate/decide";
-import type { ExecutionApprovals, ExecutionBatchResult, } from "../../src/core/gate/decide";
-import { closeSessions, type SessionRunner, type SessionRunnerInput, } from "../../src/core/run";
+import type { SessionKernel } from "../../src/core/session/entity";
+import { createExecutor } from "../../src/core/loop/executor";
+import type { ExecutionApprovals, ExecutionBatchResult, } from "../../src/core/loop/executor";
+import { closeSessions, type SessionRunner, type SessionRunnerInput, } from "../../src/core/session/run";
 import { session } from "../../src/testing/registry";
-import type { createSessionRequests } from "../../src/core/request";
-import { commitSessionRequest } from "../../src/core/request";
+import type { createSessionRequests } from "../../src/core/session/request";
+import { commitSessionRequest } from "../../src/core/session/request";
 import { testBus } from "./bus";
 import { sessionTree } from "./session-tree";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices } from "./session-services";
@@ -138,7 +141,7 @@ function assertTerminalUniqueness(after: SessionSnapshot): void {
     const turnTerminals = new Map<string, number>();
     const toolResults = new Map<string, number>();
     for (const action of after.actions) {
-        const terminal = SessionHandleStore.turnTerminal(action);
+        const terminal = turnTerminal(action);
         if (terminal !== undefined)
             turnTerminals.set(terminal.turnId, (turnTerminals.get(terminal.turnId) ?? 0) + 1);
         if (action.kind === "tool" && phaseOf(action) === "result" && action.parentId !== null)
@@ -146,13 +149,13 @@ function assertTerminalUniqueness(after: SessionSnapshot): void {
     }
     for (const count of [...turnTerminals.values(), ...toolResults.values()])
         expect(count).toBe(1);
-    for (const turn of SessionHandleStore.openTurns(after.actions))
+    for (const turn of openTurns(after.actions))
         expect(turnTerminals.has(turn.turnId)).toBe(false);
 }
 function assertInputConsumption(after: SessionSnapshot): void {
     const deliveries = new Map<string, number>();
     for (const action of after.actions) {
-        const delivery = SessionHandleStore.delivery(action);
+        const delivery = SessionReads.delivery(action);
         if (delivery !== undefined)
             deliveries.set(delivery.deliveryId, (deliveries.get(delivery.deliveryId) ?? 0) + 1);
     }
@@ -615,7 +618,7 @@ export function reply(q: SessionTransition.Request, inputId: string, receivedAt:
     };
 }
 /** The pending turn every 6.x seed opens under its `cfg` boundary at the given generation. */
-function pendingTurn(sessionId: string, turnId: string, boundaryActionId: string, resultId: string, generation: ReturnType<typeof SessionHandleStore.latestGeneration>): LedgerAction.Append {
+function pendingTurn(sessionId: string, turnId: string, boundaryActionId: string, resultId: string, generation: ReturnType<typeof latestGeneration>): LedgerAction.Append {
     return {
         id: turnId,
         sessionId,
@@ -653,7 +656,7 @@ function seedLeasedResident(id: string, actionId: string, owner: string) {
             actionId,
             at: harness.now,
         }));
-        const generation = SessionHandleStore.latestGeneration(sessionTree(kernel(), id));
+        const generation = latestGeneration(sessionTree(kernel(), id));
         const lease = (yield* kernel().adoptFence({
             sessionId: id,
             owner,
@@ -742,7 +745,7 @@ export function openRequest(port: Effect.Success<ReturnType<typeof createSession
 export function seedCrashOpen(id: string) {
     return Effect.gen(function* () {
         const { created, generation, lease } = (yield* seedLeasedResident(id, "cfg", "dead"));
-        const g2 = SessionHandleStore.generationSnapshot({
+        const g2 = generationSnapshot({
             generation: generation.generation + 1,
             revertTo: generation.generation,
             tools: [],
@@ -763,7 +766,7 @@ export function seedCrashOpen(id: string) {
             },
             actions: [
                 pendingTurn(id, "T", "cfg", "R", generation),
-                SessionHandleStore.configureAction({
+                configureAction({
                     id: "cfg2",
                     sessionId: id,
                     parentId: "T",

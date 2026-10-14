@@ -1,20 +1,22 @@
 import { Effect, Fiber, Option, type Scope } from "effect";
 import { FenceRefused } from "../core/store/errors";
 import type { Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
-import { CommitFailed, ExecutionApprovalError, AgentFailure, type SessionError } from "../core/failure";
-import { toolSnapshot, internalOrigin, turnTerminalAction, receivedMessageAction } from "../core/commit";
-import { createSessionTurn } from "../core/run";
-import { createSessionAdmission, decideSessionAdmission } from "../core/admission";
-import { createSessionRecovery } from "../core/recovery";
-import { commitSessionRequest } from "../core/request";
-import { adoptSessionAuthority, createSessionConfiguration } from "../core/run";
-import { dispatchSessionOutbound } from "../core/run";
+import { CommitFailed, ExecutionApprovalError, AgentFailure, type SessionError } from "../core/ports/failure";
+import { toolSnapshot } from "../core/journal/commit";
+import { internalOrigin, receivedMessageAction } from "../core/journal/delivery";
+import { turnTerminalAction } from "../core/journal/turn-rows";
+import { createSessionTurn } from "../core/session/run";
+import { createSessionAdmission, decideSessionAdmission } from "../core/session/admission";
+import { createSessionRecovery } from "../core/session/recovery";
+import { commitSessionRequest } from "../core/session/request";
+import { adoptSessionAuthority, createSessionConfiguration } from "../core/session/run";
+import { dispatchSessionOutbound } from "../core/session/run";
 import { inspectSession } from "../inspect";
-import { createRawSlots } from "../core/gate/decide";
-import { commitFoldBatch } from "../core/commit";
-import type { SessionController, SessionControllerLifecycle, ResolvedSessionRuntime, SessionRunner, SessionRunnerResult, SessionHandle, } from "../core/run";
-import type { SessionControllerState } from "../core/run";
-import { retryRevision, type SessionKernel } from "../core/entity";
+import { createRawSlots } from "../core/loop/executor";
+import { commitFoldBatch } from "../core/journal/compaction";
+import type { SessionController, SessionControllerLifecycle, ResolvedSessionRuntime, SessionRunner, SessionRunnerResult, SessionHandle, } from "../core/session/run";
+import type { SessionControllerState } from "../core/session/run";
+import { retryRevision, type SessionKernel } from "../core/session/entity";
 
 /** Shutdown grace for settling raw slots; an explicit controller-owned default. */
 const DEFAULT_CLOSE_GRACE_MS = 30_000;

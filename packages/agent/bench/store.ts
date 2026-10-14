@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Bench } from "tinybench";
 import { L0Observation, type LedgerSession, type Message } from "@openomni/protocol";
 import { materializeSession } from "../test/store/helpers/session";
-import { makeObservationBus } from "../src/core/bus";
+import { makeObservationBus } from "../src/core/observation/bus";
 import { openCatalogStore } from "../src/core/store/catalog";
 import { openSessionStore } from "../src/core/store/session-file";
 import * as SessionHandleStore from "../src/core/store/fence";

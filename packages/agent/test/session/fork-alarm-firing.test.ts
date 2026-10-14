@@ -8,7 +8,7 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { z } from "zod";
-import { armAction, type AlarmCapability } from "../../src/core/alarm";
+import { armAction, type AlarmCapability } from "../../src/core/ports/alarm";
 import { clusterTempDir, runCluster, sendAlarm, sendPrompt } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
 import { boundaryTerminal, forkAtAction } from "../helpers/fork-seed";

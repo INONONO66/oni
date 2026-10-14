@@ -16,7 +16,7 @@ test("#1276 src/plugins/ is exactly the check-deps five-plugin table", () => {
   expect(listedPlugins()).toEqual([...AGENT_PLUGINS].sort());
 });
 
-test("#1310 core/admission.ts imports nothing from plugins/", () => {
-  const source = readFileSync(join(import.meta.dir, "../../src/core/admission.ts"), "utf8");
+test("#1310 core/session/admission.ts imports nothing from plugins/", () => {
+  const source = readFileSync(join(import.meta.dir, "../../src/core/session/admission.ts"), "utf8");
   expect(source.match(/from "[^"]*plugins\//g) ?? []).toEqual([]);
 });

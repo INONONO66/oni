@@ -1,9 +1,9 @@
 import { isolated } from "../../helpers/isolated";
 import { describe, expect, it } from "bun:test";
-import { RunEvents } from "../../../src/core/turn";
+import { RunEvents } from "../../../src/core/loop/turn";
 import { Bus, newTraceId } from "../../helpers/bus";
 import { runTestAgent } from "../../helpers/effect-g1";
-import type { RunTrace } from "../../../src/core/turn";
+import type { RunTrace } from "../../../src/core/loop/turn";
 import { mockLlm, completeModel } from "../../helpers/mock-llm";
 
 // Actor attribution comes only from the validated trace.

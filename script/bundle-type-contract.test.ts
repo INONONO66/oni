@@ -10,9 +10,9 @@ import ts from "typescript";
 // onto a bundle.
 const root = resolve(import.meta.dir, "..");
 const header = `import { Context, Effect, Layer } from "effect";
-import { defineBundle, seam } from "../packages/agent/src/core/capability";
-import { AgentFailure, type SessionError } from "../packages/agent/src/core/failure";
-import { Entropy, ObservationSink, type BundleLayerServices } from "../packages/agent/src/core/ports";
+import { defineBundle, seam } from "../packages/agent/src/core/ports/capability";
+import { AgentFailure, type SessionError } from "../packages/agent/src/core/ports/failure";
+import { Entropy, ObservationSink, type BundleLayerServices } from "../packages/agent/src/core/ports/ports";
 class External extends Context.Service<External, boolean>()("@openomni/test/External") {}
 const Alarm = seam("@openomni/agent/capability/alarm");
 const seeded = Layer.effectDiscard(Effect.gen(function* () { yield* Entropy; yield* ObservationSink; }));
@@ -47,7 +47,7 @@ test("bundle contract types the acquisition layer and refuses capability-owned d
   host.fileExists = (file) => fixtures.has(file) || exists(file);
   const program = ts.createProgram([...fixtures.keys()], options, host);
   const diagnostics = ts.getPreEmitDiagnostics(program);
-  const owned = diagnostics.filter((item) => item.file?.fileName === resolve(root, "packages/agent/src/core/capability.ts") || item.file?.fileName.endsWith("bundle-positive.fixture.ts"));
+  const owned = diagnostics.filter((item) => item.file?.fileName === resolve(root, "packages/agent/src/core/ports/capability.ts") || item.file?.fileName.endsWith("bundle-positive.fixture.ts"));
   expect(owned.map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"))).toEqual([]);
   for (const [name, , code] of negatives) {
     const path = resolve(root, `script/bundle-${name.replaceAll(" ", "-")}.fixture.ts`);

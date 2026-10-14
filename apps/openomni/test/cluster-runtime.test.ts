@@ -15,7 +15,7 @@ import type { Delivery, ObservationSink } from "@openomni/protocol";
 import { Effect, Fiber } from "effect";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
 import { createSessionEntityPortsSlot, interruptFailureCause } from "../src/composition/cluster-runtime";
-import { AdmissionFailure, DeliverRefused } from "../../../packages/agent/src/core/messages";
+import { AdmissionFailure, DeliverRefused } from "../../../packages/agent/src/core/journal/messages";
 import { createAppLedger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { requestFixture } from "../../../packages/agent/test/store/helpers/request";

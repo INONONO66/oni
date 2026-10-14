@@ -2,23 +2,23 @@ import { sessionTree } from "./helpers/session-tree";
 import { allowConfigure, isolatedRuntime, kernelRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
 import { Effect, Fiber } from "effect";
 import { isolated, isolatedLedger, type IsolatedLedgerHandle } from "./helpers/isolated";
-import { AgentFailure } from "../src/core/failure";
+import { AgentFailure } from "../src/core/ports/failure";
 import { expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { LedgerAction, PlainValue, SessionTransition } from "@openomni/protocol";
 import { z } from "zod";
-import { defineTool, eraseTool } from "../src/core/tool";
+import { defineTool, eraseTool } from "../src/core/loop/tool";
 import { createTurnDispatcher } from "../src/plugins/tool";
-import { createSessionRequests } from "../src/core/request";
+import { createSessionRequests } from "../src/core/session/request";
 import { compiledPolicy } from "./helpers/compiled-policy";
 import { requestLedger, crashAfterRequestOpen, failure, type RequestLedger } from "./helpers/effect-g1";
 import { bounded } from "./helpers/bounded";
 import { catalogLayer, executorLayer } from "./helpers/service-layers";
 import { openCrashStores } from "./helpers/crash-stores";
 import { fileRequest, planeAnswer, requestPlane } from "./helpers/session-request-plane";
-import type { RunnerServices } from "../src/core/ports";
+import type { RunnerServices } from "../src/core/ports/ports";
 import { TEST_APPROVAL_POLICY } from "./helpers/approval-policy";
 
 /**

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { isolated } from "../helpers/isolated";
 import { createTestAgent } from "../helpers/effect-g2";
 import { describe, expect, it } from "bun:test";
-import type { RunInput } from "../../src/core/llm";
+import type { RunInput } from "../../src/core/ports/llm";
 import { collector } from "../helpers/observation-collector";
 import { completeModel, mockProviderModel } from "../helpers/mock-llm";
 import { runInput } from "../helpers/run-input";
@@ -15,7 +15,7 @@ function transportHarness(transport?: RunInput["transport"]) {
     ...(transport === undefined ? {} : { transport }),
     llm: {
       resolveModel: () => Effect.promise(async () => mockProviderModel),
-      run: (input: import("../../src/core/llm").RunInput, sink: import("../../src/core/llm").LlmSink) =>
+      run: (input: import("../../src/core/ports/llm").RunInput, sink: import("../../src/core/ports/llm").LlmSink) =>
         Effect.promise(async () => {
           seen.push(input.transport);
           return completeModel(input, sink);

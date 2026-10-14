@@ -2,10 +2,10 @@ import { testExecutor } from "./executor";
 import { type ChatFixture as ChatAgentConfig, chatServices, fixtureCompactionSeam, fixtureStopEvidence } from "./chat-services";
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
 import { Effect } from "effect";
-import type { LlmSink as Sink } from "../../src/core/llm";
-import type { ChatAgentInput } from "../../src/core/types";
-import type { ExecutorOptions } from "../../src/core/gate/decide";
-import { runAgent } from "../../src/core/turn";
+import type { LlmSink as Sink } from "../../src/core/ports/llm";
+import type { ChatAgentInput } from "../../src/core/ports/types";
+import type { ExecutorOptions } from "../../src/core/loop/executor";
+import { runAgent } from "../../src/core/loop/turn";
 import { recordingLedger } from "./recording-ledger";
 import { TEST_BUDGET } from "../helpers/approval-policy";
 

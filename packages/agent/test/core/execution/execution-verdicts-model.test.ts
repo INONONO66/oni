@@ -5,7 +5,7 @@ import { isolated } from "../../helpers/isolated";
 import { describe, expect, it, mock } from "bun:test";
 import { recordingLedger, runTestOperation, failure as effectFailure, foreign, } from "../../helpers/effect-g2";
 import { compilePolicySnapshot } from "../../../src/core/gate/compile";
-import { ToolBodyFailed } from "../../../src/core/failure";
+import { ToolBodyFailed } from "../../../src/core/ports/failure";
 import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
 
 const kinds = ["prompt", "turn", "llm", "tool"] as const;

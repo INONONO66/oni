@@ -1,5 +1,6 @@
-import * as SessionHandleStore from "../core/store/fence";
-import type { SessionKernel } from "../core/entity";
+import { turnIntent, delivery, turnTerminal } from "../core/store/session-reads";
+import type * as SessionHandleStore from "../core/store/fence";
+import type { SessionKernel } from "../core/session/entity";
 import { canonicalDigest, type LedgerAction, type PlainObject, type PlainValue, SessionHistory, SessionTransition, } from "@openomni/protocol";
 import { z } from "zod";
 
@@ -190,8 +191,8 @@ function transitionOf(action: LedgerAction.Node, turnId: string | null): Session
 }
 
 function ownTurnId(action: LedgerAction.Node): string | undefined {
-  if (SessionHandleStore.turnIntent(action) !== undefined) return action.id;
-  if (action.kind !== "turn" && SessionHandleStore.delivery(action) === undefined) return undefined;
+  if (turnIntent(action) !== undefined) return action.id;
+  if (action.kind !== "turn" && delivery(action) === undefined) return undefined;
   return firstDefined(
     text(object(action.effect.value).turnId),
     text(object(action.intent.value).turnId),
@@ -238,7 +239,7 @@ function deliveryCause(
   effect: PlainObject,
 ): SessionHistory.Cause | undefined {
   const deliveryId = text(effect.deliveryId);
-  return SessionHandleStore.delivery(action) !== undefined && deliveryId !== undefined
+  return delivery(action) !== undefined && deliveryId !== undefined
     ? { kind: "delivery", deliveryIds: [deliveryId] }
     : undefined;
 }
@@ -281,7 +282,7 @@ function recordedOutcome(
   action: LedgerAction.Node,
   effect: PlainObject,
 ): SessionHistory.Outcome | null {
-  const terminal = SessionHandleStore.turnTerminal(action);
+  const terminal = turnTerminal(action);
   if (terminal !== undefined) return TURN_OUTCOMES[terminal.kind];
   if (effect.phase === "pending") return "pending";
   const settled = SessionHistory.Outcome.safeParse(effect.terminal);
@@ -487,6 +488,6 @@ export function toolOutput(
   };
 }
 
-export { attemptUsage, toolWallMs } from "../core/metrics";
+export { attemptUsage, toolWallMs } from "../core/observation/metrics";
 
 export { FORK_ASIDE_REF, forkAncestryOf, forkAside, inspectTree, type InspectTreeRequest, type SessionTreeNode } from "./tree";

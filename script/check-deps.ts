@@ -8,8 +8,9 @@ import ts from "typescript";
 import { z } from "zod";
 import { PlainValueSchema } from "../packages/protocol/src/json.js";
 import { commandOutput } from "./command-output";
+import { valueImportSpecifiers } from "./check-import-cycles";
 import { runScriptMain } from "./main-runner";
-import { assertTopologyComplete, TOPOLOGY, type WorkspaceTopology } from "./topology";
+import { AGENT_CORE_EDGES, assertTopologyComplete, TOPOLOGY, type WorkspaceTopology } from "./topology";
 
 type PackageRule = {
   displayName: string;
@@ -966,7 +967,7 @@ export function agentBandViolations(filePath: string, source: string): string[] 
   const band = agentBandOf(filePath);
   const rules = band === undefined ? undefined : AGENT_BANDS[band];
   if (band === undefined || rules === undefined) return [];
-  const violations: string[] = [];
+  const violations = agentCoreValueViolations(filePath, source);
   if (band === "plugins") {
     const plugin = filePath.slice(AGENT_SRC_PREFIX.length).split("/")[1] ?? "";
     if (!(AGENT_PLUGINS as readonly string[]).includes(plugin)) {
@@ -998,6 +999,30 @@ export function agentBandViolations(filePath: string, source: string): string[] 
   return violations;
 }
 
+function agentCoreValueViolations(filePath: string, source: string): string[] {
+  const prefix = `${AGENT_SRC_PREFIX}core/`;
+  if (!filePath.startsWith(prefix)) return [];
+  const rest = filePath.slice(prefix.length);
+  if (rest === "api.ts" || rest === "index.ts") return [];
+  const importer = rest.split("/")[0] ?? "";
+  const allowed = AGENT_CORE_EDGES[importer];
+  if (allowed === undefined && rest.includes("/"))
+    return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not one of the eight core directories`];
+  if (allowed === undefined) return [];
+  const violations: string[] = [];
+  for (const spec of valueImportSpecifiers(source)) {
+    if (!spec.startsWith(".")) continue;
+    const resolved = resolveAgentRelative(filePath, spec);
+    if (!resolved.startsWith(prefix)) continue;
+    const target = resolved.slice(prefix.length).split("/")[0] ?? "";
+    if (target === importer || allowed.includes(target)) continue;
+    violations.push(
+      `VIOLATION: ${filePath} imports ${spec} — #1354 core value edges: ${importer}/ may not import ${target}`,
+    );
+  }
+  return violations;
+}
+
 /**
  * #1276 ratchet baseline, TIGHT: every pin equals the file's HEAD actual count
  * under the corrected band-root classifier, so there is no slack to grow into
@@ -1006,7 +1031,7 @@ export function agentBandViolations(filePath: string, source: string): string[] 
  * tree measures 45 under the same classifier, of which 16 were
  * plugins/compaction imports now routed through core/api and 4 were
  * product-choice edges the move removed (see the reconciliation receipt).
- * Includes the core/retry.ts
+ * Includes the core/loop/retry.ts
  * +1 slash-only-classifier undercount correction (r2 addendum). A new file, a
  * higher count, OR A PIN ABOVE THE ACTUAL fails: shrinkage lowers the pin in
  * the same PR. #1255 drives every entry to zero.
@@ -1016,10 +1041,11 @@ const AGENT_BAND_RATCHET: ReadonlyMap<string, number> = new Map([
   // seam and inverted the plugin -> inspect/history edge; #1352 moved the
   // model band out of the package, so the remaining pins are the
   // core -> inspect/history edges (#1255 owns those).
-  ["packages/agent/src/core/commit.ts", 1],
+  ["packages/agent/src/core/journal/compaction.ts", 1],
   // #1310 split mailbox.ts; its grandfathered inspect/history edge moved to recovery.ts.
-  ["packages/agent/src/core/recovery.ts", 1],
-  ["packages/agent/src/core/run.ts", 2],
+  ["packages/agent/src/core/session/recovery.ts", 1],
+  ["packages/agent/src/core/session/run.ts", 1],
+  ["packages/agent/src/core/session/runtime.ts", 1],
 ]);
 
 
@@ -2001,8 +2027,8 @@ function selfTest(): number {
     [
       "#1276: core-internal imports are legal (one core)",
       agentBandViolations(
-        "packages/agent/src/core/run.ts",
-        'import { x } from "./turn";\nimport { y } from "./store/fence";\nimport { z } from "./gate/decide";',
+        "packages/agent/src/core/session/run.ts",
+        'import { x } from "../loop/turn";\nimport { y } from "../store/fence";\nimport { z } from "../loop/executor";',
       ).length === 0,
     ],
     [
@@ -2043,8 +2069,8 @@ function selfTest(): number {
     [
       "#1352: a core file importing the llm port stays inside its own band",
       agentBandViolations(
-        "packages/agent/src/core/retry.ts",
-        'import { LlmRunFailure } from "./llm";',
+        "packages/agent/src/core/loop/retry.ts",
+        'import { LlmRunFailure } from "../ports/llm";',
       ).length === 0,
     ],
     [

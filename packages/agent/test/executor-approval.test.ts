@@ -1,18 +1,18 @@
 import { sessionTree } from "./helpers/session-tree";
 import { testExecutor } from "./helpers/executor";
-import type { ResolvedExecutorOptions } from "../src/core/gate/decide";
+import type { ResolvedExecutorOptions } from "../src/core/loop/executor";
 import { executorLayer, catalogLayer } from "./helpers/service-layers";
 import { expect, it } from "bun:test";
 
 import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
 import { Deferred, Effect, Fiber } from "effect";
-import { ExecutionApprovalError, AgentFailure } from "../src/core/failure";
-import { createExecutor, } from "../src/core/gate/decide";
+import { ExecutionApprovalError, AgentFailure } from "../src/core/ports/failure";
+import { createExecutor, } from "../src/core/loop/executor";
 import { approveWriteRow, compiledPolicy } from "./helpers/compiled-policy";
 import { requestLedger } from "./helpers/effect-g1";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { z } from "zod";
-import { defineTool } from "../src/core/tool";
+import { defineTool } from "../src/core/loop/tool";
 import { createDispatcher } from "../src/plugins/tool";
 import { bounded } from "./helpers/bounded";
 import { TEST_APPROVAL_POLICY } from "./helpers/approval-policy";

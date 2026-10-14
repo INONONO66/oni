@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { Manifest } from "../src/core/capability";
-import { compose } from "../src/core/compose";
+import { Manifest } from "../src/core/ports/capability";
+import { compose } from "../src/core/composition/compose";
 import { ActionSeam, actionCapability } from "../src/plugins/action";
 import { hookCapability } from "../src/plugins/hook";
 import { runTestPromise } from "./helpers/isolated";

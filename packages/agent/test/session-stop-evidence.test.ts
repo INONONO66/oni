@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { expect, it } from "bun:test";
 import type { LedgerAction } from "@openomni/protocol";
-import type { ExecutionApprovalRequest, ExecutionApprovals } from "../src/core/gate/decide";
-import { sessionStopEvidence } from "../src/core/run";
-import { armAction, firedAction } from "../src/core/alarm";
+import type { ExecutionApprovalRequest, ExecutionApprovals } from "../src/core/loop/executor";
+import { sessionStopEvidence } from "../src/core/session/run";
+import { armAction, firedAction } from "../src/core/ports/alarm";
 import { fencedTurnFixture, type FencedTurnFixture } from "./helpers/fenced-writer";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { sessionTree } from "./helpers/session-tree";

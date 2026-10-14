@@ -1,5 +1,5 @@
 import type { PlainValue, PointId, PolicyRow } from "@openomni/protocol";
-import { GateComposeError, type GatePointTable } from "../points";
+import { GateComposeError, type GatePointTable } from "./points";
 
 /**
  * Historical generations keep their exact bytes; only the latest generation converts, while pinned

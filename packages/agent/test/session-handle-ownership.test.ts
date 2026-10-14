@@ -1,14 +1,16 @@
+import { turnTerminal, turnIntent } from "../src/core/store/session-reads";
+import { latestGeneration } from "../src/core/store/configure";
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, } from "effect";
 import { type L0Observation, PlainValueSchema } from "@openomni/protocol";
-import type { ExecutionApprovals } from "../src/core/gate/decide";
-import type { ExecutionApprovalRequest } from "../src/core/gate/decide";
-import type { SessionHandle } from "../src/core/run";
+import type { ExecutionApprovals } from "../src/core/loop/executor";
+import type { ExecutionApprovalRequest } from "../src/core/loop/executor";
+import type { SessionHandle } from "../src/core/session/run";
 import type { SessionFixture } from "./helpers/session-services";
-import type { SessionRunner, SessionRunnerInput } from "../src/core/run";
-import * as SessionHandleStore from "../src/core/store/fence";
-import { GenerationOwnership } from "../src/core/ports";
-import { GenerationRawSlots } from "../src/core/run";
+import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
+
+import { GenerationOwnership } from "../src/core/ports/ports";
+import { GenerationRawSlots } from "../src/core/session/run";
 import { awaitSignal, failure, boundedSignal as bounded } from "./helpers/g0-signals";
 import {
   approvalRequest,
@@ -336,13 +338,13 @@ describe("durable session handle: ownership and generations", () => {
         expect(inputs[1]?.tools.map((entry) => entry.name)).toEqual(["read", "search"]);
         const actions = tree(handle.id);
         const terminal = actions.find(
-          (action) => SessionHandleStore.turnTerminal(action)?.kind === "interrupted",
+          (action) => turnTerminal(action)?.kind === "interrupted",
         );
         const selected = actions.find(
           (action) => action.kind === "session.configure" && action.ordinal > 1,
         );
         const resumed = actions.find(
-          (action) => SessionHandleStore.turnIntent(action)?.toolsGeneration === 2,
+          (action) => turnIntent(action)?.toolsGeneration === 2,
         );
         if (terminal === undefined || selected === undefined || resumed === undefined)
           throw new Error("missing immediate configure boundary");
@@ -411,7 +413,7 @@ describe("durable session handle: ownership and generations", () => {
         expect(inputs).toHaveLength(2);
         expect(inputs[1]?.systemHash).not.toBe(inputs[0]?.systemHash);
         expect(inputs[1]?.tools.map((entry) => entry.name)).toEqual(["read"]);
-        expect(SessionHandleStore.latestGeneration(tree(handle.id)).systemBlocks).toEqual(
+        expect(latestGeneration(tree(handle.id)).systemBlocks).toEqual(
           nextBlocks,
         );
       }),
@@ -623,7 +625,7 @@ describe("durable session handle: ownership and generations", () => {
                 commits += 1;
                 expect(
                   tree(message.sourceSessionId).some(
-                    (action) => SessionHandleStore.turnTerminal(action) !== undefined,
+                    (action) => turnTerminal(action) !== undefined,
                   ),
                 ).toBe(true);
                 expect(kernel().outboundRows(message.sourceSessionId)[0]?.state).toBe("pending");

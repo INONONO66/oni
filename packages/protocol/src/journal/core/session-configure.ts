@@ -2,7 +2,7 @@
  * `session.configure` — generation change: manifest hash, role, parent,
  * bundles and `settings{steering, followUp, forkCopyByteCap, checkpoint}` holding the
  * `all|one` consumption widths, the fork copy cap and the checkpoint policy. Single writer: the entity configure constructor
- * (`packages/agent/src/core/store/fence.ts`), also used at genesis by the app
+ * (`packages/agent/src/core/store/configure.ts`), also used at genesis by the app
  * cluster runtime and by `Session.fork` (#1257), whose child genesis pins the
  * fork boundary in `forkedFrom`.
  */

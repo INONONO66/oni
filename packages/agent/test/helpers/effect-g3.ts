@@ -2,9 +2,9 @@ import { type ChatFixture as ChatAgentConfig, chatServices, fixtureCompactionSea
 import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { Effect, Cause, Exit } from "effect";
 
-import { runAgent } from "../../src/core/turn";
-import type { ChatAgentInput } from "../../src/core/types";
-import type { LlmSink as Sink } from "../../src/core/llm";
+import { runAgent } from "../../src/core/loop/turn";
+import type { ChatAgentInput } from "../../src/core/ports/types";
+import type { LlmSink as Sink } from "../../src/core/ports/llm";
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
 import type { PolicyRow } from "@openomni/protocol";
 import { recordingExecutor } from "./effect-g3-recording";

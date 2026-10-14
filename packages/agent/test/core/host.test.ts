@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
 import { TestClock } from "effect/testing";
-import { SessionEntity } from "../../src/core/entity";
-import { Ledger, type LedgerConfig, OpenRefused, openLedger } from "../../src/core/host";
+import { SessionEntity } from "../../src/core/session/entity";
+import { Ledger, type LedgerConfig, OpenRefused, openLedger } from "../../src/core/session/host";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 import {
   BunTestCrypto,

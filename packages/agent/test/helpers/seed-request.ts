@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Alarm, canonicalDigest, type LedgerAction, type SessionTransition } from "@openomni/protocol";
-import { armAction } from "../../src/core/alarm";
-import { decideRequestTransition } from "../../src/core/request";
+import { armAction } from "../../src/core/ports/alarm";
+import { decideRequestTransition } from "../../src/core/session/request";
 import { openRequest } from "./open-request";
 import { runAgent } from "./executor";
 import { type ClusterHome, type FencedSession, fencedSession } from "./seeded-session";

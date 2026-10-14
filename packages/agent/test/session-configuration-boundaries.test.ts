@@ -1,9 +1,10 @@
+import { latestGeneration } from "../src/core/store/configure";
 import { sessionTree as kernelSessionTree } from "./helpers/session-tree";
 import { isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
 import { Effect, Fiber } from "effect";
 import { expect, it } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
-import { closeSessions, type SessionHandle } from "../src/core/run";
+
+import { closeSessions, type SessionHandle } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { collector } from "./helpers/observation-collector";
 import { seedPolicy } from "./helpers/seed-policy";
@@ -93,7 +94,7 @@ it("rejects configuration whose authorization outlives its captured generation",
                   cause: "stale",
                 });
                 expect(
-                  SessionHandleStore.latestGeneration(sessionTree(handle.id))
+                  latestGeneration(sessionTree(handle.id))
                     .generation,
                 ).toBe(receipt.generation);
               } finally {

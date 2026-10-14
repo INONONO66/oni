@@ -5,7 +5,7 @@ import { isolated } from "../../helpers/isolated";
 import { describe, expect, it } from "bun:test";
 import { Operational, type Tool } from "@openomni/protocol";
 import { runTestAgent, runUserMessage, failure, foreign } from "../../helpers/effect-g2";
-import { createAssistantMessage } from "../../../src/core/message-factory";
+import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { Bus } from "../../helpers/bus";
 import { collector } from "../../helpers/observation-collector";
 import { mockLlm, createStopOutcome, countingStopLlm } from "../../helpers/mock-llm";
@@ -67,8 +67,8 @@ describe("run budget terminal facts", () => {
             toolExecutor,
             llm: mockLlm(
               async (
-                input: import("../../../src/core/llm").RunInput,
-                sink: import("../../../src/core/llm").LlmSink,
+                input: import("../../../src/core/ports/llm").RunInput,
+                sink: import("../../../src/core/ports/llm").LlmSink,
               ) => {
                 modelCalls += 1;
                 input.shouldYield?.();

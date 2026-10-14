@@ -20,15 +20,15 @@ import { expect, test, spyOn } from "bun:test";
 import { seedPolicy } from "../../helpers/seed-policy";
 import { Message, canonicalDigest, type LedgerSession, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
-import { closeSessions } from "../../../src/core/run";
+import { closeSessions } from "../../../src/core/session/run";
 import { session } from "../../../src/testing/registry";
-import { createSessionChatRunner } from "../../../src/core/run";
+import { createSessionChatRunner } from "../../../src/core/session/run";
 import {
   projectTools,
   defineTool,
   eraseTool,
-} from "../../../src/core/tool";
-import { createAssistantMessage } from "../../../src/core/message-factory";
+} from "../../../src/core/loop/tool";
+import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { reopenableLedger } from "../../helpers/reopenable-ledger";
 import { restoreCompactionProjection } from "../../../src/plugins/compaction/durable";
 import { assistantStep } from "../../helpers/dispatching-runner";
@@ -70,9 +70,9 @@ test("reopened SQLite hydrates exact tool-bearing assistant identities and rende
           definitions,
           () => runtime,
           async (
-            request: import("../../../src/core/llm").RunInput,
-            sink: import("../../../src/core/llm").LlmSink,
-            input: import("../../../src/core/run").SessionRunnerInput,
+            request: import("../../../src/core/ports/llm").RunInput,
+            sink: import("../../../src/core/ports/llm").LlmSink,
+            input: import("../../../src/core/session/run").SessionRunnerInput,
           ) => {
             inputs.push(structuredClone(request.messages));
             calls += 1;
@@ -165,8 +165,8 @@ interface CompactionProbe {
 function compactionProbeStep(
   probe: CompactionProbe,
   sessionId: string,
-  request: import("../../../src/core/llm").RunInput,
-  sink: import("../../../src/core/llm").LlmSink,
+  request: import("../../../src/core/ports/llm").RunInput,
+  sink: import("../../../src/core/ports/llm").LlmSink,
 ): { type: "stop" } {
   probe.calls += 1;
   if (probe.calls === 3) probe.nextBoundary = structuredClone(request.messages);
@@ -214,7 +214,7 @@ test("compaction projection and lossless revert survive SQLite reopen without de
         const summarizing = Promise.withResolvers<void>();
         const summary = Promise.withResolvers<string>();
         const runner = createSessionChatRunner({
-          prepare: (input: import("../../../src/core/run").SessionRunnerInput) =>
+          prepare: (input: import("../../../src/core/session/run").SessionRunnerInput) =>
             Effect.gen(function* () {
               const dispatcher = yield* testTurnDispatcher(input, runtime);
               return prepareChatFixture({
@@ -240,8 +240,8 @@ test("compaction projection and lossless revert survive SQLite reopen without de
                         limit: { context: 10000 },
                       }),
                     run: (
-                      request: import("../../../src/core/llm").RunInput,
-                      sink: import("../../../src/core/llm").LlmSink,
+                      request: import("../../../src/core/ports/llm").RunInput,
+                      sink: import("../../../src/core/ports/llm").LlmSink,
                     ) =>
                       Effect.sync(() => compactionProbeStep(probe, input.sessionId, request, sink)),
                   },

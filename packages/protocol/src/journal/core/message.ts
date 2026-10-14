@@ -2,8 +2,8 @@
  * `message` — an outbound obligation toward a channel or session
  * (`to: channel|session`, `direction: out`) and its delivery acknowledgement;
  * the former `outbound` kind is this kind's session-directed shape.
- * Single writer: the loop outbound constructor
- * (`packages/agent/src/core/run.ts`); handlers call it.
+ * Single writer: the session outbound constructor
+ * (`packages/agent/src/core/session/outbound.ts`); handlers call it.
  */
 import { z } from "zod";
 import { RowBody, declare, refineField } from "../declaration.js";

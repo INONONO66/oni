@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Exit } from "effect";
 import { CompactionSeam } from "../../src/core/api";
-import { commitFoldBatch } from "../../src/core/commit";
-import { AgentFailure, AgentInvariantViolation } from "../../src/core/failure";
-import { createRunState } from "../../src/core/turn";
+import { commitFoldBatch } from "../../src/core/journal/compaction";
+import { AgentFailure, AgentInvariantViolation } from "../../src/core/ports/failure";
+import { createRunState } from "../../src/core/loop/turn";
 import { foldSessionHistory, hydrateSessionHistory } from "../../src/inspect/history";
 import { compactionCapability, compactionSeamService } from "../../src/plugins/compaction";
 import { prepareCompactionRestore } from "../../src/plugins/compaction/restore";

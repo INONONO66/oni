@@ -1,8 +1,10 @@
+import { turnTerminal } from "../core/store/session-reads";
+import * as SessionReads from "../core/store/session-reads";
 import { Effect } from "effect";
 import { z } from "zod";
-import * as SessionHandleStore from "../core/store/fence";
-import type { SessionKernel } from "../core/entity";
-import { AgentInvariantViolation } from "../core/failure";
+
+import type { SessionKernel } from "../core/session/entity";
+import { AgentInvariantViolation } from "../core/ports/failure";
 import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
 import { actionPayloadBytes } from "../core/store/action-hash";
 
@@ -67,7 +69,7 @@ function applyHistoryAction(
   const prompt = deliveredPrompt(action, sessionId);
   if (prompt !== undefined) {
     state.messages.push(prompt);
-    const delivery = SessionHandleStore.delivery(action);
+    const delivery = SessionReads.delivery(action);
     if (delivery !== undefined)
       state.compatibility.push({ id: delivery.deliveryId, role: "user", text: delivery.content });
   }
@@ -110,7 +112,7 @@ function chargeBudget(state: FoldCheckpoint.State, action: LedgerAction.Node): v
   budget.chargedAt = Math.max(budget.chargedAt, action.ts);
   if (action.kind === "llm") chargeModel(budget, action, intent);
   if (action.kind === "tool") chargeTool(budget, action, intent);
-  if (SessionHandleStore.turnTerminal(action) !== undefined) state.budgetState = null;
+  if (turnTerminal(action) !== undefined) state.budgetState = null;
 }
 
 function chargeModel(budget: FoldCheckpoint.BudgetState, action: LedgerAction.Node, intent: PlainObject): void {
@@ -142,7 +144,7 @@ function count(value: PlainValue | undefined): number {
 }
 
 function applyTerminal(state: FoldCheckpoint.State, action: LedgerAction.Node) {
-  const terminal = SessionHandleStore.turnTerminal(action);
+  const terminal = turnTerminal(action);
   if (terminal === undefined) return;
   if (terminal.text.length > 0) {
     state.compatibility.push({ id: action.id, role: "assistant", text: terminal.text });
@@ -428,7 +430,7 @@ function deliveredPrompt(
   action: LedgerAction.Node,
   sessionId: string,
 ): Message.WithParts | undefined {
-  const delivery = SessionHandleStore.delivery(action);
+  const delivery = SessionReads.delivery(action);
   if (delivery?.kind !== "prompt") return undefined;
   return durableText(
     {

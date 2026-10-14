@@ -1,3 +1,4 @@
+import { configureAction } from "../../../src/core/store/configure";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach } from "bun:test";
 import type { Delivery, LedgerAction } from "@openomni/protocol";
@@ -5,10 +6,11 @@ import { runLedgerSync } from "./effect";
 import { type LedgerStores, testNow, useMemoryStores } from "./storage";
 import { adoptWriter, materializeSession } from "./session";
 import { openSessionStore, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../../../src/core/store/session-file";
-import { deliveryActions, receivedMessageAction, turnTerminalAction } from "../../../src/core/commit";
-import { armAction } from "../../../src/core/alarm";
-import { forkSession, type ForkPorts, ForkRefused, type ForkReceipt } from "../../../src/core/fork";
-import { configureAction } from "../../../src/core/store/fence";
+import { deliveryActions, receivedMessageAction } from "../../../src/core/journal/delivery";
+import { turnTerminalAction } from "../../../src/core/journal/turn-rows";
+import { armAction } from "../../../src/core/ports/alarm";
+import { forkSession, type ForkPorts, ForkRefused, type ForkReceipt } from "../../../src/core/session/fork";
+
 import type { LedgerError } from "../../../src/core/store/errors";
 
 export const PARENT = "parent";

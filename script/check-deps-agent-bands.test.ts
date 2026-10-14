@@ -22,6 +22,75 @@ import {
   validateAppsSessionWrites,
 } from "./check-deps";
 
+test("#1354 allows the responsibility-directed value edges and root barrels", () => {
+  for (const [from, to] of [
+    ["session/run.ts", "composition/compose"],
+    ["composition/compose.ts", "gate/compile"],
+    ["loop/executor.ts", "journal/commit"],
+    ["journal/compaction.ts", "store/fence"],
+    ["gate/compile.ts", "store/catalog"],
+    ["store/fence.ts", "ports/failure"],
+    ["observation/run-events.ts", "ports/reason-codes"],
+    ["ports/failure.ts", "ports/llm"],
+    ["api.ts", "loop/executor"],
+    ["index.ts", "session/run"],
+  ]) {
+    const depth = from?.includes("/") ? "../" : "./";
+    expect(agentBandViolations(
+      `packages/agent/src/core/${from}`,
+      `import { value } from "${depth}${to}";`,
+    )).toEqual([]);
+  }
+});
+
+test("#1354 rejects reverse value edges and core barrel bypasses", () => {
+  for (const [from, to] of [
+    ["ports/types.ts", "loop/turn"],
+    ["store/catalog.ts", "gate/migrate"],
+    ["gate/compile.ts", "loop/executor"],
+    ["journal/compaction.ts", "session/run"],
+    ["observation/run-events.ts", "loop/retry"],
+    ["composition/compose.ts", "session/run"],
+    ["loop/executor.ts", "session/run"],
+    ["ports/types.ts", "index.ts"],
+    ["store/fence.ts", "api"],
+  ]) {
+    const found = agentBandViolations(
+      `packages/agent/src/core/${from}`,
+      `import { value } from "../${to}";`,
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("#1354 core value edges:");
+  }
+});
+
+test("#1354 rejects importers outside the eight core directories", () => {
+  for (const from of ["newdir/x.ts"]) {
+    const found = agentBandViolations(
+      `packages/agent/src/core/${from}`,
+      `import { value } from "./ports/types";`,
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("#1354 core layout:");
+  }
+});
+
+test("#1354 erases type-only edges but retains mixed, default and bare imports", () => {
+  const path = "packages/agent/src/core/ports/types.ts";
+  for (const source of [
+    'import type { State } from "../loop/state";',
+    "import { type State } from '../loop/state.ts';",
+    'export type { State } from "../loop/state.js";',
+    'export { type State } from "../loop/state";',
+  ]) expect(agentBandViolations(path, source)).toEqual([]);
+  for (const source of [
+    'import { type State, value } from "../loop/state";',
+    'import value, { type State } from "../loop/state";',
+    'import "../loop/state";',
+    'export { value } from "../loop/state";',
+  ]) expect(agentBandViolations(path, source)).toHaveLength(1);
+});
+
 // ─── check (a): core -> plugins/model/inspect/testing banned ───
 
 test("#1276 check a: a core file importing plugins/ fails", () => {
@@ -48,8 +117,8 @@ test("#1276 check a: a core file importing plugins/, inspect/ or testing/ fails"
 test("#1276 check a legal edge: core-internal imports stay legal (one core)", () => {
   expect(
     agentBandViolations(
-      "packages/agent/src/core/gate/decide.ts",
-      'import { x } from "../turn";\nimport { y } from "../store/fence";\nimport { z } from "./match";',
+      "packages/agent/src/core/loop/executor.ts",
+      'import { x } from "./turn";\nimport { y } from "../store/fence";\nimport { z } from "../gate/match";',
     ),
   ).toEqual([]);
 });
@@ -233,14 +302,14 @@ test("#1276 (r3): a forbidden import in a formerly-pinned, now-clean file fails 
 });
 
 test("#1276 (r3): a pin above the actual count fails closed", async () => {
-  // core/commit.ts is pinned at 1; a scratch tree where it is clean must fail.
+  // core/journal/compaction.ts is pinned at 1; a scratch tree where it is clean must fail.
   const root = scratchAgentTree({
-    "core/commit.ts": "export const clean = true;\n",
+    "core/journal/compaction.ts": "export const clean = true;\n",
   });
   try {
     const violations = await validateAgentBands(root);
     expect(violations).toContain(
-      "VIOLATION: packages/agent/src/core/commit.ts pin exceeds actual (1 > 0): lower the pin",
+      "VIOLATION: packages/agent/src/core/journal/compaction.ts pin exceeds actual (1 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

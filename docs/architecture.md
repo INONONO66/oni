@@ -14,7 +14,7 @@ External traffic and session tools enter the same `gateway.ingest(sender, envelo
 
 `bus.publish` remains observation, not authorization or persistence. L0 action append commits before its injected observation sink is called. Record-before-act paths must commit through a durable store or append surface before the external action. The session entity's outside surface is exactly four RPCs, `deliver | resolve | alarm | read`; `read` serves the nine read models (`history | decisions | requests | alarms | generations | tree | metrics | control | outbound`) without waking a runner, and inputs are consumed at loop boundaries only.
 
-The `alarm` journal kind has one core writer (`packages/agent/src/core/alarm.ts`); the removable `plugins/alarm` capability owns the purpose registry, wake dispatch and the watch verbs. The app's `composition/watch-sources.ts` owns the native OS handles (PTY, fs watcher) and resends a native hit through the entity's `alarm` RPC; the app never commits an arm row itself. There is no second watch store or runner.
+The `alarm` journal kind has one core writer (`packages/agent/src/core/ports/alarm.ts`); the removable `plugins/alarm` capability owns the purpose registry, wake dispatch and the watch verbs. The app's `composition/watch-sources.ts` owns the native OS handles (PTY, fs watcher) and resends a native hit through the entity's `alarm` RPC; the app never commits an arm row itself. There is no second watch store or runner.
 
 ## Policy
 
@@ -98,7 +98,7 @@ The repository previously split product behavior across a reusable-looking produ
 Historical design decisions still explain the surviving extractions:
 
 - Policy evaluation was extracted, then folded into `packages/agent/src/core/gate/` (#1246); `@openomni/agent` owns the single executor that applies pre/post verdicts.
-- The bus became volatile observation in `packages/agent` (`src/core/bus.ts`); reverse persistence was removed. L0 observation sink contracts live in protocol.
+- The bus became volatile observation in `packages/agent` (`src/core/observation/bus.ts`); reverse persistence was removed. L0 observation sink contracts live in protocol.
 - IPC became a standalone transport, now `packages/machines/src/ipc/`.
 - Channel drivers and perimeter judgment consolidated in `packages/channels`.
 - Machine execution became the lateral `packages/machines` band.

@@ -9,7 +9,8 @@ import {
 } from "@openomni/protocol";
 import { bootstrapStoreDatabase } from "../../../src/core/store/session-file";
 import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
-import { createActions, L0Write } from "../../../src/core/store/session-file";
+import { createActions } from "../../../src/core/store/session-file/actions";
+import { L0Write } from "../../../src/core/store/session-file";
 import type { ObservationPublishFailure } from "../../../src/core/store/storage/sqlite-l0-observation";
 import { createSessions } from "../../../src/core/store/storage/sqlite-l0-sessions";
 import type { SessionWriteAdapter } from "../../../src/core/store/services";

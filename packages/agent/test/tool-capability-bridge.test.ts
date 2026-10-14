@@ -1,18 +1,19 @@
+import { generationSnapshot, configureAction } from "../src/core/store/configure";
 import { testBus, type TestObservationBus } from "./helpers/bus";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import type { LedgerError } from "../src/core/store/errors";
 import { KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
 import type { AnyToolDefinition, LedgerAction, PlainValue, ToolExecutionContext } from "@openomni/protocol";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Scope } from "effect";
 import { z } from "zod";
-import { GenerationHandlers } from "../src/core/compose";
-import { CommitFailed, InvocationClosed, ToolBodyFailed, type ExecutionError } from "../src/core/failure";
-import { currentInvocation, forkInvocation, requireOpenInvocation, withInvocation, type InvocationFrame } from "../src/core/gate/decide";
-import type { ExecutionResult } from "../src/core/gate/decide";
-import { GenerationRawSlots, makeSessionGenerations, type GenerationBundle } from "../src/core/run";
-import { ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports";
-import { projectTools } from "../src/core/tool";
+import { GenerationHandlers } from "../src/core/composition/compose";
+import { CommitFailed, InvocationClosed, ToolBodyFailed, type ExecutionError } from "../src/core/ports/failure";
+import { currentInvocation, forkInvocation, requireOpenInvocation, withInvocation, type InvocationFrame } from "../src/core/loop/executor";
+import type { ExecutionResult } from "../src/core/loop/executor";
+import { GenerationRawSlots, makeSessionGenerations, type GenerationBundle } from "../src/core/session/run";
+import { ObservationSink, SessionLayer, ToolCatalog } from "../src/core/ports/ports";
+import { projectTools } from "../src/core/loop/tool";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import { runAgent } from "./helpers/executor";
 import { isolated, isolatedLedger } from "./helpers/isolated";
@@ -43,7 +44,7 @@ function tool(name: string, execute: (input: PlainValue, context: ToolExecutionC
     render: (_input: PlainValue, output: PlainValue) => String(output) };
 }
 function bundle(generation: number, definitions: readonly AnyToolDefinition[], bus: TestObservationBus): GenerationBundle {
-  const snapshot = SessionHandleStore.generationSnapshot({ generation, revertTo: generation - 1,
+  const snapshot = generationSnapshot({ generation, revertTo: generation - 1,
     tools: projectTools(definitions).session,
     system: { preset: "bridge", blocks: [] }, policyGeneration: 1 });
   return { id: { sessionId: fiberSessionId, generation }, snapshot, activate: Effect.void,
@@ -260,7 +261,7 @@ test("bridge: generation-one frame refuses nested dispatch after committed gener
   const running = yield* Effect.forkScoped(fixture.run);
   yield* awaitSignal(entered);
   const next = bundle(2, definitions, fixture.bus);
-  yield* fixture.generations.configure(next, fixture.options.ledger.commit(SessionHandleStore.configureAction({
+  yield* fixture.generations.configure(next, fixture.options.ledger.commit(configureAction({
     id: "configure-two", sessionId: fiberSessionId, parentId: context.turnId,
     operation: "system.blocks.set", snapshot: next.snapshot, at: 100,
   })).pipe(Effect.mapError((error: LedgerError) => new CommitFailed({ error })))).pipe(

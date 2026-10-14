@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { DateTime, PrimaryKey, Schema } from "effect";
 import { DeliverAt } from "effect/cluster";
-import { AlarmRpc } from "../../src/core/messages";
+import { AlarmRpc } from "../../src/core/journal/messages";
 
 // Alarm occurrences are durable not-before clocks — the sharding
 // scheduler reads DeliverAt off the decoded payload, so the instant must

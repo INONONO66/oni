@@ -5,7 +5,7 @@
  * collapse here (a paused monitor is a fired outcome `exhausted`). An
  * `at: null` arm retires the chain; `supersedes` names the previous
  * occurrence id the arm replaces. Single writer: the core timer
- * constructor (`packages/agent/src/core/alarm.ts`).
+ * constructor (`packages/agent/src/core/ports/alarm.ts`).
  */
 import { z } from "zod";
 import { RowBody, declare, refineField } from "../declaration.js";

@@ -1,8 +1,9 @@
+import { generationSnapshot, configureAction } from "../../../src/core/store/configure";
 import { Effect, Result } from "effect";
 import { expect, test } from "bun:test";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import { createDecisionFactPort } from "../../../src/core/store/decision";
-import { generationSnapshot, configureAction } from "../../../src/core/store/fence";
+
 import { runLedgerSync } from "../helpers/effect";
 import {
   materializeRow,

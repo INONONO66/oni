@@ -1,4 +1,4 @@
-import type { RunInput, LlmSink as Sink } from "../../src/core/llm";
+import type { RunInput, LlmSink as Sink } from "../../src/core/ports/llm";
 import { isolated } from "../helpers/isolated";
 import { failure } from "../helpers/g0-signals";
 import { providerFailure } from "../helpers/mock-llm";

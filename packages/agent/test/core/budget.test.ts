@@ -10,7 +10,7 @@ import {
   effectiveBudgetThresholds,
   publishBudgetTelemetry,
   recordTokenUsage,
-} from "../../src/core/budget";
+} from "../../src/core/loop/budget";
 import { TEST_BUDGET, testBudget } from "../helpers/approval-policy";
 
 /** The run whose budget is being reported; the reporter never mints one. */

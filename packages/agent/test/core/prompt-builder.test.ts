@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildSystemPrompt } from "../../src/core/tool";
+import { buildSystemPrompt } from "../../src/core/loop/tool";
 
 describe("buildSystemPrompt", () => {
   it("combines base prompt with tool prompt", () => {

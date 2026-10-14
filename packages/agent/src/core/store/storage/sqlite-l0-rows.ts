@@ -1,7 +1,36 @@
 import { z } from "zod";
-import { LedgerInvariant } from "../errors";
-import { parsePlainJson, SqliteCount, SqliteEpochMs } from "../json";
-import { LedgerAction, LedgerSession, PolicyRow } from "@openomni/protocol";
+import { LedgerInvariant, SchemaRefused } from "../errors";
+import { LedgerAction, LedgerSession, PlainValueSchema, type PlainValue, PolicyRow } from "@openomni/protocol";
+
+/** Malformed text is `SchemaRefused{reason: json}`. */
+export function parsePlainJson(text: string): PlainValue {
+  try {
+    return PlainValueSchema.parse(JSON.parse(text));
+  } catch (cause) {
+    if (cause instanceof SyntaxError) throw new SchemaRefused({ reason: "json", detail: cause.message });
+    throw cause;
+  }
+}
+
+/** Corrupt rows read as `undefined`, never a throw. */
+export function readPlainJson(text: string): PlainValue | undefined {
+  try {
+    return parsePlainJson(text);
+  } catch {
+    return undefined;
+  }
+}
+
+const sqliteNumeric = <Check extends z.ZodType<number, number>>(member: z.ZodType<number>, check: Check) =>
+  z.union([member, z.bigint()]).transform(Number).pipe(check);
+
+const SqliteCount = sqliteNumeric(
+  z.number().int(),
+  z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+);
+
+const SqliteEpochMs = sqliteNumeric(z.number(), z.number().finite().nonnegative());
+
 
 const actionRowSchema = LedgerAction.Node;
 

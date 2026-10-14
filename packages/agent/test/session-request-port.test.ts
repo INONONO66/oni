@@ -1,8 +1,9 @@
+import { latestGeneration, configureAction } from "../src/core/store/configure";
 import { sessionTree } from "./helpers/session-tree";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { Effect, Exit } from "effect";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { canonicalDigest, type LedgerAction } from "@openomni/protocol";
 import {
   appendSourceInvocation,
@@ -90,7 +91,7 @@ test("a deadline for an unknown request dies loudly instead of acking a phantom"
 
 test("request opening uses its original turn generation, never a later catalog", () => isolated(Effect.gen(function* () {
   yield* setup;
-  const generation = SessionHandleStore.latestGeneration(sessionTree(isolatedLedger().kernel, "source"));
+  const generation = latestGeneration(sessionTree(isolatedLedger().kernel, "source"));
   const append = (action: LedgerAction.Append) => {
     if (
       isolatedLedger().session.actions.append(action, isolatedLedger().kernel.row("source").revision) === undefined
@@ -161,7 +162,7 @@ test("request opening uses its original turn generation, never a later catalog",
     now: 100,
     expectedRevision: row.revision,
     actions: [
-      SessionHandleStore.configureAction({
+      configureAction({
         id: "next",
         sessionId: "source",
         parentId: "configure",

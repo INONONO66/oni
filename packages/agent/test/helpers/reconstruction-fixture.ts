@@ -1,15 +1,15 @@
-import * as SessionHandleStore from "../../src/core/store/fence";
+import { generationSnapshot, configureAction } from "../../src/core/store/configure";
 import { PlainValueSchema, type LedgerAction } from "@openomni/protocol";
-import { turnTerminalAction } from "../../src/core/commit";
+import { turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { requireCommit } from "../../src/testing/commit";
-import type { ExecutionLedger } from "../../src/core/gate/decide";
+import type { ExecutionLedger } from "../../src/core/loop/executor";
 import { Effect } from "effect";
-import { AgentFailure } from "../../src/core/failure";
+import { AgentFailure } from "../../src/core/ports/failure";
 import { testExecutor } from "./executor";
 import { runAgent } from "./executor";
-import { RunEvents } from "../../src/core/turn";
+import { RunEvents } from "../../src/core/loop/turn";
 import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
-import { Entropy } from "../../src/core/ports";
+import { Entropy } from "../../src/core/ports/ports";
 import { hydrateSessionHistory } from "../../src/inspect/history";
 import { compiledPolicy } from "./compiled-policy";
 import { textMessage } from "./messages";
@@ -140,7 +140,7 @@ export async function reconstructionFixture(
       return "settled";
     }),
   ));
-  const generation = SessionHandleStore.generationSnapshot({
+  const generation = generationSnapshot({
     generation: 2,
     revertTo: 1,
     tools: [],
@@ -152,7 +152,7 @@ export async function reconstructionFixture(
   });
   const changed = recording.commitBatch(
     [
-      SessionHandleStore.configureAction({
+      configureAction({
         id: "generation-two",
         sessionId: reconstructionSession,
         parentId: recording.identity.turnId,

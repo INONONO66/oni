@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { requireCommit } from "../src/testing/commit";
-import { SessionCommitError } from "../src/core/failure";
+import { SessionCommitError } from "../src/core/ports/failure";
 
 // A refused commit must surface the ledger's verdict verbatim: callers branch
 // on `result.reason` (stale vs revision) to decide retry-versus-abort.

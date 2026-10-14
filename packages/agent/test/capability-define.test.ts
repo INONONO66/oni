@@ -9,8 +9,8 @@ import {
   Manifest,
   seam,
   type CapabilityInput,
-} from "../src/core/capability";
-import { AlarmSeam } from "../src/core/alarm";
+} from "../src/core/ports/capability";
+import { AlarmSeam } from "../src/core/ports/alarm";
 
 class TestSeam extends Context.Service<TestSeam, { readonly ping: () => string }>()(
   "@openomni/agent/test/capability/Seam",

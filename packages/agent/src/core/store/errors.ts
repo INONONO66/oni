@@ -1,5 +1,5 @@
 import { Data } from "effect";
-import { AgentFailure } from "../failure";
+import { AgentFailure } from "../ports/failure";
 
 export { AgentFailure };
 

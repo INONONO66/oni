@@ -1,12 +1,12 @@
 import { sessionTree } from "../../helpers/session-tree";
 import { testExecutor } from "../../helpers/executor";
-import type { ResolvedExecutorOptions } from "../../../src/core/gate/decide";
+import type { ResolvedExecutorOptions } from "../../../src/core/loop/executor";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { isolated, isolatedLedger } from "../../helpers/isolated";
 import { expect, test } from "bun:test";
 import { requestLedger, turnExecutor, failure } from "../../helpers/effect-g1";
-import { AgentFailure } from "../../../src/core/failure";
-import { LlmRunFailure } from "../../../src/core/llm";
+import { AgentFailure } from "../../../src/core/ports/failure";
+import { LlmRunFailure } from "../../../src/core/ports/llm";
 import { fakeClassifyFailure, FakeProviderError } from "../../helpers/fake-llm";
 import { runChatAttempts } from "../../helpers/effect-g1";
 import { compiledPolicy } from "../../helpers/compiled-policy";

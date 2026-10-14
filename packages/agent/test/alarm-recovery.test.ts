@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
-import { firedAction, type AlarmCapability } from "../src/core/alarm";
+import { firedAction, type AlarmCapability } from "../src/core/ports/alarm";
 import { openCatalogStore } from "../src/core/store/catalog";
 import { RETIRED_INGRESS_KIND, RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "./store/helpers/old-catalog";
 import { CatalogVersionRefused, type LedgerError } from "../src/core/store/errors";

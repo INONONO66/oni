@@ -9,8 +9,8 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { Delivery } from "@openomni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
-import { decideSessionAdmission } from "../src/core/admission";
-import type { DeliverRefused } from "../src/core/messages";
+import { decideSessionAdmission } from "../src/core/session/admission";
+import type { DeliverRefused } from "../src/core/journal/messages";
 import { clusterTempDir, readChain, runCluster, sendDeliver, sessionFileFor } from "./helpers/cluster-runtime";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-admission-kinds-");

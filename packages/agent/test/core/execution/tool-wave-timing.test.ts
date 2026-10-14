@@ -5,8 +5,8 @@ import type { Tool } from "@openomni/protocol";
 import { isolated } from "../../helpers/isolated";
 import { readyWaveTurn } from "../../helpers/tool-wave";
 import { fixtureStopEvidence } from "../../helpers/chat-services";
-import { settleModelTools } from "../../../src/core/tool";
-import type { ObservedChatAgentConfig } from "../../../src/core/types";
+import { settleModelTools } from "../../../src/core/loop/tool";
+import type { ObservedChatAgentConfig } from "../../../src/core/ports/types";
 import { TEST_BUDGET } from "../../helpers/approval-policy";
 
 const sessionId = "session-wave-timing";

@@ -5,4 +5,4 @@ export { createDecisionFactPort } from "./decision";
 export * as SessionHandleStore from "./handle";
 export { CommitRefused, CorruptRecord, type LedgerError } from "./errors";
 export type { AdoptReceipt, CommitReceipt, LedgerHandles } from "./services";
-export { requireSubAdapter, withStoreTimestamps } from "./storage/timestamped-store";
+export { requireSubAdapter, withStoreTimestamps } from "./storage/sqlite-l0-sessions";

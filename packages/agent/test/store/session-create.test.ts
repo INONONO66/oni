@@ -1,3 +1,4 @@
+import { materializationSeed, generationSnapshot } from "../../src/core/store/configure";
 // One creation door. `Core.createSession` writes the genesis configure
 // row and the catalog index inside one enclosed write unit: a fault after
 // genesis preparation but before the session file commits rolls the catalog
@@ -9,10 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
 import { SessionGeneration } from "@openomni/protocol";
-import { createSession, CreateRefused, type CreateSessionInput } from "../../src/core/create";
-import { openLedgerPlane, type LedgerPlane } from "../../src/core/host";
+import { createSession, CreateRefused, type CreateSessionInput } from "../../src/core/session/create";
+import { openLedgerPlane, type LedgerPlane } from "../../src/core/session/host";
 import { MaterializeRefused } from "../../src/core/store/errors";
-import { materializationSeed, generationSnapshot } from "../../src/core/store/fence";
+
 import { runLedgerSync } from "./helpers/effect";
 import { testNow } from "./helpers/storage";
 

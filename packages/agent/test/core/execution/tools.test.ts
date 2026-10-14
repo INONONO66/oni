@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { scopeObservation } from "../../../src/core/bus";
+import { scopeObservation } from "../../../src/core/observation/bus";
 import { testBus } from "../../helpers/bus";
 
 import { BusEvent } from "@openomni/protocol";

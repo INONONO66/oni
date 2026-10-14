@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from "bun:test";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
-import { Interrupted } from "../src/core/failure";
-import { interruptOn, onAbort } from "../src/core/ports";
+import { Interrupted } from "../src/core/ports/failure";
+import { interruptOn, onAbort } from "../src/core/ports/ports";
 import { runAgent, runAgentSync } from "./helpers/isolated";
 
 /**

@@ -4,7 +4,7 @@
  * shared across two acquisitions.
  */
 import { Effect } from "effect";
-import { armAction, type AlarmCapability } from "../../src/core/alarm";
+import { armAction, type AlarmCapability } from "../../src/core/ports/alarm";
 import { readChain, type sendAlarm, sessionFileFor, type TestClusterOptions } from "./cluster-runtime";
 import { withSessionHandles, type ClusterHome } from "./seeded-session";
 

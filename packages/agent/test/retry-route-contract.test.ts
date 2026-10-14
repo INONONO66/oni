@@ -1,10 +1,10 @@
 import { attemptIntentIds, isAttemptRow } from "./helpers/llm-rows";
 import { expect, test } from "bun:test";
-import { LlmRunFailure, type RunInput, type LlmSink } from "../src/core/llm";
-import { RETRY_HEADER_DELAY_CAP } from "../src/core/retry";
+import { LlmRunFailure, type RunInput, type LlmSink } from "../src/core/ports/llm";
+import { RETRY_HEADER_DELAY_CAP } from "../src/core/loop/retry";
 import { PlainObjectSchema, type LedgerAction, type Model } from "@openomni/protocol";
 import { Effect } from "effect";
-import { runAgent } from "../src/core/turn";
+import { runAgent } from "../src/core/loop/turn";
 import { AgentFailure } from "../src/core/store/errors";
 import { isolated } from "./helpers/isolated";
 import { requestLedger } from "./helpers/effect-g1";
@@ -14,7 +14,7 @@ import { chatServices, fixtureStopEvidence, type ChatFixture } from "./helpers/c
 import { runInput } from "./helpers/run-input";
 import { TEST_BUDGET } from "./helpers/approval-policy";
 import { FakeProviderError } from "./helpers/fake-llm";
-import { createAssistantMessage } from "../src/core/message-factory";
+import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { messageSource } from "./helpers/message-source";
 
 const primary = { provider: "route-a", id: "model-a" };

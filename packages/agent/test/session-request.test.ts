@@ -13,7 +13,7 @@ import {
   type LedgerAction,
   type SessionTransition,
 } from "@openomni/protocol";
-import { decideRequestTransition, requestBindingDigest } from "../src/core/request";
+import { decideRequestTransition, requestBindingDigest } from "../src/core/session/request";
 import { TEST_APPROVAL_POLICY } from "./helpers/approval-policy";
 
 const row = kernelOwnedRow("session", "running");

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { Delivery, Journal } from "@openomni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
-import { deliveryActions, inputRowKind, receivedMessageAction } from "../src/core/commit";
-import { decideSessionAdmission } from "../src/core/admission";
+import { deliveryActions, inputRowKind, receivedMessageAction } from "../src/core/journal/delivery";
+import { decideSessionAdmission } from "../src/core/session/admission";
 
 /**
  * Input admission: delivered inputs are journal rows of the closed set —

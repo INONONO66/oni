@@ -18,7 +18,7 @@ import {
   armAction,
   firedAction,
   type AlarmChainReads,
-} from "../../src/core/alarm";
+} from "../../src/core/ports/alarm";
 import { createSessionKernel, type SessionKernel } from "../../src/core/store/fence";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";

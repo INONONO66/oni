@@ -1,7 +1,7 @@
 import { expect, it } from "bun:test";
 import { Effect } from "effect";
 import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
-import type { Executor } from "../../src/core/gate/decide";
+import type { Executor } from "../../src/core/loop/executor";
 import { compactionExecutionInput, evidenceAssistant } from "../helpers/compaction-cut";
 import { isolated } from "../helpers/isolated";
 

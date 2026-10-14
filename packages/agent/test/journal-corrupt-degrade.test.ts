@@ -127,3 +127,15 @@ test("malformed JSON bytes report the parser diagnostic as the journal.corrupt r
     }
   });
 });
+/**
+ * The single-row reads degrade the same way as range: a configure row whose
+ * payload no longer decodes yields `undefined` plus exactly one
+ * `journal.corrupt` observation for that row, never a throw.
+ */
+test("a corrupt configure row degrades a single-row read to undefined with one journal.corrupt observation", () => {
+  withCorruptedPrompt("UPDATE action SET encoding_version = 99 WHERE id = 's1:configure'", ({ session, corrupt }) => {
+    expect(session.actions.generationFor("s1", 1)).toBeUndefined();
+    expect(corrupt).toMatchObject([{ kind: "session.configure" }]);
+    expect(corrupt[0]?.reason).toContain('"encodingVersion"');
+  });
+});

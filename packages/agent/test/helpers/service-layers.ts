@@ -1,9 +1,9 @@
-import * as SessionHandleStore from "../../src/core/store/fence";
+import { generationSnapshot } from "../../src/core/store/configure";
 import type { AnyToolDefinition, Tool } from "@openomni/protocol";
 import { Clock, Context, Effect, Layer } from "effect";
-import type { ResolvedExecutorOptions } from "../../src/core/gate/decide";
-import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../../src/core/ports";
-import { scopeObservation } from "../../src/core/bus";
+import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
+import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../../src/core/ports/ports";
+import { scopeObservation } from "../../src/core/observation/bus";
 import { testBusService } from "./isolated";
 import { entropySource, fixedClock } from "./time";
 import { createTurnDispatcher } from "../../src/plugins/tool";
@@ -63,7 +63,7 @@ export function observationService(sink: ResolvedExecutorOptions["observations"]
 
 /** Fixture values become actual providers, not executor option overrides. */
 export function executorLayer(values: Pick<ResolvedExecutorOptions, "clock" | "entropy" | "observations" | "policy">) {
-  const snapshot = SessionHandleStore.generationSnapshot({ generation: 1, revertTo: 0, tools: [],
+  const snapshot = generationSnapshot({ generation: 1, revertTo: 0, tools: [],
     system: { preset: "", blocks: [] }, policyGeneration: values.policy.generation });
   return Layer.mergeAll(
     Layer.succeed(Clock.Clock, fixedClock(values.clock)),

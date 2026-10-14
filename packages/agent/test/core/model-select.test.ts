@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { selectModel } from "../../src/core/model-select";
+import { selectModel } from "../../src/core/loop/model-select";
 
 const primary = { provider: "anthropic", id: "primary" };
 const second = { provider: "openai", id: "second" };

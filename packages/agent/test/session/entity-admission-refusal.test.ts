@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import type { DeliverRefused } from "../../src/core/messages";
+import type { DeliverRefused } from "../../src/core/journal/messages";
 import * as SessionHandleStore from "../../src/core/store/fence";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
-import { receivedMessageAction, turnIntentAction } from "../../src/core/commit";
+import { receivedMessageAction } from "../../src/core/journal/delivery";
+import { turnIntentAction } from "../../src/core/journal/turn-rows";
 import { CommitRefused } from "../../src/core/store/errors";
 import { createController } from "../../src/testing/controller";
-import { resolveSessionRuntime } from "../../src/core/run";
+import { resolveSessionRuntime } from "../../src/core/session/run";
 import { allowConfigure, kernelRuntime, withSessionServices } from "../helpers/session-services";
 import { runAgent } from "../helpers/executor";
 import { clusterTempDir, readChain, runCluster, sendDeliver, sendPrompt, sessionFileFor } from "../helpers/cluster-runtime";

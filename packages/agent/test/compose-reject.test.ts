@@ -10,9 +10,9 @@ import {
   type BundleGateRow,
   type CapabilityDefinition,
   type SeamTag,
-} from "../src/core/capability";
+} from "../src/core/ports/capability";
 import { runTestExit, runTestPromise } from "./helpers/isolated";
-import { compose, COMPOSE_REJECTION_CODES, ComposeRefused } from "../src/core/compose";
+import { compose, COMPOSE_REJECTION_CODES, ComposeRefused } from "../src/core/composition/compose";
 
 class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/compose/A") {}
 class SeamB extends Context.Service<SeamB, object>()("@openomni/agent/test/compose/B") {}

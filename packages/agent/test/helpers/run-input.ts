@@ -1,6 +1,6 @@
 import { newTraceId } from "./bus";
-import type { RunTrace } from "../../src/core/turn";
-import type { ChatAgentInput } from "../../src/core/types";
+import type { RunTrace } from "../../src/core/loop/turn";
+import type { ChatAgentInput } from "../../src/core/ports/types";
 
 /**
  * A run input carrying a real identity. The runner refuses to mint one: a run whose traceId, sessionId and

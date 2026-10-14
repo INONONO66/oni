@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { ArmVerb } from "../../src/core/alarm";
+import type { ArmVerb } from "../../src/core/ports/alarm";
 import { type AlarmComposeError, alarmCapability, watchPurposes, type AlarmCapabilityDefinition, type WatchInstallDeps } from "../../src/plugins/alarm";
 import type { TestClusterOptions } from "./cluster-runtime";
 
