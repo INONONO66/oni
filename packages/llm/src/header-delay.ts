@@ -14,14 +14,22 @@ export function headerDelay(error: ApiFailure | undefined, now: () => number): D
 }
 
 function directiveDelay(headers: Record<string, string>, now: () => number): number | undefined {
-  const milliseconds = Number.parseFloat(headers["retry-after-ms"] ?? "");
-  return Number.isNaN(milliseconds) ? retryAfterDelay(headers["retry-after"], now) : milliseconds;
+  return integerToken(headers["retry-after-ms"]) ?? retryAfterDelay(headers["retry-after"], now);
 }
 
+/** Retry-After is delay-seconds or an IMF-fixdate; anything else (signs, fractions, hex, suffixes) is no directive. */
 function retryAfterDelay(value: string | undefined, now: () => number): number | undefined {
-  if (!value) return undefined;
-  const seconds = Number.parseFloat(value);
-  return Number.isNaN(seconds) ? futureTimestamp(value, now) : Math.ceil(seconds * 1000);
+  const seconds = integerToken(value);
+  if (seconds !== undefined) return Number.isSafeInteger(seconds * 1000) ? seconds * 1000 : undefined;
+  return value !== undefined && IMF_FIXDATE.test(value) ? futureTimestamp(value, now) : undefined;
+}
+
+const IMF_FIXDATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/u;
+
+function integerToken(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\d+$/u.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 function futureTimestamp(value: string, now: () => number): number | undefined {

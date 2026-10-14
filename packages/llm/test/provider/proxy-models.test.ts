@@ -104,6 +104,85 @@ describe("proxy-models", () => {
       expect(authorizationHeaders).toEqual(["Bearer credential-a", "Bearer credential-b"]);
     });
 
+    it("keeps only the most recently used keys once the cache is full", async () => {
+      const maxEntries = 64;
+      const fetched: string[] = [];
+      stubFetch((input) => {
+        fetched.push(String(input));
+        return Response.json({ data: [{ id: "model" }] });
+      });
+      const proxy = (index: number) => `https://bounded-${index}.example/v1`;
+      for (let index = 0; index < 2 * maxEntries; index++) await runEffect(fetchProxyModels(proxy(index), fixedNow));
+      expect(fetched).toHaveLength(2 * maxEntries);
+
+      // The newest maxEntries keys are all still served from cache...
+      for (let index = 2 * maxEntries - 1; index >= maxEntries; index--) await runEffect(fetchProxyModels(proxy(index), fixedNow));
+      const retained = 2 * maxEntries - (fetched.length - 2 * maxEntries);
+      expect(fetched).toHaveLength(2 * maxEntries);
+      // ...and the next-newest one was evicted, so exactly maxEntries entries remained.
+      await runEffect(fetchProxyModels(proxy(maxEntries - 1), fixedNow));
+      expect(fetched.slice(2 * maxEntries)).toEqual(["https://bounded-63.example/v1/models"]);
+      console.log(`proxy-models cache: ${2 * maxEntries} distinct keys -> ${retained - maxEntries} entries retained (max ${maxEntries})`);
+    });
+
+    it("refetches a key whose cached list outlived its TTL", async () => {
+      let clock = 0;
+      let fetches = 0;
+      stubFetch(() => {
+        fetches++;
+        return Response.json({ data: [{ id: `model-${fetches}` }] });
+      });
+      const url = "https://ttl-proxy.example/v1";
+      expect(await runEffect(fetchProxyModels(url, () => clock))).toEqual(["model-1"]);
+      clock = 5 * 60 * 1000 - 1;
+      expect(await runEffect(fetchProxyModels(url, () => clock))).toEqual(["model-1"]);
+      clock = 5 * 60 * 1000;
+      expect(await runEffect(fetchProxyModels(url, () => clock))).toEqual(["model-2"]);
+      expect(fetches).toBe(2);
+    });
+
+    it("joins concurrent lookups of one key onto a single fetch", async () => {
+      const callers = 8;
+      let fetches = 0;
+      const release = Promise.withResolvers<void>();
+      stubFetch(async () => {
+        fetches++;
+        await release.promise;
+        return Response.json({ data: [{ id: "shared" }] });
+      });
+      // A clock that expires every entry it is asked about: only joining the
+      // in-flight fetch, never a cache hit, can keep the count at one.
+      let clock = 0;
+      const expiring = () => (clock += 10 * 60 * 1000);
+      const lookups = Array.from({ length: callers }, () => runEffect(fetchProxyModels("https://single-flight.example/v1", expiring)));
+      release.resolve();
+
+      expect(await Promise.all(lookups)).toEqual(Array.from({ length: callers }, () => ["shared"]));
+      console.log(`proxy-models single flight: ${callers} concurrent lookups -> ${fetches} fetch`);
+      expect(fetches).toBe(1);
+    });
+
+    it("shares one failed fetch with every joined caller and caches nothing", async () => {
+      let fetches = 0;
+      const release = Promise.withResolvers<void>();
+      stubFetch(async () => {
+        fetches++;
+        await release.promise;
+        return new Response("", { status: 503 });
+      });
+      const url = "https://single-flight-failure.example/v1";
+      const lookups = [runEffect(fetchProxyModels(url, fixedNow)), runEffect(fetchProxyModels(url, fixedNow))];
+      release.resolve();
+
+      const settled = await Promise.allSettled(lookups);
+      expect(settled.map((outcome) => outcome.status === "rejected" && outcome.reason)).toMatchObject([
+        { _tag: "ProxyModelsError", status: 503 },
+        { _tag: "ProxyModelsError", status: 503 },
+      ]);
+      await expect(runEffect(fetchProxyModels(url, fixedNow))).rejects.toMatchObject({ _tag: "ProxyModelsError", status: 503 });
+      expect(fetches).toBe(2);
+    });
+
     it("throws a typed error on auth failure (401) instead of returning []", async () => {
       stubFetch(() => new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }));
       await expect(runEffect(fetchProxyModels("http://localhost:3102/v1", fixedNow))).rejects.toMatchObject({
