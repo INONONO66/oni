@@ -55,13 +55,16 @@ const Named = z.object({ name: z.string(), message: z.string() });
  * The port's pure, exhaustive classification (#1352): the same facts always
  * land in exactly one kind. Order: an abort outranks everything (it is an
  * instruction, not a fault); overflow next, declared on the failure, named
- * in its text, or proven by usage against the window; then the provider
- * vocabulary over the SDK error in the cause chain. Retry delay, fallback,
- * caps and streaks are the loop's decisions over this value.
+ * in its text, or proven by usage against the window; then a refusal the
+ * provider declared by closing a completed stream as content-filter (#1500);
+ * then the provider vocabulary over the SDK error in the cause chain. Retry
+ * delay, fallback, caps and streaks are the loop's decisions over this value.
  */
 export function classifyFailure(facts: FailureFacts): FailureClass {
   if (isAborted(facts.error)) return { kind: "aborted" };
   if (isOverflow(facts)) return { kind: "overflow" };
+  if (errorFacts(facts.error).contentFiltered === true)
+    return { kind: "terminal", reason: "validation_error", providerReason: "content_policy" };
   const api = apiCause(facts.error);
   const providerReason = classify(api);
   const reason = attemptReason(api);

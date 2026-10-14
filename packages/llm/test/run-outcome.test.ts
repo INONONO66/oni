@@ -70,6 +70,39 @@ test("stop and aborted are produced by the real attempt entry", async () => {
   expect(await run({ ...input, signal: AbortSignal.abort() }, sink)).toEqual({ type: "aborted" });
 });
 
+/** The provider's refusal: a completed 200 stream whose only step closed as content-filter (#1500). */
+function refusedStream(...before: StreamEvent[]) {
+  return async () => ({
+    fullStream: (async function* (): AsyncGenerator<StreamEvent, void, undefined> {
+      yield* before;
+      yield { type: "step-finish", finishReason: "content-filter", usage: { inputTokens: 10_161, outputTokens: 0 } };
+      yield { type: "finish" };
+    })(),
+  });
+}
+
+test("a content-filter stop with nothing visible is a failed attempt, not an empty answer (#1500)", async () => {
+  const result = await run(input, sink, { createStream: refusedStream() });
+  expect(result.type).toBe("error");
+  if (result.type !== "error") throw new Error("missing failure");
+  expect(result.error).toBeInstanceOf(LlmRunFailure);
+  expect(result.error).toMatchObject({
+    message: "provider closed the stream as content-filter with no output",
+    aborted: false,
+    contextOverflow: false,
+    contentFiltered: true,
+    visibleOutput: false,
+    usage: { inputTokens: 10_161, outputTokens: 0 },
+  });
+});
+
+test("a content-filter stop after visible text keeps the partial answer as a stop", async () => {
+  const result = await run(input, sink, {
+    createStream: refusedStream({ type: "text-start", id: "t" }, { type: "text-delta", id: "t", text: "partial" }, { type: "text-end", id: "t" }),
+  });
+  expect(result).toMatchObject({ type: "stop", evidence: { visibleOutput: true, finishReason: "error" } });
+});
+
 /**
  * Mirrors run()'s production stream creation minus module `ai`: sibling test files install process-global
  * mock.module("ai", ...) mocks, which must not detach this test from the local HTTP server. Credential

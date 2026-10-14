@@ -59,6 +59,8 @@ type RunFields = ProviderIdentity & {
   readonly usage: UsageFields;
   readonly aborted: boolean;
   readonly contextOverflow: boolean;
+  /** The provider completed the stream with a content-filter stop and showed nothing (#1500); absent for every other failure. */
+  readonly contentFiltered?: boolean;
   readonly visibleOutput: boolean;
 };
 export class LlmRunFailure extends Data.TaggedError("LlmRunFailure")<RunFields> {}

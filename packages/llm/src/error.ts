@@ -6,6 +6,7 @@ export { APIError } from "./errors";
 const ErrorFacts = z.object({
   aborted: z.boolean().optional().catch(undefined),
   contextOverflow: z.boolean().optional().catch(undefined),
+  contentFiltered: z.boolean().optional().catch(undefined),
 });
 type ErrorFacts = z.infer<typeof ErrorFacts>;
 export function errorFacts<E>(error: E): ErrorFacts {
