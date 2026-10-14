@@ -1,5 +1,20 @@
 # Implementation Status
 
+## #1496 bash sessions drain through command sentinels (PR #1539, base `030d50500`)
+
+On `fix/1496-bash-session-sentinel` (2026-10-14). Named bash sessions
+write a split nonce on a separate line for shell readiness and command
+completion, preventing echoed input from matching the marker. Terminal
+CSI/OSC sequences and carriage returns are removed before matching and
+echo stripping. Commands returning within the 20-second drain deadline
+report their numeric exit code; longer commands return output with
+`pending: true` and `exitCode: null`, and an empty command resumes the
+drain. New commands are refused while one is pending. An empty command
+on an idle open session reads once from the saved cursor. Tool-wiring
+tests cover these transitions and the persistent-terminal e2e exercises
+the daemon path. No concurrent-loop receipt is claimed here, and the
+machine PTY endpoint is unchanged.
+
 ## #1498 app test lane bounds a synchronous Bun PTY wait (PR #1535, base `2047087ba`)
 
 On `fix/1498-watch-sources-hang` (2026-10-14), the generated `Test (openomni
