@@ -1,5 +1,26 @@
 # Implementation Status
 
+## #1500 a content-filter stop with no output is a failed attempt (base `663471f19`)
+
+On `fix/llm-refusal-stop` (2026-10-14). A completed provider stream whose last
+step closed as `content-filter` (Anthropic `stop_reason: refusal`) or `error`
+with nothing visible no longer leaves `run()` as `{ type: "stop" }` with empty
+text: `packages/llm/src/run.ts` returns `{ type: "error" }` carrying an
+`LlmRunFailure` with the new optional `contentFiltered` fact (`errors.ts`,
+read structurally by `error.ts` `errorFacts`), and `classifyFailure`
+(`classify.ts`) decides that fact `terminal / content_policy` after abort and
+overflow and before the SDK-error vocabulary. The attempt loop already stops
+on a terminal class, so a refused turn ends after one call as `kind: "error"`
+with the content-policy text `classifyTurnFailure` already renders, instead of
+the production trace this fixes: three identical calls (3.9s, 5.4s, 2.9s) judged
+as empty stops and an `AgentStopError exact_repeat` terminal. A refusal that
+already showed text stays a stop (the visible-stop rule the overflow path
+uses). The processor exposes the raw last-step `finishReason` for the message.
+Tests: `packages/llm/test/run-outcome.test.ts` (refused stream fails; refusal
+after visible text stays a stop) and `packages/llm/test/failure-classification.test.ts`
+(declared `contentFiltered` is `content_policy` without an SDK error). No loop,
+agent-port or app change.
+
 ## #1479 desktop shell baseline (PR #1480)
 
 Landed on main as `63cc2e001` (2026-10-14) after #1472

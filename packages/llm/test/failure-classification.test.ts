@@ -113,6 +113,10 @@ describe("classifyFailure: terminal", () => {
     expect(classifyFailure({ error })).toEqual({ kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 400 });
   });
 
+  test("a content-filter stop declared on the typed failure is content_policy without an SDK error (#1500)", () => {
+    expect(classifyFailure({ error: runFailure({ contentFiltered: true }) })).toEqual({ kind: "terminal", reason: "validation_error", providerReason: "content_policy" });
+  });
+
   test("a terminal class never carries prose: the decision owns the detail", () => {
     const classified = classifyFailure({ error: sdkError({ message: "insufficient_quota", isRetryable: false, statusCode: 402 }) });
     expect(Object.keys(classified).sort()).toEqual(["kind", "providerReason", "reason", "status"]);

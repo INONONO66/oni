@@ -65,6 +65,8 @@ export namespace Processor {
     usageTotals: Transcript.Usage;
     usageProvenance: StreamEventState["usageProvenance"];
     visibleOutput: boolean;
+    /** The provider's own stop word from the last step (`content-filter`, `stop`, …); absent until a step finished. */
+    finishReason: string | undefined;
     process(streamInput: StreamInput): Effect.Effect<void, LlmError>;
   }
 
@@ -183,6 +185,9 @@ export namespace Processor {
       },
       get visibleOutput() {
         return eventState.visibleOutput;
+      },
+      get finishReason() {
+        return eventState.finishReason;
       },
       process,
     };

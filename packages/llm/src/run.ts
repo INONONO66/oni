@@ -250,6 +250,27 @@ export function run(
       time: input.now(),
     });
 
+    // A completed stream that closed as content-filter or error and showed
+    // nothing is a failed attempt, not an answer (#1500): judged as a stop,
+    // the loop replays the prompt the provider refuses until exact_repeat.
+    // A refusal that already showed text stays a stop, like the overflow rule.
+    if (finishReason === "error" && !processor.visibleOutput) {
+      const closedAs = processor.finishReason ?? "error";
+      return {
+        type: "error",
+        error: new LlmRunFailure({
+          message: `provider closed the stream as ${closedAs} with no output`,
+          provider, model: modelId,
+          usage: attemptUsage(finalTokens),
+          usageProvenance: processor.usageProvenance,
+          aborted: false,
+          contextOverflow: false,
+          contentFiltered: closedAs === "content-filter" || closedAs === "content_filter",
+          visibleOutput: false,
+        }),
+      };
+    }
+
     return {
       type: "stop",
       evidence: {
