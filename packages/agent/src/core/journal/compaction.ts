@@ -42,9 +42,59 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
 }
 
 /**
+ * What this writer last committed on one kernel, valid only while the session revision still equals
+ * `revision`: the tail counters since the latest checkpoint, the fold state through `revision` when a
+ * pinning commit computed it (`state` plus the `suffix` committed after it), and whether a checkpoint
+ * was refused at the row cap.
+ */
+type WriterTail = {
+  readonly revision: number;
+  readonly count: number;
+  readonly bytes: number;
+  readonly refused: boolean;
+  readonly state: FoldCheckpoint.State | undefined;
+  readonly suffix: readonly LedgerAction.Node[];
+};
+
+const writerTails = new WeakMap<SessionKernel, Map<string, WriterTail>>();
+
+function tailsOf(kernel: SessionKernel): Map<string, WriterTail> {
+  const existing = writerTails.get(kernel);
+  if (existing !== undefined) return existing;
+  const created = new Map<string, WriterTail>();
+  writerTails.set(kernel, created);
+  return created;
+}
+
+/** Takes the carried tail when it still describes `expectedRevision`, else reads it from the latest checkpoint. */
+function resolveTail(
+  kernel: SessionKernel,
+  tails: Map<string, WriterTail>,
+  input: LedgerSession.Commit,
+  external: boolean,
+) {
+  const carried = tails.get(input.sessionId);
+  tails.delete(input.sessionId);
+  if (!external && carried?.revision === input.expectedRevision)
+    return { memo: carried, checkpoint: undefined, count: carried.count, bytes: carried.bytes, refused: carried.refused };
+  const checkpoint = readHistoryCheckpoint(kernel, input.sessionId, input.expectedRevision);
+  return {
+    memo: undefined,
+    checkpoint,
+    count: checkpoint.nonCheckpointActions,
+    bytes: checkpoint.tailBytes(),
+    refused: false,
+  };
+}
+
+/**
  * Synchronous decoration preserves durable admission's existing suspension schedule. A checkpoint lands
- * at `everyActions` or when the tail bytes would pass `maxTailBytes`, so no restore meets a tail this writer
- * let grow. State past the row cap never checkpoints again: the typed `row_bytes` refusal is logged, the caller's rows commit, later commits refold the full tail.
+ * at `everyActions` or when the tail bytes would pass `maxTailBytes`. The tail counters and fold state
+ * carry across commits on the same kernel, so a commit below both thresholds reads no history and verifies
+ * no checkpoint seed. A checkpoint past the row cap is refused typed (`row_bytes`), logged, and the caller's
+ * rows commit without it; the writer then stops planning interval checkpoints for the session (only an
+ * executed compaction result, which can shrink the state, is checkpointed again), so the restore tail is
+ * unbounded until one lands and the activation restore refuses it with `RestoreRefused{code:"budget"}`.
  */
 export function commitFoldBatch(
   kernel: SessionKernel,
@@ -56,21 +106,48 @@ export function commitFoldBatch(
 ): Effect.Effect<CommitReceipt, LedgerError> {
   return Effect.gen(function* () {
     const { everyActions, maxTailBytes } = checkpointPolicy(kernel, input.sessionId);
-    const checkpoint = readHistoryCheckpoint(kernel, input.sessionId, input.expectedRevision);
+    const tails = tailsOf(kernel);
+    const external = input.actions.some((action) => action.kind === "fold.checkpoint");
+    const { memo, checkpoint, count, bytes: tailBytes, refused } = resolveTail(kernel, tails, input, external);
     const incoming = input.actions.filter((action) => action.kind !== "fold.checkpoint").length;
     const incomingBytes = input.actions.reduce((total, action) => total + actionPayloadBytes(action), 0);
-    const tailBytes = checkpoint.tailBytes();
     if (
-      checkpoint.nonCheckpointActions + incoming < everyActions &&
-      tailBytes + incomingBytes <= maxTailBytes &&
+      (refused || (count + incoming < everyActions && tailBytes + incomingBytes <= maxTailBytes)) &&
       !input.actions.some(needsProjection)
-    )
-      return yield* kernel.commit(input);
-    const hydrated = checkpoint.hydrate();
-    const seed = { state: hydrated.state, count: hydrated.nonCheckpointActions, bytes: tailBytes };
+    ) {
+      const receipt = yield* kernel.commit(input);
+      if (!external)
+        tails.set(input.sessionId, {
+          revision: receipt.row.revision,
+          count: count + incoming,
+          bytes: tailBytes + incomingBytes,
+          refused,
+          state: memo?.state,
+          suffix: memo?.state === undefined ? [] : [...memo.suffix, ...receipt.receipts.map((committed) => committed.action)],
+        });
+      return receipt;
+    }
+    const state =
+      memo?.state === undefined
+        ? (checkpoint ?? readHistoryCheckpoint(kernel, input.sessionId, input.expectedRevision)).hydrate().state
+        : foldHistoryState(input.sessionId, memo.suffix, memo.state);
+    const seed = { state, count, bytes: tailBytes };
     const policy = { everyActions, maxTailBytes };
-    const planned = planFoldBatch(kernel, compaction, input, seed, policy, true);
+    const remember = (plan: FoldPlan, refusedNow: boolean) => (receipt: CommitReceipt) =>
+      Effect.sync(() => {
+        if (!external)
+          tails.set(input.sessionId, {
+            revision: receipt.row.revision,
+            count: plan.count,
+            bytes: plan.bytes,
+            refused: refusedNow || (refused && plan.added.size === 0),
+            state: plan.state,
+            suffix: [],
+          });
+      });
+    const planned = planFoldBatch(kernel, compaction, input, seed, policy, refused ? "compaction" : "all");
     return yield* kernel.commit({ ...input, actions: planned.actions }).pipe(
+      Effect.tap(remember(planned, false)),
       Effect.catchIf(
         (error): error is SchemaRefused =>
           error instanceof SchemaRefused &&
@@ -88,7 +165,10 @@ export function commitFoldBatch(
             },
           ).pipe(
             Effect.andThen(
-              kernel.commit({ ...input, actions: planFoldBatch(kernel, compaction, input, seed, policy, false).actions }),
+              Effect.suspend(() => {
+                const fallback = planFoldBatch(kernel, compaction, input, seed, policy, "none");
+                return kernel.commit({ ...input, actions: fallback.actions }).pipe(Effect.tap(remember(fallback, true)));
+              }),
             ),
           );
         },
@@ -101,11 +181,16 @@ type FoldPlan = {
   readonly actions: LedgerAction.Append[];
   /** The interval/compaction checkpoint rows this writer added, by id. */
   readonly added: ReadonlyMap<string, LedgerAction.Append>;
+  /** The fold state and tail counters through the plan's last row. */
+  readonly state: FoldCheckpoint.State;
+  readonly count: number;
+  readonly bytes: number;
 };
 
 /**
- * Pin the caller's drafts against the running fold and, with `checkpoints`, interleave the
- * checkpoint rows policy asks for; without it the plan is the pinned drafts alone (refused-checkpoint fallback).
+ * Pin the caller's drafts against the running fold and interleave the checkpoint rows `checkpoints`
+ * admits: every row policy asks for, only those after an executed compaction result (after a row-cap
+ * refusal), or none (the refused-checkpoint fallback, the pinned drafts alone).
  */
 function planFoldBatch(
   kernel: SessionKernel,
@@ -113,7 +198,7 @@ function planFoldBatch(
   input: LedgerSession.Commit,
   seed: { readonly state: FoldCheckpoint.State; readonly count: number; readonly bytes: number },
   policy: { readonly everyActions: number; readonly maxTailBytes: number },
-  checkpoints: boolean,
+  checkpoints: "all" | "compaction" | "none",
 ): FoldPlan {
   let state = seed.state;
   let count = seed.count;
@@ -122,7 +207,7 @@ function planFoldBatch(
   const added = new Map<string, LedgerAction.Append>();
   const past = () => count >= policy.everyActions || bytes > policy.maxTailBytes;
   const add = (parentId: string | null, revision: number, reason: "interval" | "compaction") => {
-    if (!checkpoints) return;
+    if (checkpoints === "none" || (checkpoints === "compaction" && reason === "interval")) return;
     const interval = foldCheckpointAction({ sessionId: input.sessionId, parentId, revision, at: input.now, reason, state });
     actions.push(interval);
     added.set(interval.id, interval);
@@ -147,7 +232,7 @@ function planFoldBatch(
   }
   if (actions.length === 0 && past())
     add(kernel.latestAction(input.sessionId, input.expectedRevision)?.id ?? null, input.expectedRevision, "interval");
-  return { actions, added };
+  return { actions, added, state, count, bytes };
 }
 
 function needsProjection(action: LedgerAction.Append): boolean {
@@ -187,7 +272,6 @@ function pinContext(
     }),
     messageIds: projection.map((message) => message.info.id),
     successorActionId: state.successorActionId,
-    projection,
   };
   const pinned = { ...value, context };
   const intent =

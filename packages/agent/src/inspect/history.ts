@@ -247,7 +247,8 @@ export interface RestoreOptions {
 
 /**
  * The activation restore tail exceeded `maxTailBytes`: no partial state, the work done rides along.
- * The writer keeps the tail under policy, so only rows appended outside `commitFoldBatch` or a lowered policy reach this.
+ * Reached when a checkpoint was refused at the row cap (the writer then lets the tail grow), by rows
+ * appended outside `commitFoldBatch`, or by a lowered policy.
  */
 export const RestoreRefused = NamedError.create(
   "RestoreRefused",
@@ -318,8 +319,9 @@ export function hydrateSessionHistory(
 }
 
 /**
- * The activation restore: the one read bound by the folded `maxTailBytes`, refused in the error
- * channel. Shared hydrate paths stay unbounded because the writer already keeps the tail under that policy.
+ * The activation restore: the one read bound by the folded `maxTailBytes`, refused once in the error
+ * channel. Shared hydrate paths stay unbounded; the writer keeps the tail under that policy only while
+ * its checkpoints fit the row cap.
  */
 export function restoreSessionHistory(
   kernel: SessionKernel,
@@ -351,7 +353,7 @@ export function refreshSessionHistory(
 
 /**
  * Folds the suffix page by page; each page's bytes count BEFORE folding, and under a `maxTailBytes`
- * bound the page that carries the total past it refuses with nothing folded. Unbounded: the writer's invariant.
+ * bound the page that carries the total past it refuses with nothing folded. Unbounded otherwise.
  */
 function readHistorySuffix(
   kernel: SessionKernel,

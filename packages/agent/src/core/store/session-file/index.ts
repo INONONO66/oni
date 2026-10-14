@@ -345,7 +345,10 @@ export class SessionStore extends StoreHandle {
     );
   }
 
-  /** One atomic creation write: genesis row and catalog index land together; a duplicate on either plane refuses typed with zero new facts. */
+  /**
+   * One creation write: the genesis row commits inside the catalog index transaction, so a duplicate on
+   * either plane refuses typed with zero new facts, but the two files are not one atomic unit (see `indexed`).
+   */
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
       const created = this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
@@ -361,7 +364,8 @@ export class SessionStore extends StoreHandle {
 
   /**
    * The catalog lock encloses the session-file write: index row first (a lost
-   * race refuses before any session write), a thrown write unwinds both, and
+   * race refuses before any session write), a write thrown before the inner
+   * commit unwinds both (a catalog commit fault after it strands the file), and
    * `createdAt` is the caller's clock. A colliding index row is `duplicate`
    * only with a session file behind it; a catalog row alone is `orphan_index`.
    */
