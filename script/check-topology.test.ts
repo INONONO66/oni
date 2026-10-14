@@ -163,6 +163,12 @@ describe("topology conformance", () => {
     expect(steps).not.toContain("--coverage");
   });
 
+  test("the app lane alone has a bounded test step", () => {
+    const steps = ciTestSteps(TOPOLOGY);
+    expect(steps).toContain("name: Test (openomni app)\n        if: matrix.key == 'openomniApp'\n        timeout-minutes: 10\n");
+    expect(steps).not.toContain("name: Test (protocol)\n        if: matrix.key == 'protocol'\n        timeout-minutes:");
+  });
+
   test("generated dependency rows preserve manifest and source bands", () => {
     const base: WorkspaceTopology = { ...phantom, allowedDeps: "none" };
     const consumer: WorkspaceTopology = {

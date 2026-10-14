@@ -33,6 +33,7 @@ export interface WorkspaceTopology {
   readonly tsconfigVerify: true;
   readonly extraSourceRoots?: readonly string[];
   readonly ciTestCommand?: string;
+  readonly ciTestTimeoutMinutes?: number;
 }
 
 /**
@@ -145,6 +146,7 @@ export const TOPOLOGY = [
     coverageLane: true,
     knipWorkspace: true,
     tsconfigVerify: true,
+    ciTestTimeoutMinutes: 10,
   },
   {
     key: "ui",
@@ -248,11 +250,12 @@ export function ciTestSteps(topology: readonly WorkspaceTopology[] = TOPOLOGY): 
       dir: workspace.dir,
       displayName: workspace.displayName,
       key: workspace.key,
+      timeoutMinutes: workspace.ciTestTimeoutMinutes,
     }));
   return workspaceSteps
     .map(
-      ({ command, dir, displayName, key }) =>
-        `      - name: Test (${displayName})\n        if: matrix.key == '${key}'\n        run: ${command}\n        working-directory: ${dir}`,
+      ({ command, dir, displayName, key, timeoutMinutes }) =>
+        `      - name: Test (${displayName})\n        if: matrix.key == '${key}'\n${timeoutMinutes === undefined ? "" : `        timeout-minutes: ${timeoutMinutes}\n`}        run: ${command}\n        working-directory: ${dir}`,
     )
     .join("\n");
 }
