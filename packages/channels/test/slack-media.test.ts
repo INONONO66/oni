@@ -123,6 +123,16 @@ describe("Slack outbound calls", () => {
       timestamp: "42.1",
       name: "+1",
     });
+    expect(
+      await runtime.deliveryRoute?.(
+        "T1:U1",
+        { kind: "react", messageId: "42.1", emoji: "👍", remove: true },
+        "react-2",
+        { channelId: "C1" },
+      ),
+    ).toEqual({ value: "accepted", externalMessageId: "42.1" });
+    expect(calls[1]?.url).toBe("https://slack.com/api/reactions.remove");
+    expect(JSON.parse(calls[1]?.body ?? "")).toEqual({ channel: "C1", timestamp: "42.1", name: "+1" });
   });
 
   test("refuses an unmapped emoji before any platform call", async () => {

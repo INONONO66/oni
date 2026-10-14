@@ -83,6 +83,18 @@ describe("Discord outbound calls", () => {
     expect(calls[0]?.method).toBe("PUT");
     expect(calls[0]?.headers.get("Authorization")).toBe("Bot dc-test");
     expect(calls[0]?.body).toBeNull();
+    expect(
+      await runtime.deliveryRoute?.(
+        "U1",
+        { kind: "react", messageId: "m-9", emoji: "👍", remove: true },
+        "react-2",
+        { channelId: "C1" },
+      ),
+    ).toEqual({ value: "accepted", externalMessageId: "m-9" });
+    expect(calls[1]?.url).toBe(
+      "https://discord.com/api/v10/channels/C1/messages/m-9/reactions/%F0%9F%91%8D/@me",
+    );
+    expect(calls[1]?.method).toBe("DELETE");
   });
 
   test("posts typing into the supplied channel", async () => {

@@ -2,16 +2,28 @@
 
 ## #1506 auto-ack reaction
 
-Configured channel-origin turns now send a pending reaction before model
-execution and replace it with an ok or failed reaction after the report. The
-setting is `OPENOMNI_ACK_REACTION` as JSON with `pending`, `ok`, and `failed`
-emoji values, or `off`; it is off by default. Telegram's default is documented
-as 👀 pending, ✅ ok, and ❌ failed when configured, and Slack/Discord remove
-the pending reaction before adding the terminal reaction. Rejected, unknown,
-or thrown reaction receipts are dropped so the turn continues. The focused
-order, default-off, and refusal tests live in
-`apps/openomni/test/resident-reply-to-origin.test.ts`; full gate evidence is
-pending this PR.
+On `feat/app-ack-reaction` (2026-10-14, base `2047087ba`). A Resident turn
+that originates on a channel sends a pending reaction on the originating
+message before the model runs and replaces it after the report with an ok or
+failed reaction. The policy is data: `OPENOMNI_ACK_REACTION` is JSON with
+`pending`, `ok` and `failed` emoji, or `off`; it is off by default.
+Slack and Discord remove the pending reaction before adding the terminal one
+(`reactions.remove`, `DELETE .../reactions/<emoji>/@me`); Telegram replaces
+it with one `setMessageReaction`. Rejected, unknown or thrown reaction
+receipts are dropped and the turn continues; a turn without a reaction route
+or a message id sends none. The composition root owns the whole mechanism in
+`apps/openomni/src/bundles/resident/index.ts`; no package knows the policy.
+
+Receipts: order ack -> report -> terminal, default off, refused and throwing
+routes in `apps/openomni/test/resident-reply-to-origin.test.ts`; config
+parsing (`off`, strict shape) in `apps/openomni/test/config.test.ts`;
+reaction removal per platform in `packages/channels/test/{discord,slack}-media.test.ts`.
+Local gates (`mise exec bun@1.4.1`): build, types, lint, written types, deps,
+dead exports, docs exit 0; channels 840/0, script 117/0, app 876 pass with
+the known environment-only failures (m.pty #1273, tmux monitor watch, bash
+session door, 967-U1); patch coverage 0 uncovered.
+
+Not here: platform permission provisioning for reactions (#1507, Owner).
 
 ## #1496 bash sessions drain through command sentinels (PR #1539, base `030d50500`)
 

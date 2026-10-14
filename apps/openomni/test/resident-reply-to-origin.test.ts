@@ -148,6 +148,32 @@ test("ack reactions are off by default", async () => {
   expect(reactions).toEqual([]);
 });
 
+test("a reaction route that throws does not fail the turn", async () => {
+  let attempts = 0;
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    ackReaction: { pending: "👀", ok: "✅", failed: "❌" },
+    reactionRoutes: () => new Map([
+      ["telegram", async () => {
+        attempts += 1;
+        throw new Error("platform unreachable");
+      }],
+    ]),
+    tools: { messages: capturingPort([]) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  const result = await deliverExternal(
+    resident,
+    "reply-origin-ack-thrown",
+    { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } },
+    "ping",
+  );
+  expect(result.kind).toBe("result");
+  expect(attempts).toBe(1);
+});
+
 test("a refused pending reaction does not fail the turn or add a terminal reaction", async () => {
   const reactions: Outbound.React[] = [];
   const resident = residentRunner({
