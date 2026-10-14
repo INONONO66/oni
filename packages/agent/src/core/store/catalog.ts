@@ -154,6 +154,12 @@ export class CatalogStore extends StoreHandle {
     return row === null ? undefined : row;
   }
 
+  sessionIds(): string[] {
+    return z.array(z.object({ id: z.string() })).parse(
+      this.db.query("SELECT id FROM session_index ORDER BY id").all(),
+    ).map((row) => row.id);
+  }
+
   childSessionsPage(parentId: string, afterId: string, limit: number): SessionIndexRow[] {
     const size = z.number().int().positive().max(256).parse(limit);
     return z.array(SessionIndexSqlRow).parse(this.db.query(

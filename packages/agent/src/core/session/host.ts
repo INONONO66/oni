@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { LedgerSession, ObservationSink } from "@openomni/protocol";
 import { Context, type Crypto, Data, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { AlarmDrainConfig } from "../ports/alarm";
 import {
@@ -46,6 +46,8 @@ export interface LedgerPlane {
   readonly handles: LedgerHandles;
   openKernel(sessionId: string): SessionKernel;
   sessionStore(sessionId: string): SessionStore;
+  releaseSession(sessionId: string): void;
+  discardSession(sessionId: string): void;
   listSessions(): LedgerSession.Row[];
   turnPort(
     runner: SessionRunner,
@@ -124,27 +126,44 @@ function planeOver(
       ? {}
       : { onObservationFailure: config.onObservationFailure }),
   };
-  const memo = new Map<string, { store: SessionStore; kernel: SessionKernel }>();
+  const memo = new Map<string, { store: SessionStore; kernel: SessionKernel; newFile: boolean }>();
   function opened(sessionId: string) {
     let entry = memo.get(sessionId);
     if (entry === undefined) {
-      const store = openSessionStore(
-        sessionsDir === undefined ? ":memory:" : sessionFilePath(sessionsDir, sessionId),
-        sessionOptions,
-      );
-      entry = { store, kernel: SessionHandleStore.createSessionKernel(store, catalog) };
+      const path = sessionsDir === undefined ? ":memory:" : sessionFilePath(sessionsDir, sessionId);
+      const fresh = sessionsDir !== undefined && !existsSync(path);
+      let store: SessionStore;
+      try {
+        store = openSessionStore(path, sessionOptions);
+      } catch (cause) {
+        throw refused("sessions", path, cause);
+      }
+      entry = { store, kernel: SessionHandleStore.createSessionKernel(store, catalog), newFile: fresh };
       memo.set(sessionId, entry);
     }
     return entry;
   }
-  function sessionIds(): string[] {
-    const ids = new Set(memo.keys());
-    if (sessionsDir !== undefined && existsSync(sessionsDir)) {
-      for (const file of readdirSync(sessionsDir)) {
-        if (file.endsWith(".sqlite")) ids.add(file.slice(0, -".sqlite".length));
-      }
+  function releaseSession(sessionId: string): void {
+    const entry = memo.get(sessionId);
+    if (entry === undefined) return;
+    memo.delete(sessionId);
+    entry.store.close();
+  }
+  function openEntitySession(sessionId: string): SessionStore {
+    const path = sessionFilePath(sessionsDir ?? "", sessionId);
+    let store: SessionStore;
+    try {
+      store = openSessionStore(path, sessionOptions);
+    } catch (cause) {
+      throw refused("sessions", path, cause);
     }
-    return [...ids];
+    const view: SessionStore = Object.create(store, {
+      close: { value: () => {
+        store.close();
+        releaseSession(sessionId);
+      } },
+    });
+    return view;
   }
   return {
     catalog,
@@ -156,18 +175,38 @@ function planeOver(
       openSession: (sessionId) =>
         sessionsDir === undefined
           ? retained(opened(sessionId).store)
-          : openSessionStore(sessionFilePath(sessionsDir, sessionId), sessionOptions),
+          : openEntitySession(sessionId),
     },
     openKernel: (sessionId) => opened(sessionId).kernel,
     sessionStore: (sessionId) => opened(sessionId).store,
-    listSessions: () =>
-      sessionIds().flatMap((id) => {
+    releaseSession,
+    discardSession: (sessionId) => {
+      const entry = memo.get(sessionId);
+      const empty = entry?.newFile === true && entry.store.sessions.get(sessionId) === undefined;
+      releaseSession(sessionId);
+      if (empty && sessionsDir !== undefined)
+        rmSync(sessionFilePath(sessionsDir, sessionId));
+    },
+    listSessions: () => {
+      if (sessionsDir === undefined)
+        return [...memo]
+          .filter(([id, entry]) => entry.store.sessions.get(id) !== undefined)
+          .map(([id, entry]) => entry.kernel.row(id));
+      return catalog.sessionIds().map((id) => {
+        const path = sessionFilePath(sessionsDir, id);
+        if (!existsSync(path)) throw refused("sessions", path, new Error(`missing indexed session: ${id}`));
         try {
-          return [opened(id).kernel.row(id)];
-        } catch {
-          return [];
+          const store = openSessionStore(path, sessionOptions);
+          try {
+            return SessionHandleStore.createSessionKernel(store, catalog).row(id);
+          } finally {
+            store.close();
+          }
+        } catch (cause) {
+          throw refused("sessions", path, cause);
         }
-      }),
+      });
+    },
     turnPort: createSessionEntityRunTurn,
     close: () => {
       for (const entry of memo.values()) entry.store.close();
