@@ -1,7 +1,7 @@
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
-import { SLACK_RENDER } from "./format.js";
+import { SLACK_MEDIA_LIMITS, SLACK_RENDER } from "./format.js";
 import { SlackAdapter } from "./surface.js";
 
 interface SlackCredentials {
@@ -27,7 +27,7 @@ export const SlackProvider: ChannelProvider<SlackCredentials, "slack"> = {
     deliver: true,
     webhook: false,
     render: SLACK_RENDER,
-    media: true,
+    media: SLACK_MEDIA_LIMITS,
     react: true,
     typing: false,
   },
@@ -49,7 +49,9 @@ export const SlackProvider: ChannelProvider<SlackCredentials, "slack"> = {
     return {
       surface,
       deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-        surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+        surface
+          .deliver(externalId, payload, idempotencyKey, conversation)
+          .then(kernelDeliveryReceipt),
     };
   },
 };

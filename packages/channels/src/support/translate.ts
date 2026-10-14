@@ -1,6 +1,6 @@
 import { Outbound } from "@openomni/protocol";
 import { DeliveryNotSent } from "../errors";
-import type { RenderPolicy } from "../provider/contract";
+import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
 
@@ -19,6 +19,7 @@ import { chunkMarkdown } from "./format/chunk";
  *   the text so the person still receives what was meant.
  * - Media bytes resolve before the first send: a bad reference refuses the
  *   whole payload with nothing posted, never a half-delivered letter.
+ * - Part, caption, and letter limits refuse the whole payload before sending.
  * - A `react` payload needs `react`; a surface without one refuses it as
  *   not sent (the agent's receipt says `rejected`), never as text.
  */
@@ -47,10 +48,13 @@ type MediaUpload = (
   caption: string | undefined,
 ) => Promise<SendAck>;
 
+/** The bytes one letter may hold in memory before its first send. */
+const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
+
 /** The surface's physical primitives, already bound to the delivery's channel and thread. */
 export interface SurfaceSends {
   readonly text: (chunk: string) => Promise<string | undefined>;
-  readonly media?: MediaUpload;
+  readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
   readonly react?: (messageId: string, emoji: string) => Promise<void>;
 }
 
@@ -81,10 +85,17 @@ function textSteps(parts: Outbound.Part[], render: RenderPolicy): Step[] {
 async function plan(
   message: Outbound.Message,
   render: RenderPolicy,
-  media: { readonly upload: MediaUpload; readonly resolve: MediaResolver } | undefined,
+  media:
+    | {
+        readonly upload: MediaUpload;
+        readonly limits: MediaLimits;
+        readonly resolve: MediaResolver;
+      }
+    | undefined,
 ): Promise<Step[]> {
   const steps: Step[] = [];
   let pending: Outbound.Part[] = [];
+  let totalBytes = 0;
   for (const part of message.parts) {
     if (part.kind === "text" || part.kind === "code" || media === undefined) {
       pending.push(part);
@@ -95,6 +106,23 @@ async function plan(
     const bytes = await media.resolve(part).catch((error: unknown) => {
       throw new DeliveryNotSent({ operation: "media.resolve", cause: String(error) });
     });
+    const limit = part.kind === "image" ? media.limits.imageBytes : media.limits.fileBytes;
+    if (bytes.bytes.byteLength > limit)
+      throw new DeliveryNotSent({
+        operation: "media.limit",
+        cause: `${bytes.bytes.byteLength} bytes exceeds the ${part.kind} limit ${limit}`,
+      });
+    if (part.caption !== undefined && part.caption.length > media.limits.captionLength)
+      throw new DeliveryNotSent({
+        operation: "media.caption",
+        cause: `${part.caption.length} characters exceeds the caption limit ${media.limits.captionLength}`,
+      });
+    totalBytes += bytes.bytes.byteLength;
+    if (totalBytes > LETTER_MEDIA_BYTES)
+      throw new DeliveryNotSent({
+        operation: "media.limit",
+        cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}`,
+      });
     steps.push({ kind: "media", part, bytes, upload: media.upload });
   }
   steps.push(...textSteps(pending, render));
@@ -124,7 +152,9 @@ async function runSteps(steps: Step[], text: SurfaceSends["text"]): Promise<Deli
       ack = await runStep(step, text);
     } catch (error) {
       if (attempted > 1)
-        throw new PartialDeliveryError(acceptedChunks, attempted, steps.length, "send_failed", { cause: error });
+        throw new PartialDeliveryError(acceptedChunks, attempted, steps.length, "send_failed", {
+          cause: error,
+        });
       throw error;
     }
     if (ack.externalMessageId !== undefined) {
@@ -153,6 +183,6 @@ export async function translate(
     return { accepted: true, externalMessageId: payload.messageId };
   }
   const media =
-    sends.media === undefined || resolve === undefined ? undefined : { upload: sends.media, resolve };
+    sends.media === undefined || resolve === undefined ? undefined : { ...sends.media, resolve };
   return runSteps(await plan(payload, render, media), sends.text);
 }

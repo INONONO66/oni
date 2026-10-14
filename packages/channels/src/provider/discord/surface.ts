@@ -22,7 +22,7 @@ import {
 import type { PublishPort } from "../../types";
 import type { ProviderOptions } from "../contract";
 import { translate } from "../../support/translate";
-import { DISCORD_RENDER } from "./format";
+import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
 
 export class DiscordAdapter implements Channel.Surface {
   readonly id = "discord";
@@ -125,9 +125,18 @@ export class DiscordAdapter implements Channel.Surface {
           DISCORD_RENDER,
           {
             text: (chunk) => this.client.send(channelId, chunk, traceId, conversation),
-            media: async (_kind, bytes, caption) => {
-              const externalMessageId = await this.client.sendMedia(channelId, bytes, caption, traceId, conversation);
-              return externalMessageId === undefined ? {} : { externalMessageId };
+            media: {
+              limits: DISCORD_MEDIA_LIMITS,
+              upload: async (_kind, bytes, caption) => {
+                const externalMessageId = await this.client.sendMedia(
+                  channelId,
+                  bytes,
+                  caption,
+                  traceId,
+                  conversation,
+                );
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
             },
             react: (messageId, emoji) => this.client.react(channelId, messageId, emoji, traceId),
           },

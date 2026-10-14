@@ -5,7 +5,6 @@ const SLACK_EMOJI_NAMES: ReadonlyMap<string, string> = new Map([
   ["👀", "eyes"],
   ["✅", "white_check_mark"],
   ["❌", "x"],
-  ["❤️", "heart"],
   ["❤", "heart"],
   ["🔥", "fire"],
   ["🎉", "tada"],
@@ -27,7 +26,6 @@ const SLACK_EMOJI_NAMES: ReadonlyMap<string, string> = new Map([
   ["⚡", "zap"],
   ["⏳", "hourglass_flowing_sand"],
   ["⌛", "hourglass"],
-  ["⚠️", "warning"],
   ["⚠", "warning"],
   ["🐛", "bug"],
   ["📝", "memo"],
@@ -35,10 +33,16 @@ const SLACK_EMOJI_NAMES: ReadonlyMap<string, string> = new Map([
   ["🤷", "shrug"],
   ["💡", "bulb"],
   ["🔍", "mag"],
-  ["🛠️", "hammer_and_wrench"],
   ["🛠", "hammer_and_wrench"],
 ]);
 
+const SHORT_NAME = /^:([a-z0-9_+-]+):$/;
+/** Variation selectors and skin-tone modifiers do not change the short name. */
+const PRESENTATION = /[\u{FE0E}\u{FE0F}\u{1F3FB}-\u{1F3FF}]/gu;
+
+/** A `:short_name:` passes through; a character is looked up without its presentation marks. */
 export function slackEmojiName(emoji: string): string | undefined {
-  return SLACK_EMOJI_NAMES.get(emoji);
+  const short = SHORT_NAME.exec(emoji);
+  if (short !== null) return short[1];
+  return SLACK_EMOJI_NAMES.get(emoji.replace(PRESENTATION, ""));
 }

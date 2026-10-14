@@ -103,13 +103,18 @@ describe("provider conformance", () => {
         expect(runtime.surface.id).toBe(kase.provider.id);
         expect(runtime.deliveryRoute !== undefined).toBe(kase.provider.capabilities.deliver);
         expect(runtime.webhookHandler !== undefined).toBe(kase.provider.capabilities.webhook);
+        expect(runtime.typingRoute !== undefined).toBe(kase.provider.capabilities.typing);
       });
       test("a conversation hint is honored or refused, never silently delivered as a DM (#1490)", async () => {
         const runtime = kase.build(noopPublish);
-        if (runtime.deliveryRoute === undefined || CONVERSATION_SURFACES.has(kase.provider.id)) return;
+        if (runtime.deliveryRoute === undefined || CONVERSATION_SURFACES.has(kase.provider.id))
+          return;
         await expect(
           runtime.deliveryRoute("ext-1", Outbound.payload("hi"), "key-1", { channelId: "chan-1" }),
-        ).rejects.toMatchObject({ _tag: "DeliveryNotSent", operation: `${kase.provider.id}.deliver` });
+        ).rejects.toMatchObject({
+          _tag: "DeliveryNotSent",
+          operation: `${kase.provider.id}.deliver`,
+        });
       });
       test("credentials schema admits the conformance credential and refuses junk", () => {
         expect(kase.provider.credentials.safeParse(kase.credential).success).toBe(true);
@@ -127,6 +132,16 @@ describe("provider conformance", () => {
         const policy = kase.provider.capabilities.render;
         expect(policy.renderMarkdown("**hi** `code`")).toBe(kase.rendered);
         expect(policy.messageLimit).toBe(kase.limit);
+      });
+      test("media capability declares positive upload and caption limits or is disabled", () => {
+        const media = kase.provider.capabilities.media;
+        if (media === false) {
+          expect(media).toBe(false);
+          return;
+        }
+        expect(media.imageBytes).toBeGreaterThan(0);
+        expect(media.fileBytes).toBeGreaterThan(0);
+        expect(media.captionLength).toBeGreaterThan(0);
       });
       test("preconditions are a verbatim operator checklist", () => {
         for (const precondition of kase.provider.preconditions)

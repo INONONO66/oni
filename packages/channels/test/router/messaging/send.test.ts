@@ -454,6 +454,38 @@ describe("durable send admission faults", () => {
     expect(deliveries).toEqual([]);
   });
 
+  test("a plain-text send admitted before payloads existed replays as the same admission, not a conflict", async () => {
+    const input = buildAwaitedSendInput({ messageId: "message:legacy-admitted" });
+    const facts = ledger().sessions.decisionFacts;
+    if (facts === undefined) throw new Error("decision fact sub-adapter missing");
+    const legacySignature = JSON.stringify({
+      messageId: input.messageId,
+      senderId: input.senderId,
+      operation: input.operation,
+      class: input.class,
+      body: "test message",
+      target: { actorId: "actor:target", endpointId: "endpoint:target", channel: "qa", externalId: "target-1" },
+      requestSpec: input.requestSpec,
+    });
+    const recorded = facts.record({
+      key: `gateway_send:${encodeURIComponent(input.messageId)}`,
+      type: "gateway.send.admitted",
+      data: { signature: legacySignature, budgeted: false, sendClass: "converse" },
+      timeCreated: input.at,
+    });
+    expect(recorded.kind).toBe("recorded");
+
+    const receipt = await runEffect(messaging().send(input));
+    expect(receipt.kind).toBe("sent");
+    expect(deliveries).toHaveLength(1);
+
+    const parts = await runEffect(
+      messaging().send(buildAwaitedSendInput({ messageId: "message:legacy-admitted", payload: { kind: "message", parts: [{ kind: "code", text: "x" }] } })),
+    );
+    expectDenied(parts, "request_duplicate");
+    expect(deliveries).toHaveLength(1);
+  });
+
   test("fails closed when a budget callback replaces the active adapter before admission", async () => {
     const input = buildSendInput({ messageId: "message:reentrant-adapter-swap" });
     const detachedFacts = ledger().sessions.decisionFacts;

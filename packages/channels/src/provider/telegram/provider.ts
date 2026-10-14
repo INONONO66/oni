@@ -1,7 +1,7 @@
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
-import { TELEGRAM_RENDER } from "./format.js";
+import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format.js";
 import { TelegramAdapter } from "./surface.js";
 
 interface TelegramCredentials {
@@ -17,7 +17,7 @@ export const TelegramProvider: ChannelProvider<TelegramCredentials, "telegram"> 
     deliver: true,
     webhook: false,
     render: TELEGRAM_RENDER,
-    media: true,
+    media: TELEGRAM_MEDIA_LIMITS,
     react: true,
     typing: true,
   },
@@ -29,7 +29,9 @@ export const TelegramProvider: ChannelProvider<TelegramCredentials, "telegram"> 
     return {
       surface,
       deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-        surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+        surface
+          .deliver(externalId, payload, idempotencyKey, conversation)
+          .then(kernelDeliveryReceipt),
       typingRoute: (externalId, conversation) => surface.typing(externalId, conversation),
     };
   },

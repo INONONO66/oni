@@ -6,7 +6,7 @@ import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../.
 import { requireHandler } from "../../support/handler-frame";
 import { translate } from "../../support/translate";
 import { RateLimited, TelegramApiError } from "../../errors";
-import { TELEGRAM_RENDER } from "./format";
+import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format";
 import { TelegramClient } from "./client";
 import { TelegramNormalizer } from "./normalizer";
 import { TelegramPoller } from "./poller";
@@ -107,9 +107,19 @@ export class TelegramAdapter implements Channel.Surface {
           TELEGRAM_RENDER,
           {
             text: (chunk) => this.client.sendMarkdown(chatId, chunk, traceId, conversation),
-            media: async (kind, bytes, caption) => {
-              const externalMessageId = await this.client.sendMedia(chatId, kind, bytes, caption, traceId, conversation);
-              return externalMessageId === undefined ? {} : { externalMessageId };
+            media: {
+              limits: TELEGRAM_MEDIA_LIMITS,
+              upload: async (kind, bytes, caption) => {
+                const externalMessageId = await this.client.sendMedia(
+                  chatId,
+                  kind,
+                  bytes,
+                  caption,
+                  traceId,
+                  conversation,
+                );
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
             },
             react: (messageId, emoji) => this.client.react(chatId, messageId, emoji, traceId),
           },
@@ -124,7 +134,11 @@ export class TelegramAdapter implements Channel.Surface {
   }
 
   typing(externalId: string, conversation?: Gateway.Conversation): Promise<void> {
-    return this.client.typing(conversation?.channelId ?? externalId, newTraceId(this.options.id), conversation);
+    return this.client.typing(
+      conversation?.channelId ?? externalId,
+      newTraceId(this.options.id),
+      conversation,
+    );
   }
 
   private async handleMessage(

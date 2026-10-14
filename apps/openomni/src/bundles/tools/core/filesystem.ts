@@ -59,6 +59,7 @@ export function filesystem(path: string, ports: FilePorts) {
     write: async (data: Uint8Array) => (await remote.fs.write(locus.path, data)).bytesWritten,
     list: () => remoteList(remote, locus.path),
     kind: async () => (await remote.fs.stat(locus.path)).kind,
+    size: async () => (await remote.fs.stat(locus.path)).size,
   };
 }
 

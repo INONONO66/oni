@@ -86,10 +86,13 @@ type SendMessageInput = z.output<typeof SendMessageInput>;
 
 /** The one outbound value the gateway carries: a letter of parts, or one reaction on the contact's message. */
 function outboundPayload(input: SendMessageInput): Outbound.Payload {
-  if (input.react === undefined)
-    return typeof input.message === "string" || input.message === undefined
-      ? Outbound.payload(input.message ?? "")
+  if (input.react === undefined) {
+    if (input.message === undefined)
+      throw new ToolRefused("send_message", "exactly one of message or react");
+    return typeof input.message === "string"
+      ? Outbound.payload(input.message)
       : { kind: "message", parts: input.message };
+  }
   const messageId = input.to.kind === "contact" ? input.to.conversation?.replyToMessageId : undefined;
   if (messageId === undefined)
     throw new ToolRefused("send_message", "react needs a channel contact with conversation.replyToMessageId");

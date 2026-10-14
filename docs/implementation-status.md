@@ -23,13 +23,22 @@ capabilities; platform vocabulary stays inside the provider band.
   image/file part uploads where the provider declares `media` and the
   composition root supplied a `MediaResolver`, otherwise its reference line
   stays in the text; media bytes resolve before the first send so a bad
-  reference refuses the whole letter with nothing posted; a `react` on a
-  surface without reactions is `DeliveryNotSent` (receipt `rejected`),
-  never posted as text. `support/send-text.ts` is deleted; every surface
-  (telegram, discord, slack, github) delivers through `translate`.
-  `ProviderCapabilities` gained `media`, `react`, `typing`
-  (telegram/discord all three; slack media and react, no typing; github and
-  webhook none) and the conformance suite pins each surface's seams to them.
+  reference refuses the whole letter with nothing posted; a part over the
+  surface's declared `MediaLimits{imageBytes, fileBytes, captionLength}`
+  (telegram 10 MB / 50 MB / 1024, discord 20 MiB / 20 MiB / 2000, slack
+  1 GiB / 1 GiB / 4000, each in its `format.ts`), or a letter whose media
+  totals over 64 MiB, is refused the same way (`media.limit`,
+  `media.caption`); a `react` on a surface without reactions is
+  `DeliveryNotSent` (receipt `rejected`), never posted as text. A platform
+  failure after an accepted step is `PartialDeliveryError` → receipt
+  `unknown` and nothing is resent. `support/send-text.ts` is deleted; every
+  surface (telegram, discord, slack, github) delivers through `translate`.
+  `ProviderCapabilities` gained `media: MediaLimits | false`, `react`,
+  `typing` (telegram/discord all three; slack media and react, no typing;
+  github and webhook none); the conformance suite pins `deliveryRoute` and
+  `typingRoute` to `deliver`/`typing` and the media declaration's shape, and
+  the fake-fetch suites `test/{slack,telegram,discord}-media.test.ts` pin
+  each upload, reaction and typing call's URL, method and body.
 - Platform calls: telegram `sendPhoto`/`sendDocument` multipart with a
   plain-text caption, `setMessageReaction`, `sendChatAction typing`;
   discord multipart `payload_json` + `files[0]`, `PUT …/reactions/{emoji}/@me`,
@@ -53,19 +62,29 @@ capabilities; platform vocabulary stays inside the provider band.
   only and the `ChannelEgressPort`/`HumanNotifyPort` connectors are deleted.
   The turn-end report (#1482/#1485/#1490) still sends the result text through
   the string sugar. `apps/openomni/src/composition/media.ts` is the app's
-  `MediaResolver`: a ref with an authority is an `https` URL fetched under
-  `MEDIA_BYTE_CAP` (50 MiB); anything else is a machine locus read whole
-  through the `read` tool's door (`FilePorts`, #1271); `MediaRefused{code:
-  scheme | fetch_failed | too_large | …}` is the typed refusal. The ws route
-  pushes `Outbound.text(payload)`.
+  `MediaResolver`: a ref with an authority is an `https` URL fetched with
+  manual redirects (at most three hops, every hop re-admitted: https only,
+  no loopback/link-local/private host), a 30 s timeout, and the body read in
+  chunks that stop at `MEDIA_BYTE_CAP` (50 MiB) whether or not
+  `content-length` was sent; anything else is a machine locus stat'd then
+  read through the `read` tool's door (`FilePorts`, #1271), refused unread
+  over the cap. The read is admitted by the `send_message` call's own policy
+  gate and the daemon's export enforcement, not by the `read` tool's gate.
+  `MediaRefused{code: scheme | host | fetch_failed | too_large}` is the
+  typed refusal. The ws route pushes `Outbound.text(payload)` and answers a
+  `react` with a `rejected` receipt. `router/messaging/admission.ts` signs a
+  one-text-part letter as `body: <text>`, the form recorded before payloads
+  existed, so an admission written then still matches on replay.
 
 Tests: `packages/channels/test/translate.test.ts` (folding, media upload
 and fallback, react refusal, partial delivery), provider golden/conformance
 suites over payloads, router prompt pins (`ownerPrompt` fixture),
-`apps/openomni/test/media-resolver.test.ts`,
+`apps/openomni/test/media-resolver.test.ts` (machine stat-first cap,
+streamed-body cap, hop-by-hop redirect admission, private hosts),
 `apps/openomni/test/send-message-contacts.test.ts` (string, four-part and
 react letters through the gateway door; react without a conversation
-refused; schema exactly-one rule). Channels 810/0, app 870/0 at commit time.
+refused; schema exactly-one rule), `test/router/messaging/send.test.ts`
+(legacy `body` admission replays). Channels 838/0, app 870/0 at commit time.
 Not in this PR: inbound photo/voice/file normalization, an app loop that
 repeats the typing pulse (#1495), and bot emoji reactions on inbound
 messages as an automation action.

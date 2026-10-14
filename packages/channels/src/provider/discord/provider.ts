@@ -1,7 +1,7 @@
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
-import { DISCORD_RENDER } from "./format.js";
+import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format.js";
 import { DiscordAdapter } from "./surface.js";
 
 interface DiscordCredentials {
@@ -22,7 +22,7 @@ export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord"> = {
     deliver: true,
     webhook: false,
     render: DISCORD_RENDER,
-    media: true,
+    media: DISCORD_MEDIA_LIMITS,
     react: true,
     typing: true,
   },
@@ -37,7 +37,9 @@ export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord"> = {
     return {
       surface,
       deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-        surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+        surface
+          .deliver(externalId, payload, idempotencyKey, conversation)
+          .then(kernelDeliveryReceipt),
       typingRoute: (externalId, conversation) => surface.typing(externalId, conversation),
     };
   },

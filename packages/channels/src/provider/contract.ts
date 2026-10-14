@@ -62,6 +62,13 @@ export interface RenderPolicy {
   readonly messageLimit: number | null;
 }
 
+/** Platform upload limits a surface declares; translation refuses an oversize part or caption before anything is sent. */
+export interface MediaLimits {
+  readonly imageBytes: number;
+  readonly fileBytes: number;
+  readonly captionLength: number;
+}
+
 /**
  * What a provider's runtime exposes, declared statically so composition and
  * conformance tests can check the runtime against the declaration instead of
@@ -78,7 +85,7 @@ interface ProviderCapabilities {
    * Image and file parts upload as platform attachments. Where false, a
    * media part stays visible as its reference line inside the text.
    */
-  readonly media: boolean;
+  readonly media: MediaLimits | false;
   /**
    * A `react` payload adds the emoji on the named message. Where false, the
    * surface refuses it with a rejected receipt instead of posting text.
