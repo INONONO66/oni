@@ -1,5 +1,5 @@
 import type { EffectRunner } from "@openomni/channels";
-import { Effect, ManagedRuntime, Result, Exit, Scope } from "effect";
+import { Clock, Effect, Layer, ManagedRuntime, Result, Exit, Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { AppLive, type AppRuntime, type AppRuntimeOptions, type AppServices } from "../../src/runtime";
 
@@ -7,8 +7,11 @@ import { AppLive, type AppRuntime, type AppRuntimeOptions, type AppServices } fr
  * Builds an app runtime a test owns outright (no process memoization, unlike
  * `gatewayRuntime`); dispose it in the test's `finally`.
  */
-export function appRuntime(options: AppRuntimeOptions): AppRuntime {
-  return ManagedRuntime.make(AppLive(options));
+export function appRuntime(options: AppRuntimeOptions, clock?: Clock.Clock): AppRuntime {
+  const layer = AppLive(options);
+  return ManagedRuntime.make(clock === undefined
+    ? layer
+    : layer.pipe(Layer.provideMerge(Layer.succeed(Clock.Clock, clock))));
 }
 
 /** Runs an app test Effect at the test boundary. */

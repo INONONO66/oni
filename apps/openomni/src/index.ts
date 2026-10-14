@@ -101,7 +101,7 @@ import {
 } from "./composition/cluster-runtime";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow } from "./composition/platform";
-import { createWatchSources } from "./composition/watch-sources";
+import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot } from "./composition/composed";
@@ -134,6 +134,8 @@ class MessageAdmissionRefused extends Error {
 
 interface StartOptions {
   readonly runtime?: AppRuntime;
+  /** Native watch boundary; tests can model a stream that drops a create. */
+  readonly pathWatch?: PathWatchInstaller;
   readonly sessionRuntime?: Pick<
     SessionRuntime,
     "closeGraceMs" | "approvalTimeoutMs" | "retryAlarm" | "openIntent" | "onHibernate"
@@ -691,7 +693,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
       {
         clock: services.now,
         failure: (watchId, error) => incident(`watch ${watchId} send failed`, error),
+        pathWatch: options.pathWatch,
         ...(tools.machines === undefined ? {} : { machines: tools.machines }),
+        retirePath: (sessionId, watchId) => runAppEffect(runtime, watchPlane.retirePath(sessionId, watchId)),
       },
     );
     await acquire(Effect.succeed(watchSources), (resource) =>
@@ -1273,6 +1277,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     };
     const stop = async () => {
       await boundServer.stop(true);
+      await watchSources.closeAll();
       await supervisor.stopAll();
       await runAppEffect(runtime, shutdownSessions(sessionRuntime, recovery));
       if (cells !== undefined)

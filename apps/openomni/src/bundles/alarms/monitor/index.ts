@@ -133,13 +133,23 @@ const MONITOR_WAKE_BUDGET_ROW: Bundle.BundleGateRow = {
  * declared over the alarm capability; the `requires: alarm` edge and the
  * capability-off cascade are #1255's compose mechanics.
  */
-export function monitorPurposes(deps: Bundle.WatchWakeDeps): Bundle.AlarmBundlePurposes {
-  return { bundle: "monitor", purposes: Bundle.watchPurposes(deps) };
+export type MonitorWakeDeps = Bundle.WatchWakeDeps & {
+  readonly cadence?: Bundle.AlarmPurposeHandler;
+};
+
+export function monitorPurposes(deps: MonitorWakeDeps): Bundle.AlarmBundlePurposes {
+  return {
+    bundle: "monitor",
+    purposes: [
+      ...Bundle.watchPurposes(deps),
+      ...(deps.cadence === undefined ? [] : [{ name: "watch", handler: deps.cadence }]),
+    ],
+  };
 }
 
 /** The `monitor` bundle contract (#1255 `Bundle.define`): tool face, wake budget row, purposes. */
 export function monitorBundle(
-  deps: Bundle.WatchWakeDeps,
+  deps: MonitorWakeDeps,
   /** The live alarm ports, late-bound: boot binds them after the runtime exists (#1308). */
   alarms: () => MonitorPorts | undefined,
 ): Bundle.BundleContract<"monitor", object, Bundle.AlarmPurposeHandler> {
@@ -154,7 +164,7 @@ export function monitorBundle(
     tools: [Core.eraseTool(createMonitorTool(alarms))],
     rows: [MONITOR_WAKE_BUDGET_ROW],
     purposes: Object.fromEntries(
-      Bundle.watchPurposes(deps).map((purpose) => [purpose.name, purpose.handler]),
+      monitorPurposes(deps).purposes.map((purpose) => [purpose.name, purpose.handler]),
     ),
   });
 }

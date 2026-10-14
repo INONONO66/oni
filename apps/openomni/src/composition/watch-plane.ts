@@ -1,10 +1,11 @@
 import { Effect } from "effect";
 import { Core, Bundle } from "@openomni/agent";
 import { parseJson } from "@openomni/protocol";
+import { z } from "zod";
 import { AppInvariantError } from "../invariant";
 import { cronPurposes } from "../bundles/alarms/cron/index";
 import { delegationPurposes, type DelegationDeadlineDeps } from "../bundles/delegation-policy/index";
-import { monitorPurposes } from "../bundles/alarms/monitor/index";
+import { monitorPurposes, type MonitorWakeDeps } from "../bundles/alarms/monitor/index";
 import { createLiveArmRegistry, type LiveArmRegistry } from "../bundles/alarms/index";
 import type { WatchSources } from "./watch-sources";
 import type { AlarmIngress } from "./automation-alarm";
@@ -12,7 +13,7 @@ import type { AlarmIngress } from "./automation-alarm";
 /** The native-source alarm plane and its per-activation capability. */
 export interface WatchPlane {
   readonly contract: Bundle.CapabilityDefinition<"alarm">;
-  readonly wake: Bundle.WatchWakeDeps;
+  readonly wake: MonitorWakeDeps;
   readonly arms: LiveArmRegistry;
   readonly bind: (sources: WatchSources) => void;
   readonly capabilityFor: (
@@ -22,6 +23,7 @@ export interface WatchPlane {
     deliver: (sessionId: string, occurrence: AlarmOccurrence) => Effect.Effect<void, Core.AlarmSendRefused>,
   ) => (sessionId: string, occurrence: AlarmOccurrence) => Effect.Effect<void, Core.AlarmSendRefused>;
   readonly onArmed: (notice: Core.AlarmArmNotice) => void;
+  readonly retirePath: (sessionId: string, watchId: string) => Effect.Effect<void, Core.ArmRefused>;
 }
 
 interface AlarmOccurrence {
@@ -34,19 +36,88 @@ interface AlarmOccurrence {
   readonly fireAt: number;
 }
 
+const WatchCadencePayload = z.object({ watchId: z.string().min(1) }).strict();
+const WATCH_CADENCE_MS = 1_000;
+
 export function createWatchPlane(
   deps: { readonly delegation?: DelegationDeadlineDeps; readonly ingress?: AlarmIngress } = {},
 ): WatchPlane {
   let sources: WatchSources | undefined;
+  const liveArms = new Map<string, Core.ArmVerb>();
+  const cadence = new Map<string, string>();
+  const cadenceId = (watchId: string) => `${watchId}:watch`;
+  const cadenceSource = (watchId: string) => `watch:${watchId}`;
   const live = (): WatchSources => {
     if (sources === undefined) throw new AppInvariantError("watch sources used before boot bound them");
     return sources;
   };
-  const wake: Bundle.WatchWakeDeps = {
+  const retirePath = (sessionId: string, watchId: string): Effect.Effect<void, Core.ArmRefused> =>
+    Effect.suspend(() => {
+      const latest = cadence.get(`${sessionId}:${watchId}`);
+      const arm = liveArms.get(sessionId);
+      if (latest === undefined || arm === undefined) return Effect.void;
+      return arm({
+        purpose: "watch",
+        at: null,
+        alarmId: cadenceId(watchId),
+        supersedes: latest,
+        sourceKey: cadenceSource(watchId),
+        payload: { watchId },
+      }).pipe(Effect.tap(() => Effect.sync(() => cadence.delete(`${sessionId}:${watchId}`))), Effect.asVoid);
+    });
+  const armCadence = (sessionId: string, watchId: string): Effect.Effect<void, Core.ArmRefused> =>
+    Effect.gen(function* () {
+      const arm = liveArms.get(sessionId);
+      if (arm === undefined) return yield* new Core.ArmRefused({ code: "not_live" });
+      const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+      yield* arm({
+        purpose: "watch",
+        at: now + WATCH_CADENCE_MS,
+        alarmId: cadenceId(watchId),
+        sourceKey: cadenceSource(watchId),
+        payload: { watchId },
+      });
+    });
+  const wake: MonitorWakeDeps = {
     close: (watchId) => void live().close(watchId),
     ...(deps.ingress === undefined ? {} : { prompt: deps.ingress }),
+    cadence: ({ fired, ctx }) =>
+      Effect.gen(function* () {
+        const payload = parseJson(WatchCadencePayload, fired.payload);
+        if (payload === undefined || fired.alarmId !== cadenceId(payload.watchId) ||
+            fired.sourceKey !== cadenceSource(payload.watchId))
+          return yield* new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "payload" });
+        const latest = ctx.reads.latestArm(fired.alarmId);
+        if (latest?.occurrenceId !== fired.occurrenceId || latest.at === null)
+          return "exhausted" as const;
+        const observed = yield* Effect.sync(() => sources?.observe(ctx.sessionId, payload.watchId) ?? false);
+        yield* ctx.arm({
+          purpose: "watch",
+          at: observed ? ctx.now + WATCH_CADENCE_MS : null,
+          alarmId: fired.alarmId,
+          supersedes: fired.occurrenceId,
+          sourceKey: fired.sourceKey,
+          payload,
+        }).pipe(Effect.mapError((refused) =>
+          new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.code }),
+        ));
+        // Reconcile only queues native hits; their monitor.hit occurrence owns
+        // delivery and drain. A cadence tick itself never delivers a prompt.
+        return "exhausted" as const;
+      }),
   };
-  const arms = createLiveArmRegistry();
+  const registry = createLiveArmRegistry();
+  const arms: LiveArmRegistry = {
+    ...registry,
+    onLive: (sessionId, verbs) => {
+      liveArms.set(sessionId, verbs.arm);
+      const release = registry.onLive(sessionId, verbs);
+      return () => {
+        if (liveArms.get(sessionId) === verbs.arm) liveArms.delete(sessionId);
+        release();
+      };
+    },
+  };
   const declared: readonly Bundle.AlarmBundlePurposes[] = [
     monitorPurposes(wake),
     cronPurposes(deps.ingress),
@@ -58,11 +129,17 @@ export function createWatchPlane(
   ];
   const watch: Bundle.WatchInstallDeps = {
     install: ({ sessionId, watchId, spec, occurrence }) =>
-      Effect.tryPromise({
-        try: () =>
-          live().install({ sessionId, id: watchId, occurrence, base: { spec, notifications: 0 } }),
-        catch: (error) =>
-          new Bundle.WatchRefused({ reason: error instanceof Error ? error.message : String(error) }),
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({
+          try: () =>
+            live().install({ sessionId, id: watchId, occurrence, base: { spec, notifications: 0 } }),
+          catch: (error) =>
+            new Bundle.WatchRefused({ reason: error instanceof Error ? error.message : String(error) }),
+        });
+        if (!("path" in spec.watch)) return;
+        yield* armCadence(sessionId, watchId).pipe(
+          Effect.mapError((refused) => new Bundle.WatchRefused({ reason: refused.code })),
+        );
       }),
   };
   const capabilityFor = (onBundles: readonly string[]) =>
@@ -99,12 +176,19 @@ export function createWatchPlane(
           new Core.AlarmSendRefused({
             reason: error instanceof Error ? error.message : String(error),
           }),
-      });
+      }).pipe(Effect.flatMap(() =>
+        "path" in payload.spec.watch
+          ? armCadence(sessionId, occurrence.alarmId).pipe(
+              Effect.mapError((refused) => new Core.AlarmSendRefused({ reason: refused.code })),
+            )
+          : Effect.void,
+      ));
     });
   return {
     contract,
     wake,
     arms,
+    retirePath,
     bind: (bound) => {
       if (sources !== undefined) throw new AppInvariantError("watch sources are already bound");
       sources = bound;
@@ -115,6 +199,14 @@ export function createWatchPlane(
         ? installFromOccurrence(sessionId, occurrence)
         : deliver(sessionId, occurrence),
     onArmed: (notice) => {
+      if (notice.purpose === "watch") {
+        const payload = WatchCadencePayload.safeParse(notice.payload);
+        if (payload.success && notice.at !== null)
+          cadence.set(`${notice.sessionId}:${payload.data.watchId}`, notice.occurrenceId);
+        else if (payload.success)
+          cadence.delete(`${notice.sessionId}:${payload.data.watchId}`);
+        return;
+      }
       if (notice.purpose !== Bundle.MONITOR_HIT) return;
       if (notice.at === null) {
         void live().close(notice.alarmId);

@@ -1,5 +1,5 @@
 import { CliError } from "./errors";
-import { Effect, Layer, ManagedRuntime, Scope } from "effect";
+import { Clock, Effect, Fiber, Layer, ManagedRuntime, Scope } from "effect";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -60,6 +60,9 @@ async function ask(question: string, options?: AskOptions): Promise<string> {
 export interface CliRuntimeOptions {
   /** Cancels a long-running follow child, with hard-kill escalation. */
   readonly followSignal?: AbortSignal;
+  readonly clock?: Clock.Clock;
+  /** Captures follow output when a caller needs a lossless readiness signal. */
+  readonly followOutput?: (chunk: string) => void;
 }
 
 export function createCliDeps(home: string = homedir(), options: CliRuntimeOptions = {}): CliDeps {
@@ -143,14 +146,23 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
         resolve(1);
         return;
       }
-      const child = spawn(command, rest, { stdio: ["ignore", "inherit", "inherit"] });
-      let killTimer: ReturnType<typeof setTimeout> | undefined;
+      const child = spawn(command, rest, {
+        stdio: ["ignore", options.followOutput === undefined ? "inherit" : "pipe", "inherit"],
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stdout?.on("data", (chunk: string) => options.followOutput?.(chunk));
+      let killFiber: Fiber.Fiber<void> | undefined;
       const abort = (): void => {
         child.kill("SIGTERM");
-        killTimer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+        const kill = Effect.sleep(2_000).pipe(Effect.tap(() => Effect.sync(() => {
+          child.kill("SIGKILL");
+        })));
+        killFiber = Effect.runFork(options.clock === undefined
+          ? kill
+          : Effect.provideService(kill, Clock.Clock, options.clock));
       };
       const settle = (code: number): void => {
-        if (killTimer !== undefined) clearTimeout(killTimer);
+        if (killFiber !== undefined) void Effect.runPromise(Fiber.interrupt(killFiber));
         detach?.();
         resolve(code);
       };

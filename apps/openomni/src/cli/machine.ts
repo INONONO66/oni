@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   attachMachineDaemon,
   MachinesFailure,
@@ -36,19 +36,21 @@ const Configuration = z.union([UnixConfiguration, TcpConfiguration]);
  * Only TCP attachments reconnect: a network between daemon and host blips, a
  * same-box unix host that went away is a shutdown and the daemon exits with it.
  */
-const reconnect: ReconnectOptions = {
-  scheduler: {
-    schedule(delayMs, task) {
-      const timer = setTimeout(task, delayMs);
-      return () => clearTimeout(timer);
-    },
-  },
-  random: Math.random,
-};
-
 /** Production composition of the existing daemon wire, not a second daemon implementation. */
 export function attachConfiguredMachine(configPath: string, id: () => string) {
   return Effect.gen(function* () {
+    const context = yield* Effect.context();
+    const reconnect: ReconnectOptions = {
+      scheduler: {
+        schedule(delayMs, task) {
+          const fiber = Effect.runForkWith(context)(
+            Effect.sleep(delayMs).pipe(Effect.tap(() => Effect.sync(task))),
+          );
+          return () => { void Effect.runPromiseWith(context)(Fiber.interrupt(fiber)); };
+        },
+      },
+      random: Math.random,
+    };
     const contents = yield* Effect.tryPromise({ try: () => Bun.file(configPath).text(), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.read") });
     const config = yield* Effect.try({ try: () => Configuration.parse(JSON.parse(contents)), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.decode") });
     const mode = yield* createCodemode({ id });

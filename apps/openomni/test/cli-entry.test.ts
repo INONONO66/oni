@@ -8,12 +8,15 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { Clock, Effect } from "effect";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCliDeps, main } from "../src/cli/main";
 import { CliError } from "../src/cli/errors";
 import { replaceEnvironment } from "./helpers/environment";
 import { measuredEntry } from "./helpers/measured-entry";
+import { eventSignal } from "./helpers/event-signal";
+import { testClockRuntime } from "./helpers/effect";
 
 const entry = new URL("../src/cli/main.ts", import.meta.url).pathname;
 const directories: string[] = [];
@@ -474,6 +477,46 @@ describe("real CLI entry", () => {
       followController.abort();
       followControllers.delete(followController);
       restore();
+    }
+  });
+
+  test("follow escalates an ignored SIGTERM only after the Effect clock advances", async () => {
+    const home = tempHome();
+    const ready = eventSignal<void>("follow child ready", CHILD_TIMEOUT_MS);
+    const sleeping = eventSignal<void>("kill delay armed", CHILD_TIMEOUT_MS);
+    const clockRuntime = testClockRuntime();
+    const baseClock = await clockRuntime.run(Clock.Clock);
+    const clock: Clock.Clock = {
+      ...baseClock,
+      sleep: (duration) =>
+        Effect.sync(() => sleeping.resolve()).pipe(Effect.andThen(baseClock.sleep(duration))),
+    };
+    const controller = new AbortController();
+    let output = "";
+    const deps = createCliDeps(home, {
+      followSignal: controller.signal,
+      clock,
+      followOutput: (chunk) => {
+        output += chunk;
+        if (output.includes("READY\n")) ready.resolve();
+      },
+    });
+    try {
+      const result = deps.follow([
+        "/bin/sh", "-c",
+        'trap "" TERM; printf "READY\\n"; exec /usr/bin/tail -f /dev/null',
+      ]);
+      await ready.promise;
+      let settled = false;
+      void result.then(() => { settled = true; });
+      controller.abort();
+      await sleeping.promise;
+      expect(settled).toBe(false);
+      await clockRuntime.adjust(2_000);
+      expect(await bounded(result, CHILD_TIMEOUT_MS, "SIGKILL fallback did not settle")).toBe(1);
+    } finally {
+      controller.abort();
+      await clockRuntime.dispose();
     }
   });
 
