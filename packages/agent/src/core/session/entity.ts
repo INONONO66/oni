@@ -148,7 +148,6 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
       const store = env.openSession(sessionId);
       const gate = yield* Semaphore.make(1);
       const closing = { current: false };
-      // Arms run under `gate`: refuse new ones, wait (bounded) for an in-flight one, then close.
       yield* Effect.addFinalizer(() => Effect.gen(function* () {
         closing.current = true;
         const waited = yield* gate.withPermits(1)(Effect.void).pipe(

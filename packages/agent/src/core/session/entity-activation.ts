@@ -49,12 +49,7 @@ export interface ActivationHandle {
     readonly resumeSend?: (occurrence: AlarmFired) => Effect.Effect<void>;
 }
 
-/**
- * The activation's one alarm forwarder: the latest unsent occurrence per alarm id (a re-arm replaces its queued
- * predecessor, so a superseded occurrence is never sent), the occurrence last handed to `sendAlarm` per alarm id, and
- * the sent occurrences a later timed re-arm superseded. Each orphan is a durable envelope that folds `stale` when it
- * fires; `maxArmed` bounds them per activation.
- */
+/** The activation's one forwarder: latest unsent occurrence per alarm id (a re-arm replaces it), last sent per id, and the sent occurrences a timed re-arm orphaned (each folds `stale` when it fires; `maxArmed` bounds them). */
 export interface ForwardState {
   readonly queued: Map<string, { readonly occurrence: AlarmFired; readonly onRefused: "retire" | "ignore" }>;
   readonly sent: Map<string, string>;
@@ -141,7 +136,6 @@ function sendArmedOccurrence(
         sourceKey: occurrence.sourceKey,
         payload: { reason: "send_refused", detail: refused.value.reason },
       }).pipe(
-        // A closing activation leaves the refused occurrence to the next activation's resend walk.
         Effect.catchIf((error) => error instanceof ArmRefused && error.code === "stale_activation", () => Effect.void),
         Effect.orDie,
         Effect.asVoid,
@@ -240,10 +234,7 @@ function armedOccurrenceOf(action: LedgerAction.Append): AlarmFired | undefined 
   };
 }
 
-/**
- * Runs under the activation gate the store-close finalizer also takes: an arm either completes (commit and tap
- * included) before the store closes, or observes `closing` inside the permit and refuses `stale_activation`.
- */
+/** Under the gate the store-close finalizer takes: an arm completes (commit and tap) before the store closes, or sees `closing` and refuses `stale_activation`, leaving the occurrence to the next activation's resend walk. */
 export function entityArmVerb(handle: ActivationHandle): ArmVerb {
   const verb = ungatedArmVerb(handle);
   return (input) =>
@@ -252,10 +243,7 @@ export function entityArmVerb(handle: ActivationHandle): ArmVerb {
     ));
 }
 
-/**
- * The budget gate of one arm: a new chain needs an `armed_alarms` slot, and a timed re-arm of an occurrence already
- * handed to sendAlarm orphans that durable envelope, which needs an orphan slot. Returns the orphaned occurrence id.
- */
+/** One arm's budget: a new chain needs an `armed_alarms` slot; a timed re-arm of a sent occurrence orphans it and needs an orphan slot. Returns the orphaned id. */
 function armBudget(
   handle: ActivationHandle,
   alarmId: string,
