@@ -325,17 +325,30 @@ it("a domain fact that moves after approval fails re-admission typed, never as a
   expect(counter.bodies).toBe(0);
 }))));
 
-it("assertFresh refuses a moved domain fact as a typed failure", () => isolated(Effect.gen(function* () {
-  const exit = yield* Effect.exit(assertFresh(
-    { ...request, domainRevisions: () => ({ domain: 8 }) },
-    { domainRevisions: { domain: 7 } } as unknown as Parameters<typeof assertFresh>[1],
-  ));
+it("assertFresh refuses a moved domain fact as a typed failure", () => isolated(Effect.scoped(Effect.gen(function* () {
+  const opened = Promise.withResolvers<SessionTransition.Request>();
+  const recording = yield* requestLedger({
+    onRequest: (request: SessionTransition.Request) => { if (request.state === "open") opened.resolve(request); },
+    domainRevisions: () => ({ domain: 7 }),
+  });
+  const executor = testExecutor({ ...recording, policy, authorizeApproval: () => Effect.succeed(evidence), observations: { publish: () => undefined } });
+  const write = approvalWrite(() => 7);
+  const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([write.tool])));
+  const running = yield* Effect.forkScoped(dispatcher.execute({ id: "fresh-call", tool: "write", input: request.intent },
+    { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId }));
+  const captured = yield* Effect.promise(() => bounded(opened.promise, "assertFresh captured request"));
+  expect(captured).toMatchObject({ domainRevisions: { domain: 7 } });
+  const moved = { ...request, domainRevisions: () => ({ domain: 8 }) };
+  const exit = yield* Effect.exit(assertFresh(moved, captured));
   expect(exit._tag).toBe("Failure");
   expect(exit._tag === "Failure" && Cause.hasDies(exit.cause)).toBe(false);
-  expect(yield* Effect.flip(assertFresh({ ...request, domainRevisions: () => ({ domain: 8 }) },
-    { domainRevisions: { domain: 7 } } as unknown as Parameters<typeof assertFresh>[1])))
+  expect(yield* Effect.flip(assertFresh(moved, captured)))
     .toMatchObject({ _tag: "ExecutionApprovalError", code: "stale_approval" });
-})));
+  const pending = executor.approvals?.pending()[0];
+  if (pending === undefined || executor.approvals === undefined) return yield* Effect.die("missing fresh approval");
+  yield* executor.approvals.answer({ request: pending, credential: "owner-token", decision: "approve" });
+  expect(yield* Fiber.join(running)).toMatchObject({ toolCallId: "fresh-call", content: "done" });
+}))));
 
 it("propagates a failed deadline commit without settling the live suspension", () => isolated(Effect.scoped(Effect.gen(function* () {
   const recording = yield* requestLedger({ id: "deadline-failure" });
