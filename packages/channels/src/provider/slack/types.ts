@@ -18,7 +18,9 @@ const SlackMessageEventSchema = z.object({
   bot_id: z.string().optional(),
   text: z.string().optional(),
   files: z.array(z.object({
+    id: z.string().optional(),
     url_private_download: z.string().optional(),
+    url_private: z.string().optional(),
     mimetype: z.string().optional(),
     name: z.string().optional(),
     size: z.number().optional(),
@@ -33,7 +35,9 @@ const SlackMessageEventSchema = z.object({
       user: z.string().optional(),
       text: z.string().optional(),
       files: z.array(z.object({
+        id: z.string().optional(),
         url_private_download: z.string().optional(),
+        url_private: z.string().optional(),
         mimetype: z.string().optional(),
         name: z.string().optional(),
         size: z.number().optional(),

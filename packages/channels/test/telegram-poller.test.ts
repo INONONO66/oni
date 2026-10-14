@@ -17,6 +17,8 @@ describe("TelegramPoller checkpoints", () => {
   it("hands off a media-only update before advancing its offset", async () => {
     const updates: TelegramUpdate[] = [
       { update_id: 5, message: { ...message(5), text: undefined, photo: [{ file_id: "photo-5" }] } },
+      // A frame with nothing to render reaches the normalizer too; it, not the poller, decides.
+      { update_id: 6, message: { ...message(6), text: undefined } },
     ];
     const offsets: number[] = [];
     const received: string[] = [];
@@ -35,8 +37,8 @@ describe("TelegramPoller checkpoints", () => {
     await poller.pollOnce("media");
     await poller.pollOnce("after-media");
 
-    expect(received).toEqual(["photo-5"]);
-    expect(offsets).toEqual([0, 6]);
+    expect(received).toEqual(["photo-5", ""]);
+    expect(offsets).toEqual([0, 7]);
   });
   it("resumes at a failed handoff without skipping later updates", async () => {
     const batch: TelegramUpdate[] = [

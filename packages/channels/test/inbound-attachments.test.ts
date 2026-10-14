@@ -25,6 +25,8 @@ describe("Telegram incoming media", () => {
       [{ kind: "image", ref: "large", bytes: 25 }]],
     ["document", { document: { file_id: "doc", file_name: "report.pdf", mime_type: "application/pdf", file_size: 90 } },
       [{ kind: "file", ref: "doc", name: "report.pdf", mime: "application/pdf", bytes: 90 }]],
+    ["document sent as a file but holding an image", { document: { file_id: "scan", file_name: "scan.png", mime_type: "image/png" } },
+      [{ kind: "image", ref: "scan", name: "scan.png", mime: "image/png" }]],
     ["voice", { voice: { file_id: "voice", mime_type: "audio/ogg", file_size: 8 } },
       [{ kind: "audio", ref: "voice", mime: "audio/ogg", bytes: 8 }]],
     ["audio", { audio: { file_id: "song", file_name: "song.mp3", mime_type: "audio/mpeg", file_size: 20 } },
@@ -67,6 +69,9 @@ describe("Slack incoming files", () => {
           { url_private_download: "https://files.slack.com/private/photo", mimetype: "image/png", name: "photo.png", size: 12 },
           { url_private_download: "https://files.slack.com/private/audio", mimetype: "audio/mpeg", name: "note.mp3", size: 13 },
           { url_private_download: "https://files.slack.com/private/file", mimetype: "application/pdf", name: "report.pdf", size: 14 },
+          { id: "F-ext", url_private: "https://files.slack.com/private/ext", name: "ext.txt" },
+          { id: "F-stub", name: "stub" },
+          { name: "no-handle" },
         ],
       } },
     });
@@ -77,6 +82,8 @@ describe("Slack incoming files", () => {
       { kind: "image", ref: "https://files.slack.com/private/photo", mime: "image/png", name: "photo.png", bytes: 12 },
       { kind: "audio", ref: "https://files.slack.com/private/audio", mime: "audio/mpeg", name: "note.mp3", bytes: 13 },
       { kind: "file", ref: "https://files.slack.com/private/file", mime: "application/pdf", name: "report.pdf", bytes: 14 },
+      { kind: "file", ref: "https://files.slack.com/private/ext", name: "ext.txt" },
+      { kind: "file", ref: "F-stub", name: "stub" },
     ]);
   });
 });

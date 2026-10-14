@@ -20,12 +20,16 @@ function fileAttachment(
   };
 }
 
+function kindOfMime(mime: string | undefined): "image" | "audio" | "file" {
+  return mime?.startsWith("image/") ? "image" : mime?.startsWith("audio/") ? "audio" : "file";
+}
+
 function telegramAttachments(message: TelegramMessage) {
   const photo = message.photo?.at(-1);
   const sticker = message.sticker;
   return [
     photo === undefined ? undefined : fileAttachment("image", photo),
-    message.document === undefined ? undefined : fileAttachment("file", message.document),
+    message.document === undefined ? undefined : fileAttachment(kindOfMime(message.document.mime_type), message.document),
     message.voice === undefined ? undefined : fileAttachment("audio", message.voice),
     message.audio === undefined ? undefined : fileAttachment("audio", message.audio),
     sticker === undefined || sticker.is_animated || sticker.is_video

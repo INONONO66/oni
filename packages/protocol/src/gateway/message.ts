@@ -101,8 +101,8 @@ const IngressFacts = z
     attachments: z.array(z.object({
       kind: z.enum(["image", "audio", "file"]),
       ref: Id,
-      name: z.string().optional(),
-      mime: z.string().optional(),
+      name: z.string().min(1).optional(),
+      mime: z.string().min(1).optional(),
       bytes: z.number().int().nonnegative().optional(),
     }).strict()).readonly().optional(),
     // What the person could see that the model has not: the thread's earlier

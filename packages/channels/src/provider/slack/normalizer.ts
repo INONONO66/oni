@@ -9,15 +9,19 @@ interface SlackNormalizerContext {
 }
 
 function slackAttachments(files: NonNullable<SlackMessageEvent["files"]>) {
-  return files.flatMap((file) =>
-    file.url_private_download === undefined ? [] : [{
+  return files.flatMap((file) => {
+    // The download URL when the file is hosted, else the private URL, else the
+    // file id a `files.info` call resolves; a file with none of them has no handle.
+    const ref = file.url_private_download ?? file.url_private ?? file.id;
+    return ref === undefined ? [] : [{
       kind: file.mimetype?.startsWith("image/") ? "image" as const
         : file.mimetype?.startsWith("audio/") ? "audio" as const : "file" as const,
-      ref: file.url_private_download,
+      ref,
       ...(file.mimetype === undefined ? {} : { mime: file.mimetype }),
       ...(file.name === undefined ? {} : { name: file.name }),
       ...(file.size === undefined ? {} : { bytes: file.size }),
-    }]);
+    }];
+  });
 }
 
 function slackMentions(text: string) {

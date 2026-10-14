@@ -93,11 +93,7 @@ export class TelegramPoller {
       // arrives after stop()/interruption finds its own signal aborted.
       for (const update of updates) {
         if (controller.signal.aborted) return;
-        if (update.message && (
-          update.message.text || update.message.caption || update.message.photo?.length ||
-          update.message.document || update.message.voice || update.message.audio ||
-          (update.message.sticker && !update.message.sticker.is_animated && !update.message.sticker.is_video)
-        )) await this.callbacks.onMessage(update.message);
+        if (update.message) await this.callbacks.onMessage(update.message);
         if (update.message_reaction) await this.callbacks.onMessage(update.message_reaction);
         if (controller.signal.aborted) return;
         this.offset = update.update_id + 1;
