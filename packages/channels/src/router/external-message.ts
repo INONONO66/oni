@@ -203,16 +203,35 @@ export function externalMessage(
       !automation.automationId.startsWith("granted-direct:");
     return { route, event, target, surfaceKey,
       message: { ...message, grantTier: message.grantTier || automationGrant }, facts,
-      content: automation?.kind === "action" ? JSON.stringify(automation.body)
-        : automation !== undefined && automationGrant ? automation.origin.body
-        : promptContent(facts, resolved.existing === undefined,
-            route.requestExecution.kind === "request" || facts.surface === "ws" ? undefined
-              : event.meta?.actor?.actorId ?? sender.externalId),
+      content: routedContent(automation, automationGrant, () =>
+        promptContent(facts, resolved.existing === undefined, promptSender(route, facts, event, sender))),
       pending: outcome.pending,
       disposition: disposition ?? (automation === undefined && !message.grantTier &&
         outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),
       decision: outcome.rows[0], automation };
   });
+}
+
+/** An automation delivers its trigger body (an action as JSON); a direct route delivers the person's prompt. */
+function routedContent(
+  automation: MatchDecision["route"] | undefined,
+  automationGrant: boolean,
+  prompt: () => string,
+): string {
+  if (automation?.kind === "action") return JSON.stringify(automation.body);
+  if (automation !== undefined && automationGrant) return automation.origin.body;
+  return prompt();
+}
+
+/** Who the prompt names as its sender: nobody for a request answer or the WebSocket owner (#1497). */
+function promptSender(
+  route: ReturnType<typeof resolveIngress>["route"],
+  facts: Gateway.IngressFacts,
+  event: ReturnType<typeof resolveIngress>["event"],
+  sender: Extract<Gateway.IngestSender, { kind: "external" }>,
+): string | undefined {
+  if (route.requestExecution.kind === "request" || facts.surface === "ws") return undefined;
+  return event.meta?.actor?.actorId ?? sender.externalId;
 }
 
 /**

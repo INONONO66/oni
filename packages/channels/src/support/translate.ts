@@ -37,11 +37,11 @@ export class PartialDeliveryError extends Error {
 }
 
 /** The platform id where the API returns one for an accepted send; slack uploads acknowledge without one. */
-export interface SendAck {
+interface SendAck {
   readonly externalMessageId?: string;
 }
 
-export type MediaUpload = (
+type MediaUpload = (
   kind: "image" | "file",
   bytes: MediaBytes,
   caption: string | undefined,

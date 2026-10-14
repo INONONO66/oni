@@ -13,7 +13,7 @@ import { runEffect } from "./helpers/effect";
 interface Ingested {
   readonly sender: Gateway.IngestSender;
   readonly to: Gateway.SendMessage["to"];
-  readonly content: string;
+  readonly content: Gateway.SendMessage["content"];
 }
 
 function capturingPort(
