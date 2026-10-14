@@ -10,6 +10,7 @@ import { createExistingAgentMessaging } from "./messaging/send";
 import { createReplyGrantInstances } from "./messaging/reply-grant";
 import { externalMessage, replayExternal } from "./external-message";
 import { filterAutomationRules } from "./automation-rules";
+import { mentionOnlyPosture } from "./automation/mention-only.js";
 import { answerOwnerRequest } from "./request/owner-answer";
 import type { GatewayRouter, GatewayRouterPorts } from "./message-ports";
 
@@ -149,7 +150,8 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           messagingPorts?.budgets?.() ?? [], input);
         return { external, filtered: external === undefined ? replay : undefined };
       }
-      const filtered = filterAutomationRules(stores, input.input, ports.sink, at);
+      const filtered = filterAutomationRules(stores, input.input, ports.sink, at,
+        mentionOnlyPosture(stores, facts, input));
       const external = filtered === undefined
         ? yield* externalMessage(stores, sender, facts, ports, at,
             messagingPorts?.budgets?.() ?? [], stores.automations.groups().map((group) => group.pending), input)

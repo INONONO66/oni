@@ -810,6 +810,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       grant: createMountedChannelGrantRegistrar(
         plane.stores.channelGrants,
         config.channelAllowedSenders,
+        config.channelMentionOnly,
       ),
       deliveryRoutes,
       webhookHandlers,

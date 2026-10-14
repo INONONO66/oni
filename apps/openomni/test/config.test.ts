@@ -49,6 +49,7 @@ const ENV_KEYS = [
   "OPENOMNI_MACHINES_TLS_CERT",
   "OPENOMNI_MACHINES_TLS_KEY",
   "OPENOMNI_CHANNEL_ALLOWED_SENDERS",
+  "OPENOMNI_CHANNEL_MENTION_ONLY",
   "OPENOMNI_BUNDLES_OFF",
 ] as const;
 
@@ -620,6 +621,14 @@ describe("ws exposure enforcement", () => {
     expect(loadConfig().channelAllowedSenders).toEqual({ telegram: ["111"] });
     process.env.OPENOMNI_CHANNEL_ALLOWED_SENDERS = "not-json";
     expect(() => loadConfig()).toThrow("OPENOMNI_CHANNEL_ALLOWED_SENDERS is invalid JSON");
+  });
+
+  it("reads the mention-only surface list, absent by default", () => {
+    expect(loadConfig().channelMentionOnly).toBeUndefined();
+    process.env.OPENOMNI_CHANNEL_MENTION_ONLY = JSON.stringify(["slack"]);
+    expect(loadConfig().channelMentionOnly).toEqual(["slack"]);
+    process.env.OPENOMNI_CHANNEL_MENTION_ONLY = "[]";
+    expect(() => loadConfig()).toThrow("OPENOMNI_CHANNEL_MENTION_ONLY");
   });
 });
 

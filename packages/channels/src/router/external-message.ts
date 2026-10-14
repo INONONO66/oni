@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import type { ChannelStores } from "./stores.js";
 import type { PolicyEvaluationInput } from "@openomni/agent";
-import { Channel, type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@openomni/protocol";
+import { type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@openomni/protocol";
 import { judgeAndMatch } from "../automation/judge.js";
 import type { MatchDecision, PendingGroup } from "../automation/matcher.js";
-import type { ingressInput } from "./automation/input.js";
+import { type ingressInput, ingressSurfaceKey } from "./automation/input.js";
 import { newTraceId } from "../support/trace";
 import { webSocketSenderTier } from "./channel-grant";
 import { resolveIngressActor } from "./actor-resolver";
@@ -35,11 +35,7 @@ function resolveIngress(
   facts: Gateway.IngressFacts, ports: GatewayRouterPorts, at: number,
   ingress: ReturnType<typeof ingressInput>,
 ) {
-  const surfaceKey = Channel.SurfaceKey.fromChannel({
-    surface: facts.surface, namespace: facts.workspaceId ?? facts.surface,
-    kind: facts.dm ? "dm" : "channel", id: facts.channelId,
-    ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
-  });
+  const surfaceKey = ingressSurfaceKey(facts);
   const existing = stores.surfaceKeys.lookup(surfaceKey);
   const reply = facts.reply ?? { chain: [] };
   admitWebSocketOwner(stores, sender);
@@ -58,7 +54,8 @@ function resolveIngress(
       },
     },
   }, at);
-  const route = resolveKernelRoute(stores, event, surfaceKey, event.traceId, ports.requests, at, ports.id);
+  const route = resolveKernelRoute(stores, event, surfaceKey, event.traceId, ports.requests, at, ports.id,
+    ingress.channel);
   return { surfaceKey, existing, event: route.event, route, ...ingress };
 }
 

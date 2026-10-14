@@ -542,6 +542,8 @@ export interface TrustedChannelGrant {
    */
   readonly defaultTier: Actor.TrustTier;
   readonly allowedSenders?: readonly string[];
+  /** Channel messages route only when they address the Resident; DMs always do. */
+  readonly mentionOnly?: boolean;
 }
 
 /**
@@ -565,6 +567,7 @@ export function registerTrustedChannelGrant(
     // An allowlisted grant materializes this tier for the listed senders
     // alone — everyone else on the surface finds no grant and is blocked.
     ...(grant.allowedSenders === undefined ? {} : { allowedSenders: [...grant.allowedSenders] }),
+    ...(grant.mentionOnly === undefined ? {} : { mentionOnly: grant.mentionOnly }),
     createdBy: "local-owner",
   });
   return () => {
@@ -574,14 +577,17 @@ export function registerTrustedChannelGrant(
 
 /**
  * THE grant seam the composition root hands the channel supervisor (#931):
- * the surface's tier is whatever its desired row declared, and the configured
+ * the surface's tier is whatever its desired row declared, the configured
  * allowlist pins the grant to its listed senders (an unlisted surface keeps
- * the open posture). Owner authority cannot enter here — this function names
- * no tier of its own, so no mounted named surface can acquire one.
+ * the open posture), and a surface listed as mention-only routes channel
+ * messages only when they address the Resident. Owner authority cannot enter
+ * here — this function names no tier of its own, so no mounted named surface
+ * can acquire one.
  */
 export function createMountedChannelGrantRegistrar(
   grants: ChannelGrantStore,
   allowedSendersBySurface: Readonly<Record<string, readonly string[]>> | undefined,
+  mentionOnlySurfaces: readonly string[] | undefined = undefined,
 ): (surfaceId: string, defaultTier: Actor.TrustTier) => () => void {
   return (surfaceId, defaultTier) => {
     const allowedSenders = allowedSendersBySurface?.[surfaceId];
@@ -589,6 +595,7 @@ export function createMountedChannelGrantRegistrar(
       surface: surfaceId,
       defaultTier,
       ...(allowedSenders === undefined ? {} : { allowedSenders }),
+      ...(mentionOnlySurfaces?.includes(surfaceId) === true ? { mentionOnly: true } : {}),
     });
   };
 }

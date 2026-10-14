@@ -179,6 +179,18 @@ describe("channel grant registration", () => {
     revoke();
     expect(resolveChannelGrant(channelStores(), { surface: "telegram", sender: "tg:1" })).toBeUndefined();
   });
+
+  // A listed surface's mount grant carries the mention-only posture; an
+  // unlisted one carries none, so its channel messages keep routing.
+  test("the mount registrar marks listed surfaces mention-only and leaves the rest open", () => {
+    const register = createMountedChannelGrantRegistrar(plane().stores.channelGrants, undefined, ["slack"]);
+    const revokeSlack = register("slack", MOUNTED_CHANNEL_DEFAULT_TIER);
+    const revokeTelegram = register("telegram", MOUNTED_CHANNEL_DEFAULT_TIER);
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant.mentionOnly).toBe(true);
+    expect(resolveChannelGrant(channelStores(), { surface: "telegram" })?.grant.mentionOnly).toBeUndefined();
+    revokeSlack();
+    revokeTelegram();
+  });
 });
 
 describe("authenticated gateway ingress", () => {
