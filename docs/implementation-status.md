@@ -1,5 +1,7 @@
 # Implementation Status
 
+## #1476 compaction purpose accounting, fallback reason, and unchanged prefix (PR #1537, base `030d50500`)
+
 ## #1495 typing during channel-origin Resident turns (PR #1530, base `030d50500`)
 
 On `feat/channels-typing-pulse` (2026-10-14). Mounted channel instances
@@ -23,6 +25,37 @@ Not in this change: Slack typing (`assistant.threads.setStatus` needs the
 `assistant:write` scope; Slack declares `typing: false` until that scope and
 route land); outbound emoji reactions, already shipped in #1504; inbound
 media normalization and automated reactions remain outside this lane.
+
+## #1476 compaction purpose accounting, fallback reason, and unchanged prefix (PR #TBD, base `030d50500`)
+
+On `feat/1476-compaction-accounting` (2026-10-14), following the app half
+in #1427 / PR #1475 and part of #1421.
+
+- Accounting: the metrics read model retains its byte-compatible flat `usage`
+  list and adds `usageByPurpose`. Groups use each physical attempt's recorded
+  nested `purpose`; absent purpose remains `null`. Grouping preserves attempt IDs,
+  failed billed usage, provenance, unknown counts, and total usage without
+  counting enclosing results. Paginated metrics reads recover attempt intents
+  before the cursor so attribution survives a page boundary.
+- Fallback: an executed compaction result now carries `reason: "fallback"`
+  with `summarizerFailed: true`. The closed protocol enum accepts that reason
+  and validates result reasons; the original request's `trigger` is unchanged.
+  Typed summary failure and injected-clock expiry both complete the turn
+  through the deterministic cut.
+- Prefix: synchronous and speculative summaries receive the complete original
+  leading cut span, including user messages, prior anchor renders, and tool
+  output bytes. Synchronous delivery uses the pre-elision prefix. Input budget
+  values are advisory rather than permission to rewrite that prefix; output
+  allocation, trigger thresholds, user preservation, user-only skip behavior,
+  and candidate fingerprint bytes are unchanged.
+- Not claimed: provider prefix-cache hits or complete #1476 closure. The app
+  still omits tools, blocks tool choice at the request, and changes reasoning
+  settings; tool/thinking parity requires app-owned work. Its overflow retries
+  can also shorten the request after the unchanged initial delivery. No app
+  policy or provider configuration is changed here.
+- Focused evidence: 21 accounting/read tests and 111 compaction/execution
+  tests pass, including byte-preserving input and deterministic fallback
+  continuation; the PR records the full repository gate receipts.
 
 ## #1481 app port identifiers and durable keys (PR #1536, base `030d50500`)
 
@@ -503,7 +536,6 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   without r2; post-rebase CI reds were three stale test expectations; CI green
   at merge. Receipt names #1434.
 
-
 ## #1347 — restore budget, persisted step budget, strikes, row byte cap (PR #1445, base `c99bb6d5c`)
 
 - `fold.checkpoint` rows carry `budgetState`; the checkpoint policy (`everyActions`, `maxTailBytes`) lives in `session.configure` settings. A crash-open reactivation resumes its step/budget counters from the checkpoint through `createSessionChatRunner` and stops with the existing `AgentStopError{reason: "budget"}` before any model call (the reactivation test drives `createController(...).reconcile()` over reopened SQLite files and fails when the `budgetState` hand-off in `run.ts` is removed).
@@ -539,7 +571,6 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   gates after the review fixes, eight light/dark × desktop/narrow captures with
   no horizontal overflow; live-gateway integration is covered by #1341's wire
   tests, not by desktop tests.
-
 
 ## #1352 model-call layer extracted to `@openomni/llm` (epic #1356, rung 5)
 
