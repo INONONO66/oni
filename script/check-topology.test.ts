@@ -166,7 +166,9 @@ describe("topology conformance", () => {
   test("the app lane alone has a bounded test step", () => {
     const steps = ciTestSteps(TOPOLOGY);
     expect(steps).toContain("name: Test (openomni app)\n        if: matrix.key == 'openomniApp'\n        timeout-minutes: 10\n");
-    expect(steps).not.toContain("name: Test (protocol)\n        if: matrix.key == 'protocol'\n        timeout-minutes:");
+    // Exactly one bounded step: the app lane. Every other workspace declares no deadline.
+    expect(steps.match(/timeout-minutes:/g)).toHaveLength(1);
+    expect(TOPOLOGY.filter((workspace) => workspace.ciTestTimeoutMinutes !== undefined).map((workspace) => workspace.key)).toEqual(["openomniApp"]);
   });
 
   test("generated dependency rows preserve manifest and source bands", () => {

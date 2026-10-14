@@ -123,12 +123,14 @@ machine contention also reached its external 600-second cap before finishing.
 The standalone `/tmp` PTY reproducer completed 50/50 iterations; the PR
 carries its text and the sample excerpt.
 
-`apps/openomni/src/composition/watch-sources.ts` already kills the detached
-process group, awaits `child.exited`, and closes the terminal afterward; its
-natural-exit and cancellation tests exercise both paths. There is no
-evidence-backed repo-side teardown reorder here. This PR bounds CI's failure
-time; it does not fix Bun's internal synchronous wait or establish that every
-runner triggers it.
+`apps/openomni/src/composition/watch-sources.ts` kills the detached process
+group, awaits `child.exited`, then closes the terminal; that order is unchanged.
+One repo-side teardown defect was fixed: when `killCommandGroup` throws the
+typed `AlarmProcessGroupError`, the PTY master was never closed and EOF never
+resolved; `terminate()` now closes the master in a `finally`, and the
+kill-failure tests assert the close. This PR bounds CI's failure time; it does
+not fix Bun's internal synchronous wait or establish that every runner
+triggers it, so the issue stays open.
 
 ## #1481 app port identifiers and durable keys (PR #1536, base `030d50500`)
 

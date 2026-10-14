@@ -134,18 +134,23 @@ export function commandSource(
   let shutdown: Promise<void> | undefined;
   function terminate() {
     shutdown ??= (async () => {
-      // The shell can exit before its children. Kill its group even then, before
-      // awaiting PTY EOF; waiting for EOF first lets HUP-ignoring descendants hang.
-      await killCommandGroup(child.pid);
-      await child.exited;
-      // Cancellation has no remaining output to drain. Retire the master after
-      // the owned group was signalled and the leader reaped, even if Bun omits EOF.
-      if (closing) {
+      try {
+        // The shell can exit before its children. Kill its group even then, before
+        // awaiting PTY EOF; waiting for EOF first lets HUP-ignoring descendants hang.
+        await killCommandGroup(child.pid);
+        await child.exited;
+        // Cancellation has no remaining output to drain. Retire the master after
+        // the owned group was signalled and the leader reaped, even if Bun omits EOF.
+        if (closing) {
+          terminal?.close();
+          eof.resolve();
+        }
+        await eof.promise;
+      } finally {
+        // A kill failure propagates as the typed error, but the master never outlives it.
         terminal?.close();
         eof.resolve();
       }
-      await eof.promise;
-      terminal?.close();
     })();
     return shutdown;
   }
