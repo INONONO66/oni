@@ -2,13 +2,14 @@
 // imports only the workspaces the table allows, nothing undeclared. Distinct
 // from inventory wiring, import cycles and dead exports.
 import { Glob } from "bun";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
 import { PlainValueSchema } from "../packages/protocol/src/json.js";
 import { commandOutput } from "./command-output";
-import { valueImportSpecifiers } from "./check-import-cycles";
+import { findCycles, valueImportSpecifiers } from "./check-import-cycles";
+import { CORE_END_STATE_TARGETS } from "./core-end-state-targets";
 import { runScriptMain } from "./main-runner";
 import { AGENT_CORE_EDGES, assertTopologyComplete, TOPOLOGY, type WorkspaceTopology } from "./topology";
 
@@ -825,6 +826,50 @@ async function validateChannelsIntraPackageBanding(): Promise<string[]> {
 // ─── #1247: agent directory bands ──────────────────────────────────────────
 
 const AGENT_SRC_PREFIX = "packages/agent/src/";
+const AGENT_CORE_PREFIX = `${AGENT_SRC_PREFIX}core/`;
+
+function exactPaths(label: string, actual: readonly string[], expected: readonly string[]): string[] {
+  const found = [...actual].sort();
+  const required = [...expected].sort();
+  return found.join("\n") === required.join("\n")
+    ? []
+    : [`VIOLATION: ${label} expected {${required.join(", ")}}, found {${found.join(", ")}}`];
+}
+
+/** Root entries include hidden files and symlinks; an empty or missing band is not an inventory. */
+export async function validateAgentCoreLayout(root = "."): Promise<string[]> {
+  const core = join(root, AGENT_CORE_PREFIX);
+  if (!existsSync(core)) return [`VIOLATION: missing ${AGENT_CORE_PREFIX}`];
+  const entries = readdirSync(core, { withFileTypes: true });
+  const violations = [
+    ...exactPaths("core root files", entries.filter((entry) => !entry.isDirectory()).map((entry) => entry.name), CORE_END_STATE_TARGETS.rootFiles),
+    ...exactPaths("core bands", entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name), CORE_END_STATE_TARGETS.bands),
+    ...exactPaths("core edge table", Object.keys(AGENT_CORE_EDGES), CORE_END_STATE_TARGETS.bands),
+  ];
+  for (const band of CORE_END_STATE_TARGETS.bands) {
+    const modules = [...new Glob(`${AGENT_CORE_PREFIX}${band}/**/*.{ts,tsx}`).scanSync({ cwd: root, onlyFiles: true })];
+    if (modules.length === 0) violations.push(`VIOLATION: empty core band ${band}`);
+  }
+  const owners: string[] = [];
+  for await (const { filePath, source } of scanRepositorySources(`${AGENT_CORE_PREFIX}**/*`, root)) {
+    const parsed = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
+    let declares = filePath.endsWith(".sql") && /\bCREATE\s+TABLE\b/i.test(source);
+    const visit = (node: ts.Node): void => {
+      if ((ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) && /\bCREATE\s+TABLE\b/i.test(node.text)) declares = true;
+      ts.forEachChild(node, visit);
+    };
+    visit(parsed);
+    if (declares) owners.push(filePath.slice(AGENT_CORE_PREFIX.length));
+  }
+  violations.push(...exactPaths("core SQL schema owners", owners, CORE_END_STATE_TARGETS.schemaOwners));
+  if (TOPOLOGY.length !== CORE_END_STATE_TARGETS.workspaces) {
+    violations.push(`VIOLATION: workspaces ${TOPOLOGY.length} != ${CORE_END_STATE_TARGETS.workspaces}`);
+  }
+  if (!existsSync(join(root, "packages/llm/package.json"))) {
+    violations.push("VIOLATION: missing packages/llm/package.json");
+  }
+  return violations;
+}
 
 /**
  * #1276 agent responsibility bands (four bands since #1352 moved `model/`
@@ -850,13 +895,13 @@ const AGENT_BANDS: Record<string, {
   },
   plugins: { internal: new Set(["plugins"]), externalBans: [], tokenBans: [] },
   // inspect/ folds durable reads; it keeps full core access (pre-#1276 it read
-  // kernel/session/store) but may never touch the live bus (core/bus).
+  // kernel/session/store) but may never touch the live observation bus.
   inspect: { internal: new Set(["inspect", "core"]), externalBans: [], tokenBans: [] },
   testing: { internal: new Set(["testing", "core", "plugins", "inspect"]), externalBans: [], tokenBans: [] },
 };
 
 /** inspect/ may import session reads but never the live bus (issue table 1). */
-const AGENT_INSPECT_BUS_BAN = "core/bus";
+const AGENT_INSPECT_BUS_BAN = "core/observation/bus";
 
 /**
  * #1276: exactly five plugin directories. agentBandViolations flags a file in
@@ -976,15 +1021,11 @@ export function agentBandViolations(filePath: string, source: string): string[] 
       );
     }
   }
-  const importPattern = /(?:from\s+|import\s+|import\s*\(\s*)["']([^"']+)["']/g;
-  for (const match of source.matchAll(importPattern)) {
-    const spec = match[1];
-    if (spec === undefined) continue;
+  for (const { spec, line } of agentImports(filePath, source)) {
     const reason = spec.startsWith(".")
       ? agentRelativeImportViolation(filePath, band, rules.internal, spec)
       : agentExternalImportViolation(band, rules.externalBans, spec);
     if (reason === undefined) continue;
-    const line = lineNumberForOffset(source, match.index);
     violations.push(`VIOLATION: ${filePath}:${line} imports ${spec} — #1247 bands: ${reason}`);
   }
   for (const token of rules.tokenBans) {
@@ -999,6 +1040,26 @@ export function agentBandViolations(filePath: string, source: string): string[] 
   return violations;
 }
 
+function agentImports(filePath: string, source: string): { spec: string; line: number; lazy: boolean }[] {
+  const parsed = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
+  const imports: { spec: string; line: number; lazy: boolean }[] = [];
+  const visit = (node: ts.Node): void => {
+    const argument = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+      ? node.moduleSpecifier
+      : ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)
+        ? node.moduleReference.expression
+        : ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))
+          ? node.arguments[0]
+          : undefined;
+    if (argument && ts.isStringLiteralLike(argument)) {
+      imports.push({ spec: argument.text, line: parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1, lazy: ts.isCallExpression(node) || (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly) });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return imports;
+}
+
 function agentCoreValueViolations(filePath: string, source: string): string[] {
   const prefix = `${AGENT_SRC_PREFIX}core/`;
   if (!filePath.startsWith(prefix)) return [];
@@ -1010,7 +1071,8 @@ function agentCoreValueViolations(filePath: string, source: string): string[] {
     return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not one of the eight core directories`];
   if (allowed === undefined) return [];
   const violations: string[] = [];
-  for (const spec of valueImportSpecifiers(source)) {
+  const specs = new Set([...valueImportSpecifiers(source), ...agentImports(filePath, source).filter((entry) => entry.lazy).map((entry) => entry.spec)]);
+  for (const spec of specs) {
     if (!spec.startsWith(".")) continue;
     const resolved = resolveAgentRelative(filePath, spec);
     if (!resolved.startsWith(prefix)) continue;
@@ -1023,33 +1085,11 @@ function agentCoreValueViolations(filePath: string, source: string): string[] {
   return violations;
 }
 
-/**
- * #1276 ratchet baseline, TIGHT: every pin equals the file's HEAD actual count
- * under the corrected band-root classifier, so there is no slack to grow into
- * (review r3 F1; the issue's literal "equal totals" is an Owner-recorded
- * deviation). Band ratchet 25 at HEAD with tight per-file pins; the pre-move
- * tree measures 45 under the same classifier, of which 16 were
- * plugins/compaction imports now routed through core/api and 4 were
- * product-choice edges the move removed (see the reconciliation receipt).
- * Includes the core/loop/retry.ts
- * +1 slash-only-classifier undercount correction (r2 addendum). A new file, a
- * higher count, OR A PIN ABOVE THE ACTUAL fails: shrinkage lowers the pin in
- * the same PR. #1255 drives every entry to zero.
- */
-const AGENT_BAND_RATCHET: ReadonlyMap<string, number> = new Map([
-  // #1307 moved every core -> plugins/compaction edge behind the compaction
-  // seam and inverted the plugin -> inspect/history edge; #1352 moved the
-  // model band out of the package, so the remaining pins are the
-  // core -> inspect/history edges (#1255 owns those).
-  ["packages/agent/src/core/journal/compaction.ts", 1],
-  // #1310 split mailbox.ts; its grandfathered inspect/history edge moved to recovery.ts.
-  ["packages/agent/src/core/session/recovery.ts", 1],
-  ["packages/agent/src/core/session/run.ts", 1],
-  ["packages/agent/src/core/session/runtime.ts", 1],
-]);
+/** Only the four explicitly migrated inspection imports retain pins. */
+const AGENT_BAND_RATCHET = new Map<string, number>(
+  Object.entries(CORE_END_STATE_TARGETS.inspectionImports).map(([file, count]) => [`${AGENT_CORE_PREFIX}${file}`, count]),
+);
 
-
-/** HEAD actual violation total; the pins are tight, so this is the pin sum. */
 export function agentBandRatchetTotal(): number {
   let total = 0;
   for (const count of AGENT_BAND_RATCHET.values()) total += count;
@@ -1057,41 +1097,47 @@ export function agentBandRatchetTotal(): number {
 }
 
 export async function validateAgentBands(root = "."): Promise<string[]> {
-  const counts = new Map<string, string[]>();
-  let pinnedFilesScanned = 0;
+  const counts = new Map<string, number>();
+  const sources = new Map<string, string>();
+  const violations: string[] = [];
   for await (const { filePath, source } of scanRepositorySources(
-    `${AGENT_SRC_PREFIX}**/*.ts`,
+    `${AGENT_SRC_PREFIX}**/*.{ts,tsx}`,
     root,
   )) {
-    if (AGENT_BAND_RATCHET.has(filePath)) pinnedFilesScanned += 1;
-    const found = agentBandViolations(filePath, source);
-    if (found.length > 0) counts.set(filePath, found);
-  }
-  const violations: string[] = [];
-  for (const [filePath, found] of [...counts.entries()].sort()) {
+    sources.set(filePath, source);
+    const inspectionImports = agentImports(filePath, source).filter(({ spec }) => {
+      const target = resolveAgentRelative(filePath, spec).replace(/\.(?:js|ts)$/, "");
+      const expected = filePath.endsWith("/session/runtime.ts") ? "inspect" : "inspect/history";
+      return spec.startsWith(".") && target === `${AGENT_SRC_PREFIX}${expected}`;
+    });
     const allowed = AGENT_BAND_RATCHET.get(filePath) ?? 0;
-    if (found.length > allowed) {
-      violations.push(
-        ...found,
-        `VIOLATION: ${filePath} has ${found.length} band violations over the #1276 ratchet of ${allowed} — shrink only, never grow`,
-      );
+    if (allowed > 0) counts.set(filePath, inspectionImports.length);
+    const pinned = new Set(inspectionImports.map(({ spec, line }) =>
+      `VIOLATION: ${filePath}:${line} imports ${spec} — #1247 bands: core/ may not import inspect/`,
+    ));
+    const found = agentBandViolations(filePath, source);
+    violations.push(...found.filter((finding) => !(allowed > 0 && inspectionImports.length === allowed && pinned.has(finding))));
+  }
+  for (const [filePath, allowed] of AGENT_BAND_RATCHET) {
+    const actual = counts.get(filePath) ?? 0;
+    if (actual !== allowed) {
+      violations.push(`VIOLATION: ${filePath} inspection pin ${allowed} != actual ${actual}: explicitly migrate or retire the pin`);
     }
   }
-  // Review r3 F1: slack is a growth surface, so a pin above the actual count
-  // fails closed — shrinkage is autonomous and lowers the pin in the same PR.
-  // Scoped to trees holding at least one pinned file (scratch gate fixtures
-  // have none); the repository always does, and deleting a single pinned file
-  // there still fails closed through the remaining ones.
-  for (const [filePath, allowed] of pinnedFilesScanned === 0
-    ? []
-    : [...AGENT_BAND_RATCHET.entries()].sort()) {
-    const actual = counts.get(filePath)?.length ?? 0;
-    if (actual < allowed) {
-      violations.push(
-        `VIOLATION: ${filePath} pin exceeds actual (${allowed} > ${actual}): lower the pin`,
-      );
-    }
+  if (agentBandRatchetTotal() !== CORE_END_STATE_TARGETS.historicalInspectionImports) {
+    violations.push("VIOLATION: historical inspection import accounting changed without an explicit total change");
   }
+  const graph = new Map<string, readonly string[]>();
+  for (const [file, source] of sources) {
+    const targets = valueImportSpecifiers(source).filter((spec) => spec.startsWith(".")).flatMap((spec) => {
+      const base = resolveAgentRelative(file, spec);
+      const target = [base, base.replace(/\.js$/, ".ts"), base.replace(/\.js$/, ".tsx"), `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find((path) => sources.has(path));
+      return target === undefined ? [] : [target];
+    });
+    graph.set(file, targets);
+  }
+  const cycles = findCycles(graph);
+  if (cycles.length !== CORE_END_STATE_TARGETS.cycles) violations.push(...cycles.map((cycle) => `VIOLATION: agent value cycle ${cycle.join(" -> ")}`));
   return violations;
 }
 
@@ -1188,17 +1234,12 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
  * Direct agent-core responsibility tokens (ledger mutation and entity/SQLite
  * assembly names) an app file may reference only up to its pin. The
  * deep-import boundary above stays independent; this rule counts the tokens
- * themselves so barrel-legal call sites are still retired shrink-only. Pins
- * measured at d9800ad74 with the AST-walk counter below (code references
- * only). TIGHT: growth fails, slack fails, a new app file starts at zero.
- * Retiring a call site lowers its pin in the same PR.
+ * themselves so barrel-legal call sites stay forbidden after retirement.
+ * The empty terminal pin table leaves the ratchet armed at zero.
  */
-const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map([
-  // #1346: ingress-executor, message-session and process-entry retired their
-  // last direct tokens (now Core.createSession / the Session entity RPCs);
-  // index.ts keeps the one deferred `tools.add` configure commit.
-  ["apps/openomni/src/index.ts", 1],
-]);
+const APPS_AGENT_TOKEN_RATCHET: ReadonlyMap<string, number> = new Map(
+  Object.entries(CORE_END_STATE_TARGETS.appTokenPins),
+);
 
 /** The two entity-assembly identifiers counted wherever they appear, import specifiers included. */
 const APPS_AGENT_ENTITY_IDENTIFIERS: ReadonlySet<string> = new Set([
@@ -1580,6 +1621,9 @@ function scanExportDeclaration(
 ): void {
   const clause = declaration.exportClause;
   if (clause !== undefined && ts.isNamespaceExport(clause)) {
+    if (declaration.isTypeOnly || scan.namespaces.has(clause.name.text)) {
+      scan.violations.push(perimeterFormViolation(sourceFile, declaration));
+    }
     scan.namespaces.add(clause.name.text);
     return;
   }
@@ -1617,10 +1661,11 @@ export function agentIndexPerimeterViolations(source: string): string[] {
   for (const name of scan.namespaces) {
     if (!AGENT_INDEX_NAMESPACES.has(name)) {
       scan.violations.push(
-        `VIOLATION: ${AGENT_INDEX_PATH} exports namespace ${name} outside the five #1276 namespaces`,
+        `VIOLATION: ${AGENT_INDEX_PATH} exports namespace ${name} outside the four #1276 namespaces`,
       );
     }
   }
+  scan.violations.push(...exactPaths("agent namespaces", [...scan.namespaces], CORE_END_STATE_TARGETS.namespaces));
   if (scan.named.length > AGENT_INDEX_PINNED_NAMED_EXPORTS.size) {
     scan.violations.push(
       `VIOLATION: ${AGENT_INDEX_PATH} has ${scan.named.length} named exports over the pinned ${AGENT_INDEX_PINNED_NAMED_EXPORTS.size} — shrink only, never grow`,
@@ -1631,7 +1676,7 @@ export function agentIndexPerimeterViolations(source: string): string[] {
 
 export async function validateAgentIndexPerimeter(root = "."): Promise<string[]> {
   const file = Bun.file(`${root}/${AGENT_INDEX_PATH}`);
-  if (!(await file.exists())) return [];
+  if (!(await file.exists())) return [`VIOLATION: missing ${AGENT_INDEX_PATH}`];
   return agentIndexPerimeterViolations(await file.text());
 }
 
@@ -2035,7 +2080,7 @@ function selfTest(): number {
       "#1276: inspect/ reads the core but never the live bus",
       agentBandViolations(
         "packages/agent/src/inspect/history.ts",
-        'import { k } from "../core/entity";\nimport { bus } from "../core/bus";',
+        'import { k } from "../core/session/entity";\nimport { bus } from "../core/observation/bus";',
       ).length === 1,
     ],
     [
@@ -2131,6 +2176,7 @@ export async function main(): Promise<void> {
   const sourceImportViolations = await validateSourceImportDirection();
   const channelsBandingViolations = await validateChannelsIntraPackageBanding();
   const agentBandViolationList = await validateAgentBands();
+  const agentCoreLayoutViolations = await validateAgentCoreLayout();
   const agentIndexPerimeterViolationList = await validateAgentIndexPerimeter();
   const appsAgentBarrelViolationList = await validateAppsAgentBarrel();
   const appsAgentTokenViolationList = await validateAppsAgentTokens();
@@ -2145,6 +2191,7 @@ export async function main(): Promise<void> {
     ...sourceImportViolations,
     ...channelsBandingViolations,
     ...agentBandViolationList,
+    ...agentCoreLayoutViolations,
     ...agentIndexPerimeterViolationList,
     ...appsAgentBarrelViolationList,
     ...appsAgentTokenViolationList,

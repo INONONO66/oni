@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import ts from "typescript";
 import { z } from "zod";
 import { decodeJson } from "./quality-json";
 import { runScriptMain } from "./main-runner";
@@ -66,37 +67,29 @@ function workspaceEntryPoints(): Map<string, string> {
   return entries;
 }
 
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+function isErasedDeclaration(node: ts.ImportDeclaration | ts.ExportDeclaration): boolean {
+  if (ts.isImportDeclaration(node)) {
+    const clause = node.importClause;
+    if (clause?.isTypeOnly) return true;
+    const bindings = clause?.namedBindings;
+    return !clause?.name && bindings !== undefined && ts.isNamedImports(bindings) &&
+      bindings.elements.length > 0 && bindings.elements.every((entry) => entry.isTypeOnly);
+  }
+  if (node.isTypeOnly) return true;
+  const clause = node.exportClause;
+  return clause !== undefined && ts.isNamedExports(clause) && clause.elements.length > 0 &&
+    clause.elements.every((entry) => entry.isTypeOnly);
 }
 
 /** Static value-import specifiers of one module (type-only edges excluded). */
 export function valueImportSpecifiers(source: string): string[] {
   const specifiers: string[] = [];
-  const stripped = stripComments(source);
-  const statement =
-    /\b(import|export)\s+(type\s+)?([^"'`;]*?)\bfrom\s*["']([^"']+)["']|\bimport\s*["']([^"']+)["']/g;
-  for (const match of stripped.matchAll(statement)) {
-    const [, , typeKeyword, clause, fromSpecifier, bareSpecifier] = match;
-    if (bareSpecifier !== undefined) {
-      specifiers.push(bareSpecifier); // side-effect import — always a value edge
-      continue;
-    }
-    if (typeKeyword) continue;
-    const braceStart = clause?.indexOf("{") ?? -1;
-    if (braceStart >= 0 && clause) {
-      const named = clause.slice(braceStart + 1, clause.indexOf("}"));
-      const namedAllTypes = named
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
-        .every((item) => item.startsWith("type "));
-      // `{ type A } from` alone is erased; a default binding beside the
-      // braces (`Foo, { type A }`) keeps the edge.
-      const hasBindingBeforeBraces = clause.slice(0, braceStart).trim().length > 0;
-      if (namedAllTypes && !hasBindingBeforeBraces) continue;
-    }
-    specifiers.push(fromSpecifier as string);
+  const parsed = ts.createSourceFile("imports.ts", source, ts.ScriptTarget.Latest, true);
+  for (const node of parsed.statements) {
+    if (!ts.isImportDeclaration(node) && !ts.isExportDeclaration(node)) continue;
+    if (!node.moduleSpecifier || !ts.isStringLiteralLike(node.moduleSpecifier)) continue;
+    if (isErasedDeclaration(node)) continue;
+    specifiers.push(node.moduleSpecifier.text);
   }
   return specifiers;
 }

@@ -1,5 +1,9 @@
 # SLOP: I09 deletion and closure receipts (#948)
 
+| Row | Status | Receipt |
+| --- | --- | --- |
+| #1355 core end-state gates | Implemented for stacked development; final measurement pending | Exact root/schema/band ownership, inspection-pin accounting, source and inherited quality targets are fail-closed in the dependency and terminal gates. Values are acceptance targets, not measurements of #1354's unmerged base. Commands and final-measurement prerequisite: `docs/implementation-status.md`, #1355. |
+
 #969 cutover, 2026-09-07: request waiting, authenticated consent and outbound delivery now use canonical actions. The new receipt below covers the replacement; historical receipts retain their original source pins. Final HEAD and gate outputs are in the PR and local report.
 
 #971 cutover, 2026-09-08: alarm occurrence identity, deadline and budget admission moved into the ledger's single judgment; evaluators report transport keys only. Receipt below.

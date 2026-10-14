@@ -59,6 +59,17 @@ test("value-edge extraction keeps default bindings beside type-only braces", () 
   ).toEqual(["./foo.js"]);
 });
 
+test("value-edge extraction ignores prose and preserves empty value clauses", () => {
+  const source = [
+    '// import { x } from "./comment";',
+    'const text = \'import { x } from "./quoted"\';',
+    'import {} from "./empty";',
+    'import { value } from "./path//with-slashes";',
+    'export { type A } from "./type";',
+  ].join("\n");
+  expect(valueImportSpecifiers(source)).toEqual(["./empty", "./path//with-slashes"]);
+});
+
 test("self-test passes on the synthetic graphs", () => {
   const console_ = captureConsole();
   try {

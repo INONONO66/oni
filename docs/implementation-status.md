@@ -1,5 +1,30 @@
 # Implementation Status
 
+## #1355 - terminal core gates (stacked development, final receipt pending)
+
+`script/core-end-state-targets.ts` holds terminal acceptance values, not
+measurements of the unmerged #1354 base. The following commands are wired
+fail-closed; final measurements must be collected by the lead after #1473
+merges and this branch is rebased. No stacked-base result establishes closure.
+
+| Command | Required terminal result |
+| --- | --- |
+| `bun run script/check-deps.ts` | Core root exactly `api.ts`, `index.ts`; eight named bands; schema declarations in exactly `store/catalog.ts`, `store/session-file/index.ts`, both nonempty; nine workspaces; four root namespaces; zero forbidden value edges and agent value cycles. |
+| `bun run script/check-deps.ts` | Four inspection imports accounted for at `journal/compaction.ts`, `session/recovery.ts`, `session/run.ts`, `session/runtime.ts`; missing, renamed or changed owners fail. Pins cannot absorb plugin edges or another inspection target. App direct-token table is empty and remains armed. |
+| `bun run script/check-core-end-state.ts` | Retired tokens and forbidden source patterns zero; one alarm-chain fold, one plugin-owned alarm-purpose composer and none in core; no source file over 600 lines, no test file over 1,000 lines, no empty `toThrow()`. |
+| `bun run script/check-comment-residue.ts` | Issue comments zero outside at most ten enumerated durable-byte notes; dividers and JSDoc blocks over six lines zero; comment ratio at most 8%, with the existing tighter ceiling retained. |
+| `bun run quality:clones:production`, `bun run quality:clones:test` | Fresh reports are consumed by `check-core-end-state.ts`: production clones zero, duplicated test lines at most 0.5%. Empty reports fail; percentages are computed from raw line counts. |
+| `bun run lint:tools` | Source, alarm, assertion and file-size targets enforced along with existing conformance checks. |
+| `bun test packages/agent/test/structure-gates.test.ts` | Adversarial fixtures and a separate real-tree assertion; a failing real-tree target is not replaced by a stacked-base pin. |
+
+The inspection owner is `journal/compaction.ts`, not the issue's historical
+`journal/commit` wording. `session/runtime.ts` imports inspection types from
+the inspection barrel; the other three owners import history. The source
+scan permits quoted `seam_missing` and `compaction_seam_missing` identifiers,
+the catalog's quoted legacy role literal used in SQL migration, and the
+durable `inboxId` field. It does not exempt the retired interface word in
+ordinary prose or code. Comments that describe imports do not create edges.
+
 ## #1354 — core split into eight responsibility directories (PR #1473, base `5d2de7484`)
 
 - Layout: `packages/agent/src/core/` is exactly `api.ts`, `index.ts` and the eight directories `ports/ session/ loop/ journal/ composition/ observation/ gate/ store/`; no source file exceeds 600 lines; `store/catalog.ts` and `store/session-file/index.ts` remain the only two `CREATE TABLE` owners.

@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { TOPOLOGY } from "./topology";
+import { coreGateFiles } from "./core-gate.test-helper";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -23,6 +24,7 @@ function fixture(): string {
   for (const name of [
     "topology.ts",
     "check-deps.ts",
+    "core-end-state-targets.ts",
     "check-import-cycles.ts",
     "lint-side-effects.ts",
     "lint-tools.test.ts",
@@ -44,6 +46,7 @@ function fixture(): string {
     );
     put(root, `${workspace.dir}/src/index.ts`, "export {};\n");
   }
+  for (const [path, source] of Object.entries(coreGateFiles)) put(root, path, source);
   // The copied gates import ../packages/protocol/src/json.js; mirror the real
   // module and its one relative import (the NamedError factory behind
   // CanonicalJsonError) so the fixture resolves it exactly like the repository does.

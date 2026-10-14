@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import ts from "typescript";
+import { CORE_END_STATE_TARGETS } from "./core-end-state-targets";
 import { runScriptMain } from "./main-runner";
 
 const ROOT = join(import.meta.dir, "..");
@@ -50,7 +51,7 @@ export interface ResiduePins {
 }
 
 /** Hard budget for durable-byte-contract notes, enforced by the gate itself. */
-const DURABLE_BYTE_NOTE_BUDGET = 10;
+const DURABLE_BYTE_NOTE_BUDGET = CORE_END_STATE_TARGETS.durableByteNotes;
 
 const ISSUE_TOKEN = /#\d{3,4}/;
 /** A comment-only line whose text, past any `//`, `/*` or `*` prefix, opens with a box-drawing run. */
@@ -211,6 +212,15 @@ export async function checkCommentResidue(
   }
   const actuals = await scanAgentSources(root, pins);
   const totals = aggregateResidue(actuals);
+  if (pins === RESIDUE_PINS) {
+    const issues = totals.entries.reduce((sum, [, residue]) => sum + residue.issueLines, 0);
+    const dividers = totals.entries.reduce((sum, [, residue]) => sum + residue.dividerLines, 0);
+    if (issues !== CORE_END_STATE_TARGETS.issueComments || dividers !== CORE_END_STATE_TARGETS.dividers ||
+      totals.jsdocOverSix !== CORE_END_STATE_TARGETS.longJsdoc ||
+      totals.ratioBasisPoints > CORE_END_STATE_TARGETS.commentRatioBasisPoints) {
+      violations.push("VIOLATION [comment-residue] terminal comment targets exceeded");
+    }
+  }
   for (const [file, residue] of totals.entries) {
     const pinned = pins.files.get(file);
     if (pinned === undefined) {

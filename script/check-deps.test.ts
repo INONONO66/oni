@@ -17,6 +17,7 @@ import {
 } from "./check-deps";
 import { checkPython } from "./check-quality-python";
 import { TOPOLOGY } from "./topology";
+import { coreGateFiles } from "./core-gate.test-helper";
 
 const roots: string[] = [];
 const checker = join(import.meta.dir, "check-deps.ts");
@@ -36,7 +37,7 @@ function fixture(files: Readonly<Record<string, string>>, directory = tmpdir()):
       JSON.stringify({ name: workspace.packageName }),
     ]),
   );
-  for (const [path, source] of Object.entries({ ...manifests, ...files })) {
+  for (const [path, source] of Object.entries({ ...manifests, ...coreGateFiles, ...files })) {
     const target = join(root, path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, source);
@@ -608,17 +609,15 @@ test("#1276 ratchet: growth over the pinned baseline fails, within-baseline pass
       'import { a } from "../../plugins/compaction/restore";\nimport { b } from "../../inspect/history";',
   });
   const violations = await validateAgentBands(grown);
-  expect(violations.some((line) => line.includes("over the #1276 ratchet of 1"))).toBe(true);
+  expect(violations.some((line) => line.includes("core/ may not import plugins/"))).toBe(true);
 
-  // Exactly at the pinned count: that file passes. The other pinned files are
-  // absent from this scratch tree, so the review r3 slack rule reports each of
-  // them (pin exceeds actual) — slack never passes silently.
+  // The same number of violations cannot replace an inspection edge with a plugin.
   const pinned = fixture({
     "packages/agent/src/core/journal/compaction.ts": 'import { a } from "../../plugins/compaction/restore";',
   });
   const atPin = await validateAgentBands(pinned);
-  expect(atPin.filter((line) => line.includes("core/journal/compaction.ts"))).toEqual([]);
-  expect(atPin.every((line) => line.includes("pin exceeds actual"))).toBe(true);
+  expect(atPin.some((line) => line.includes("core/ may not import plugins/"))).toBe(true);
+  expect(atPin.some((line) => line.includes("inspection pin 1 != actual 0"))).toBe(true);
 });
 
 test("#1276 bands: external bans catch exact and prefixed specifiers, legal externals pass", () => {
@@ -656,9 +655,9 @@ test("#1247 S8 pin: the real agent index passes, a grown name fails", async () =
   expect(violations.some((line) => line.includes("exports somethingNew outside the pinned S8 perimeter"))).toBe(true);
 });
 
-test("#1247 S8 pin: an eighth namespace and a non-barrel export form fail; shrink passes", () => {
+test("#1247 S8 pin: an extra namespace, missing namespace and non-barrel form fail", () => {
   const extraNamespace = agentIndexPerimeterViolations('export * as Extra from "./extra";\n');
-  expect(extraNamespace.some((line) => line.includes("namespace Extra outside the five #1276 namespaces"))).toBe(true);
+  expect(extraNamespace.some((line) => line.includes("namespace Extra outside the four #1276 namespaces"))).toBe(true);
 
   const declaration = agentIndexPerimeterViolations("export const leak = 1;\n");
   expect(declaration.some((line) => line.includes("export form outside the #1276 surface"))).toBe(true);
@@ -666,7 +665,7 @@ test("#1247 S8 pin: an eighth namespace and a non-barrel export form fail; shrin
   const shrunk = agentIndexPerimeterViolations(
     'export * as Core from "./core";\nexport { evaluatePermission } from "./core/gate/match";\n',
   );
-  expect(shrunk).toEqual([]);
+  expect(shrunk.some((line) => line.includes("agent namespaces expected"))).toBe(true);
 });
 
 test("#1247 S8 pin: alias, indentation, and missing semicolon cannot smuggle a name", () => {
@@ -684,7 +683,7 @@ test("#1247 S8 pin: alias, indentation, and missing semicolon cannot smuggle a n
 
   // Aliasing a pinned name onto another pinned name stays within the perimeter.
   const pinnedAlias = agentIndexPerimeterViolations(
-    'export { decisionFromEvaluation as evaluatePermission } from "./kernel/gate/match";\n',
+    `${coreGateFiles["packages/agent/src/index.ts"]}\nexport { decisionFromEvaluation as evaluatePermission } from "./kernel/gate/match";\n`,
   );
   expect(pinnedAlias).toEqual([]);
 });
@@ -716,9 +715,11 @@ test("#1247 S8 pin: a seventh named export trips the count diagnostic itself", (
   );
 });
 
-test("#1247 S8 pin: validateAgentIndexPerimeter reads the pinned file and tolerates its absence", async () => {
+test("#1247 S8 pin: validateAgentIndexPerimeter reads the pinned file and refuses its absence", async () => {
   const clean = fixture({});
   expect(await validateAgentIndexPerimeter(clean)).toEqual([]);
+  rmSync(join(clean, "packages/agent/src/index.ts"));
+  expect(await validateAgentIndexPerimeter(clean)).toEqual(["VIOLATION: missing packages/agent/src/index.ts"]);
 
   const planted = fixture({
     "packages/agent/src/index.ts": 'export { rogue } from "./kernel/turn";\n',
