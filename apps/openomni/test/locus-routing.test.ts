@@ -324,6 +324,7 @@ for (const explicit of [false, true]) {
           exitCode: 7,
           signal: null,
           truncated: false,
+          pending: false,
         });
         expect(
           (await cell("bash", { command: "printf '%s' \"$PWD\"", ...machine })).structuredContent,
