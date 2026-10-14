@@ -31,12 +31,13 @@ import {
   type TestClusterOptions,
 } from "../helpers/cluster-runtime";
 import { forkArm, sendPromptAndGetArm } from "../helpers/arm-passivation";
+import { runTestSync } from "../helpers/isolated";
 
 const home = clusterTempDir("a4-arm-passivation-");
 const { dir, sessionsDir, catalogFile } = home;
 const FAR = 4_102_444_800_000;
-const sentQueue = Effect.runSync(Queue.unbounded<string>());
-const orphanQueue = Effect.runSync(Queue.unbounded<string>());
+const sentQueue = runTestSync(Queue.unbounded<string>());
+const orphanQueue = runTestSync(Queue.unbounded<string>());
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
