@@ -382,7 +382,7 @@
     "turnId",
     "waitedMs"
   ],
-  "Gateway.MessageTarget": ["actorId", "endpointId"],
+  "Gateway.MessageTarget": ["actorId", "endpointId", "surface"],
   "Gateway.NewSessionTarget": ["kind", "parent", "role", "runner"],
   "Gateway.Origin": ["externalId", "surface"],
   "Gateway.ReplyGrantRule": [

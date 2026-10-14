@@ -79,7 +79,10 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       (messaging !== undefined &&
         messaging.preflight({
           senderId: sender.kind === "session" ? sender.id : sender.externalId,
-          target: { actorId: send.to.actorId },
+          target: {
+            actorId: send.to.actorId,
+            ...(send.to.surface === undefined ? {} : { surface: send.to.surface }),
+          },
           operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
           at: startedAt,
         }) === undefined);

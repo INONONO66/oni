@@ -205,6 +205,36 @@ describe("explicit target resolution (fail closed)", () => {
     expect(pinned.target.endpointId).toBe("endpoint:target-b");
     expect(deliveries).toHaveLength(1);
   });
+
+  test("a surface hint narrows a multi-channel actor to that channel's endpoint (#1485)", async () => {
+    ledger().stores.actors.registerEndpoint({
+      id: "endpoint:target-slack",
+      actorId: "actor:target",
+      channel: "slack",
+      externalId: "T1:U1",
+      createdAt: messagingNow,
+      updatedAt: messagingNow,
+    });
+
+    const onSlack = await runEffect(messaging().send(
+      buildSendInput({ target: { actorId: "actor:target", surface: "slack" } }),
+    ));
+    const onQa = await runEffect(messaging().send(
+      buildSendInput({ messageId: "message:test-qa", target: { actorId: "actor:target", surface: "qa" } }),
+    ));
+    const elsewhere = await runEffect(messaging().send(
+      buildSendInput({ messageId: "message:test-none", target: { actorId: "actor:target", surface: "discord" } }),
+    ));
+
+    expect(onSlack.kind).toBe("sent");
+    if (onSlack.kind !== "sent") throw new Error("expected sent");
+    expect(onSlack.target.endpointId).toBe("endpoint:target-slack");
+    expect(onQa.kind).toBe("sent");
+    if (onQa.kind !== "sent") throw new Error("expected sent");
+    expect(onQa.target.endpointId).toBe("endpoint:target");
+    expectDenied(elsewhere, "target_stale");
+    expect(deliveries.map((delivery) => delivery.target.channel)).toEqual(["slack", "qa"]);
+  });
 });
 
 describe("fire-and-forget delivery", () => {
