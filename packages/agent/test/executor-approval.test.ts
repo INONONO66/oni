@@ -295,22 +295,30 @@ it("the captured table retains approval binding through catalog copying and late
   expect(write.counter.bodies).toBe(1);
 }))));
 
-it("a domain fact that moves after approval fails re-admission typed, never as a defect", () => isolated(Effect.scoped(Effect.gen(function* () {
-  const opened = Promise.withResolvers<SessionTransition.Request>();
-  let domain = 7;
-  const recording = yield* requestLedger({
-    onRequest: (request: SessionTransition.Request) => {
-      if (request.state === "open") opened.resolve(request);
-      if (request.state === "resolved") domain = 8;
-    },
-    domainRevisions: () => ({ domain: 7 }),
+/** One approval-bound write call opened through the dispatcher, held at its durable request. */
+function openWriteCall(id: string, domain: () => number, onResolved: () => void = () => undefined) {
+  return Effect.gen(function* () {
+    const opened = Promise.withResolvers<SessionTransition.Request>();
+    const recording = yield* requestLedger({
+      onRequest: (request: SessionTransition.Request) => {
+        if (request.state === "open") opened.resolve(request);
+        if (request.state === "resolved") onResolved();
+      },
+      domainRevisions: () => ({ domain: 7 }),
+    });
+    const executor = testExecutor({ ...recording, policy, authorizeApproval: () => Effect.succeed(evidence), observations: { publish: () => undefined } });
+    const write = approvalWrite(domain);
+    const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([write.tool])));
+    const running = yield* Effect.forkScoped(Effect.exit(dispatcher.execute({ id, tool: "write", input: request.intent },
+      { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId })));
+    const captured = yield* Effect.promise(() => bounded(opened.promise, `${id} approval`));
+    return { recording, executor, counter: write.counter, running, captured };
   });
-  const executor = testExecutor({ ...recording, policy, authorizeApproval: () => Effect.succeed(evidence), observations: { publish: () => undefined } });
-  const { counter, tool } = approvalWrite(() => domain);
-  const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([tool])));
-  const running = yield* Effect.forkScoped(Effect.exit(dispatcher.execute({ id: "stale-call", tool: "write", input: request.intent },
-    { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId })));
-  yield* Effect.promise(() => bounded(opened.promise, "stale binding approval"));
+}
+
+it("a domain fact that moves after approval fails re-admission typed, never as a defect", () => isolated(Effect.scoped(Effect.gen(function* () {
+  let domain = 7;
+  const { recording, executor, counter, running } = yield* openWriteCall("stale-call", () => domain, () => { domain = 8; });
   const pending = executor.approvals?.pending()[0];
   if (pending === undefined || executor.approvals === undefined) return yield* Effect.die("missing stale approval");
   yield* executor.approvals.answer({ request: pending, credential: "owner-token", decision: "approve" });
@@ -326,17 +334,7 @@ it("a domain fact that moves after approval fails re-admission typed, never as a
 }))));
 
 it("assertFresh refuses a moved domain fact as a typed failure", () => isolated(Effect.scoped(Effect.gen(function* () {
-  const opened = Promise.withResolvers<SessionTransition.Request>();
-  const recording = yield* requestLedger({
-    onRequest: (request: SessionTransition.Request) => { if (request.state === "open") opened.resolve(request); },
-    domainRevisions: () => ({ domain: 7 }),
-  });
-  const executor = testExecutor({ ...recording, policy, authorizeApproval: () => Effect.succeed(evidence), observations: { publish: () => undefined } });
-  const write = approvalWrite(() => 7);
-  const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([write.tool])));
-  const running = yield* Effect.forkScoped(dispatcher.execute({ id: "fresh-call", tool: "write", input: request.intent },
-    { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId }));
-  const captured = yield* Effect.promise(() => bounded(opened.promise, "assertFresh captured request"));
+  const { executor, running, captured } = yield* openWriteCall("fresh-call", () => 7);
   expect(captured).toMatchObject({ domainRevisions: { domain: 7 } });
   const moved = { ...request, domainRevisions: () => ({ domain: 8 }) };
   const exit = yield* Effect.exit(assertFresh(moved, captured));
@@ -347,7 +345,8 @@ it("assertFresh refuses a moved domain fact as a typed failure", () => isolated(
   const pending = executor.approvals?.pending()[0];
   if (pending === undefined || executor.approvals === undefined) return yield* Effect.die("missing fresh approval");
   yield* executor.approvals.answer({ request: pending, credential: "owner-token", decision: "approve" });
-  expect(yield* Fiber.join(running)).toMatchObject({ toolCallId: "fresh-call", content: "done" });
+  const done = yield* Fiber.join(running);
+  expect(done._tag === "Success" ? done.value : undefined).toMatchObject({ toolCallId: "fresh-call", content: "done" });
 }))));
 
 it("propagates a failed deadline commit without settling the live suspension", () => isolated(Effect.scoped(Effect.gen(function* () {
