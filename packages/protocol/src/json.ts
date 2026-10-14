@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { NamedError } from "./error/index.js";
+import { sha256Hex } from "./sha256.js";
 
 /**
  * Typed refusal for values outside the canonical JSON grammar: non-finite
@@ -248,7 +248,7 @@ export function canonicalJson(value: PlainValue): string {
  * values fail loudly — hashed with sha256 under the `sha256:` prefix.
  */
 export function canonicalDigest(value: PlainValue | object | undefined): string {
-  return `sha256:${createHash("sha256").update(renderCanonical(value)).digest("hex")}`;
+  return `sha256:${sha256Hex(renderCanonical(value))}`;
 }
 
 /**

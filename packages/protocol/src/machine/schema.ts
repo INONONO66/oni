@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { EpochMs } from "../time.js";
 import { PlainValueSchema } from "../json.js";
+import { sha256Hex } from "../sha256.js";
 
 /**
  * Capability id grammar: two-plus dot-separated lowercase segments —
@@ -74,7 +74,7 @@ export type KeyFingerprint = z.infer<typeof KeyFingerprint>;
 
 /** The ONE pin computation: sha256 over the SubjectPublicKeyInfo DER bytes. */
 export function fingerprintOf(spkiDer: Uint8Array): KeyFingerprint {
-  return createHash("sha256").update(spkiDer).digest("hex");
+  return sha256Hex(spkiDer);
 }
 
 /** One owner for the frozen machine wire method names used by both peers. */
