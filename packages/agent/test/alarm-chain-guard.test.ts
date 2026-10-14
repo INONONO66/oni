@@ -185,7 +185,9 @@ describe("composeAlarmPurposes registry", () => {
 // the outcome, never an alarm literal.
 describe("frozen alarm capability seam (core/api.ts)", () => {
   test("wake takes the fired view plus the wake context and returns the accepted outcome", () => {
-    expectTypeOf<AlarmWakeOutcome>().toEqualTypeOf<"delivered" | "exhausted">();
+    expectTypeOf<AlarmWakeOutcome>().toEqualTypeOf<
+      "delivered" | "exhausted" | { readonly outcome: "quiet"; readonly at: number }
+    >();
     expectTypeOf<Parameters<AlarmCapability["wake"]>>().toEqualTypeOf<
       [AlarmFired, AlarmWakeContext]
     >();

@@ -207,6 +207,8 @@ export interface AlarmFired {
   /** Canonical JSON of the arm's payload. */
   readonly payload: string;
   readonly fireAt: number;
+  /** Fire time of a quiet re-send (widens the dedupe key); absent on the committed occurrence. */
+  readonly tick?: number;
 }
 
 /** Typed `arm` refusal (): the body's `deny{reason: alarm_budget}` is */
@@ -267,7 +269,13 @@ export interface AlarmArmNotice {
  * `fired{outcome: <returned>}` through `firedAction` — a capability never
  * builds an `alarm` append literal itself.
  */
-export type AlarmWakeOutcome = "delivered" | "exhausted";
+export type AlarmWakeOutcome = "delivered" | "exhausted" | AlarmQuiet;
+
+/** A fire that produced nothing: the occurrence moves to `at` (strikes reset) and is re-sent with no journal row. */
+interface AlarmQuiet {
+  readonly outcome: "quiet";
+  readonly at: number;
+}
 
 /** Typed wake failure a capability's purpose handler reports. */
 export class AlarmWakeError extends Schema.TaggedError<AlarmWakeError>(

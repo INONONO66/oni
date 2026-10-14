@@ -119,6 +119,13 @@ function sendArmedOccurrence(
   );
 }
 
+/** Re-sends a moved occurrence keyed on its new time; a closing activation leaves it to the next walk. */
+export function sendQuietTick(handle: ActivationHandle, occurrence: AlarmFired): Effect.Effect<void> {
+  const send = handle.env.ports.sendAlarm;
+  if (send === undefined || handle.closing.current) return Effect.void;
+  return Effect.forkIn(sendArmedOccurrence(handle, send, occurrence, "retire"), handle.scope).pipe(Effect.asVoid);
+}
+
 function forwardArmedOccurrences(
   handle: ActivationHandle,
   actions: readonly LedgerAction.Append[],

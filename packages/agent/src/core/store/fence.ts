@@ -22,6 +22,7 @@ interface SessionKernelStores {
     armedAlarms(): readonly ArmedAlarmRow[];
     armedCount(): number;
     strikeArmedAlarm(occurrenceId: string): number | undefined;
+    requeueArmedAlarm(occurrenceId: string, at: number): boolean;
   };
   readonly toolOutputs: ToolOutputsAdapter;
 }
@@ -205,6 +206,8 @@ function makeSessionKernel(context: SessionKernelContext) {
     /** One consumed delivery attempt; undefined once the row is retired. */
     strikeArmedAlarm: (occurrenceId: string): number | undefined =>
       requiredArmedIn(context).strikeArmedAlarm(occurrenceId),
+    requeueArmedAlarm: (occurrenceId: string, at: number): boolean =>
+      requiredArmedIn(context).requeueArmedAlarm(occurrenceId, at),
     /** : content-addressed tool output bytes — dedupe lives in the store's digest key. */
     putToolOutput: (write: ToolOutputWrite): void => context.stores().toolOutputs.put(write),
     toolOutput: (outputId: string): ToolOutputRow | undefined =>
@@ -233,6 +236,7 @@ export function createSessionKernel(session: SessionStore, catalog: CatalogStore
         armedAlarms: session.armedAlarms,
         armedCount: session.armedCount,
         strikeArmedAlarm: session.strikeArmedAlarm,
+        requeueArmedAlarm: session.requeueArmedAlarm,
       },
       toolOutputs: session.toolOutputs,
     }),

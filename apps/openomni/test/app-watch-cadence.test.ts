@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Clock, Effect } from "effect";
 import { L0Observation } from "@openomni/protocol";
@@ -87,37 +87,46 @@ test("the app reconciles a lost create on TestClock cadence and retires it on mo
     };
     const empty = cadence()[0];
     if (empty === undefined) throw new Error("missing cadence");
-    const emptyTick = committed(`${empty.occurrenceId}:exhausted`);
-    const before = calls;
-    await clock.adjust(1_000);
-    await emptyTick;
-    expect(calls).toBe(before);
-    expect(cadence()).toHaveLength(1);
-    expect(cadence()[0]?.fireAt).toBe(2_000);
+    const cadenceChain = () => foldAlarmChains(kernel, sessionId).get(`${watchId}:watch`);
+    const chain = () => foldAlarmChains(kernel, sessionId).get(watchId ?? "");
+    // #1477: a cadence tick is quiet for its own chain whether or not it
+    // reconciles a hit — the core moves the SAME occurrence forward in the
+    // armed index and writes nothing. The entity serves alarms in order, so the
+    // hit a tick reconciles commits only after that tick moved the row: the
+    // hit's delivered row is the deterministic barrier for the move.
+    const reconcile = async (tick: number, content: string) => {
+      const main = kernel.armedAlarms().find((row) => row.alarmId === watchId);
+      if (main === undefined) throw new Error("missing live watch arm");
+      const hit = committed(`${main.occurrenceId}:delivered`);
+      const observed = nextResidentTurn(plane);
+      const before = calls;
+      writeFileSync(path, content);
+      expect(kernel.actionById(`${main.occurrenceId}:prompt`)).toBeUndefined();
+      await clock.adjust(1_000);
+      await Promise.all([hit, observed]);
+      expect(calls).toBe(before + 1);
+      const prompt = kernel.actionById(`${main.occurrenceId}:prompt`);
+      expect(prompt?.kind).toBe("prompt");
+      expect(prompt?.effect.value).toMatchObject({ content: JSON.stringify({ path, event: "create" }) });
+      expect(cadence().map((row) => [row.occurrenceId, row.fireAt])).toEqual([[empty.occurrenceId, tick + 1_000]]);
+      expect(cadenceChain()?.armCount).toBe(1);
+      expect(cadenceChain()?.settled.size).toBe(0);
+      expect(kernel.actionById(`${empty.occurrenceId}:exhausted`)).toBeUndefined();
+    };
+    await reconcile(1_000, "created while the native stream drops the event");
+    expect(chain()?.delivered).toBe(1);
 
-    const main = kernel.armedAlarms().find((row) => row.alarmId === watchId);
-    const next = cadence()[0];
-    if (main === undefined || next === undefined) throw new Error("missing live watch arms");
-    const hit = committed(`${main.occurrenceId}:delivered`);
-    const tick = committed(`${next.occurrenceId}:exhausted`);
-    const observed = nextResidentTurn(plane);
-    writeFileSync(path, "created while the native stream drops the event");
-    expect(kernel.actionById(`${main.occurrenceId}:prompt`)).toBeUndefined();
-    await clock.adjust(1_000);
-    await Promise.all([hit, tick, observed]);
-    const prompt = kernel.actionById(`${main.occurrenceId}:prompt`);
-    expect(prompt?.kind).toBe("prompt");
-    expect(prompt?.effect.value).toMatchObject({ content: JSON.stringify({ path, event: "create" }) });
-    expect(cadence()).toHaveLength(1);
-
-    // A late native replay and another empty tick cannot duplicate the hit.
+    // The native stream sees the file go (nothing fires on a gap) and then
+    // drops the second create too; the next tick reconciles that one.
+    rmSync(path);
     native?.("rename", "target");
-    const replay = cadence()[0];
-    if (replay === undefined) throw new Error("missing rearmed cadence");
-    const replayTick = committed(`${replay.occurrenceId}:exhausted`);
-    await clock.adjust(1_000);
-    await replayTick;
-    expect(foldAlarmChains(kernel, sessionId).get(watchId ?? "")?.delivered).toBe(1);
+    expect(chain()?.delivered).toBe(1);
+    await reconcile(2_000, "created again while the native stream drops the event");
+    expect(chain()?.delivered).toBe(2);
+
+    // A late native replay cannot duplicate the hit.
+    native?.("rename", "target");
+    expect(chain()?.delivered).toBe(2);
 
     const retired = eventSignal<void>("cadence retired", 10_000);
     suite.defer(Bus.subscribe(L0Observation.ActionCommittedEvent, (event) => {
@@ -132,6 +141,10 @@ test("the app reconciles a lost create on TestClock cadence and retires it on mo
     expect(cadence()).toHaveLength(0);
     expect(kernel.armedCount()).toBe(0);
     expect(closed).toBe(1);
+    // The whole cadence chain: the install arm and the retire arm, nothing fired.
+    expect(cadenceChain()?.armCount).toBe(2);
+    expect(cadenceChain()?.settled.size).toBe(0);
+    expect(chain()?.delivered).toBe(2);
   } finally {
     await suite.cleanup();
     await clock.dispose();

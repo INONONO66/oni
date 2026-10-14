@@ -34,6 +34,8 @@ interface AlarmOccurrence {
   readonly sourceKey: string;
   readonly payload: string;
   readonly fireAt: number;
+  /** The moved time of a quiet re-send; absent on a committed occurrence. */
+  readonly tick?: number;
 }
 
 const WatchCadencePayload = z.object({ watchId: z.string().min(1) }).strict();
@@ -91,9 +93,14 @@ export function createWatchPlane(
         if (latest?.occurrenceId !== fired.occurrenceId || latest.at === null)
           return "exhausted" as const;
         const observed = yield* Effect.sync(() => sources?.observe(ctx.sessionId, payload.watchId) ?? false);
+        // Reconcile only queues native hits; their monitor.hit occurrence owns
+        // delivery and drain. A cadence tick itself never delivers a prompt:
+        // while the source is live the tick is quiet (the core moves the
+        // same occurrence forward, no rows); a gone source retires the chain.
+        if (observed) return { outcome: "quiet" as const, at: ctx.now + WATCH_CADENCE_MS };
         yield* ctx.arm({
           purpose: "watch",
-          at: observed ? ctx.now + WATCH_CADENCE_MS : null,
+          at: null,
           alarmId: fired.alarmId,
           supersedes: fired.occurrenceId,
           sourceKey: fired.sourceKey,
@@ -101,8 +108,6 @@ export function createWatchPlane(
         }).pipe(Effect.mapError((refused) =>
           new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.code }),
         ));
-        // Reconcile only queues native hits; their monitor.hit occurrence owns
-        // delivery and drain. A cadence tick itself never delivers a prompt.
         return "exhausted" as const;
       }),
   };

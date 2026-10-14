@@ -5,21 +5,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
 import { firedAction, type AlarmCapability } from "../src/core/ports/alarm";
-import { openCatalogStore } from "../src/core/store/catalog";
 import { RETIRED_INGRESS_KIND, RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "./store/helpers/old-catalog";
-import { CatalogVersionRefused, type LedgerError } from "../src/core/store/errors";
-import type * as SessionHandleStore from "../src/core/store/fence";
+import { openCatalogStore } from "../src/core/store/catalog";
+import { CatalogVersionRefused } from "../src/core/store/errors";
 import {
   armedOccurrence,
   crashingCapability,
-  firedRows as firedRowsOf,
   noteArm as arm,
   noteCapability,
   resendSignal,
+  sessionFixture,
 } from "./helpers/alarm-recovery";
 import { clusterTempDir, readChain, runCluster, sendAlarm, sendKick, sendRescan, sessionFileFor } from "./helpers/cluster-runtime";
 import { runAgent } from "./helpers/executor";
-import { fencedSession, withSessionHandles } from "./helpers/seeded-session";
 
 // Scheduling that survives a crash. The arm row's commit maintains
 // the session file's `armed_alarms` index in the SAME transaction; the catalog
@@ -36,48 +34,7 @@ afterAll(() => {
 
 const PAST_FIRE_AT = 1_000;
 
-/** Post-run assertions over fresh read handles (no materialize, no fence). */
-async function readSession(
-  sessionId: string,
-  use: (input: {
-    readonly catalog: ReturnType<typeof openCatalogStore>;
-    readonly kernel: SessionHandleStore.SessionKernel;
-  }) => Promise<void> | void,
-): Promise<void> {
-  await withSessionHandles(home, sessionId, ({ catalog, kernel }) => use({ catalog, kernel }));
-}
-
-/** Materialize + index one session, run `use` inside a short-lived fenced handle pair. */
-async function withSession(
-  sessionId: string,
-  use: (input: {
-    readonly catalog: ReturnType<typeof openCatalogStore>;
-    readonly kernel: SessionHandleStore.SessionKernel;
-    readonly commit: (
-      actions: readonly ReturnType<typeof firedAction>[],
-    ) => Promise<
-      Result.Result<Effect.Success<ReturnType<SessionHandleStore.SessionKernel["commit"]>>, LedgerError>
-    >;
-  }) => Promise<void>,
-): Promise<void> {
-  await runAgent(
-    Effect.scoped(
-      fencedSession(home, sessionId, { owner: "arm-writer", fence: 1, commitNow: () => 2 }).pipe(
-        Effect.flatMap((seeded) =>
-          Effect.promise(() =>
-            use({
-              catalog: seeded.catalog,
-              kernel: seeded.kernel,
-              commit: (actions) => runAgent(Effect.result(seeded.commit([...actions]))),
-            }),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-const firedRows = (sessionId: string, occurrenceId: string) => firedRowsOf(home, sessionId, occurrenceId);
+const { readSession, withSession, firedRows } = sessionFixture(home);
 
 /** Post-run census: no armed rows remain in the session file and the catalog index agrees. */
 const expectNothingArmed = (sessionId: string) =>

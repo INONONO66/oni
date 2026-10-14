@@ -104,7 +104,7 @@ export interface TestClusterOptions {
    */
   readonly onAlarmResend?: (
     sessionId: string,
-    occurrence: { readonly occurrenceId: string; readonly purpose: string },
+    occurrence: { readonly occurrenceId: string; readonly purpose: string; readonly tick?: number },
     receipt: { readonly outcome: "delivered" | "stale" },
   ) => void;
   /**
@@ -830,6 +830,8 @@ export const sendAlarm = (
     readonly sourceKey: string;
     readonly payload: string;
     readonly fireAt: number;
+    /** #1477: a quiet re-send's moved time (widens the cluster key). */
+    readonly tick?: number;
   },
 ) =>
   Effect.gen(function* () {

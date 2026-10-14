@@ -678,6 +678,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         readonly sourceKey: string;
         readonly payload: string;
         readonly fireAt: number;
+        readonly tick?: number;
       },
     ) => entityClient(sessionId).Alarm(occurrence).pipe(Effect.asVoid);
     // Scheduled occurrences persist without awaiting the reply: a DeliverAt
