@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Context, Deferred, Effect, Fiber } from "effect";
 import { z } from "zod";
 import type { PlainValue } from "@openomni/protocol";
-import { Capability, defineBundle, Manifest, type BundleTool, type SeamTag } from "../src/core/ports/capability";
+import { Capability, defineBundle, Manifest, type BundleTool, type PortTag } from "../src/core/ports/capability";
 import { compose } from "../src/core/composition/compose";
 import { composedManifest, type ComposedManifest, type SessionRunnerInput } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
@@ -20,7 +20,7 @@ import { allowConfigure, isolatedRuntime, withSessionServices, type SessionFixtu
 
 class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/rotation/A") {}
 
-const alpha = Capability.define({ name: "alpha", requires: [], verbs: {}, seam: SeamA as SeamTag });
+const alpha = Capability.define({ name: "alpha", requires: [], verbs: {}, port: SeamA as PortTag });
 
 const echoTool: BundleTool = {
   name: "echo",

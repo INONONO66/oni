@@ -20,9 +20,10 @@ test("cleanup removes database sidecars and tolerates already absent files", () 
   const path = join(directory, "fixture.db");
   for (const suffix of ["", "-wal", "-shm"]) writeFileSync(`${path}${suffix}`, "fixture");
   try {
-    removeSqliteFiles(path);
-    for (const suffix of ["", "-wal", "-shm"]) expect(existsSync(`${path}${suffix}`)).toBe(false);
-    expect(removeSqliteFiles(path)).toBeUndefined();
+    for (let call = 0; call < 2; call += 1) {
+      removeSqliteFiles(path);
+      for (const suffix of ["", "-wal", "-shm"]) expect(existsSync(`${path}${suffix}`)).toBe(false);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

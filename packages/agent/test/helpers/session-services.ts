@@ -10,7 +10,7 @@ import { makeSessionGenerations, type GenerationBundle } from "../../src/core/se
 import type { SessionRuntime } from "../../src/core/session/run";
 import { Entropy, GenerationLayers, ObservationSink, type SessionEntryServices } from "../../src/core/ports/ports";
 import { isolatedLedger } from "./isolated";
-import { fixtureCompactionSeam } from "./fixture-compaction";
+import { fixtureCompactionPort } from "./fixture-compaction";
 import { observationService } from "./service-layers";
 import { entropySource, fixedClock } from "./time";
 import type { SessionRunnerResult } from "../../src/core/session/run";
@@ -82,7 +82,7 @@ export const boundedBy2s = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.p
 export function kernelRuntime(kernel: () => SessionKernel): Pick<SessionRuntime, "openKernel" | "listSessions" | "settleChild" | "compaction" | "approvalPolicy"> {
   // Child settlements are composition-injected; fixtures ride a seam stub.
   // The compaction seam and the approval policy ride stubs too.
-  return { openKernel: () => kernel(), listSessions: () => kernel().listRows(), settleChild: fixtureSettleChild, compaction: fixtureCompactionSeam, approvalPolicy: TEST_APPROVAL_POLICY };
+  return { openKernel: () => kernel(), listSessions: () => kernel().listRows(), settleChild: fixtureSettleChild, compaction: fixtureCompactionPort, approvalPolicy: TEST_APPROVAL_POLICY };
 }
 
 const fixtures = new WeakMap<Scope.Scope, WeakMap<SessionFixture, Context.Context<SessionEntryServices>>>();

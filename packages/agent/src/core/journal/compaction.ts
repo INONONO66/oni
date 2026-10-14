@@ -1,7 +1,7 @@
 import { canonicalDigest, PlainValueSchema, SessionTurn, FoldCheckpoint, type LedgerAction, type LedgerSession } from "@openomni/protocol";
 import { Effect } from "effect";
 import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../../inspect/history";
-import type { CompactionSeamService } from "../ports/compaction-ports";
+import type { CompactionPortService } from "../ports/compaction-ports";
 import { AgentInvariantViolation } from "../ports/failure";
 import type { SessionKernel } from "../session/entity";
 import { actionPayloadBytes } from "../store/action-hash";
@@ -16,8 +16,8 @@ function requireNoCompactionPin(action: LedgerAction.Append): LedgerAction.Appen
 }
 
 /** Pins through the composed port, or fails closed on an unpinnable compaction append. */
-function pinThroughSeam(
-  compaction: Pick<CompactionSeamService, "pinAction"> | undefined,
+function pinThroughPort(
+  compaction: Pick<CompactionPortService, "pinAction"> | undefined,
   kernel: SessionKernel,
   action: LedgerAction.Append,
   state: FoldCheckpoint.State,
@@ -52,7 +52,7 @@ export function commitFoldBatch(
   // The composed compaction port decorates compaction appends with
   // their successor proof. Absent port + compaction append = typed defect —
   // the kernel never pins without the capability, and never commits unpinned.
-  compaction?: Pick<CompactionSeamService, "pinAction">,
+  compaction?: Pick<CompactionPortService, "pinAction">,
 ): Effect.Effect<CommitReceipt, LedgerError> {
   return Effect.gen(function* () {
     const { everyActions, maxTailBytes } = checkpointPolicy(kernel, input.sessionId);
@@ -109,7 +109,7 @@ type FoldPlan = {
  */
 function planFoldBatch(
   kernel: SessionKernel,
-  compaction: Pick<CompactionSeamService, "pinAction"> | undefined,
+  compaction: Pick<CompactionPortService, "pinAction"> | undefined,
   input: LedgerSession.Commit,
   seed: { readonly state: FoldCheckpoint.State; readonly count: number; readonly bytes: number },
   policy: { readonly everyActions: number; readonly maxTailBytes: number },
@@ -132,7 +132,7 @@ function planFoldBatch(
   for (const draft of input.actions) {
     const sourceRevision = input.expectedRevision + actions.length;
     const contextPinned = pinContext(draft, state, sourceRevision);
-    const action = pinThroughSeam(compaction, kernel, contextPinned, state, sourceRevision);
+    const action = pinThroughPort(compaction, kernel, contextPinned, state, sourceRevision);
     actions.push(action);
     const ordinal = input.expectedRevision + actions.length;
     state = foldHistoryState(

@@ -4,7 +4,7 @@ import { Context, Effect } from "effect";
 import { z } from "zod";
 import { Delivery, Journal, type PlainValue } from "@openomni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
-import { Capability, Manifest, type SeamTag } from "../src/core/ports/capability";
+import { Capability, Manifest, type PortTag } from "../src/core/ports/capability";
 import { runTestPromise } from "./helpers/isolated";
 import { compose } from "../src/core/composition/compose";
 import { decideSessionAdmission } from "../src/core/session/admission";
@@ -25,7 +25,7 @@ import {
  * rejects that kind as input with the existing `unknown_kind` refusal.
  */
 
-class ActionSeam extends Context.Service<ActionSeam, object>()("@openomni/agent/test/off-rows/action") {}
+class ActionPort extends Context.Service<ActionPort, object>()("@openomni/agent/test/off-rows/action") {}
 
 const actionCapability = Capability.define({
   name: "action",
@@ -39,7 +39,7 @@ const actionCapability = Capability.define({
   },
   inputs: ["action"],
   verbs: {},
-  seam: ActionSeam as SeamTag,
+  port: ActionPort as PortTag,
 });
 
 const onManifest = Manifest.define({ capabilities: [actionCapability], bundles: [], off: [] });

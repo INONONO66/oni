@@ -3,12 +3,12 @@ import { Effect, Layer } from "effect";
 import type { ChatAgentConfig, ObservedChatAgentConfig } from "../../src/core/ports/types";
 import type { createSessionChatRunner } from "../../src/core/session/run";
 import { ObservationSink } from "../../src/core/ports/ports";
-import { fixtureCompactionSeam } from "./fixture-compaction";
+import { fixtureCompactionPort } from "./fixture-compaction";
 import { observationService } from "./service-layers";
 import { TEST_BUDGET } from "./approval-policy";
 import { fakeLlm } from "./fake-llm";
 
-export { fixtureCompactionSeam } from "./fixture-compaction";
+export { fixtureCompactionPort } from "./fixture-compaction";
 
 /**
  * Fixture stop evidence: the port is required on `ChatAgentConfig`,
@@ -64,7 +64,7 @@ export function prepareChatFixture(
   },
 ): Prepared {
   const { events: _events, llm: _llm, ...rest } = prepared.config;
-  const seamed = "compactionSeam" in rest ? rest : { ...rest, compactionSeam: fixtureCompactionSeam };
+  const seamed = "compactionPort" in rest ? rest : { ...rest, compactionPort: fixtureCompactionPort };
   // The budget defaults are composition-owned; fixtures state them.
   const config = { stopEvidence: fixtureStopEvidence, defaultBudget: TEST_BUDGET, ...seamed };
   return {

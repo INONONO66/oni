@@ -1,9 +1,9 @@
 import {
   Capability,
-  CompactionSeam,
+  CompactionPort,
   type CapabilityDefinition,
-  type CompactionSeamService,
-  type SeamTag,
+  type CompactionPortService,
+  type PortTag,
 } from "../../core/api";
 import { bindCompactionRun } from "./policy";
 import { prepareCompactionRestore } from "./restore";
@@ -14,12 +14,12 @@ export { CompactionSession } from "./speculate";
 export type { CompactionHistoryPorts } from "./successor";
 
 /** The two run-free operations plus the binding that yields a run's `maybeCompact`/`window`. */
-export function compactionSeamService(history: CompactionHistoryPorts): CompactionSeamService {
+export function compactionPortService(history: CompactionHistoryPorts): CompactionPortService {
   const ports = { pinAction: createCompactionPin(history), prepareRestore: prepareCompactionRestore };
   return Object.freeze({
     ...ports,
     bind: (binding) => bindCompactionRun(binding, ports),
-  } satisfies CompactionSeamService);
+  } satisfies CompactionPortService);
 }
 
 /**
@@ -28,11 +28,11 @@ export function compactionSeamService(history: CompactionHistoryPorts): Compacti
  */
 export function compactionCapability(
   history: CompactionHistoryPorts,
-): CapabilityDefinition<"compaction", SeamTag, CompactionSeamService> {
+): CapabilityDefinition<"compaction", PortTag, CompactionPortService> {
   return Capability.define({
     name: "compaction",
     requires: [],
-    verbs: compactionSeamService(history),
-    seam: CompactionSeam,
+    verbs: compactionPortService(history),
+    port: CompactionPort,
   });
 }

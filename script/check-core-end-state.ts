@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, normalize } from "node:path";
+import { join } from "node:path";
 import ts from "typescript";
 import { z } from "zod";
 import { commandOutput } from "./command-output";
@@ -10,55 +10,29 @@ import { runScriptMain } from "./main-runner";
 const ROOT = join(import.meta.dir, "..");
 const SRC = "packages/agent/src/";
 const CORE = `${SRC}core/`;
-const RETIRED = /\b(?:ModelPort|model-port|retry-loop|seam|worker)\b|@openomni\/model\b|core\/mailbox\b|legacy-rows\b/g;
-const QUOTED_IDENTIFIERS = new RegExp(`(["'\`])(?:${TARGET.vocabularyExclusions.quotedIdentifiers.join("|")})\\1`, "g");
+const RETIRED = /ModelPort|model-port|@openomni\/model|retry-loop|seam|core\/mailbox|legacy-rows|\bworker\b/gi;
+type VocabularyPin = { readonly file: string; readonly token: string; readonly count: number; readonly owner: string };
+type VocabularyExclusions = {
+  readonly quotedIdentifiers: readonly string[];
+  readonly quotedLiterals: readonly VocabularyPin[];
+};
 
-function capabilityFactoryReferences(file: string, parsed: ts.SourceFile): ReadonlySet<ts.Node> {
-  const factory = TARGET.vocabularyExclusions.capabilityFactory;
-  const allowed = new Set<ts.Node>();
-  const bindings = new Set<string>();
-  for (const statement of parsed.statements) {
-    if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) ||
-      !statement.moduleSpecifier || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
-    const target = normalize(join(dirname(file), statement.moduleSpecifier.text)).replace(/\.(?:js|ts)$/, "");
-    if (![factory.owner, ...factory.barrels].some((path) => path.slice(0, -3) === target)) continue;
-    const clause = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : statement.exportClause;
-    if (!clause || (!ts.isNamedImports(clause) && !ts.isNamedExports(clause))) continue;
-    for (const entry of clause.elements.filter((item) => (item.propertyName ?? item.name).text === factory.name)) {
-      allowed.add(entry.propertyName ?? entry.name);
-      allowed.add(entry.name);
-      if (ts.isImportSpecifier(entry)) bindings.add(entry.name.text);
-    }
-  }
-  const visit = (node: ts.Node): void => {
-    if (isCapabilityKey(node)) allowed.add(node);
-    if (ts.isFunctionDeclaration(node) && file === factory.owner && node.name?.text === factory.name) allowed.add(node.name);
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && bindings.has(node.expression.text)) allowed.add(node.expression);
-    ts.forEachChild(node, visit);
-  };
-  visit(parsed);
-  return allowed;
-}
-
-function isCapabilityKey(node: ts.Node): boolean {
-  if (!ts.isIdentifier(node) && !ts.isStringLiteralLike(node)) return false;
-  if (!(TARGET.vocabularyExclusions.recordKeys as readonly string[]).includes(node.text)) return false;
-  const parent = node.parent;
-  if (ts.isElementAccessExpression(parent) && ts.isStringLiteralLike(node)) return parent.argumentExpression === node;
-  return (ts.isPropertyAccessExpression(parent) || ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) && parent.name === node;
-}
-
-export function agentSourceFacts(file: string, source: string) {
+export function agentSourceFacts(file: string, source: string, exclusions: VocabularyExclusions = TARGET.vocabularyExclusions) {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
-  const quoted = [...source.matchAll(QUOTED_IDENTIFIERS)].map((match) => [match.index, match.index + match[0].length] as const);
-  const references = [...capabilityFactoryReferences(file, parsed)].map((node) => [node.getStart(parsed), node.end] as const);
+  const quotedPattern = new RegExp(`(["'\`])(?:${exclusions.quotedIdentifiers.join("|")})\\1`, "g");
+  const quoted: (readonly [number, number])[] = [...source.matchAll(quotedPattern)].map((match) => [match.index, match.index + match[0].length] as const);
+  const pinViolations: string[] = [];
+  for (const pin of exclusions.quotedLiterals.filter((entry) => entry.file === file)) {
+    const ranges = [...source.matchAll(new RegExp(pin.token, "g"))].map((match) => [match.index, match.index + match[0].length] as const);
+    if (ranges.length !== pin.count) pinViolations.push(`VIOLATION: ${file} vocabulary pin ${pin.token} ${pin.count} != actual ${ranges.length}: lower retired pins, never grow`);
+    quoted.push(...ranges);
+  }
   const retired = [...source.matchAll(RETIRED)].filter((match) =>
-    ![...quoted, ...references].some(([start, end]) => match.index >= start && match.index < end) &&
-    !(file === `${CORE}store/catalog.ts` && match[0] === TARGET.vocabularyExclusions.catalogRoleLiteral &&
-      source.slice(match.index - 1, match.index + 7) === "'worker'"),
+    !quoted.some(([start, end]) => match.index >= start && match.index < end),
   );
   const facts = {
     retiredTokens: retired.length,
+    pinViolations,
     forbiddenPatterns: 0,
     alarmFolds: 0,
     alarmComposers: 0,
@@ -86,10 +60,24 @@ export function agentSourceFacts(file: string, source: string) {
 function forbiddenSourceNode(node: ts.Node, file: string): number {
   if (ts.isStringLiteralLike(node) && isModuleSpecifier(node)) {
     return Number(/^(?:ai(?:\/|$)|@ai-sdk\/)/.test(node.text)) +
-      Number(file.startsWith(CORE) && /(?:\.\.\/model(?:\/|$)|plugins\/|^node:child_process$)/.test(node.text));
+      Number(file.startsWith(CORE) && /(?:^\.{1,2}\/(?:.*\/)?model(?:\/|\.|$)|plugins\/|^(?:node:)?child_process$)/.test(node.text));
   }
-  return Number(ts.isPropertyAccessExpression(node) && file.startsWith(CORE) &&
-    ts.isIdentifier(node.expression) && node.expression.text === "Bun" && node.name.text === "spawn");
+  if (!file.startsWith(CORE)) return 0;
+  if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+    ts.isIdentifier(node.expression) && node.expression.text === "Bun") {
+    const name = ts.isPropertyAccessExpression(node) ? node.name.text :
+      ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : "";
+    return Number(name === "spawn" || name === "spawnSync");
+  }
+  if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) &&
+    node.initializer && ts.isIdentifier(node.initializer) && node.initializer.text === "Bun") {
+    return node.name.elements.filter((binding) => {
+      const name = binding.propertyName ?? binding.name;
+      return (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) &&
+        (name.text === "spawn" || name.text === "spawnSync");
+    }).length;
+  }
+  return 0;
 }
 
 function isModuleSpecifier(node: ts.StringLiteralLike): boolean {
@@ -101,15 +89,15 @@ function isModuleSpecifier(node: ts.StringLiteralLike): boolean {
         (ts.isIdentifier(parent.expression) && parent.expression.text === "require")));
 }
 
-async function* agentFiles(root: string) {
+async function* agentFiles(root: string, exclusions: VocabularyExclusions) {
   for (const scope of ["src", "test"] as const) {
     for await (const file of new Bun.Glob(`packages/agent/${scope}/**/*.{ts,tsx}`).scan({ cwd: root, onlyFiles: true })) {
-      yield { scope, file, facts: agentSourceFacts(file, await Bun.file(join(root, file)).text()) };
+      yield { scope, file, facts: agentSourceFacts(file, await Bun.file(join(root, file)).text(), exclusions) };
     }
   }
 }
 
-export async function checkCoreEndState(root = ROOT): Promise<string[]> {
+export async function checkCoreEndState(root = ROOT, exclusions: VocabularyExclusions = TARGET.vocabularyExclusions): Promise<string[]> {
   const totals = {
     retiredTokens: 0, forbiddenPatterns: 0, alarmFolds: 0, alarmComposers: 0,
     coreAlarmComposers: 0, pluginAlarmComposers: 0, emptyThrows: 0,
@@ -117,7 +105,10 @@ export async function checkCoreEndState(root = ROOT): Promise<string[]> {
   };
   const violations: string[] = [];
   const files = { src: 0, test: 0 };
-  for await (const { scope, file, facts } of agentFiles(root)) {
+  const seen = new Set<string>();
+  for await (const { scope, file, facts } of agentFiles(root, exclusions)) {
+    seen.add(file);
+    violations.push(...facts.pinViolations);
     files[scope] += 1;
     const lineLimit = scope === "src" ? TARGET.sourceLineLimit : TARGET.testLineLimit;
     if (facts.lines > lineLimit) {
@@ -131,6 +122,9 @@ export async function checkCoreEndState(root = ROOT): Promise<string[]> {
     const problems = scope === "src" ? facts.retiredTokens + facts.forbiddenPatterns : facts.emptyThrows;
     if (problems > 0) violations.push(`VIOLATION: ${file} has ${problems} forbidden source/assertion matches`);
   }
+  violations.push(...exclusions.quotedLiterals
+    .filter((pin) => !seen.has(pin.file))
+    .map((pin) => `VIOLATION: vocabulary pin owner missing: ${pin.file}`));
   violations.push(...Object.entries(files).filter(([, count]) => count === 0)
     .map(([scope]) => `VIOLATION: empty agent ${scope} census`));
   for (const key of ["retiredTokens", "forbiddenPatterns", "alarmFolds", "alarmComposers", "coreAlarmComposers", "emptyThrows", "longSourceFiles", "longTestFiles"] as const) {
@@ -168,7 +162,7 @@ async function checkClones(scope: "production" | "test"): Promise<string[]> {
   const directory = await mkdtemp(join(tmpdir(), "core-clones-"));
   try {
     const result = await commandOutput([
-      process.execPath, "run", `quality:clones:${scope}`, "--output", directory, "--fail-on-empty", "--silent",
+      process.execPath, "run", `quality:clones:${scope}`, "packages/agent", "--output", directory, "--fail-on-empty", "--silent",
     ], ROOT);
     if (result.exitCode !== 0) return [`VIOLATION: clone scan exited ${result.exitCode}: ${result.stderr}`];
     const pin = scope === "production" ? TARGET.inheritedClones.production.count : TARGET.inheritedClones.test.duplicatedLines;

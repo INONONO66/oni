@@ -22,7 +22,7 @@ export const toolCapability = Bundle.Capability.define({
   points: ["tool.pre", "tool.post"],
   handlers: { "kernel/budget-clamp": {} },
   verbs: {},
-  seam: ToolCapabilitySeam,
+  port: ToolCapabilitySeam,
 });
 
 /**
@@ -31,7 +31,7 @@ export const toolCapability = Bundle.Capability.define({
  * config → manifest → compose → runtime; nothing else enumerates bundles.
  *
  * The action capability comes from the agent `Bundle` namespace (#1304): the
- * plugin owns the `action` kind, input, `action.pre` point and `ActionSeam`;
+ * plugin owns the `action` kind, input, `action.pre` point and `ActionPort`;
  * the manifest only composes it, so `off: ["action"]` still cascades `hook`,
  * `hooks-json` and `delegation-policy` off with `action` as the root.
  *

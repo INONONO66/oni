@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
 import { defineBundle, Manifest } from "../src/core/ports/capability";
 import { compose, ComposeRefused } from "../src/core/composition/compose";
-import { ApprovalPolicySeam } from "../src/core/composition/approval-policy";
+import { ApprovalPolicyPort } from "../src/core/composition/approval-policy";
 import { createApprovalRequest } from "../src/core/journal/request-binding";
 import { resolveAgentBudget } from "../src/core/loop/budget";
 import { decideRequestTransition } from "../src/core/session/request";
@@ -84,7 +84,7 @@ it("a run with no explicit budget resolves to the policy's default budget; an ex
 it("a manifest whose bundles require the approval-policy seam with no provider refuses seam_missing at compose", async () => {
   const manifest = Manifest.define({
     capabilities: [],
-    bundles: [defineBundle({ name: "needs-approval-policy", requires: [ApprovalPolicySeam] })],
+    bundles: [defineBundle({ name: "needs-approval-policy", requires: [ApprovalPolicyPort] })],
   });
   const refused = await runTestPromise(Effect.flip(compose(manifest)));
   expect(refused).toBeInstanceOf(ComposeRefused);

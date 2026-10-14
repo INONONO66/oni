@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import {
-  AlarmSeam,
+  AlarmPort,
   AlarmWakeError,
   ArmRefused,
   Capability,
@@ -9,7 +9,7 @@ import {
   type AlarmPurposeRegistry,
   type ArmVerb,
   type CapabilityDefinition,
-  type SeamTag,
+  type PortTag,
 } from "../../core/api";
 import {
   createWatchVerb,
@@ -118,14 +118,14 @@ export function alarmContract(input: {
   readonly purposes: Readonly<Record<string, AlarmPurposeHandler>>;
   readonly arm: (sessionId: string, turnId: string) => ArmVerb;
   readonly watch: WatchInstallDeps;
-}): CapabilityDefinition<"alarm", SeamTag, AlarmCapabilityDefinition["verbs"], AlarmPurposeHandler> {
+}): CapabilityDefinition<"alarm", PortTag, AlarmCapabilityDefinition["verbs"], AlarmPurposeHandler> {
   return Capability.define({
     name: "alarm",
     requires: [],
     points: ["alarm.fired"],
     purposes: input.purposes,
     verbs: { arm: input.arm, watch: createWatchVerb(input.arm, input.watch) },
-    seam: AlarmSeam,
+    port: AlarmPort,
   });
 }
 

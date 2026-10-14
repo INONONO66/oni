@@ -12,7 +12,7 @@ import type { decideSessionAdmission } from "./admission";
 import type { Generation } from "../composition/compose";
 import { projectTools } from "../loop/tool";
 import { Entropy, ObservationSink as ObservationService, GenerationLayers, type SessionEntryServices, type RunnerServices } from "../ports/ports";
-import type { CompactionSeamService } from "../ports/compaction-ports";
+import type { CompactionPortService } from "../ports/compaction-ports";
 import type { ApprovalPolicy } from "../composition/approval-policy";
 import { CorruptRecord, type LedgerError } from "../store/errors";
 
@@ -111,7 +111,7 @@ export type SessionRunner = (input: SessionRunnerInput) => Effect.Effect<Session
 
 export interface SessionRuntime {
   /** Absent = compaction is off: a compaction append is a defect and a restore refuses typed. */
-  readonly compaction?: CompactionSeamService;
+  readonly compaction?: CompactionPortService;
   /** Dispatches a committed source obligation through gateway admission; `ledger` is the source turn's fenced door. */
   readonly dispatchOutbound?: (input: {
     readonly message: SessionTransition.OutboundMessage;
@@ -300,7 +300,7 @@ export interface SessionEntityPorts {
    * recorded `fired{stale}` fact with zero execution.
    */
   readonly alarmCapability?: import("../ports/alarm").AlarmCapability;
-  /** Test port for keep-alive toggles around a detached turn; real one is `Entity.keepAlive`. */
+  /** Test injection point for keep-alive toggles around a detached turn; real one is `Entity.keepAlive`. */
   readonly onKeepAlive?: (enabled: boolean) => void;
   /** Absent is the typed `seam_missing` refusal at `deliver` — never a core fallback. */
   readonly inputRegistrations?: readonly string[];

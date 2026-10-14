@@ -7,6 +7,7 @@ import {
 } from "../../../script/check-deps";
 import { agentSourceFacts, checkCoreEndState, cloneEndStateViolations } from "../../../script/check-core-end-state";
 import { coreGateFiles } from "../../../script/core-gate.test-helper";
+import { CORE_END_STATE_TARGETS } from "../../../script/core-end-state-targets";
 
 const roots: string[] = [];
 const root = join(import.meta.dir, "../../..");
@@ -114,18 +115,29 @@ test.each(["ModelPort", "model-port", "@openomni/model", "retry-loop", "seam", "
   expect(agentSourceFacts("packages/agent/src/core/ports/types.ts", `// ${token}`).retiredTokens).toBe(1);
 });
 
-test("quoted durable identifiers and longer words are not retired implementation names", () => {
-  const file = "packages/agent/src/core/ports/types.ts";
-  expect(agentSourceFacts(file, 'const x = "seam_missing"; // `compaction_seam_missing`\nconst inboxId = "wire";').retiredTokens).toBe(0);
-  expect(agentSourceFacts(file, 'const seamOwner = "new_seam_missing";').retiredTokens).toBe(0);
-  expect(agentSourceFacts(file, 'const seam = 1;').retiredTokens).toBe(1);
+test.each(["FooSeam", "seams", "ModelPortService", "seam_missing"])("rejects retired substrings in %s", (token) => {
+  expect(agentSourceFacts("packages/agent/src/core/ports/probe.ts", `const ${token} = 1;`).retiredTokens).toBe(1);
 });
 
-test("live capability keys and factory imports do not exempt unrelated seam bindings", () => {
-  const file = "packages/agent/src/core/composition/probe.ts";
-  expect(agentSourceFacts(file, 'import { seam } from "../ports/capability"; const tag = seam("key"); const row = { "seam": tag }; row.seam; row["seam"];').retiredTokens).toBe(0);
-  expect(agentSourceFacts(file, 'import { seam } from "./retired"; seam("key");').retiredTokens).toBe(2);
-  expect(agentSourceFacts(file, 'const seam = 1; const row = { seam: seam };').retiredTokens).toBe(2);
+test.each([...CORE_END_STATE_TARGETS.vocabularyExclusions.quotedIdentifiers])("only the live exclusion permits quoted %s", (token) => {
+  const file = "packages/agent/src/core/ports/types.ts";
+  const source = `const rejection = "${token}";`;
+  expect(agentSourceFacts(file, source).retiredTokens).toBe(0);
+  expect(agentSourceFacts(file, source, {
+    ...CORE_END_STATE_TARGETS.vocabularyExclusions,
+    quotedIdentifiers: CORE_END_STATE_TARGETS.vocabularyExclusions.quotedIdentifiers.filter((entry) => entry !== token),
+  }).retiredTokens).toBe(1);
+});
+
+test.each([...CORE_END_STATE_TARGETS.vocabularyExclusions.quotedLiterals])("quoted literal pin is required for $file $token", (pin) => {
+  const source = `${pin.token};\n`.repeat(pin.count);
+  const rules = { ...CORE_END_STATE_TARGETS.vocabularyExclusions, quotedLiterals: [pin] };
+  expect(agentSourceFacts(pin.file, source, rules).retiredTokens).toBe(0);
+  expect(agentSourceFacts(pin.file, source, rules).pinViolations).toEqual([]);
+  expect(agentSourceFacts(pin.file, source, { ...rules, quotedLiterals: [] }).retiredTokens).toBe(pin.count);
+  expect(agentSourceFacts(pin.file, "", rules).pinViolations).toHaveLength(1);
+  expect(agentSourceFacts(pin.file, `${source}${pin.token};`, rules).pinViolations).toHaveLength(1);
+  expect(agentSourceFacts(`${pin.file}.moved.ts`, source, rules).retiredTokens).toBe(pin.count);
 });
 
 test("source scans distinguish imports, definitions and assertions from comments", () => {
@@ -136,6 +148,89 @@ test("source scans distinguish imports, definitions and assertions from comments
   expect(facts.pluginAlarmComposers).toBe(0);
   expect(agentSourceFacts(file, '// Bun.spawn([]); function composeAlarmPurposes() {}').forbiddenPatterns).toBe(0);
   expect(agentSourceFacts("test.ts", 'expect(fn).toThrow(); expect(fn).toThrow("typed"); // .toThrow()').emptyThrows).toBe(1);
+});
+
+test.each([
+  "Bun.spawnSync([]);",
+  "Bun['spawn']([]);",
+  'Bun["spawnSync"]([]);',
+  "const { spawn } = Bun;",
+  "const { spawnSync: run } = Bun;",
+  'import { spawn } from "child_process";',
+  'import { spawn } from "node:child_process";',
+  'import { model } from "../model.js";',
+  'import { model } from "../../../model/index.js";',
+  'import { model } from "./model/provider";',
+])("rejects forbidden process or model form: %s", (source) => {
+  expect(agentSourceFacts("packages/agent/src/core/ports/probe.ts", source).forbiddenPatterns).toBe(1);
+});
+
+function sourceFixture(overrides: Readonly<Record<string, string>> = {}): string {
+  return fixture({
+    "packages/agent/src/core/session/alarm-read.ts": "export function foldAlarmChains() {}",
+    "packages/agent/src/plugins/alarm/index.ts": "export function composeAlarmPurposes() {}",
+    "packages/agent/test/probe.test.ts": "export {};",
+    ...overrides,
+  });
+}
+
+function checkSourceFixture(directory: string) {
+  return checkCoreEndState(directory, { ...CORE_END_STATE_TARGETS.vocabularyExclusions, quotedLiterals: [] });
+}
+
+test.each(["src", "test"])("rejects an empty %s source census", async (scope) => {
+  const directory = sourceFixture();
+  rmSync(join(directory, `packages/agent/${scope}`), { recursive: true });
+  expect((await checkSourceFixture(directory)).join("\n")).toContain(`empty agent ${scope} census`);
+});
+
+test.each([
+  ["src/core/ports/oversized.ts", 601, "longSourceFiles"],
+  ["test/oversized.test.ts", 1001, "longTestFiles"],
+])("rejects over-limit file %s", async (file, lines, metric) => {
+  const directory = sourceFixture({ [`packages/agent/${file}`]: "\n".repeat(Number(lines)) });
+  expect((await checkSourceFixture(directory)).join("\n")).toContain(`${metric} 1 != terminal 0`);
+});
+
+test.each([
+  ["packages/agent/src/core/session/alarm-read.ts", "", "alarmFolds 0 != terminal 1"],
+  ["packages/agent/src/core/session/duplicate.ts", "function foldAlarmChain() {}", "alarmFolds 2 != terminal 1"],
+  ["packages/agent/src/plugins/alarm/index.ts", "", "alarmComposers 0 != terminal 1"],
+  ["packages/agent/src/core/ports/composer.ts", "function composeAlarmPurposes() {}", "coreAlarmComposers 1 != terminal 0"],
+])("rejects alarm definition drift in %s", async (file, source, diagnostic) => {
+  expect((await checkSourceFixture(sourceFixture({ [file]: source }))).join("\n")).toContain(diagnostic);
+});
+
+test.each([
+  ["src/core/ports/probe.ts", "const ModelPortService = 1;", "retiredTokens"],
+  ["src/core/ports/probe.ts", "Bun.spawnSync([]);", "forbiddenPatterns"],
+  ["test/probe.test.ts", "expect(fn).toThrow();", "emptyThrows"],
+])("aggregates forbidden source or assertion evidence from %s", async (file, source, metric) => {
+  const directory = sourceFixture({ [`packages/agent/${file}`]: source });
+  expect((await checkSourceFixture(directory)).join("\n")).toContain(`${metric} 1 != terminal 0`);
+});
+
+test("rejects a composer moved outside its plugin despite an unchanged total", async () => {
+  const directory = sourceFixture({
+    "packages/agent/src/plugins/alarm/index.ts": "",
+    "packages/agent/src/testing/composer.ts": "function composeAlarmPurposes() {}",
+  });
+  expect(await checkSourceFixture(directory)).toContain("VIOLATION: composeAlarmPurposes must have exactly one plugin/alarm owner");
+});
+
+test("accepts exact line boundaries and a complete synthetic census", async () => {
+  const directory = sourceFixture({
+    "packages/agent/src/core/ports/boundary.ts": "\n".repeat(600),
+    "packages/agent/test/boundary.test.ts": "\n".repeat(1000),
+  });
+  expect(await checkSourceFixture(directory)).toEqual([]);
+});
+
+test("a missing durable literal owner leaves a stale pin", async () => {
+  const directory = sourceFixture();
+  const pin = { file: "packages/agent/src/core/ports/missing.ts", token: "'worker'", count: 1, owner: "fixture" };
+  expect(await checkCoreEndState(directory, { quotedIdentifiers: [], quotedLiterals: [pin] }))
+    .toContain(`VIOLATION: vocabulary pin owner missing: ${pin.file}`);
 });
 
 test("clone thresholds use raw counts and refuse absent census data", () => {

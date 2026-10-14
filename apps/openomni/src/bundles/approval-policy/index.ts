@@ -3,7 +3,7 @@ import { Bundle, Core } from "@openomni/agent";
 /**
  * The `approval-policy` bundle (#1309): the executable product decisions the
  * core used to hard-code, owned here as plain data behind the core's
- * `ApprovalPolicySeam` — who answers an approval, how many approvals a
+ * `ApprovalPolicyPort` — who answers an approval, how many approvals a
  * session may hold open per window, how long an approval stays open when
  * nothing names an expiry, and the default run budget. Composition threads
  * `APPROVAL_POLICY` into the session runtime and the executor; the core has
@@ -32,6 +32,6 @@ export function approvalPolicyBundle(): Bundle.BundleContract<"approval-policy">
   return Bundle.define({
     name: "approval-policy",
     requires: [],
-    provides: [Core.ApprovalPolicySeam],
+    provides: [Core.ApprovalPolicyPort],
   });
 }

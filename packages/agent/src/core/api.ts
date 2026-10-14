@@ -16,8 +16,8 @@ export {
 } from "./ports/alarm";
 // A plugin consumes `Capability.define` alone; `Bundle.define` / `Manifest.define`
 // are product-side, surfaced by the root `Bundle` barrel.
-export { Capability, seam, type CapabilityDefinition, type SeamTag } from "./ports/capability";
-export { AlarmSeam } from "./ports/alarm";
+export { Capability, port, type CapabilityDefinition, type PortTag } from "./ports/capability";
+export { AlarmPort } from "./ports/alarm";
 // Consulted-gate port: what a hook-style capability needs to register an
 // asynchronous gate consultant without touching core internals.
 export type { ConsultantSeed } from "./composition/compose";
@@ -42,10 +42,10 @@ export {
 } from "./loop/tool";
 // Compaction port: the four operations the core consumes and the binding that yields them.
 export {
-  CompactionSeam,
-  type CompactionOptions, type CompactionOutcome, type CompactionPort, type CompactionReason,
+  CompactionPort,
+  type CompactionOptions, type CompactionOutcome, type CompactionReason,
   type CompactionRestoreInput, type CompactionRestorePlan, type CompactionRunBinding,
-  type CompactionSeamService, type CompactionWindow, type CompactionYield,
+  type CompactionPortService, type CompactionWindow, type CompactionYield,
   type PinCompactionAction, type PrepareCompactionRestore, type SummarizationBudget,
   type ToolOutputElision,
 } from "./ports/compaction-ports";

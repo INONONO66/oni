@@ -110,7 +110,7 @@ export function createResident(options: ResidentOptions) {
       // compose; the loop gets neither options nor seam and skips the paths.
       const compactionOff =
         options.composed?.current().generation.disabled.some((entry) => entry.name === "compaction") === true;
-      const compactionSeam = compactionOff ? undefined : options.sessionRuntime.compaction;
+      const compactionPort = compactionOff ? undefined : options.sessionRuntime.compaction;
       const compaction =
         compactionOff || options.compaction === undefined
           ? undefined
@@ -152,7 +152,7 @@ export function createResident(options: ResidentOptions) {
               ? {}
               : { modelFallbacks: [...options.modelFallbacks] }),
             ...(compaction === undefined ? {} : { compaction }),
-            ...(compactionSeam === undefined ? {} : { compactionSeam }),
+            ...(compactionPort === undefined ? {} : { compactionPort }),
             // #1276: product choice injected into the core seam.
             restoreModelSelection,
             ...chatProviderConfig(options),

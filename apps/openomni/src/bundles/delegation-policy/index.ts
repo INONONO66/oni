@@ -353,7 +353,7 @@ export function delegationPolicyBundle(): Bundle.BundleContract<
     // #1316: the three rows below target `tool.pre`, so the bundle requires
     // the tool capability's seam — `off: ["tool"]` cascades it off instead of
     // rejecting the rows as `unknown_point`.
-    requires: [Bundle.ActionSeam, Bundle.AlarmSeam, ToolCapabilitySeam],
+    requires: [Bundle.ActionPort, Bundle.AlarmPort, ToolCapabilitySeam],
     rows: delegationRows(),
     handlers: {
       "delegation-policy/spawn-depth": spawnDepthGuard(UNBOUND_READS),

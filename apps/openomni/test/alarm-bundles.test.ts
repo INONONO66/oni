@@ -196,7 +196,7 @@ test("monitorBundle declares the sealed tool face, the wake budget row and the w
   expect(monitor.contract).toBe("bundle");
   expect(monitor.name).toBe("monitor");
   expect(monitor.requires.map((seam) => seam.key)).toEqual([
-    Bundle.AlarmSeam.key,
+    Bundle.AlarmPort.key,
     ToolCapabilitySeam.key,
   ]);
   // The 12-tool catalog stays sealed: the bundle declares the same `monitor` face.
@@ -218,7 +218,7 @@ test("cronBundle declares the one cron.tick purpose and nothing else", () => {
   const cron = cronBundle();
   expect(cron.contract).toBe("bundle");
   expect(cron.name).toBe("cron");
-  expect(cron.requires.map((seam) => seam.key)).toEqual([Bundle.AlarmSeam.key]);
+  expect(cron.requires.map((seam) => seam.key)).toEqual([Bundle.AlarmPort.key]);
   expect(cron.tools).toEqual([]);
   expect(cron.rows).toEqual([]);
   expect(Object.keys(cron.purposes)).toEqual([CRON_TICK]);

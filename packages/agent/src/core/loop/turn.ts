@@ -427,7 +427,7 @@ function bindCompaction(
   identity: AgentRunBase,
   executor: Executor,
 ): Effect.Effect<CompactionPort | undefined, never, Scope.Scope> {
-  const compaction = config.compactionSeam;
+  const compaction = config.compactionPort;
   if (compaction === undefined) return Effect.succeed(undefined);
   return compaction.bind({ options: config.compaction, identity, events: config.events, executor, signal: config.signal });
 }

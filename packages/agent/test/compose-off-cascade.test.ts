@@ -8,11 +8,11 @@ import {
   Capability,
   defineBundle,
   Manifest,
-  type SeamTag,
+  type PortTag,
 } from "../src/core/ports/capability";
 import { runTestPromise } from "./helpers/isolated";
 import { compose } from "../src/core/composition/compose";
-import { CompactionSeam } from "../src/core/api";
+import { CompactionPort } from "../src/core/api";
 import { compactionCapability } from "../src/bundle";
 
 class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/off/A") {}
@@ -25,13 +25,13 @@ const kind = {
   reduce: (state: PlainValue) => state,
 };
 
-const capability = (name: string, seam: SeamTag, requires: readonly string[] = []) =>
+const capability = (name: string, port: PortTag, requires: readonly string[] = []) =>
   Capability.define({
     name,
     requires,
     kinds: { [name]: kind },
     verbs: {},
-    seam,
+    port,
   });
 
 function manifest(off: readonly string[]) {
@@ -116,7 +116,7 @@ test("session.configure journals the cascade as disabled {name, because}", async
 test("the real compaction capability off cascades its typed record to seam dependents (#1307)", async () => {
   const definition = Manifest.define({
     capabilities: [compactionCapability()],
-    bundles: [defineBundle({ name: "needs-compaction", requires: [CompactionSeam] })],
+    bundles: [defineBundle({ name: "needs-compaction", requires: [CompactionPort] })],
     off: ["compaction"],
   });
   const generation = await runTestPromise(compose(definition));

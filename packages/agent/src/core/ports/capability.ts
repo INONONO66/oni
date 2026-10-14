@@ -13,19 +13,19 @@ import type { BundleLayerServices } from "./ports";
 
 /**
  * Only capabilities declare journal kinds, points and loop steps; bundles consume capability verbs
- * through seams and never declare kinds.
+ * through ports and never declare kinds.
  */
 
 /**
  * A capability tag is a KEY, deliberately not a `Context.Service`: nothing reads one today and the boundary
  * gate refuses an unread tag. A service class carrying `key` may stand in.
  */
-export interface SeamTag {
+export interface PortTag {
   readonly key: string;
 }
 
 /** `@openomni/<owner>/<Name>` — the key law the boundary gate holds Context tags to. */
-const SEAM_KEY = /^@openomni\/[a-z][a-z0-9-]*\/[A-Za-z][\w/-]*$/;
+const PORT_KEY = /^@openomni\/[a-z][a-z0-9-]*\/[A-Za-z][\w/-]*$/;
 
 /** `capability_declares_tools`: model tools are bundle-owned. */
 export class DefineRefused extends Schema.TaggedError<DefineRefused>(
@@ -87,7 +87,7 @@ interface CapabilityHooks {
 
 export interface CapabilityInput<
   Name extends string = string,
-  Seam extends SeamTag = SeamTag,
+  Port extends PortTag = PortTag,
   Verbs = object,
   Purpose = object,
   Handler = object,
@@ -101,14 +101,14 @@ export interface CapabilityInput<
   readonly purposes?: Readonly<Record<string, Purpose>>;
   readonly handlers?: Readonly<Record<string, Handler>>;
   readonly verbs: Verbs;
-  readonly seam: Seam;
+  readonly port: Port;
   /** Model tools are bundle-owned; declaring them refuses at define time. */
   readonly tools?: never;
 }
 
 export interface CapabilityDefinition<
   Name extends string = string,
-  Seam extends SeamTag = SeamTag,
+  Port extends PortTag = PortTag,
   Verbs = object,
   Purpose = object,
   Handler = object,
@@ -122,7 +122,7 @@ export interface CapabilityDefinition<
   readonly purposes: Readonly<Record<string, Purpose>>;
   readonly handlers: Readonly<Record<string, Handler>>;
   readonly verbs: Verbs;
-  readonly seam: Seam;
+  readonly port: Port;
 }
 
 const NAME_SHAPE = /^[a-z][a-z0-9-]*$/;
@@ -143,32 +143,32 @@ function checkUnique(values: readonly string[], name: string): void {
   }
 }
 
-function checkSeam(tag: SeamTag, name: string): void {
-  if (!SEAM_KEY.test(tag.key)) refuse("namespace", name, tag.key);
+function checkPort(tag: PortTag, name: string): void {
+  if (!PORT_KEY.test(tag.key)) refuse("namespace", name, tag.key);
 }
 
 /** A key outside the `@openomni/<owner>/` law refuses `namespace`. */
-export function seam(key: string): SeamTag {
-  checkSeam({ key }, key);
+export function port(key: string): PortTag {
+  checkPort({ key }, key);
   return Object.freeze({ key });
 }
 
 function defineCapability<
   const Name extends string,
-  Seam extends SeamTag,
+  Port extends PortTag,
   Verbs,
   Purpose = object,
   Handler = object,
 >(
-  input: CapabilityInput<Name, Seam, Verbs, Purpose, Handler>,
-): CapabilityDefinition<Name, Seam, Verbs, Purpose, Handler> {
+  input: CapabilityInput<Name, Port, Verbs, Purpose, Handler>,
+): CapabilityDefinition<Name, Port, Verbs, Purpose, Handler> {
   checkName(input.name);
   if ("tools" in input && input.tools !== undefined)
     refuse("capability_declares_tools", input.name, "model tools are bundle-owned");
   checkUnique(input.requires, input.name);
   checkUnique(input.points ?? [], input.name);
   checkUnique(input.inputs ?? [], input.name);
-  checkSeam(input.seam, input.name);
+  checkPort(input.port, input.name);
   return Object.freeze({
     contract: "capability" as const,
     name: input.name,
@@ -179,7 +179,7 @@ function defineCapability<
     purposes: Object.freeze({ ...(input.purposes ?? {}) }),
     handlers: Object.freeze({ ...(input.handlers ?? {}) }),
     verbs: input.verbs,
-    seam: input.seam,
+    port: input.port,
     ...(input.onInput === undefined ? {} : { onInput: input.onInput }),
     ...(input.onWake === undefined ? {} : { onWake: input.onWake }),
     ...(input.step === undefined ? {} : { step: input.step }),
@@ -201,8 +201,8 @@ export type BundleGateRow = Omit<GateRow, "generation">;
 
 export interface BundleContractInput<Name extends string, Handler, Purpose> {
   readonly name: Name;
-  readonly requires: readonly SeamTag[];
-  readonly provides?: readonly SeamTag[];
+  readonly requires: readonly PortTag[];
+  readonly provides?: readonly PortTag[];
   readonly layer?: BundleLayer;
   readonly tools?: readonly BundleTool[];
   readonly rows?: readonly BundleGateRow[];
@@ -223,8 +223,8 @@ export interface BundleContract<
 > {
   readonly contract: "bundle";
   readonly name: Name;
-  readonly requires: readonly SeamTag[];
-  readonly provides: readonly SeamTag[];
+  readonly requires: readonly PortTag[];
+  readonly provides: readonly PortTag[];
   readonly layer: BundleLayer | undefined;
   readonly tools: readonly BundleTool[];
   readonly rows: readonly BundleGateRow[];
@@ -240,7 +240,7 @@ export function defineBundle<const Name extends string, Handler = object, Purpos
   checkUnique((input.provides ?? []).map((tag) => tag.key), input.name);
   checkUnique((input.tools ?? []).map((tool) => tool.name), input.name);
   checkUnique((input.rows ?? []).map((row) => row.id), input.name);
-  for (const tag of [...input.requires, ...(input.provides ?? [])]) checkSeam(tag, input.name);
+  for (const tag of [...input.requires, ...(input.provides ?? [])]) checkPort(tag, input.name);
   return Object.freeze({
     contract: "bundle" as const,
     name: input.name,

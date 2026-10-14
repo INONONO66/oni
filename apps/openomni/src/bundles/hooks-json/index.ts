@@ -230,7 +230,7 @@ function compileRows(config: HooksJsonInput): readonly Bundle.BundleGateRow[] {
 export function hooksJsonBundle(config: HooksJsonInput = {}): Bundle.BundleContract<"hooks-json"> {
   return Bundle.define({
     name: "hooks-json",
-    requires: [Bundle.HookSeam],
+    requires: [Bundle.HookPort],
     rows: compileRows(config),
     handlers: { [SECRETS_GUARD_REF]: { apply: secretsGuard } },
   });

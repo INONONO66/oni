@@ -13,10 +13,10 @@ import { createController } from "./controller";
 // Harness-built runtimes get the real compaction port by default so tests keep
 // exercising pin + restore; a test that wants it OFF sets `compaction: undefined`
 // explicitly, because defaulting fills only a runtime that never mentions the key.
-const testingCompactionSeam = compactionCapability().verbs;
+const testingCompactionPort = compactionCapability().verbs;
 
 function withTestingCompaction(runtime: SessionRuntime): SessionRuntime {
-  return "compaction" in runtime ? runtime : { ...runtime, compaction: testingCompactionSeam };
+  return "compaction" in runtime ? runtime : { ...runtime, compaction: testingCompactionPort };
 }
 
 const registries = new WeakMap<SessionRuntime, SessionRegistry>();

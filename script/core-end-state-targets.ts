@@ -18,15 +18,11 @@ export const CORE_END_STATE_TARGETS = {
   cycles: 0,
   retiredTokens: 0,
   vocabularyExclusions: {
-    matching: "complete tokens; substrings inside longer identifiers are not retired names",
     quotedIdentifiers: ["seam_missing", "compaction_seam_missing"],
-    recordKeys: ["seam", "inboxId"],
-    capabilityFactory: {
-      name: "seam",
-      owner: "packages/agent/src/core/ports/capability.ts",
-      barrels: ["packages/agent/src/core/api.ts", "packages/agent/src/bundle.ts"],
-    },
-    catalogRoleLiteral: "worker",
+    quotedLiterals: [
+      { file: "packages/agent/src/core/store/catalog.ts", token: "'worker'", count: 8, owner: "durable legacy role migration" },
+      { file: "packages/agent/src/core/composition/compose.ts", token: '"seam"', count: 1, owner: "manifestHash preimage — packages/protocol/src/ledger/l0.ts:310" },
+    ],
   },
   forbiddenPatterns: 0,
   alarmFolds: 1,
@@ -45,7 +41,7 @@ export const CORE_END_STATE_TARGETS = {
   productionClones: 0,
   testClonePercent: 0.5,
   inheritedClones: {
-    production: { count: 11, reason: "#945 repository quality debt: cross-package copies inherited before #1355; closure is outside the agent-core layout change" },
-    test: { duplicatedLines: 1006, reason: "#945 repository test debt: inherited duplicated lines, pinned absolutely so adding unrelated tests cannot dilute the allowance" },
+    production: { count: 0, reason: "packages/agent production census; no inherited production clones" },
+    test: { duplicatedLines: 248, reason: "#945 agent test debt: packages/agent-only duplicated lines, pinned absolutely so unrelated repository changes cannot alter the allowance" },
   },
 } as const;

@@ -1,1 +1,1 @@
-#1355 (epic #1356), `epic1356/1355-end-state-gates`, 2026-10-14, merged base `d6974ebd5`, PR pending: terminal core gates, semantic vocabulary exclusions and stronger isolated tests; rebased measurements and separately authorized inherited app-token/clone pins in `docs/implementation-status.md`.
+#1355 (epic #1356), `epic1356/1355-end-state-gates`, 2026-10-14, merged base `d6974ebd5`, PR #1478: substring/durable-byte accounting, alias-free Port APIs, process/import checks, adversarial aggregate fixtures and agent-only clone pins; r1 receipt in `docs/implementation-status.md`.

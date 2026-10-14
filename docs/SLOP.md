@@ -2,7 +2,7 @@
 
 | Row | Status | Receipt |
 | --- | --- | --- |
-| #1355 core end-state gates | Rebased core targets met; inherited app and clone pins tracked separately | Exact root/schema/band ownership and four inspection pins hold; retired implementation tokens, empty assertions and oversized source/tests are zero. Comment ratio 704bp. Lead-authorized tight inherited pins: one direct app commit, 11 production clones and 1006 duplicated test lines. Closure owners and unchanged terminal clone goals: `docs/implementation-status.md`, #1355. |
+| #1355 core end-state gates | Exact structural gates; no public API aliases | Public contracts and app consumers use Port names. Remaining retired substrings are nine quoted rejection codes, eight quoted migration literals and one durable manifest-hash preimage key; unlisted matches are zero. Comment ratio 704bp. Agent-only clones: 0 production, 248 duplicated test lines (~0.4803%). App token pin remains 1. Exact files and durable exclusions: `docs/implementation-status.md`, #1355. |
 
 #969 cutover, 2026-09-07: request waiting, authenticated consent and outbound delivery now use canonical actions. The new receipt below covers the replacement; historical receipts retain their original source pins. Final HEAD and gate outputs are in the PR and local report.
 

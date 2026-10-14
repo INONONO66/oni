@@ -731,8 +731,8 @@ export function selfTestFailures(checks: SelfTestChecks = defaultChecks): string
   const rows: SelfTestRow[] = [
     [agentSourceFacts("packages/agent/src/core/ports/types.ts", "const ModelPort = 1;").retiredTokens === 1,
       "core end-state scan missed retired vocabulary"],
-    [agentSourceFacts("packages/agent/src/core/ports/types.ts", "const inboxId = 1;").retiredTokens === 0,
-      "core end-state scan rejected the durable wire field"],
+    [agentSourceFacts("packages/agent/src/core/ports/types.ts", 'const code = "seam_missing";').retiredTokens === 0,
+      "core end-state scan rejected a durable quoted identifier"],
     [checks.unmappedNamespaces(["actor", "totally-new-thing"], nouns).join() === "totally-new-thing",
       "vocab-ratchet did not flag an unmapped namespace"],
     [checks.unmappedNamespaces(["wait"], nouns).length === 0,

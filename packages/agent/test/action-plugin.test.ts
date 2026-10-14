@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Manifest } from "../src/core/ports/capability";
 import { compose } from "../src/core/composition/compose";
-import { ActionSeam, actionCapability } from "../src/plugins/action";
+import { ActionPort, actionCapability } from "../src/plugins/action";
 import { hookCapability } from "../src/plugins/hook";
 import { runTestPromise } from "./helpers/isolated";
 
@@ -31,6 +31,6 @@ test("composed on, the plugin owns the action kind, input, point and seam", asyn
   expect(generation.points).toContain("action.pre");
   expect(Object.keys(generation.kinds)).toEqual(["action"]);
   const capability = actionCapability();
-  expect(capability.seam).toBe(ActionSeam);
-  expect(ActionSeam.key).toBe("@openomni/action/Action");
+  expect(capability.port).toBe(ActionPort);
+  expect(ActionPort.key).toBe("@openomni/action/Action");
 });

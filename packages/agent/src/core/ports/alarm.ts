@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { seam } from "./capability";
+import { port } from "./capability";
 import { interruptOn } from "./ports";
 import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
 import type { CommitFailed } from "./failure";
@@ -381,4 +381,4 @@ export function createRetryAlarmPort(deps: RetryAlarmDeps): RetryAlarmPort {
  * The alarm capability's tag: the identity a declaration requiring
  * `"alarm"` resolves against at compose.
  */
-export const AlarmSeam = seam("@openomni/agent/capability/alarm");
+export const AlarmPort = port("@openomni/agent/capability/alarm");

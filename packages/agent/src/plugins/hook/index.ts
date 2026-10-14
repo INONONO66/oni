@@ -1,4 +1,4 @@
-import { Capability, seam, type CapabilityDefinition, type SeamTag } from "../../core/api";
+import { Capability, port, type CapabilityDefinition, type PortTag } from "../../core/api";
 import { hookProcessConsultant } from "./consultant";
 import { acquireHookProcess, HOOK_PROCESS_REF } from "./process";
 
@@ -25,7 +25,7 @@ export {
  */
 
 /** The tag a product bundle's `requires` resolves against at compose. */
-export const HookSeam: SeamTag = seam("@openomni/hook/Hook");
+export const HookPort: PortTag = port("@openomni/hook/Hook");
 
 /** The verbs the hook capability publishes over its port. */
 export interface HookVerbs {
@@ -33,7 +33,7 @@ export interface HookVerbs {
   readonly acquire: typeof acquireHookProcess;
 }
 
-export function hookCapability(): CapabilityDefinition<"hook", SeamTag, HookVerbs> {
+export function hookCapability(): CapabilityDefinition<"hook", PortTag, HookVerbs> {
   return Capability.define({
     name: "hook",
     requires: ["action"],
@@ -41,6 +41,6 @@ export function hookCapability(): CapabilityDefinition<"hook", SeamTag, HookVerb
     // consult the scoped process the composition acquires here.
     handlers: { [HOOK_PROCESS_REF]: { consultant: hookProcessConsultant } },
     verbs: { acquire: acquireHookProcess },
-    seam: HookSeam,
+    port: HookPort,
   });
 }

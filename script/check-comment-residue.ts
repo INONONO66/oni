@@ -212,15 +212,6 @@ export async function checkCommentResidue(
   }
   const actuals = await scanAgentSources(root, pins);
   const totals = aggregateResidue(actuals);
-  if (pins === RESIDUE_PINS) {
-    const issues = totals.entries.reduce((sum, [, residue]) => sum + residue.issueLines, 0);
-    const dividers = totals.entries.reduce((sum, [, residue]) => sum + residue.dividerLines, 0);
-    if (issues !== CORE_END_STATE_TARGETS.issueComments || dividers !== CORE_END_STATE_TARGETS.dividers ||
-      totals.jsdocOverSix !== CORE_END_STATE_TARGETS.longJsdoc ||
-      totals.ratioBasisPoints > CORE_END_STATE_TARGETS.commentRatioBasisPoints) {
-      violations.push("VIOLATION [comment-residue] terminal comment targets exceeded");
-    }
-  }
   for (const [file, residue] of totals.entries) {
     const pinned = pins.files.get(file);
     if (pinned === undefined) {

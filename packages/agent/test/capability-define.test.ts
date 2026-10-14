@@ -7,10 +7,10 @@ import {
   defineBundle,
   DefineRefused,
   Manifest,
-  seam,
+  port,
   type CapabilityInput,
 } from "../src/core/ports/capability";
-import { AlarmSeam } from "../src/core/ports/alarm";
+import { AlarmPort } from "../src/core/ports/alarm";
 
 class TestSeam extends Context.Service<TestSeam, { readonly ping: () => string }>()(
   "@openomni/agent/test/capability/Seam",
@@ -43,7 +43,7 @@ function defineTestCapability(overrides: Partial<CapabilityInput> = {}) {
     purposes: { "probe.hit": () => Effect.void },
     handlers: { "probe/guard": () => Effect.void },
     verbs: { ping: () => "pong" } as object,
-    seam: TestSeam,
+    port: TestSeam,
     ...overrides,
   });
 }
@@ -58,7 +58,7 @@ test("Capability.define freezes the declaration with every owned table", () => {
   expect(defined.points).toEqual(["action.pre"]);
   expect(Object.keys(defined.purposes)).toEqual(["probe.hit"]);
   expect(Object.keys(defined.handlers)).toEqual(["probe/guard"]);
-  expect(defined.seam).toBe(TestSeam);
+  expect(defined.port).toBe(TestSeam);
   expect(Object.isFrozen(defined)).toBe(true);
   expect(Object.isFrozen(defined.points)).toBe(true);
   expect(Object.isFrozen(defined.kinds)).toBe(true);
@@ -70,7 +70,7 @@ test("a capability declaring model tools refuses typed at define time", () => {
       name: "probe",
       requires: [],
       verbs: {},
-      seam: TestSeam,
+      port: TestSeam,
       // @ts-expect-error model tools are bundle-owned
       tools: [toolDefinition("probe__read")],
     }),
@@ -80,7 +80,7 @@ test("a capability declaring model tools refuses typed at define time", () => {
       name: "probe",
       requires: [],
       verbs: {},
-      seam: TestSeam,
+      port: TestSeam,
       // @ts-expect-error model tools are bundle-owned
       tools: [toolDefinition("probe__read")],
     });
@@ -108,18 +108,18 @@ test("malformed names and duplicate declarations refuse typed", () => {
 });
 
 test("a seam key outside the @openomni/<owner>/ law refuses namespace at construction and at define", () => {
-  expect(() => seam("alarm")).toThrow(DefineRefused);
+  expect(() => port("alarm")).toThrow(DefineRefused);
   try {
-    seam("@acme/agent/Seam");
+    port("@acme/agent/Seam");
     throw new Error("unreachable");
   } catch (refusal) {
     expect((refusal as DefineRefused).code).toBe("namespace");
   }
-  const other = seam("@openomni/agent/test/capability/Other");
+  const other = port("@openomni/agent/test/capability/Other");
   expect(Object.isFrozen(other)).toBe(true);
   expect(other.key).toBe("@openomni/agent/test/capability/Other");
   try {
-    defineTestCapability({ seam: { key: "nope" } });
+    defineTestCapability({ port: { key: "nope" } });
     throw new Error("unreachable");
   } catch (refusal) {
     expect((refusal as DefineRefused).code).toBe("namespace");
@@ -135,7 +135,7 @@ test("a seam key outside the @openomni/<owner>/ law refuses namespace at constru
 test("Bundle.define preserves the idempotent tool declaration and freezes the contract", () => {
   const defined = defineBundle({
     name: "monitor",
-    requires: [AlarmSeam],
+    requires: [AlarmPort],
     tools: [{ ...toolDefinition("monitor__watch"), idempotent: true }],
     rows: [
       {

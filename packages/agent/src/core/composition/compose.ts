@@ -119,15 +119,15 @@ function cascadeOff(manifest: ManifestDefinition): ReadonlyMap<string, string> {
     ...manifest.bundles.map((bundle) => bundle.name),
   ]);
   for (const root of manifest.off) if (names.has(root)) disabled.set(root, root);
-  const seamOwner = new Map(
-    manifest.capabilities.map((capability) => [capability.seam.key, capability.name]),
+  const portOwner = new Map(
+    manifest.capabilities.map((capability) => [capability.port.key, capability.name]),
   );
   const provideOwner = new Map(
     manifest.bundles.flatMap((bundle) => bundle.provides.map((tag) => [tag.key, bundle.name] as const)),
   );
   for (;;) {
     const capabilitiesChanged = sweepOffCapabilities(manifest, disabled);
-    const bundlesChanged = sweepOffBundles(manifest, disabled, seamOwner, provideOwner);
+    const bundlesChanged = sweepOffBundles(manifest, disabled, portOwner, provideOwner);
     if (!(capabilitiesChanged || bundlesChanged)) return disabled;
   }
 }
@@ -148,14 +148,14 @@ function sweepOffCapabilities(manifest: ManifestDefinition, disabled: Map<string
 function sweepOffBundles(
   manifest: ManifestDefinition,
   disabled: Map<string, string>,
-  seamOwner: ReadonlyMap<string, string>,
+  portOwner: ReadonlyMap<string, string>,
   provideOwner: ReadonlyMap<string, string>,
 ): boolean {
   let changed = false;
   for (const bundle of manifest.bundles) {
     if (disabled.has(bundle.name)) continue;
     for (const tag of bundle.requires) {
-      const owner = seamOwner.get(tag.key) ?? provideOwner.get(tag.key);
+      const owner = portOwner.get(tag.key) ?? provideOwner.get(tag.key);
       if (owner !== undefined && disabled.has(owner)) {
         disabled.set(bundle.name, disabled.get(owner) ?? owner);
         changed = true;
@@ -219,7 +219,7 @@ function hashProjection(
     capabilities: capabilities.map((capability) => ({
       name: capability.name,
       requires: [...capability.requires],
-      seam: capability.seam.key,
+      "seam": capability.port.key,
       kinds: Object.entries(capability.kinds).map(([kind, declaration]) => ({
         kind,
         version: declaration.version,
@@ -332,8 +332,8 @@ export function composeSync(manifest: ManifestDefinition): Generation {
       if (owned in bundle) reject("product_declares_kind", bundle.name, owned);
     }
   }
-  const seams = new Set(orderedCapabilities.map((capability) => capability.seam.key));
-  const orderedBundles = orderBundles(onBundles, seams);
+  const ports = new Set(orderedCapabilities.map((capability) => capability.port.key));
+  const orderedBundles = orderBundles(onBundles, ports);
   const { tools, rows } = mergeBundleTables(orderedBundles, purposes, handlers);
   for (const row of rows) {
     if (!points.has(row.on)) reject("unknown_point", row.id, row.on);
