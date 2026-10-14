@@ -77,6 +77,17 @@ export class DiscordClient implements ChannelClient {
     );
   }
 
+  /** A reaction the bot never added is already removed: 404 settles the call. */
+  async removeReaction(channelId: string, messageId: string, emoji: string, traceId: string): Promise<void> {
+    await this.request(
+      `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      { method: "DELETE" },
+      traceId,
+      z.undefined(),
+      [404],
+    );
+  }
+
   /** `POST /channels/{id}/typing` shows the indicator for about ten seconds. */
   async typing(channelId: string, traceId: string): Promise<void> {
     await this.request(`/channels/${channelId}/typing`, { method: "POST" }, traceId, z.undefined());
@@ -137,6 +148,7 @@ export class DiscordClient implements ChannelClient {
     init: Pick<RequestInit, "method" | "headers" | "body">,
     traceId: string,
     schema: z.ZodType<T>,
+    settled: readonly number[] = [],
   ): Promise<T> {
     const res = await fetchWithRetry(
       `${BASE_URL}${path}`,
@@ -150,7 +162,7 @@ export class DiscordClient implements ChannelClient {
       },
     );
 
-    if (!res.ok) {
+    if (!res.ok && !settled.includes(res.status)) {
       const text = await res.text();
       throw new DiscordApiError({
         message: `Discord API ${path} failed (${res.status}): ${text}`,
@@ -158,7 +170,7 @@ export class DiscordClient implements ChannelClient {
       });
     }
 
-    const parsed = schema.safeParse(res.status === 204 ? undefined : await res.json());
+    const parsed = schema.safeParse(res.status === 204 || !res.ok ? undefined : await res.json());
     if (!parsed.success) {
       throw new DiscordApiError({
         message: `Discord API ${path} returned a malformed body`,

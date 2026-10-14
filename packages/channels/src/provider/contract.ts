@@ -90,8 +90,10 @@ interface ProviderCapabilities {
    */
   readonly media: MediaLimits | false;
   /**
-   * A `react` payload adds the emoji on the named message. Where false, the
-   * surface refuses it with a rejected receipt instead of posting text.
+   * A `react` payload adds the emoji on the named message, swapping out the
+   * sender's earlier one when `replaces` names it; a reaction already in the
+   * requested state is accepted, so a replayed send changes nothing. Where
+   * false, the surface refuses it with a rejected receipt instead of text.
    */
   readonly react: boolean;
   /** The runtime exposes `typingRoute`. */

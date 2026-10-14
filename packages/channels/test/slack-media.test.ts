@@ -125,6 +125,39 @@ describe("Slack outbound calls", () => {
     });
   });
 
+  test("a replacing reaction removes the earlier name first; already settled states are accepted", async () => {
+    const calls: Array<{ url: string; body: string }> = [];
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(input), body: String(init?.body) });
+        return Response.json(
+          String(input).endsWith("reactions.remove")
+            ? { ok: false, error: "no_reaction" }
+            : { ok: false, error: "already_reacted" },
+        );
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+    const runtime = SlackProvider.create(
+      { botToken: "xoxb-test", appToken: "xapp-test" },
+      {},
+      () => undefined,
+      injectedOptions(),
+    );
+    expect(
+      await runtime.deliveryRoute?.(
+        "T1:U1",
+        { kind: "react", messageId: "42.1", emoji: "✅", replaces: "👀" },
+        "react-2",
+        { channelId: "C1" },
+      ),
+    ).toEqual({ value: "accepted", externalMessageId: "42.1" });
+    expect(calls.map((call) => [call.url.slice("https://slack.com/api/".length), JSON.parse(call.body)])).toEqual([
+      ["reactions.remove", { channel: "C1", timestamp: "42.1", name: "eyes" }],
+      ["reactions.add", { channel: "C1", timestamp: "42.1", name: "white_check_mark" }],
+    ]);
+  });
+
   test("refuses an unmapped emoji before any platform call", async () => {
     const calls: string[] = [];
     globalThis.fetch = Object.assign(

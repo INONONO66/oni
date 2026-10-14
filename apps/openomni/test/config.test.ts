@@ -50,6 +50,7 @@ const ENV_KEYS = [
   "OPENOMNI_MACHINES_TLS_KEY",
   "OPENOMNI_CHANNEL_ALLOWED_SENDERS",
   "OPENOMNI_CHANNEL_MENTION_ONLY",
+  "OPENOMNI_ACK_REACTION",
   "OPENOMNI_BUNDLES_OFF",
 ] as const;
 
@@ -629,6 +630,21 @@ describe("ws exposure enforcement", () => {
     expect(loadConfig().channelMentionOnly).toEqual(["slack"]);
     process.env.OPENOMNI_CHANNEL_MENTION_ONLY = "[]";
     expect(() => loadConfig()).toThrow("OPENOMNI_CHANNEL_MENTION_ONLY");
+  });
+
+  it("reads the acknowledgement reaction set; absent, blank and off mean none", () => {
+    expect(loadConfig().ackReaction).toBeUndefined();
+    process.env.OPENOMNI_ACK_REACTION = " off ";
+    expect(loadConfig().ackReaction).toBeUndefined();
+    process.env.OPENOMNI_ACK_REACTION = JSON.stringify({ pending: "👀", ok: "✅", failed: "❌" });
+    expect(loadConfig().ackReaction).toEqual({ pending: "👀", ok: "✅", failed: "❌" });
+    process.env.OPENOMNI_ACK_REACTION = JSON.stringify({ pending: "👀" });
+    expect(() => loadConfig()).toThrow(
+      expect.objectContaining({
+        name: "OpenOmniConfigurationError",
+        data: containing({ code: "invalid_ack_reaction" }),
+      }),
+    );
   });
 });
 

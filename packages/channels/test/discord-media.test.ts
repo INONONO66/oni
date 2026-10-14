@@ -85,6 +85,31 @@ describe("Discord outbound calls", () => {
     expect(calls[0]?.body).toBeNull();
   });
 
+  test("a replacing reaction deletes the earlier emoji first, a 404 on it counting as already gone", async () => {
+    const calls: Request[] = [];
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const request = new Request(String(input), init);
+        calls.push(request);
+        return new Response(null, { status: request.method === "DELETE" ? 404 : 204 });
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+    const runtime = DiscordProvider.create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
+    expect(
+      await runtime.deliveryRoute?.(
+        "U1",
+        { kind: "react", messageId: "m-9", emoji: "✅", replaces: "👀" },
+        "react-2",
+        { channelId: "C1" },
+      ),
+    ).toEqual({ value: "accepted", externalMessageId: "m-9" });
+    expect(calls.map((call) => [call.method, call.url.slice("https://discord.com/api/v10".length)])).toEqual([
+      ["DELETE", "/channels/C1/messages/m-9/reactions/%F0%9F%91%80/@me"],
+      ["PUT", "/channels/C1/messages/m-9/reactions/%E2%9C%85/@me"],
+    ]);
+  });
+
   test("posts typing into the supplied channel", async () => {
     const calls = captureCalls();
     const runtime = DiscordProvider.create(

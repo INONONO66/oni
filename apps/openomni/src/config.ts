@@ -20,6 +20,7 @@ export const ConfigurationError = NamedError.create(
       "invalid_machines_tcp",
       "invalid_model_fallbacks",
       "invalid_tool_output_budget_bytes",
+      "invalid_ack_reaction",
       "invalid_ws_port",
       // #1271 r1 M4: the machine plane is not optional — a boot without a
       // `machines` block refuses before any listener exists.
@@ -156,6 +157,12 @@ export interface OpenOmniConfig {
    * the surface routes and the model decides whether to answer.
    */
   readonly channelMentionOnly?: readonly string[];
+  /** External channel reaction used to show a turn's pending and terminal state. */
+  readonly ackReaction?: {
+    readonly pending: string;
+    readonly ok: string;
+    readonly failed: string;
+  };
 }
 
 export interface RegisteredActor {
@@ -557,16 +564,17 @@ function parseEnvJson<T>(
   name: string,
   schema: z.ZodType<T>,
   env: Record<string, string | undefined>,
+  code: ConfigurationError["data"]["code"] = "invalid_env_json",
 ): T | undefined {
   const raw = env[name]?.trim();
   if (raw === undefined || raw.length === 0) return undefined;
   const json = Result.try({ try: (): PlainValue => JSON.parse(raw), catch: String });
   if (Result.isFailure(json)) {
-    throw new ConfigurationError({ code: "invalid_env_json", message: `${name} is invalid JSON: ${json.failure}` });
+    throw new ConfigurationError({ code, message: `${name} is invalid JSON: ${json.failure}` });
   }
   const parsed = schema.safeParse(json.success);
   if (!parsed.success) {
-    throw new ConfigurationError({ code: "invalid_env_json", message: `${name} is invalid: ${parsed.error.issues[0]?.message}` });
+    throw new ConfigurationError({ code, message: `${name} is invalid: ${parsed.error.issues[0]?.message}` });
   }
   return parsed.data;
 }
@@ -593,6 +601,19 @@ function channelMentionOnlyFromEnv(
   env: Record<string, string | undefined>,
 ): OpenOmniConfig["channelMentionOnly"] {
   return parseEnvJson("OPENOMNI_CHANNEL_MENTION_ONLY", ChannelMentionOnly, env);
+}
+
+const AckReaction = z.object({
+  pending: z.string().min(1),
+  ok: z.string().min(1),
+  failed: z.string().min(1),
+}).strict();
+
+function ackReactionFromEnv(
+  env: Record<string, string | undefined>,
+): OpenOmniConfig["ackReaction"] {
+  if (env.OPENOMNI_ACK_REACTION?.trim() === "off") return undefined;
+  return parseEnvJson("OPENOMNI_ACK_REACTION", AckReaction, env, "invalid_ack_reaction");
 }
 
 /** Declared ChannelInstance rows are the sole channel provisioning owner. */
@@ -742,6 +763,7 @@ export function loadConfig(
   const toolOutputBudgetBytes = toolOutputBudgetBytesFromEnv(env);
   const channelAllowedSenders = channelAllowedSendersFromEnv(env);
   const channelMentionOnly = channelMentionOnlyFromEnv(env);
+  const ackReaction = ackReactionFromEnv(env);
   const off = offFromEnv(env);
   const hooksPath = env.OPENOMNI_HOOKS_PATH?.trim() || undefined;
   return {
@@ -767,6 +789,7 @@ export function loadConfig(
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
     ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),
+    ...(ackReaction === undefined ? {} : { ackReaction }),
     ...(off === undefined ? {} : { off }),
     ...(hooksPath === undefined ? {} : { hooksPath }),
   };

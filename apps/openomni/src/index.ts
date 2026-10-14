@@ -725,6 +725,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         ? {}
         : { toolOutputBudgetBytes: resolveToolOutput(config).budgetBytes }),
       ...residentModelOptions(config.model, transport),
+      ackReaction: config.ackReaction,
       compaction: (session) => compactionOptions(config, { now: services.now, id: services.entropy.id, ...session }),
       composed: { current: services.composed.current },
       tools: {

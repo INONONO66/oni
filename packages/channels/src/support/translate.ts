@@ -21,7 +21,10 @@ import { chunkMarkdown } from "./format/chunk";
  *   whole payload with nothing posted, never a half-delivered letter.
  * - Part, caption, and letter limits refuse the whole payload before sending.
  * - A `react` payload needs `react`; a surface without one refuses it as
- *   not sent (the agent's receipt says `rejected`), never as text.
+ *   not sent (the agent's receipt says `rejected`), never as text. With
+ *   `replaces`, the surface takes the sender's earlier emoji off the message
+ *   before adding the new one; a platform whose reaction call already
+ *   replaces does that in one call.
  */
 
 export class PartialDeliveryError extends Error {
@@ -55,7 +58,7 @@ const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
 export interface SurfaceSends {
   readonly text: (chunk: string) => Promise<string | undefined>;
   readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
-  readonly react?: (messageId: string, emoji: string) => Promise<void>;
+  readonly react?: (messageId: string, emoji: string, replaces?: string) => Promise<void>;
 }
 
 /** `accepted` only when every step was; `externalMessageId` is the last message posted. */
@@ -179,7 +182,7 @@ export async function translate(
   if (payload.kind === "react") {
     if (sends.react === undefined)
       throw new DeliveryNotSent({ operation: "react", cause: "surface has no reactions" });
-    await sends.react(payload.messageId, payload.emoji);
+    await sends.react(payload.messageId, payload.emoji, payload.replaces);
     return { accepted: true, externalMessageId: payload.messageId };
   }
   const media =

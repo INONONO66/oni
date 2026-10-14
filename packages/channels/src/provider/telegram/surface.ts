@@ -121,6 +121,7 @@ export class TelegramAdapter implements Channel.Surface {
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },
+            // setMessageReaction sets the bot's whole reaction list, so `replaces` needs no second call.
             react: (messageId, emoji) => this.client.react(chatId, messageId, emoji, traceId),
           },
           this.options.media,

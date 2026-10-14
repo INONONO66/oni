@@ -16,7 +16,7 @@ const UNBOUNDED: RenderPolicy = {
 type Sent =
   | { kind: "text"; chunk: string }
   | { kind: "media"; mediaKind: "image" | "file"; name: string; caption: string | undefined }
-  | { kind: "react"; messageId: string; emoji: string };
+  | { kind: "react"; messageId: string; emoji: string; replaces?: string };
 
 const LIMITS: MediaLimits = { imageBytes: 10, fileBytes: 20, captionLength: 8 };
 
@@ -55,8 +55,8 @@ function recorder(
       : {}),
     ...(options.react
       ? {
-          react: async (messageId: string, emoji: string) => {
-            sent.push({ kind: "react", messageId, emoji });
+          react: async (messageId: string, emoji: string, replaces?: string) => {
+            sent.push({ kind: "react", messageId, emoji, ...(replaces === undefined ? {} : { replaces }) });
           },
         }
       : {}),
@@ -242,6 +242,12 @@ describe("translate: reactions", () => {
       externalMessageId: "msg-9",
     });
     expect(r.sent).toEqual([{ kind: "react", messageId: "msg-9", emoji: "👍" }]);
+  });
+
+  test("a reaction names the earlier emoji it replaces, never becoming text", async () => {
+    const r = recorder({ react: true });
+    await translate({ ...react, replaces: "👀" }, UNBOUNDED, r.sends);
+    expect(r.sent).toEqual([{ kind: "react", messageId: "msg-9", emoji: "👍", replaces: "👀" }]);
   });
 
   test("a surface without reactions refuses, never posts the emoji as text", async () => {

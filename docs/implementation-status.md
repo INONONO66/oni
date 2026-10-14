@@ -1,5 +1,42 @@
 # Implementation Status
 
+## #1506 auto-ack reaction
+
+On `feat/app-ack-reaction` (2026-10-14, base `72ce6b7be`). A Resident turn
+that originates on a channel puts a pending reaction on the originating
+message while the model runs and, once the turn settles, swaps it for an ok
+or failed reaction. The policy is data: `OPENOMNI_ACK_REACTION` is JSON with
+`pending`, `ok` and `failed` emoji, or `off`; it is off by default and a
+malformed value refuses boot with `invalid_ack_reaction`.
+
+Both reactions are ordinary sends through the gateway's ingest door (sender
+= the session, target = the actor on that surface), so grants, budgets and
+the sent audit apply as to any letter; no provider route is reached around
+the kernel. The bundle names the door it needs as its own `reactions` port
+and `composition/resident.ts` hands it the message port. The pending send is a forked fiber the model never waits for;
+the terminal send runs on the turn's exit, so an interrupted or failed turn
+(or a failed report) settles as `failed`, and a refused pending reaction
+still ends with the terminal emoji. An evidence-only message is never
+reacted to. `Outbound.React` carries `replaces`, the sender's earlier emoji:
+Slack and Discord take it off first (`reactions.remove` with `no_reaction`,
+`DELETE .../reactions/<emoji>/@me` with 404 counting as already gone, and
+`already_reacted` as already added), Telegram's `setMessageReaction` sets the
+bot's whole list so the swap is one call.
+
+Receipts: order ack -> report -> terminal with the swap payload, default
+off, failed turn, evidence-only, throwing port and refused pending in
+`apps/openomni/test/resident-reply-to-origin.test.ts`; config parsing
+(`off`, strict shape, typed code) in `apps/openomni/test/config.test.ts`;
+replace-and-settle per platform in
+`packages/channels/test/{discord,slack}-media.test.ts` and
+`packages/channels/test/translate.test.ts`.
+Local gates (`mise exec bun@1.4.1`): types, lint, lint:tools, deps, dead
+exports, docs, cycles exit 0; protocol 611/0, channels 858/0, script 124/0,
+app 881 pass with the known environment-only failures (m.pty #1273, tmux
+monitor watch, bash session door, 967-U1); patch coverage 0 uncovered.
+
+Not here: platform permission provisioning for reactions (#1507, Owner).
+
 ## #1496 bash sessions drain through command sentinels (PR #1539, base `030d50500`)
 
 On `fix/1496-bash-session-sentinel` (2026-10-14). Named bash sessions

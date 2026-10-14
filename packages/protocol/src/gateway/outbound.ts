@@ -33,8 +33,9 @@ const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, 
 const MessageSchema = z
   .object({ kind: z.literal("message"), parts: z.array(PartSchema).min(1) })
   .strict();
+/** One emoji on the contact's message; `replaces` names the sender's earlier emoji the platform must take off first. */
 const ReactSchema = z
-  .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1) })
+  .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1), replaces: z.string().min(1).optional() })
   .strict();
 const PayloadSchema = z.discriminatedUnion("kind", [MessageSchema, ReactSchema]);
 
