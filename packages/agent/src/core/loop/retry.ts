@@ -1,8 +1,20 @@
-import { LlmCall, Operational, type BusEvent } from "@openomni/protocol";
+import { LlmCall, Operational, type BusEvent, LedgerAction } from "@openomni/protocol";
+
 import { z } from "zod";
+
 import { type FailureClass, isLlmRunFailure, type ProviderReason, type RetryableProviderReason } from "../ports/llm";
 
 import { RetryReason } from "../ports/reason-codes";
+
+import { Effect, Cause, Option } from "effect";
+
+import { type ExecutionError, CommitFailed } from "../ports/failure";
+
+import { type RetryAlarmPort, type RetryAlarmDeps, createRetryAlarmPort } from "../ports/alarm";
+
+import type { ExecutionLedger } from "./invocation";
+
+
 
 /** The name is the identity `isAbort` checks, never the message, which other errors may share. */
 export function abortError(message = "aborted"): Error {
@@ -27,6 +39,7 @@ const AgentFailureFacts = z.object({
   maxAttempts: z.number(),
   llm: z.literal(true),
 });
+
 type AgentFailureFacts = z.infer<typeof AgentFailureFacts>;
 
 /** Carried on the error itself (wrapping changes the identity catchers read); symbol = hidden. */
@@ -54,7 +67,9 @@ export function failureFacts<T>(error: T): AgentFailureFacts | undefined {
 export const MAX_ATTEMPTS = 3;
 
 export const RETRY_INITIAL_DELAY = 2000;
+
 export const RETRY_BACKOFF_FACTOR = 2;
+
 export const RETRY_MAX_DELAY_NO_HEADERS = 30_000;
 
 /** Server-directed waits above this cap fail fast instead of stalling a run mid-flight. */
@@ -62,7 +77,9 @@ export const RETRY_HEADER_DELAY_CAP = 60_000;
 
 /** A status-less retryable failure under this window is a refused connection: probe briefly, then decline. */
 export const INSTANT_FAILURE_WINDOW_MS = 2000;
+
 export const INSTANT_FAILURE_PROBE_DELAY_MS = 250;
+
 export const INSTANT_FAILURE_STREAK_LIMIT = 3;
 
 /** Jitter subtracts at most one quarter of the ladder delay. */
@@ -222,4 +239,47 @@ export function observeRetry(
       msg: "ratelimit reset above cap; demoted to backoff",
       context: { backoffMs: decision.delayMs },
     });
+}
+
+export function terminalFailure(failure: ExecutionError, attempt: number, classified: FailureClass | undefined) {
+  if (failure._tag === "LlmRunFailure") attachFailureFacts(failure, {
+    reason: failure.aborted || classified === undefined || classified.kind === "aborted" ? "aborted" : attemptReason(classified),
+    attempt, maxAttempts: MAX_ATTEMPTS, llm: true,
+  });
+  return Effect.fail(failure);
+}
+
+export function retryableFailure(cause: Cause.Cause<ExecutionError>) {
+  const error = Cause.findErrorOption(cause);
+  return Cause.hasInterrupts(cause) || Cause.hasDies(cause) || Option.isNone(error)
+    ? Effect.failCause(cause) : Effect.succeed(error.value);
+}
+
+export function failureRequiresStop(failure: ExecutionError, signal: AbortSignal | undefined): boolean {
+  if (failure._tag === "CommitFailed" || signal?.aborted === true) return true;
+  return failure._tag === "LlmRunFailure" && (failure.aborted || failure.visibleOutput);
+}
+
+export function retryDelay(recover: boolean, decision: Decision): number {
+  return !recover && decision.retry ? decision.delayMs : 0;
+}
+
+export function createLedgerRetryAlarmPort(
+  ledger: Pick<ExecutionLedger, "commit">,
+  sessionId: string,
+  clock: () => number,
+  send: RetryAlarmDeps["send"] = () => Effect.void,
+): RetryAlarmPort {
+  return createRetryAlarmPort({
+    sessionId,
+    commitArm: (action) =>
+      ledger
+        .commit(LedgerAction.Append.parse(action))
+        .pipe(
+          Effect.mapError((error) => new CommitFailed({ error })),
+          Effect.asVoid,
+        ),
+    send,
+    clock,
+  });
 }

@@ -1,5 +1,16 @@
 import { Effect } from "effect";
-import { canonicalDigest } from "@openomni/protocol";
+
+import { canonicalDigest, LedgerAction, type PlainValue } from "@openomni/protocol";
+
+import { type ExecutionError, AgentFailure } from "../ports/failure";
+
+import type { PolicyEvaluation } from "../gate/compile";
+
+import { turnStopAction } from "../journal/commit";
+
+import type { ResolvedExecutorOptions } from "./invocation";
+
+
 
 export interface StopObservation {
   readonly text: string;
@@ -12,6 +23,7 @@ export interface StopObservation {
   readonly openIntent: readonly string[];
   readonly alarmIds: readonly string[];
 }
+
 export interface StopState {
   readonly outputHash?: string;
   readonly repetition: number;
@@ -19,7 +31,9 @@ export interface StopState {
   readonly blocked: number;
   readonly continuation: number;
 }
+
 export type StopMetric = "exact_repeat" | "toolless_stall" | "blocked_recurrence" | "continuation";
+
 export type StopVerdict =
   | { readonly kind: "interrupted"; readonly reason: "abort" }
   | { readonly kind: "result"; readonly reason: "completion" }
@@ -76,5 +90,56 @@ export function judgeStop<E, R>(
   if (state.continuation >= (yield* limit("continuation")))
     return done({ kind: "error", reason: "continuation" });
   return done({ kind: "continue", reason: "continue" });
+  });
+}
+
+export function createStopJudge(
+  options: ResolvedExecutorOptions,
+  decide: (op: string, value: PlainValue) => Effect.Effect<PolicyEvaluation, ExecutionError>,
+  commit: (action: LedgerAction.Append) => Effect.Effect<LedgerAction.Receipt, ExecutionError>,
+) {
+  return (state: StopState, observation: StopObservation) => Effect.gen(function* () {
+    function limit(metric: StopMetric): Effect.Effect<number, ExecutionError> {
+      return Effect.gen(function* () {
+      const op = metric === "continuation" ? "continue" : metric;
+      const decision = yield* decide(op, { metric });
+      const rows = decision.obligations.filter(
+        (row) => row.ref === "kernel/budget-clamp" && row.metric === metric,
+      );
+      const row = rows[0];
+      if (
+        decision.verdict === "deny" ||
+        decision.verdict === "require_approval" ||
+        decision.verdict === "transform" ||
+        decision.generation !== options.policy.generation ||
+        rows.length !== 1 ||
+        row === undefined ||
+        row.limit <= 0 ||
+        !Number.isInteger(row.limit)
+      )
+        return yield* new AgentFailure({ operation: "stop.policy", cause: `invalid_stop_policy:${metric}` });
+      return row.limit;
+      });
+    }
+    const result = yield* judgeStop(state, observation, limit, () => Effect.gen(function* () {
+      const completion = yield* decide("completion", {
+        text: observation.text,
+        openIntent: [...observation.openIntent],
+      });
+      return completion.verdict === "allow";
+    }));
+    yield* commit(turnStopAction({
+      id: options.entropy(),
+      sessionId: options.identity.sessionId,
+      parentId: options.identity.parentActionId,
+      generation: options.policy.generation,
+      verdict:
+        result.verdict.kind === "waiting"
+          ? { kind: "waiting", reason: "live_wait", alarmIds: [...result.verdict.alarmIds] }
+          : { ...result.verdict },
+      state: { ...result.state },
+      ts: options.clock(),
+    }));
+    return result;
   });
 }
