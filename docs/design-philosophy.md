@@ -10,11 +10,11 @@ The OS framing is not a metaphor; it is the structure. Where the metaphor breaks
 
 Everything in the system reduces to three primitives. Every other noun in the documentation is a field, format, or policy of one of these.
 
-**Actor.** Everything that appears in the system — the Owner, the Resident, AI agents, external humans, installed apps, cron — is an actor carrying exactly one authority profile. Trust tier, grants, contact budgets, and voice registers are fields of that profile, not separate concepts.
+**Actor.** Everything that appears in the system — the Owner, the Resident, AI agents, external humans, installed apps, cron — is an actor carrying exactly one authority profile. Trust tier, grants, contact budgets, and voice registers are fields of that profile, not separate concepts. An actor or a channel enters the system through a recorded provisioning operation, never through configuration lying in the environment.
 
-**Gate.** Every action that crosses a boundary passes through one gate (dispatch). Policy is the system-wide interception plane around every actor and boundary — including the Resident — not a Worker subsystem or a gate-only feature. Whether to auto-answer or escalate, whether to object, whether to wait on an external reply, and what voice to render are policy decisions applied at their contracted hook points.
+**Gate.** Every action that crosses a boundary passes through one gate (dispatch). Policy is the system-wide interception plane around every actor and boundary — including the Resident — not a Worker subsystem or a gate-only feature. Whether to auto-answer or escalate, whether to object, whether to wait on an external reply, and what voice to render are policy decisions applied at their contracted hook points. The model reaches the world through one sealed door — a fixed tool catalog; a new capability arrives as an operation of an existing tool or as a kernel change, never as a tool bolted on by a prompt.
 
-**Ledger.** Everything that happens is recorded in one append-only history. Sessions, the event bus, work items, completion reports, and receipts are the same history at different zoom levels. Isolation is the session's job; retrievability is the ledger's. Memory is a compressed view of the ledger, and the original always wins.
+**Ledger.** Everything that happens is recorded in one append-only history. Sessions, journal rows, policy decisions, delivered inputs, and receipts are the same history at different zoom levels; the bus only projects that history and never stores it. Isolation is the session's job; retrievability is the ledger's. Memory is a compressed view of the ledger, and the original always wins.
 
 ## Two Laws and a Dial
 
@@ -57,7 +57,7 @@ The honest caveat: these advantages are structural claims, and structure only pa
 
 ## What This Is Not
 
-- **Not a general-purpose agent framework.** Built for one operator; the trade-offs follow from that.
+- **Not a general-purpose agent framework.** Built for one operator; the trade-offs follow from that. The kernel underneath is still reusable: its core packages are independently consumable primitives, product meaning lives only in the app's bundles, and a plugin that needs more than the [four extension points](kernel-contract.md#extension-points-4-and-bundle-contract) is asking for a kernel change, not a harness feature.
 - **Not a claim of full autonomy.** Autonomy is earned per domain through ledger evidence and revoked the same way.
 - **Not a replacement for the Owner's judgment.** The system executes, verifies, and improves; the Owner directs, decides, and owns values. The boundary moves over time; it never disappears.
 
