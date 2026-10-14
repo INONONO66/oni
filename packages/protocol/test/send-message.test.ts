@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { z } from "zod";
-import { Actor, Gateway, LedgerAction, SessionTransition } from "../src/index.js";
+import { Actor, Gateway, LedgerAction, type Outbound, SessionTransition } from "../src/index.js";
 
 function issues<T>(result: z.ZodSafeParseResult<T>) {
   expect(result.success).toBe(false);
@@ -71,6 +71,16 @@ describe("sendMessage stage-1 protocol", () => {
     expect(Gateway.SendMessage.parse({ ...send, content: "", deadline: 0 }).content).toBe("");
   });
 
+  test("content is a string or one outbound payload (#1497)", () => {
+    const parts: Outbound.Payload = {
+      kind: "message",
+      parts: [{ kind: "code", text: "ls", lang: "sh" }],
+    };
+    expect(Gateway.SendMessage.parse({ ...send, content: parts }).content).toEqual(parts);
+    const react: Outbound.Payload = { kind: "react", messageId: "m-9", emoji: "\u{1F44D}" };
+    expect(Gateway.SendMessage.parse({ ...send, content: react }).content).toEqual(react);
+  });
+
   test("handles contain only message identity and resolved target identity", () => {
     for (const target of ["session-1", "new-child-1", "actor-1"]) {
       const value: Gateway.SendMessageHandle = Gateway.SendMessageHandle.parse({
@@ -98,7 +108,7 @@ describe("sendMessage stage-1 protocol", () => {
       issues(Gateway.SendMessage.safeParse({ ...send, to: { ...targets[1], parent: "other" } })),
     ).toEqual([{ code: "invalid_value", path: ["to", "parent"] }]);
     expect(issues(Gateway.SendMessage.safeParse({ ...send, content: {} }))).toEqual([
-      { code: "invalid_type", path: ["content"] },
+      { code: "invalid_union", path: ["content"] },
     ]);
     for (const deadline of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(issues(Gateway.SendMessage.safeParse({ ...send, deadline }))[0]?.path).toEqual([

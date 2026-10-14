@@ -93,7 +93,7 @@ describe("Gateway.SendInput", () => {
     traceId: "t-1",
     senderId: "persona-1",
     target: { actorId: "seller-1" },
-    body: "still available?",
+    payload: { kind: "message", parts: [{ kind: "text", text: "still available?" }] },
     at: 1_000,
   };
   const requestSpec = {

@@ -5,6 +5,7 @@ import { LedgerSession, SessionTurn } from "../ledger/l0.js";
 import { EpochMs } from "../time.js";
 import { Author, Input } from "../ingress/input.js";
 import { SessionTransition } from "../ledger/session-transition.js";
+import { Outbound } from "./outbound.js";
 
 const Id = z.string().min(1);
 const DurationMs = z.number().nonnegative();
@@ -44,11 +45,13 @@ const Target = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
+// A string content is one text part; a session target only ever reads the
+// text reading, an actor target gets the parts translated by its channel.
 const Send = z
   .object({
     to: Target,
     type: MessageType,
-    content: z.string(),
+    content: z.union([z.string(), Outbound.Payload]),
     replyTo: Id.optional(),
     deadline: EpochMs.optional(),
   })
