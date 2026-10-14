@@ -29,6 +29,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "openChannelStore",
     "resolveChannelGrant",
     "scheduleTickChannel",
+    "typingPulse",
     "unconfiguredChannelStores",
     "webSocketSenderTier",
   ]);
