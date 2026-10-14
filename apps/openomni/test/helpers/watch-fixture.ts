@@ -14,7 +14,8 @@ import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluste
 import { createAppLedger } from "./ledger";
 import type { MonitorPorts } from "../../src/bundles/tools/core/watch";
 import type { ArmedWatch, WatchSources } from "../../src/composition/watch-sources";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
+import { gateRowPolicySeeds } from "../../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../../src/composition/policy";
 import { runEffect } from "./effect";
 import { adoptTestFence } from "./ledger";
 import { testClock } from "./test-entropy";

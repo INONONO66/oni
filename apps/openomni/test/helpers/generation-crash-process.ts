@@ -7,7 +7,7 @@ import { z } from "zod";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../../src/gateway";
 import { AppLedger } from "../../src/composition/cluster-runtime";
 import { AppScope } from "../../src/runtime";
-import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../../src/composition/policy";
 import { auditBundle, composedHolder } from "./bundle-fixture";
 import { allowConfigure } from "./generation-services";
 import { Bus } from "./bus";

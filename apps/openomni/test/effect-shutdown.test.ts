@@ -13,7 +13,7 @@ import { planeOf } from "./helpers/ledger";
 import { z } from "zod";
 import { createResident } from "../src/bundles/resident/index";
 import { eventSignal } from "./helpers/event-signal";
-import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../src/composition/policy";
 import { shutdownSessions } from "../src/shutdown";
 import { Clock, Effect } from "effect";
 import { bootResource } from "../src/composition/boot";

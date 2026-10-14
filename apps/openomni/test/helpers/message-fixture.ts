@@ -21,7 +21,7 @@ import {
 import { localDelivery } from "./ledger";
 import { allowConfigure, generationServices } from "./generation-services";
 const ToolCatalog = Core.ToolCatalog;
-import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../../src/composition/policy";
 import { createSendMessageTool } from "../../src/bundles/messaging/send-message/index";
 import { dispatchOutboundMessage } from "../../src/composition/terminal-message";
 import type { z } from "zod";

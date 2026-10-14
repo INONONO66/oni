@@ -22,7 +22,7 @@ type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./helpers/bus";
 import { L0Observation, Tool } from "@openomni/protocol";
 import { z } from "zod";
-import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../src/composition/policy";
 import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { createAppLedger, drainSession, resolvedRuntimeFor } from "./helpers/ledger";
 

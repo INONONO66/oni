@@ -8,7 +8,7 @@ const SessionLayer = Core.SessionLayer;
 const session = Testing.session;
 import { Effect, Layer } from "effect";
 import { z } from "zod";
-import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../src/composition/policy";
 import { composedPointTable } from "../src/composition/point-table";
 import type { PolicyRow } from "@openomni/protocol";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../src/gateway";

@@ -479,7 +479,6 @@ export async function checkBundleImports(
 
 /** #1428: moved-tree edges, measured with checkBundleImports; #1454 removes them. */
 const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../messaging/index", "../provision/provision"])],
   ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../tools/core/watch"])],
   ["apps/openomni/src/bundles/alarms/monitor/index.ts", new Set(["../../tools/core/watch"])],
   ["apps/openomni/src/bundles/resident/index.ts", new Set(["../prompt/build", "../prompt/roles", "../tools/core/catalog"])],
@@ -493,7 +492,7 @@ const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["apps/openomni/src/bundles/hooks-json/index.ts", new Set(["../../invariant"])],
   ["apps/openomni/src/bundles/compaction/summarizer.ts", new Set(["../../composition/completion"])],
   ["apps/openomni/src/bundles/compaction/index.ts", new Set(["../../config"])],
-  ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../composition/point-table", "../../invariant"])],
+  ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../invariant"])],
   ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
   ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component", "../../composition/generation-layers"])],
   ["apps/openomni/src/bundles/tools/core/watch.ts", new Set(["../../../composition/cluster-runtime"])],
@@ -1379,7 +1378,7 @@ interface AppsSessionWriteSite {
  * Moving either line re-pins it here; any other write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1260, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/index.ts", line: 1261, receiver: "kernel", member: "commit" },
   { file: "apps/openomni/src/composition/ingress-executor.ts", line: 59, receiver: "Core", member: "adoptedExecutor" },
 ];
 

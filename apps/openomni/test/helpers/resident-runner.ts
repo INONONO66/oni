@@ -19,7 +19,7 @@ import { effectScope } from "./effect-scope";
 import { drainSession, localDelivery, resolvedRuntimeFor, testPlane } from "./ledger";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
 
-import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../../src/composition/policy";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
