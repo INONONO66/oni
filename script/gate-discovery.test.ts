@@ -48,9 +48,10 @@ function fixture(): string {
   }
   for (const [path, source] of Object.entries(coreGateFiles)) put(root, path, source);
   // The copied gates import ../packages/protocol/src/json.js; mirror the real
-  // module and its one relative import (the NamedError factory behind
-  // CanonicalJsonError) so the fixture resolves it exactly like the repository does.
-  for (const name of ["json.ts", "error/index.ts"]) {
+  // module and its two relative imports (the NamedError factory behind
+  // CanonicalJsonError and the sha256 owner) so the fixture resolves it
+  // exactly like the repository does.
+  for (const name of ["json.ts", "sha256.ts", "error/index.ts"]) {
     const target = join(root, "packages/protocol/src", name);
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(join(import.meta.dir, "../packages/protocol/src", name), target);
