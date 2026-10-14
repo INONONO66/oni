@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction, PlainValueSchema } from "@openomni/protocol";
 import { type AttemptEvidence, LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
 import { Effect } from "effect";
@@ -14,6 +14,7 @@ import { mockProviderModel } from "./helpers/mock-llm";
 import { runInput } from "./helpers/run-input";
 import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { messageSource } from "./helpers/message-source";
+import { renderReadModel } from "../src/core/session/read";
 
 function result(id: string, parentId: string, evidence: LedgerAction.Node["effect"]["value"],
   usageProvenance: "reported" | "estimated" | "unknown" = "unknown") {
@@ -65,6 +66,34 @@ test("overlapping tools consume wall duration by union rather than sum", () => {
     .toBe(50);
 });
 
+test("metrics attribute settled attempts by purpose without counting enclosing results", () =>
+  isolated(Effect.gen(function* () {
+    const { executor, committed } = recordingExecutor();
+    for (const purpose of ["chat", "compaction", undefined, "compaction"]) {
+      yield* runChatAttempts(
+        executor,
+        () => Effect.succeed({ type: "stop" }),
+        () => PlainValueSchema.parse(evidenceOf("estimated")),
+        purpose === undefined ? {} : { purpose },
+      );
+    }
+    const rows = committed.map((action, index) => LedgerAction.Node.parse({
+      ...action, ordinal: index + 1, prevHash: "before", actionHash: "after",
+    }));
+    const usage = attemptUsage(rows);
+    expect(usage).toHaveLength(4);
+    expect(usage.every((entry) => entry.provenance === "estimated" && entry.outputTokens === 2)).toBe(true);
+    expect(usage.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(20);
+    expect(renderReadModel("metrics", rows)).toMatchObject({
+      usage,
+      usageByPurpose: [
+        { purpose: "chat", usage: [usage[0]] },
+        { purpose: "compaction", usage: [usage[1], usage[3]] },
+        { purpose: null, usage: [usage[2]] },
+      ],
+    });
+  })));
+
 test("a real committed failed attempt contributes billed usage once", () =>
   isolated(Effect.gen(function* () {
     const { ledger, identity, clock, entropy } = yield* requestLedger({ id: "metrics-session" });
@@ -95,7 +124,7 @@ test("a real committed failed attempt contributes billed usage once", () =>
         },
       });
       return { type: "stop" };
-    }));
+    }), undefined, { purpose: "compaction" });
     const kernel = isolatedLedger().kernel;
     const page = kernel.historyPage("metrics-session", { afterRevision: 0, limit: 256 });
     const entries = attemptUsage(page.actions);
@@ -103,6 +132,9 @@ test("a real committed failed attempt contributes billed usage once", () =>
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({
       inputTokens: 7, outputTokens: 0, provenance: "reported",
+    });
+    expect(renderReadModel("metrics", page.actions)).toMatchObject({
+      usageByPurpose: [{ purpose: "compaction", usage: entries }],
     });
     expect(entries.reduce((total, entry) => total + (entry.inputTokens ?? 0), 0)).toBe(7);
   })));

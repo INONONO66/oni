@@ -70,6 +70,7 @@ describe("journal kind census (#1252)", () => {
       ["request", { ...body, effect: { ...payload, value: { phase: "replied" } } }],
       ["alarm", { ...body, intent: { ...payload, value: { op: "paused" } } }],
       ["compaction", { ...body, intent: { ...payload, value: { reason: "boredom" } } }],
+      ["compaction", { ...body, effect: { ...payload, value: { result: { reason: "boredom" } } } }],
       ["session.configure", { ...body, intent: { ...payload, value: { settings: { steering: "many", followUp: "one" } } } }],
     ];
     for (const [kind, bad] of cases) {
@@ -85,7 +86,7 @@ describe("journal kind census (#1252)", () => {
     expect(RequestPhase.options).toEqual(["open", "answered", "resolved", "expired"]);
     expect(AlarmOp.options).toEqual(["arm", "fired"]);
     expect(AlarmFiredOutcome.options).toEqual(["delivered", "stale", "exhausted"]);
-    expect(CompactionReason.options).toEqual(["overflow", "threshold", "manual", "model_requested"]);
+    expect(CompactionReason.options).toEqual(["overflow", "threshold", "manual", "model_requested", "fallback"]);
     expect(ConsumptionWidth.options).toEqual(["all", "one"]);
   });
 

@@ -1,5 +1,44 @@
 # Implementation Status
 
+## #1476 compaction purpose accounting, fallback reason, and fitting unchanged prefix (PR #1537, base `6deb863ad`)
+
+On `feat/1476-compaction-accounting` (2026-10-14), following the app half
+in #1427 / PR #1475 and part of #1421.
+
+- Accounting: the metrics read model retains its byte-compatible flat `usage`
+  list and adds `usageByPurpose`. Groups use each physical attempt's recorded
+  nested `purpose`; absent purpose remains `null`. Grouping preserves attempt IDs,
+  failed billed usage, provenance, unknown counts, and total usage without
+  counting enclosing results. Paginated metrics reads recover each distinct
+  attempt intent before the cursor once, so attribution survives a page boundary.
+- Fallback: `reason: "fallback"` means the summarizer failed and a
+  deterministic result replaced its summary. It is written on an executed
+  compaction result exactly when `summarizerFailed: true`: the user-boundary
+  snap-cut, an anchored cut that carries the previous anchor forward, or an
+  elision-only reduction. The closed protocol enum accepts the reason; the
+  request's `trigger` is unchanged. Typed summary failure and injected-clock
+  expiry both complete the turn through the deterministic cut.
+- Prefix (#1476 item 3): synchronous and speculative summaries receive the
+  unchanged original leading cut span (user messages, prior anchor renders,
+  pre-elision tool output bytes) only when its estimate plus the previous
+  anchor plus the output reserve `min(32768, window/2)` fits the context
+  window. Otherwise they receive the previous bounded input: no user messages
+  or anchor renders, completed tool outputs elided, oldest messages dropped to
+  half the window. In the unchanged prefix the previous anchor appears both as
+  merge state and as its render; it is not deduped, because removing the render
+  breaks prefix identity and removing the merge state breaks the incremental
+  merge, and the fit test counts both. Thresholds, user preservation,
+  user-only skip behavior and candidate fingerprint bytes are unchanged.
+- Not claimed: provider prefix-cache hits or complete #1476 closure. The app
+  still omits tools, blocks tool choice at the request, and changes reasoning
+  settings; tool/thinking parity requires app-owned work. No app policy or
+  provider configuration is changed here.
+- Local evidence: `bun test packages/agent packages/protocol` 2141 pass /
+  0 fail; six app compaction test files 18 pass / 0 fail; `check-types`,
+  `check-core-end-state` (clone pins unchanged), `check-deps`,
+  `check-dead-exports`, `check-import-cycles` and `lint:docs` exit 0. CI is
+  the record for the remaining lanes.
+
 ## #1495 typing during channel-origin Resident turns (PR #1530, base `030d50500`)
 
 On `feat/channels-typing-pulse` (2026-10-14). Mounted channel instances

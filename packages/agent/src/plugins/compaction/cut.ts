@@ -109,6 +109,7 @@ function finishAnchoredCut(
 
 function chooseAnchoredCut(
   working: Message.WithParts[],
+  original: Message.WithParts[],
   cutoff: number,
   firstRemoved: Message.WithParts,
   options: ResolvedCompactionOptions & {
@@ -121,6 +122,7 @@ function chooseAnchoredCut(
   const attempt = (boundary: number, anchor: string | undefined) =>
     attemptAnchoredCut(
       working.slice(0, boundary),
+      original.slice(0, boundary),
       working.slice(boundary),
       anchor,
       working,
@@ -188,6 +190,7 @@ export function compactUnbracketed(
   if (options.onSummarize !== undefined && firstRemoved !== undefined) {
     const { attempt, candidateOutcome } = yield* chooseAnchoredCut(
       working,
+      messages,
       toRemove.length,
       firstRemoved,
       { ...options, onSummarize: options.onSummarize },

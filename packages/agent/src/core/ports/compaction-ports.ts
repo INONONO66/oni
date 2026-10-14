@@ -25,6 +25,7 @@ export interface CompactionYield {
 }
 
 export interface SummarizationBudget {
+  /** Input bound applied only when the unchanged prefix does not fit beside the output reserve. */
   readonly maxInputTokens: number;
   readonly maxOutputTokens: number;
   readonly contextWindowTokens: number;
@@ -40,7 +41,7 @@ export interface CompactionOptions {
   contextWindowTokens?: number;
   reserveTokens?: number;
   protectRecentMessages?: number;
-  /** Merges the newly cut span into the previous anchor body; it never regenerates. */
+  /** Receives the unchanged leading prefix when it fits, else the bounded input; merges into the previous anchor. */
   onSummarize?: (
     messages: Message.WithParts[],
     previousAnchor: string | undefined,

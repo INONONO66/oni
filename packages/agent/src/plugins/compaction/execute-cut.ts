@@ -57,12 +57,12 @@ export function executeCompaction(input: CompactionExecutionInput): Effect.Effec
   });
 }
 
-/** The row's result value; a summarizer failure that fell back to a plain cut is recorded on it. */
+/** The row's result; `reason: "fallback"` means a deterministic result replaced a failed summary. */
 function recordedValue(result: CompactionResult): PlainValue {
   if (result.record === undefined) return null;
   return PlainValueSchema.parse({
     ...result.record,
     projection: result.messages,
-    ...(result.summarizerFailed === true ? { summarizerFailed: true } : {}),
+    ...(result.summarizerFailed === true ? { summarizerFailed: true, reason: "fallback" } : {}),
   });
 }

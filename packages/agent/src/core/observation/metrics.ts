@@ -19,7 +19,7 @@ function token(value: PlainValue | undefined): number | null {
 export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsage[] {
   const seen = new Set<string>();
   const usage: AttemptUsage[] = [];
-  const attemptIntents = attemptIntentIds(actions);
+  const attemptIntents = attemptPurposes(actions);
   for (const action of actions) {
     const result = attemptResult(action, attemptIntents);
     if (result === undefined || seen.has(result.attemptId)) continue;
@@ -29,20 +29,38 @@ export function attemptUsage(actions: readonly LedgerAction.Node[]): AttemptUsag
   return usage;
 }
 
+/** Purpose is a metrics dimension; the public flat usage DTO remains unchanged. */
+export function groupUsageByPurpose(
+  actions: readonly LedgerAction.Node[],
+  usage: readonly AttemptUsage[],
+): { readonly purpose: string | null; readonly usage: AttemptUsage[] }[] {
+  const purposes = attemptPurposes(actions);
+  const groups = new Map<string | null, AttemptUsage[]>();
+  for (const entry of usage) {
+    const purpose = purposes.get(entry.attemptId) ?? null;
+    const group = groups.get(purpose);
+    if (group === undefined) groups.set(purpose, [entry]);
+    else group.push(entry);
+  }
+  return Array.from(groups, ([purpose, entries]) => ({ purpose, usage: entries }));
+}
+
 /** Physical attempts share the `llm` kind; an attempt intent carries the attempt ordinal. */
-function attemptIntentIds(actions: readonly LedgerAction.Node[]): ReadonlySet<string> {
-  const ids = new Set<string>();
+function attemptPurposes(actions: readonly LedgerAction.Node[]): ReadonlyMap<string, string | null> {
+  const purposes = new Map<string, string | null>();
   for (const action of actions) {
     if (action.kind !== "llm") continue;
     const intent = fields(action.intent.value);
-    if (intent.phase === "intent" && typeof intent.attempt === "number") ids.add(action.id);
+    if (intent.phase !== "intent" || typeof intent.attempt !== "number") continue;
+    const purpose = fields(intent.value).purpose;
+    purposes.set(action.id, typeof purpose === "string" ? purpose : null);
   }
-  return ids;
+  return purposes;
 }
 
 function attemptResult(
   action: LedgerAction.Node,
-  attemptIntents: ReadonlySet<string>,
+  attemptIntents: ReadonlyMap<string, string | null>,
 ): AttemptUsage | undefined {
   if (action.kind !== "llm" || action.parentId === null) return undefined;
   const effect = fields(action.effect.value);

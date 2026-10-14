@@ -4,7 +4,7 @@
  * by construction: each model filters on its declared kinds only.
  */
 import type { LedgerAction, PlainValue } from "@openomni/protocol";
-import { attemptUsage } from "../observation/metrics";
+import { attemptUsage, groupUsageByPurpose } from "../observation/metrics";
 
 export const READ_MODELS = Object.freeze([
   "history",
@@ -117,8 +117,10 @@ function treeRows(actions: readonly LedgerAction.Node[]) {
 }
 
 function metricsPage(actions: readonly LedgerAction.Node[]) {
+  const usage = attemptUsage(actions);
   return {
-    usage: attemptUsage(actions.filter((action) => action.kind === "llm")),
+    usage,
+    usageByPurpose: groupUsageByPurpose(actions, usage),
     turns: actions.flatMap((action) => (action.kind === "turn" ? [base(action)] : [])),
   };
 }
