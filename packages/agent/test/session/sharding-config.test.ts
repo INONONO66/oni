@@ -3,7 +3,8 @@
 // `ShardingConfig.layerFromEnv(options.shardingConfig)`, and `layerFromEnv`
 // snapshots `process.env` at effect-module load — so the probe runs in a child
 // process whose environment carries the conflicting variable from the start,
-// exactly the shape of the production hazard.
+// exactly the shape of the production hazard. The probe writes a plain string:
+// console.log colors a number whenever the inherited environment enables color.
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 
@@ -28,7 +29,7 @@ const config = await Effect.runPromise(
     }),
   ),
 );
-console.log(Duration.toMillis(config.entityMaxIdleTime));
+process.stdout.write(String(Duration.toMillis(config.entityMaxIdleTime)));
 `;
 
 async function probe(mode: "env-only" | "override" | "explicit"): Promise<number> {

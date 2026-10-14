@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { L0Observation } from "@openomni/protocol";
 import { Effect, Stream } from "effect";
 import { makeObservationBus } from "../../../src/core/observation/bus";
+import { yieldUntil } from "../../helpers/bus-fixture";
 import { runTestPromise } from "../../helpers/isolated";
 import { materializeSession } from "../helpers/session";
 import { useMemoryStores } from "../helpers/storage";
@@ -29,9 +30,7 @@ describe("session memory regression", () => {
           const settled = (count: number) =>
             // Await the exact subscription state, never a timer: the callback
             // drain registers and releases on its own fiber.
-            Effect.gen(function* () {
-              while (bus.subscriberCount() !== count) yield* Effect.yieldNow;
-            });
+            yieldUntil(() => bus.subscriberCount() === count, `${count} subscribers`);
           materializeSession(stores.kernel, "watched");
           const baseline = bus.subscriberCount();
           for (let index = 0; index < 200; index += 1) {

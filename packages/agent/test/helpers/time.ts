@@ -20,6 +20,66 @@ export function fixedClock(now: () => number): Clock.Clock {
   };
 }
 
+/** A wall clock the test moves forward; see `advancingClock`. */
+export interface AdvancingClock {
+  readonly clock: Clock.Clock;
+  /** Wall time plus every `advance` so far. */
+  readonly now: () => number;
+  /** Moves time forward by `ms` and wakes every sleep whose deadline that crosses. */
+  readonly advance: (ms: number) => void;
+}
+
+/**
+ * An Effect Clock on wall time plus a test-owned offset. Sleeps stay real
+ * until `advance` crosses their deadline, so cluster polling keeps its real
+ * cadence while a reaper sweep or a `DeliverAt` instant is reached on demand.
+ */
+export function advancingClock(): AdvancingClock {
+  let offset = 0;
+  const now = () => Date.now() + offset;
+  const sleepers = new Set<{ readonly deadline: number; readonly wake: () => void }>();
+  const sleep = (duration: Duration.Duration) =>
+    Effect.callback<void>((resume) => {
+      const deadline = now() + Duration.toMillis(duration);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const sleeper = {
+        deadline,
+        wake: () => {
+          clearTimeout(timer);
+          sleepers.delete(sleeper);
+          resume(Effect.void);
+        },
+      };
+      sleepers.add(sleeper);
+      const remaining = deadline - now();
+      if (remaining <= MAX_TIMER_MS) timer = setTimeout(sleeper.wake, Math.max(0, remaining));
+      return Effect.sync(() => {
+        clearTimeout(timer);
+        sleepers.delete(sleeper);
+      });
+    });
+  const nanos = () => BigInt(now()) * 1_000_000n;
+  return {
+    now,
+    advance: (ms) => {
+      offset += ms;
+      for (const sleeper of [...sleepers]) if (sleeper.deadline <= now()) sleeper.wake();
+    },
+    clock: {
+      currentTimeMillisUnsafe: now,
+      currentTimeMillis: Effect.sync(now),
+      currentTimeNanosUnsafe: nanos,
+      currentTimeNanos: Effect.sync(nanos),
+      monotonicTimeNanosUnsafe: nanos,
+      monotonicTimeNanos: Effect.sync(nanos),
+      sleep,
+    },
+  };
+}
+
+/** Longest delay a JS timer honours; longer (and infinite) sleeps wake only through `advance`. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
 export function fixedClockLayer(now: () => number) {
   return Layer.succeed(Clock.Clock, fixedClock(now));
 }

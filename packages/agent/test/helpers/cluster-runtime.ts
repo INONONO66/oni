@@ -25,7 +25,7 @@ import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { L0Write } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
 import type { Delivery, ObservationSink } from "@openomni/protocol";
-import { Context, Crypto, Duration, Effect, Layer, type Scope } from "effect";
+import { Clock, Context, Crypto, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
@@ -74,6 +74,8 @@ export interface TestClusterOptions {
   readonly onArmed?: SessionEntityPorts["onArmed"];
   /** Injected entity clock (byte-equality fixtures); default wall clock. */
   readonly clock?: () => number;
+  /** Effect Clock of the cluster host (entity reaper, `DeliverAt` readiness); default the live clock. */
+  readonly effectClock?: Clock.Clock;
   /**
    * The composed generation's deliver registrations; `"unbound"` omits
    * the port so a case can exercise the `seam_missing` refusal.
@@ -432,11 +434,14 @@ function testDrainConfig(options: TestClusterOptions): AlarmDrainConfig {
 
 /** The real Session entity over the single-node host (plan §1 composition). */
 export function makeTestClusterRuntime(options: TestClusterOptions) {
-  return createSessionEntityLayer(testDrainConfig(options)).pipe(
+  const runtime = createSessionEntityLayer(testDrainConfig(options)).pipe(
     Layer.provide(entityEnvLayer(options)),
     Layer.merge(Layer.succeed(TestClusterEnv, options)),
     Layer.provideMerge(clusterHostLayer(options)),
   );
+  return options.effectClock === undefined
+    ? runtime
+    : runtime.pipe(Layer.provide(Layer.succeed(Clock.Clock, options.effectClock)));
 }
 
 /** Run one scoped program against a freshly built test cluster runtime. */
@@ -526,14 +531,24 @@ export const sendResume = (sessionId: string, messageId: string, content: string
 
 /** One request-deadline alarm occurrence (DeliverAt = deadlineAt). */
 export const sendDeadline = (sessionId: string, requestId: string, deadlineAt: number) =>
-  sendAlarm(sessionId, {
-    occurrenceId: `${requestId}:deadline`,
-    purpose: "deadline",
-    alarmId: `${requestId}:deadline`,
-    armSeq: 1,
-    sourceKey: "deadline",
-    payload: JSON.stringify({ requestId }),
-    fireAt: deadlineAt,
+  sendAlarm(sessionId, deadlineOccurrence(requestId, deadlineAt));
+
+const deadlineOccurrence = (requestId: string, deadlineAt: number) => ({
+  occurrenceId: `${requestId}:deadline`,
+  purpose: "deadline",
+  alarmId: `${requestId}:deadline`,
+  armSeq: 1,
+  sourceKey: "deadline",
+  payload: JSON.stringify({ requestId }),
+  fireAt: deadlineAt,
+});
+
+/** The `sendDeadline` occurrence as a discard send: returns once its envelope is durable, not when it is handled. */
+export const persistDeadline = (sessionId: string, requestId: string, deadlineAt: number) =>
+  Effect.gen(function* () {
+    yield* provisionSession(yield* TestClusterEnv, sessionId);
+    const makeClient = yield* SessionEntity.client;
+    return yield* makeClient(sessionId).Alarm(deadlineOccurrence(requestId, deadlineAt), { discard: true });
   });
 
 /**
