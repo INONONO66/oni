@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { canonicalDigest, type LedgerAction } from "@openomni/protocol";
 import { Effect } from "effect";
 import { deliveryActions } from "../src/core/journal/delivery";
-import { turnTerminalAction } from "../src/core/journal/turn-rows";
+import { turnIntentAction, turnTerminalAction } from "../src/core/journal/turn-rows";
 import { configureAction } from "../src/core/store/configure";
 import { restoreSessionHistory } from "../src/inspect/history";
 import { runAgentSync } from "./helpers/executor";
@@ -97,29 +97,17 @@ describe("fold writer tail", () => {
         const generation = ledger.kernel.latestGenerationFor(id);
         turnId = `${id}:turn:${turn + 2}`;
         runAgentSync(
-          recording.ledger.commit({
+          recording.ledger.commit(turnIntentAction({
             id: turnId,
-            sessionId: id,
             parentId: `${id}:reply:${turn}`,
-            kind: "turn",
-            ts: 300 + turn,
-            irreversible: true,
-            intent: {
-              encodingVersion: 1,
-              value: {
-                phase: "intent",
-                resultId: `${id}:result:${turn + 2}`,
-                deliveryIds: [],
-                resumeCount: 0,
-                boundaryActionId: null,
-                toolsGeneration: generation.generation,
-                toolsHash: generation.toolsHash,
-                systemHash: generation.systemHash,
-                policyGeneration: 1,
-              },
-            },
-            effect: { encodingVersion: 1, value: { phase: "pending" } },
-          }),
+            sessionId: id,
+            resultId: `${id}:result:${turn + 2}`,
+            deliveryIds: [],
+            generation,
+            resumeCount: 0,
+            boundaryActionId: null,
+            at: 300 + turn,
+          })),
         );
         intents.push(turnId);
       }
@@ -146,15 +134,16 @@ describe("fold writer tail", () => {
       const id = recording.identity.sessionId;
       const turnId = recording.identity.turnId;
       const { kernel } = ledger;
+      const checkpoint = { everyActions: 4, maxTailBytes: 4 * 1024 * 1024 };
       expect(
         recording.commitBatch([
           configureAction({
-            id: `${id}:configure:checkpoint`,
-            sessionId: id,
-            parentId: kernel.latestAction(id)?.id ?? null,
-            operation: "compose",
+            settings: { checkpoint, followUp: "all", steering: "all" },
             snapshot: kernel.latestGenerationFor(id),
-            settings: { steering: "all", followUp: "all", checkpoint: { everyActions: 4, maxTailBytes: 4 * 1024 * 1024 } },
+            operation: "compose",
+            parentId: kernel.latestAction(id)?.id ?? null,
+            sessionId: id,
+            id: `${id}:configure:checkpoint`,
             at: 100,
           }),
         ]).ok,
