@@ -61,6 +61,8 @@ export interface CliRuntimeOptions {
   /** Cancels a long-running follow child, with hard-kill escalation. */
   readonly followSignal?: AbortSignal;
   readonly clock?: Clock.Clock;
+  /** Captures follow output when a caller needs a lossless readiness signal. */
+  readonly followOutput?: (chunk: string) => void;
 }
 
 export function createCliDeps(home: string = homedir(), options: CliRuntimeOptions = {}): CliDeps {
@@ -144,7 +146,11 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
         resolve(1);
         return;
       }
-      const child = spawn(command, rest, { stdio: ["ignore", "inherit", "inherit"] });
+      const child = spawn(command, rest, {
+        stdio: ["ignore", options.followOutput === undefined ? "inherit" : "pipe", "inherit"],
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stdout?.on("data", (chunk: string) => options.followOutput?.(chunk));
       let killFiber: Fiber.Fiber<void> | undefined;
       const abort = (): void => {
         child.kill("SIGTERM");

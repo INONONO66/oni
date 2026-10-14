@@ -343,6 +343,68 @@ test("restoring a native path source arms cadence once without restarting an exi
   }
 });
 
+test.each([false, true])("cadence alarm_budget refuses installation and retires every watch arm (timeout=%s)", async (timeout) => {
+  const directory = mkdtempSync(join(tmpdir(), "watch-budget-"));
+  const plane = createWatchPlane();
+  const closed = eventSignal<void>("refused source closed", SPAWNED_PTY_MS);
+  const failures: Error[] = [];
+  let opened = 0;
+  const sources = createWatchSources(recordingSenders().senders, {
+    clock: () => FIXTURE_BASE,
+    failure: (_id, error) => failures.push(error),
+    pathWatch: () => {
+      opened += 1;
+      return { on: () => undefined, close: () => closed.resolve() };
+    },
+    retirePath: (sessionId, watchId) => runEffect(plane.retirePath(sessionId, watchId)),
+  });
+  plane.bind(sources);
+  try {
+    await withEntityAlarmPorts("budget-session", async (fx) => {
+      const occupied = timeout ? 62 : 63;
+      for (let index = 0; index < occupied; index += 1) {
+        await runEffect(fx.entityArm({
+          purpose: "note.due",
+          at: FIXTURE_BASE + 60_000,
+          alarmId: `occupied-${index}`,
+          sourceKey: "note",
+          payload: {},
+        }));
+      }
+      const capability = await runEffect(plane.capabilityFor(["monitor"]));
+      const refused = await runEffect(Effect.flip(capability.verbs.watch({
+        sessionId: fx.sessionId,
+        turnId: fx.turnId,
+        watchId: "over-budget",
+        now: FIXTURE_BASE,
+        spec: {
+          watch: {
+            path: join(directory, "target"), event: "create", description: "budget",
+            ...(timeout ? { timeout_ms: 60_000 } : { persistent: true }),
+          },
+          policyGeneration: 1,
+          notificationLimit: 8,
+        },
+      })));
+      await closed.promise;
+      await sources.closeAll();
+      expect(refused).toBeInstanceOf(Bundle.WatchRefused);
+      expect(refused).toMatchObject({ reason: "alarm_budget" });
+      expect(opened).toBe(1);
+      expect(failures).toEqual([]);
+      expect(fx.kernel.armedCount()).toBe(occupied);
+      expect(fx.kernel.armedAlarms().some((row) => row.alarmId.startsWith("over-budget"))).toBe(false);
+      const chains = foldAlarmChains(fx.kernel, fx.sessionId);
+      expect(chains.get("over-budget")?.latest.at).toBeNull();
+      if (timeout) expect(chains.get("over-budget:timeout")?.latest.at).toBeNull();
+      expect(chains.has("over-budget:watch")).toBe(false);
+    }, plane);
+  } finally {
+    await sources.closeAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("a create whose native event is lost is observed by the reconcile cadence exactly once", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watch-sources-race-"));
   const path = join(directory, "target");
@@ -409,11 +471,11 @@ test("a create whose native event is lost is observed by the reconcile cadence e
       writeFileSync(path, "created after install returned; the native event is lost");
       expect(sends).toHaveLength(0);
       expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(1);
-      expect(await fire()).toBe("delivered");
+      expect(await fire()).toBe("exhausted");
       const send = await reconciled.promise;
       expect(send.alarmId).toBe("watch-race");
       live?.("rename", "target");
-      expect(await fire()).toBe("delivered");
+      expect(await fire()).toBe("exhausted");
       expect(sends).toHaveLength(1);
       expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(1);
       const entry = parseHit(sends[0] as WatchHitSend);
@@ -471,6 +533,63 @@ test("closeAll joins a path retirement already removed from the live holders", a
     await sources.closeAll();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("a refused path retirement reports its typed cause and closeAll joins the remaining closes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "watch-retire-refused-"));
+  const refused = new Core.ArmRefused({ code: "stale_activation" });
+  const reports: { id: string; error: Error }[] = [];
+  const retired: string[] = [];
+  let closed = 0;
+  const sources = createWatchSources(recordingSenders().senders, {
+    clock: () => 0,
+    failure: (id, error) => reports.push({ id, error }),
+    pathWatch: () => ({ on: () => undefined, close: () => { closed += 1; } }),
+    retirePath: (_sessionId, id) => {
+      retired.push(id);
+      return id === "refused" ? Promise.reject(refused) : Promise.resolve();
+    },
+  });
+  try {
+    for (const id of ["refused", "remaining"]) {
+      await sources.install(armed({
+        id,
+        watch: { path: join(directory, id), event: "create", description: id, persistent: true },
+      }));
+    }
+    const retirement = sources.close("refused");
+    await sources.closeAll();
+    await retirement;
+    expect(reports).toEqual([{ id: "refused", error: refused }]);
+    expect(retired).toEqual(["refused", "remaining"]);
+    expect(closed).toBe(2);
+  } finally {
+    await sources.closeAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("shutdown refuses both late and suspended installs without opening a path watcher", async () => {
+  let opened = 0;
+  const sources = createWatchSources(recordingSenders().senders, {
+    clock: () => 0,
+    failure: () => undefined,
+    pathWatch: () => {
+      opened += 1;
+      return { on: () => undefined, close: () => undefined };
+    },
+  });
+  const spec = armed({
+    id: "shutdown-watch",
+    watch: { path: "/tmp/shutdown-watch", event: "create", description: "shutdown", persistent: true },
+  });
+  const inflight = sources.install(spec);
+  const shutdown = sources.closeAll();
+  await expect(sources.install(spec)).rejects.toEqual(new Bundle.WatchRefused({ reason: "shutdown" }));
+  await expect(inflight).rejects.toEqual(new Bundle.WatchRefused({ reason: "shutdown" }));
+  await shutdown;
+  await expect(sources.install(spec)).rejects.toEqual(new Bundle.WatchRefused({ reason: "shutdown" }));
+  expect(opened).toBe(0);
 });
 
 test("a watch alarm fired before its path source is registered retires without a hit", async () => {

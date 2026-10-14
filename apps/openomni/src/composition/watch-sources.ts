@@ -42,6 +42,7 @@ class AlarmSourceError extends Error {
       | "terminal.open"
       | "terminal.read"
       | "path.observe"
+      | "path.retire"
       | "source.start"
       | "source.close"
       | "bus.scan"
@@ -405,7 +406,7 @@ export function createWatchSources(
     /** Absent means this brain has no body: terminal watches are refused at create. */
     readonly machines?: TerminalWatchMachines;
     /** Test seam for a lost native event (G015); production uses the native installer. */
-    readonly pathWatch?: PathWatchInstaller;
+    readonly pathWatch?: PathWatchInstaller | undefined;
     /** Retires the path's alarm chain through the live entity arm verb. */
     readonly retirePath?: (sessionId: string, watchId: string) => Promise<void>;
   },
@@ -524,8 +525,13 @@ export function createWatchSources(
     const retirement = (async () => {
       await holder.source.close();
       await holder.tail;
-      if ("path" in holder.current.base.spec.watch)
-        await options.retirePath?.(holder.current.sessionId, id);
+      if ("path" in holder.current.base.spec.watch) {
+        try {
+          await options.retirePath?.(holder.current.sessionId, id);
+        } catch (error) {
+          options.failure(id, error instanceof Error ? error : new AlarmSourceError(undefined, "path.retire"));
+        }
+      }
     })();
     retirements.add(retirement);
     void retirement.then(
@@ -545,8 +551,10 @@ export function createWatchSources(
   const pending = new Map<string, Promise<void>>();
 
   async function startHolder(spec: ArmedWatch): Promise<void> {
+      if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       // Reinstall replaces any previous handle before a new occurrence leaves.
       await close(spec.id);
+      if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       const holder: Holder = {
         source: { close: () => Promise.resolve() },
         tail: Promise.resolve(),
@@ -563,6 +571,7 @@ export function createWatchSources(
       // can race the cursor baseline; a failed subscription refuses the arm.
       try {
         await holder.source.ready;
+        if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       } catch (error) {
         await holder.source.close();
         throw error;
@@ -572,12 +581,14 @@ export function createWatchSources(
 
   return {
     async install(spec) {
+      if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       // #1254 H2: an arm's forward and the watch verb's awaited install may
       // race for the same fresh chain. The loser adopts the winner's handle
       // (occurrence swap) instead of starting a second native source.
       const inflight = pending.get(spec.id);
       if (inflight !== undefined) {
         await inflight.catch(() => undefined);
+        if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
         const holder = holders.get(spec.id);
         if (holder !== undefined) {
           holder.current = spec;
@@ -607,10 +618,11 @@ export function createWatchSources(
     },
     close,
     closeAll() {
-      shutdown ??= (async () => {
-        await Promise.all([...holders.keys()].map(retire));
-        while (retirements.size > 0) await Promise.all([...retirements]);
-      })();
+      shutdown ??= Promise.resolve().then(async () => {
+        await Promise.allSettled([...pending.values()]);
+        await Promise.allSettled([...holders.keys()].map(retire));
+        while (retirements.size > 0) await Promise.allSettled([...retirements]);
+      });
       return shutdown;
     },
   };

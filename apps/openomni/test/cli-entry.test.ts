@@ -6,7 +6,6 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
-  watch,
   writeFileSync,
 } from "node:fs";
 import { Clock, Effect } from "effect";
@@ -485,9 +484,6 @@ describe("real CLI entry", () => {
     const home = tempHome();
     const ready = eventSignal<void>("follow child ready", CHILD_TIMEOUT_MS);
     const sleeping = eventSignal<void>("kill delay armed", CHILD_TIMEOUT_MS);
-    const directoryWatch = watch(home, (_event, filename) => {
-      if (filename === "ready") ready.resolve();
-    });
     const clockRuntime = testClockRuntime();
     const baseClock = await clockRuntime.run(Clock.Clock);
     const clock: Clock.Clock = {
@@ -496,12 +492,19 @@ describe("real CLI entry", () => {
         Effect.sync(() => sleeping.resolve()).pipe(Effect.andThen(baseClock.sleep(duration))),
     };
     const controller = new AbortController();
-    const deps = createCliDeps(home, { followSignal: controller.signal, clock });
+    let output = "";
+    const deps = createCliDeps(home, {
+      followSignal: controller.signal,
+      clock,
+      followOutput: (chunk) => {
+        output += chunk;
+        if (output.includes("READY\n")) ready.resolve();
+      },
+    });
     try {
       const result = deps.follow([
         "/bin/sh", "-c",
-        'trap "" TERM; printf ready > "$1"; exec /usr/bin/tail -f /dev/null',
-        "--", join(home, "ready"),
+        'trap "" TERM; printf "READY\\n"; exec /usr/bin/tail -f /dev/null',
       ]);
       await ready.promise;
       let settled = false;
@@ -513,7 +516,6 @@ describe("real CLI entry", () => {
       expect(await bounded(result, CHILD_TIMEOUT_MS, "SIGKILL fallback did not settle")).toBe(1);
     } finally {
       controller.abort();
-      directoryWatch.close();
       await clockRuntime.dispose();
     }
   });

@@ -101,7 +101,9 @@ export function createWatchPlane(
         }).pipe(Effect.mapError((refused) =>
           new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.code }),
         ));
-        return observed ? "delivered" as const : "exhausted" as const;
+        // Reconcile only queues native hits; their monitor.hit occurrence owns
+        // delivery and drain. A cadence tick itself never delivers a prompt.
+        return "exhausted" as const;
       }),
   };
   const registry = createLiveArmRegistry();
