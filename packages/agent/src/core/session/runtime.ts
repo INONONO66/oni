@@ -287,6 +287,14 @@ export interface SessionEntityTurnInput {
 export interface SessionEntityPorts {
   /** The product bundle owns the approval values; required — the core has no fallback. */
   readonly approvalPolicy: ApprovalPolicy;
+  /** Redrives committed outbound obligations after a fresh entity activation. */
+  readonly dispatchOutbound?: (input: {
+    readonly kernel: SessionKernel;
+    readonly sessionId: string;
+    readonly owner: string;
+    readonly fence: number;
+    readonly clock: () => number;
+  }) => Effect.Effect<void, SessionError>;
   /** Redelivery can activate before boot bound the ports; the gate holds it. Absent = ready. */
   readonly ready?: Effect.Effect<void>;
   /** Runs one admitted decision to a durable boundary; the ack follows its commits. */

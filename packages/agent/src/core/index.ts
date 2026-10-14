@@ -37,6 +37,7 @@ export { withExecutor } from "./loop/invocation";
 
 export {
   adoptedExecutor, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,
+  dispatchSessionOutbound,
   type GenerationBundle, type SessionHandle, type SessionRunner, type SessionRuntime,
   type SessionCreateOptions, type SessionRunnerInput, type SessionRunnerResult,
   type SessionEntityPorts, type SessionEntityTurnInput,

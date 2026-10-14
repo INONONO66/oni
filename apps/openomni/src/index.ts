@@ -1111,7 +1111,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       services: services.context,
     };
     services.entityPorts.bind({
-      approvalPolicy: sessionRuntime.approvalPolicy,
+      approvalPolicy: sessionRuntime.approvalPolicy, dispatchOutbound: (input) => entityDispatchOutbound(resolvedRuntime, input),
       runTurn: (input) =>
         sessionRunner(input.authority.sessionId) === "process"
           ? Effect.tryPromise({
@@ -1499,6 +1499,22 @@ export function installShutdownHandlers(deps: {
  * returns one only while a turn is running - a hibernated entity session has
  * no live surface, its interaction is the entity client's mailbox.
  */
+function entityDispatchOutbound(
+  runtime: Core.ResolvedSessionRuntime,
+  input: Parameters<NonNullable<Core.SessionEntityPorts["dispatchOutbound"]>>[0],
+): Effect.Effect<void, Core.SessionError> {
+  return runtime.dispatchOutbound === undefined
+    ? Effect.void
+    : Core.dispatchSessionOutbound(
+        input.kernel,
+        input.sessionId,
+        runtime,
+        input.owner,
+        input.fence,
+        input.clock,
+      );
+}
+
 export interface AppSessionHandle {
   readonly id: string;
   readonly approvals: SessionHandle["approvals"];

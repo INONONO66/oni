@@ -72,6 +72,8 @@ export interface TestClusterOptions {
   readonly onLive?: SessionEntityPorts["onLive"];
   /** Post-commit arm notice (native handles follow committed rows). */
   readonly onArmed?: SessionEntityPorts["onArmed"];
+  /** Redrives pending outbound rows when a real entity activates. */
+  readonly dispatchOutbound?: SessionEntityPorts["dispatchOutbound"];
   /** Injected entity clock (byte-equality fixtures); default wall clock. */
   readonly clock?: () => number;
   /** Effect Clock of the cluster host (entity reaper, `DeliverAt` readiness); default the live clock. */
@@ -347,6 +349,7 @@ function entityPorts(
     ...(options.onRequestReady === undefined ? {} : { onRequestReady: options.onRequestReady }),
     ...(options.onLive === undefined ? {} : { onLive: options.onLive }),
     ...(options.onArmed === undefined ? {} : { onArmed: options.onArmed }),
+    ...(options.dispatchOutbound === undefined ? {} : { dispatchOutbound: options.dispatchOutbound }),
     sendAlarm:
       options.wrapSendAlarm === undefined
         ? forward
