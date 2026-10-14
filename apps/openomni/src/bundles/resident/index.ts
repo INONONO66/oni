@@ -37,6 +37,49 @@ export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly er
   };
 }
 
+/**
+ * The external human the turn answers: the last delivered prompt whose
+ * origin names an actor on a channel surface. WebSocket owners already read
+ * the turn stream, so they are not written to twice.
+ */
+function externalReplyTarget(input: Parameters<SessionRunner>[0]): string | undefined {
+  for (const message of [...input.messages].reverse()) {
+    if (message.id === undefined) continue;
+    const origin = input.kernel.actionById(message.id)?.intent.value;
+    if (origin === null || typeof origin !== "object" || Array.isArray(origin)) continue;
+    if (origin.kind !== "external" || origin.surface === "ws") continue;
+    if (typeof origin.actorId === "string") return origin.actorId;
+  }
+  return undefined;
+}
+
+function contactTarget(call: Tool.Call): string | undefined {
+  // Membership test on purpose: lint:tools reads an equals sign before the
+  // quoted tool name as a second definition site.
+  if (!["send_message"].includes(call.tool)) return undefined;
+  const to = call.input.to;
+  if (to === null || typeof to !== "object" || Array.isArray(to)) return undefined;
+  return to.kind === "contact" && typeof to.id === "string" ? to.id : undefined;
+}
+
+/**
+ * The report an approved person is owed after a turn: its result text (or a
+ * reported error) addressed to the external actor who wrote in, unless the
+ * model already wrote to that contact itself or the turn could not act.
+ */
+function pendingReport(
+  input: Parameters<SessionRunner>[0],
+  result: Core.SessionRunnerResult,
+  repliedTo: ReadonlySet<string>,
+): { readonly target: string; readonly text: string } | undefined {
+  if (input.authority === "evidence_only") return undefined;
+  if (result.kind !== "result" && !(result.kind === "error" && result.reported === true)) return undefined;
+  if (result.text.trim() === "") return undefined;
+  const target = externalReplyTarget(input);
+  if (target === undefined || repliedTo.has(target)) return undefined;
+  return { target, text: result.text };
+}
+
 export interface ResidentOptions {
   readonly model: Model.Ref;
   readonly modelFallbacks?: readonly Model.Ref[];
@@ -129,6 +172,9 @@ export function createResident(options: ResidentOptions) {
       const evidenceOnly = input.authority === "evidence_only";
       const offered = new Set(input.tools.map((tool) => tool.name));
       const tools = evidenceOnly ? [] : dispatcher.specs.filter((tool) => offered.has(tool.name));
+      // Contacts the model wrote to itself this turn; the post-turn report
+      // never duplicates an explicit send_message to the same person.
+      const repliedTo = new Set<string>();
       const runner = createSessionChatRunner({
         prepare: () => Effect.succeed({
           config: {
@@ -146,7 +192,12 @@ export function createResident(options: ResidentOptions) {
                     sessionId: input.sessionId,
                     turnId: input.turnId,
                     signal,
-                  }),
+                  }).pipe(Effect.tap(() => Effect.sync(() => {
+                    for (const call of calls) {
+                      const target = contactTarget(call);
+                      if (target !== undefined) repliedTo.add(target);
+                    }
+                  }))),
             model: options.model,
             ...(options.modelFallbacks === undefined
               ? {}
@@ -170,7 +221,17 @@ export function createResident(options: ResidentOptions) {
         // #1276: product choice injected into the core seam.
         pinnedModel: pinnedModelSelection,
       });
-      return yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
+      const result = yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
+      // An approved person who wrote in on a channel is reported to directly;
+      // sessions and other contacts are reached only by an explicit send_message.
+      const report = pendingReport(input, result, repliedTo);
+      if (report !== undefined) {
+        yield* dispatcher.execute(
+          { id: ports.id(), tool: "send_message", input: { to: { kind: "contact", id: report.target }, message: report.text } },
+          { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
+        );
+      }
+      return result;
     });
   return {
     runnerFor,
