@@ -20,6 +20,12 @@ export interface ArmedAlarmRow {
   readonly tick?: number;
 }
 
+/** The current occurrence of one alarm chain, read by its primary key without the arm-row join. */
+export interface ArmedOccurrence {
+  readonly occurrenceId: string;
+  readonly fireAt: number;
+}
+
 const ArmedAlarmSqlRow = z.object({
   alarm_id: z.string(),
   occurrence_id: z.string(),
@@ -38,6 +44,8 @@ const ArmIntentView = z.object({
 });
 const RequeueRow = z.object({ fire_at: z.number() }).nullable();
 
+const ArmedOccurrenceRow = z.object({ occurrence_id: z.string(), fire_at: z.number() }).nullable();
+
 const ArmedCountRow = z.object({ count: z.number().int().nonnegative() });
 
 function armSeqFromArmRowId(armRowId: string): number {
@@ -54,6 +62,7 @@ function armSeqFromArmRowId(armRowId: string): number {
 /** `armed_alarms` ports; `strikeArmedAlarm`/`requeueArmedAlarm` write index state only, no row. */
 export function createArmedAlarmPorts(db: Database): {
   armedAlarms(): readonly ArmedAlarmRow[];
+  armedAlarm(alarmId: string): ArmedOccurrence | undefined;
   armedCount(): number;
   strikeArmedAlarm(occurrenceId: string): number | undefined;
   requeueArmedAlarm(occurrenceId: string, at: number): boolean;
@@ -85,6 +94,12 @@ export function createArmedAlarmPorts(db: Database): {
           ...(row.fire_at === intent.at ? {} : { tick: row.fire_at }),
         };
       });
+    },
+    armedAlarm(alarmId) {
+      const row = ArmedOccurrenceRow.parse(
+        db.query("SELECT occurrence_id, fire_at FROM armed_alarms WHERE alarm_id = ?").get(alarmId),
+      );
+      return row === null ? undefined : { occurrenceId: row.occurrence_id, fireAt: row.fire_at };
     },
     armedCount() {
       return ArmedCountRow.parse(

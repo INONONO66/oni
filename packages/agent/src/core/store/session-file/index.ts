@@ -28,7 +28,7 @@ import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-
 
 
 import { createActions } from "./actions";
-import { createArmedAlarmPorts, type ArmedAlarmRow } from "./alarms";
+import { createArmedAlarmPorts, type ArmedAlarmRow, type ArmedOccurrence } from "./alarms";
 import { createToolOutputs, type ToolOutputWrite, type ToolOutputsAdapter } from "./outputs";
 
 export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
@@ -280,6 +280,8 @@ export class SessionStore extends StoreHandle {
   readonly decisionFacts: ProtocolStorage.DecisionFactSubAdapter;
   /**  S3: the durable armed-alarm index of this session file. */
   readonly armedAlarms: () => readonly ArmedAlarmRow[];
+  /** The current occurrence of one alarm chain by primary key. */
+  readonly armedAlarm: (alarmId: string) => ArmedOccurrence | undefined;
   readonly armedCount: () => number;
   readonly strikeArmedAlarm: (occurrenceId: string) => number | undefined;
   /** Moves one armed occurrence to `at` with strikes reset; false when the index lacks it. */
@@ -303,6 +305,7 @@ export class SessionStore extends StoreHandle {
     this.decisionFacts = createSqliteDecisionFacts(db);
     const armed = createArmedAlarmPorts(db);
     this.armedAlarms = () => armed.armedAlarms();
+    this.armedAlarm = (alarmId) => armed.armedAlarm(alarmId);
     this.armedCount = () => armed.armedCount();
     this.strikeArmedAlarm = (occurrenceId) => armed.strikeArmedAlarm(occurrenceId);
     this.requeueArmedAlarm = (occurrenceId, at) => armed.requeueArmedAlarm(occurrenceId, at);

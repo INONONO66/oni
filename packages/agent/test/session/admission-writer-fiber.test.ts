@@ -21,6 +21,7 @@ import { Headers } from "effect/http";
 import { CommitRefused } from "../../src/core/store/errors";
 import { armAction, AlarmWakeError, type AlarmCapability } from "../../src/core/ports/alarm";
 import { writerLoop, type ActivationHandle, type SessionKernel } from "../../src/core/session/entity";
+import { forwardState } from "../../src/core/session/entity-activation";
 import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type ReadRpc, type ResolveRpc } from "../../src/core/journal/messages";
 import type { SessionEntityPorts } from "../../src/core/session/run";
 import { clusterTempDir, makeTurnPort, resolvedRunner } from "../helpers/cluster-runtime";
@@ -169,6 +170,7 @@ function makeWriterWorld(
       gate,
       live: { current: undefined },
       closing: { current: false },
+      forwards: forwardState(),
       keepAlive: () => Effect.void,
     };
     const queue = yield* Queue.make<SessionRequest>();

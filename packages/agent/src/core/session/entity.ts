@@ -1,12 +1,12 @@
 import * as SessionHandleStore from "../store/fence";
-import { Effect, Queue, Semaphore } from "effect";
+import { Duration, Effect, Option, Queue, Semaphore } from "effect";
 import { Entity, type Envelope, type Sharding } from "effect/cluster";
 import { logRestoredHistory } from "./recovery";
 import type { SessionEntityAuthority } from "./run";
 import { AdmissionFailure, type AlarmRpc, type DeliverRpc, type ReadPage, type ReadRpc, type ResolveRpc } from "../journal/messages";
 import type { AlarmDrainConfig } from "../ports/alarm";
 import { renderReadModel } from "./read";
-import { SessionEntity, SessionEntityContext, adoptFence, armResumeOnPassivation, entityArmVerb, resendArmedAlarms, rotateActivationFence, type ActivationHandle, type SessionReplier, type SessionRequest } from "./entity-activation";
+import { SessionEntity, SessionEntityContext, adoptFence, armResumeOnPassivation, entityArmVerb, forwardState, resendArmedAlarms, rotateActivationFence, type ActivationHandle, type SessionReplier, type SessionRequest } from "./entity-activation";
 import { deliver, drain, resolveCommand } from "./entity-delivery";
 import { alarmOccurrence } from "./entity-alarm";
 
@@ -146,7 +146,19 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
       const address = yield* Entity.CurrentAddress;
       const sessionId = address.entityId;
       const store = env.openSession(sessionId);
-      yield* Effect.addFinalizer(() => Effect.sync(() => store.close()));
+      const gate = yield* Semaphore.make(1);
+      const closing = { current: false };
+      // Arms run under `gate`: refuse new ones, wait (bounded) for an in-flight one, then close.
+      yield* Effect.addFinalizer(() => Effect.gen(function* () {
+        closing.current = true;
+        const waited = yield* gate.withPermits(1)(Effect.void).pipe(
+          Effect.interruptible,
+          Effect.timeoutOption(Duration.millis(drainConfig.armCloseWaitMs ?? 5_000)),
+        );
+        if (Option.isNone(waited))
+          yield* Effect.logWarning(`session store closed while an arm held the gate: ${sessionId}`);
+        store.close();
+      }));
       const kernel = SessionHandleStore.createSessionKernel(store, env.catalog);
       const authority: SessionEntityAuthority = {
         sessionId,
@@ -155,7 +167,6 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
       };
       yield* adoptFence(kernel, authority).pipe(Effect.orDie);
       const scope = yield* Effect.scope;
-      const gate = yield* Semaphore.make(1);
       const clusterServices = yield* Effect.context<Sharding.Sharding | Entity.CurrentAddress>();
       const makeClient = yield* SessionEntity.client;
       const client = makeClient(sessionId);
@@ -167,7 +178,8 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
         scope,
         gate,
         live: { current: undefined },
-        closing: { current: false },
+        closing,
+        forwards: forwardState(),
         keepAlive: (enabled) =>
           Effect.suspend(() => {
             env.ports.onKeepAlive?.(enabled);

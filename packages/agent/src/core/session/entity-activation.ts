@@ -44,8 +44,26 @@ export interface ActivationHandle {
     readonly gate: Semaphore.Semaphore;
     readonly live: { current: object | undefined };
     readonly closing: { current: boolean };
+  readonly forwards: ForwardState;
   readonly keepAlive: (enabled: boolean) => Effect.Effect<void>;
     readonly resumeSend?: (occurrence: AlarmFired) => Effect.Effect<void>;
+}
+
+/**
+ * The activation's one alarm forwarder: the latest unsent occurrence per alarm id (a re-arm replaces its queued
+ * predecessor, so a superseded occurrence is never sent), the occurrence last handed to `sendAlarm` per alarm id, and
+ * the sent occurrences a later timed re-arm superseded. Each orphan is a durable envelope that folds `stale` when it
+ * fires; `maxArmed` bounds them per activation.
+ */
+export interface ForwardState {
+  readonly queued: Map<string, { readonly occurrence: AlarmFired; readonly onRefused: "retire" | "ignore" }>;
+  readonly sent: Map<string, string>;
+  readonly orphans: Set<string>;
+  running: boolean;
+}
+
+export function forwardState(): ForwardState {
+  return { queued: new Map(), sent: new Map(), orphans: new Set(), running: false };
 }
 
 export function rotateActivationFence(env: SessionEntityEnv, kernel: SessionKernel, sessionId: string): number {
@@ -90,7 +108,15 @@ export function commitIn(
   input: Parameters<SessionKernel["commit"]>[0],
 ): ReturnType<SessionKernel["commit"]> {
   return handle.kernel.commit(input).pipe(
-    Effect.tap(() => forwardArmedOccurrences(handle, input.actions)),
+    Effect.tap(() =>
+      enqueueForwards(
+        handle,
+        input.actions.flatMap((action) => {
+          const fired = armedOccurrenceOf(action);
+          return fired === undefined ? [] : [{ occurrence: fired, onRefused: "ignore" as const }];
+        }),
+      ),
+    ),
   );
 }
 
@@ -114,33 +140,74 @@ function sendArmedOccurrence(
         supersedes: occurrence.occurrenceId,
         sourceKey: occurrence.sourceKey,
         payload: { reason: "send_refused", detail: refused.value.reason },
-      }).pipe(Effect.orDie, Effect.asVoid);
+      }).pipe(
+        // A closing activation leaves the refused occurrence to the next activation's resend walk.
+        Effect.catchIf((error) => error instanceof ArmRefused && error.code === "stale_activation", () => Effect.void),
+        Effect.orDie,
+        Effect.asVoid,
+      );
     }),
   );
 }
 
 /** Re-sends a moved occurrence keyed on its new time; a closing activation leaves it to the next walk. */
 export function sendQuietTick(handle: ActivationHandle, occurrence: AlarmFired): Effect.Effect<void> {
-  const send = handle.env.ports.sendAlarm;
-  if (send === undefined || handle.closing.current) return Effect.void;
-  return Effect.forkIn(sendArmedOccurrence(handle, send, occurrence, "retire"), handle.scope).pipe(Effect.asVoid);
+  return enqueueForwards(handle, [{ occurrence, onRefused: "retire" }]);
 }
 
-function forwardArmedOccurrences(
+/** Queues occurrences on the one forwarder, forking it only when none runs. */
+function enqueueForwards(
   handle: ActivationHandle,
-  actions: readonly LedgerAction.Append[],
+  entries: readonly { readonly occurrence: AlarmFired; readonly onRefused: "retire" | "ignore" }[],
 ): Effect.Effect<void> {
   const send = handle.env.ports.sendAlarm;
-  if (send === undefined || handle.closing.current) return Effect.void;
-  const occurrences = actions.flatMap((action) => {
-    const fired = armedOccurrenceOf(action);
-    return fired === undefined ? [] : [fired];
+  if (send === undefined || handle.closing.current || entries.length === 0) return Effect.void;
+  return Effect.suspend(() => {
+    const { forwards } = handle;
+    for (const entry of entries) {
+      forwards.queued.delete(entry.occurrence.alarmId);
+      forwards.queued.set(entry.occurrence.alarmId, entry);
+    }
+    if (forwards.running) return Effect.void;
+    forwards.running = true;
+    return Effect.forkIn(
+      forwardLoop(handle, send).pipe(
+        Effect.onExit((exit) => Effect.sync(() => {
+          if (exit._tag === "Failure") forwards.running = false;
+        })),
+      ),
+      handle.scope,
+    ).pipe(Effect.asVoid);
   });
-  if (occurrences.length === 0) return Effect.void;
-  return Effect.forkIn(
-    Effect.forEach(occurrences, (fired) => sendArmedOccurrence(handle, send, fired, "ignore"), { discard: true }),
-    handle.scope,
-  ).pipe(Effect.asVoid);
+}
+
+/** Clears `running` in the same step that observes an empty queue, so a later enqueue always forks. */
+function takeForward(handle: ActivationHandle) {
+  const { forwards } = handle;
+  const first = forwards.queued.entries().next();
+  if (first.done === true || handle.closing.current) {
+    forwards.queued.clear();
+    forwards.running = false;
+    return undefined;
+  }
+  forwards.queued.delete(first.value[0]);
+  return first.value[1];
+}
+
+function forwardLoop(
+  handle: ActivationHandle,
+  send: NonNullable<SessionEntityPorts["sendAlarm"]>,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    for (;;) {
+      const entry = takeForward(handle);
+      if (entry === undefined) return;
+      const { occurrence } = entry;
+      if (handle.kernel.armedAlarm(occurrence.alarmId)?.occurrenceId !== occurrence.occurrenceId) continue;
+      handle.forwards.sent.set(occurrence.alarmId, occurrence.occurrenceId);
+      yield* sendArmedOccurrence(handle, send, occurrence, entry.onRefused);
+    }
+  });
 }
 
 const ArmAppendIntent = z.object({
@@ -173,16 +240,47 @@ function armedOccurrenceOf(action: LedgerAction.Append): AlarmFired | undefined 
   };
 }
 
+/**
+ * Runs under the activation gate the store-close finalizer also takes: an arm either completes (commit and tap
+ * included) before the store closes, or observes `closing` inside the permit and refuses `stale_activation`.
+ */
 export function entityArmVerb(handle: ActivationHandle): ArmVerb {
-  const { kernel, authority, env, drain: config } = handle;
+  const verb = ungatedArmVerb(handle);
+  return (input) =>
+    handle.gate.withPermits(1)(Effect.suspend(() =>
+      handle.closing.current ? Effect.fail(new ArmRefused({ code: "stale_activation" })) : verb(input),
+    ));
+}
+
+/**
+ * The budget gate of one arm: a new chain needs an `armed_alarms` slot, and a timed re-arm of an occurrence already
+ * handed to sendAlarm orphans that durable envelope, which needs an orphan slot. Returns the orphaned occurrence id.
+ */
+function armBudget(
+  handle: ActivationHandle,
+  alarmId: string,
+  at: number | null,
+  latest: { readonly occurrenceId: string } | undefined,
+): Effect.Effect<string | undefined, ArmRefused> {
+  const { kernel, drain: config, forwards } = handle;
+  if (at === null) return Effect.succeed(undefined);
+  if (latest === undefined)
+    return kernel.armedCount() >= config.maxArmed ? Effect.fail(new ArmRefused({ code: "alarm_budget" })) : Effect.succeed(undefined);
+  if (forwards.sent.get(alarmId) !== latest.occurrenceId) return Effect.succeed(undefined);
+  return forwards.orphans.size >= config.maxArmed
+    ? Effect.fail(new ArmRefused({ code: "alarm_budget" }))
+    : Effect.succeed(latest.occurrenceId);
+}
+
+function ungatedArmVerb(handle: ActivationHandle): ArmVerb {
+  const { kernel, authority, env, forwards } = handle;
   return (input) =>
     retryRevision(() => Effect.gen(function* () {
       if (isReservedAlarmPurpose(input.purpose) || input.purpose === "rescan")
         return yield* new ArmRefused({ code: "reserved_purpose" });
       const alarmId = input.alarmId ?? `${authority.sessionId}:${input.purpose}`;
       const latest = armedChainReads(handle).latestArm(alarmId);
-      if (input.at !== null && latest === undefined && kernel.armedCount() >= config.maxArmed)
-        return yield* new ArmRefused({ code: "alarm_budget" });
+      const orphan = yield* armBudget(handle, alarmId, input.at, latest);
       const row = kernel.row(authority.sessionId);
       const armSeq = row.revision + 1;
       const supersedes = input.supersedes ?? latest?.occurrenceId ?? null;
@@ -207,6 +305,7 @@ export function entityArmVerb(handle: ActivationHandle): ArmVerb {
         actions: [action],
         state: row.state,
       });
+      if (orphan !== undefined) forwards.orphans.add(orphan);
       env.ports.onArmed?.({
         sessionId: authority.sessionId,
         purpose: input.purpose,
@@ -238,7 +337,7 @@ export function armedChainReads(handle: ActivationHandle): AlarmChainReads {
   const { kernel } = handle;
   return {
     latestArm: (alarmId) => {
-      const row = kernel.armedAlarms().find((armed) => armed.alarmId === alarmId);
+      const row = kernel.armedAlarm(alarmId);
       return row === undefined ? undefined : { occurrenceId: row.occurrenceId, at: row.fireAt };
     },
     settled: (occurrenceId) =>
@@ -248,15 +347,8 @@ export function armedChainReads(handle: ActivationHandle): AlarmChainReads {
 }
 
 export function resendArmedAlarms(handle: ActivationHandle): Effect.Effect<void> {
-  const send = handle.env.ports.sendAlarm;
-  if (send === undefined || handle.closing.current) return Effect.void;
-  const { kernel, scope } = handle;
-  const rows = kernel.armedAlarms();
-  if (rows.length === 0) return Effect.void;
-  return Effect.forkIn(
-    Effect.forEach(rows, (row) => sendArmedOccurrence(handle, send, row, "retire"), { discard: true }),
-    scope,
-  ).pipe(Effect.asVoid);
+  if (handle.env.ports.sendAlarm === undefined || handle.closing.current) return Effect.void;
+  return enqueueForwards(handle, handle.kernel.armedAlarms().map((row) => ({ occurrence: row, onRefused: "retire" as const })));
 }
 
 export function armResumeOnPassivation(handle: ActivationHandle): Effect.Effect<void> {

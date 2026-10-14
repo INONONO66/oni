@@ -16,6 +16,7 @@ export function alarmOccurrence(
   promptReceived: () => void,
 ): Effect.Effect<AlarmReceipt, AdmissionFailure> {
   return Effect.gen(function* () {
+    handle.forwards.orphans.delete(occurrence.occurrenceId);
     if (occurrence.purpose === "rescan") return { outcome: "delivered" as const };
     const quietTick = occurrence.tick !== undefined;
     if (quietTick && !tickIsCurrent(handle, occurrence)) return { outcome: "stale" as const };

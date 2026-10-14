@@ -5,7 +5,7 @@ import { configurationSnapshot, generationSnapshot, latestGenerationForIn, lates
 import { StorageUnavailable, type LedgerError } from "./errors";
 import { latestFoldCheckpointIn, openTurnsPageIn, latestOpenTurnIn, resultForIn, historyPageIn, stateEffect, requestStatesPageIn, requestRowsIn, outboundStatesPageIn, outboundRowsIn, inputMessagesIn, pendingMessagesIn, pendingMessagesSinceIn, type PendingSnapshot, rowIn, policyRowsIn, getSnapshotIn, watchSnapshotIn, requiredSessionsIn, requiredActionsIn, turnTerminal, type OpenTurn } from "./session-reads";
 import type { AdoptReceipt, CommitReceipt, SessionWriteAdapter } from "./services";
-import type { ArmedAlarmRow } from "./session-file/alarms";
+import type { ArmedAlarmRow, ArmedOccurrence } from "./session-file/alarms";
 import type { SessionStore } from "./session-file/index.js";
 import type { ToolOutputRow, ToolOutputWrite, ToolOutputsAdapter } from "./session-file/outputs";
 import { armedAlarmDelta } from "./storage/sqlite-l0-write.js";
@@ -20,6 +20,7 @@ interface SessionKernelStores {
   readonly policies?: ProtocolStorage.PolicyRowSubAdapter;
   readonly armed?: {
     armedAlarms(): readonly ArmedAlarmRow[];
+    armedAlarm(alarmId: string): ArmedOccurrence | undefined;
     armedCount(): number;
     strikeArmedAlarm(occurrenceId: string): number | undefined;
     requeueArmedAlarm(occurrenceId: string, at: number): boolean;
@@ -204,6 +205,7 @@ function makeSessionKernel(context: SessionKernelContext) {
     currentPolicyGeneration: (): number =>
       policyRowsIn(context).reduce((latest, policy) => Math.max(latest, policy.generation), 0),
     armedAlarms: (): readonly ArmedAlarmRow[] => requiredArmedIn(context).armedAlarms(),
+    armedAlarm: (alarmId: string): ArmedOccurrence | undefined => requiredArmedIn(context).armedAlarm(alarmId),
     armedCount: (): number => requiredArmedIn(context).armedCount(),
     /** One consumed delivery attempt; undefined once the row is retired. */
     strikeArmedAlarm: (occurrenceId: string): number | undefined =>
@@ -240,6 +242,7 @@ export function createSessionKernel(session: SessionStore, catalog: CatalogStore
       policies: catalog.policies,
       armed: {
         armedAlarms: session.armedAlarms,
+        armedAlarm: session.armedAlarm,
         armedCount: session.armedCount,
         strikeArmedAlarm: session.strikeArmedAlarm,
         requeueArmedAlarm: session.requeueArmedAlarm,
