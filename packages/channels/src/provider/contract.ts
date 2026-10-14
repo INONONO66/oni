@@ -1,4 +1,4 @@
-import type { Channel } from "@openomni/protocol";
+import type { Channel, Gateway } from "@openomni/protocol";
 import type { EffectRunner } from "../types.js";
 import type { z } from "zod";
 import type { PublishPort } from "../types.js";
@@ -14,6 +14,7 @@ export type ProviderDeliveryRoute = (
   externalId: string,
   body: string,
   idempotencyKey: string,
+  conversation?: Gateway.Conversation,
 ) => Promise<{
   readonly value: "accepted" | "rejected" | "unknown";
   readonly externalMessageId?: string;

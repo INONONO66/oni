@@ -1,4 +1,4 @@
-import { kernelDeliveryReceipt } from "../../support/deliver.js";
+import { kernelDeliveryReceipt, refuseConversation } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
 import { GitHubAdapter } from "./surface.js";
@@ -43,8 +43,10 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     );
     return {
       surface,
-      deliveryRoute: (externalId, body, key) =>
-        surface.deliver(externalId, body, key).then(kernelDeliveryReceipt),
+      deliveryRoute: async (externalId, body, key, conversation) => {
+        refuseConversation("github", conversation);
+        return kernelDeliveryReceipt(await surface.deliver(externalId, body, key));
+      },
       webhookHandler: (request) => surface.handleWebhook(request),
     };
   },

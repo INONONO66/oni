@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { FIXED_NOW, testRun } from "./helpers/injected";
 import { TelegramClient } from "../src/provider/telegram/client";
 
-type SentBody = { text?: string; parse_mode?: string };
+type SentBody = {
+  text?: string;
+  parse_mode?: string;
+  chat_id?: string;
+  reply_to_message_id?: number;
+  message_thread_id?: number;
+};
 
 const realFetch = globalThis.fetch;
 
@@ -39,6 +45,29 @@ function parseRejection(): Response {
 }
 
 describe("TelegramClient.sendMarkdown", () => {
+  it("quotes the answered message and posts into its topic, on the fallback too (#1490)", async () => {
+    const { calls } = mockSendMessage((body) =>
+      body.parse_mode === undefined ? okResponse() : parseRejection(),
+    );
+    const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);
+
+    const id = await client.sendMarkdown("34", "a.b", "trace-3", {
+      channelId: "34",
+      threadId: "99",
+      replyToMessageId: "11",
+    });
+
+    expect(id).toBe("42");
+    expect(calls.map(({ parse_mode, reply_to_message_id, message_thread_id }) => ({
+      parse_mode,
+      reply_to_message_id,
+      message_thread_id,
+    }))).toEqual([
+      { parse_mode: "MarkdownV2", reply_to_message_id: 11, message_thread_id: 99 },
+      { parse_mode: undefined, reply_to_message_id: 11, message_thread_id: 99 },
+    ]);
+  });
+
   it("sends with MarkdownV2 parse mode and returns the message id", async () => {
     const { calls } = mockSendMessage(() => okResponse());
     const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);

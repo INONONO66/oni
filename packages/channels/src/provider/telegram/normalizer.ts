@@ -62,12 +62,20 @@ export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | T
         channelId: chatId,
         addressees,
         dm: message.chat.type === "private",
-        ...(!reaction && message.reply_to_message
-          ? { reply: { chain, replyToMessageId: String(message.reply_to_message.message_id) } }
-          : {}),
+        ...(reaction ? {} : telegramReply(message, chain)),
         payload: Gateway.IngressFacts.shape.payload.parse(message),
         render: text,
       },
     };
   }
+}
+
+/** A forum topic is the thread; a quoted message is the reply-to. Neither alone makes a `reply`. */
+function telegramReply(message: TelegramMessage, chain: readonly string[]) {
+  const topic = message.is_topic_message === true && message.message_thread_id !== undefined
+    ? { threadId: String(message.message_thread_id) } : {};
+  const quoted = message.reply_to_message === undefined
+    ? {} : { replyToMessageId: String(message.reply_to_message.message_id) };
+  return Object.keys(topic).length + Object.keys(quoted).length === 0
+    ? {} : { reply: { chain: [...chain], ...topic, ...quoted } };
 }

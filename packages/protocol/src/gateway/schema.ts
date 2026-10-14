@@ -126,11 +126,25 @@ const MessageClassSchema = z.enum(["notify", "converse"]);
  * when both are given). No broadcast or wildcard form — resolution yields
  * exactly one delivery address or a typed denial.
  */
+/**
+ * Where on the actor's surface a message lands: the channel (chat) it was
+ * written in, the thread inside it, and the message it answers. Delivery
+ * posts there instead of opening the actor's direct channel.
+ */
+const ConversationSchema = z
+  .object({
+    channelId: z.string().min(1),
+    threadId: z.string().min(1).optional(),
+    replyToMessageId: z.string().min(1).optional(),
+  })
+  .strict();
+
 const MessageTargetSchema = z
   .object({
     actorId: z.string().min(1),
     endpointId: z.string().min(1).optional(),
     surface: z.string().min(1).optional(),
+    conversation: ConversationSchema.optional(),
   })
   .strict();
 
@@ -423,6 +437,9 @@ export namespace Gateway {
   export const MessageClass = MessageClassSchema;
   export type MessageClass = z.infer<typeof MessageClassSchema>;
 
+  export const Conversation = ConversationSchema;
+  export type Conversation = z.infer<typeof ConversationSchema>;
+
   export const MessageTarget = MessageTargetSchema;
   export type MessageTarget = z.infer<typeof MessageTargetSchema>;
 
@@ -450,12 +467,13 @@ export namespace Gateway {
   export const SendInput = SendInputSchema;
   export type SendInput = z.infer<typeof SendInputSchema>;
 
-  /** The one allocated delivery address a target resolves to. */
+  /** The one allocated delivery address a target resolves to; `conversation` names where on it to post. */
   export type DeliveryTarget = Readonly<{
     actorId: string;
     endpointId: string;
     channel: string;
     externalId: string;
+    conversation?: Conversation;
   }>;
 
   /**

@@ -21,8 +21,8 @@ export const TelegramProvider: ChannelProvider<TelegramCredentials, "telegram"> 
     const surface = new TelegramAdapter(credentials.token, config, publish, options);
     return {
       surface,
-      deliveryRoute: (externalId, body, idempotencyKey) =>
-        surface.deliver(externalId, body, idempotencyKey).then(kernelDeliveryReceipt),
+      deliveryRoute: (externalId, body, idempotencyKey, conversation) =>
+        surface.deliver(externalId, body, idempotencyKey, conversation).then(kernelDeliveryReceipt),
     };
   },
 };

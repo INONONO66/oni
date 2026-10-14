@@ -167,4 +167,20 @@ describe("SlackAdapter", () => {
       await api.stop();
     }
   });
+
+  it("posts into the conversation's thread instead of opening a DM (#1490)", async () => {
+    const api = installSlackApi();
+    try {
+      const adapter = new SlackAdapter({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, noopPublish, injectedOptions());
+      const receipt = adapter.deliver("T9:U5", "in thread", "message-3", {
+        channelId: "C123",
+        replyToMessageId: "1710.0002",
+      });
+      expect(await bounded(api.posts)).toEqual({ channel: "C123", text: "in thread", thread_ts: "1710.0002" });
+      expect(await receipt).toEqual({ value: "sent", externalMessageId: "999.1" });
+      expect(api.calls.some((call) => call.method === "conversations.open")).toBe(false);
+    } finally {
+      await api.stop();
+    }
+  });
 });

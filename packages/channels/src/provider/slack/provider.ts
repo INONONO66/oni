@@ -41,8 +41,8 @@ export const SlackProvider: ChannelProvider<SlackCredentials, "slack"> = {
     const surface = new SlackAdapter(credentials, config, publish, options);
     return {
       surface,
-      deliveryRoute: (externalId, body, idempotencyKey) =>
-        surface.deliver(externalId, body, idempotencyKey).then(kernelDeliveryReceipt),
+      deliveryRoute: (externalId, body, idempotencyKey, conversation) =>
+        surface.deliver(externalId, body, idempotencyKey, conversation).then(kernelDeliveryReceipt),
     };
   },
 };

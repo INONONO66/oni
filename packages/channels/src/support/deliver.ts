@@ -1,5 +1,5 @@
 import { DeliveryNotSent } from "../errors";
-import { Operational } from "@openomni/protocol";
+import { type Gateway, Operational } from "@openomni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
 import { PartialDeliveryError } from "./send-text";
@@ -62,6 +62,15 @@ export type KernelDeliveryReceipt = {
   value: "accepted" | "rejected" | "unknown";
   externalMessageId?: string;
 };
+
+/** A surface that only knows direct delivery refuses a conversation hint instead of DMing anyway. */
+export function refuseConversation(surface: string, conversation: Gateway.Conversation | undefined): void {
+  if (conversation !== undefined)
+    throw new DeliveryNotSent({
+      operation: `${surface}.deliver`,
+      cause: `${surface} cannot post into conversation ${conversation.channelId}; only direct delivery`,
+    });
+}
 
 /** Translate physical evidence only at the kernel receipt boundary. */
 export function kernelDeliveryReceipt(receipt: DeliveryReceipt): KernelDeliveryReceipt {

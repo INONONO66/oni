@@ -15,12 +15,17 @@ type TargetResolution =
   | Readonly<{ ok: true; target: Gateway.DeliveryTarget }>
   | Readonly<{ ok: false; code: TargetDenialCode; reason: string }>;
 
-function deliveryTarget(actorId: string, endpoint: Actor.Endpoint): Gateway.DeliveryTarget {
+function deliveryTarget(
+  actorId: string,
+  endpoint: Actor.Endpoint,
+  conversation?: Gateway.Conversation,
+): Gateway.DeliveryTarget {
   return {
     actorId,
     endpointId: endpoint.id,
     channel: endpoint.channel,
     externalId: endpoint.externalId,
+    ...(conversation === undefined ? {} : { conversation }),
   };
 }
 
@@ -52,7 +57,16 @@ function resolveExistingTarget(
         reason: `pinned endpoint ${target.endpointId} no longer belongs to ${target.actorId}`,
       };
     }
-    return { ok: true, target: deliveryTarget(target.actorId, endpoint) };
+    return { ok: true, target: deliveryTarget(target.actorId, endpoint, target.conversation) };
+  }
+  // A conversation lives on one surface; without a surface pin the endpoint
+  // picked below could be on another channel, so the hint is refused.
+  if (target.conversation !== undefined && target.surface === undefined) {
+    return {
+      ok: false,
+      code: "target_stale",
+      reason: `conversation ${target.conversation.channelId} needs target.surface to name its channel`,
+    };
   }
   // A surface hint narrows to that channel's endpoints before the
   // one-or-ambiguous rule (#1485): a person on several channels is reached
@@ -76,7 +90,7 @@ function resolveExistingTarget(
       reason: `actor ${target.actorId} is reachable at ${endpoints.length} endpoints${where} — pin target.endpointId`,
     };
   }
-  return { ok: true, target: deliveryTarget(target.actorId, endpoint) };
+  return { ok: true, target: deliveryTarget(target.actorId, endpoint, target.conversation) };
 }
 
 /** Grant admission precedes registry access, so ungranted senders learn no target facts. */

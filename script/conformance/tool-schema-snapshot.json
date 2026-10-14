@@ -344,6 +344,26 @@
                   "description": "Channel to reach the contact on (telegram, slack, …) when they are reachable on several; omit when they have one.",
                   "type": "string",
                   "minLength": 1
+                },
+                "conversation": {
+                  "description": "Where on that channel to answer: the chat and thread the contact wrote in (needs surface). Omit to reach them directly.",
+                  "type": "object",
+                  "properties": {
+                    "channelId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "threadId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "replyToMessageId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["channelId"],
+                  "additionalProperties": false
                 }
               },
               "required": ["kind", "id"],

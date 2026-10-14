@@ -61,4 +61,27 @@ describe("provider ingress facts", () => {
     });
     expect(result?.sender.externalId).toBe("T9:U77");
   });
+
+  test("a slack mention at channel top level keys the thread its answer opens on its own ts (#1490)", () => {
+    const normalizer = new SlackNormalizer({ botUserId: "UBOT", team: "T9" });
+    const event = { type: "message", channel: "C123", channel_type: "channel", user: "U77", ts: "1710.0005" };
+    expect(normalizer.normalize({ ...event, text: "<@UBOT> status?" })?.facts.reply).toEqual({
+      chain: [],
+      threadId: "1710.0005",
+    });
+    expect(normalizer.normalize({ ...event, text: "no bot here" })?.facts.reply).toBeUndefined();
+    expect(
+      normalizer.normalize({ ...event, channel: "D1", channel_type: "im", text: "<@UBOT> dm" })?.facts.reply,
+    ).toBeUndefined();
+  });
+
+  test("a telegram forum topic is the thread and a quoted message the reply-to; a bare group message has neither (#1490)", () => {
+    const normalizer = new TelegramNormalizer({ botId: "bot-1", botUsername: "openomni_bot" });
+    const topic = telegramReply("seller_acct");
+    expect(
+      normalizer.normalize({ ...topic, is_topic_message: true, message_thread_id: 99 })?.facts.reply,
+    ).toEqual({ chain: ["11"], threadId: "99", replyToMessageId: "11" });
+    const { reply_to_message: _quoted, ...bare } = topic;
+    expect(normalizer.normalize(bare)?.facts.reply).toBeUndefined();
+  });
 });
