@@ -63,11 +63,21 @@ export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | T
         addressees,
         dm: message.chat.type === "private",
         ...(reaction ? {} : telegramReply(message, chain)),
+        ...(reaction ? {} : quotedContext(message, this.ctx.botId)),
         payload: Gateway.IngressFacts.shape.payload.parse(message),
         render: text,
       },
     };
   }
+}
+
+/** The quoted message's author and text, so the model reads what the person is answering. */
+function quotedContext(message: TelegramMessage, botId: string) {
+  const quoted = message.reply_to_message;
+  if (quoted?.text === undefined || quoted.from === undefined) return {};
+  const author = String(quoted.from.id) === botId ? "assistant"
+    : quoted.from.username !== undefined ? `@${quoted.from.username}` : quoted.from.first_name;
+  return { context: { quoted: { author, text: quoted.text } } };
 }
 
 /** A forum topic is the thread; a quoted message is the reply-to. Neither alone makes a `reply`. */

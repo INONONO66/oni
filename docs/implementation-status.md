@@ -916,6 +916,15 @@ key:
   DM, Telegram sets `reply_to_message_id` / `message_thread_id`, Discord
   and GitHub refuse the hint with `DeliveryNotSent`. A Slack top-level
   mention keys its thread session on its own `ts`.
+- `packages/channels/src/router/external-message.ts` (#1490): a thread
+  message reaches the model with what the person can see.
+  `Gateway.IngressFacts.context` carries the thread's earlier messages and
+  the quoted message; `promptContent` prepends the thread once, when the
+  thread's session starts, and the quote every time, on direct routes only
+  (an automation keeps its trigger body). Slack reads the thread with
+  `conversations.replies` (`THREAD_HISTORY_LIMIT` 20, the bot's own
+  messages as `assistant`) and delivers without it when the call fails;
+  Telegram carries `reply_to_message` text as the quote.
 - `apps/openomni/test/capability-off-boot.test.ts` (8 pass / 0 fail): one
   boot per row through `suite.boot` with injected clock and entropy. Measured
   cascades on this base: alarm → alarm, monitor, cron, delegation-policy;

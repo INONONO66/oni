@@ -207,6 +207,7 @@
     "addressees",
     "author",
     "channelId",
+    "context",
     "dm",
     "event",
     "eventId",

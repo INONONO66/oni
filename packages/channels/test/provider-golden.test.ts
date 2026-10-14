@@ -83,5 +83,14 @@ describe("provider ingress facts", () => {
     ).toEqual({ chain: ["11"], threadId: "99", replyToMessageId: "11" });
     const { reply_to_message: _quoted, ...bare } = topic;
     expect(normalizer.normalize(bare)?.facts.reply).toBeUndefined();
+    expect(normalizer.normalize(bare)?.facts.context).toBeUndefined();
+  });
+
+  test("a telegram quoted message is carried as context, the bot's own as assistant (#1490)", () => {
+    const normalizer = new TelegramNormalizer({ botId: "78", botUsername: "openomni_bot" });
+    const quoted = telegramReply("seller_acct");
+    expect(normalizer.normalize(quoted)?.facts.context).toEqual({ quoted: { author: "assistant", text: "please report" } });
+    const human = { ...quoted, reply_to_message: { ...quoted.reply_to_message, from: { id: 90, is_bot: false, first_name: "Kim" } } };
+    expect(normalizer.normalize(human as typeof quoted)?.facts.context).toEqual({ quoted: { author: "Kim", text: "please report" } });
   });
 });

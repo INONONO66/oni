@@ -207,12 +207,30 @@ export function externalMessage(
     return { route, event, target, surfaceKey,
       message: { ...message, grantTier: message.grantTier || automationGrant }, facts,
       content: automation?.kind === "action" ? JSON.stringify(automation.body)
-        : automation?.origin.body ?? facts.render,
+        : automation !== undefined && automationGrant ? automation.origin.body
+        : promptContent(facts, resolved.existing === undefined),
       pending: outcome.pending,
       disposition: disposition ?? (automation === undefined && !message.grantTier &&
         outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),
       decision: outcome.rows[0], automation };
   });
+}
+
+/**
+ * The prompt a person's message becomes when it reaches the resident directly
+ * (an automation keeps its trigger body): the thread's earlier messages are
+ * prepended once, when the thread's session starts, and a quoted message every time.
+ */
+function promptContent(facts: Gateway.IngressFacts, freshSession: boolean): string {
+  const thread = freshSession ? (facts.context?.thread ?? []) : [];
+  const quoted = facts.context?.quoted;
+  return [
+    ...(thread.length === 0 ? [] : [
+      `[earlier in this thread]\n${thread.map((message) => `${message.author}: ${message.text}`).join("\n")}\n[end of thread]`,
+    ]),
+    ...(quoted === undefined ? [] : [`[replying to ${quoted.author}]\n> ${quoted.text.replaceAll("\n", "\n> ")}`]),
+    facts.render,
+  ].join("\n\n");
 }
 
 /** Replays retain the frozen route; completed deliveries append only a dedupe observation. */

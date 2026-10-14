@@ -95,6 +95,16 @@ const IngressFacts = z
       .optional(),
     payload: z.json(),
     render: z.string(),
+    // What the person could see that the model has not: the thread's earlier
+    // messages (shown once, when the thread's session starts) and the message
+    // this one quotes (shown with every such message).
+    context: z
+      .object({
+        thread: z.array(z.object({ author: Id, text: z.string() }).strict()).optional(),
+        quoted: z.object({ author: Id, text: z.string() }).strict().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
