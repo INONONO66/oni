@@ -46,7 +46,7 @@ type AgentFailureFacts = z.infer<typeof AgentFailureFacts>;
 const FAILURE_FACTS = Symbol.for("openomni.agent.failureFacts");
 
 /** Stamps the decided facts onto the error the run is raising. */
-export function attachFailureFacts(error: object, facts: AgentFailureFacts): void {
+function attachFailureFacts(error: object, facts: AgentFailureFacts): void {
   Object.defineProperty(error, FAILURE_FACTS, {
     value: facts,
     enumerable: false,

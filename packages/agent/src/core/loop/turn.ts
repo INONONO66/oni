@@ -457,4 +457,4 @@ function overflowsWindow(state: RunState, compaction: CompactionPort | undefined
 export { stopState } from "./stop";
 export type { StopObservation, StopVerdict } from "./stop";
 export { RunEvents } from "../observation/run-events";
-export { type RunTrace, type RunState, type TurnArtifacts, type BuildTurnResult, createRunState, recordRunTurn, recordCallContext, advanceRunTurn, buildTurn } from "./state";
+export { type RunTrace, type RunState, type TurnArtifacts, createRunState, recordRunTurn, recordCallContext, advanceRunTurn, buildTurn } from "./state";

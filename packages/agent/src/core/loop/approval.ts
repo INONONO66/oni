@@ -1,6 +1,6 @@
 import { Effect, Deferred, Exit } from "effect";
 import { type ExecutionError, ExecutionApprovalError } from "../ports/failure";
-import { GateDecision, LedgerAction, type PlainValue, type SessionTransition, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory } from "@openomni/protocol";
+import { GateDecision, type LedgerAction, type PlainValue, type SessionTransition, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory } from "@openomni/protocol";
 import type { CompiledPolicySnapshot, PolicyEvaluation } from "../gate/compile";
 import { onAbort } from "../ports/ports";
 import { createApprovalRequest } from "../journal/request-binding";

@@ -1,4 +1,4 @@
-import { Message, type Policy, type TraceContext } from "@openomni/protocol";
+import type { Message, Policy, TraceContext } from "@openomni/protocol";
 import { stopState, type StopState } from "./stop";
 import { accumulateUsage, type RunInput, type LlmSink as Sink } from "../ports/llm";
 import { createBudgetState, recordTokenUsage, recordTurn, restoreBudgetState, type BudgetState, effectiveMaxToolCalls } from "./budget";
@@ -124,7 +124,7 @@ export interface TurnArtifacts {
   readonly steering: { requested: boolean };
 }
 
-export type BuildTurnResult =
+type BuildTurnResult =
   | { type: "ready"; turn: TurnArtifacts }
   | { type: "complete"; result: AgentResult };
 

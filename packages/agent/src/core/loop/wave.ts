@@ -2,13 +2,13 @@ import { Effect, Scope, Context, Exit, Cause, Option, Fiber } from "effect";
 import * as Failure from "../ports/failure";
 import { thrownAsError } from "../ports/failure";
 import { type ExecutionError, type CommitFailed, ExecutionApprovalError, AgentFailure, Interrupted, OutcomeUnknown } from "../ports/failure";
-import { LedgerAction, type PlainValue, type PlainObject, canonicalDigest, listenForAbort } from "@openomni/protocol";
+import { type LedgerAction, type PlainValue, type PlainObject, canonicalDigest, listenForAbort } from "@openomni/protocol";
 import type { PolicyEvaluation } from "../gate/compile";
 import type { WaveControl } from "./tool";
 import { BOUNDED_CONCURRENCY } from "../ports/ports";
 import { GenerationRawSlots, RawToolSlots, createRawSlots, immutableInput, type Admitted, type Decision, type ExecutionBatchItem, type ExecutionRequest, type ExecutionResult, type ResolvedExecutorOptions } from "./invocation";
-import { causeEvidence, clonePlainValue, createExecutionRecord, object, recoveryClassification, settlePost, type ToolObservationStatus } from "./record";
-import { assertFresh, createExecutionApprovals, recoverAdmission } from "./approval";
+import { causeEvidence, clonePlainValue, type createExecutionRecord, object, recoveryClassification, settlePost, type ToolObservationStatus } from "./record";
+import { assertFresh, type createExecutionApprovals, recoverAdmission } from "./approval";
 
 const DEFAULT_CLOSE_GRACE_MS = 30_000;
 

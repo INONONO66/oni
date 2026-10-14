@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { canonicalDigest, LedgerAction, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type PlainValue } from "@openomni/protocol";
 
 import { type ExecutionError, AgentFailure } from "../ports/failure";
 
@@ -63,7 +63,7 @@ function completionEligible(observation: StopObservation): boolean {
 }
 
 /** Invocation is not effect/state progress. */
-export function judgeStop<E, R>(
+function judgeStop<E, R>(
   previous: StopState,
   observation: StopObservation,
   limit: (metric: StopMetric) => Effect.Effect<number, E, R>,

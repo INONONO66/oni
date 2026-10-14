@@ -1,7 +1,7 @@
 import type { LedgerError } from "../store/errors";
-import { Effect, Scope, Context, Deferred, Exit, Option } from "effect";
+import { Effect, type Scope, Context, Deferred, Exit, Option } from "effect";
 import { type ExecutionError, GenerationUnavailable, InvocationClosed } from "../ports/failure";
-import { type BusEvent, LedgerAction, type LedgerSession, type ObservationSink as ObservationPort, type PlainValue, type SessionTransition, Tool } from "@openomni/protocol";
+import type { BusEvent, LedgerAction, LedgerSession, ObservationSink as ObservationPort, PlainValue, SessionTransition, Tool } from "@openomni/protocol";
 import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "../gate/compile";
 import type { RetryAlarmPort } from "../ports/alarm";
 import type { WaveControl, Dispatcher } from "./tool";
