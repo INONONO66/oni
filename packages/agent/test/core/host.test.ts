@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQLiteError } from "bun:sqlite";
@@ -8,6 +8,8 @@ import { TestClock } from "effect/testing";
 import { SessionEntity } from "../../src/core/session/entity";
 import { Ledger, type LedgerConfig, OpenRefused, openLedger, openLedgerPlane } from "../../src/core/session/host";
 import { createSession } from "../../src/core/session/create";
+import * as SessionFile from "../../src/core/store/session-file";
+import type { SessionStore } from "../../src/core/store/session-file";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 import {
   BunTestCrypto,
@@ -28,6 +30,23 @@ afterAll(() => {
 });
 
 const bunCrypto = BunTestCrypto;
+
+/** Counts the session stores the host opens and still holds, free of process-wide descriptor noise. */
+function trackSessionStores() {
+  const live = new Set<SessionStore>();
+  let opened = 0;
+  const open = SessionFile.openSessionStore;
+  const spy = spyOn(SessionFile, "openSessionStore").mockImplementation((path, options) => {
+    const store = open(path, options);
+    const view: SessionStore = Object.create(store, {
+      close: { value: () => { store.close(); live.delete(view); }, writable: true, configurable: true },
+    });
+    opened += 1;
+    live.add(view);
+    return view;
+  });
+  return { live: () => live.size, opened: () => opened, restore: () => spy.mockRestore() };
+}
 
 const drain = {
   alarmsBeforePrompt: 4,
@@ -172,7 +191,7 @@ test("memory mode: the entity and the plane share one in-memory store per sessio
   expect(seen.inputs).toBe(1);
 });
 
-test("file mode: catalog listing of 200 sessions returns to the descriptor baseline", async () => {
+test("file mode: catalog listing of 200 sessions closes every store it opens", async () => {
   const { catalogPath, sessionsDir } = home("listing-churn");
   const options = { now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } };
   const creator = openLedgerPlane(options);
@@ -198,15 +217,14 @@ test("file mode: catalog listing of 200 sessions returns to the descriptor basel
     creator.close();
   }
   const plane = openLedgerPlane(options);
+  const stores = trackSessionStores();
   try {
-    const count = () => readdirSync("/dev/fd").length;
-    const baseline = count();
-    for (let listing = 0; listing < 2; listing += 1) {
+    for (let listing = 1; listing <= 2; listing += 1) {
       expect(plane.listSessions()).toHaveLength(200);
-      expect(count()).toBe(baseline);
+      expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 200 * listing, live: 0 });
     }
-    console.info(`A2 listing fd before=${baseline} after=${count()} rows=200`);
   } finally {
+    stores.restore();
     plane.close();
   }
 });
@@ -418,32 +436,29 @@ const deliverAndPassivate = (sessionId: string, key: string) =>
     yield* stepClockUntil(Deferred.isDone(closed), `${key} passivation`);
   });
 
-const openDescriptors = () => readdirSync("/dev/fd").length;
-
-test("file mode: five passivation cycles with late plane-resolved readers keep the descriptor count flat", async () => {
+test("file mode: five passivation cycles with late plane-resolved readers hold no store past passivation", async () => {
   const sessionId = "passivated";
+  const stores = trackSessionStores();
   const seen = await runAgent(Effect.scoped(
     Effect.gen(function* () {
       const ledger = yield* Ledger;
-      const baseline = openDescriptors();
       yield* materialize(sessionId);
       const cycles: { passivated: number; resolved: number; verdict: string }[] = [];
       for (let cycle = 0; cycle < 5; cycle += 1) {
         yield* deliverAndPassivate(sessionId, `m${cycle}`);
-        const passivated = openDescriptors();
+        const passivated = stores.live();
         const verdict = ledger.openKernel(sessionId).verifyChain(sessionId).kind;
-        cycles.push({ passivated, resolved: openDescriptors(), verdict });
+        cycles.push({ passivated, resolved: stores.live(), verdict });
       }
       ledger.releaseSession(sessionId);
-      return { baseline, cycles, released: openDescriptors() };
+      return { cycles, released: stores.live(), opened: stores.opened() };
     }).pipe(Effect.provide(passivatingFileLedger("passivation-cycles"))),
-  ));
-  const resolved = seen.cycles[0]?.resolved ?? -1;
-  expect(resolved).toBeGreaterThan(seen.baseline);
+  )).finally(stores.restore);
+  // Each cycle opens the entity's own handle, closes it with the memo, and reopens one memo for the late reader.
   expect(seen.cycles).toEqual(
-    Array.from({ length: 5 }, () => ({ passivated: seen.baseline, resolved, verdict: "intact" })),
+    Array.from({ length: 5 }, () => ({ passivated: 0, resolved: 1, verdict: "intact" })),
   );
-  expect(seen.released).toBe(seen.baseline);
+  expect({ released: seen.released, opened: seen.opened }).toEqual({ released: 0, opened: 11 });
 });
 
 test("file mode: a kernel held across a passivation fails on use", async () => {
