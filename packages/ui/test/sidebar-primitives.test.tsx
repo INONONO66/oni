@@ -54,8 +54,12 @@ describe("sidebar navigation controls", () => {
     expect(items[0]?.["aria-current"]).toBe("page");
     expect(items[1]?.["aria-current"]).toBeUndefined();
     expect(items[0]?.class?.split(" ")).toEqual(
-      expect.arrayContaining(["h-7", "px-2"]),
+      expect.arrayContaining(["h-7", "gap-2", "rounded-md", "px-2", "bg-active", "text-fg"]),
     );
+    expect(items[1]?.class?.split(" ")).toEqual(
+      expect.arrayContaining(["text-fg-muted", "hover:bg-hover"]),
+    );
+    expect(items[1]?.class?.split(" ")).not.toContain("bg-active");
     expect(textContent(node, '[data-ui="NavItem"]')).toBe("OneTwo");
   });
   test("header is a 44px row with the brand at the left and the actions at the right", () => {
@@ -73,8 +77,8 @@ describe("sidebar navigation controls", () => {
     const frame = attributes(node, '[data-ui="Sidebar.Header"]');
     expect(frame).toHaveLength(1);
     expect(frame[0]?.class?.split(" ")).toEqual(expect.arrayContaining(["h-11", "pr-2", "pl-4"]));
-    expect(attributes(node, '[data-ui="Sidebar.Header"] > span > [data-brand]')).toHaveLength(1);
-    expect(attributes(node, '[data-ui="Sidebar.Header"] > span > button')).toHaveLength(2);
+    expect(attributes(node, '[data-ui="Sidebar.Header"] > .-ml-1 > [data-brand]')).toHaveLength(1);
+    expect(attributes(node, '[data-ui="Sidebar.Header"] > .ml-auto > button')).toHaveLength(2);
   });
   test("header toggles search semantics and result announcement", () => {
     const closed = attributes(header(false));
@@ -92,24 +96,29 @@ describe("sidebar navigation controls", () => {
       const row = attributes(header(searching), '[data-ui="SectionHeader"] > div');
       expect(row).toHaveLength(1);
       expect(row[0]?.class?.split(" ")).toEqual(expect.arrayContaining(["h-7", "pl-2"]));
+      expect(row[0]?.class?.split(" ")).not.toContain("pl-4");
       expect("data-searching" in (row[0] ?? {})).toBe(searching);
-      const toggle = attributes(header(searching), '[data-ui="SectionHeader.Toggle"]');
-      expect(toggle[0]?.["data-size"]).toBe("base");
+      const [toggle] = attributes(header(searching), '[data-ui="SectionHeader.Toggle"]');
+      expect(toggle?.["data-size"]).toBe("base");
+      expect(toggle?.class?.split(" ")).toContain("ml-auto");
     }
     expect(textContent(header(false), '[data-ui="SectionHeader"] > div > span')).toBe("Projects");
+    expect(classes(header(false), '[data-ui="SectionHeader"] > div > span')).toEqual(
+      expect.arrayContaining(["text-label", "text-fg-subtle", "font-medium", "truncate"]),
+    );
     expect(attributes(header(true), '[data-ui="SectionHeader"] input')[0]?.value).toBe("x");
+    expect(classes(header(true), "input")).not.toContain("px-2");
   });
   test("section and footer preserve their structural slots", () => {
-    const html = attributes(
+    const node = (
       <SidebarSection>
         <SidebarFooter>footer</SidebarFooter>
-      </SidebarSection>,
+      </SidebarSection>
     );
-    expect(html.some((element) => element["data-ui"] === "Sidebar.Footer")).toBe(true);
-    expect(textContent(
-      <SidebarSection><SidebarFooter>footer</SidebarFooter></SidebarSection>,
-      '[data-ui="Sidebar.Footer"]',
-    )).toBe("footer");
+    expect(classes(node, '[data-ui="Sidebar.Footer"]')).toEqual(
+      expect.arrayContaining(["border-line", "border-t-[0.5px]", "p-2"]),
+    );
+    expect(textContent(node, '[data-ui="Sidebar.Footer"]')).toBe("footer");
   });
 });
 
@@ -123,12 +132,16 @@ describe("tree rows", () => {
     const [row] = attributes(node, '[data-ui="TreeRow"]');
     expect(row?.["aria-expanded"]).toBe("true");
     expect(row?.class?.split(" ")).toEqual(
-      expect.arrayContaining(["h-7", "px-2"]),
+      expect.arrayContaining(["h-7", "gap-2", "rounded-md", "px-2", "font-medium", "text-label", "text-fg-subtle"]),
     );
+    expect(row?.class?.split(" ")).not.toContain("bg-active");
     expect(classes(node, '[data-ui="TreeRow"] > .size-4 > svg')).toEqual(
       expect.arrayContaining(["size-3.5", "rotate-90"]),
     );
     expect(textContent(node, '[data-ui="TreeRow"]')).toBe("Work3");
+    expect(classes(node, '[data-ui="TreeRow"] > .font-normal')).toEqual(
+      expect.arrayContaining(["shrink-0", "text-fg-faint"]),
+    );
     expect(attributes(<TreeRow expanded={false}>Work</TreeRow>, "svg")[0]?.class).not.toContain(
       "rotate-90",
     );
@@ -148,18 +161,29 @@ describe("tree rows", () => {
         "grid-cols-[1rem_1fr]",
         "gap-x-2",
         "gap-y-0.5",
+        "rounded-md",
         "px-2",
         "py-1.5",
+        "bg-active",
+        "text-fg",
       ]),
     );
     expect(attributes(node, '[data-ui="TreeRow"] > .row-span-2 > [data-glyph]')).toHaveLength(1);
     expect(classes(node, '[data-ui="TreeRow"] > .row-span-2')).toEqual(
-      expect.arrayContaining(["size-4", "pt-1"]),
+      expect.arrayContaining(["size-4", "items-start", "pt-1"]),
     );
     expect(textContent(node, '[data-ui="TreeRow"]')).toBe("Title122m");
+    expect(classes(node, '[data-ui="TreeRow"] > span > .ml-auto')).toEqual(
+      expect.arrayContaining(["text-meta", "text-fg-subtle", "tabular-nums"]),
+    );
     expect(textContent(node, "[data-secondary]")).toBe("2m");
+    expect(classes(node, "[data-secondary]")).toEqual(
+      expect.arrayContaining(["truncate", "text-meta", "text-fg-subtle"]),
+    );
     const [rest] = attributes(<TreeRow secondary="2m">Title</TreeRow>, '[data-ui="TreeRow"]');
     expect(rest?.["aria-current"]).toBeUndefined();
+    expect(rest?.class?.split(" ")).toEqual(expect.arrayContaining(["text-fg-muted", "hover:bg-hover"]));
+    expect(rest?.class?.split(" ")).not.toContain("bg-active");
   });
   test("a leaf row keeps the 28px line and its level step", () => {
     const [row] = attributes(<TreeRow level={1}>Leaf</TreeRow>, '[data-ui="TreeRow"]');
