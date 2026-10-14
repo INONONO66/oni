@@ -87,13 +87,13 @@ export class TelegramPoller {
 
       // Telegram returns updates in update_id order. Process the batch in that
       // order and stop at the first failed handoff, leaving it and every later
-      // update eligible for the next request. Updates without a text message do
+      // update eligible for the next request. Updates without supported content do
       // not require a handoff and are checkpointed at their position in the batch.
       // The controller, not a generation counter, owns custody: a response that
       // arrives after stop()/interruption finds its own signal aborted.
       for (const update of updates) {
         if (controller.signal.aborted) return;
-        if (update.message?.text) await this.callbacks.onMessage(update.message);
+        if (update.message) await this.callbacks.onMessage(update.message);
         if (update.message_reaction) await this.callbacks.onMessage(update.message_reaction);
         if (controller.signal.aborted) return;
         this.offset = update.update_id + 1;

@@ -33,6 +33,12 @@ export const DiscordMessageSchema = z.object({
   guild_id: z.string().optional(),
   author: DiscordUserSchema,
   content: z.string(),
+  attachments: z.array(z.object({
+    url: z.string(),
+    content_type: z.string().optional(),
+    filename: z.string(),
+    size: z.number(),
+  })).optional(),
   mentions: z.array(DiscordUserSchema).optional(),
   message_reference: z
     .object({

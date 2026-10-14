@@ -1,0 +1,1 @@
+#1505 on `feat/channels-inbound-attachments` (2026-10-14, base `030d50500`, PR #1528): Telegram/Slack/Discord attachment references in `Gateway.IngressFacts`, media-only handoff and direct-route prompt rendering; receipts in `packages/channels/test/inbound-attachments.test.ts`, `telegram-poller.test.ts`, `router/thread-context.test.ts`, `docs/implementation-status.md`.

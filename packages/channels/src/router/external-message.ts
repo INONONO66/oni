@@ -242,14 +242,22 @@ function promptSender(
  * for the WebSocket owner, who reads the turn stream), the thread's earlier
  * messages once, when the thread's session starts, and a quoted message every time.
  */
+/** A sender-controlled field stays on its own bracket line: no line breaks, no closing bracket. */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, " ").replaceAll("]", "").trim();
+}
+
 function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from: string | undefined): string {
   const thread = freshSession ? (facts.context?.thread ?? []) : [];
   const quoted = facts.context?.quoted;
   const threadId = facts.reply?.threadId;
+  const header = from === undefined ? [] : [
+    `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
+  ];
+  const attached = (facts.attachments ?? []).map((attachment) =>
+    `[attached: ${attachment.kind}${attachment.name === undefined ? "" : ` ${oneLine(attachment.name)}`} → ${oneLine(attachment.ref)}]`);
   return [
-    ...(from === undefined ? [] : [
-      `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
-    ]),
+    ...(header.length + attached.length === 0 ? [] : [[...header, ...attached].join("\n")]),
     ...(thread.length === 0 ? [] : [
       `[earlier in this thread]\n${thread.map((message) => `${message.author}: ${message.text}`).join("\n")}\n[end of thread]`,
     ]),

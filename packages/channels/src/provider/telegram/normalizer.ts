@@ -7,6 +7,54 @@ interface TelegramNormalizerContext {
   botUsername: string;
 }
 
+function fileAttachment(
+  kind: "image" | "audio" | "file",
+  file: { file_id: string; file_name?: string; mime_type?: string; file_size?: number },
+  mime = file.mime_type,
+) {
+  return {
+    kind, ref: file.file_id,
+    ...(file.file_name === undefined ? {} : { name: file.file_name }),
+    ...(mime === undefined ? {} : { mime }),
+    ...(file.file_size === undefined ? {} : { bytes: file.file_size }),
+  };
+}
+
+function kindOfMime(mime: string | undefined): "image" | "audio" | "file" {
+  return mime?.startsWith("image/") ? "image" : mime?.startsWith("audio/") ? "audio" : "file";
+}
+
+function telegramAttachments(message: TelegramMessage) {
+  const photo = message.photo?.at(-1);
+  const sticker = message.sticker;
+  return [
+    photo === undefined ? undefined : fileAttachment("image", photo),
+    message.document === undefined ? undefined : fileAttachment(kindOfMime(message.document.mime_type), message.document),
+    message.voice === undefined ? undefined : fileAttachment("audio", message.voice),
+    message.audio === undefined ? undefined : fileAttachment("audio", message.audio),
+    sticker === undefined || sticker.is_animated || sticker.is_video
+      ? undefined : fileAttachment("image", sticker, "image/webp"),
+  ].filter((entry) => entry !== undefined);
+}
+
+function telegramAddressees(message: TelegramMessage, text: string, ctx: TelegramNormalizerContext) {
+  return (message.entities ?? message.caption_entities ?? []).flatMap((entity) => {
+    if (entity.type === "text_mention" && entity.user !== undefined)
+      return [{ externalId: String(entity.user.id) }];
+    if (entity.type !== "mention") return [];
+    const name = text.slice(entity.offset, entity.offset + entity.length);
+    return [{
+      externalId: name.toLowerCase() === `@${ctx.botUsername.toLowerCase()}` ? ctx.botId : name,
+    }];
+  });
+}
+
+function telegramText(message: TelegramMessage | TelegramReaction) {
+  return "new_reaction" in message
+    ? message.new_reaction.find((entry) => entry.emoji)?.emoji
+    : message.text ?? message.caption;
+}
+
 export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | TelegramReaction> {
   constructor(private readonly ctx: TelegramNormalizerContext) {}
 
@@ -18,27 +66,13 @@ export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | T
     if (userId === undefined) return null;
     // The bot's own echo is not an outside event.
     if (String(userId) === this.ctx.botId) return null;
-    const text = reaction ? message.new_reaction.find((entry) => entry.emoji)?.emoji : message.text;
+    const text = telegramText(message);
+    const attachments = reaction ? [] : telegramAttachments(message);
     // A frame without renderable text or a newly added emoji is not an outside message.
-    if (!text) return null;
+    if (!text && attachments.length === 0) return null;
 
     const chatId = String(message.chat.id);
-    const addressees = reaction
-      ? []
-      : (message.entities ?? []).flatMap((entity) => {
-          if (entity.type === "text_mention" && entity.user !== undefined)
-            return [{ externalId: String(entity.user.id) }];
-          if (entity.type !== "mention") return [];
-          const name = text.slice(entity.offset, entity.offset + entity.length);
-          return [
-            {
-              externalId:
-                name.toLowerCase() === `@${this.ctx.botUsername.toLowerCase()}`
-                  ? this.ctx.botId
-                  : name,
-            },
-          ];
-        });
+    const addressees = reaction ? [] : telegramAddressees(message, text ?? "", this.ctx);
     const chain: string[] = [];
     if (!reaction) {
       for (
@@ -65,7 +99,8 @@ export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | T
         ...(reaction ? {} : telegramReply(message, chain)),
         ...(reaction ? {} : quotedContext(message, this.ctx.botId)),
         payload: Gateway.IngressFacts.shape.payload.parse(message),
-        render: text,
+        render: text ?? "",
+        ...(attachments.length === 0 ? {} : { attachments }),
       },
     };
   }

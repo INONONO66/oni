@@ -11,8 +11,16 @@ export class DiscordNormalizer implements InboundNormalizer<DiscordMessage | Dis
     // The bot's own gateway echo is not an outside event.
     if (authorId === this.selfId) return null;
     const text = reaction ? message.emoji.name : message.content;
+    const attachments = reaction ? [] : (message.attachments ?? []).map((attachment) => ({
+      kind: attachment.content_type?.startsWith("image/") ? "image" as const
+        : attachment.content_type?.startsWith("audio/") ? "audio" as const : "file" as const,
+      ref: attachment.url,
+      name: attachment.filename,
+      ...(attachment.content_type === undefined ? {} : { mime: attachment.content_type }),
+      bytes: attachment.size,
+    }));
     // A frame with no renderable text or emoji is not an outside message.
-    if (!text) return null;
+    if (!text && attachments.length === 0) return null;
     const isDM = !message.guild_id;
     const mentions = reaction ? [] : (message.mentions ?? []);
     const eventId = reaction ? `${message.message_id}:${text}:${authorId}` : message.id;
@@ -43,7 +51,8 @@ export class DiscordNormalizer implements InboundNormalizer<DiscordMessage | Dis
             }
           : {}),
         payload: message,
-        render: text,
+        render: text ?? "",
+        ...(attachments.length === 0 ? {} : { attachments }),
       },
     };
   }
