@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Highlight } from "@openomni/ui";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
-import type { ReactNode } from "react";
 import { ATTENTION_LABEL, orderByAttention } from "../src/renderer/attention/order";
 import { SessionTree } from "../src/renderer/shell/session-tree";
 import type { Session } from "../src/renderer/state/store";
@@ -36,13 +34,7 @@ const selectedId = "s2";
 
 const ordered = orderByAttention(sessions, 10);
 
-/** The tree needs the query client its footer reads the gateway endpoint from. */
-const sidebar = (node: ReactNode) =>
-  renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>,
-  );
-
-const html = sidebar(
+const html = renderToStaticMarkup(
   <SessionTree
     collapsedProjectIds={new Set()}
     defaultSearching
@@ -66,7 +58,7 @@ describe("attention kind headers disambiguate repeated projects", () => {
       makeSession({ id: "running", phase: "running", projectId: "default" }),
       makeSession({ id: "rest", phase: "idle", projectId: "default" }),
     ];
-    const mixedHtml = sidebar(
+    const mixedHtml = renderToStaticMarkup(
       <SessionTree
         collapsedProjectIds={new Set()}
         onCreate={() => undefined}
