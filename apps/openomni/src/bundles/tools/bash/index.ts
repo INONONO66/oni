@@ -99,12 +99,11 @@ const normalizeTerminalText = (text: string) =>
   text.replace(oscSequence, "").replace(csiSequence, "").replaceAll("\r", "");
 
 function stripEchoedCommand(text: string, command: string, sentinel: string): string {
-  const normalized = normalizeTerminalText(text);
-  let cleaned = normalized;
+  let cleaned = normalizeTerminalText(text);
+  // Input typed ahead of the prompt is echoed twice: by the tty, then by the line editor's redisplay.
   for (const line of [...(command.length > 0 ? command.split("\n") : []), sentinel]) {
-    const at = cleaned.indexOf(`${line}\n`);
-    if (at >= 0) cleaned = `${cleaned.slice(0, at)}${cleaned.slice(at + line.length + 1)}`;
-    else if (cleaned.endsWith(line)) cleaned = cleaned.slice(0, -line.length);
+    cleaned = cleaned.replaceAll(`${line}\n`, "");
+    if (cleaned.endsWith(line)) cleaned = cleaned.slice(0, -line.length);
   }
   return cleaned;
 }

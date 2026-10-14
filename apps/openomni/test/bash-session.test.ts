@@ -55,9 +55,10 @@ function value(result: Awaited<ReturnType<ReturnType<typeof dispatchModelTool>>>
   };
 }
 
-test("bash session waits for actual readiness and strips bracketed-paste echoes", async () => {
+test("bash session waits for actual readiness and strips tty and line-editor echoes", async () => {
   const { bash, writes, cursors } = fixture((sent, read) => {
-    if (read === 0) return `\x1b[?2004hrunner:/$ ${sent[0]?.trimEnd()}\r\n\x1b[?2004l`;
+    // A fresh shell echoes the typed-ahead sentinel from the tty, then again after its first prompt.
+    if (read === 0) return `${sent[0]?.trimEnd()}\r\n\x1b[?2004hrunner:/$ ${sent[0]?.trimEnd()}\r\n\x1b[?2004l`;
     if (read === 1) return `${nonce(sent[0] ?? "")}\n`;
     return `\x1b[?2004hprintf 'ok\\n'\r\n${sent[1]?.split("\n")[1]}\r\n\x1b[?2004l\x1b]0;title\x07ok\n${nonce(sent[1] ?? "")} 0\n`;
   });
