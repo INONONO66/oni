@@ -1,3 +1,4 @@
+import { turnTerminal } from "../src/core/store/session-reads";
 import { sessionTree } from "./helpers/session-tree";
 import type { ResolvedExecutorOptions } from "../src/core/loop/executor";
 import { turnTestLayer, catalogLayer } from "./helpers/service-layers";
@@ -10,7 +11,7 @@ import { armAction, firedAction } from "../src/core/ports/alarm";
 import { OutcomeUnknown, CommitFailed } from "../src/core/ports/failure";
 import { seedPolicy } from "./helpers/seed-policy";
 import { approveWriteRow } from "./helpers/compiled-policy";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
 import { Alarm, L0Observation, type PolicyRow, type SessionHistory } from "@openomni/protocol";
@@ -293,7 +294,7 @@ function lifecycle() {
       }, fixture), fixture); });
     const commission = sessionTree(isolatedLedger().kernel, "parent").find(
       (action: import("@openomni/protocol").LedgerAction.Node) =>
-        SessionHandleStore.turnTerminal(action) !== undefined,
+        turnTerminal(action) !== undefined,
     );
     if (commission === undefined) throw new Error("parent turn never sealed");
     yield* child.prompt("work", {

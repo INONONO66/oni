@@ -1,3 +1,4 @@
+import type { OpenTurn } from "../store/session-reads";
 import { Effect } from "effect";
 import * as SessionHandleStore from "../store/fence";
 import type { CommitReceipt } from "../store/services";
@@ -63,7 +64,7 @@ export function createSessionRecovery(
     });
   }
 
-  function resumeTurn(open: SessionHandleStore.OpenTurn): Effect.Effect<SessionRunnerResult, RecoveryError> {
+  function resumeTurn(open: OpenTurn): Effect.Effect<SessionRunnerResult, RecoveryError> {
     return Effect.gen(function* () {
       yield* awaitRetainedRunner();
       if (kernel.pendingMessages(sessionId).some((item) => item.kind === "interrupt" || item.kind === "cancel")) {

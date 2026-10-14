@@ -1,3 +1,4 @@
+import { generationSnapshot, configureAction } from "../../src/core/store/configure";
 import { Database } from "bun:sqlite";
 import { appendFileSync, writeSync } from "node:fs";
 import { Cause, Effect, Exit, Layer } from "effect";
@@ -5,7 +6,7 @@ import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { GenerationHandlers } from "../../src/core/composition/compose";
 import { AgentGenerationLive } from "./generation-layer";
 import { makeSessionGenerations } from "../../src/core/session/run";
-import * as SessionHandleStore from "../../src/core/store/fence";
+
 import { canonicalDigest, FoldCheckpoint, Message, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@openomni/protocol";
 import { z } from "zod";
 import { computeActionHash, GENESIS_PREV_HASH } from "../../src/core/store/session-file";
@@ -143,7 +144,7 @@ export function reconstructionCut(point: Point, dbPath: string, stop: Stop) {
     if (point === "context_restore_checkpoint_committed_before_publish")
       return yield* restoreCut(recording, stop);
     if (point === "captured_generation_missing_after_restart") {
-      const newer = SessionHandleStore.generationSnapshot({
+      const newer = generationSnapshot({
         generation: 2,
         revertTo: 1,
         tools: [],
@@ -152,7 +153,7 @@ export function reconstructionCut(point: Point, dbPath: string, stop: Stop) {
       });
       recording.commitBatch(
         [
-          SessionHandleStore.configureAction({
+          configureAction({
             id: "newer-generation",
             sessionId,
             parentId: recording.identity.turnId,

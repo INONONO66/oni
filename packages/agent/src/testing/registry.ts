@@ -1,8 +1,9 @@
+import { generationSnapshot } from "../core/store/configure";
 import { Effect, Scope } from "effect";
 import type { LedgerSession, SessionGeneration } from "@openomni/protocol";
 import { AgentFailure, AgentInvariantViolation, type SessionError } from "../core/ports/failure";
 import { BOUNDED_CONCURRENCY, type SessionEntryServices } from "../core/ports/ports";
-import * as SessionHandleStore from "../core/store/fence";
+
 import { toolSnapshot } from "../core/journal/commit";
 import { resolveSessionRuntime, installSessionHandlePlane, type SessionRuntime, type ResolvedSessionRuntime, type SessionCreateOptions, type SessionHandle, type SessionController, type SessionControllerLifecycle, type SessionRunner, type SessionSystem, type RegistryEntry } from "../core/session/run";
 import type { SessionKernel } from "../core/session/entity";
@@ -119,7 +120,7 @@ class SessionRegistry {
 function assertDeclaration(kernel: SessionKernel, row: LedgerSession.Row, options: SessionCreateOptions, tools: readonly SessionGeneration.Tool[], system: Partial<SessionSystem> | undefined): void {
   if (row.role !== options.role || row.parentId !== (options.parentId ?? null)) throw new AgentInvariantViolation(`session declaration conflicts with durable identity: ${row.id}`);
   const snapshot = kernel.latestGenerationFor(row.id);
-  const expected = SessionHandleStore.generationSnapshot({
+  const expected = generationSnapshot({
     generation: snapshot.generation, revertTo: snapshot.revertTo, tools,
     system: { preset: system?.preset ?? "", blocks: system?.blocks ?? [] },
     policyGeneration: options.policyGeneration ?? snapshot.policyGeneration,

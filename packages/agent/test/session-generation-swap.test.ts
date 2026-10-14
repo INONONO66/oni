@@ -1,8 +1,9 @@
+import { generationSnapshot, configureAction, latestGeneration } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { sessionTree as kernelSessionTree } from "./helpers/session-tree";
 import { testExecutor } from "./helpers/executor";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import type { LedgerError } from "../src/core/store/errors";
 import type { AnyToolDefinition, LedgerAction, PlainValue, SessionGeneration } from "@openomni/protocol";
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect";
@@ -31,7 +32,7 @@ function bundle(generation: number, name: string, finalized: () => void,
     visibility: { model: ["resident"], cell: [] }, execute,
     render: (_input: PlainValue, output: PlainValue) => String(output),
   };
-  const snapshot = SessionHandleStore.generationSnapshot({
+  const snapshot = generationSnapshot({
     generation, revertTo: generation - 1,
     tools: projectTools([definition]).session,
     system: { preset: name, blocks: [] }, policyGeneration: 1,
@@ -45,7 +46,7 @@ function bundle(generation: number, name: string, finalized: () => void,
   ) };
 }
 function selectAction(snapshot: SessionGeneration.Snapshot) {
-  return SessionHandleStore.configureAction({
+  return configureAction({
     id: `generation:${snapshot.generation}`, sessionId: fiberSessionId,
     parentId: `${fiberSessionId}:turn`, operation: "system.blocks.set", snapshot, at: 100,
   });
@@ -90,7 +91,7 @@ test("committed configure swaps the next captured Layer; old body and terminal s
   yield* generations.configure(b, options.ledger.commit(selectAction(b.snapshot)).pipe(
     Effect.mapError((error) => new CommitFailed({ error })),
   ));
-  expect(SessionHandleStore.latestGeneration(sessionTree(fiberSessionId)).generation).toBe(2);
+  expect(latestGeneration(sessionTree(fiberSessionId)).generation).toBe(2);
   expect(finalizersA).toBe(0);
   release.resolve("A-result");
   expect(yield* Fiber.join(running)).toEqual({ terminal: "executed", value: {

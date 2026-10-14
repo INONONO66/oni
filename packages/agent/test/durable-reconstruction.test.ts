@@ -1,10 +1,11 @@
+import { turnTerminal } from "../src/core/store/session-reads";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalDigest, FoldCheckpoint, PlainValueSchema } from "@openomni/protocol";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { isolatedRun } from "./helpers/isolated";
 import { openCrashStores } from "./helpers/crash-stores";
 import { sessionTree } from "./helpers/session-tree";
@@ -129,9 +130,9 @@ test(
       expect(after.stateDigest).toBe(after.stateOracle);
       expect(after.actions.slice(0, cut.actions.length)).toEqual(cut.actions);
       expect(
-        after.actions.flatMap((action) => SessionHandleStore.turnTerminal(action) ?? []),
+        after.actions.flatMap((action) => turnTerminal(action) ?? []),
       ).toHaveLength(
-        cut.actions.flatMap((action) => SessionHandleStore.turnTerminal(action) ?? []).length,
+        cut.actions.flatMap((action) => turnTerminal(action) ?? []).length,
       );
       expect(await child("read", dbPath, witnessSchema)).toEqual(afterWake);
       const compaction = wake.actions

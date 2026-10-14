@@ -1,8 +1,9 @@
+import { turnTerminal, turnResume } from "../src/core/store/session-reads";
 import { describe, expect, test } from "bun:test";
 import { Cause, Effect, Exit, type Fiber, } from "effect";
 import { canonicalDigest, type Delivery, type LedgerAction, type L0Observation, type SessionTransition, type SessionTurn, } from "@openomni/protocol";
 import { CommitFailed, type SessionError } from "../src/core/ports/failure";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import type { ExecutionApprovalRequest, ExecutionApprovals, } from "../src/core/loop/executor";
 import { closeSessions, type SessionRunner, type SessionRunnerInput, type SessionRunnerResult } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
@@ -114,7 +115,7 @@ describe("session lifecycle conformance", () => {
                     name: "DONE",
                     run: () => Effect.gen(function* () {
                         const sealed = harness.sink.committed((committed: L0Observation.ActionCommitted) => committed.sessionId === "S" &&
-                            SessionHandleStore.turnTerminal(sessionTree(kernel(), "S").find((action: LedgerAction.Node) => action.id === committed.id)) !== undefined);
+                            turnTerminal(sessionTree(kernel(), "S").find((action: LedgerAction.Node) => action.id === committed.id)) !== undefined);
                         gate.resolve();
                         (yield* waitFor(sealed, "terminal result"));
                         expect((yield* waitFor(plainRunning ?? Promise.reject(new Error("no run")), "result"))).toEqual({
@@ -437,8 +438,8 @@ describe("session lifecycle conformance", () => {
             ],
         });
         const interrupted = result.named.get("INTERRUPTED")?.get("S");
-        const terminal = interrupted?.actions.find((a: LedgerAction.Node) => SessionHandleStore.turnTerminal(a) !== undefined);
-        expect(SessionHandleStore.turnTerminal(terminal)).toMatchObject({
+        const terminal = interrupted?.actions.find((a: LedgerAction.Node) => turnTerminal(a) !== undefined);
+        expect(turnTerminal(terminal)).toMatchObject({
             kind: "interrupted",
             resumeCount: 0,
         });
@@ -481,13 +482,13 @@ describe("session lifecycle conformance", () => {
         ]);
         const crashTerminal = crash?.actions.at(-1);
         expect(crashTerminal?.id).toBe("R");
-        expect(SessionHandleStore.turnTerminal(crashTerminal)).toMatchObject({
+        expect(turnTerminal(crashTerminal)).toMatchObject({
             turnId: "T",
             kind: "result",
             text: "recovered",
             resumeCount: 1,
         });
-        expect(SessionHandleStore.turnResume(crash?.actions[3])).toMatchObject({
+        expect(turnResume(crash?.actions[3])).toMatchObject({
             turnId: "T",
             resultId: "R",
         });

@@ -1,3 +1,5 @@
+import { turnTerminal, openTurns } from "../../src/core/store/session-reads";
+import { configureCrashPoint, configureCutProof, configureRecoveryProof } from "../helpers/crash-configure";
 import { sessionTree } from "../helpers/session-tree";
 import { testExecutor } from "../helpers/executor";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices } from "../helpers/session-services";
@@ -9,7 +11,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as SessionHandleStore from "../../src/core/store/fence";
+
 import { LedgerAction, type Message, SessionTransition } from "@openomni/protocol";
 import { z } from "zod";
 import { renderAnchorText } from "../../src/plugins/compaction/summary";
@@ -17,7 +19,7 @@ import { alarmDisposition } from "../../src/core/ports/alarm";
 import { closeSessions } from "../../src/core/session/run";
 import { reactivateSession } from "../helpers/wake-session";
 import { foldHistoryState, foldSessionHistory, hydrateSessionHistory } from "../../src/inspect/history";
-import { configureCrashPoint, configureCutProof, configureRecoveryProof } from "../helpers/crash-configure";
+
 import { killAtCrashBarrier } from "../helpers/crash-channel";
 import { messagePlanePoint, messagePlaneProof } from "../helpers/crash-message-plane";
 import { corruptCheckpoint, reconstructionPoint, reconstructionRecovery } from "../helpers/crash-reconstruction";
@@ -172,14 +174,14 @@ function wakeAfterCrash(
   return Effect.gen(function* () {
   yield* Effect.gen(function* () { const fixture: SessionFixture = runtime; return yield* withSessionServices(reactivateSession(sessionId, runner, fixture), fixture); }).pipe(Effect.timeout("5 seconds"));
   expect(actions().slice(0, before.length)).toEqual(before);
-  return actions().filter((action) => SessionHandleStore.turnTerminal(action) !== undefined);
+  return actions().filter((action) => turnTerminal(action) !== undefined);
   });
 }
 
 function recoverAdmission(witness: Witness) {
   return Effect.gen(function* () {
   const before = actions();
-  const originalTurns = SessionHandleStore.openTurns(before);
+  const originalTurns = openTurns(before);
   const originalDeliveries = pendingDeliveries();
   const originalOutbound = isolatedLedger().kernel.outboundRows(sessionId);
   const calls = { model: 0 };
@@ -215,7 +217,7 @@ function recoverAdmission(witness: Witness) {
     }
     expect(witness.bodies).toEqual([]);
     expect(calls.model).toBe(1);
-    const terminal = SessionHandleStore.turnTerminal(nth(terminals, 0));
+    const terminal = turnTerminal(nth(terminals, 0));
     if (witness.crashPoint === "turn_intent_before_llm_entry") {
       expect(originalTurns).toHaveLength(1);
       expect(terminal?.turnId).toBe(originalTurns[0]?.turnId);
@@ -323,12 +325,12 @@ function recoverTurn(witness: Witness, resumeCount: number, onModel: () => Effec
   try {
     const terminals = yield* wakeAfterCrash(witness, runner, runtime, before);
     expect(terminals.map((action) => action.id)).toEqual([original.resultId]);
-    expect(SessionHandleStore.turnTerminal(nth(terminals, 0))).toMatchObject({
+    expect(turnTerminal(nth(terminals, 0))).toMatchObject({
       turnId: original.turnId,
       resumeCount,
       kind: "result",
     });
-    expect(SessionHandleStore.openTurns(actions())).toEqual([]);
+    expect(openTurns(actions())).toEqual([]);
     expect(calls.model).toBe(1);
     const recovered = actions();
     const revision = isolatedLedger().kernel.row(sessionId).revision;
@@ -549,7 +551,7 @@ function recoverOutbound(witness: Witness, dbPath: string) {
     expect(received).toHaveLength(1);
     expect(received[0]?.status).toBe("consumed");
     if (destination.length === 1) expect(received[0]?.content).toBe(destination[0]?.content);
-    expect(proof.after.filter((action) => SessionHandleStore.turnTerminal(action) !== undefined)).toHaveLength(1);
+    expect(proof.after.filter((action) => turnTerminal(action) !== undefined)).toHaveLength(1);
     if (sent || ambiguous) {
       expect(proof.externalBefore).toEqual([item.message.messageId]);
       expect(proof.externalAfter).toEqual(Array.from({ length: sent ? 1 : 2 }, () => item.message.messageId));

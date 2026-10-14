@@ -1,3 +1,4 @@
+import { turnTerminal } from "../src/core/store/session-reads";
 import { sessionTree } from "./helpers/session-tree";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices, } from "./helpers/session-services";
 import { Cause, Effect, Exit, Scope } from "effect";
@@ -6,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { seedPolicy } from "./helpers/seed-policy";
 import { receiveOutbound, failure, foreign } from "./helpers/effect-g2";
 import { isolated, isolatedLedger } from "./helpers/isolated";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { closeSessions, type SessionRunner } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { resolveSessionRuntime } from "../src/core/session/run";
@@ -147,7 +148,7 @@ test("a dropped receiving consumer leaves a sealed source obligation without mut
         expect(
           source.filter(
             (action: import("@openomni/protocol").LedgerAction.Node) =>
-              SessionHandleStore.turnTerminal(action) !== undefined,
+              turnTerminal(action) !== undefined,
           ),
         ).toHaveLength(1);
         const obligations = kernel.outboundRows("child");
@@ -334,7 +335,7 @@ test("outbound insert failure rolls back the source terminal in the same SQLite 
       const kernel = isolatedLedger().kernel;
       expect(
         sessionTree(kernel, "child").filter(
-          (action) => SessionHandleStore.turnTerminal(action) !== undefined,
+          (action) => turnTerminal(action) !== undefined,
         ),
       ).toEqual([]);
       expect(kernel.outboundRows("child")).toEqual([]);
@@ -420,7 +421,7 @@ test("a child answers the original request once and reconciles a lost ACK after 
         expect(kernel().requestById(request.requestId)?.state).toBe("resolved");
         expect(kernel().pendingMessages("parent")).toEqual([]);
         const terminals = sessionTree(kernel(), "child").filter(
-          (action) => SessionHandleStore.turnTerminal(action) !== undefined,
+          (action) => turnTerminal(action) !== undefined,
         );
         const parentBefore = sessionTree(kernel(), "parent");
         yield* closeSessions(runtime);
@@ -437,7 +438,7 @@ test("a child answers the original request once and reconciles a lost ACK after 
         expect(sessionTree(kernel(), "parent")).toEqual(parentBefore);
         expect(
           sessionTree(kernel(), "child").filter(
-            (action) => SessionHandleStore.turnTerminal(action) !== undefined,
+            (action) => turnTerminal(action) !== undefined,
           ),
         ).toEqual(terminals);
         expect(kernel().outboundRows("child")).toMatchObject([{ state: "delivered" }]);

@@ -1,4 +1,4 @@
-import * as SessionHandleStore from "../../src/core/store/fence";
+import { generationSnapshot, configureAction } from "../../src/core/store/configure";
 import { PlainValueSchema, type LedgerAction } from "@openomni/protocol";
 import { turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { requireCommit } from "../../src/testing/commit";
@@ -140,7 +140,7 @@ export async function reconstructionFixture(
       return "settled";
     }),
   ));
-  const generation = SessionHandleStore.generationSnapshot({
+  const generation = generationSnapshot({
     generation: 2,
     revertTo: 1,
     tools: [],
@@ -152,7 +152,7 @@ export async function reconstructionFixture(
   });
   const changed = recording.commitBatch(
     [
-      SessionHandleStore.configureAction({
+      configureAction({
         id: "generation-two",
         sessionId: reconstructionSession,
         parentId: recording.identity.turnId,

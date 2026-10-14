@@ -1,3 +1,5 @@
+import { delivery, turnTerminal } from "../../src/core/store/session-reads";
+import { latestGeneration } from "../../src/core/store/configure";
 /** #1348: the shared durable-session-handle suite plane (state, runners, kernel reads, program runner). */
 import { afterEach, beforeEach, expect } from "bun:test";
 import { Effect, type Scope } from "effect";
@@ -337,13 +339,13 @@ export function policyGeneration(action: LedgerAction.Node): number | undefined 
 
 export function deliveries(sessionId: string): SessionTurn.Delivery[] {
   return tree(sessionId)
-    .map(SessionHandleStore.delivery)
+    .map(delivery)
     .filter((delivery): delivery is SessionTurn.Delivery => delivery !== undefined);
 }
 
 export function terminals(sessionId: string): SessionTurn.Terminal[] {
   return tree(sessionId)
-    .map(SessionHandleStore.turnTerminal)
+    .map(turnTerminal)
     .filter((terminal): terminal is SessionTurn.Terminal => terminal !== undefined);
 }
 
@@ -368,7 +370,7 @@ export function commitOpenTurn(input: {
       actionId: `${input.sessionId}:configure`,
       at: now,
     });
-    const generation = SessionHandleStore.latestGeneration(tree(input.sessionId));
+    const generation = latestGeneration(tree(input.sessionId));
     const adopted = yield* kernel().adoptFence({
       sessionId: input.sessionId,
       owner: "crashed-owner",
@@ -411,7 +413,7 @@ export function commitOpenTurn(input: {
 }
 
 export function durableRequest(sessionId: string, turnId: string): SessionTransition.Request {
-  const generation = SessionHandleStore.latestGeneration(tree(sessionId));
+  const generation = latestGeneration(tree(sessionId));
   return openRequest({
     requestId: `${sessionId}:request`,
     sessionId,

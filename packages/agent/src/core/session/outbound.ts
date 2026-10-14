@@ -1,6 +1,7 @@
+import { turnTerminal, turnIntent } from "../store/session-reads";
 import { Effect } from "effect";
 import { type SessionError, CommitFailed, AgentInvariantViolation } from "../ports/failure";
-import * as SessionHandleStore from "../store/fence";
+
 import type { SessionKernel } from "./entity";
 import { type LedgerAction, SessionTransition, canonicalDigest, PlainValueSchema } from "@openomni/protocol";
 import { fencedExecutionLedger, type ResolvedSessionRuntime } from "./runtime";
@@ -31,11 +32,11 @@ export function outboundOpen(
 }
 
 function toolsGeneration(kernel: SessionKernel, message: SessionTransition.OutboundMessage): number {
-  const terminal = SessionHandleStore.turnTerminal(kernel.actionById(message.sourceActionId));
+  const terminal = turnTerminal(kernel.actionById(message.sourceActionId));
   const intent =
     terminal === undefined
       ? undefined
-      : SessionHandleStore.turnIntent(kernel.actionById(terminal.turnId));
+      : turnIntent(kernel.actionById(terminal.turnId));
   if (intent === undefined) throw new AgentInvariantViolation("outbound original turn is missing");
   return intent.toolsGeneration;
 }

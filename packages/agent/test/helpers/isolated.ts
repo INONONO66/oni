@@ -1,3 +1,4 @@
+import { generationSnapshot } from "../../src/core/store/configure";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
@@ -92,7 +93,7 @@ export function testBus(onError?: FailureReporter): TestObservationBus {
 export const runnerTestLayer = Layer.mergeAll(
   LlmLive, Layer.succeed(Entropy, entropySource("runner")),
   Layer.effectContext(Effect.gen(function* () {
-    const snapshot = SessionHandleStore.generationSnapshot({ generation: 1, revertTo: 0, tools: [], system: { preset: "", blocks: [] }, policyGeneration: 1 });
+    const snapshot = generationSnapshot({ generation: 1, revertTo: 0, tools: [], system: { preset: "", blocks: [] }, policyGeneration: 1 });
     const policy = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, rows: SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })) });
     const sink = (yield* makeObservationBus({ id: entropySource("runner-event").id, now: () => 0 })).sink;
     const owner = yield* makeSessionGenerations({ id: { sessionId: "fixture", generation: 1 }, snapshot, activate: Effect.void,

@@ -1,8 +1,9 @@
+import { generationSnapshot, configureAction } from "../store/configure";
 import { Effect, Context, Exit, Layer, Scope, Semaphore } from "effect";
 import { type SessionError, CommitFailed, AgentFailure, GenerationUnavailable, GenerationUnsettled } from "../ports/failure";
 import { createRawSlots } from "../loop/executor";
 import { GenerationRawSlots } from "../loop/executor";
-import * as SessionHandleStore from "../store/fence";
+
 import type { SessionKernel } from "./entity";
 import { type LedgerSession, type SessionGeneration, canonicalDigest, PlainValueSchema } from "@openomni/protocol";
 import { GenerationOwnership, type CapturedGeneration, type GenerationServices } from "../ports/ports";
@@ -37,7 +38,7 @@ export function createSessionConfiguration(
       const previous = kernel.latestGenerationFor(sessionId);
       if (previous.generation !== before.generation)
         return yield* new AgentFailure({ operation: "session.configure", cause: "stale" });
-      const snapshot = SessionHandleStore.generationSnapshot({
+      const snapshot = generationSnapshot({
         generation, revertTo: previous.generation, tools: nextTools,
         system: nextSystem, policyGeneration: previous.policyGeneration,
         bundles: previous.bundles,
@@ -45,7 +46,7 @@ export function createSessionConfiguration(
         // would force a spurious compose adoption at next turn start.
         ...(previous.manifestHash === undefined ? {} : { manifestHash: previous.manifestHash }),
       });
-      const configured = SessionHandleStore.configureAction({
+      const configured = configureAction({
         id: entropy(), sessionId, parentId: kernel.latestAction(sessionId)?.id ?? null,
         operation, snapshot, at: clock(),
       });

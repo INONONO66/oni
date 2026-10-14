@@ -1,8 +1,9 @@
+import { configureAction } from "../src/core/store/configure";
 import { expect, test } from "bun:test";
 import { Context } from "effect";
 import { z } from "zod";
 import { Journal, type PlainValue } from "@openomni/protocol";
-import { configureAction } from "../src/core/store/fence";
+
 import {
   Capability,
   defineBundle,

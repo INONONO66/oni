@@ -1,9 +1,10 @@
+import { generationSnapshot, materializationSeed, type MaterializeInput } from "../store/configure";
 import { Effect } from "effect";
 import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import type { LedgerPlane } from "./host";
 import { thrownAsError } from "../ports/failure";
 import { CreateRefused, type LedgerError } from "../store/errors";
-import { generationSnapshot, materializationSeed, type MaterializeInput } from "../store/fence";
+
 
 export { CreateRefused };
 

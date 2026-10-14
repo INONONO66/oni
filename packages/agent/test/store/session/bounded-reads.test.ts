@@ -1,3 +1,4 @@
+import { turnTerminal } from "../../../src/core/store/session-reads";
 import { beforeEach, expect, test } from "bun:test";
 import { z } from "zod";
 import { canonicalDigest, type LedgerAction, type PlainValue } from "@openomni/protocol";
@@ -121,9 +122,9 @@ test("open turns page by original ordinal even when their latest update is beyon
   expect(kernel.latestOpenTurn("bounded")?.turnId).toBe("turn-256");
   const closed = terminal("turn-256");
   expect(kernel.turnTerminalFor("bounded", "turn-256")).toEqual(
-    SessionHandleStore.turnTerminal(closed),
+    turnTerminal(closed),
   );
-  const effect = SessionHandleStore.turnTerminal(closed);
+  const effect = turnTerminal(closed);
   if (effect === undefined) throw new Error("missing turn terminal");
   expect(kernel.latestTurnTerminal("bounded")).toEqual({ action: closed, effect });
   expect(kernel.latestOpenTurn("bounded")?.turnId).toBe("turn-255");

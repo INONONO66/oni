@@ -1,8 +1,9 @@
+import type { ConfigureAuthority } from "../store/configure";
 import { Clock, Effect, type Context, type Fiber } from "effect";
 import { type SessionError, type ExecutionError, type RunnerOutputMissing, CommitFailed, type InboundAuthorityViolation } from "../ports/failure";
 import { type ExecutionLedger, type ExecutionApprovals, type ExecutionResult, type ExecutorOptions, type createRawSlots, createExecutor } from "../loop/executor";
 import type { SessionPolicyRefusal } from "../journal/messages";
-import type * as SessionHandleStore from "../store/fence";
+
 import type { SessionKernel } from "./entity";
 import type { InspectRequest, InspectionPage } from "../../inspect";
 import type { Delivery, LedgerAction, LedgerSession, ObservationSink, SessionGeneration, ConfigureDisabled, SessionHistory, SessionTurn, SessionTransition } from "@openomni/protocol";
@@ -136,7 +137,7 @@ export interface SessionRuntime {
   readonly approvalPolicy: ApprovalPolicy;
   readonly processId?: string;
   /** Required pinned pre-policy authority for `session.configure`; there is no allow fallback. */
-  readonly authorizeConfigure: (input: Parameters<SessionHandleStore.ConfigureAuthority>[0]) => Effect.Effect<boolean, SessionError>;
+  readonly authorizeConfigure: (input: Parameters<ConfigureAuthority>[0]) => Effect.Effect<boolean, SessionError>;
   readonly authorizeApproval?: ExecutorOptions["authorizeApproval"];
   readonly requestDomainRevisions?: (
     request: SessionTransition.Request,

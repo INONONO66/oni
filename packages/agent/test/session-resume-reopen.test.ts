@@ -1,3 +1,5 @@
+import { latestGeneration, generationSnapshot, configureAction } from "../src/core/store/configure";
+import { turnTerminal } from "../src/core/store/session-reads";
 import { messageSource } from "./helpers/message-source";
 import { PlainValueSchema } from "@openomni/protocol";
 import { sessionTree } from "./helpers/session-tree";
@@ -11,7 +13,7 @@ import { isolated, isolatedLedger } from "./helpers/isolated";
 import { awaitSignal, boundedSignal } from "./helpers/g0-signals";
 import { expect, test } from "bun:test";
 import { seedPolicy } from "./helpers/seed-policy";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { SessionTurn } from "@openomni/protocol";
 import { closeSessions, type SessionRunnerInput } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
@@ -118,13 +120,13 @@ for (const mode of ["interrupted", "crash-open"] as const) {
               actionId: "initial",
               at: 1,
             });
-            const generation = SessionHandleStore.latestGeneration(sessionTree(kernel(), "resume"));
+            const generation = latestGeneration(sessionTree(kernel(), "resume"));
             const lease = yield* kernel().adoptFence({
               sessionId: "resume",
               owner: "crashed",
               fence: kernel().row("resume").fence + 1,
             });
-            const newer = SessionHandleStore.generationSnapshot({
+            const newer = generationSnapshot({
               generation: 2,
               revertTo: 1,
               tools: [],
@@ -172,7 +174,7 @@ for (const mode of ["interrupted", "crash-open"] as const) {
                   irreversible: true,
                   ts: 2,
                 },
-                SessionHandleStore.configureAction({
+                configureAction({
                   id: "newer",
                   sessionId: "resume",
                   parentId: originalTurn,
@@ -234,7 +236,7 @@ for (const mode of ["interrupted", "crash-open"] as const) {
           expect(
             tree.filter(
               (action: LedgerAction.Node) =>
-                SessionHandleStore.turnTerminal(action)?.turnId === recovered.turnId,
+                turnTerminal(action)?.turnId === recovered.turnId,
             ),
           ).toHaveLength(1);
           const stale = kernel().commit({

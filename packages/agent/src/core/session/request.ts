@@ -1,9 +1,10 @@
+import { turnIntent } from "../store/session-reads";
 import { canonicalDigest, type SessionTransition, type Delivery, type PlainValue, type SessionGeneration, type PlainObject } from "@openomni/protocol";
 import { Clock, Effect } from "effect";
 import { AgentFailure, CommitFailed, type ExecutionError } from "../ports/failure";
 import { receivedMessageAction } from "../journal/delivery";
 import { requestBindingDigest } from "../journal/request-binding";
-import * as SessionHandleStore from "../store/fence";
+
 import type { SessionKernel } from "./entity";
 import { type SessionRuntime, getSessionHandle, adoptSessionAuthority } from "./run";
 import { Entropy } from "../ports/ports";
@@ -41,7 +42,7 @@ function requestGeneration(
   turnId: string | null,
 ): SessionGeneration.Snapshot | undefined {
   if (turnId === null) return kernel.latestGenerationFor(sessionId);
-  const turn = SessionHandleStore.turnIntent(kernel.actionById(turnId));
+  const turn = turnIntent(kernel.actionById(turnId));
   const generation =
     turn === undefined
       ? undefined

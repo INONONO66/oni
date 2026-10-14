@@ -1,6 +1,8 @@
+import type { OpenTurn } from "../store/session-reads";
+import { generationSnapshot, configureAction } from "../store/configure";
 import { Effect } from "effect";
 import { CommitRefused, type LedgerError } from "../store/errors";
-import * as SessionHandleStore from "../store/fence";
+
 import type { CommitReceipt } from "../store/services";
 import { ObservationSink, type RunnerServices } from "../ports/ports";
 import { canonicalDigest, Journal, type SessionGeneration, type Delivery, type LedgerAction, type LedgerSession, type PlainValue, } from "@openomni/protocol";
@@ -25,7 +27,7 @@ type AdmissionError = SessionError;
 interface AdmissionSnapshot {
   readonly row: LedgerSession.Row;
   readonly pending: readonly Delivery.Row[];
-  readonly open?: SessionHandleStore.OpenTurn;
+  readonly open?: OpenTurn;
   readonly terminal?: ReturnType<SessionKernel["latestTurnTerminal"]>;
   /** No kinds in the snapshot is a typed `missing_capability_kinds` refusal, never a default. */
   readonly capabilityKinds?: readonly string[];
@@ -34,7 +36,7 @@ interface AdmissionSnapshot {
 type AdmissionDecision =
   | { readonly kind: "stop" | "start" }
   | { readonly kind: "refused"; readonly reason?: "unknown_kind" | "missing_capability_kinds" }
-  | { readonly kind: "recover"; readonly open: SessionHandleStore.OpenTurn }
+  | { readonly kind: "recover"; readonly open: OpenTurn }
   | { readonly kind: "resume"; readonly item: Delivery.Row }
   | { readonly kind: "consume"; readonly items: readonly Delivery.Row[] };
 
@@ -89,7 +91,7 @@ export interface SessionTurnPorts<E> {
     readonly resume: boolean;
   }) => Effect.Effect<SessionRunnerResult, E>;
   readonly seal: (
-    open: SessionHandleStore.OpenTurn,
+    open: OpenTurn,
     result: SessionRunnerResult,
   ) => Effect.Effect<void, E>;
 }
@@ -135,7 +137,7 @@ export function createSessionAdmission(
       const previous = kernel.latestGenerationFor(sessionId);
       if (previous.manifestHash === composed.hash) return;
       const generation = previous.generation + 1;
-      const snapshot = SessionHandleStore.generationSnapshot({
+      const snapshot = generationSnapshot({
         generation,
         revertTo: previous.generation,
         tools: composed.tools,
@@ -144,7 +146,7 @@ export function createSessionAdmission(
         bundles: composed.bundles,
         manifestHash: composed.hash,
       });
-      const configured = SessionHandleStore.configureAction({
+      const configured = configureAction({
         id: entropy(),
         sessionId,
         parentId: kernel.latestAction(sessionId)?.id ?? null,

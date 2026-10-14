@@ -1,8 +1,9 @@
+import { turnTerminal, openTurns } from "../src/core/store/session-reads";
 import { describe, expect, test } from "bun:test";
 import { Effect, } from "effect";
 import type { SessionTurn } from "@openomni/protocol";
 import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { awaitSignal, boundedSignal as bounded } from "./helpers/g0-signals";
 import {
   commitDelivery,
@@ -50,10 +51,10 @@ describe("session crash recovery and observation", () => {
         expect(input.resultId).toBe("preminted-result");
         expect(input.resumeCount).toBe(1);
         const terminal = tree("crashed-turn").find(
-          (action) => SessionHandleStore.turnTerminal(action) !== undefined,
+          (action) => turnTerminal(action) !== undefined,
         );
         expect(terminal?.id).toBe("preminted-result");
-        expect(SessionHandleStore.openTurns(tree("crashed-turn"))).toEqual([]);
+        expect(openTurns(tree("crashed-turn"))).toEqual([]);
       }),
     ));
 
@@ -80,7 +81,7 @@ describe("session crash recovery and observation", () => {
           generation: 1,
         });
         expect(runs).toBe(0);
-        expect(SessionHandleStore.openTurns(tree("drifted-turn"))).toHaveLength(1);
+        expect(openTurns(tree("drifted-turn"))).toHaveLength(1);
       }),
     ));
 
@@ -121,7 +122,7 @@ describe("session crash recovery and observation", () => {
         });
         const actions = tree("boundary-deny");
         expect(
-          SessionHandleStore.turnTerminal(
+          turnTerminal(
             actions.find((action) => action.id === "boundary-result"),
           ),
         ).toMatchObject({ kind: "error" });
@@ -186,7 +187,7 @@ describe("session crash recovery and observation", () => {
         const actions = tree("cancelled-turn");
         expect(actions.slice(0, prefix.length)).toEqual(prefix);
         expect(
-          SessionHandleStore.turnTerminal(
+          turnTerminal(
             actions.find((action) => action.id === "cancelled-result"),
           ),
         ).toMatchObject({ kind: "interrupted", turnId: "cancelled-turn:turn", resumeCount: 0 });
@@ -215,7 +216,7 @@ describe("session crash recovery and observation", () => {
         const terminalAction = tree("poison-turn").find(
           (action) => action.id === "poison-result",
         );
-        expect(SessionHandleStore.turnTerminal(terminalAction)).toMatchObject({
+        expect(turnTerminal(terminalAction)).toMatchObject({
           kind: "error",
           resumeCount: 10,
         });

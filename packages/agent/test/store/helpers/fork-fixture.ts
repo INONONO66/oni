@@ -1,3 +1,4 @@
+import { configureAction } from "../../../src/core/store/configure";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach } from "bun:test";
 import type { Delivery, LedgerAction } from "@openomni/protocol";
@@ -9,7 +10,7 @@ import { deliveryActions, receivedMessageAction } from "../../../src/core/journa
 import { turnTerminalAction } from "../../../src/core/journal/turn-rows";
 import { armAction } from "../../../src/core/ports/alarm";
 import { forkSession, type ForkPorts, ForkRefused, type ForkReceipt } from "../../../src/core/session/fork";
-import { configureAction } from "../../../src/core/store/fence";
+
 import type { LedgerError } from "../../../src/core/store/errors";
 
 export const PARENT = "parent";

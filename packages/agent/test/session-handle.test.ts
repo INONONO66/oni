@@ -1,3 +1,4 @@
+import { turnIntent, openTurns, turnResume } from "../src/core/store/session-reads";
 import { describe, expect, spyOn, test } from "bun:test";
 import { Effect, } from "effect";
 import { type LedgerAction, type L0Observation, PlainValueSchema } from "@openomni/protocol";
@@ -5,7 +6,7 @@ import type { Delivery } from "@openomni/protocol";
 import type { SessionHandle } from "../src/core/session/run";
 import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
 import { AgentFailure } from "../src/core/store/errors";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { isolatedLedger } from "./helpers/isolated";
 import { awaitSignal, boundedSignal as bounded } from "./helpers/g0-signals";
 import {
@@ -103,7 +104,7 @@ describe("durable session handle: admission and turn sealing", () => {
           action.kind === "prompt" &&
           (action.effect.value as { phase?: string } | null)?.phase !== "delivery";
         const prompt = actions.find(isAdmittedPrompt);
-        const turn = actions.find((action) => SessionHandleStore.turnIntent(action) !== undefined);
+        const turn = actions.find((action) => turnIntent(action) !== undefined);
         const decisions = actions.filter((action) => action.kind === "policy.decision");
         expect(result).toEqual({ kind: "result", text: "complete" });
         expect(actions.filter(isAdmittedPrompt)).toHaveLength(1);
@@ -452,7 +453,7 @@ describe("durable session handle: admission and turn sealing", () => {
           Effect.gen(function* () {
             const treeAtEntry = tree(input.sessionId);
             const intent = treeAtEntry.find((action) => action.id === input.turnId);
-            expect(SessionHandleStore.turnIntent(intent)?.resultId).toBe(input.resultId);
+            expect(turnIntent(intent)?.resultId).toBe(input.resultId);
             expect(treeAtEntry.some((action) => action.id === input.resultId)).toBe(false);
             runs += 1;
             active += 1;
@@ -580,7 +581,7 @@ describe("durable session handle: admission and turn sealing", () => {
         expect(result).toEqual({ kind: "interrupted", text: "" });
         expect(runs).toBe(0);
         expect(handle.get().state).toBe("interrupted");
-        expect(SessionHandleStore.openTurns(tree(handle.id))).toEqual([]);
+        expect(openTurns(tree(handle.id))).toEqual([]);
       }),
     ));
 
@@ -626,7 +627,7 @@ describe("durable session handle: admission and turn sealing", () => {
         });
         expect(runs).toBe(0);
         expect(handle.get().state).toBe("idle");
-        expect(SessionHandleStore.openTurns(tree(handle.id))).toEqual([]);
+        expect(openTurns(tree(handle.id))).toEqual([]);
       }),
     ));
 
@@ -650,9 +651,9 @@ describe("durable session handle: admission and turn sealing", () => {
         expect(result).toEqual({ kind: "result", text: "ran once" });
         expect(inputs).toHaveLength(1);
         expect(inputs[0]?.resumeCount).toBe(0);
-        expect(SessionHandleStore.openTurns(tree(handle.id))).toEqual([]);
+        expect(openTurns(tree(handle.id))).toEqual([]);
         expect(
-          tree(handle.id).filter((action) => SessionHandleStore.turnResume(action) !== undefined),
+          tree(handle.id).filter((action) => turnResume(action) !== undefined),
         ).toEqual([]);
       }),
     ));
@@ -698,7 +699,7 @@ describe("durable session handle: admission and turn sealing", () => {
         yield* awaitSignal(reactivate("queued-interrupt", runner));
 
         expect(entries).toBe(0);
-        expect(SessionHandleStore.openTurns(tree("queued-interrupt"))).toEqual([]);
+        expect(openTurns(tree("queued-interrupt"))).toEqual([]);
         expect(kernel().getSnapshot("queued-interrupt", 4)).toMatchObject({
           state: "interrupted",
           turns: [{ terminal: { kind: "interrupted" } }],

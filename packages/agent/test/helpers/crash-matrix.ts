@@ -1,8 +1,10 @@
+import { openTurns } from "../../src/core/store/session-reads";
+import { configureCrashPoint } from "./crash-configure";
 import { sessionTree } from "./session-tree";
 import { runAgent, testExecutor } from "./executor";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { foldCrashMain, foldCrashPoint, foldCrashProof } from "./fold-crash";
-import { configureCrashPoint } from "./crash-configure";
+
 import { reconstructionCut, reconstructionPoint } from "./crash-reconstruction";
 import { turnTestLayer, catalogLayer } from "./service-layers";
 import { runnerTestLayer } from "./isolated";
@@ -12,7 +14,7 @@ import { openCrashStores } from "./crash-stores";
 import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
 import { Effect } from "effect";
 import { appendFileSync, writeSync } from "node:fs";
-import * as SessionHandleStore from "../../src/core/store/fence";
+
 import type { LedgerError } from "../../src/core/store/errors";
 import { LedgerAction, Message, PlainObjectSchema, PlainValueSchema, type PlainValue, } from "@openomni/protocol";
 import { z } from "zod";
@@ -144,7 +146,7 @@ function stop(point: z.infer<typeof allCrashPoints>, bodies: string[], pending?:
     bodies,
     ...(fold === undefined ? {} : { fold }),
     lease: { owner: row.fenceOwner, fence: row.fence },
-    openTurns: SessionHandleStore.openTurns(sessionTree(kernel, sessionId)),
+    openTurns: openTurns(sessionTree(kernel, sessionId)),
     ...(pending === undefined
       ? {}
       : { pending: { kind: pending.kind, effect: pending.effect.value } }),

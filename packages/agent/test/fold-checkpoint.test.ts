@@ -1,3 +1,4 @@
+import { configureAction, latestGeneration } from "../src/core/store/configure";
 import { Effect, Logger, References } from "effect";
 import { z } from "zod";
 import { runAgentSync } from "./helpers/executor";
@@ -110,7 +111,7 @@ function pinCheckpointPolicy(
 ) {
   const id = recording.identity.sessionId;
   const committed = recording.commitBatch([
-    SessionHandleStore.configureAction({
+    configureAction({
       id: `${id}:configure:checkpoint`,
       sessionId: id,
       parentId: kernel.latestAction(id)?.id ?? null,
@@ -207,7 +208,7 @@ test("#1347 a crash-open reactivation hands the charged counters to the resumed 
           id, role: "resident", parentId: null, tools: [], system: { preset: "", blocks: [] },
           policyGeneration: 1, actionId: "initial", at: 1,
         });
-        const generation = SessionHandleStore.latestGeneration(sessionTree(kernel(), id));
+        const generation = latestGeneration(sessionTree(kernel(), id));
         const lease = yield* kernel().adoptFence({ sessionId: id, owner: "crashed", fence: kernel().row(id).fence + 1 });
         // One model step charged under an open turn, then the process dies: no turn terminal.
         yield* kernel().commit({

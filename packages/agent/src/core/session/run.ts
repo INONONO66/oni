@@ -1,9 +1,10 @@
+import type { OpenTurn } from "../store/session-reads";
 import { Effect, Exit, type Scope, Cause } from "effect";
 import * as Failure from "../ports/failure";
 import { type SessionError, type ExecutionError, CommitFailed, AgentFailure } from "../ports/failure";
 import { type ExecutionLedger, type ExecutionResult, createExecutor, type Executor } from "../loop/executor";
 import type { SessionPolicyRefusal } from "../journal/messages";
-import type * as SessionHandleStore from "../store/fence";
+
 import type { SessionKernel } from "./entity";
 import { type Delivery, type LedgerSession, type Model, type SessionGeneration, type SessionTurn, canonicalDigest, type TraceContext } from "@openomni/protocol";
 import type { ChatAgentConfig, AgentResult } from "../ports/types";
@@ -201,7 +202,7 @@ export function createSessionTurn(
     });
   }
 
-  function seal(open: SessionHandleStore.OpenTurn, result: SessionRunnerResult): Effect.Effect<void, SessionError> {
+  function seal(open: OpenTurn, result: SessionRunnerResult): Effect.Effect<void, SessionError> {
     return Effect.gen(function* () {
       const current = kernel.row(sessionId);
       const latest = kernel.latestAction(sessionId);

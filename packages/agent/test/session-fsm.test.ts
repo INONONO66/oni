@@ -1,3 +1,4 @@
+import { type OpenTurn, turnIntent, turnTerminal } from "../src/core/store/session-reads";
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import * as SessionHandleStore from "../src/core/store/fence";
@@ -41,7 +42,7 @@ const row: LedgerSession.Row = {
 const generation = fixtureGeneration;
 const node = fixtureNode;
 const turn = fixtureTurn;
-const open: SessionHandleStore.OpenTurn = fixtureOpenTurn;
+const open: OpenTurn = fixtureOpenTurn;
 const terminal = fixtureTerminal;
 function pendingRow(kind: Delivery.Kind, ordinal = 1): Delivery.Row {
   return {
@@ -530,14 +531,14 @@ describe("T01-T15 real controller transition witnesses", () => {
           yield* handle.prompt("start");
           const actions = sessionTree(isolatedLedger().kernel, "S");
           const intent = actions.find(
-            (action) => SessionHandleStore.turnIntent(action) !== undefined,
+            (action) => turnIntent(action) !== undefined,
           );
           const endings = actions.filter(
-            (action) => SessionHandleStore.turnTerminal(action) !== undefined,
+            (action) => turnTerminal(action) !== undefined,
           );
           expect(endings).toHaveLength(1);
-          expect(endings[0]?.id).toBe(SessionHandleStore.turnIntent(intent)?.resultId);
-          expect(SessionHandleStore.turnTerminal(endings[0])?.kind).toBe(kind);
+          expect(endings[0]?.id).toBe(turnIntent(intent)?.resultId);
+          expect(turnTerminal(endings[0])?.kind).toBe(kind);
           // W5.2: terminals keep the fence owner durable; there is no lease release.
           expect(isolatedLedger().kernel.row("S").state).toBe("idle");
           expect(isolatedLedger().kernel.row("S").fenceOwner).not.toBeNull();

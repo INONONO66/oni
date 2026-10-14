@@ -1,3 +1,4 @@
+import { generationSnapshot } from "../../src/core/store/configure";
 import { expect, test } from "bun:test";
 import {
   GateDecision,
@@ -17,7 +18,7 @@ import { DEFAULT_COMPILE_KINDS, parseRow } from "../../src/core/gate/row-parse";
 import { projectGeneration } from "../../src/core/gate/project";
 import { GATE_ROW_WRITER_VERSION } from "../../src/core/ports/gate-rows";
 import { composePointTable, KERNEL_CAPABILITY_POINTS } from "../../src/core/gate/points";
-import * as SessionHandleStore from "../../src/core/store/fence";
+
 
 const GENERATION = 1;
 
@@ -222,7 +223,7 @@ test("a pre-cutover snapshot parses without rowsVersion; a new materialization r
   });
   expect("rowsVersion" in preCutover && preCutover.rowsVersion !== undefined).toBe(false);
 
-  const materialized = SessionHandleStore.generationSnapshot({
+  const materialized = generationSnapshot({
     generation: 1,
     revertTo: 0,
     tools: [],

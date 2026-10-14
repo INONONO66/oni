@@ -1,7 +1,8 @@
+import { delivery } from "../store/session-reads";
 import { Effect } from "effect";
 import { RunnerOutputMissing, InboundAuthorityViolation } from "../ports/failure";
 import type { ExecutionApprovals } from "../loop/executor";
-import * as SessionHandleStore from "../store/fence";
+
 import type { SessionKernel } from "./entity";
 import { foldAlarmChains, openAlarmIds } from "./alarm-read";
 import { Delivery, AlarmOp, type LedgerAction, BusEvent, type PlainValue } from "@openomni/protocol";
@@ -59,7 +60,7 @@ function effectBlocked(action: LedgerAction.Node): boolean {
 
 function effectChanged(action: LedgerAction.Node): boolean {
   if (action.kind === "session.configure" || alarmOp(action) === "arm") return true;
-  if (SessionHandleStore.delivery(action) !== undefined) return true;
+  if (delivery(action) !== undefined) return true;
   const effect = action.effect.value;
   return effect !== null && typeof effect === "object" && !Array.isArray(effect) && effect.stateChanged === true;
 }

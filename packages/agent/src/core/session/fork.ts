@@ -1,3 +1,4 @@
+import { configureAction } from "../store/configure";
 /**
  * The child genesis pins the parent, anchor, anchor parent ordinal and chain
  * head so later parent appends never alter the child's verification. Arms,
@@ -7,7 +8,7 @@
 import { Data, Effect } from "effect";
 import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@openomni/protocol";
 import type { SessionKernel } from "../store/fence";
-import { configureAction } from "../store/fence";
+
 import { actionPayloadBytes } from "../store/action-hash";
 import { consumptionSettings } from "../journal/delivery";
 import type { LedgerError } from "../store/errors";

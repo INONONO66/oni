@@ -1,3 +1,4 @@
+import type { OpenTurn } from "../store/session-reads";
 import { SessionGeneration, type PlainValue } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -5,7 +6,7 @@ import { GenerationUnavailable } from "../ports/failure";
 import { RunReasonCode } from "../ports/reason-codes";
 import type { SessionKernel } from "../session/entity";
 import type { SessionRunnerResult, SessionTool } from "../session/run";
-import type * as SessionHandleStore from "../store/fence";
+
 import { SessionPolicyRefusal } from "./messages";
 
 export function toolSnapshot(tool: SessionTool): SessionGeneration.Tool {
@@ -91,7 +92,7 @@ export function sessionRunnerResultFromValue(value: PlainValue): SessionRunnerRe
 
 export function generationForOpen(
   kernel: SessionKernel,
-  open: SessionHandleStore.OpenTurn,
+  open: OpenTurn,
 ): Effect.Effect<SessionGeneration.Snapshot, GenerationUnavailable> {
   const snapshot = kernel.generationFor(open.action.sessionId, open.toolsGeneration);
   if (

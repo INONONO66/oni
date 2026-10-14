@@ -1,8 +1,9 @@
+import { generationSnapshot } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { isolated } from "./helpers/isolated";
 import { runAgentSync } from "./helpers/executor";
 import { expect, test } from "bun:test";
-import * as SessionHandleStore from "../src/core/store/fence";
+
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import { Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
 import { makeSessionGenerations, GenerationRawSlots } from "../src/core/session/run";
@@ -10,7 +11,7 @@ import { SessionLayer, ToolCatalog, ObservationSink } from "../src/core/ports/po
 import { GenerationHandlers } from "../src/core/composition/compose";
 
 function generation(number: number, close: () => void) {
-  const snapshot = SessionHandleStore.generationSnapshot({ generation: number, revertTo: number - 1,
+  const snapshot = generationSnapshot({ generation: number, revertTo: number - 1,
     tools: [], system: { preset: "", blocks: [] }, policyGeneration: 1 });
   return {
     id: { sessionId: "retirement", generation: number }, snapshot, activate: Effect.void,
