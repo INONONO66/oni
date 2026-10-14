@@ -1,6 +1,6 @@
 # Implementation Status
 
-## #1500 a content-filter stop with no output is a failed attempt (base `f0dfb4dd5`)
+## #1500 a content-filter stop with no output is a failed attempt (base `663471f19`)
 
 On `fix/llm-refusal-stop` (2026-10-14). A completed provider stream whose last
 step closed as `content-filter` (Anthropic `stop_reason: refusal`) or `error`
