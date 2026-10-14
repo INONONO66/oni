@@ -42,7 +42,7 @@ export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly er
  * origin names an actor on a channel surface. WebSocket owners already read
  * the turn stream, so they are not written to twice.
  */
-export function externalReplyTarget(input: Parameters<SessionRunner>[0]): string | undefined {
+function externalReplyTarget(input: Parameters<SessionRunner>[0]): string | undefined {
   for (const message of [...input.messages].reverse()) {
     if (message.id === undefined) continue;
     const origin = input.kernel.actionById(message.id)?.intent.value;
