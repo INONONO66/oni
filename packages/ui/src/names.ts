@@ -37,6 +37,8 @@ export const UI_NAMES = {
   TabTitle: "Tab.Title",
   TabClose: "Tab.Close",
   ConsoleContent: "Console.Content",
+  /** A session with no turns yet: the label and the composer centered in the column. */
+  ConsoleHero: "Console.Hero",
   SessionContentAncestry: "SessionContent.Ancestry",
   SessionContentForks: "SessionContent.Forks",
   SessionContentForkChild: "SessionContent.ForkChild",

@@ -75,47 +75,72 @@ export function ConsoleContent({
   readonly emptyLabel?: string | undefined;
   readonly children?: ReactNode;
 }) {
+  const composer = transcript === undefined ? undefined : composerProps(transcript);
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-ui={UI_NAMES.ConsoleContent}>
       {header}
-      <ScrollArea
-        className="flex-1"
-        contentClassName="mx-auto w-full max-w-measure px-section pt-4 pb-section"
-        pinToEnd={transcript !== undefined}
-      >
-        {transcript === undefined ? (
-          (children ?? (
+      {composer !== undefined && transcript?.nodes.length === 0 ? (
+        // A session with no turns yet has nothing to scroll and nothing to dock
+        // under: the label and the field sit together at the column's center.
+        <div
+          className="flex min-h-0 flex-1 flex-col items-center justify-center px-section"
+          data-ui={UI_NAMES.ConsoleHero}
+        >
+          <div className="flex w-full max-w-new-column flex-col gap-4">
             <Text as="p" level="meta" tone="faint">{emptyLabel}</Text>
-          ))
-        ) : (
-          <Timeline
-            costs={transcript.costs}
-            emptyLabel={emptyLabel}
-            nodes={transcript.nodes}
-            sessionId={transcript.id}
-          />
-        )}
-      </ScrollArea>
-      {transcript !== undefined &&
-        transcript.onDraftChange !== undefined &&
-        transcript.onSubmit !== undefined && (
-          <Composer
-            disabled={transcript.composerDisabled}
-            hint={transcript.composerHint}
-            meta={transcript.composerMeta}
-            onApprove={transcript.onApprove}
-            onDeny={transcript.onDeny}
-            onNext={transcript.onNextApproval}
-            onStop={transcript.onStop}
-            onSubmit={transcript.onSubmit}
-            onValueChange={transcript.onDraftChange}
-            pending={transcript.pending}
-            sending={transcript.sending}
-            value={transcript.draft ?? ""}
-          />
-        )}
+            <Composer {...composer} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <ScrollArea
+            className="flex-1"
+            contentClassName="mx-auto w-full max-w-measure px-section pt-4 pb-section"
+            pinToEnd={transcript !== undefined}
+          >
+            {transcript === undefined ? (
+              (children ?? (
+                <Text as="p" level="meta" tone="faint">{emptyLabel}</Text>
+              ))
+            ) : (
+              <Timeline
+                costs={transcript.costs}
+                emptyLabel={emptyLabel}
+                nodes={transcript.nodes}
+                sessionId={transcript.id}
+              />
+            )}
+          </ScrollArea>
+          {composer !== undefined && <Composer {...composer} />}
+        </>
+      )}
     </div>
   );
+}
+
+/**
+ * The one props object both composer positions render from, or nothing when
+ * the transcript has no way to send: the hero and the docked field must never
+ * drift apart by a prop.
+ */
+function composerProps(
+  transcript: ConsoleTranscript,
+): ComponentProps<typeof Composer> | undefined {
+  if (transcript.onDraftChange === undefined || transcript.onSubmit === undefined) return undefined;
+  return {
+    disabled: transcript.composerDisabled,
+    hint: transcript.composerHint,
+    meta: transcript.composerMeta,
+    onApprove: transcript.onApprove,
+    onDeny: transcript.onDeny,
+    onNext: transcript.onNextApproval,
+    onStop: transcript.onStop,
+    onSubmit: transcript.onSubmit,
+    onValueChange: transcript.onDraftChange,
+    pending: transcript.pending,
+    sending: transcript.sending,
+    value: transcript.draft ?? "",
+  };
 }
 
 /** The frame's state: the app owns it, persists it, and hands it down. */

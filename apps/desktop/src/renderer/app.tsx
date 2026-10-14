@@ -28,6 +28,7 @@ import {
   activeTab,
   closeTab,
   consoleStore,
+  ensureBootTab,
   navigate,
   openTab,
   setSidebarOpen,
@@ -174,6 +175,7 @@ function useShellLifecycle(storage: Storage | null): void {
     const remembered = readShellPreferences(storage);
     setSidebarOpen(remembered.open);
     setSidebarWidth(remembered.width);
+    ensureBootTab();
     const subscription = consoleStore.subscribe(() => {
       writeShellPreferences(storage, {
         open: consoleStore.state.sidebarOpen,

@@ -18,6 +18,7 @@ import { SIDEBAR_OPEN_KEY, SIDEBAR_WIDTH_KEY } from "../src/renderer/state/shell
 import {
   activateTab,
   activeTab,
+  closeTab,
   consoleStore,
   createSession,
   INITIAL_CLIENT_STATE,
@@ -141,6 +142,36 @@ function seed() {
   activateTab(firstTab);
   return { first, firstTab, second, secondTab, unopened };
 }
+
+test("empty storage boots one empty session tab", async () => {
+  await mount(undefined, browser.localStorage);
+
+  expect(consoleStore.state.tabs).toHaveLength(1);
+  expect(consoleStore.state.sessions).toHaveLength(1);
+  expect(activeTab(consoleStore.state)?.place.kind).toBe("session");
+  expect(consoleStore.state.closedTabs).toHaveLength(0);
+});
+
+test("persisted tabs remain unchanged during boot hydration", async () => {
+  const { first, second } = seed();
+  await mount(undefined, browser.localStorage);
+
+  expect(consoleStore.state.tabs).toHaveLength(2);
+  expect(consoleStore.state.sessions).toHaveLength(3);
+  expect(consoleStore.state.sessions.map((session) => session.id)).toContain(first);
+  expect(consoleStore.state.sessions.map((session) => session.id)).toContain(second);
+});
+
+test("closing the last boot tab does not create another tab", async () => {
+  await mount(undefined, browser.localStorage);
+  const tabId = consoleStore.state.activeTabId;
+  if (tabId === null) throw new Error("Missing boot tab");
+
+  await act(() => closeTab(tabId));
+
+  expect(consoleStore.state.tabs).toHaveLength(0);
+  expect(consoleStore.state.activeTabId).toBeNull();
+});
 
 test("App restores and persists shell preferences, scopes bracket shortcuts and disposes subscriptions", async () => {
   const storage = browser.localStorage;

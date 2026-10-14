@@ -110,6 +110,9 @@
   --spacing-inset: 8px;
 
   --spacing-measure: 68ch;
+  /* The column of a session with no turns yet: 712px, wider than the measure,
+     so the first field reads as a stage rather than a line. */
+  --spacing-new-column: 44.5rem;
 
   /* ---- Indentation ------------------------------------------------------ */
 

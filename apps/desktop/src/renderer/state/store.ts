@@ -149,6 +149,11 @@ export function newSessionTab(): SessionId {
   return id;
 }
 
+export function ensureBootTab(): void {
+  if (consoleStore.state.tabs.length > 0) return;
+  newSessionTab();
+}
+
 export function openTab(place: Place): void {
   const id = storePlatform().id();
   consoleStore.setState((state) => {
