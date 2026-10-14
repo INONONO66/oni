@@ -5,7 +5,7 @@ import { decodeJson, jsonArray, jsonObject, jsonString } from "./quality-invento
 import { JOB_TIMEOUT_MINUTES } from "./quality-native-mutation";
 
 // Workflow keys and command wiring are machine-consumed, not prose snapshots.
-test("full mutation is an explicit scheduled workflow, never a silently skipped PR gate", () => {
+test("full mutation is an explicit manual-dispatch workflow, never a silently skipped PR gate", () => {
   const parsed = Bun.spawnSync(
     [
       process.execPath,
@@ -20,7 +20,8 @@ test("full mutation is an explicit scheduled workflow, never a silently skipped 
   expect(parsed.exitCode).toBe(0);
   const workflow = jsonObject(decodeJson(parsed.stdout.toString()));
   const triggers = jsonObject(workflow.on);
-  expect(jsonArray(triggers.schedule, jsonObject).length).toBeGreaterThan(0);
+  // #1049: the nightly schedule never completed a shard; dispatch is the only trigger.
+  expect(Object.hasOwn(triggers, "schedule")).toBe(false);
   expect(Object.hasOwn(triggers, "workflow_dispatch")).toBe(true);
   expect(Object.hasOwn(triggers, "pull_request")).toBe(false);
   const inputs = jsonObject(jsonObject(triggers.workflow_dispatch).inputs);
@@ -74,7 +75,7 @@ test("full mutation is an explicit scheduled workflow, never a silently skipped 
   expect(joinRun).toBeDefined();
   expect(jsonString(jsonObject(joinRun ?? {}).run)).not.toContain("--baseline");
   expect(jsonString(jsonObject(joinRun ?? {}).run)).toContain("--shards");
-  // A missing campaign receipt fails the scheduled run instead of warning.
+  // A missing campaign receipt fails the dispatched run instead of warning.
   const receiptUpload = joinSteps.find(
     (step) => jsonString(jsonObject(step.with ?? {}).name ?? "") === "quality-mutation-receipt",
   );

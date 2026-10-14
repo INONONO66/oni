@@ -1,10 +1,11 @@
 name: quality-mutation
 
 on:
-  schedule:
-    # Daily evidence: the initial weekly schedule had no runs as of 2026-09-09.
-    # Each night resumes shard progress until every slice is complete.
-    - cron: '41 2 * * *'
+  # Manual only (2026-10-14). The nightly schedule ('41 2 * * *') finished 0 of
+  # 8 shards every night for a month: ~760 of 7,953 candidates fit one 240-minute
+  # shard budget while main moved daily and the inventory hash changed each run,
+  # so no run ever resumed another. Re-add the schedule only once one dispatch
+  # completes a full campaign receipt (#945).
   workflow_dispatch:
     inputs:
       pilot_limit:

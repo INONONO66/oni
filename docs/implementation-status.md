@@ -1,5 +1,18 @@
 # Implementation Status
 
+## #1049 nightly mutation schedule removed (base `030d50500`)
+
+On `ci/mutation-schedule-off` (2026-10-14). `quality-mutation.yml` is
+manual-dispatch only: the `41 2 * * *` schedule ran every night from
+2026-09-11 and completed 0 of 8 shards each time (about 760 of 7,953
+candidates fit one 240-minute shard budget while main moved daily and the
+inventory hash changed per run, so no night resumed another). Nothing else
+in the workflow or `run-quality-mutations.ts` changed; the complete-campaign
+receipt requirement, shard inputs and resume logic are as before. The
+schedule returns once one dispatch completes a full campaign receipt; that
+remains the open acceptance item under #945. Receipt: `docs/ci.md` and the
+workflow trigger comment, PR #1529.
+
 ## #1505 inbound attachment references
 
 On `feat/channels-inbound-attachments` (2026-10-14, base `030d50500`).
@@ -17,6 +30,7 @@ URLs require bot-token authentication when retrieved; Telegram file IDs
 require platform resolution. Automation rules and conditions, animated/video
 stickers, and inbound download/authentication tooling are not changed here.
 
+||||||| parent of b1e8f9b38 (ci(mutation): drop the nightly schedule that never completed a shard (#1049))
 ## #1497 one outbound payload for every channel: parts, media, reactions (PR #1504, base `55ac51ecd`)
 
 On `feat/channels-unified-outbound` (2026-10-14). The agent produces one
