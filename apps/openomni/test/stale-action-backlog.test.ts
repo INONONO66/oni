@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Delivery, type LedgerAction, type PlainValue, SessionGeneration } from "@openomni/protocol";
-import { staleActionBacklog, turnIntentAction } from "../../../packages/agent/src/core/journal/commit";
+import { staleActionBacklog } from "../../../packages/agent/src/core/journal/delivery";
+import { turnIntentAction } from "../../../packages/agent/src/core/journal/turn-rows";
 import type * as SessionHandleStore from "../../../packages/agent/src/core/store/fence";
 import { materializeSession } from "../../../packages/agent/test/store/helpers/session";
 import { useMemoryStores } from "../../../packages/agent/test/store/helpers/storage";
@@ -139,7 +140,7 @@ test("the chain fold: after rides the pending row, compactionHead is the execute
 // ---------------------------------------------------------------------------
 
 import { Deferred, Effect, Fiber } from "effect";
-import { boundaryConsumption, DEFAULT_CONSUMPTION } from "../../../packages/agent/src/core/journal/commit";
+import { boundaryConsumption, DEFAULT_CONSUMPTION } from "../../../packages/agent/src/core/journal/delivery";
 import { session } from "../../../packages/agent/src/testing/registry";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
 import { commitReceivedMessage } from "../../../packages/agent/test/helpers/ingress";

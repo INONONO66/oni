@@ -7,7 +7,7 @@ import { LeaseLost, SessionAdmissionRefused, type SessionError } from "../ports/
 import { createSessionAdmission, decideSessionAdmission } from "./admission";
 import { createSessionRecovery } from "./recovery";
 import { type SessionAdmissionSnapshot, type SessionEntityPorts, type SessionControllerState, type ResolvedSessionRuntime, type SessionRunner, type SessionRunnerResult, createSessionTurn } from "./run";
-import { deliveryActions, receivedMessageAction } from "../journal/commit";
+import { deliveryActions, receivedMessageAction } from "../journal/delivery";
 import { createRawSlots } from "../loop/executor";
 import { decideRequestTransition } from "./request";
 import { AdmissionFailure, DeliverBody, type DeliverReceipt, DeliverRefused, ResolveRefused } from "../journal/messages";

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { sessionTree } from "./session-tree";
 import type { SessionKernel } from "../../src/core/session/entity";
 import { CommitFailed } from "../../src/core/ports/failure";
-import { receivedMessageAction } from "../../src/core/journal/commit";
+import { receivedMessageAction } from "../../src/core/journal/delivery";
 import { firedAction } from "../../src/core/ports/alarm";
 import { closeSessions } from "../../src/core/session/run";
 import { session } from "../../src/testing/registry";

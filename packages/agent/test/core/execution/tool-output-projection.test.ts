@@ -16,7 +16,7 @@ import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { isolated } from "../../helpers/isolated";
 import { toolOutput as inspectToolOutput } from "../../../src/inspect";
 import { configureAction } from "../../../src/core/store/fence";
-import { consumptionSettings } from "../../../src/core/journal/commit";
+import { consumptionSettings } from "../../../src/core/journal/delivery";
 import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../../../src/core/ports/tool-output";
 import type { ExecutionLedger } from "../../../src/core/loop/executor";
 

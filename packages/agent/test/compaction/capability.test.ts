@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Exit } from "effect";
 import { CompactionSeam } from "../../src/core/api";
-import { commitFoldBatch } from "../../src/core/journal/commit";
+import { commitFoldBatch } from "../../src/core/journal/compaction";
 import { AgentFailure, AgentInvariantViolation } from "../../src/core/ports/failure";
 import { createRunState } from "../../src/core/loop/turn";
 import { foldSessionHistory, hydrateSessionHistory } from "../../src/inspect/history";

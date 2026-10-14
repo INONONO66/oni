@@ -6,7 +6,7 @@ import { type ExecutionError, AgentFailure } from "../ports/failure";
 
 import type { PolicyEvaluation } from "../gate/compile";
 
-import { turnStopAction } from "../journal/commit";
+import { turnStopAction } from "../journal/turn-rows";
 
 import type { ResolvedExecutorOptions } from "./invocation";
 

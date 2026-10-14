@@ -8,7 +8,7 @@ import { decideRequestTransition } from "../src/core/session/request";
 import { session } from "../src/testing/registry";
 import { resolveSessionRuntime } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
-import { turnIntentAction } from "../src/core/journal/commit";
+import { turnIntentAction } from "../src/core/journal/turn-rows";
 import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
 import { createExecutor } from "../src/core/loop/executor";
 import { CommitFailed } from "../src/core/ports/failure";

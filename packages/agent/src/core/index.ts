@@ -43,7 +43,7 @@ export {
 export { decideSessionAdmission } from "./session/admission";
 export { requestAuthorityKernel } from "./session/request";
 export { createSessionRequests, decideRequestTransition, requestBindingDigest } from "./session/request";
-export { receivedMessageAction, staleActionBacklog } from "./journal/commit";
+export { receivedMessageAction, staleActionBacklog } from "./journal/delivery";
 export { armAction, firedAction, alarmDisposition, AlarmSendRefused, ArmRefused, AlarmWakeError, type AlarmCapability, type AlarmArmNotice, type AlarmChainReads, type AlarmDisposition, type AlarmDrainConfig, type AlarmFired, type AlarmPurposeRegistry, type AlarmSweepConfig, type AlarmWakeContext, type AlarmWakeOutcome, type ArmVerb } from "./ports/alarm";
 export { foldAlarmChains, openAlarmIds, type AlarmArmRow, type AlarmChainView } from "./session/alarm-read";
 export { SessionEntity, SessionEntityContext, type SessionKernel } from "./session/entity";

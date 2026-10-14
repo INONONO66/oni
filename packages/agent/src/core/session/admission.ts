@@ -11,12 +11,14 @@ import { SessionPolicyRefusal } from "../journal/messages";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
 import type { ExecutionLedger } from "../loop/executor";
 import type { SessionKernel } from "./entity";
-import { turnIntentAction, deliveryActions, inputRowKind, policyRefusalResult, boundaryConsumption, consumptionSettings, } from "../journal/commit";
+import { turnIntentAction } from "../journal/turn-rows";
+import { deliveryActions, inputRowKind, boundaryConsumption, consumptionSettings } from "../journal/delivery";
+import { policyRefusalResult } from "../journal/commit";
 import type { SessionControllerState } from "./run";
 import { observeDrained } from "../observation/bus";
 import { commitSessionRequest } from "./request";
 
-import { commitFoldBatch } from "../journal/commit";
+import { commitFoldBatch } from "../journal/compaction";
 
 type AdmissionError = SessionError;
 

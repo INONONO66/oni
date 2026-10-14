@@ -601,10 +601,10 @@ test("#1276 ratchet: growth over the pinned baseline fails, within-baseline pass
   });
   expect(await validateAgentBands(clean)).toEqual([]);
 
-  // core/journal/commit.ts is pinned at 1; a second violation in it must fail
+  // core/journal/compaction.ts is pinned at 1; a second violation in it must fail
   // (#1352 retired the model band, so the probe edge is inspect/).
   const grown = fixture({
-    "packages/agent/src/core/journal/commit.ts":
+    "packages/agent/src/core/journal/compaction.ts":
       'import { a } from "../../plugins/compaction/restore";\nimport { b } from "../../inspect/history";',
   });
   const violations = await validateAgentBands(grown);
@@ -614,10 +614,10 @@ test("#1276 ratchet: growth over the pinned baseline fails, within-baseline pass
   // absent from this scratch tree, so the review r3 slack rule reports each of
   // them (pin exceeds actual) — slack never passes silently.
   const pinned = fixture({
-    "packages/agent/src/core/journal/commit.ts": 'import { a } from "../../plugins/compaction/restore";',
+    "packages/agent/src/core/journal/compaction.ts": 'import { a } from "../../plugins/compaction/restore";',
   });
   const atPin = await validateAgentBands(pinned);
-  expect(atPin.filter((line) => line.includes("core/journal/commit.ts"))).toEqual([]);
+  expect(atPin.filter((line) => line.includes("core/journal/compaction.ts"))).toEqual([]);
   expect(atPin.every((line) => line.includes("pin exceeds actual"))).toBe(true);
 });
 

@@ -36,7 +36,8 @@ import type { AlarmCapability, AlarmDrainConfig } from "../../src/core/ports/ala
 const wallClock = () => Date.now();
 import type { SessionEntityPorts, SessionEntityTurnInput, } from "../../src/core/session/run";
 import type { SessionError } from "../../src/core/ports/failure";
-import { deliveryActions, turnIntentAction, turnResumeAction, turnTerminalAction, } from "../../src/core/journal/commit";
+import { deliveryActions } from "../../src/core/journal/delivery";
+import { turnIntentAction, turnResumeAction, turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { runAgent } from "./executor";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 

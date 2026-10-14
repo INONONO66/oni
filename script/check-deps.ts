@@ -1039,7 +1039,7 @@ const AGENT_BAND_RATCHET: ReadonlyMap<string, number> = new Map([
   // seam and inverted the plugin -> inspect/history edge; #1352 moved the
   // model band out of the package, so the remaining pins are the
   // core -> inspect/history edges (#1255 owns those).
-  ["packages/agent/src/core/journal/commit.ts", 1],
+  ["packages/agent/src/core/journal/compaction.ts", 1],
   // #1310 split mailbox.ts; its grandfathered inspect/history edge moved to recovery.ts.
   ["packages/agent/src/core/session/recovery.ts", 1],
   ["packages/agent/src/core/session/run.ts", 1],

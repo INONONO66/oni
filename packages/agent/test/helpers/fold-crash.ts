@@ -9,7 +9,7 @@ import { CompactionPredecessorError } from "../../src/plugins/compaction/success
 import { closeSessions } from "../../src/core/session/run";
 import { session } from "../../src/testing/registry";
 import { hydrateSessionHistory } from "../../src/inspect/history";
-import { foldCheckpointAction } from "../../src/core/journal/commit";
+import { foldCheckpointAction } from "../../src/core/journal/compaction";
 import { requireCommit } from "../../src/testing/commit";
 import { requestLedger } from "./request-ledger";
 import { paddingActions, reconstructionFixture, reconstructionSession, } from "./reconstruction-fixture";

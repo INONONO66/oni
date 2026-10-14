@@ -1,7 +1,7 @@
 /**
  * `signal` — interrupt/resume/cancel control, consumed at the next boundary,
  * never a turn input. Single writer: the entity deliver path
- * (`packages/agent/src/core/journal/commit.ts`). Version 2 (#1315): payloads name
+ * (`packages/agent/src/core/journal/delivery.ts`). Version 2 (#1315): payloads name
  * the delivered input `deliveryId`.
  */
 import { z } from "zod";

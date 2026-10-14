@@ -7,7 +7,9 @@ import { createExecutor, type ExecutionLedger, type ExecutionResult } from "../l
 import { AgentFailure, type SessionError } from "../ports/failure";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";
 import type { SessionKernel } from "./entity";
-import { turnIntentAction, turnResumeAction, deliveryActions, generationForOpen } from "../journal/commit";
+import { turnIntentAction, turnResumeAction } from "../journal/turn-rows";
+import { deliveryActions } from "../journal/delivery";
+import { generationForOpen } from "../journal/commit";
 import type { SessionTurnPorts } from "./admission";
 import { hydrateSessionHistory, restoreSessionHistory, RestoreRefused, type HydratedSessionHistory } from "../../inspect/history";
 

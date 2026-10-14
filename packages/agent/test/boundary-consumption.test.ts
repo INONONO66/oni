@@ -7,11 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import type { Delivery, LedgerAction } from "@openomni/protocol";
-import {
-  DEFAULT_CONSUMPTION,
-  boundaryConsumption,
-  consumptionSettings,
-} from "../src/core/journal/commit";
+import { DEFAULT_CONSUMPTION, boundaryConsumption, consumptionSettings } from "../src/core/journal/delivery";
 import { configureAction } from "../src/core/store/fence";
 import type { SessionRunner } from "../src/core/session/run";
 import { session } from "../src/testing/registry";

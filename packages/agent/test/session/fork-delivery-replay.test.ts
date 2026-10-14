@@ -9,7 +9,7 @@ import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type BusEvent, L0Observation, type ObservationSink } from "@openomni/protocol";
-import { deliveryActions, receivedMessageAction } from "../../src/core/journal/commit";
+import { deliveryActions, receivedMessageAction } from "../../src/core/journal/delivery";
 import { clusterTempDir, runCluster, sendPrompt, sessionFileFor, verifyChain } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
 import { boundaryTerminal, forkAtAction, pendingPromptRow } from "../helpers/fork-seed";

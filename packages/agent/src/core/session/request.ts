@@ -1,7 +1,7 @@
 import { canonicalDigest, type SessionTransition, type Delivery, type PlainValue, type SessionGeneration, type PlainObject } from "@openomni/protocol";
 import { Clock, Effect } from "effect";
 import { AgentFailure, CommitFailed, type ExecutionError } from "../ports/failure";
-import { receivedMessageAction } from "../journal/commit";
+import { receivedMessageAction } from "../journal/delivery";
 import { requestBindingDigest } from "../journal/request-binding";
 import * as SessionHandleStore from "../store/fence";
 import type { SessionKernel } from "./entity";

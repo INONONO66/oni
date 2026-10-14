@@ -8,11 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { createRawSlots } from "../../src/core/loop/executor";
-import {
-  internalOrigin,
-  receivedMessageAction,
-  turnTerminalAction,
-} from "../../src/core/journal/commit";
+import { internalOrigin, receivedMessageAction } from "../../src/core/journal/delivery";
+import { turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { createSessionAdmission } from "../../src/core/session/admission";
 import { createSessionRecovery } from "../../src/core/session/recovery";
 import type { ResolvedSessionRuntime, SessionControllerState } from "../../src/core/session/run";

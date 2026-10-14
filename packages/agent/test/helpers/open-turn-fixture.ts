@@ -1,6 +1,6 @@
 import * as SessionHandleStore from "../../src/core/store/fence";
 import type { LedgerAction } from "@openomni/protocol";
-import { turnIntentAction, turnTerminalAction } from "../../src/core/journal/commit";
+import { turnIntentAction, turnTerminalAction } from "../../src/core/journal/turn-rows";
 
 /** Canonical generation-1 snapshot shared by FSM and admission fixtures. */
 export const fixtureGeneration = SessionHandleStore.generationSnapshot({

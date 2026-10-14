@@ -9,7 +9,7 @@ import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from 
 import type { SessionKernel } from "../store/fence";
 import { configureAction } from "../store/fence";
 import { actionPayloadBytes } from "../store/action-hash";
-import { consumptionSettings } from "../journal/commit";
+import { consumptionSettings } from "../journal/delivery";
 import type { LedgerError } from "../store/errors";
 import type {
   SessionForkReceipt,

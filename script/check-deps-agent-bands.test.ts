@@ -27,7 +27,7 @@ test("#1354 allows the responsibility-directed value edges and root barrels", ()
     ["session/run.ts", "composition/compose"],
     ["composition/compose.ts", "gate/compile"],
     ["loop/executor.ts", "journal/commit"],
-    ["journal/commit.ts", "store/fence"],
+    ["journal/compaction.ts", "store/fence"],
     ["gate/compile.ts", "store/catalog"],
     ["store/fence.ts", "ports/failure"],
     ["observation/run-events.ts", "ports/reason-codes"],
@@ -48,7 +48,7 @@ test("#1354 rejects reverse value edges and core barrel bypasses", () => {
     ["ports/types.ts", "loop/turn"],
     ["store/catalog.ts", "gate/migrate"],
     ["gate/compile.ts", "loop/executor"],
-    ["journal/commit.ts", "session/run"],
+    ["journal/compaction.ts", "session/run"],
     ["observation/run-events.ts", "loop/retry"],
     ["composition/compose.ts", "session/run"],
     ["loop/executor.ts", "session/run"],
@@ -291,14 +291,14 @@ test("#1276 (r3): a forbidden import in a formerly-pinned, now-clean file fails 
 });
 
 test("#1276 (r3): a pin above the actual count fails closed", async () => {
-  // core/journal/commit.ts is pinned at 1; a scratch tree where it is clean must fail.
+  // core/journal/compaction.ts is pinned at 1; a scratch tree where it is clean must fail.
   const root = scratchAgentTree({
-    "core/journal/commit.ts": "export const clean = true;\n",
+    "core/journal/compaction.ts": "export const clean = true;\n",
   });
   try {
     const violations = await validateAgentBands(root);
     expect(violations).toContain(
-      "VIOLATION: packages/agent/src/core/journal/commit.ts pin exceeds actual (1 > 0): lower the pin",
+      "VIOLATION: packages/agent/src/core/journal/compaction.ts pin exceeds actual (1 > 0): lower the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

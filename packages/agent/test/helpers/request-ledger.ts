@@ -9,7 +9,7 @@ import type { LedgerError } from "../../src/core/store/errors";
 import type { SessionKernel } from "../../src/core/session/entity";
 import type { ExecutionLedger } from "../../src/core/loop/executor";
 import { commitSessionRequest } from "../../src/core/session/request";
-import { commitFoldBatch } from "../../src/core/journal/commit";
+import { commitFoldBatch } from "../../src/core/journal/compaction";
 import type { LedgerAction, LedgerSession, SessionTransition } from "@openomni/protocol";
 import { collector } from "./observation-collector";
 import { fixtureCompactionSeam } from "./fixture-compaction";
