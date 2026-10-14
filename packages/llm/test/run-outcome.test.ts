@@ -72,14 +72,25 @@ test("stop and aborted are produced by the real attempt entry", async () => {
 
 /** The provider's refusal: a completed 200 stream whose only step closed as content-filter (#1500). */
 function refusedStream(...before: StreamEvent[]) {
+  return closedStream("content-filter", ...before);
+}
+
+function closedStream(finishReason: string, ...before: StreamEvent[]) {
   return async () => ({
     fullStream: (async function* (): AsyncGenerator<StreamEvent, void, undefined> {
       yield* before;
-      yield { type: "step-finish", finishReason: "content-filter", usage: { inputTokens: 10_161, outputTokens: 0 } };
+      yield { type: "step-finish", finishReason, usage: { inputTokens: 10_161, outputTokens: 0 } };
       yield { type: "finish" };
     })(),
   });
 }
+
+test("a raw error stop with nothing visible fails without the content-filter fact", async () => {
+  const result = await run(input, sink, { createStream: closedStream("error") });
+  expect(result.type).toBe("error");
+  if (result.type !== "error") throw new Error("missing failure");
+  expect(result.error).toMatchObject({ message: "provider closed the stream as error with no output", contentFiltered: false, visibleOutput: false });
+});
 
 test("a content-filter stop with nothing visible is a failed attempt, not an empty answer (#1500)", async () => {
   const result = await run(input, sink, { createStream: refusedStream() });
