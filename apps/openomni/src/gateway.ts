@@ -671,7 +671,7 @@ export function channelTransaction(
 
 /** The perimeter's store source over the app plane (#1317): the channels-owned store plus the ingress session's decision facts. */
 export function channelStoreSource(plane: AppLedgerPlane, now: () => number): ChannelStoreSource {
-  const ingress = plane.sessionStore(GATEWAY_INGRESS_SESSION);
+  const ingress = () => plane.sessionStore(GATEWAY_INGRESS_SESSION);
   return {
     now,
     actorRegistry: plane.channel.actorRegistry,
@@ -680,8 +680,10 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
     channelGrant: plane.channel.channelGrant,
     egressBudget: plane.channel.egressBudget,
     surfaceKey: plane.channel.surfaceKey,
-    decisionFacts: ingress.decisionFacts,
-    transaction: ingress.transaction,
+    get decisionFacts() {
+      return ingress().decisionFacts;
+    },
+    transaction: <T>(operation: () => T): T => ingress().transaction(operation),
   };
 }
 
@@ -724,7 +726,8 @@ export function createResidentGateway(
     const externalRun = yield* createIngressExecutor(plane, approvalPolicy);
     return createGatewayRouter({
       ...ports,
-      transaction: channelTransaction(plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction),
+      transaction: channelTransaction(<T>(operation: () => T): T =>
+        plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction(operation)),
       sink: scopeObservation(observations, { sessionId: "gateway-ingress" }, stamp).publish,
       run: (sender, request, body) =>
         Effect.gen(function* () {

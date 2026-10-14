@@ -211,6 +211,30 @@ test("file mode: catalog listing of 200 sessions returns to the descriptor basel
   }
 });
 
+test("file mode: listing inside a write transaction on a live session reads that session's handle", async () => {
+  const { catalogPath, sessionsDir } = home("listing-in-transaction");
+  const plane = openLedgerPlane({ now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } });
+  try {
+    await runAgent(createSession(plane, {
+      id: "s0",
+      parentId: null,
+      role: "resident",
+      genesis: {
+        tools: [],
+        bundles: [],
+        system: { preset: "", blocks: [] },
+        policyGeneration: 0,
+        actionId: "s0:genesis",
+        at: 1,
+      },
+    }));
+    const ids = plane.sessionStore("s0").transaction(() => plane.listSessions().map((row) => row.id));
+    expect(ids).toEqual(["s0"]);
+  } finally {
+    plane.close();
+  }
+});
+
 test("file mode: failed indexed session open refuses with SQLite errno instead of a partial listing", async () => {
   const { catalogPath, sessionsDir } = home("listing-refused");
   const plane = openLedgerPlane({
@@ -233,6 +257,7 @@ test("file mode: failed indexed session open refuses with SQLite errno instead o
     expect(error?.cause).toBeInstanceOf(SQLiteError);
     expect(error?.cause).toHaveProperty("errno", 14);
     console.info(`A2 listing refusal=${error?._tag} errno=14`);
+    expect(() => plane.openKernel("s0")).toThrow(OpenRefused);
   } finally {
     plane.close();
   }
@@ -365,11 +390,10 @@ test("memory mode: a passivated activation's successor continues the chain on th
   expect(seen.inputs).toBe(2);
 });
 
-test("file mode: passivation releases the memo and a later read reopens the chain", async () => {
-  const { catalogPath, sessionsDir } = home("passivation-release");
-  const sessionId = "passivated";
+function passivatingFileLedger(name: string) {
+  const { catalogPath, sessionsDir } = home(name);
   const idleMs = 1_000;
-  const layer = openLedger(
+  return openLedger(
     config({
       catalog: { path: catalogPath },
       sessions: { dir: sessionsDir },
@@ -377,32 +401,65 @@ test("file mode: passivation releases the memo and a later read reopens the chai
       drain: { ...drain, idleMs },
     }),
   ).pipe(Layer.provide(bunCrypto), Layer.provideMerge(TestClock.layer()));
-  const counts = await runAgent(Effect.scoped(
+}
+
+/** Delivers one prompt, then steps the clock until passivation closes the memoized store. */
+const deliverAndPassivate = (sessionId: string, key: string) =>
+  Effect.gen(function* () {
+    const ledger = yield* Ledger;
+    const closed = Deferred.makeUnsafe<void>();
+    const memo = ledger.sessionStore(sessionId);
+    const originalClose = memo.close.bind(memo);
+    spyOn(memo, "close").mockImplementation(() => {
+      originalClose();
+      Deferred.doneUnsafe(closed, Effect.void);
+    });
+    yield* settleOnClock(deliverPrompt(sessionId, key), `${key} deliver`);
+    yield* stepClockUntil(Deferred.isDone(closed), `${key} passivation`);
+  });
+
+const openDescriptors = () => readdirSync("/dev/fd").length;
+
+test("file mode: five passivation cycles with late plane-resolved readers keep the descriptor count flat", async () => {
+  const sessionId = "passivated";
+  const seen = await runAgent(Effect.scoped(
     Effect.gen(function* () {
       const ledger = yield* Ledger;
-      const count = () => readdirSync("/dev/fd").length;
-      const baseline = count();
+      const baseline = openDescriptors();
       yield* materialize(sessionId);
-      const closed = Deferred.makeUnsafe<void>();
-      const memo = ledger.sessionStore(sessionId);
-      const originalClose = memo.close.bind(memo);
-      spyOn(memo, "close").mockImplementation(() => {
-        originalClose();
-        Deferred.doneUnsafe(closed, Effect.void);
-      });
-      yield* settleOnClock(deliverPrompt(sessionId, "first"), "file deliver");
-      const active = count();
-      yield* stepClockUntil(Deferred.isDone(closed), "file passivation");
-      const after = count();
-      const verdict = ledger.openKernel(sessionId).verifyChain(sessionId);
+      const cycles: { passivated: number; resolved: number; verdict: string }[] = [];
+      for (let cycle = 0; cycle < 5; cycle += 1) {
+        yield* deliverAndPassivate(sessionId, `m${cycle}`);
+        const passivated = openDescriptors();
+        const verdict = ledger.openKernel(sessionId).verifyChain(sessionId).kind;
+        cycles.push({ passivated, resolved: openDescriptors(), verdict });
+      }
       ledger.releaseSession(sessionId);
-      return { baseline, active, after, verdict };
-    }).pipe(Effect.provide(layer)),
+      return { baseline, cycles, released: openDescriptors() };
+    }).pipe(Effect.provide(passivatingFileLedger("passivation-cycles"))),
   ));
-  expect(counts.active).toBeGreaterThan(counts.baseline);
-  expect(counts.after).toBe(counts.baseline);
-  expect(counts.verdict.kind).toBe("intact");
-  console.info(`A2 passivation fd before=${counts.baseline} active=${counts.active} after=${counts.after}`);
+  const resolved = seen.cycles[0]?.resolved ?? -1;
+  expect(resolved).toBeGreaterThan(seen.baseline);
+  expect(seen.cycles).toEqual(
+    Array.from({ length: 5 }, () => ({ passivated: seen.baseline, resolved, verdict: "intact" })),
+  );
+  expect(seen.released).toBe(seen.baseline);
+});
+
+test("file mode: a kernel held across a passivation fails on use", async () => {
+  const sessionId = "held-across";
+  const outcome = await runAgent(Effect.scoped(
+    Effect.gen(function* () {
+      const ledger = yield* Ledger;
+      yield* materialize(sessionId);
+      const held = ledger.openKernel(sessionId);
+      yield* deliverAndPassivate(sessionId, "first");
+      expect(() => held.verifyChain(sessionId)).toThrow(RangeError);
+      expect(() => held.verifyChain(sessionId)).toThrow("Cannot use a closed database");
+      return { fresh: ledger.openKernel(sessionId).verifyChain(sessionId).kind };
+    }).pipe(Effect.provide(passivatingFileLedger("held-across"))),
+  ));
+  expect(outcome.fresh).toBe("intact");
 });
 
 test("late binding: an activation holds on the slot's ready gate and runs the delivered turn exactly once after bind", async () => {

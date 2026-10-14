@@ -44,7 +44,9 @@ export interface LedgerPlane {
   readonly catalog: CatalogStore;
   readonly catalogDatabase: Database;
   readonly handles: LedgerHandles;
+  /** Valid until the session's next passivation closes it: resolve per use, never hold across an await. */
   openKernel(sessionId: string): SessionKernel;
+  /** Same lifetime as `openKernel`. */
   sessionStore(sessionId: string): SessionStore;
   releaseSession(sessionId: string): void;
   discardSession(sessionId: string): void;
@@ -182,23 +184,29 @@ function planeOver(
     releaseSession,
     discardSession: (sessionId) => {
       const entry = memo.get(sessionId);
-      const empty = entry?.newFile === true && entry.store.sessions.get(sessionId) === undefined;
+      // An existing session (a duplicate create) keeps its live store.
+      if (entry?.newFile !== true || entry.store.sessions.get(sessionId) !== undefined) return;
       releaseSession(sessionId);
-      if (empty && sessionsDir !== undefined)
-        rmSync(sessionFilePath(sessionsDir, sessionId));
+      if (sessionsDir !== undefined) rmSync(sessionFilePath(sessionsDir, sessionId));
     },
     listSessions: () => {
       if (sessionsDir === undefined)
         return [...memo]
           .filter(([id, entry]) => entry.store.sessions.get(id) !== undefined)
           .map(([id, entry]) => entry.kernel.row(id));
-      return catalog.sessionIds().map((id) => {
+      // Live sessions list too: a session file need not carry an index row.
+      const liveIds = [...memo].filter(([id, entry]) => entry.store.sessions.get(id) !== undefined).map(([id]) => id);
+      return [...new Set([...catalog.sessionIds(), ...liveIds])].flatMap((id) => {
+        // A second handle's bootstrap would wait on a write transaction held through the memo.
+        const live = memo.get(id);
         const path = sessionFilePath(sessionsDir, id);
-        if (!existsSync(path)) throw refused("sessions", path, new Error(`missing indexed session: ${id}`));
+        // An index row without a file was never created: skipped, unlike a file that will not open.
+        if (live === undefined && !existsSync(path)) return [];
         try {
+          if (live !== undefined) return [live.kernel.row(id)];
           const store = openSessionStore(path, sessionOptions);
           try {
-            return SessionHandleStore.createSessionKernel(store, catalog).row(id);
+            return [SessionHandleStore.createSessionKernel(store, catalog).row(id)];
           } finally {
             store.close();
           }
