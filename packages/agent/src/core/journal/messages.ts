@@ -90,6 +90,8 @@ export const DeadlineAlarmBody = Schema.Struct({ requestId: Schema.String });
 /**
  * `occurrenceId` is the cluster primary key and chain-guard identity; a superseded occurrence folds
  * to a recorded `fired{stale}` fact — a fact, not a rejection.
+ * A quiet re-send carries `tick`: the key widens to `occurrenceId@tick` so the cluster
+ * delivers it again instead of folding it into the settled original.
  */
 export class AlarmOccurrence extends Schema.Class<AlarmOccurrence>(
   "@openomni/agent/cluster/AlarmOccurrence",
@@ -101,12 +103,13 @@ export class AlarmOccurrence extends Schema.Class<AlarmOccurrence>(
   sourceKey: Schema.String,
   payload: Schema.String,
   fireAt: Schema.Number,
+  tick: Schema.optional(Schema.Number),
 }) {
   [PrimaryKey.symbol](): string {
-    return this.occurrenceId;
+    return this.tick === undefined ? this.occurrenceId : `${this.occurrenceId}@${this.tick}`;
   }
   [DeliverAt.symbol](): DateTime.DateTime {
-    return DateTime.makeUnsafe(this.fireAt);
+    return DateTime.makeUnsafe(this.tick ?? this.fireAt);
   }
 }
 

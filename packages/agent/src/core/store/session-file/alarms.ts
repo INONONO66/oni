@@ -16,6 +16,8 @@ export interface ArmedAlarmRow {
   readonly payload: string;
   /** Delivery attempts already consumed (schema v2). */
   readonly strikes: number;
+  /** Set once a quiet fire moved the occurrence; the activation resend re-delivers at it. */
+  readonly tick?: number;
 }
 
 const ArmedAlarmSqlRow = z.object({
@@ -29,10 +31,12 @@ const ArmedAlarmSqlRow = z.object({
 const StrikeRow = z.object({ strikes: z.number().int().positive() }).nullable();
 
 const ArmIntentView = z.object({
+  at: z.number(),
   purpose: z.string().min(1),
   sourceKey: z.string().min(1),
   payload: PlainObjectSchema.optional(),
 });
+const RequeueRow = z.object({ fire_at: z.number() }).nullable();
 
 const ArmedCountRow = z.object({ count: z.number().int().nonnegative() });
 
@@ -47,11 +51,12 @@ function armSeqFromArmRowId(armRowId: string): number {
   return seq;
 }
 
-/** `armed_alarms` ports; `strikeArmedAlarm` is the one writer outside the append transaction. */
+/** `armed_alarms` ports; `strikeArmedAlarm`/`requeueArmedAlarm` write index state only, no row. */
 export function createArmedAlarmPorts(db: Database): {
   armedAlarms(): readonly ArmedAlarmRow[];
   armedCount(): number;
   strikeArmedAlarm(occurrenceId: string): number | undefined;
+  requeueArmedAlarm(occurrenceId: string, at: number): boolean;
 } {
   return {
     armedAlarms() {
@@ -77,6 +82,7 @@ export function createArmedAlarmPorts(db: Database): {
           sourceKey: intent.sourceKey,
           payload: canonicalJson(intent.payload ?? {}),
           strikes: row.strikes,
+          ...(row.fire_at === intent.at ? {} : { tick: row.fire_at }),
         };
       });
     },
@@ -94,6 +100,18 @@ export function createArmedAlarmPorts(db: Database): {
                 .query("UPDATE armed_alarms SET strikes = strikes + 1 WHERE occurrence_id = ? RETURNING strikes")
                 .get(occurrenceId),
             )?.strikes,
+        )
+        .immediate();
+    },
+    requeueArmedAlarm(occurrenceId, at) {
+      return db
+        .transaction(
+          () =>
+            RequeueRow.parse(
+              db
+                .query("UPDATE armed_alarms SET fire_at = ?, strikes = 0 WHERE occurrence_id = ? RETURNING fire_at")
+                .get(at, occurrenceId),
+            ) !== null,
         )
         .immediate();
     },

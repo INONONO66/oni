@@ -3,10 +3,14 @@
  * #1347 strikes). Every factory mints fresh collectors; nothing here is
  * shared across two acquisitions.
  */
-import { Effect } from "effect";
-import { armAction, type AlarmCapability } from "../../src/core/ports/alarm";
+import { Effect, type Result } from "effect";
+import { armAction, type AlarmCapability, type AlarmFired, type firedAction } from "../../src/core/ports/alarm";
+import type { openCatalogStore } from "../../src/core/store/catalog";
+import type { LedgerError } from "../../src/core/store/errors";
+import type * as SessionHandleStore from "../../src/core/store/fence";
 import { readChain, type sendAlarm, sessionFileFor, type TestClusterOptions } from "./cluster-runtime";
-import { withSessionHandles, type ClusterHome } from "./seeded-session";
+import { runAgent } from "./executor";
+import { fencedSession, withSessionHandles, type ClusterHome } from "./seeded-session";
 
 /**
  * #1254 S4: non-reserved purposes dispatch to the composed capability; an
@@ -107,4 +111,102 @@ export function armedOccurrence(home: ClusterHome, sessionId: string): Parameter
     if (row === undefined) throw new Error(`no armed row for ${sessionId}`);
     return { ...row, fireAt: row.fireAt };
   });
+}
+
+/**
+ * #1477: a wake whose FIRST attempt is quiet at `at` and every later attempt
+ * delivers; `seen` records the fired view (with its `tick`) of each attempt.
+ */
+export function quietCapability(at: number): AlarmCapability & {
+  readonly attempts: () => number;
+  readonly seen: () => readonly (number | undefined)[];
+} {
+  const ticks: (number | undefined)[] = [];
+  return {
+    purposes: ["note.due"],
+    wake: (fired) =>
+      Effect.sync(() => {
+        ticks.push(fired.tick);
+        return ticks.length === 1 ? { outcome: "quiet" as const, at } : ("delivered" as const);
+      }),
+    attempts: () => ticks.length,
+    seen: () => [...ticks],
+  };
+}
+
+export interface HeldSends {
+  readonly options: Pick<TestClusterOptions, "wrapSendAlarm">;
+  /** Every occurrence the entity tried to send, in order; none left the process. */
+  readonly sent: () => readonly AlarmFired[];
+  /** Settles on the first held send of `occurrenceId` with a tick; the timeout is a failure guard only. */
+  readonly ticked: (occurrenceId: string, timeoutMs?: number) => Promise<void>;
+}
+
+/** Holds every entity-side alarm send; the quiet re-send is forked after the wake receipt, so await `ticked` first. */
+export function heldSends(): HeldSends {
+  const sent: AlarmFired[] = [];
+  const waiters = new Map<string, () => void>();
+  return {
+    options: {
+      wrapSendAlarm: () => (_sessionId, occurrence) =>
+        Effect.sync(() => {
+          sent.push(occurrence);
+          if (occurrence.tick !== undefined) waiters.get(occurrence.occurrenceId)?.();
+        }),
+    },
+    sent: () => [...sent],
+    ticked: (occurrenceId, timeoutMs = 15_000) =>
+      new Promise<void>((resolve, reject) => {
+        if (sent.some((row) => row.occurrenceId === occurrenceId && row.tick !== undefined)) return resolve();
+        waiters.set(occurrenceId, resolve);
+        setTimeout(() => reject(new Error(`timed out waiting for the quiet re-send of ${occurrenceId}`)), timeoutMs).unref?.();
+      }),
+  };
+}
+
+/** Per-suite session handles: fresh reads, a fenced writer, the fired census. */
+export function sessionFixture(home: ClusterHome): {
+  readonly readSession: (
+    sessionId: string,
+    use: (input: {
+      readonly catalog: ReturnType<typeof openCatalogStore>;
+      readonly kernel: SessionHandleStore.SessionKernel;
+    }) => Promise<void> | void,
+  ) => Promise<void>;
+  readonly withSession: (
+    sessionId: string,
+    use: (input: {
+      readonly catalog: ReturnType<typeof openCatalogStore>;
+      readonly kernel: SessionHandleStore.SessionKernel;
+      readonly commit: (
+        actions: readonly ReturnType<typeof firedAction>[],
+      ) => Promise<
+        Result.Result<Effect.Success<ReturnType<SessionHandleStore.SessionKernel["commit"]>>, LedgerError>
+      >;
+    }) => Promise<void>,
+  ) => Promise<void>;
+  readonly firedRows: (sessionId: string, occurrenceId: string) => ReturnType<typeof firedRows>;
+} {
+  return {
+    readSession: async (sessionId, use) => {
+      await withSessionHandles(home, sessionId, ({ catalog, kernel }) => use({ catalog, kernel }));
+    },
+    withSession: (sessionId, use) =>
+      runAgent(
+        Effect.scoped(
+          fencedSession(home, sessionId, { owner: "arm-writer", fence: 1, commitNow: () => 2 }).pipe(
+            Effect.flatMap((seeded) =>
+              Effect.promise(() =>
+                use({
+                  catalog: seeded.catalog,
+                  kernel: seeded.kernel,
+                  commit: (actions) => runAgent(Effect.result(seeded.commit([...actions]))),
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    firedRows: (sessionId, occurrenceId) => firedRows(home, sessionId, occurrenceId),
+  };
 }

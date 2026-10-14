@@ -14,7 +14,7 @@ test("armedAlarms refuses an arm row id without an armSeq suffix", () => {
     db.run("CREATE TABLE armed_alarms (alarm_id TEXT, occurrence_id TEXT, fire_at INTEGER, strikes INTEGER)");
     db.run("CREATE TABLE action (id TEXT, kind TEXT, intent TEXT, effect TEXT)");
     db.run("INSERT INTO armed_alarms VALUES ('a1', 'o1', 5, 0)");
-    db.run(`INSERT INTO action VALUES ('s1:a1:bad', 'alarm', '{"op":"arm","purpose":"p","sourceKey":"k"}', '{"occurrenceId":"o1"}')`);
+    db.run(`INSERT INTO action VALUES ('s1:a1:bad', 'alarm', '{"op":"arm","purpose":"p","sourceKey":"k","at":5}', '{"occurrenceId":"o1"}')`);
     const armed = createArmedAlarmPorts(db);
     expect(() => armed.armedAlarms()).toThrow(LedgerInvariant);
     expect(() => armed.armedAlarms()).toThrow("arm row id does not carry an armSeq: s1:a1:bad");

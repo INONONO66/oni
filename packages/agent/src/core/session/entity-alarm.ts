@@ -5,7 +5,7 @@ import { Effect, Schema } from "effect";
 import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, DeadlineAlarmBody } from "../journal/messages";
 import { alarmDisposition, firedAction, MAX_OCCURRENCE_STRIKES, type AlarmFired, type AlarmWakeContext, AlarmWakeError } from "../ports/alarm";
 import { isReservedAlarmPurpose } from "@openomni/protocol";
-import { armedChainReads, commitIn, entityArmVerb, retryRevision, type ActivationHandle } from "./entity-activation";
+import { armedChainReads, commitIn, entityArmVerb, retryRevision, sendQuietTick, type ActivationHandle } from "./entity-activation";
 import { appendReceived, deliver, drain, requestCommand } from "./entity-delivery";
 
 const decodeDeadlineBody = Schema.decodeUnknownSync(DeadlineAlarmBody);
@@ -17,12 +17,14 @@ export function alarmOccurrence(
 ): Effect.Effect<AlarmReceipt, AdmissionFailure> {
   return Effect.gen(function* () {
     if (occurrence.purpose === "rescan") return { outcome: "delivered" as const };
+    const quietTick = occurrence.tick !== undefined;
+    if (quietTick && !tickIsCurrent(handle, occurrence)) return { outcome: "stale" as const };
     const disposition =
       handle.kernel.actionById(`${occurrence.alarmId}:arm:${occurrence.armSeq}`) === undefined
         ? { op: "skip" as const, reason: "unknown" as const }
         : alarmDisposition(armedChainReads(handle), occurrence);
     if (disposition.op === "skip") {
-      yield* appendFiredAlarm(handle, occurrence, "stale");
+      if (!quietTick) yield* appendFiredAlarm(handle, occurrence, "stale");
       return { outcome: "stale" as const };
     }
     const strikes = handle.kernel.strikeArmedAlarm(occurrence.occurrenceId);
@@ -41,6 +43,11 @@ export function alarmOccurrence(
     (error): error is LedgerError => !(error instanceof AdmissionFailure),
     (error) => Effect.die(error),
   ));
+}
+
+function tickIsCurrent(handle: ActivationHandle, occurrence: AlarmOccurrence): boolean {
+  const armed = handle.kernel.armedAlarms().find((row) => row.occurrenceId === occurrence.occurrenceId);
+  return armed !== undefined && armed.fireAt === occurrence.tick;
 }
 
 function expireDeadline(
@@ -77,6 +84,7 @@ function capabilityWake(
       sourceKey: occurrence.sourceKey,
       payload: occurrence.payload,
       fireAt: occurrence.fireAt,
+      ...(occurrence.tick === undefined ? {} : { tick: occurrence.tick }),
     };
     const wake = yield* capability.wake(fired, wakeContext(handle, occurrence, promptReceived)).pipe(
       Effect.catchTag("AlarmWakeError", (error) =>
@@ -88,6 +96,14 @@ function capabilityWake(
     if (wake === "stale") {
       yield* appendFiredAlarm(handle, occurrence, "stale");
       return { outcome: "stale" as const };
+    }
+    if (typeof wake !== "string") {
+      // Move the occurrence forward in the index and re-send it keyed on the new time;
+      // a re-send keyed on the current time would fold into this delivery and end the chain.
+      const at = Math.max(wake.at, (occurrence.tick ?? occurrence.fireAt) + 1);
+      if (handle.kernel.requeueArmedAlarm(occurrence.occurrenceId, at))
+        yield* sendQuietTick(handle, { ...fired, tick: at });
+      return { outcome: "delivered" as const };
     }
     yield* appendFiredAlarm(handle, occurrence, wake);
     if (wake === "delivered") yield* drain(handle).pipe(Effect.orDie);

@@ -264,6 +264,8 @@ export class SessionStore extends StoreHandle {
   readonly armedAlarms: () => readonly ArmedAlarmRow[];
   readonly armedCount: () => number;
   readonly strikeArmedAlarm: (occurrenceId: string) => number | undefined;
+  /** Moves one armed occurrence to `at` with strikes reset; false when the index lacks it. */
+  readonly requeueArmedAlarm: (occurrenceId: string, at: number) => boolean;
   /** : content-addressed tool output bytes of this session file. */
   readonly toolOutputs: ToolOutputsAdapter;
   private readonly onObservationFailure: ObservationFailurePort;
@@ -285,6 +287,7 @@ export class SessionStore extends StoreHandle {
     this.armedAlarms = () => armed.armedAlarms();
     this.armedCount = () => armed.armedCount();
     this.strikeArmedAlarm = (occurrenceId) => armed.strikeArmedAlarm(occurrenceId);
+    this.requeueArmedAlarm = (occurrenceId, at) => armed.requeueArmedAlarm(occurrenceId, at);
     this.toolOutputs = createToolOutputs(db);
   }
 

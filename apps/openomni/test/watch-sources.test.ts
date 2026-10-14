@@ -471,11 +471,11 @@ test("a create whose native event is lost is observed by the reconcile cadence e
       writeFileSync(path, "created after install returned; the native event is lost");
       expect(sends).toHaveLength(0);
       expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(1);
-      expect(await fire()).toBe("exhausted");
+      expect(await fire()).toEqual({ outcome: "quiet", at: FIXTURE_BASE + 2_000 });
       const send = await reconciled.promise;
       expect(send.alarmId).toBe("watch-race");
       live?.("rename", "target");
-      expect(await fire()).toBe("exhausted");
+      expect(await fire()).toEqual({ outcome: "quiet", at: FIXTURE_BASE + 2_000 });
       expect(sends).toHaveLength(1);
       expect(fx.kernel.armedAlarms().filter((row) => row.alarmId === "watch-race:watch")).toHaveLength(1);
       const entry = parseHit(sends[0] as WatchHitSend);
@@ -634,12 +634,12 @@ test("a watch alarm fired before its path source is registered retires without a
   }, plane);
 });
 
-test("a watch cadence refuses re-arm with the entity's typed arm reason", async () => {
+test("a watch cadence retiring a gone source refuses with the entity's typed arm reason", async () => {
   const plane = createWatchPlane();
   plane.bind({
     install: () => Promise.resolve(),
     refresh: () => false,
-    observe: () => true,
+    observe: () => false,
     close: () => Promise.resolve(),
     closeAll: () => Promise.resolve(),
   });
