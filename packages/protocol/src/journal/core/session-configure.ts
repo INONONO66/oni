@@ -42,7 +42,7 @@ export const Settings = z
      * the core default. The composition root writes its resolved startup
      * value here.
      */
-    toolOutputBudgetBytes: z.number().int().min(200).optional(),
+    toolOutputBudgetBytes: z.number().int().min(200).max(1_048_576).optional(),
     /**
      * Checkpoint cadence and restore tail budget (#1347): generation
      * configuration folded like the widths; absent falls back to the core

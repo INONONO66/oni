@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SessionHistory } from "../src";
+import { Settings } from "../src/journal/core/session-configure";
 
 const payload = { encodingVersion: 1, value: {} } as const;
 
@@ -75,6 +76,18 @@ describe("SessionHistory requests", () => {
     expect(SessionHistory.InspectRequest.parse({ depth: 8 })).toEqual({ depth: 8 });
     for (const fields of [{ depth: 9 }, { depth: -1 }, { depth: 1.5 }])
       expect(SessionHistory.InspectRequest.safeParse(fields).success).toBe(false);
+  });
+});
+
+describe("session.configure tool output budget", () => {
+  test("accepts the lower and upper byte bounds", () => {
+    expect(Settings.parse({ steering: "all", followUp: "all", toolOutputBudgetBytes: 200 }).toolOutputBudgetBytes).toBe(200);
+    expect(Settings.parse({ steering: "all", followUp: "all", toolOutputBudgetBytes: 1_048_576 }).toolOutputBudgetBytes).toBe(1_048_576);
+  });
+
+  test("rejects budgets outside both byte bounds", () => {
+    for (const toolOutputBudgetBytes of [199, 1_048_577])
+      expect(Settings.safeParse({ steering: "all", followUp: "all", toolOutputBudgetBytes }).success).toBe(false);
   });
 });
 

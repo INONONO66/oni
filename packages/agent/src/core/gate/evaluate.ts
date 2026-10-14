@@ -110,12 +110,15 @@ export function nextProjectedConsult(
   if (point === undefined || !table.has(point)) return undefined;
   if (input.kind === "message" && input.op === "send_message" && input.message === undefined)
     return undefined;
+  const { recorded, ...identity } = input;
+  const inputHash = canonicalDigest(identity);
   const outcome = projected.gate.decide(
     point,
     { when: projectedWhenOf(input), value: clonePlain(input.value), context: input.message },
     {
       handlers: (ref) => handlers.get(ref),
-      ...(input.recorded === undefined ? {} : { recorded: input.recorded }),
+      ...(recorded === undefined ? {} : { recorded }),
+      inputHash,
       prepared,
       pendingAsync: asyncRefs,
     },
@@ -162,6 +165,7 @@ export function evaluateProjected(
       handlers: (ref) => handlers.get(ref),
       ...(recorded === undefined ? {} : { recorded }),
       ...(prepared === undefined ? {} : { prepared }),
+      inputHash,
     },
   );
   const matched = outcome.decision.rowIds.flatMap((id) => {

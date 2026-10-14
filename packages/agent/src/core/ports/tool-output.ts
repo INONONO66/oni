@@ -20,16 +20,31 @@ export interface ToolOutputPorts {
 }
 
 /** Code-point-safe: the UTF-8 encoding fits `maxBytes`. */
-function utf8Prefix(text: string, maxBytes: number): string {
-  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-  let kept = Math.max(0, maxBytes);
-  for (;;) {
-    // Never split a surrogate pair.
-    if ((text.codePointAt(kept - 1) ?? 0) > 0xffff) kept -= 1;
-    const prefix = text.slice(0, kept);
-    if (Buffer.byteLength(prefix, "utf8") <= maxBytes) return prefix;
-    kept -= 1;
+export interface Utf8Encoder {
+  encode(text: string): Uint8Array;
+}
+
+const utf8Encoder: Utf8Encoder = new TextEncoder();
+
+export function utf8Prefix(
+  text: string,
+  maxBytes: number,
+  encoder: Utf8Encoder = utf8Encoder,
+): string {
+  const encoded = encoder.encode(text);
+  if (encoded.byteLength <= maxBytes) return text;
+  let end = Math.min(Math.max(0, maxBytes), encoded.byteLength);
+  while (end > 0) {
+    const byte = encoded[end - 1] ?? 0;
+    if ((byte & 0xc0) === 0x80) {
+      end -= 1;
+      continue;
+    }
+    const width = byte < 0x80 ? 1 : byte < 0xe0 ? 2 : byte < 0xf0 ? 3 : 4;
+    if (end - 1 + width > end) end -= 1;
+    break;
   }
+  return new TextDecoder().decode(encoded.subarray(0, end));
 }
 
 function marker(outputId: string, bytes: number): string {

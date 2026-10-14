@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Glob } from "bun";
-import { loadConfig } from "../src/config";
+import { ConfigurationError, loadConfig } from "../src/config";
 
 /**
  * #1245: the ambient environment has exactly two owners in this app —
@@ -47,6 +47,20 @@ describe("loadConfig reads the injected env record, not the ambient process", ()
       kind: "locked",
       reason: `no OPENOMNI_VAULT_KEY and no key file at ${join(home, ".openomni", "vault.key")}`,
     });
+  });
+
+  test("rejects tool output budgets below 200 or above 1 MiB", () => {
+    const home = mkdtempSync(join(tmpdir(), "openomni-env-owner-"));
+    for (const value of ["199", "1048577"]) {
+      expect(() =>
+        loadConfig(home, {
+          OPENOMNI_MODEL_PROVIDER: "fake",
+          OPENOMNI_MODEL_ID: "owner-test",
+          OPENOMNI_MODEL_API_KEY: "test-key",
+          OPENOMNI_TOOL_OUTPUT_BUDGET_BYTES: value,
+        }),
+      ).toThrow(ConfigurationError);
+    }
   });
 });
 
