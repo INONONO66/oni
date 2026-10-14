@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Exit } from "effect";
-import { CompactionSeam } from "../../src/core/api";
+import { CompactionPort } from "../../src/core/api";
 import { commitFoldBatch } from "../../src/core/journal/compaction";
 import { AgentFailure, AgentInvariantViolation } from "../../src/core/ports/failure";
 import { createRunState } from "../../src/core/loop/turn";
 import { foldSessionHistory, hydrateSessionHistory } from "../../src/inspect/history";
-import { compactionCapability, compactionSeamService } from "../../src/plugins/compaction";
+import { compactionCapability, compactionPortService } from "../../src/plugins/compaction";
 import { prepareCompactionRestore } from "../../src/plugins/compaction/restore";
 import { collector } from "../helpers/observation-collector";
-import { fixtureCompactionSeam } from "../helpers/fixture-compaction";
+import { fixtureCompactionPort } from "../helpers/fixture-compaction";
 import { fencedTurnFixture } from "../helpers/fenced-writer";
 import { isolated, runTestPromise } from "../helpers/isolated";
 import { testMessageSource } from "../helpers/message-source";
@@ -25,11 +25,11 @@ describe("compaction capability contract (#1307)", () => {
     expect(Object.keys(definition.kinds)).toEqual([]);
     expect(definition.inputs).toEqual([]);
     expect(definition.points).toEqual([]);
-    expect(definition.seam).toBe(CompactionSeam);
+    expect(definition.port).toBe(CompactionPort);
   });
 
   it("publishes the two run-free operations plus the binding, frozen; the binding yields the four operations", async () => {
-    const service = compactionSeamService(history);
+    const service = compactionPortService(history);
     expect(Object.isFrozen(service)).toBe(true);
     expect(Object.keys(service).sort()).toEqual(["bind", "pinAction", "prepareRestore"]);
     expect(service.prepareRestore).toBe(prepareCompactionRestore);
@@ -52,7 +52,7 @@ describe("compaction disabled: the kernel skips and records nothing new (#1307)"
     const outcome = await isolated(
       Effect.scoped(
         Effect.gen(function* () {
-          const port = yield* compactionSeamService(history).bind({
+          const port = yield* compactionPortService(history).bind({
             options: undefined,
             identity: { traceId: "t", sessionId: state.sessionId, runId: "r", actorId: "a" },
             events,
@@ -97,13 +97,13 @@ describe("compaction disabled: the kernel skips and records nothing new (#1307)"
     );
     expect(Exit.isFailure(exit)).toBe(true);
     const defect = Exit.isFailure(exit) ? exit.cause : undefined;
-    expect(String(defect)).toContain("compaction append without a composed compaction seam");
+    expect(String(defect)).toContain("compaction append without a composed compaction port");
   });
 
   it("prepareRestore refuses a foreign or absent intent typed, never improvises", async () => {
     const refused = await runTestPromise(
       Effect.flip(
-        fixtureCompactionSeam.prepareRestore({
+        fixtureCompactionPort.prepareRestore({
           sessionId: "restore-session",
           compactionId: "missing",
           action: undefined,

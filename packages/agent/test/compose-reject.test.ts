@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Cause, Context, Effect, Exit } from "effect";
 import { z } from "zod";
-import type { PlainValue, PointId } from "@openomni/protocol";
+import { canonicalDigest, type PlainValue, type PointId } from "@openomni/protocol";
 import {
   Capability,
   defineBundle,
@@ -9,7 +9,7 @@ import {
   type BundleContract,
   type BundleGateRow,
   type CapabilityDefinition,
-  type SeamTag,
+  type PortTag,
 } from "../src/core/ports/capability";
 import { runTestExit, runTestPromise } from "./helpers/isolated";
 import { compose, COMPOSE_REJECTION_CODES, ComposeRefused } from "../src/core/composition/compose";
@@ -26,7 +26,7 @@ const kind = {
 
 function capability(
   name: string,
-  seam: SeamTag,
+  port: PortTag,
   overrides: {
     requires?: readonly string[];
     kinds?: Readonly<Record<string, typeof kind>>;
@@ -41,7 +41,7 @@ function capability(
     points: overrides.points,
     handlers: overrides.handlers,
     verbs: {},
-    seam,
+    port,
   });
 }
 
@@ -212,6 +212,28 @@ test("a valid manifest composes one generation with merged tables and a stable h
   expect(again.hash).toBe(generation.hash);
 });
 
+test("port API names preserve the recorded manifest hash preimage", async () => {
+  const generation = await runTestPromise(compose(Manifest.define({
+    capabilities: [capability("a", SeamA)],
+    bundles: [],
+  })));
+  expect(generation.hash).toBe(canonicalDigest({
+    capabilities: [{
+      name: "a",
+      requires: [],
+      seam: SeamA.key,
+      kinds: [],
+      inputs: [],
+      points: [],
+      purposes: [],
+      handlers: [],
+    }],
+    bundles: [],
+    off: [],
+    disabled: [],
+  }));
+});
+
 const bundleTool = (name: string) => ({
   name,
   description: name,
@@ -257,8 +279,8 @@ test("duplicate: purposes and handlers collide across declarations — capabilit
   const capabilityPurposes = await rejectionOf(
     Manifest.define({
       capabilities: [
-        Capability.define({ name: "a", requires: [], purposes: { "probe.hit": purposeHandler }, verbs: {}, seam: SeamA }),
-        Capability.define({ name: "b", requires: [], purposes: { "probe.hit": purposeHandler }, verbs: {}, seam: SeamB }),
+        Capability.define({ name: "a", requires: [], purposes: { "probe.hit": purposeHandler }, verbs: {}, port: SeamA }),
+        Capability.define({ name: "b", requires: [], purposes: { "probe.hit": purposeHandler }, verbs: {}, port: SeamB }),
       ],
       bundles: [],
     }),
@@ -268,7 +290,7 @@ test("duplicate: purposes and handlers collide across declarations — capabilit
   const bundlePurpose = await rejectionOf(
     Manifest.define({
       capabilities: [
-        Capability.define({ name: "a", requires: [], purposes: { "probe.hit": purposeHandler }, verbs: {}, seam: SeamA }),
+        Capability.define({ name: "a", requires: [], purposes: { "probe.hit": purposeHandler }, verbs: {}, port: SeamA }),
       ],
       bundles: [defineBundle({ name: "m", requires: [SeamA], purposes: { "probe.hit": purposeHandler } })],
     }),

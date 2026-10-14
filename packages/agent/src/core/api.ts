@@ -9,21 +9,21 @@ export type { SessionKernel } from "./session/entity";
 export { parsePlainJson, readPlainJson } from "./store/storage/sqlite-l0-rows";
 export { Entropy } from "./ports/ports";
 export { RunEvents } from "./observation/run-events";
-// Alarm seam: exactly what an alarm capability needs.
+// Alarm port: exactly what an alarm capability needs.
 export {
   ArmRefused, AlarmWakeError, RESERVED_PURPOSES,
   type AlarmCapability, type AlarmWakeContext, type ArmVerb, type AlarmFired, type AlarmWakeOutcome, type AlarmPurposeRegistry,
 } from "./ports/alarm";
 // A plugin consumes `Capability.define` alone; `Bundle.define` / `Manifest.define`
 // are product-side, surfaced by the root `Bundle` barrel.
-export { Capability, seam, type CapabilityDefinition, type SeamTag } from "./ports/capability";
-export { AlarmSeam } from "./ports/alarm";
-// Consulted-gate seam: what a hook-style capability needs to register an
+export { Capability, port, type CapabilityDefinition, type PortTag } from "./ports/capability";
+export { AlarmPort } from "./ports/alarm";
+// Consulted-gate port: what a hook-style capability needs to register an
 // asynchronous gate consultant without touching core internals.
 export type { ConsultantSeed } from "./composition/compose";
 export type { ConsultInput, NamedConsultant } from "./gate/registry";
 export type { GateHandlerResult } from "./gate/compose";
-// Tool-dispatcher seam: what `plugins/tool` needs to construct dispatchers
+// Tool-dispatcher port: what `plugins/tool` needs to construct dispatchers
 // through the core gate.
 export {
   activeInvocation, createExecutor, immutableInput, requireExecutor,
@@ -40,12 +40,12 @@ export {
   type DispatcherOptions, type ToolDispatchDefinition, type ToolDispatchResult,
   type ToolErrorKind,
 } from "./loop/tool";
-// Compaction seam: the four operations the core consumes and the binding that yields them.
+// Compaction port: the four operations the core consumes and the binding that yields them.
 export {
-  CompactionSeam,
-  type CompactionOptions, type CompactionOutcome, type CompactionPort, type CompactionReason,
+  CompactionPort,
+  type CompactionOptions, type CompactionOutcome, type CompactionReason,
   type CompactionRestoreInput, type CompactionRestorePlan, type CompactionRunBinding,
-  type CompactionSeamService, type CompactionWindow, type CompactionYield,
+  type CompactionPortService, type CompactionWindow, type CompactionYield,
   type PinCompactionAction, type PrepareCompactionRestore, type SummarizationBudget,
   type ToolOutputElision,
 } from "./ports/compaction-ports";

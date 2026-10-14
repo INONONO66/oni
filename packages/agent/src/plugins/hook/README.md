@@ -1,7 +1,7 @@
 # hook plugin
 
 The removable hook capability (#1256): `hookCapability()` in `index.ts` is a
-`Capability.define` declaration (`name: "hook"`, `requires: ["action"]`, seam
+`Capability.define` declaration (`name: "hook"`, `requires: ["action"]`, port
 `@openomni/hook/Hook`) whose single handler `hook/process` is the one external
 hook surface. `process.ts` owns it: `acquireHookProcess` spawns one JSON-lines
 child process per acquisition Scope (one PID per distinct command per

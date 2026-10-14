@@ -51,7 +51,7 @@ const pinnedSnapshot = (...rows: Parameters<typeof atGeneration>[0][]) =>
 
 describe("permission-row migration (#1251)", () => {
   it("maps every historical kind/phase pair the kernel ever wrote to a registered point", () => {
-    expect(() => assertPointGenerationRows(LEGACY_ROWS, table)).not.toThrow();
+    assertPointGenerationRows(LEGACY_ROWS, table);
     expect(pointOfRow("compaction", "post")).toBe("compaction.post");
     expect(pointOfRow("ingress", "pre")).toBe("ingress.pre");
     expect(pointOfRow("alarm.fired", "post")).toBe("alarm.fired");

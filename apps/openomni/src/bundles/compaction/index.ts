@@ -25,7 +25,7 @@ export function compactionSummarizerBundle(): Bundle.BundleContract<"compaction-
 export function compactionBundle(): Bundle.BundleContract<"compaction-strategy"> {
   return Bundle.define({
     name: "compaction-strategy",
-    requires: [Bundle.CompactionSeam, CompactionSummarizerSeam],
+    requires: [Bundle.CompactionPort, CompactionSummarizerSeam],
   });
 }
 

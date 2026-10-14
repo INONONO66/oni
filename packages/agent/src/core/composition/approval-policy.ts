@@ -1,4 +1,4 @@
-import { seam, type SeamTag } from "../ports/capability";
+import { port, type PortTag } from "../ports/capability";
 import type { ResolvedAgentBudget } from "../ports/types";
 
 /**
@@ -19,4 +19,4 @@ export interface ApprovalRecentOpen {
   readonly windowMs: number;
 }
 
-export const ApprovalPolicySeam: SeamTag = seam("@openomni/approval/ApprovalPolicy");
+export const ApprovalPolicyPort: PortTag = port("@openomni/approval/ApprovalPolicy");

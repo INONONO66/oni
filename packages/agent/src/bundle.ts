@@ -15,19 +15,19 @@ export * from "./plugins/tool";
 // The three declaration contracts, surfaced for the app manifest.
 // `Bundle.define` is the barrel's `define`.
 export {
-  Capability, defineBundle as define, Manifest, DefineRefused, CapabilityHookError, seam,
+  Capability, defineBundle as define, Manifest, DefineRefused, CapabilityHookError, port,
   type BundleContract, type BundleContractInput, type BundleGateRow, type BundleTool,
   type CapabilityCore, type CapabilityDefinition, type CapabilityInput,
   type CapabilityInputRow, type CapabilityKindDeclaration, type CapabilityStep,
-  type ManifestDefinition, type ManifestInput, type SeamTag,
+  type ManifestDefinition, type ManifestInput, type PortTag,
 } from "./core/ports/capability";
-export { AlarmSeam } from "./core/ports/alarm";
+export { AlarmPort } from "./core/ports/alarm";
 
 // The compaction capability needs the inspect band's fold/hydrate — an import
 // the plugin band may not make — so this root assembly file wires the history
 // ports into the published definition the app lists in its manifest.
-export { CompactionSeam } from "./core/ports/compaction-ports";
-export type { CompactionOptions, CompactionSeamService } from "./core/ports/compaction-ports";
+export { CompactionPort } from "./core/ports/compaction-ports";
+export type { CompactionOptions, CompactionPortService } from "./core/ports/compaction-ports";
 
 import { foldSessionHistory, hydrateSessionHistory } from "./inspect/history";
 import {

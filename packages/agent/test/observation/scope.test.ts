@@ -106,9 +106,9 @@ describe("scoped observations", () => {
       onError: (error, name) => errors.push({ name, type: error.name }),
     });
 
-    expect(() => Reflect.apply(scoped.publish, scoped, [TestEvent, null])).not.toThrow();
-    expect(() => Reflect.apply(scoped.publish, scoped, [TestEvent, []])).not.toThrow();
-    expect(() => scoped.publish(TestEvent, { component: "test", msg: "valid" })).not.toThrow();
+    Reflect.apply(scoped.publish, scoped, [TestEvent, null]);
+    Reflect.apply(scoped.publish, scoped, [TestEvent, []]);
+    scoped.publish(TestEvent, { component: "test", msg: "valid" });
 
     expect(errors).toEqual([
       { name: TestEvent.name, type: "TypeError" },
@@ -156,24 +156,25 @@ describe("scoped observations", () => {
         throw reporterFailure;
       },
     });
-    expect(() => scoped.publish(TestEvent, { component: "test", msg: "custom reporter" })).not.toThrow();
+    scoped.publish(TestEvent, { component: "test", msg: "custom reporter" });
     expect(failures).toEqual([
       { eventName: TestEvent.name, error: "Error: sink failed", reporterError: expected },
     ]);
   });
 
   it("drops the failure when the sink refuses the failure report too", () => {
+    const attempted: string[] = [];
     const hostile: ObservationSink = {
-      publish() {
+      publish(event) {
+        attempted.push(event.name);
         throw new Error("sink failed");
       },
       scope() {
         return hostile;
       },
     };
-    expect(() =>
-      scopeObservation(hostile, identity, stamps()).publish(TestEvent, { component: "test", msg: "dropped" }),
-    ).not.toThrow();
+    scopeObservation(hostile, identity, stamps()).publish(TestEvent, { component: "test", msg: "dropped" });
+    expect(attempted).toEqual([TestEvent.name, ObservationDeliveryFailed.name]);
   });
 
   it("forwards subscriptions when the underlying sink supports them", () => {

@@ -1,30 +1,30 @@
 import { canonicalDigest, PlainValueSchema, SessionTurn, FoldCheckpoint, type LedgerAction, type LedgerSession } from "@openomni/protocol";
 import { Effect } from "effect";
 import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../../inspect/history";
-import type { CompactionSeamService } from "../ports/compaction-ports";
+import type { CompactionPortService } from "../ports/compaction-ports";
 import { AgentInvariantViolation } from "../ports/failure";
 import type { SessionKernel } from "../session/entity";
 import { actionPayloadBytes } from "../store/action-hash";
 import { SchemaRefused, type LedgerError } from "../store/errors";
 import type { CommitReceipt } from "../store/services";
 
-/** Fails closed: a compaction append without the composed seam cannot be pinned. */
+/** Fails closed: a compaction append without the composed port cannot be pinned. */
 function requireNoCompactionPin(action: LedgerAction.Append): LedgerAction.Append {
   if (action.kind === "compaction")
-    throw new AgentInvariantViolation("compaction append without a composed compaction seam");
+    throw new AgentInvariantViolation("compaction append without a composed compaction port");
   return action;
 }
 
-/** Pins through the composed seam, or fails closed on an unpinnable compaction append. */
-function pinThroughSeam(
-  seam: Pick<CompactionSeamService, "pinAction"> | undefined,
+/** Pins through the composed port, or fails closed on an unpinnable compaction append. */
+function pinThroughPort(
+  compaction: Pick<CompactionPortService, "pinAction"> | undefined,
   kernel: SessionKernel,
   action: LedgerAction.Append,
   state: FoldCheckpoint.State,
   sourceRevision: number,
 ): LedgerAction.Append {
-  return seam !== undefined
-    ? seam.pinAction(kernel, action, state, sourceRevision)
+  return compaction !== undefined
+    ? compaction.pinAction(kernel, action, state, sourceRevision)
     : requireNoCompactionPin(action);
 }
 
@@ -49,10 +49,10 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
 export function commitFoldBatch(
   kernel: SessionKernel,
   input: LedgerSession.Commit,
-  // : the composed compaction seam decorates compaction appends with
-  // their successor proof. Absent seam + compaction append = typed defect —
+  // The composed compaction port decorates compaction appends with
+  // their successor proof. Absent port + compaction append = typed defect —
   // the kernel never pins without the capability, and never commits unpinned.
-  seam?: Pick<CompactionSeamService, "pinAction">,
+  compaction?: Pick<CompactionPortService, "pinAction">,
 ): Effect.Effect<CommitReceipt, LedgerError> {
   return Effect.gen(function* () {
     const { everyActions, maxTailBytes } = checkpointPolicy(kernel, input.sessionId);
@@ -69,7 +69,7 @@ export function commitFoldBatch(
     const hydrated = checkpoint.hydrate();
     const seed = { state: hydrated.state, count: hydrated.nonCheckpointActions, bytes: tailBytes };
     const policy = { everyActions, maxTailBytes };
-    const planned = planFoldBatch(kernel, seam, input, seed, policy, true);
+    const planned = planFoldBatch(kernel, compaction, input, seed, policy, true);
     return yield* kernel.commit({ ...input, actions: planned.actions }).pipe(
       Effect.catchIf(
         (error): error is SchemaRefused =>
@@ -88,7 +88,7 @@ export function commitFoldBatch(
             },
           ).pipe(
             Effect.andThen(
-              kernel.commit({ ...input, actions: planFoldBatch(kernel, seam, input, seed, policy, false).actions }),
+              kernel.commit({ ...input, actions: planFoldBatch(kernel, compaction, input, seed, policy, false).actions }),
             ),
           );
         },
@@ -109,7 +109,7 @@ type FoldPlan = {
  */
 function planFoldBatch(
   kernel: SessionKernel,
-  seam: Pick<CompactionSeamService, "pinAction"> | undefined,
+  compaction: Pick<CompactionPortService, "pinAction"> | undefined,
   input: LedgerSession.Commit,
   seed: { readonly state: FoldCheckpoint.State; readonly count: number; readonly bytes: number },
   policy: { readonly everyActions: number; readonly maxTailBytes: number },
@@ -132,7 +132,7 @@ function planFoldBatch(
   for (const draft of input.actions) {
     const sourceRevision = input.expectedRevision + actions.length;
     const contextPinned = pinContext(draft, state, sourceRevision);
-    const action = pinThroughSeam(seam, kernel, contextPinned, state, sourceRevision);
+    const action = pinThroughPort(compaction, kernel, contextPinned, state, sourceRevision);
     actions.push(action);
     const ordinal = input.expectedRevision + actions.length;
     state = foldHistoryState(

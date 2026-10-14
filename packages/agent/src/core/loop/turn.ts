@@ -427,9 +427,9 @@ function bindCompaction(
   identity: AgentRunBase,
   executor: Executor,
 ): Effect.Effect<CompactionPort | undefined, never, Scope.Scope> {
-  const seam = config.compactionSeam;
-  if (seam === undefined) return Effect.succeed(undefined);
-  return seam.bind({ options: config.compaction, identity, events: config.events, executor, signal: config.signal });
+  const compaction = config.compactionPort;
+  if (compaction === undefined) return Effect.succeed(undefined);
+  return compaction.bind({ options: config.compaction, identity, events: config.events, executor, signal: config.signal });
 }
 
 /** The one place the loop asks the plugin to compact; with no port bound nothing happens. */

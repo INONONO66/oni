@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import ts from "typescript";
+import { CORE_END_STATE_TARGETS } from "./core-end-state-targets";
 import { runScriptMain } from "./main-runner";
 
 const ROOT = join(import.meta.dir, "..");
@@ -50,7 +51,7 @@ export interface ResiduePins {
 }
 
 /** Hard budget for durable-byte-contract notes, enforced by the gate itself. */
-const DURABLE_BYTE_NOTE_BUDGET = 10;
+const DURABLE_BYTE_NOTE_BUDGET = CORE_END_STATE_TARGETS.durableByteNotes;
 
 const ISSUE_TOKEN = /#\d{3,4}/;
 /** A comment-only line whose text, past any `//`, `/*` or `*` prefix, opens with a box-drawing run. */

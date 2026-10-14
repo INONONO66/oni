@@ -97,7 +97,7 @@ export interface HookProcessConfig {
 
 /**
  * Exactly what `Bun.spawn` returns, narrowed to the used members so a test can inject a child whose
- * pipe fails — the ONE seam for the write-failure path.
+ * pipe fails — the ONE port for the write-failure path.
  */
 export interface HookChildProcess {
   readonly pid: number;

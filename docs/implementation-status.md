@@ -1,5 +1,92 @@
 # Implementation Status
 
+## #1355 - terminal core gates (rebased verification)
+
+`script/core-end-state-targets.ts` holds terminal acceptance values.
+Verification on rebased `38e149bba` plus the #1355 follow-up, after #1473
+merged as `d6974ebd5`, establishes the source and structural counts below.
+Structural targets are met. Vocabulary is checked as substrings, with quoted
+durable-byte exclusions listed below. Public aliases and public-contract
+vocabulary pins are removed; inherited quality debt remains separately tracked.
+
+| Command | Required terminal result |
+| --- | --- |
+| `bun run script/check-deps.ts` | Core root exactly `api.ts`, `index.ts`; eight named bands; schema declarations in exactly `store/catalog.ts`, `store/session-file/index.ts`, both nonempty; nine workspaces; four root namespaces; zero forbidden value edges and agent value cycles. |
+| `bun run script/check-deps.ts` | Four inspection imports accounted for at `journal/compaction.ts`, `session/recovery.ts`, `session/run.ts`, `session/runtime.ts`; missing, renamed or changed owners fail. Pins cannot absorb plugin edges or another inspection target. The inherited app direct-token pin remains tight and shrink-only. |
+| `bun run script/check-core-end-state.ts` | No unlisted retired substrings or forbidden source patterns; exact durable-literal pin counts; one alarm-chain fold, one plugin-owned alarm-purpose composer and none in core; no source file over 600 lines, no test file over 1,000 lines, no empty `toThrow()`. |
+| `bun run script/check-comment-residue.ts` | Issue comments zero outside at most ten enumerated durable-byte notes; dividers and JSDoc blocks over six lines zero; comment ratio at most 8%, with the existing tighter ceiling retained. |
+| `bun run quality:clones:production packages/agent`, `bun run quality:clones:test packages/agent` | Agent-only reports are consumed by `check-core-end-state.ts`. Production clones zero and duplicated test lines at most 0.5%; exact agent pins below require equality. Empty reports fail. |
+| `bun run lint:tools` | Source, alarm, assertion and file-size targets enforced along with existing conformance checks. |
+| `bun test packages/agent/test/structure-gates.test.ts` | Adversarial fixtures and a separate real-tree assertion; a failing real-tree target is not replaced by a stacked-base pin. |
+
+Measured: two root files, eight bands, two nonempty schema owners, nine
+workspaces, four namespaces, four accounted inspection imports, zero forbidden
+core value edges and zero cycles. Unlisted retired substrings, forbidden
+source patterns, source files over 600 lines, test files over 1,000 lines and
+empty assertions are zero. One alarm-chain fold and one plugin-owned
+alarm-purpose composer remain. The comment ratio is 704bp (1486/21106),
+below the retained 710bp ceiling; issue comments, dividers, long JSDoc and
+durable-byte exceptions are zero. The 19 former empty assertions were
+negated success checks; they now assert returned values, compiled rows or
+observed events. Compaction tests are split into independent `compact.test.ts`
+and `run.test.ts` describe blocks.
+
+Inherited pins authorized by the lead on 2026-10-14:
+
+| Surface | Exact inherited pin | Closure owner |
+| --- | --- | --- |
+| `apps/openomni/src/index.ts` direct agent-core tokens | 1, unchanged from main: the #1346 deferred `tools.add` configure commit | Apps/openomni entity-seam ruling; follow-up issue to be filed by the lead |
+| Agent production clones | 0 | Agent core gate |
+| Agent duplicated test lines | 248 (about 0.4803% of the agent test census) | #945 agent test-quality debt |
+
+All pins reject growth and slack. A removal requires lowering the pin in the
+same change. Test clones use an absolute duplicated-line count, so adding
+unrelated tests cannot dilute the allowance. The terminal clone goals remain
+0 production clones and at most 0.5% duplicated test lines in the target table.
+The earlier repository-wide observation was 11 production clones and 1006
+duplicated test lines (about 0.6815%); those numbers are historical context,
+not pins enforced by an agent-core gate.
+
+The inspection owner is `journal/compaction.ts`, not the issue's historical
+`journal/commit` wording. `session/runtime.ts` imports inspection types from
+the inspection barrel; the other three owners import history. The source
+scan rejects retired substrings, including `FooSeam`, `seams`,
+`ModelPortService` and unquoted `seam_missing`. Internal names now use
+`PortTag`, `CompactionPort`, `CompactionPortService`, `AlarmPort`, `ActionPort`,
+`HookPort`, `ApprovalPolicyPort`, `pinThroughPort` and `portOwner`.
+
+The five public tags, the capability factory/field and the run configuration
+now use `Port`/`port`/`compactionPort` at declaration and every consumer, with
+no compatibility aliases. `compactionSeam` is absent from the protocol journal
+and `session.configure.settings` schemas and is not a stored field.
+Mechanical app edits are limited to `src/bundles/alarms/{cron,monitor}/index.ts`,
+`src/bundles/{approval-policy,compaction,delegation-policy,hooks-json,resident}/index.ts`,
+`src/bundles/messaging/send-message/index.ts`, `src/bundles/seams.ts`,
+`src/manifest.ts` and `test/alarm-bundles.test.ts` under `apps/openomni`.
+The #1343 app-token count remains 1; these names are not ledger/entity tokens.
+
+Nine quoted
+`seam_missing`/`compaction_seam_missing` occurrences remain across
+`core/composition/{approval-policy,compose}.ts`, `core/journal/messages.ts`
+and `core/session/{entity-delivery,recovery,runtime}.ts`; these are durable
+rejection codes and comments quoting those codes. Eight quoted `'worker'`
+literals in `core/store/catalog.ts` preserve legacy role migration.
+One quoted `"seam"` key remains in `core/composition/compose.ts`'s
+`hashProjection`: it is part of the canonical preimage of persisted
+`SessionGeneration.Snapshot.manifestHash`
+(`packages/protocol/src/ledger/l0.ts`). The API reads `capability.port`, but
+changing this serialization key would change recorded manifest identities.
+`compose-reject.test.ts` asserts the legacy preimage bytes independently.
+`sea[m]` over packages/agent/src = 9 quoted rejection-code occurrences + 1 durable hash key, implementation/API matches 0.
+`inboxId` has no exclusion because no retired pattern matches it.
+Each exclusion has a fixture that turns red when it is removed.
+
+Process checks cover property/element access and destructuring of
+`Bun.spawn`/`spawnSync`, both child-process module spellings, and relative
+model paths with file extensions or nested directories. Synthetic-tree tests
+exercise empty censuses, both file-size limits and every aggregate count.
+The comment gate has one enforcement layer, its existing exact per-file pins.
+
 ## #1354 — core split into eight responsibility directories (PR #1473, base `5d2de7484`)
 
 - Layout: `packages/agent/src/core/` is exactly `api.ts`, `index.ts` and the eight directories `ports/ session/ loop/ journal/ composition/ observation/ gate/ store/`; no source file exceeds 600 lines; `store/catalog.ts` and `store/session-file/index.ts` remain the only two `CREATE TABLE` owners.

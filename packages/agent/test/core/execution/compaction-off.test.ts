@@ -26,7 +26,7 @@ describe("compaction composed off", () => {
       executor: recording.executor,
       model: { provider: "provider" as const, id: "model" },
       llm,
-      compactionSeam: undefined,
+      compactionPort: undefined,
       compaction: undefined,
     };
     const history = [

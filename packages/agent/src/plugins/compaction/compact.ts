@@ -114,7 +114,7 @@ export namespace Compaction {
       ).pipe(Effect.onError((cause) => Effect.sync(() => {
       const message = pretty(cause);
       // The summarizer threw: the bracket still closes with `failed` and the throw
-      // propagates unchanged into the seam's fail-closed contract.
+      // propagates unchanged into the port's fail-closed contract.
       events.publish(RunEvents.CompactionCompleted, {
         ...identity,
         time: now(),

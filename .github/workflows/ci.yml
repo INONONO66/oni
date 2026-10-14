@@ -176,6 +176,7 @@ jobs:
       - run: bun run script/check-topology.ts
       - run: bun run script/check-deps.ts
       - run: bun run script/check-comment-residue.ts
+      - run: bun run script/check-core-end-state.ts
       - run: bun run script/check-effect-boundaries.ts
       - run: bun run check-written-types
       - run: bun run lint:guards

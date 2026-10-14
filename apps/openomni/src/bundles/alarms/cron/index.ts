@@ -87,7 +87,7 @@ export function cronPurposes(prompt?: Bundle.WatchWakeDeps["prompt"]): Bundle.Al
 export function cronBundle(prompt?: Bundle.WatchWakeDeps["prompt"]): Bundle.BundleContract<"cron", object, Bundle.AlarmPurposeHandler> {
   return Bundle.define({
     name: "cron",
-    requires: [Bundle.AlarmSeam],
+    requires: [Bundle.AlarmPort],
     purposes: { [CRON_TICK]: cronTick(prompt) },
   });
 }

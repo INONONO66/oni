@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { seam } from "./capability";
+import { port } from "./capability";
 import { interruptOn } from "./ports";
 import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
 import type { CommitFailed } from "./failure";
@@ -40,7 +40,7 @@ export interface RetryAlarmDeps {
  * a recorded `fired{stale}` fact with zero execution.
  */
 
-/** The four loop-reserved purposes, re-exported for the capability seam. */
+/** The four loop-reserved purposes, re-exported for the capability port. */
 export const RESERVED_PURPOSES = RESERVED_ALARM_PURPOSES;
 
 /** Why a delivered occurrence is skipped instead of run. */
@@ -378,7 +378,7 @@ export function createRetryAlarmPort(deps: RetryAlarmDeps): RetryAlarmPort {
 }
 
 /**
- * The alarm capability's seam ( S1): the identity a declaration requiring
+ * The alarm capability's tag: the identity a declaration requiring
  * `"alarm"` resolves against at compose.
  */
-export const AlarmSeam = seam("@openomni/agent/capability/alarm");
+export const AlarmPort = port("@openomni/agent/capability/alarm");

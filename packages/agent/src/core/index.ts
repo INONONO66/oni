@@ -1,7 +1,7 @@
 export type { ChatAgentConfig } from "./ports/types";
 export type { AgentBudget, ResolvedAgentBudget } from "./ports/types";
-// The approval-policy seam: product values behind one injected shape.
-export { ApprovalPolicySeam, type ApprovalPolicy, type ApprovalRecentOpen } from "./composition/approval-policy";
+// The approval-policy port: product values behind one injected shape.
+export { ApprovalPolicyPort, type ApprovalPolicy, type ApprovalRecentOpen } from "./composition/approval-policy";
 export { resolveAgentBudget } from "./loop/budget";
 export { createApprovalRequest } from "./journal/request-binding";
 export { failureFacts, MAX_ATTEMPTS } from "./loop/retry";
@@ -14,7 +14,7 @@ export {
 export * from "./ports/failure";
 export * from "./ports/ports";
 export type { RetryAlarmPort, RetryAlarmDeps } from "./ports/alarm";
-export type { CompactionOptions, CompactionSeamService } from "./ports/compaction-ports";
+export type { CompactionOptions, CompactionPortService } from "./ports/compaction-ports";
 export {
   createExecutor, ExecutionApprovalError, ExecutorContext, executorContext, ExecutorContextError,
   currentInvocation, forkInvocation,

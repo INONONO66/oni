@@ -358,7 +358,7 @@ export function buildTurn(
         ...(config.transport === undefined ? {} : { transport: config.transport }),
         allowAuthFallback: config.allowAuthFallback,
         toolChoice: configuredToolChoice,
-        // Yield at the compaction trigger's default ratio so the seam below gets its
+        // Yield at the compaction trigger's default ratio so the port below gets its
         // chance on every path, not just injected continuations.
         ...(yieldAtInputTokens === undefined ? {} : { yieldAtInputTokens }),
         ...(steeringPending === undefined

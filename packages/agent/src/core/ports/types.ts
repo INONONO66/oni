@@ -13,7 +13,7 @@ import type {
   Tool,
 } from "@openomni/protocol";
 import type { RunInput } from "./llm";
-import type { CompactionOptions, CompactionSeamService } from "./compaction-ports";
+import type { CompactionOptions, CompactionPortService } from "./compaction-ports";
 import type { Executor } from "../loop/executor";
 
 export type TokenUsage = Token.AgentUsage;
@@ -51,7 +51,7 @@ export interface ChatAgentConfig {
   execution?: AgentExecutionLifecycle;
   compaction?: CompactionOptions;
   /** Absent = compaction is off: no window-yield geometry, context tracking or compaction. */
-  compactionSeam?: CompactionSeamService;
+  compactionPort?: CompactionPortService;
   tools?: AgentToolSpec[];
   model: Model.Ref;
   /**

@@ -11,6 +11,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { coreGateFiles } from "./core-gate.test-helper";
 import {
   AGENT_PLUGINS,
   agentBandViolations,
@@ -276,8 +277,9 @@ test("#1276 check c legal edges: the barrel and app-internal imports pass; non-a
 
 function scratchAgentTree(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "bands-"));
-  for (const [file, source] of Object.entries(files)) {
-    const path = join(root, "packages/agent/src", file);
+  const overrides = Object.fromEntries(Object.entries(files).map(([file, source]) => [`packages/agent/src/${file}`, source]));
+  for (const [file, source] of Object.entries({ ...coreGateFiles, ...overrides })) {
+    const path = join(root, file);
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, source);
   }
@@ -293,9 +295,7 @@ test("#1276 (r3): a forbidden import in a formerly-pinned, now-clean file fails 
     expect(violations).toContain(
       "VIOLATION: packages/agent/src/core/store/errors.ts:1 imports ../../plugins/alarm — #1247 bands: core/ may not import plugins/",
     );
-    expect(violations).toContain(
-      "VIOLATION: packages/agent/src/core/store/errors.ts has 1 band violations over the #1276 ratchet of 0 — shrink only, never grow",
-    );
+    expect(violations).toHaveLength(1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -309,7 +309,7 @@ test("#1276 (r3): a pin above the actual count fails closed", async () => {
   try {
     const violations = await validateAgentBands(root);
     expect(violations).toContain(
-      "VIOLATION: packages/agent/src/core/journal/compaction.ts pin exceeds actual (1 > 0): lower the pin",
+      "VIOLATION: packages/agent/src/core/journal/compaction.ts inspection pin 1 != actual 0: explicitly migrate or retire the pin",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -412,9 +412,7 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
   }
 });
 
-test("#1343: a retired call site without lowering its pin fails closed (slack)", async () => {
-  // index.ts is pinned at 1 (#1346: the last pinned file); a checkout where
-  // it is clean must fail, and so must a pinned file deleted from the checkout.
+test("#1355: retiring or deleting the inherited app owner requires lowering its pin", async () => {
   const cases: readonly Record<string, string>[] = [
     { "index.ts": "export const clean = true;\n" },
     { "process-entry.ts": "export const clean = true;\n" },
@@ -423,16 +421,16 @@ test("#1343: a retired call site without lowering its pin fails closed (slack)",
     const root = scratchAppsTree(files, "dir");
     try {
       const violations = await validateAppsAgentTokens(root);
-      expect(violations).toContain(
+      expect(violations).toEqual([
         "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
-      );
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   }
 });
 
-test("#1343: a formerly pinned file that retired every token is unpinned, not slack (#1346)", async () => {
+test("#1355: the unchanged inherited tools.add token remains exactly accounted for", async () => {
   const root = scratchAppsTree({ "composition/ingress-executor.ts": "export const clean = true;\n", "index.ts": "kernel.commit(a);\n" }, "dir");
   try {
     expect(await validateAppsAgentTokens(root)).toEqual([]);
@@ -459,22 +457,21 @@ test("#1343: outside a checkout a stubbed pinned path passes, and the skip is on
   }
 });
 
-test("#1343: a worktree-style .git FILE scopes slack judging exactly like a .git directory", async () => {
+test("#1355: a worktree with no app tokens refuses inherited pin slack without notices", async () => {
   const root = scratchAppsTree({ "index.ts": "export {};\n" }, "file");
   const notices: string[] = [];
   try {
     const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
     expect(notices).toEqual([]);
-    expect(violations).toContain(
+    expect(violations).toEqual([
       "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
-    );
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("#1343: an already-pinned file growing above its pin fails with the file and both numbers", async () => {
-  // index.ts is pinned at 1 (#1346); a second direct token is growth, not slack.
+test("#1355: inherited app-token growth reports the owner and both numbers", async () => {
   const root = scratchAppsTree(
     {
       "index.ts": [

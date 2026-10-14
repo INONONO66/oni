@@ -29,6 +29,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { runScriptMain } from "./main-runner";
+import { agentSourceFacts, checkCoreEndState } from "./check-core-end-state";
 import { projectTools } from "../packages/agent/src/core/loop/tool.js";
 import { catalogDefinitions, type ToolPorts } from "../apps/openomni/src/bundles/tools/core/catalog.js";
 import { createMonitorTool } from "../apps/openomni/src/bundles/alarms/monitor/index.js";
@@ -69,7 +70,8 @@ interface Violation {
     | "naming"
     | "earned-check"
     | "schema-snapshot"
-    | "tool-schema-snapshot";
+    | "tool-schema-snapshot"
+    | "core-end-state";
   readonly subject: string;
   readonly message: string;
 }
@@ -727,6 +729,10 @@ function definitionSelfTest(checks: SelfTestChecks): SelfTestRow[] {
 export function selfTestFailures(checks: SelfTestChecks = defaultChecks): string[] {
   const nouns = extractTierNouns("**Tier 1 (philosophy):** Actor, Ledger.\n**Tier 2 (specification):** Wait.");
   const rows: SelfTestRow[] = [
+    [agentSourceFacts("packages/agent/src/core/ports/types.ts", "const ModelPort = 1;").retiredTokens === 1,
+      "core end-state scan missed retired vocabulary"],
+    [agentSourceFacts("packages/agent/src/core/ports/types.ts", 'const code = "seam_missing";').retiredTokens === 0,
+      "core end-state scan rejected a durable quoted identifier"],
     [checks.unmappedNamespaces(["actor", "totally-new-thing"], nouns).join() === "totally-new-thing",
       "vocab-ratchet did not flag an unmapped namespace"],
     [checks.unmappedNamespaces(["wait"], nouns).length === 0,
@@ -802,6 +808,7 @@ export async function main(
   argv: readonly string[] = process.argv.slice(2),
   hooks: {
     readonly writeSnapshot?: (path: string, contents: string) => void;
+    readonly coreEndState?: () => Promise<string[]>;
   } = {},
 ): Promise<void> {
   const args = new Set(argv);
@@ -834,6 +841,9 @@ export async function main(
     ...(await checkEarned()),
     ...(await checkSchemaSnapshot()),
     ...checkToolSchemaSnapshot(),
+    ...(await (hooks.coreEndState ?? checkCoreEndState)()).map((message): Violation => ({
+      check: "core-end-state", subject: "packages/agent", message,
+    })),
   ];
 
   if (violations.length > 0) reportViolations(violations);

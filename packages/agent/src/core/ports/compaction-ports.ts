@@ -6,7 +6,7 @@ import type {
   Message,
   PlainValue,
 } from "@openomni/protocol";
-import { seam, type SeamTag } from "./capability";
+import { port, type PortTag } from "./capability";
 import type { SessionKernel } from "../session/entity";
 import type { AgentFailure, ContextRestoreError, ExecutionError } from "./failure";
 import type { ExecutionRequest, Executor } from "../loop/executor";
@@ -17,7 +17,7 @@ import type { RunState } from "../loop/turn";
  * The ONE core-owned contract to the removable compaction plugin; with no service wired the kernel
  * skips compaction and records nothing — no built-in fallback.
  */
-export const CompactionSeam: SeamTag = seam("@openomni/compaction/Compaction");
+export const CompactionPort: PortTag = port("@openomni/compaction/Compaction");
 
 export interface CompactionYield {
   readonly savedTokens: number;
@@ -122,8 +122,8 @@ export interface CompactionRunBinding {
   readonly signal?: AbortSignal;
 }
 
-/** The composed seam: the two run-free operations plus the binding that yields a run's port. */
-export interface CompactionSeamService {
+/** The composed service: the two run-free operations plus the binding that yields a run's port. */
+export interface CompactionPortService {
   readonly pinAction: PinCompactionAction;
   readonly prepareRestore: PrepareCompactionRestore;
   /** Speculation lives in the run Scope; closing it settles the abort before the run returns. */

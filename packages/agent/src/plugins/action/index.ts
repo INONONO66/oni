@@ -2,9 +2,9 @@ import { Journal, type PlainValue } from "@openomni/protocol";
 import {
   AgentInvariantViolation,
   Capability,
-  seam,
+  port,
   type CapabilityDefinition,
-  type SeamTag,
+  type PortTag,
 } from "../../core/api";
 
 /**
@@ -14,11 +14,11 @@ import {
  * so `off: ["action"]` cascades them off with `action` as the root `because`.
  */
 
-/** The seam a product bundle's `requires` resolves against at compose. */
-export const ActionSeam: SeamTag = seam("@openomni/action/Action");
+/** The tag a product bundle's `requires` resolves against at compose. */
+export const ActionPort: PortTag = port("@openomni/action/Action");
 
 /** Identity reducer: an action row is a deferred INPUT consumed by delivery, never folded state. */
-export function actionCapability(): CapabilityDefinition<"action", SeamTag, object> {
+export function actionCapability(): CapabilityDefinition<"action", PortTag, object> {
   const declaration = Journal.CAPABILITY_DECLARATIONS.find((entry) => entry.kind === "action");
   // Invariant, not a refusal: the protocol's closed kind list declares `action`.
   if (declaration === undefined) throw new AgentInvariantViolation("action kind not declared");
@@ -35,6 +35,6 @@ export function actionCapability(): CapabilityDefinition<"action", SeamTag, obje
     inputs: ["action"],
     points: ["action.pre"],
     verbs: {},
-    seam: ActionSeam,
+    port: ActionPort,
   });
 }
