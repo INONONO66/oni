@@ -13,13 +13,13 @@ const closeSessions = Core.closeSessions;
 type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./bus";
 import { immediateRetryAlarm as nullRetryAlarm } from "./immediate-retry-alarm";
-import { createResident, type ResidentOptions } from "../../src/bundles/resident/index";
+import { createResident, type ResidentOptions } from "../../src/composition/resident";
 import { runEffect, runSyncEffect } from "./effect";
 import { effectScope } from "./effect-scope";
 import { drainSession, localDelivery, resolvedRuntimeFor, testPlane } from "./ledger";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
 
-import { seedKernelPolicyRows } from "../../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../../src/composition/policy";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {

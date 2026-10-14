@@ -7,7 +7,7 @@ import { newTraceId } from "./helpers/bus";
 import { Bus } from "./helpers/bus";
 import { Component } from "@openomni/protocol";
 import { observeComponent } from "../src/observation/component";
-import { createResident } from "../src/bundles/resident/index";
+import { createResident } from "../src/composition/resident";
 import { allowConfigure } from "./helpers/generation-services";
 import { testPlane } from "./helpers/ledger";
 

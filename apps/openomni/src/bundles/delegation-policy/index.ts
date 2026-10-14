@@ -21,13 +21,11 @@ import { ToolCapabilityPort } from "../seams";
  * cascades delegation policy off with it.
  */
 
-/** The default caps; the rows carry them as `how.params`, so policy data stays in rows. */
-export const DEFAULT_DELEGATION_CAPS = Object.freeze({ maxDepth: 3, maxActiveChildren: 4 });
 /**
  * The guard counts root = 0 and denies at >= maxDepth; admission counts root = 1
  * and denies above its inclusive max, so both use the same number.
  */
-export const ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth;
+export const ADMISSION_DEPTH_MAX = Gateway.DelegationCaps.maxDepth;
 
 /** Catalog reads the guards consult per decision; `undefined` denies (fail closed). */
 export interface DelegationReads {
@@ -112,7 +110,7 @@ export function spawnDepthGuard(reads: DelegationReads): { decide: Core.NamedGua
       if (!createsChild(value)) return skipped("spawn_depth");
       const sessionId = typeof when.sessionId === "string" ? when.sessionId : undefined;
       const depth = sessionId === undefined ? undefined : reads.depth(sessionId);
-      return capVerdict("spawn_depth", limitParam(params, DEFAULT_DELEGATION_CAPS.maxDepth), depth);
+      return capVerdict("spawn_depth", limitParam(params, Gateway.DelegationCaps.maxDepth), depth);
     },
   };
 }
@@ -126,7 +124,7 @@ export function spawnChildrenGuard(reads: DelegationReads): { decide: Core.Named
       const children = sessionId === undefined ? undefined : reads.activeChildren(sessionId);
       return capVerdict(
         "spawn_children",
-        limitParam(params, DEFAULT_DELEGATION_CAPS.maxActiveChildren),
+        limitParam(params, Gateway.DelegationCaps.maxActiveChildren),
         children,
       );
     },
@@ -159,7 +157,7 @@ export function delegationRows(): readonly Bundle.BundleGateRow[] {
       do: "gate",
       how: {
         ref: "delegation-policy/spawn-depth",
-        params: { limit: DEFAULT_DELEGATION_CAPS.maxDepth },
+        params: { limit: Gateway.DelegationCaps.maxDepth },
       },
       order: 910,
     },
@@ -170,7 +168,7 @@ export function delegationRows(): readonly Bundle.BundleGateRow[] {
       do: "gate",
       how: {
         ref: "delegation-policy/spawn-children",
-        params: { limit: DEFAULT_DELEGATION_CAPS.maxActiveChildren },
+        params: { limit: Gateway.DelegationCaps.maxActiveChildren },
       },
       order: 911,
     },

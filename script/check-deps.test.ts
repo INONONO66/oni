@@ -116,7 +116,7 @@ test.each([
   expect(result.error).toContain(`BUNDLE_CROSS_NAMESPACE ${audit}:2`);
 });
 
-test("sibling edge pins reject growth and require shrinkage in a checkout", () => {
+test("removed sibling edge pins refuse both their former edge and a new sibling", () => {
   const file = "apps/openomni/src/bundles/messaging/index.ts";
   const root = fixture({});
   const finding = { code: "BUNDLE_CROSS_NAMESPACE" as const, file, line: 2, specifier: "../delegation-policy/index" };
@@ -125,14 +125,18 @@ test("sibling edge pins reject growth and require shrinkage in a checkout", () =
     `VIOLATION: BUNDLE_CROSS_NAMESPACE ${file}:3`,
   );
 
-  expect(bundleImportViolations([finding], root)).toEqual([]);
+  expect(bundleImportViolations([finding], root)).toContain(
+    `VIOLATION: BUNDLE_CROSS_NAMESPACE ${file}:2`,
+  );
 });
 
-test("a removed deep-relative edge leaves a stale layout pin", async () => {
-  const root = fixture({});
-  mkdirSync(join(root, ".git"));
+test("a former deep-relative edge is no longer exempt", async () => {
+  const file = "apps/openomni/src/bundles/tools/core/watch.ts";
+  const root = fixture({
+    [file]: 'import type { SessionKernel } from "../../../composition/cluster-runtime";',
+  });
   expect(await validateDeepRelativeImports(root)).toContain(
-    "VIOLATION: apps/openomni/src/bundles/tools/core/watch.ts stale pin for ../../../composition/cluster-runtime — remove the #1428 exemption",
+    `VIOLATION: ${file}:1 imports ../../../composition/cluster-runtime — deep relative import; use a closer relative import or a domain barrel`,
   );
 });
 

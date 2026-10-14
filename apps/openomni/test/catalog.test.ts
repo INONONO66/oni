@@ -15,7 +15,7 @@ const toolSpec = (tool: AnyToolDefinition) => {
   return spec;
 };
 import type { AnyToolDefinition, PlainValue } from "@openomni/protocol";
-import { catalogDefinitions, type ToolPorts } from "../src/bundles/tools/core/catalog";
+import { catalogDefinitions, type ToolPorts } from "../src/composition/catalog";
 import { createMonitorTool } from "../src/bundles/alarms/monitor/index";
 import type { LlmCall } from "../src/bundles/tools/completion/index";
 

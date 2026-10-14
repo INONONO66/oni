@@ -31,7 +31,7 @@ import { join } from "node:path";
 import { runScriptMain } from "./main-runner";
 import { agentSourceFacts, checkCoreEndState } from "./check-core-end-state";
 import { projectTools } from "../packages/agent/src/core/loop/tool.js";
-import { catalogDefinitions, type ToolPorts } from "../apps/openomni/src/bundles/tools/core/catalog.js";
+import { catalogDefinitions, type ToolPorts } from "../apps/openomni/src/composition/catalog.js";
 import { createMonitorTool } from "../apps/openomni/src/bundles/alarms/monitor/index.js";
 import { eraseTool } from "../packages/agent/src/core/loop/tool.js";
 import type { Tool, AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool/index.js";

@@ -11,7 +11,7 @@ import { Core } from "@openomni/agent";
 const ToolRefused = Core.ToolRefused;
 import { attachMachineDaemon, createMachineHost, type MachineHandle } from "@openomni/machines";
 import { Machine, type PlainValue } from "@openomni/protocol";
-import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
+import { catalogDefinitions } from "../src/composition/catalog";
 import { parseLocus } from "../src/bundles/tools/locus/index";
 import { socketPath } from "./helpers/socket-path";
 import { testMachinePorts } from "./helpers/native-tool-ports";

@@ -22,7 +22,8 @@ import { statSync } from "node:fs";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { APPROVAL_POLICY } from "./bundles/approval-policy/index";
-import { gateRowPolicySeeds, seedKernelPolicyRows } from "./bundles/core-policy/index";
+import { gateRowPolicySeeds } from "./bundles/core-policy/index";
+import { seedKernelPolicyRows } from "./composition/policy";
 import { AppPointTable } from "./composition/point-table";
 import { Core, Bundle } from "@openomni/agent";
 const Entropy = Core.Entropy;
@@ -123,9 +124,9 @@ import {
   webSocketCallbacks,
 } from "./gateway";
 import { configureAuthority, type GenerationDefinitions } from "./composition/generation-layers";
-import { createResident } from "./bundles/resident/index";
+import { createResident } from "./composition/resident";
 import { composeCodemode, sessionOutputsSource, type ComposedCodemode } from "./composition/codemode";
-import { createRequestDomainRevisions } from "./bundles/tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "./composition/request-domain-revisions";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {

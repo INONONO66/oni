@@ -6,7 +6,7 @@ import { Bus } from "./helpers/bus";
 import type { SessionTransition } from "@openomni/protocol";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
 import { dispatchOutboundMessage } from "../src/composition/terminal-message";
-import { seedKernelPolicyRows } from "../src/bundles/core-policy/index";
+import { seedKernelPolicyRows } from "../src/composition/policy";
 import { localDelivery, testPlane } from "./helpers/ledger";
 
 const plane = testPlane();

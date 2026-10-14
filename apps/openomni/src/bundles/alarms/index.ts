@@ -1,7 +1,7 @@
 import { type Bundle, Core } from "@openomni/agent";
 import { Alarm, Cron, Journal, type PlainObject, PlainObjectSchema } from "@openomni/protocol";
 import { Effect } from "effect";
-import { MonitorRefused, type MonitorPorts, type WatchState } from "../tools/core/watch";
+import { MonitorRefused, type MonitorPorts, type WatchState } from "./monitor/ports";
 import { CRON_SOURCE, CRON_TICK, CronPayload } from "./cron/index";
 import type { SessionKernel } from "../../composition/cluster-runtime";
 

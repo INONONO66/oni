@@ -411,6 +411,8 @@ export namespace Gateway {
   export const DelegationResult = MessageContract.DelegationResult;
   export type DelegationResult = z.infer<typeof DelegationResult>;
 
+  export const DelegationCaps = MessageContract.DelegationCaps;
+
   export const MessageObservation = MessageContract.Observation;
   export type MessageObservation = z.infer<typeof MessageObservation>;
   export const MessageObserved = BusEvent.define("message.observed", MessageObservation, {

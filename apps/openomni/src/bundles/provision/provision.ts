@@ -3,7 +3,7 @@ import { Core } from "@openomni/agent";
 const defineTool = Core.defineTool;
 import type { PolicyRow } from "@openomni/protocol";
 import { AutomationOperation, AutomationResult } from "./automation-schema";
-import { ContactOperation, ContactResult } from "../tools/core/contact-mutations";
+import { ContactOperation, ContactResult } from "./contact-mutations";
 import {
   PERSON_DECLARE_INPUT,
   PERSON_REMOVE_INPUT,
