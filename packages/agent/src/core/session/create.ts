@@ -21,10 +21,7 @@ export interface SessionReceipt {
   readonly genesis: LedgerAction.Receipt;
 }
 
-/**
- * A fault before the session-file commit leaves neither side discoverable; a fault in the enclosing
- * catalog commit after it leaves a session file with no index row (a retry refuses `duplicate`).
- */
+/** Pre-commit faults leave neither side discoverable; later catalog faults strand the file and retry as `duplicate`. */
 export function createSession(
   plane: Pick<LedgerPlane, "catalog" | "sessionStore"> & Partial<Pick<LedgerPlane, "discardSession">>,
   input: CreateSessionInput,

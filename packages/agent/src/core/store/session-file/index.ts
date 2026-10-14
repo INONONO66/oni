@@ -363,11 +363,9 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * The catalog lock encloses the session-file write: index row first (a lost
-   * race refuses before any session write), a write thrown before the inner
-   * commit unwinds both (a catalog commit fault after it strands the file), and
-   * `createdAt` is the caller's clock. A colliding index row is `duplicate`
-   * only with a session file behind it; a catalog row alone is `orphan_index`.
+   * Catalog lock encloses the session-file write: index first, so lost races refuse before session writes.
+   * A pre-inner-commit failure unwinds both; a later catalog fault strands the file. `createdAt` is caller's
+   * clock. A colliding row is `duplicate` only with a file behind it; catalog-only is `orphan_index`.
    */
   private indexed<T>(
     index: SessionIndexUnit,

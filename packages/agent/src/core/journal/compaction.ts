@@ -41,12 +41,7 @@ function executedCompactionResult(action: LedgerAction.Append): boolean {
   );
 }
 
-/**
- * What this writer last committed on one kernel, valid only while the session revision still equals
- * `revision`: the tail counters since the latest checkpoint, the fold state through `revision` when a
- * pinning commit computed it (`state` plus the `suffix` committed after it), and whether a checkpoint
- * was refused at the row cap.
- */
+/** Last committed tail while a session revision equals `revision`: counters, fold state/suffix, and row-cap refusal. */
 type WriterTail = {
   readonly revision: number;
   readonly count: number;
@@ -88,13 +83,9 @@ function resolveTail(
 }
 
 /**
- * Synchronous decoration preserves durable admission's existing suspension schedule. A checkpoint lands
- * at `everyActions` or when the tail bytes would pass `maxTailBytes`. The tail counters and fold state
- * carry across commits on the same kernel, so a commit below both thresholds reads no history and verifies
- * no checkpoint seed. A checkpoint past the row cap is refused typed (`row_bytes`), logged, and the caller's
- * rows commit without it; the writer then stops planning interval checkpoints for the session (only an
- * executed compaction result, which can shrink the state, is checkpointed again), so the restore tail is
- * unbounded until one lands and the activation restore refuses it with `RestoreRefused{code:"budget"}`.
+ * Synchronous decoration preserves durable admission's schedule: checkpoints land at `everyActions` or
+ * `maxTailBytes`, carrying tail counters/state without history reads. A typed `row_bytes` refusal logs and
+ * commits caller rows; only executed compaction resumes interval planning, so budget refusal remains nonfatal.
  */
 export function commitFoldBatch(
   kernel: SessionKernel,
@@ -187,11 +178,7 @@ type FoldPlan = {
   readonly bytes: number;
 };
 
-/**
- * Pin the caller's drafts against the running fold and interleave the checkpoint rows `checkpoints`
- * admits: every row policy asks for, only those after an executed compaction result (after a row-cap
- * refusal), or none (the refused-checkpoint fallback, the pinned drafts alone).
- */
+/** Pins drafts against the running fold, adding admitted checkpoints or none on refused-checkpoint fallback. */
 function planFoldBatch(
   kernel: SessionKernel,
   compaction: Pick<CompactionPortService, "pinAction"> | undefined,
