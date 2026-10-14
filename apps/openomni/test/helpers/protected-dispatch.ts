@@ -12,7 +12,7 @@ import type {
 import { compiledPolicy } from "../../../../packages/agent/test/helpers/compiled-policy";
 import { bounded } from "../../../../packages/agent/test/helpers/request-ledger";
 import { requestLedger } from "../../../../packages/agent/test/helpers/effect-g1";
-import { createRequestDomainRevisions } from "../../src/bundles/tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "../../src/composition/request-domain-revisions";
 import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
 import { testPlane } from "./ledger";
 import { PROVISION_POLICY_ROWS } from "../../src/bundles/provision/provision";

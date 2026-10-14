@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import type { MachineHost } from "@openomni/machines";
 import type { ComposedCodemode } from "../../src/composition/codemode";
-import type { ToolPorts } from "../../src/bundles/tools/core/catalog";
+import type { ToolPorts } from "../../src/composition/catalog";
 import { runEffect } from "./effect";
 
 async function runTyped<A, E>(effect: Effect.Effect<A, E>): Promise<A> {

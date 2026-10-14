@@ -477,14 +477,8 @@ export async function checkBundleImports(
   ];
 }
 
-/** #1428: moved-tree edges, measured with checkBundleImports; #1454 removes them. */
-const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["apps/openomni/src/bundles/tools/core/request-domain-revisions.ts", new Set(["../../provision/automation-schema", "../../provision/automation"])],
-  ["apps/openomni/src/bundles/tools/core/catalog.ts", new Set(["../../provision/provision", "../../provision/channels", "../../messaging/send-message/index"])],
-  ["apps/openomni/src/bundles/provision/provision.ts", new Set(["../tools/core/contact-mutations"])],
-  ["apps/openomni/src/bundles/provision/contacts.ts", new Set(["../tools/core/contact-mutations"])],
-  ["apps/openomni/src/bundles/provision/execution.ts", new Set(["../tools/core/contact-mutations"])],
-]);
+/** #1454: no sibling bundle imports remain; the exact ratchet admits none. */
+const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["apps/openomni/src/bundles/hooks-json/index.ts", new Set(["../../invariant"])],
   ["apps/openomni/src/bundles/compaction/summarizer.ts", new Set(["../../composition/completion"])],
@@ -492,7 +486,6 @@ const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../invariant"])],
   ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
   ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component", "../../composition/generation-layers"])],
-  ["apps/openomni/src/bundles/tools/core/request-domain-revisions.ts", new Set(["../../../invariant"])],
   ["apps/openomni/src/bundles/provision/status.ts", new Set(["../../channels"])],
   ["apps/openomni/src/bundles/provision/channels.ts", new Set(["../../channels"])],
   ["apps/openomni/src/bundles/provision/supervisor.ts", new Set(["../../thrown", "../../channels"])],
@@ -1707,10 +1700,8 @@ async function* scannedImports(pattern: RegExp, root = "."): AsyncGenerator<{
   }
 }
 
-/** #1428 layout adds one level under bundles/<bundle>/<sub>/; removal tracked in #1454. */
-const DEEP_RELATIVE_IMPORT_PINS: ReadonlyMap<string, string> = new Map([
-  ["apps/openomni/src/bundles/tools/core/request-domain-revisions.ts", "../../../invariant"],
-]);
+/** #1454: the former deep layout imports have composition or bundle-local owners. */
+const DEEP_RELATIVE_IMPORT_PINS: ReadonlyMap<string, string> = new Map();
 
 export async function validateDeepRelativeImports(root = "."): Promise<string[]> {
   const violations: string[] = [];

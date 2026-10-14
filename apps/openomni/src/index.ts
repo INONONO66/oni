@@ -126,7 +126,7 @@ import {
 import { configureAuthority, type GenerationDefinitions } from "./composition/generation-layers";
 import { createResident } from "./composition/resident";
 import { composeCodemode, sessionOutputsSource, type ComposedCodemode } from "./composition/codemode";
-import { createRequestDomainRevisions } from "./bundles/tools/core/request-domain-revisions";
+import { createRequestDomainRevisions } from "./composition/request-domain-revisions";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {

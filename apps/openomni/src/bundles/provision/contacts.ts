@@ -6,7 +6,7 @@ import {
   type ContactOperation,
   type ContactResult,
   contactDomainRevisions,
-} from "../tools/core/contact-mutations";
+} from "./contact-mutations";
 import { z } from "zod";
 import type { ProvisionPort } from "./channels";
 const MANIFEST_INPUT = z

@@ -1,19 +1,19 @@
 import { Core } from "@openomni/agent";
 const eraseTool = Core.eraseTool;
 import type { AnyToolDefinition, LedgerSession } from "@openomni/protocol";
-import type { FilePorts } from "./filesystem";
-import { createBashTool } from "../bash/index";
-import { createCompletionTool, type LlmPort } from "../completion/index";
-import { createEditTool } from "../edit/index";
-import { createEvalTool, type Cell } from "../eval/index";
-import { createFindTool } from "../find/index";
-import { createGrepTool } from "../grep/index";
-import { createLsTool } from "../ls/index";
-import { createProvisionTool } from "../../provision/provision";
-import type { ProvisionPort } from "../../provision/channels";
-import { createReadTool } from "../read/index";
-import { createSendMessageTool, type ContactPorts, type MessagePort } from "../../messaging/send-message/index";
-import { createWriteTool } from "../write/index";
+import type { FilePorts } from "../bundles/tools/core/filesystem";
+import { createBashTool } from "../bundles/tools/bash/index";
+import { createCompletionTool, type LlmPort } from "../bundles/tools/completion/index";
+import { createEditTool } from "../bundles/tools/edit/index";
+import { createEvalTool, type Cell } from "../bundles/tools/eval/index";
+import { createFindTool } from "../bundles/tools/find/index";
+import { createGrepTool } from "../bundles/tools/grep/index";
+import { createLsTool } from "../bundles/tools/ls/index";
+import { createProvisionTool } from "../bundles/provision/provision";
+import type { ProvisionPort } from "../bundles/provision/channels";
+import { createReadTool } from "../bundles/tools/read/index";
+import { createSendMessageTool, type ContactPorts, type MessagePort } from "../bundles/messaging/send-message/index";
+import { createWriteTool } from "../bundles/tools/write/index";
 
 export interface CatalogOrigin {
   readonly role: LedgerSession.Role;

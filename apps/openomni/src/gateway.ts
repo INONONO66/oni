@@ -1,6 +1,6 @@
 import type { MachineHost } from "@openomni/machines";
 import type { ComposedCodemode } from "./composition/codemode";
-import type { ToolPorts } from "./bundles/tools/core/catalog";
+import type { ToolPorts } from "./composition/catalog";
 import type { createCompletionPort } from "./composition/completion";
 import {
   type ChannelDeliveryRoute,

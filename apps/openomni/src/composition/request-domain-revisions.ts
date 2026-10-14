@@ -1,9 +1,9 @@
-import { AppInvariantError } from "../../../invariant";
+import { AppInvariantError } from "../invariant";
 import type { ActorRegistry, PersonStore } from "@openomni/channels";
 import type { PlainValue, SessionTransition } from "@openomni/protocol";
-import { ContactOperation, contactDomainRevisions } from "./contact-mutations";
-import { AutomationOperation } from "../../provision/automation-schema";
-import { automationDomainRevisions, automationId, type AutomationPort } from "../../provision/automation";
+import { ContactOperation, contactDomainRevisions } from "../bundles/provision/contact-mutations";
+import { AutomationOperation } from "../bundles/provision/automation-schema";
+import { automationDomainRevisions, automationId, type AutomationPort } from "../bundles/provision/automation";
 
 export interface RequestDomainDeps {
   readonly automations?: AutomationPort;

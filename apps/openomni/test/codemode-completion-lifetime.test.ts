@@ -14,7 +14,7 @@ import { LedgerAction, type Machine, type PlainObject } from "@openomni/protocol
 import { z } from "zod";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
-import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
+import { catalogDefinitions } from "../src/composition/catalog";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
 import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { seededPolicy } from "./helpers/executor";

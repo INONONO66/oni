@@ -2,7 +2,7 @@ import type { LedgerSession } from "@openomni/protocol";
 import { buildAgentPrompt } from "../bundles/prompt/build";
 import { CHILD_PRESET, RESIDENT_PRESET } from "../bundles/prompt/roles";
 import { createResident as createResidentBundle, type ResidentOptions as ResidentBundleOptions } from "../bundles/resident/index";
-import { catalogDefinitions, type ToolPorts } from "../bundles/tools/core/catalog";
+import { catalogDefinitions, type ToolPorts } from "./catalog";
 import { toolCatalogLayer } from "./generation-layers";
 
 export type ResidentOptions = Omit<ResidentBundleOptions, "tools" | "presets" | "id" | "clock"> & {

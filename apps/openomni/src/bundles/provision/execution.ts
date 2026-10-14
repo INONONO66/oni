@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import type { ToolExecutionContext } from "@openomni/protocol";
 import type { ProvisionInput } from "./provision";
-import { contactDomainRevisions } from "../tools/core/contact-mutations";
+import { contactDomainRevisions } from "./contact-mutations";
 import {
   approvalRequirement,
   executePersonDeclare,

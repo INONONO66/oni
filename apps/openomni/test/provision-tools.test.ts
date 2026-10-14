@@ -8,7 +8,7 @@ import { testPlane } from "./helpers/ledger";
 import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { type PlainObject, Provisioning } from "@openomni/protocol";
 import type { ChannelRuntimeStatus } from "../src/bundles/provision/supervisor";
-import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
+import { catalogDefinitions } from "../src/composition/catalog";
 import { Core } from "@openomni/agent";
 const eraseTool = Core.eraseTool;
 import { createProvisionTool } from "../src/bundles/provision/provision";

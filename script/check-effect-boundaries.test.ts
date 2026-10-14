@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { catalogDefinitions } from "../apps/openomni/src/bundles/tools/core/catalog";
+import { catalogDefinitions } from "../apps/openomni/src/composition/catalog";
 import { checkEffectBoundaries, checkEffectBoundaryFindings, effectServiceInventory, main, PREEXISTING_TOOL_EFFECT_PINS, TOOL_BODY_PATHS, type BoundaryFinding } from "./check-effect-boundaries";
 import { decodeJson } from "./quality-json";
 import { verifyPinnedFilesExist } from "./lint-side-effects";

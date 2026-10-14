@@ -1,4 +1,4 @@
-import type { ToolPorts } from "../../src/bundles/tools/core/catalog";
+import type { ToolPorts } from "../../src/composition/catalog";
 import { testIds } from "./test-entropy";
 
 /** Explicit absent-capability fixture; individual tests supply only the ports they exercise. */

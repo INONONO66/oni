@@ -19,8 +19,8 @@ import {
   type MachineDaemon,
 } from "@openomni/machines";
 import type { Machine, PlainObject } from "@openomni/protocol";
-import type { CatalogOrigin } from "../src/bundles/tools/core/catalog";
-import type { ToolPorts } from "../src/bundles/tools/core/catalog";
+import type { CatalogOrigin } from "../src/composition/catalog";
+import type { ToolPorts } from "../src/composition/catalog";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
 import { createCodemode } from "@openomni/codemode";

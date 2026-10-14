@@ -3,7 +3,7 @@ import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
-import { catalogDefinitions } from "../src/bundles/tools/core/catalog";
+import { catalogDefinitions } from "../src/composition/catalog";
 import { Core } from "@openomni/agent";
 import { Auth, makeLlmService, ModelsDev } from "@openomni/llm";
 /** The lint's full spec surface (#1255 S3): widen the cell-only door for projection alone. */
