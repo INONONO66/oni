@@ -1,3 +1,4 @@
+import { configureAction, generationSnapshot } from "../../../src/core/store/configure";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { Effect, Result } from "effect";
@@ -445,5 +446,28 @@ describe("Session.fork", () => {
     expect(fixture.refusalOf(fixture.fork(anchor)).reason).toBe("child_exists");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
     expect(childKernel.verifyChain(CHILD)).toEqual({ kind: "intact", head: first.head, length: 5 });
+  });
+});
+
+describe("Session.fork generation pin", () => {
+  test("the child pins the newest configure at or before the anchor, not the parent's later one", () => {
+    const parent = fixture.buildParent();
+    const pinned = stores.kernel.latestGenerationFor(PARENT);
+    const late = generationSnapshot({
+      generation: pinned.generation + 1, revertTo: pinned.generation,
+      tools: [{ name: "late_tool", inputSchema: {}, category: "query" }],
+      system: { preset: "", blocks: [] }, policyGeneration: pinned.policyGeneration,
+    });
+    fixture.commit(parent.authority, [configureAction({
+      id: `${PARENT}:configure-late`, sessionId: PARENT,
+      parentId: stores.kernel.latestAction(PARENT)?.id ?? null, operation: "compose", snapshot: late, at: 14,
+    })]);
+    const receipt = fixture.forked(parent.hashOf("turn-1:terminal"));
+    const childGeneration = SessionHandleStore.createSessionKernel(child(), stores.catalog).latestGenerationFor(CHILD);
+    console.info(`A6 fork pin rowToolsGeneration=${receipt.row.toolsGeneration} childGeneration=${childGeneration.generation} parentLatest=${late.generation}`);
+    expect(receipt.row.toolsGeneration).toBe(pinned.generation);
+    expect(receipt.row.systemHash).toBe(pinned.systemHash);
+    expect(childGeneration.generation).toBe(pinned.generation);
+    expect(childGeneration.tools.map((tool) => tool.name)).toEqual(pinned.tools.map((tool) => tool.name));
   });
 });

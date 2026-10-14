@@ -121,9 +121,9 @@ function assertDeclaration(kernel: SessionKernel, row: LedgerSession.Row, option
   if (row.role !== options.role || row.parentId !== (options.parentId ?? null)) throw new AgentInvariantViolation(`session declaration conflicts with durable identity: ${row.id}`);
   const snapshot = kernel.latestGenerationFor(row.id);
   const expected = generationSnapshot({
-    generation: snapshot.generation, revertTo: snapshot.revertTo, tools,
+    generation: snapshot.generation, revertTo: snapshot.revertTo, tools, bundles: options.bundles,
     system: { preset: system?.preset ?? "", blocks: system?.blocks ?? [] },
     policyGeneration: options.policyGeneration ?? snapshot.policyGeneration,
   });
-  if (snapshot.toolsHash !== expected.toolsHash || snapshot.systemHash !== expected.systemHash) throw new AgentInvariantViolation(`session declaration conflicts with durable generation: ${row.id}`);
+  if (snapshot.toolsHash !== expected.toolsHash || snapshot.systemHash !== expected.systemHash || snapshot.bundles.join() !== expected.bundles.join()) throw new AgentInvariantViolation(`session declaration conflicts with durable generation: ${row.id}`);
 }

@@ -132,7 +132,7 @@ export namespace SessionFork {
   export const Reason = z.enum([
     "parent_not_found", "parent_chain_broken", "schema_version",
     "anchor_not_found", "anchor_not_boundary", "byte_cap", "child_exists",
-    "child_id_invalid",     "storage",
+    "child_id_invalid", "output_missing", "storage",
   ]);
   export type Reason = z.infer<typeof Reason>;
 
