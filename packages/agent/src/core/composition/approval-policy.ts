@@ -7,7 +7,7 @@ import type { ResolvedAgentBudget } from "../ports/types";
  */
 export interface ApprovalPolicy {
   readonly responders: readonly string[];
-  /** At most `limit` open approvals per `windowMs`. */
+  /** Per session file: at most `limit` open approvals per `windowMs`. */
   readonly recentOpen: ApprovalRecentOpen;
   /** Applies when neither the binding nor the executor options name one. */
   readonly defaultExpiryMs: number;

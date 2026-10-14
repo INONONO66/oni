@@ -1,5 +1,6 @@
 import * as SessionHandleStore from "../store/fence";
-import { Duration, Effect, Option, Queue, Semaphore } from "effect";
+import { FenceRefused } from "../store/errors";
+import { Cause, Duration, Effect, Option, Queue, Semaphore } from "effect";
 import { Entity, type Envelope, type Sharding } from "effect/cluster";
 import { logRestoredHistory } from "./recovery";
 import type { SessionEntityAuthority } from "./run";
@@ -38,6 +39,27 @@ function readProjection(
 const isPromptDeliver = (request: SessionRequest): boolean =>
   request.tag === "Deliver" &&
   (request as Envelope.Request<typeof DeliverRpc>).payload.kind === "prompt";
+
+function refuse(
+  replier: SessionReplier,
+  request: SessionRequest,
+  code: AdmissionFailure["code"],
+): Effect.Effect<void> {
+  const failure = new AdmissionFailure({ code });
+  switch (request.tag) {
+    case "Deliver":
+      return replier.fail(request as Envelope.Request<typeof DeliverRpc>, failure);
+    case "Resolve":
+      return replier.fail(request as Envelope.Request<typeof ResolveRpc>, failure);
+    case "Alarm":
+      return replier.fail(request as Envelope.Request<typeof AlarmRpc>, failure);
+    case "Read":
+      return replier.fail(request as Envelope.Request<typeof ReadRpc>, failure);
+  }
+}
+
+const refuseActivation = (queue: Queue.Dequeue<SessionRequest>, replier: SessionReplier): Effect.Effect<never> =>
+  Queue.take(queue).pipe(Effect.flatMap((request) => refuse(replier, request, "activation")), Effect.forever);
 
 export function writerLoop(
   handle: ActivationHandle,
@@ -107,25 +129,11 @@ export function writerLoop(
     }
   };
 
-  const failShutdown = (request: SessionRequest): Effect.Effect<void> => {
-    const failure = new AdmissionFailure({ code: "shutdown" });
-    switch (request.tag) {
-      case "Deliver":
-        return replier.fail(request as Envelope.Request<typeof DeliverRpc>, failure);
-      case "Resolve":
-        return replier.fail(request as Envelope.Request<typeof ResolveRpc>, failure);
-      case "Alarm":
-        return replier.fail(request as Envelope.Request<typeof AlarmRpc>, failure);
-      case "Read":
-        return replier.fail(request as Envelope.Request<typeof ReadRpc>, failure);
-    }
-  };
-
   const drainOnClose = Effect.gen(function* () {
     handle.closing.current = true;
     const leftovers = [...buffer, ...(yield* Queue.clear(queue))];
     buffer.length = 0;
-    yield* Effect.forEach(leftovers, failShutdown, { discard: true });
+    yield* Effect.forEach(leftovers, (request) => refuse(replier, request, "shutdown"), { discard: true });
   });
 
   const loop = Effect.gen(function* () {
@@ -138,9 +146,8 @@ export function writerLoop(
   return loop.pipe(Effect.ensuring(drainOnClose)) as Effect.Effect<never>;
 }
 
-export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
-  return SessionEntity.toLayerQueue(
-    Effect.gen(function* () {
+function activate(drainConfig: AlarmDrainConfig) {
+  return Effect.gen(function* () {
       const env = yield* SessionEntityContext;
       yield* env.ports.ready ?? Effect.void;
       const address = yield* Entity.CurrentAddress;
@@ -202,9 +209,20 @@ export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
       yield* logRestoredHistory(kernel, sessionId, env.clock);
       yield* resendArmedAlarms(handle);
       yield* drain(handle).pipe(Effect.orDie);
-      return (queue: Queue.Dequeue<SessionRequest>, replier: SessionReplier) =>
-        writerLoop(handle, queue, replier);
-    }),
+      return handle;
+  });
+}
+
+export function createSessionEntityLayer(drainConfig: AlarmDrainConfig) {
+  return SessionEntity.toLayerQueue(
+    activate(drainConfig).pipe(
+      Effect.map((handle) => (queue: Queue.Dequeue<SessionRequest>, replier: SessionReplier) =>
+        writerLoop(handle, queue, replier)),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause) || Cause.squash(cause) instanceof FenceRefused
+          ? Effect.failCause(cause)
+          : Effect.logError("session activation failed", cause).pipe(Effect.as(refuseActivation))),
+    ),
     { maxIdleTime: drainConfig.idleMs },
   );
 }

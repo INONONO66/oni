@@ -4,11 +4,11 @@ import type { LedgerError } from "../store/errors";
 import { LlmRunFailure } from "./llm";
 import type { LedgerSession } from "@openomni/protocol";
 
-/** Both codes refuse THIS delivery attempt only — the persisted envelope redelivers. */
+/** Each code refuses THIS delivery attempt only — the persisted envelope redelivers. */
 export class AdmissionFailure extends Schema.TaggedError<AdmissionFailure>(
   "@openomni/agent/cluster/AdmissionFailure",
 )("AdmissionFailure", {
-  code: Schema.Literals(["revision", "shutdown"]),
+  code: Schema.Literals(["revision", "shutdown", "activation"]),
 }) {}
 
 /** Machine stop verdicts are typed execution failures, never defects. */

@@ -272,7 +272,7 @@ function sessionAuthorityRefusal(
   }
   if (
     request.requestCount !== undefined &&
-    pendingRequestCount(db, request.requestCount.since) !== request.requestCount.count
+    sessionOpenApprovalCount(db, request.requestCount.since) !== request.requestCount.count
   ) {
     return refusedSessionCommit("revision", current);
   }
@@ -326,7 +326,7 @@ function parentBelongsToSession(db: Database, parentId: string | null, sessionId
   return row?.session_id === sessionId;
 }
 
-function pendingRequestCount(db: Database, since: number): number {
+function sessionOpenApprovalCount(db: Database, since: number): number {
   const row = z.object({ count: z.number() }).parse(
     db
       .query(`

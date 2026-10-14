@@ -5,7 +5,8 @@ import { executorLayer, catalogLayer } from "./helpers/service-layers";
 import { expect, it } from "bun:test";
 
 import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
-import { Deferred, Effect, Fiber } from "effect";
+import { Cause, Deferred, Effect, Fiber } from "effect";
+import { assertFresh } from "../src/core/loop/approval";
 import { ExecutionApprovalError, AgentFailure } from "../src/core/ports/failure";
 import { createExecutor, } from "../src/core/loop/executor";
 import { approveWriteRow, compiledPolicy } from "./helpers/compiled-policy";
@@ -258,6 +259,18 @@ it("does not treat an uncommitted notification as approval authority", () => iso
   expect(f.bodies).toEqual([]);
 }))));
 
+const approvalWrite = (domain: () => number) => {
+  const counter = { bodies: 0 };
+  const Input = z.object({ path: z.string() });
+  const tool = defineTool({
+    name: "write", description: "write", category: "mutation", input: Input, output: z.string(),
+    visibility: { model: ["resident"], cell: [] },
+    execute: async () => { counter.bodies += 1; return "done"; },
+    render: (_input: z.infer<typeof Input>, output: string) => output,
+  }, (_input: z.infer<typeof Input>) => ({ required: true, domainRevisions: { domain: domain() } }));
+  return { counter, tool };
+};
+
 it("the captured table retains approval binding through catalog copying and later metadata changes", () => isolated(Effect.scoped(Effect.gen(function* () {
   const opened = Promise.withResolvers<SessionTransition.Request>();
   const recording = yield* requestLedger({
@@ -265,14 +278,8 @@ it("the captured table retains approval binding through catalog copying and late
     domainRevisions: () => ({ domain: 7 }),
   });
   const executor = testExecutor({ ...recording, policy, authorizeApproval: () => Effect.succeed(evidence), observations: { publish: () => undefined } });
-  let bodies = 0;
-  const Input = z.object({ path: z.string() });
-  const copied = { ...defineTool({
-    name: "write", description: "write", category: "mutation", input: Input, output: z.string(),
-    visibility: { model: ["resident"], cell: [] },
-    execute: async () => { bodies += 1; return "done"; },
-    render: (_input: z.infer<typeof Input>, output: string) => output,
-  }, (_input: z.infer<typeof Input>) => ({ required: true, domainRevisions: { domain: 7 } })) };
+  const write = approvalWrite(() => 7);
+  const copied = { ...write.tool };
   const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([copied])));
   // The table must own this binding, not re-read mutable metadata or object identity.
   copied.approval = () => ({ required: false, domainRevisions: { domain: 99 } });
@@ -280,13 +287,55 @@ it("the captured table retains approval binding through catalog copying and late
     { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId }));
   const durable = yield* Effect.promise(() => bounded(opened.promise, "copied binding approval"));
   expect(durable).toMatchObject({ parsedInput: request.intent, domainRevisions: { domain: 7 } });
-  expect(bodies).toBe(0);
+  expect(write.counter.bodies).toBe(0);
   const pending = executor.approvals?.pending()[0];
   if (pending === undefined || executor.approvals === undefined) return yield* Effect.die("missing copied approval");
   yield* executor.approvals.answer({ request: pending, credential: "owner-token", decision: "approve" });
   expect(yield* Fiber.join(running)).toMatchObject({ toolCallId: "copied-call", content: "done" });
-  expect(bodies).toBe(1);
+  expect(write.counter.bodies).toBe(1);
 }))));
+
+it("a domain fact that moves after approval fails re-admission typed, never as a defect", () => isolated(Effect.scoped(Effect.gen(function* () {
+  const opened = Promise.withResolvers<SessionTransition.Request>();
+  let domain = 7;
+  const recording = yield* requestLedger({
+    onRequest: (request: SessionTransition.Request) => {
+      if (request.state === "open") opened.resolve(request);
+      if (request.state === "resolved") domain = 8;
+    },
+    domainRevisions: () => ({ domain: 7 }),
+  });
+  const executor = testExecutor({ ...recording, policy, authorizeApproval: () => Effect.succeed(evidence), observations: { publish: () => undefined } });
+  const { counter, tool } = approvalWrite(() => domain);
+  const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([tool])));
+  const running = yield* Effect.forkScoped(Effect.exit(dispatcher.execute({ id: "stale-call", tool: "write", input: request.intent },
+    { sessionId: recording.identity.sessionId, turnId: recording.identity.turnId })));
+  yield* Effect.promise(() => bounded(opened.promise, "stale binding approval"));
+  const pending = executor.approvals?.pending()[0];
+  if (pending === undefined || executor.approvals === undefined) return yield* Effect.die("missing stale approval");
+  yield* executor.approvals.answer({ request: pending, credential: "owner-token", decision: "approve" });
+  const exit = yield* Fiber.join(running);
+  expect(exit._tag === "Failure" && Cause.hasDies(exit.cause)).toBe(false);
+  expect(exit._tag === "Success" ? exit.value : undefined).toMatchObject({ toolCallId: "stale-call", isError: true });
+  const result = sessionTree(isolatedLedger().kernel, recording.identity.sessionId)
+    .filter((action) => action.kind === "tool").at(-1);
+  expect(result?.effect.value).toMatchObject({
+    evidence: { failures: [{ tag: "ExecutionApprovalError", code: "stale_approval" }], defects: [] },
+  });
+  expect(counter.bodies).toBe(0);
+}))));
+
+it("assertFresh refuses a moved domain fact as a typed failure", () => isolated(Effect.gen(function* () {
+  const exit = yield* Effect.exit(assertFresh(
+    { ...request, domainRevisions: () => ({ domain: 8 }) },
+    { domainRevisions: { domain: 7 } } as unknown as Parameters<typeof assertFresh>[1],
+  ));
+  expect(exit._tag).toBe("Failure");
+  expect(exit._tag === "Failure" && Cause.hasDies(exit.cause)).toBe(false);
+  expect(yield* Effect.flip(assertFresh({ ...request, domainRevisions: () => ({ domain: 8 }) },
+    { domainRevisions: { domain: 7 } } as unknown as Parameters<typeof assertFresh>[1])))
+    .toMatchObject({ _tag: "ExecutionApprovalError", code: "stale_approval" });
+})));
 
 it("propagates a failed deadline commit without settling the live suspension", () => isolated(Effect.scoped(Effect.gen(function* () {
   const recording = yield* requestLedger({ id: "deadline-failure" });

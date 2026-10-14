@@ -93,6 +93,25 @@ test("a borrowed-fence caller opens a request mid-turn under the live owner", ()
     }),
   ));
 
+// The borrowed owner+fence is substituted only for the caller that adopted it.
+test("a second caller cannot commit through another caller's borrowed fence", () =>
+  isolated(
+    Effect.gen(function* () {
+      const id = "borrow-intruder";
+      yield* pending(id);
+      const kernel = isolatedLedger().kernel;
+      const wrapped = requestAuthorityKernel(kernel, id);
+      yield* adoptSessionAuthority(wrapped, id, "pid:request:caller-A");
+      const before = kernel.row(id);
+      const refused = yield* Effect.flip(wrapped.commit({
+        sessionId: id, owner: "pid:request:caller-B-intruder", fence: 999, now: 100,
+        expectedRevision: before.revision, actions: [], state: "running",
+      }));
+      expect(refused).toMatchObject({ _tag: "CommitRefused", reason: "fence", fence: 999, currentFence: 1 });
+      expect(kernel.row(id)).toEqual(before);
+    }),
+  ));
+
 // S1 fail-closed: authority not adopted through the borrowing view stays refused.
 test("an unrelated owner is still refused mid-turn", () =>
   isolated(

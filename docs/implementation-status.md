@@ -2559,8 +2559,9 @@ On `stab/9-core-policy-to-bundles` (2026-10-08, base `c11ae7148`).
   packages apps` (7 before) → no output; `rg -n '86_400_000'
   packages/agent/src/core` (1 before) → no output; `rg -n
   'expectedResponders: \["owner"\]' packages/agent/src` (1 before) → no
-  output. `exceedsApprovalBudget`/`openApprovalCount` take `limit`/`windowMs`
-  as parameters from the command's resolved policy.
+  output. `exceedsApprovalBudget`/`sessionOpenApprovalCount` take `limit`/`windowMs`
+  as parameters from the command's resolved policy; the count is per session
+  file, not global.
 - Threading: `createApprovalRequest` takes `responders`; the gate expiry chain
   is `binding.timeoutMs ?? options.approvalTimeoutMs ?? policy.defaultExpiryMs`;
   `budget.ts` lost `BUDGET_DEFAULTS` — the loop resolves

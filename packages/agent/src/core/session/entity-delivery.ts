@@ -242,14 +242,20 @@ export function deliver(
     if (!registered.includes(payload.kind))
       return yield* new DeliverRefused({ code: "unknown_kind" });
     const row = kernel.row(authority.sessionId);
-    const body = decodeDeliverBody(parsePlainJson(payload.body));
+    const malformed = () => new DeliverRefused({ code: "malformed_body" });
+    const body = yield* Effect.try({
+      try: () => {
+        parsePlainJson(payload.source);
+        return decodeDeliverBody(parsePlainJson(payload.body));
+      },
+      catch: malformed,
+    });
     const deliveryKind: Delivery.Kind =
       payload.kind === "prompt"
         ? "prompt"
         : payload.kind === "action"
           ? "action"
-          : (body.control ??
-            (yield* Effect.die(new Error("signal delivery without a control op"))));
+          : (body.control ?? (yield* malformed()));
     const replayed = yield* replayedReceived(
       handle,
       deliveryKind,
@@ -306,14 +312,17 @@ export function resolveCommand(
       if (request === undefined) return yield* new ResolveRefused({ code: "unknown_request" });
       if (request.state !== "open") return yield* new ResolveRefused({ code: "already_resolved" });
     }
-    const transition: SessionTransition.Payload =
-      payload.outcome === "resolved"
-        ? SessionTransition.Payload.parse(parsePlainJson(payload.payload))
-        : {
-            kind: "request.cancel",
-            requestId: payload.requestId,
-            principal: SessionTransition.Principal.parse(parsePlainJson(payload.payload)),
-          };
+    const transition = yield* Effect.try({
+      try: (): SessionTransition.Payload =>
+        payload.outcome === "resolved"
+          ? SessionTransition.Payload.parse(parsePlainJson(payload.payload))
+          : {
+              kind: "request.cancel",
+              requestId: payload.requestId,
+              principal: SessionTransition.Principal.parse(parsePlainJson(payload.payload)),
+            },
+      catch: () => new ResolveRefused({ code: "malformed_body" }),
+    });
     return yield* requestCommand(handle, payload.requestId, payload.inputId, transition);
   });
 }

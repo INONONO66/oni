@@ -35,6 +35,7 @@ export class DeliverRefused extends Schema.TaggedError<DeliverRefused>(
     "denied",
     "idempotency_conflict",
     "seam_missing",
+    "malformed_body",
   ]),
 }) {}
 
@@ -42,7 +43,7 @@ export class DeliverRefused extends Schema.TaggedError<DeliverRefused>(
 export class ResolveRefused extends Schema.TaggedError<ResolveRefused>(
   "@openomni/agent/cluster/ResolveRefused",
 )("ResolveRefused", {
-  code: Schema.Literals(["unknown_request", "already_resolved"]),
+  code: Schema.Literals(["unknown_request", "already_resolved", "malformed_body"]),
 }) {}
 
 /** `existed` marks an idempotent replay. */

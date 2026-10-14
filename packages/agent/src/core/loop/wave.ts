@@ -154,26 +154,26 @@ function invocationFor<R>(stage: Omit<Stage<R>, "intent">, waveId: string) {
       const intent = stage.intent;
       if (intent === undefined) return Effect.die("missing admitted intent");
       const captured = options.ledger.requestById?.(intent.action.id);
-      assertFresh(stage.request, captured);
-      const enter = (): Effect.Effect<PlainValue, ExecutionError, R> => {
-        assertFresh(stage.request, captured);
+      const enter = (): Effect.Effect<PlainValue, ExecutionError, R> => assertFresh(stage.request, captured).pipe(Effect.flatMap(() => {
         if (captured !== undefined && options.ledger.validateRequest?.(captured) === false)
           return Effect.fail(new ExecutionApprovalError({ code: "stale_approval" }));
         started();
         const admitted = object(intent.action.intent.value).value;
         if (admitted === undefined) return Effect.die("missing admitted input");
         return stage.item.body(intent, immutableInput(structuredClone(admitted)));
-      };
-      if (!guarded) return enter();
-      const id = `${intent.action.id}:application`;
-      if (options.ledger.actionById?.(id) !== undefined)
-        return Effect.fail(new OutcomeUnknown({ reason: "application_already_entered" }));
-      return record.commit({
-        id, parentId: intent.action.id, sessionId: options.identity.sessionId, kind: stage.kind,
-        intent: { encodingVersion: 1, value: { phase: "application", op: stage.request.op } },
-        effect: { encodingVersion: 1, value: { phase: "application", inputHash: canonicalDigest(stage.request.intent) } },
-        ts: options.clock(), irreversible: true,
-      }).pipe(Effect.flatMap(enter));
+      }));
+      return assertFresh(stage.request, captured).pipe(Effect.flatMap(() => {
+        if (!guarded) return enter();
+        const id = `${intent.action.id}:application`;
+        if (options.ledger.actionById?.(id) !== undefined)
+          return Effect.fail(new OutcomeUnknown({ reason: "application_already_entered" }));
+        return record.commit({
+          id, parentId: intent.action.id, sessionId: options.identity.sessionId, kind: stage.kind,
+          intent: { encodingVersion: 1, value: { phase: "application", op: stage.request.op } },
+          effect: { encodingVersion: 1, value: { phase: "application", inputHash: canonicalDigest(stage.request.intent) } },
+          ts: options.clock(), irreversible: true,
+        }).pipe(Effect.flatMap(enter));
+      }));
     });
   }
 
