@@ -62,7 +62,7 @@ describe("GatewayRouter access routing", () => {
     expect(routingDecisions()[0]).toMatchObject({
       trustTier: "observer",
     });
-    expectEvidenceOnlyCommit();
+    expectEvidenceOnlyCommit(ownerSender.externalId);
   });
   test("blocked channel refuses before delivery commit", async () => {
     registerChannelGrant({ kind: "blocked_channel" });

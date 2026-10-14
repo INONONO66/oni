@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Outbound } from "@openomni/protocol";
 import { injectedOptions } from "./helpers/injected";
 import type { ProviderRuntime } from "../src/provider/contract";
 import { ChannelProviders } from "../src/provider/registry";
@@ -26,7 +27,7 @@ interface ConformanceCase {
   readonly limit: number | null;
 }
 /** Surfaces whose deliver posts into a conversation (covered by their surface tests). */
-const CONVERSATION_SURFACES = new Set(["slack", "telegram"]);
+const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
 
 const cases: readonly ConformanceCase[] = [
   {
@@ -107,7 +108,7 @@ describe("provider conformance", () => {
         const runtime = kase.build(noopPublish);
         if (runtime.deliveryRoute === undefined || CONVERSATION_SURFACES.has(kase.provider.id)) return;
         await expect(
-          runtime.deliveryRoute("ext-1", "hi", "key-1", { channelId: "chan-1" }),
+          runtime.deliveryRoute("ext-1", Outbound.payload("hi"), "key-1", { channelId: "chan-1" }),
         ).rejects.toMatchObject({ _tag: "DeliveryNotSent", operation: `${kase.provider.id}.deliver` });
       });
       test("credentials schema admits the conformance credential and refuses junk", () => {

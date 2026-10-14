@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { Channel, Ingress } from "@openomni/protocol";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
-import { commits, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState } from "./router/_router-fixture.js";
+import { commits, makeRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState } from "./router/_router-fixture.js";
 
 beforeEach(resetRouterState);
 
@@ -30,13 +30,13 @@ test("direct conversation wins over a matching trigger with one prompt and super
 test("unknown judge verdict filters the automation but preserves the ordinary prompt", async () => {
   registerOwnerDm();
   trigger("Is this urgent?");
-  const result = await runEffect(makeRouter({ judge: () => Effect.succeed("unknown") }).ingest(ownerSender,
-    { ...ownerFacts, dm: false, eventId: "judge-one" }));
+  const judged = { ...ownerFacts, dm: false, eventId: "judge-one" };
+  const result = await runEffect(makeRouter({ judge: () => Effect.succeed("unknown") }).ingest(ownerSender, judged));
   expect(result.status).toBe("executed");
   expect(ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:judge-one"))
     .toEqual([expect.objectContaining({ decision: "filtered",
       runWhen: { verdict: "unknown", reason: "judge_unknown" } })]);
-  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerFacts.render })]);
+  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerPrompt(judged) })]);
   expect(commits[0]?.sessionId).not.toBe("worker");
 });
 
@@ -63,7 +63,7 @@ test.each(["none", "filtered", "limited"] as const)(
     const result = await runEffect(makeRouter().ingest(ownerSender, facts));
     expect(result).toMatchObject({ status: "executed", handle: { target: "ordinary" } });
     expect(commits).toEqual([expect.objectContaining({
-      sessionId: "ordinary", kind: "prompt", content: facts.render,
+      sessionId: "ordinary", kind: "prompt", content: ownerPrompt(facts),
     })]);
     const rows = ledger().stores.automations.decisions("discord:owner-workspace:owner-dm:inbound-owner-dm");
     expect(rows).toHaveLength(1);

@@ -11,6 +11,7 @@ import {
   ownerEvent,
   ownerFacts,
   ownerMessageTargets,
+  ownerPrompt,
   ownerSender,
   registerOwnerDm,
   resetRouterState,
@@ -32,7 +33,7 @@ describe("GatewayRouter kernel routing", () => {
     expect(commits[0]).toMatchObject({
       sessionId: mapped.id,
       kind: "prompt",
-      content: ownerFacts.render,
+      content: ownerPrompt(),
     });
   });
   test("publishes one canonical route decision", async () => {

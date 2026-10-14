@@ -1,4 +1,4 @@
-import { kernelDeliveryReceipt, refuseConversation } from "../../support/deliver.js";
+import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
 import { DISCORD_RENDER } from "./format.js";
@@ -18,7 +18,14 @@ interface DiscordCredentials {
 export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord"> = {
   id: "discord",
   ingest: "socket",
-  capabilities: { deliver: true, webhook: false, render: DISCORD_RENDER },
+  capabilities: {
+    deliver: true,
+    webhook: false,
+    render: DISCORD_RENDER,
+    media: true,
+    react: true,
+    typing: true,
+  },
   credentials: z.object({ token: z.string().min(1) }).strict(),
   settings: z.record(z.string(), z.never()),
   preconditions: [
@@ -29,10 +36,9 @@ export const DiscordProvider: ChannelProvider<DiscordCredentials, "discord"> = {
     const surface = new DiscordAdapter(credentials.token, config, publish, options);
     return {
       surface,
-      deliveryRoute: async (externalId, body, idempotencyKey, conversation) => {
-        refuseConversation("discord", conversation);
-        return kernelDeliveryReceipt(await surface.deliver(externalId, body, idempotencyKey));
-      },
+      deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
+        surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+      typingRoute: (externalId, conversation) => surface.typing(externalId, conversation),
     };
   },
 };

@@ -1,4 +1,5 @@
 import { testRun } from "../helpers/injected";
+import { Outbound } from "@openomni/protocol";
 import { ledger, resetLedger } from "../helpers/ledger";
 import { sessionTree } from "../../../agent/test/store/helpers/session-tree";
 type OutboundMessage = Parameters<Parameters<typeof createExistingAgentMessaging>[0]["deliver"]>[0];
@@ -105,7 +106,7 @@ test.each([
       { id: "grant", senderId: "source-session", targetActorId: "target", operations: ["awaited"] },
     ],
     deliver: (message: OutboundMessage) =>
-      driver.deliver(message.target.externalId, message.body, message.idempotencyKey).then(kernelDeliveryReceipt),
+      driver.deliver(message.target.externalId, message.payload, message.idempotencyKey).then(kernelDeliveryReceipt),
     publish: () => undefined,
   });
   const input = {
@@ -114,7 +115,7 @@ test.each([
     senderId: "source-session",
     target: { actorId: "target" },
     operation: "awaited" as const,
-    body: "verdict",
+    payload: Outbound.payload("verdict"),
     at: 10,
     requestSpec: {
       requestId: "original-message-action",
@@ -206,7 +207,7 @@ test.each([
     senderId: "source",
     target: { actorId: "target" },
     operation: "awaited" as const,
-    body: "question",
+    payload: Outbound.payload("question"),
     at: 1,
     requestSpec: {
       requestId: "original",

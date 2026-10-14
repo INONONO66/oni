@@ -1,11 +1,13 @@
-import { type Channel, type Gateway, Operational } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
 import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
-import { sendText } from "../../support/send-text";
+import { translate } from "../../support/translate";
 import { SLACK_RENDER } from "./format";
-import type { EffectRunner, PublishPort } from "../../types";
+import { slackEmojiName } from "./emoji";
+import type { PublishPort } from "../../types";
+import type { ProviderOptions } from "../contract";
 import { SlackClient, THREAD_HISTORY_LIMIT } from "./client";
 import {
   DeliveryNotSent,
@@ -33,12 +35,7 @@ export class SlackAdapter implements Channel.Surface {
     credentials: { botToken: string; appToken: string },
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
-    private readonly options: {
-      readonly now: () => number;
-      readonly id: () => string;
-      readonly random: () => number;
-      readonly run: EffectRunner;
-    },
+    private readonly options: ProviderOptions,
   ) {
     this.dedupe = new Dedupe(options.now);
     this.client = new SlackClient(credentials.botToken, credentials.appToken, publish, options.run);
@@ -95,7 +92,7 @@ export class SlackAdapter implements Channel.Surface {
    */
   async deliver(
     externalId: string,
-    body: string,
+    payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
   ): Promise<DeliveryReceipt> {
@@ -115,10 +112,26 @@ export class SlackAdapter implements Channel.Surface {
           await this.client.openDm(user, traceId).catch((error) => {
             throw new DeliveryNotSent({ operation: "slack.openDm", cause: String(error) });
           });
-        return await sendText(body, SLACK_RENDER, (chunk) =>
-          threadTs === undefined
-            ? this.client.send(channelId, chunk, traceId)
-            : this.client.sendInThread(channelId, threadTs, chunk, traceId),
+        return await translate(
+          payload,
+          SLACK_RENDER,
+          {
+            text: (chunk) =>
+              threadTs === undefined
+                ? this.client.send(channelId, chunk, traceId)
+                : this.client.sendInThread(channelId, threadTs, chunk, traceId),
+            media: async (_kind, bytes, caption) => {
+              await this.client.sendMedia(channelId, threadTs, bytes, caption, traceId);
+              return {};
+            },
+            react: (messageId, emoji) => {
+              const name = slackEmojiName(emoji);
+              if (name === undefined)
+                throw new DeliveryNotSent({ operation: "slack.react", cause: `no slack name for ${emoji}` });
+              return this.client.react(channelId, messageId, name, traceId);
+            },
+          },
+          this.options.media,
         );
       },
       (error) =>

@@ -1,8 +1,8 @@
 import { DeliveryNotSent } from "../errors";
-import { type Gateway, Operational } from "@openomni/protocol";
+import { Operational, type Outbound } from "@openomni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
-import { PartialDeliveryError } from "./send-text";
+import { type DeliveryOutcome, PartialDeliveryError } from "./translate";
 import { newTraceId } from "./trace";
 
 export const DeliveryReceipt = z.object({
@@ -58,19 +58,7 @@ export class DeliveryReconciliation {
   }
 }
 
-export type KernelDeliveryReceipt = {
-  value: "accepted" | "rejected" | "unknown";
-  externalMessageId?: string;
-};
-
-/** A surface that only knows direct delivery refuses a conversation hint instead of DMing anyway. */
-export function refuseConversation(surface: string, conversation: Gateway.Conversation | undefined): void {
-  if (conversation !== undefined)
-    throw new DeliveryNotSent({
-      operation: `${surface}.deliver`,
-      cause: `${surface} cannot post into conversation ${conversation.channelId}; only direct delivery`,
-    });
-}
+export type KernelDeliveryReceipt = Outbound.Receipt;
 
 /** Translate physical evidence only at the kernel receipt boundary. */
 export function kernelDeliveryReceipt(receipt: DeliveryReceipt): KernelDeliveryReceipt {
@@ -85,7 +73,7 @@ export function kernelDeliveryReceipt(receipt: DeliveryReceipt): KernelDeliveryR
 export function deliverKeyed(
   reconciliation: DeliveryReconciliation,
   idempotencyKey: string,
-  send: (traceId: string) => Promise<string | undefined>,
+  send: (traceId: string) => Promise<DeliveryOutcome>,
   isRejected: (error: Error) => boolean,
   publish: PublishPort,
   options: { readonly now: () => number; readonly id: () => string },
@@ -106,10 +94,11 @@ export function deliverKeyed(
   const attempt = async (): Promise<DeliveryReceipt> => {
     const traceId = newTraceId(options.id);
     try {
-      const externalMessageId = await send(traceId);
-      return externalMessageId === undefined
-        ? unknownNotice(traceId, "platform returned no message id")
-        : { value: "sent", externalMessageId };
+      const outcome = await send(traceId);
+      if (!outcome.accepted) return unknownNotice(traceId, "platform returned no message id");
+      return outcome.externalMessageId === undefined
+        ? { value: "sent" }
+        : { value: "sent", externalMessageId: outcome.externalMessageId };
     } catch (error) {
       if (!(error instanceof Error)) throw error;
       if (error instanceof PartialDeliveryError) {

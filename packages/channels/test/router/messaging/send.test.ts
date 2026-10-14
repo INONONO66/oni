@@ -8,7 +8,7 @@ import { runEffect } from "../../helpers/effect";
 import { replaceDecisionFacts } from "../../helpers/ledger";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import type { Gateway, PlainObject, SessionTransition, Storage } from "@openomni/protocol";
+import { type Gateway, Outbound, type PlainObject, type SessionTransition, type Storage } from "@openomni/protocol";
 import { Bus } from "../../helpers/observation";
 import { createExistingAgentMessaging } from "../../../src/router/messaging/send.js";
 import type { KernelDeliveryReceipt } from "../../../src/support/deliver";
@@ -308,7 +308,7 @@ describe("fire-and-forget delivery", () => {
         idempotencyKey: "message:test",
         senderId: "actor:sender",
         operation: "fire_and_forget",
-        body: "test message",
+        payload: Outbound.payload("test message"),
         target: receipt.target,
       },
     ]);
@@ -562,7 +562,7 @@ describe("durable send admission faults", () => {
     const first = buildSendInput({ messageId: "message:immutable" });
     expect((await runEffect(messaging().send(first))).kind).toBe("sent");
 
-    expect(await effectFailure(messaging().send({ ...first, body: "mutated body" }))).toMatchObject({ _tag: "ChannelsFailure", operation: "message.transaction" });
+    expect(await effectFailure(messaging().send({ ...first, payload: Outbound.payload("mutated body") }))).toMatchObject({ _tag: "ChannelsFailure", operation: "message.transaction" });
     expect(deliveries).toHaveLength(1);
   });
 

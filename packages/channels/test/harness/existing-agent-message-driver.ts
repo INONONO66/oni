@@ -1,6 +1,6 @@
 import { sessionTree } from "../../../agent/test/store/helpers/session-tree";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import type { LedgerAction, SessionTransition } from "@openomni/protocol";
+import { type LedgerAction, Outbound, type SessionTransition } from "@openomni/protocol";
 import { z } from "zod";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,7 +60,7 @@ async function prepareScenario() {
     senderId: "owner",
     target: { actorId: "target" },
     operation: "fire_and_forget",
-    body: "notice",
+    payload: Outbound.payload("notice"),
     at: 10,
   }));
   const countAfterFire = ledger().kernel.requestRows().length;
@@ -70,7 +70,7 @@ async function prepareScenario() {
     senderId: "owner",
     target: { actorId: "target" },
     operation: "awaited",
-    body: "verdict",
+    payload: Outbound.payload("verdict"),
     at: 10,
     requestSpec: {
       requestId: "request:qa:briefing",
@@ -164,7 +164,7 @@ async function duplicateAmbiguous(context: ScenarioContext) {
     senderId: "owner",
     target: { actorId: "multi" },
     operation: "fire_and_forget",
-    body: "ambiguous",
+    payload: Outbound.payload("ambiguous"),
     at: 30,
   }));
   const after = ledger().kernel.requestById("request:qa:briefing");

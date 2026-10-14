@@ -23,7 +23,14 @@ interface SlackCredentials {
 export const SlackProvider: ChannelProvider<SlackCredentials, "slack"> = {
   id: "slack",
   ingest: "socket",
-  capabilities: { deliver: true, webhook: false, render: SLACK_RENDER },
+  capabilities: {
+    deliver: true,
+    webhook: false,
+    render: SLACK_RENDER,
+    media: true,
+    react: true,
+    typing: false,
+  },
   credentials: z
     .object({
       botToken: z.string().startsWith("xoxb-"),
@@ -34,15 +41,15 @@ export const SlackProvider: ChannelProvider<SlackCredentials, "slack"> = {
   preconditions: [
     "Socket Mode enabled with an app-level token granted connections:write",
     "event subscriptions: message.channels and message.im",
-    "bot scopes: chat:write, im:write, app_mentions:read",
+    "bot scopes: chat:write, im:write, app_mentions:read, files:write, reactions:write",
     "bot invited to the target channels",
   ],
   create(credentials, config, publish, options) {
     const surface = new SlackAdapter(credentials, config, publish, options);
     return {
       surface,
-      deliveryRoute: (externalId, body, idempotencyKey, conversation) =>
-        surface.deliver(externalId, body, idempotencyKey, conversation).then(kernelDeliveryReceipt),
+      deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
+        surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
     };
   },
 };

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Outbound } from "@openomni/protocol";
 import { injectedOptions } from "./helpers/injected";
 import { SlackAdapter } from "../src/provider/slack/surface";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
@@ -39,7 +40,7 @@ for (const provider of ["discord", "slack", "telegram"] as const) {
       const { adapter, address } = deliveryFixture(provider);
       try {
         const content = failure === "partial" ? "X".repeat(8000) : "SENTINEL";
-        const receipt = await adapter.deliver(address, content, "stable-key");
+        const receipt = await adapter.deliver(address, Outbound.payload(content), "stable-key");
         expect(sends).toBe(failure === "partial" ? 2 : 1);
         expect(receipt).toEqual(
           failure === "accepted"
@@ -47,7 +48,7 @@ for (const provider of ["discord", "slack", "telegram"] as const) {
             : { value: failure === "forbidden" ? "not_sent" : "unknown" },
         );
         if (receipt.value !== "not_sent") {
-          expect(await adapter.deliver(address, content, "stable-key")).toEqual(receipt);
+          expect(await adapter.deliver(address, Outbound.payload(content), "stable-key")).toEqual(receipt);
           expect(sends).toBe(failure === "partial" ? 2 : 1);
         }
       } finally {
@@ -69,7 +70,7 @@ test("invalid Slack destination throws before any HTTP request or external recei
   );
   try {
     const adapter = new SlackAdapter({ botToken: "token", appToken: "app" }, {}, () => undefined, injectedOptions());
-    await expect(adapter.deliver("USER", "message", "invalid")).rejects.toMatchObject({
+    await expect(adapter.deliver("USER", Outbound.payload("message"), "invalid")).rejects.toMatchObject({
       _tag: "SlackEndpointKeyError",
     });
     expect(requests).toBe(0);

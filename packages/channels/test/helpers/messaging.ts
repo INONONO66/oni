@@ -1,4 +1,4 @@
-import { Gateway } from "@openomni/protocol";
+import { Gateway, Outbound } from "@openomni/protocol";
 import { expect } from "bun:test";
 import { ledger } from "./ledger";
 
@@ -72,7 +72,7 @@ export function buildSendInput(overrides: Partial<SendInput> = {}): SendInput {
     senderId: "actor:sender",
     target: { actorId: "actor:target" },
     operation: "fire_and_forget",
-    body: "test message",
+    payload: Outbound.payload("test message"),
     at: messagingNow,
     traceId: "trace-messaging",
     ...overrides,

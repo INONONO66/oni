@@ -31,7 +31,7 @@ function sendSignature(input: Gateway.SendInput, target: Gateway.DeliveryTarget)
     senderId: input.senderId,
     operation: input.operation,
     class: input.class,
-    body: input.body,
+    payload: input.payload,
     target,
     requestSpec: input.requestSpec,
   });

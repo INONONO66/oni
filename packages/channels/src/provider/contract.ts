@@ -1,24 +1,32 @@
-import type { Channel, Gateway } from "@openomni/protocol";
-import type { EffectRunner } from "../types.js";
+import type { Channel, Gateway, Outbound } from "@openomni/protocol";
+import type { EffectRunner, MediaResolver, PublishPort } from "../types.js";
 import type { z } from "zod";
-import type { PublishPort } from "../types.js";
 
 /**
  * Existing-agent delivery through this provider, keyed by ActorEndpoint
  * externalId. Structurally identical to the router's `ChannelDeliveryRoute`
  * on purpose: the provider band may not import `src/router/` (S8 banding), so
  * the contract restates the seam and the composition root is where the two
- * meet. Every delivery carries the required gateway idempotency key.
+ * meet. Every delivery carries the required gateway idempotency key and ONE
+ * `Outbound.Payload` (#1497): the surface translates its parts and actions
+ * into platform calls from the capabilities it declares below.
  */
 export type ProviderDeliveryRoute = (
   externalId: string,
-  body: string,
+  payload: Outbound.Payload,
   idempotencyKey: string,
   conversation?: Gateway.Conversation,
-) => Promise<{
-  readonly value: "accepted" | "rejected" | "unknown";
-  readonly externalMessageId?: string;
-}>;
+) => Promise<Outbound.Receipt>;
+
+/**
+ * One typing pulse toward an actor: the platform shows "composing" for the
+ * few seconds it allows (telegram ~5 s, discord ~10 s). The composition root
+ * repeats it while a turn runs; the surface never owns that loop.
+ */
+export type ProviderTypingRoute = (
+  externalId: string,
+  conversation?: Gateway.Conversation,
+) => Promise<void>;
 
 /**
  * How a provider receives platform events. The runner does not interpret the
@@ -66,6 +74,18 @@ interface ProviderCapabilities {
   readonly webhook: boolean;
   /** Outbound text policy the surface applies (dialect + chunk limit). */
   readonly render: RenderPolicy;
+  /**
+   * Image and file parts upload as platform attachments. Where false, a
+   * media part stays visible as its reference line inside the text.
+   */
+  readonly media: boolean;
+  /**
+   * A `react` payload adds the emoji on the named message. Where false, the
+   * surface refuses it with a rejected receipt instead of posting text.
+   */
+  readonly react: boolean;
+  /** The runtime exposes `typingRoute`. */
+  readonly typing: boolean;
 }
 
 /**
@@ -78,6 +98,7 @@ interface ProviderCapabilities {
 export interface ProviderRuntime {
   readonly surface: Channel.Surface;
   readonly deliveryRoute?: ProviderDeliveryRoute;
+  readonly typingRoute?: ProviderTypingRoute;
   readonly webhookHandler?: (request: Request) => Promise<Response>;
 }
 
@@ -124,18 +145,23 @@ export interface ChannelProvider<TCredentials, TId extends string = string> {
    * `secret_rotate` gate) — one enforcement layer per invariant, so the
    * contract takes the already-trusted typed value. `options` injects the
    * wall clock, UUID source, and jitter source — drivers never read ambient
-   * time or entropy.
+   * time or entropy — and the media resolver that turns an outbound
+   * image/file reference into bytes (absent: media parts fall back to text).
    */
   create(
     credentials: TCredentials,
     config: Channel.Config,
     publish: PublishPort,
-    options: {
-      readonly now: () => number;
-      readonly id: () => string;
-      readonly random: () => number;
-      /** Executes driver Effect programs (retry, reconnect, heartbeat) on the app runtime. */
-      readonly run: EffectRunner;
-    },
+    options: ProviderOptions,
   ): ProviderRuntime;
+}
+
+/** The injected sources every driver constructs from. */
+export interface ProviderOptions {
+  readonly now: () => number;
+  readonly id: () => string;
+  readonly random: () => number;
+  /** Executes driver Effect programs (retry, reconnect, heartbeat) on the app runtime. */
+  readonly run: EffectRunner;
+  readonly media?: MediaResolver;
 }

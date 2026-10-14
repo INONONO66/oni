@@ -1,8 +1,8 @@
 import { TelegramApiError } from "../../errors";
-import { type Gateway, Operational } from "@openomni/protocol";
+import { type Gateway, Operational, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
-import type { ChannelClient, EffectRunner, PublishPort } from "../../types";
+import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
 import {
   type TelegramUpdate,
   type TelegramUser,
@@ -23,6 +23,19 @@ const EnvelopeSchema = z.object({
 const SentMessageSchema = z.object({
   message_id: z.union([z.number(), z.string()]).optional(),
 });
+const TrueSchema = z.literal(true);
+
+/** `sendPhoto` takes a `photo` field, `sendDocument` a `document` field. */
+const MEDIA_METHOD = { image: ["sendPhoto", "photo"], file: ["sendDocument", "document"] } as const;
+
+function conversationParams(conversation: Gateway.Conversation | undefined): Record<string, number> {
+  return {
+    ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+    ...(conversation?.replyToMessageId === undefined
+      ? {}
+      : { reply_to_message_id: Number(conversation.replyToMessageId) }),
+  };
+}
 
 export class TelegramClient implements ChannelClient {
   private readonly baseUrl: string;
@@ -85,12 +98,47 @@ export class TelegramClient implements ChannelClient {
       chat_id: channelId,
       text,
       ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
-      ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
-      ...(conversation?.replyToMessageId === undefined
-        ? {}
-        : { reply_to_message_id: Number(conversation.replyToMessageId) }),
+      ...conversationParams(conversation),
     });
     return message.message_id === undefined ? undefined : String(message.message_id);
+  }
+
+  /** One attachment as a multipart upload; the caption is plain text (no entity parsing to refuse). */
+  async sendMedia(
+    channelId: string,
+    kind: "image" | "file",
+    media: MediaBytes,
+    caption: string | undefined,
+    traceId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    const [method, field] = MEDIA_METHOD[kind];
+    const form = new FormData();
+    form.set("chat_id", channelId);
+    form.set(field, new Blob([media.bytes], { type: media.mime }), media.name);
+    if (caption !== undefined) form.set("caption", caption);
+    for (const [key, value] of Object.entries(conversationParams(conversation)))
+      form.set(key, String(value));
+    const message = await this.request(method, traceId, SentMessageSchema, { body: form });
+    return message.message_id === undefined ? undefined : String(message.message_id);
+  }
+
+  /** `setMessageReaction` replaces the bot's reaction set on one message with this emoji. */
+  async react(channelId: string, messageId: string, emoji: string, traceId: string): Promise<void> {
+    await this.api("setMessageReaction", traceId, TrueSchema, {
+      chat_id: channelId,
+      message_id: Number(messageId),
+      reaction: [{ type: "emoji", emoji }],
+    });
+  }
+
+  /** `sendChatAction typing` shows "typing…" for about five seconds. */
+  async typing(channelId: string, traceId: string, conversation?: Gateway.Conversation): Promise<void> {
+    await this.api("sendChatAction", traceId, TrueSchema, {
+      chat_id: channelId,
+      action: "typing",
+      ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+    });
   }
 
   async getMe(traceId: string): Promise<TelegramUser> {
@@ -111,22 +159,30 @@ export class TelegramClient implements ChannelClient {
     );
   }
 
-  private async api<T>(
+  private api<T>(
     method: string,
     traceId: string,
     schema: z.ZodType<T>,
-    params?: Record<string, string | number | string[]>,
+    params?: Record<string, PlainValue>,
     signal?: AbortSignal,
+  ): Promise<T> {
+    return this.request(method, traceId, schema, {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params ?? {}),
+      signal,
+    });
+  }
+
+  private async request<T>(
+    method: string,
+    traceId: string,
+    schema: z.ZodType<T>,
+    init: Pick<RequestInit, "headers" | "body" | "signal">,
   ): Promise<T> {
     const url = `${this.baseUrl}/${method}`;
     const response = await fetchWithRetry(
       url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params ?? {}),
-        signal,
-      },
+      { method: "POST", ...init },
       {
         traceId,
         run: this.run,

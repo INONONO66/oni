@@ -1,6 +1,6 @@
 import { runEffect } from "../helpers/effect";
 import { beforeEach, expect, test } from "bun:test";
-import { commits, kernelRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState } from "./_router-fixture";
+import { commits, kernelRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState } from "./_router-fixture";
 
 beforeEach(() => {
   resetRouterState();
@@ -15,22 +15,27 @@ const thread = [
 test("thread history seeds the first prompt of a thread session and no later one (#1490)", async () => {
   const router = kernelRouter();
   const inThread = { ...ownerFacts, reply: { chain: ["root"], threadId: "root" }, context: { thread } };
-  await runEffect(router.ingest(ownerSender, { ...inThread, eventId: "first", render: "still red?" }));
-  await runEffect(router.ingest(ownerSender, { ...inThread, eventId: "second", render: "any news?" }));
+  const first = { ...inThread, eventId: "first", render: "still red?" };
+  const second = { ...inThread, eventId: "second", render: "any news?" };
+  await runEffect(router.ingest(ownerSender, first));
+  await runEffect(router.ingest(ownerSender, second));
   expect(commits.map((commit) => commit.content)).toEqual([
-    "[earlier in this thread]\n<@U1>: deploy is red\nassistant: looking\n[end of thread]\n\nstill red?",
-    "any news?",
+    `${ownerPrompt({ ...first, render: "[earlier in this thread]\n<@U1>: deploy is red\nassistant: looking\n[end of thread]" })}\n\nstill red?`,
+    ownerPrompt(second),
   ]);
+  expect(commits[0]?.content.startsWith("[from actor-owner on discord · channel owner-dm · message first · thread root]\n\n")).toBe(true);
   expect(new Set(commits.map((commit) => commit.sessionId)).size).toBe(1);
 });
 
 test("a quoted message is shown with every prompt that answers one (#1490)", async () => {
   const router = kernelRouter();
   const quoted = { author: "@seller", text: "shipped\ntoday" };
-  await runEffect(router.ingest(ownerSender, { ...ownerFacts, eventId: "q1", render: "tracking?", context: { quoted } }));
-  await runEffect(router.ingest(ownerSender, { ...ownerFacts, eventId: "q2", render: "and eta?", context: { quoted } }));
+  const q1 = { ...ownerFacts, eventId: "q1", render: "tracking?", context: { quoted } };
+  const q2 = { ...ownerFacts, eventId: "q2", render: "and eta?", context: { quoted } };
+  await runEffect(router.ingest(ownerSender, q1));
+  await runEffect(router.ingest(ownerSender, q2));
   expect(commits.map((commit) => commit.content)).toEqual([
-    "[replying to @seller]\n> shipped\n> today\n\ntracking?",
-    "[replying to @seller]\n> shipped\n> today\n\nand eta?",
+    `${ownerPrompt({ ...q1, render: "[replying to @seller]\n> shipped\n> today" })}\n\ntracking?`,
+    `${ownerPrompt({ ...q2, render: "[replying to @seller]\n> shipped\n> today" })}\n\nand eta?`,
   ]);
 });
