@@ -368,7 +368,7 @@ cell-only tool; batching is the cell's `parallel()`. `model` is an id on the
 configured provider (never another credential), `system` is system text, and
 `schema` is a JSON Schema the answer must satisfy: the host validates the
 answer and returns canonical JSON text, or refuses. Names are lowercase
-snake_case and follow the senpi/pi file-tool vocabulary; the file is the tool
+snake_case and follow the file-tool vocabulary; the file is the tool
 (`apps/openomni/src/bundles/tools/<name>/index.ts`, with `_` written `-` in the directory name
 because the repo-wide kebab-case file rule applies; `lint:tools` checks the
 correspondence). Every multi-operation tool takes `operation: { op, ... }`

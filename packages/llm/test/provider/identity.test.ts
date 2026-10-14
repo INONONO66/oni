@@ -8,8 +8,8 @@ import { Provider } from "../../src/provider";
 import { BUNDLED_ROWS } from "../../src/provider/rows";
 import { getLanguage, getSDK } from "../../src/provider/sdk";
 
-/** `pi/<version> (<platform> <kernelRelease>; <arch>)` — the whole contract. */
-const IDENTITY_PATTERN = /^pi\/\d+\.\d+\.\d+ \(.+; .+\)$/;
+/** `openomni/<version> (<platform> <kernelRelease>; <arch>)` — the whole contract. */
+const IDENTITY_PATTERN = /^openomni\/\d+\.\d+\.\d+ \(.+; .+\)$/;
 
 /** Resolution applies the provider's bundled row; fixtures take the same path. */
 function rowed(model: Provider.Model): Provider.Model {
@@ -73,11 +73,11 @@ async function capturedOpenAIRequest(
 }
 
 describe("clientIdentity", () => {
-  test("renders pi/<version> (<platform> <kernelRelease>; <arch>)", () => {
+  test("renders openomni/<version> (<platform> <kernelRelease>; <arch>)", () => {
     const identity = clientIdentity();
 
     expect(identity).toMatch(IDENTITY_PATTERN);
-    expect(identity).toBe(`pi/${clientIdentity.version} (${platform()} ${release()}; ${arch()})`);
+    expect(identity).toBe(`openomni/${clientIdentity.version} (${platform()} ${release()}; ${arch()})`);
   });
 
   test("is pure — repeated calls render the same string", () => {
@@ -94,7 +94,7 @@ describe("clientIdentity", () => {
 });
 
 describe("provider SDK client identity header", () => {
-  test("sends the pi client identity as the default user-agent", async () => {
+  test("sends the client identity as the default user-agent", async () => {
     const headers = await capturedRequestHeaders({ type: "api", key: "sk-identity-default" });
 
     const userAgent = headers.get("user-agent") ?? "";
