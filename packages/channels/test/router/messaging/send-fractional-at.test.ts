@@ -43,7 +43,7 @@ for (const at of [1, 1.5]) {
       senderId: "sender",
       target: { actorId: "target" },
       operation: "fire_and_forget",
-      body: "test",
+      payload: { kind: "message", parts: [{ kind: "text", text: "test" }] },
       at,
     });
     const grant = Gateway.SenderTargetGrant.parse({

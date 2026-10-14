@@ -52,7 +52,7 @@ test("a missing platform message id is unknown with the same Owner notice", asyn
   let sends = 0;
   const send = () => {
     sends += 1;
-    return Promise.resolve(undefined);
+    return Promise.resolve({ accepted: false });
   };
   const first = await deliverKeyed(h.reconciliation, "key-2", send, () => false, h.publish, h.options);
   expect(first).toEqual({ value: "unknown" });

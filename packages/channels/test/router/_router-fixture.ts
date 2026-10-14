@@ -34,6 +34,12 @@ export const ownerFacts: Gateway.IngressFacts = {
   render: "hello resident",
 };
 
+/** The prompt the owner's message becomes: the `[from …]` line a reply or reaction is addressed to, then the text (#1497). */
+export function ownerPrompt(facts: Gateway.IngressFacts = ownerFacts, actorId = "actor-owner"): string {
+  const threadId = facts.reply?.threadId;
+  return `[from ${actorId} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]\n\n${facts.render}`;
+}
+
 // The internal route record identity is scoped by the perimeter, not supplied by the driver.
 export const ownerEvent = {
   id: "discord:owner-workspace:owner-dm:inbound-owner-dm",

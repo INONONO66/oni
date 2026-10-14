@@ -54,6 +54,7 @@ import {
 import {
   Alarm,
   Operational,
+  Outbound,
   traceIdFromUuid,
   type BusEvent,
   type Channel,
@@ -102,6 +103,7 @@ import {
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow } from "./composition/platform";
 import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
+import { createMediaResolver } from "./composition/media";
 import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot } from "./composition/composed";
@@ -778,10 +780,12 @@ export async function startOpenOmni(options: StartOptions = {}) {
       }
     };
     let wsHandler: WebSocketHandler | undefined;
-    const wsRoute = async (externalId: string, body: string, idempotencyKey: string) => {
+    const wsRoute = async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
       if (wsHandler === undefined)
         throw new AppInvariantError("ws delivery used before composition finished");
-      return wsHandler.push(externalId, body, idempotencyKey);
+      // The ws wire has no reaction vocabulary: refused, never posted as text.
+      if (payload.kind === "react") return { value: "rejected" } as const;
+      return wsHandler.push(externalId, Outbound.text(payload), idempotencyKey);
     };
     // Live table: channel components register and revoke their own outbound
     // routes while the gateway keeps reading it per delivery.
@@ -802,6 +806,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
             id: services.entropy.id,
             random: services.entropy.random,
             run: (effect) => runAppEffect(runtime, effect),
+            media: createMediaResolver(tools.machines === undefined ? {} : { machines: tools.machines }),
           },
         ),
       build: (component) => component.build(routingHandler),

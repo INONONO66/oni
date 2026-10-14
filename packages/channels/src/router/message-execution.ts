@@ -4,6 +4,7 @@ import type { ChannelError } from "../errors";
 import type { ChannelStores } from "./stores.js";
 import {
   Delivery,
+  Outbound,
   canonicalDigest,
   type Gateway,
   type LedgerAction,
@@ -40,7 +41,7 @@ function transformedContent(
   sender: Gateway.IngestSender,
   send: Gateway.SendMessage,
   messageId: string,
-): string {
+): Outbound.Payload {
   if (sender.kind === "session" && intent.action.sessionId !== sender.id)
     throw new ChannelsFailure({
       operation: "message.transform",
@@ -65,12 +66,14 @@ function transformedContent(
       operation: "message.transform",
       cause: "message routing transform requires readmission",
     });
-  if (typeof content !== "string")
+  if (typeof content === "string") return Outbound.payload(content);
+  const payload = Outbound.Payload.safeParse(content);
+  if (!payload.success)
     throw new ChannelsFailure({
       operation: "message.transform",
-      cause: "message transformed content is not text",
+      cause: "message transformed content is neither text nor an outbound payload",
     });
-  return content;
+  return payload.data;
 }
 
 /** The conversation a person wrote in, kept on the prompt origin so the answer can go back there. */
@@ -196,7 +199,8 @@ export function executeMessage(
     clock,
   } = context;
   const sessionResult: PlainValue = { status: "executed", handle, delivery: { kind: "session" } };
-  const content = transformedContent(intent, sender, send, messageId);
+  const payload = transformedContent(intent, sender, send, messageId);
+  const content = Outbound.text(payload);
   if (yield* admitExternal(context, content)) return sessionResult;
   if (send.to.kind === "actor") {
     if (messaging === undefined)
@@ -211,7 +215,7 @@ export function executeMessage(
       traceId: intent.action.id,
       senderId: sender.kind === "session" ? sender.id : sender.externalId,
       target: actorTarget(send.to),
-      body: content,
+      payload,
       at: startedAt,
       operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
       ...requestSpec(send, intent),

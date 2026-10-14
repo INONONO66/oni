@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { controlledTimeouts } from "./helpers/timeouts";
-import { Operational } from "@openomni/protocol";
+import { Operational, Outbound } from "@openomni/protocol";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 import type { PublishPort } from "../src/types";
 
@@ -132,7 +132,7 @@ for (const provider of ["discord", "slack", "telegram"] as const) {
       try {
         const content = "X".repeat(limit * (scenario.outcomes.length - 1) + 1);
         // Subscription precedes delivery; the test bound covers a missing retry signal.
-        const delivery = adapter.deliver(address, content, "stable-key");
+        const delivery = adapter.deliver(address, Outbound.payload(content), "stable-key");
         if (timer !== undefined) {
           for (let retry = 0; retry < 3; retry++) await timer.fireNext();
           expect(timer.delays).toEqual([5000, 5000, 5000]);
@@ -169,7 +169,7 @@ for (const provider of ["discord", "slack", "telegram"] as const) {
         }
         // A cached uncertain receipt cannot retry or invent a correlation anchor.
         if (receipt.value !== "not_sent") {
-          expect(await adapter.deliver(address, content, "stable-key")).toEqual(receipt);
+          expect(await adapter.deliver(address, Outbound.payload(content), "stable-key")).toEqual(receipt);
           expect(sends).toBe(expectedSends);
         }
         expect(partial).toHaveLength(scenario.reason === undefined ? 0 : 1);

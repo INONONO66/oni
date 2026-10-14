@@ -1,6 +1,6 @@
 import { RateLimited } from "../../errors";
 import { newTraceId } from "../../support/trace";
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, Operational, Outbound } from "@openomni/protocol";
 import { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";
@@ -123,11 +123,14 @@ export class GitHubAdapter implements Channel.Surface {
     this.client = new GitHubClient(publish, options.now, options.run, githubToken);
   }
 
+  /** A comment carries the payload's text reading; a reaction has no comment to land in and is not sent. */
   async deliver(
     externalId: string,
-    body: string,
+    payload: Outbound.Payload,
     idempotencyKey: string,
   ): Promise<DeliveryReceipt> {
+    if (payload.kind === "react") return { value: "not_sent" };
+    const body = Outbound.text(payload);
     const target = /^([a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+)#([1-9][0-9]*)$/.exec(externalId);
     if (target?.[1] === undefined || target[2] === undefined) return { value: "not_sent" };
     const issueNumber = Number(target[2]);

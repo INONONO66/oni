@@ -6,6 +6,7 @@ import {
   MessagingEvents,
   canonicalKey,
   type BusEvent,
+  type Outbound,
   type SessionTransition,
 } from "@openomni/protocol";
 import type { GatewayRouterPorts } from "../message-ports.js";
@@ -26,7 +27,7 @@ type OutboundMessage = Readonly<{
   idempotencyKey: string;
   senderId: string;
   operation: Gateway.MessageOperation;
-  body: string;
+  payload: Outbound.Payload;
   target: DeliveryTarget;
   requestId?: string;
 }>;
@@ -87,7 +88,7 @@ function deliverSend(
     idempotencyKey: input.messageId,
     senderId: input.senderId,
     operation: input.operation,
-    body: input.body,
+    payload: input.payload,
     target,
     ...(request === undefined ? {} : { requestId: request.requestId }),
   }), catch: decodeChannelFailure("message.deliver") });

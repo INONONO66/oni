@@ -2,13 +2,13 @@ import type { Effect } from "effect";
 import type { ChannelError } from "../errors";
 import type { PolicyEvaluationInput } from "@openomni/agent";
 import type {
-  BusEvent, Gateway, Ingress, Delivery, LedgerAction, PlainValue, SessionTransition,
+  BusEvent, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
 } from "@openomni/protocol";
 import type { KernelDeliveryReceipt } from "../support/deliver";
 
 export type ChannelDeliveryRoute = (
   externalId: string,
-  content: string,
+  payload: Outbound.Payload,
   idempotencyKey: string,
   conversation?: Gateway.Conversation,
 ) => Promise<KernelDeliveryReceipt>;

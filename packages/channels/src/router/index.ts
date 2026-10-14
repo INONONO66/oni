@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Gateway } from "@openomni/protocol";
+import { Gateway, Outbound } from "@openomni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -64,7 +64,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
                 operation: "message.deliver",
                 cause: `no delivery route: ${message.target.channel}`,
               });
-            return route(message.target.externalId, message.body, message.idempotencyKey, message.target.conversation);
+            return route(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
           },
         });
 
@@ -188,7 +188,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         yield* recordAutomation(stores, ports, external, sender, result.reason);
       observe(sender, {
         kind: "message.sent", messageId, sender, targetKind: send.to.kind,
-        type: send.type, bytes: new TextEncoder().encode(send.content).byteLength,
+        type: send.type, bytes: new TextEncoder().encode(Outbound.text(Outbound.payload(send.content))).byteLength,
       });
       observe(sender, result.terminal === "blocked_pre"
         ? { kind: "message.rejected", messageId, matchedRuleIds: [...result.matchedRuleIds],

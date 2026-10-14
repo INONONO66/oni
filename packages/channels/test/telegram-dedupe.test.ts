@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
 import { FIXED_NOW, injectedOptions } from "./helpers/injected";
-import type { Channel, PlainValue } from "@openomni/protocol";
+import { type Channel, Outbound, type PlainValue } from "@openomni/protocol";
 import type { TelegramMessage } from "../src/provider/telegram/types";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { TelegramAdapter } from "../src/provider/telegram/surface";
@@ -113,7 +113,7 @@ const config = {};
 type DeliveryOwner = Readonly<{
   deliver(
     externalId: string,
-    body: string,
+    payload: Outbound.Payload,
     idempotencyKey: string,
   ): Promise<{
     value: "sent" | "not_sent" | "unknown";
@@ -167,8 +167,8 @@ describe("outbound adapter delivery dedupe capability", () => {
     const { owner, outboundCalls } = fixture();
 
     const [first, retry] = await Promise.all([
-      owner.deliver("recipient-1", "hello", "gateway-message-1"),
-      owner.deliver("recipient-1", "hello", "gateway-message-1"),
+      owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-1"),
+      owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-1"),
     ]);
 
     expect(outboundCalls()).toBe(1);
@@ -180,15 +180,15 @@ describe("outbound adapter delivery dedupe capability", () => {
   )("%s delivers independently for distinct idempotency keys", async (_name, fixture) => {
     const { owner, outboundCalls } = fixture();
 
-    await owner.deliver("recipient-1", "hello", "gateway-message-2");
-    await owner.deliver("recipient-1", "hello", "gateway-message-3");
+    await owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-2");
+    await owner.deliver("recipient-1", Outbound.payload("hello"), "gateway-message-3");
     expect(outboundCalls()).toBe(2);
   });
 
   test("Discord returns the final chunk id as the reply correlation", async () => {
     const { owner, outboundCalls } = discordFixture();
 
-    const receipt = await owner.deliver("recipient-1", "a".repeat(2001), "chunked-message");
+    const receipt = await owner.deliver("recipient-1", Outbound.payload("a".repeat(2001)), "chunked-message");
 
     expect(outboundCalls()).toBe(2);
     expect(receipt).toEqual({ value: "sent", externalMessageId: "discord-message-2" });

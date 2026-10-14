@@ -285,7 +285,7 @@
   },
   {
     "name": "send_message",
-    "description": "Send one letter to a contact: a session, a new child session, a telegram or discord channel, a human, or an external CLI agent (cli:claude-code|codex|omp). Returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+    "description": "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), or an external CLI agent (cli:claude-code|codex|omp). Returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -372,7 +372,107 @@
           ]
         },
         "message": {
-          "type": "string"
+          "description": "The letter: plain markdown, or ordered parts — text, code {text, lang?}, image {ref, name?, caption?}, file {ref, name, mime?, caption?}. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "text"
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "text"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "code"
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "lang": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "text"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "image"
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "caption": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "ref"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "file"
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "mime": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "caption": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "ref", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "react": {
+          "description": "Instead of a letter, put this emoji on the message the contact wrote (to.conversation.replyToMessageId names it). Channel contacts only.",
+          "type": "string",
+          "minLength": 1
         },
         "kind": {
           "default": "prompt",
@@ -396,7 +496,7 @@
           "exclusiveMinimum": 0
         }
       },
-      "required": ["to", "message"],
+      "required": ["to"],
       "additionalProperties": false
     },
     "safe": false

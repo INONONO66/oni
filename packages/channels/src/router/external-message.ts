@@ -203,9 +203,8 @@ export function externalMessage(
       !automation.automationId.startsWith("granted-direct:");
     return { route, event, target, surfaceKey,
       message: { ...message, grantTier: message.grantTier || automationGrant }, facts,
-      content: automation?.kind === "action" ? JSON.stringify(automation.body)
-        : automation !== undefined && automationGrant ? automation.origin.body
-        : promptContent(facts, resolved.existing === undefined),
+      content: routedContent(automation, automationGrant, () =>
+        promptContent(facts, resolved.existing === undefined, promptSender(route, facts, event, sender))),
       pending: outcome.pending,
       disposition: disposition ?? (automation === undefined && !message.grantTier &&
         outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),
@@ -213,15 +212,44 @@ export function externalMessage(
   });
 }
 
+/** An automation delivers its trigger body (an action as JSON); a direct route delivers the person's prompt. */
+function routedContent(
+  automation: MatchDecision["route"] | undefined,
+  automationGrant: boolean,
+  prompt: () => string,
+): string {
+  if (automation?.kind === "action") return JSON.stringify(automation.body);
+  if (automation !== undefined && automationGrant) return automation.origin.body;
+  return prompt();
+}
+
+/** Who the prompt names as its sender: nobody for a request answer or the WebSocket owner (#1497). */
+function promptSender(
+  route: ReturnType<typeof resolveIngress>["route"],
+  facts: Gateway.IngressFacts,
+  event: ReturnType<typeof resolveIngress>["event"],
+  sender: Extract<Gateway.IngestSender, { kind: "external" }>,
+): string | undefined {
+  if (route.requestExecution.kind === "request" || facts.surface === "ws") return undefined;
+  return event.meta?.actor?.actorId ?? sender.externalId;
+}
+
 /**
  * The prompt a person's message becomes when it reaches the resident directly
- * (an automation keeps its trigger body): the thread's earlier messages are
- * prepended once, when the thread's session starts, and a quoted message every time.
+ * (an automation keeps its trigger body): a `[from …]` line naming the
+ * contact, channel and message id a reply or reaction is addressed to (#1497;
+ * none for a request answer, which the kernel reads as the answer itself, or
+ * for the WebSocket owner, who reads the turn stream), the thread's earlier
+ * messages once, when the thread's session starts, and a quoted message every time.
  */
-function promptContent(facts: Gateway.IngressFacts, freshSession: boolean): string {
+function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from: string | undefined): string {
   const thread = freshSession ? (facts.context?.thread ?? []) : [];
   const quoted = facts.context?.quoted;
+  const threadId = facts.reply?.threadId;
   return [
+    ...(from === undefined ? [] : [
+      `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
+    ]),
     ...(thread.length === 0 ? [] : [
       `[earlier in this thread]\n${thread.map((message) => `${message.author}: ${message.text}`).join("\n")}\n[end of thread]`,
     ]),

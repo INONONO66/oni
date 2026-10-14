@@ -1,17 +1,18 @@
 import { newTraceId } from "../../support/trace";
-import { type Channel, type Gateway, Operational } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
 import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import { requireHandler } from "../../support/handler-frame";
-import { sendText } from "../../support/send-text";
+import { translate } from "../../support/translate";
 import { RateLimited, TelegramApiError } from "../../errors";
-import { TELEGRAM_RENDER } from "./format";
+import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format";
 import { TelegramClient } from "./client";
 import { TelegramNormalizer } from "./normalizer";
 import { TelegramPoller } from "./poller";
 import type { TelegramMessage, TelegramReaction } from "./types";
-import type { EffectRunner, PublishPort } from "../../types";
+import type { ProviderOptions } from "../contract";
+import type { PublishPort } from "../../types";
 
 export class TelegramAdapter implements Channel.Surface {
   readonly id = "telegram";
@@ -26,12 +27,7 @@ export class TelegramAdapter implements Channel.Surface {
     token: string,
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
-    private readonly options: {
-      readonly now: () => number;
-      readonly id: () => string;
-      readonly random: () => number;
-      readonly run: EffectRunner;
-    },
+    private readonly options: ProviderOptions,
   ) {
     this.dedupe = new Dedupe(options.now);
     this.client = new TelegramClient(token, publish, options.now, options.run);
@@ -97,22 +93,51 @@ export class TelegramAdapter implements Channel.Surface {
    */
   deliver(
     externalId: string,
-    body: string,
+    payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
   ): Promise<DeliveryReceipt> {
+    const chatId = conversation?.channelId ?? externalId;
     return deliverKeyed(
       this.outbound,
       idempotencyKey,
       (traceId) =>
-        sendText(body, TELEGRAM_RENDER, (chunk) =>
-          this.client.sendMarkdown(conversation?.channelId ?? externalId, chunk, traceId, conversation),
+        translate(
+          payload,
+          TELEGRAM_RENDER,
+          {
+            text: (chunk) => this.client.sendMarkdown(chatId, chunk, traceId, conversation),
+            media: {
+              limits: TELEGRAM_MEDIA_LIMITS,
+              upload: async (kind, bytes, caption) => {
+                const externalMessageId = await this.client.sendMedia(
+                  chatId,
+                  kind,
+                  bytes,
+                  caption,
+                  traceId,
+                  conversation,
+                );
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
+            },
+            react: (messageId, emoji) => this.client.react(chatId, messageId, emoji, traceId),
+          },
+          this.options.media,
         ),
       (error) =>
         (error instanceof TelegramApiError && error.rejected) ||
         (error instanceof RateLimited && error.status === 429),
       this.publish,
       this.options,
+    );
+  }
+
+  typing(externalId: string, conversation?: Gateway.Conversation): Promise<void> {
+    return this.client.typing(
+      conversation?.channelId ?? externalId,
+      newTraceId(this.options.id),
+      conversation,
     );
   }
 

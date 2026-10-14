@@ -3,7 +3,7 @@ export type { WsConnection } from "./websocket.js";
 export { AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
 export type { ChannelError } from "./errors.js";
 export type { ChannelProvider, ProviderDeliveryRoute } from "./provider/contract.js";
-export type { EffectRunner } from "./types.js";
+export type { EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";
 export { createWebhookProvider } from "./provider/webhook/provider.js";
 export { createGatewayRouter } from "./router/index.js";

@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { Ingress } from "@openomni/protocol";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
-import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
+import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
 
 beforeEach(resetRouterState);
 
@@ -143,13 +143,13 @@ test("a rate-limited automation records refused while ordinary delivery still ex
     by: "automation/limited", reason: "matched", factsUsed: [], factsDigest: "seed",
   }));
   const eventId = "discord:owner-workspace:owner-dm:limited-one";
-  const result = await runEffect(makeRouter().ingest(ownerSender,
-    { ...ownerFacts, eventId: "limited-one", dm: false }));
+  const limited = { ...ownerFacts, eventId: "limited-one", dm: false };
+  const result = await runEffect(makeRouter().ingest(ownerSender, limited));
   expect(result.status).toBe("executed");
   expect(ledger().stores.automations.decisions(eventId)).toEqual([
     expect.objectContaining({ decision: "refused", reason: "limit" }),
   ]);
-  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerFacts.render })]);
+  expect(commits).toEqual([expect.objectContaining({ kind: "prompt", content: ownerPrompt(limited) })]);
   expect(commits[0]?.sessionId).not.toBe("worker");
 });
 

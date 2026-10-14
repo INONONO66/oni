@@ -1,5 +1,5 @@
 import { ChannelsFailure, SendAdmissionConflict } from "../../errors";
-import { Gateway, type DecisionFact } from "@openomni/protocol";
+import { Gateway, type DecisionFact, type Outbound } from "@openomni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { z } from "zod";
 import type { GatewayRouterPorts } from "../message-ports";
@@ -25,13 +25,25 @@ type DenySend = (
   reason: string,
 ) => Gateway.SendReceipt;
 
+/**
+ * A letter that is one plain text part signs as `body: <text>` — the form
+ * every admission recorded before payloads existed — so a send admitted
+ * then and replayed now still matches instead of conflicting.
+ */
+function signedContent(
+  payload: Outbound.Payload,
+): { body: string } | { payload: Outbound.Payload } {
+  const [part, ...rest] = payload.kind === "message" ? payload.parts : [];
+  return part?.kind === "text" && rest.length === 0 ? { body: part.text } : { payload };
+}
+
 function sendSignature(input: Gateway.SendInput, target: Gateway.DeliveryTarget): string {
   return JSON.stringify({
     messageId: input.messageId,
     senderId: input.senderId,
     operation: input.operation,
     class: input.class,
-    body: input.body,
+    ...signedContent(input.payload),
     target,
     requestSpec: input.requestSpec,
   });

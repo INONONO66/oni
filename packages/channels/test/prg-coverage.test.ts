@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
-import { Operational } from "@openomni/protocol";
+import { Operational, Outbound } from "@openomni/protocol";
 import { DiscordClient } from "../src/provider/discord/client";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import type { DiscordGateway } from "../src/provider/discord/gateway";
@@ -89,25 +89,25 @@ describe("provider retry and receipt paths", () => {
       {},
       () => undefined,
       injectedOptions(),
-    ).deliveryRoute?.("100", "hello", "key-1");
+    ).deliveryRoute?.("100", Outbound.payload("hello"), "key-1");
     const discord = await DiscordProvider.create(
       { token: "t" },
       {},
       () => undefined,
       injectedOptions(),
-    ).deliveryRoute?.("user-1", "hello", "key-2");
+    ).deliveryRoute?.("user-1", Outbound.payload("hello"), "key-2");
     const slack = await SlackProvider.create(
       { botToken: "xoxb-1", appToken: "xapp-1" },
       {},
       () => undefined,
       injectedOptions(),
-    ).deliveryRoute?.("T1:U1", "hello", "key-3");
+    ).deliveryRoute?.("T1:U1", Outbound.payload("hello"), "key-3");
     const github = await GitHubProvider.create(
       { secret: "s", token: "t" },
       {},
       () => undefined,
       injectedOptions(),
-    ).deliveryRoute?.("owner/repo#1", "hello", "key-4");
+    ).deliveryRoute?.("owner/repo#1", Outbound.payload("hello"), "key-4");
 
     expect(telegram).toEqual({ value: "accepted", externalMessageId: "5" });
     expect(discord).toEqual({ value: "accepted", externalMessageId: "m-9" });

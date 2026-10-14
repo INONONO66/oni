@@ -1,5 +1,94 @@
 # Implementation Status
 
+## #1497 one outbound payload for every channel: parts, media, reactions (PR #1504, base `55ac51ecd`)
+
+On `feat/channels-unified-outbound` (2026-10-14). The agent produces one
+value for a person and every channel translates it from its declared
+capabilities; platform vocabulary stays inside the provider band.
+
+- `packages/protocol/src/gateway/outbound.ts` — `Outbound.Payload` is a
+  `message` of ordered parts (`text`, `code{lang?}`, `image{ref, name?,
+  caption?}`, `file{ref, name, mime?, caption?}`) or one `react{messageId,
+  emoji}`; `Outbound.payload(text)` is the string sugar, `Outbound.text`
+  the plain-text fold (a media part folds to its `[image: name] ref` line).
+  `Gateway.SendMessage.content` and the gateway's delivery route carry the
+  payload; the route returns `Outbound.Receipt{value: accepted | rejected |
+  unknown, externalMessageId?}`, the id of the last posted message (the one
+  a later reply quotes; a reaction reports the message it sits on).
+- `packages/channels/src/support/translate.ts` — the one translation layer.
+  A driver binds three primitives to its target (`text`, optional `media`
+  upload, optional `react`); `translate(payload, render, sends, resolve?)`
+  owns the folding: adjacent text/code parts join into one markdown text
+  rendered through the surface dialect and split at its limit; an
+  image/file part uploads where the provider declares `media` and the
+  composition root supplied a `MediaResolver`, otherwise its reference line
+  stays in the text; media bytes resolve before the first send so a bad
+  reference refuses the whole letter with nothing posted; a part over the
+  surface's declared `MediaLimits{imageBytes, fileBytes, captionLength}`
+  (telegram 10 MB / 50 MB / 1024, discord 20 MiB / 20 MiB / 2000, slack
+  1 GiB / 1 GiB / 4000, each in its `format.ts`), or a letter whose media
+  totals over 64 MiB, is refused the same way (`media.limit`,
+  `media.caption`); a `react` on a surface without reactions is
+  `DeliveryNotSent` (receipt `rejected`), never posted as text. A platform
+  failure after an accepted step is `PartialDeliveryError` → receipt
+  `unknown` and nothing is resent. `support/send-text.ts` is deleted; every
+  surface (telegram, discord, slack, github) delivers through `translate`.
+  `ProviderCapabilities` gained `media: MediaLimits | false`, `react`,
+  `typing` (telegram/discord all three; slack media and react, no typing;
+  github and webhook none); the conformance suite pins `deliveryRoute` and
+  `typingRoute` to `deliver`/`typing` and the media declaration's shape, and
+  the fake-fetch suites `test/{slack,telegram,discord}-media.test.ts` pin
+  each upload, reaction and typing call's URL, method and body.
+- Platform calls: telegram `sendPhoto`/`sendDocument` multipart with a
+  plain-text caption, `setMessageReaction`, `sendChatAction typing`;
+  discord multipart `payload_json` + `files[0]`, `PUT …/reactions/{emoji}/@me`,
+  `POST /channels/{id}/typing`; slack `files.getUploadURLExternal` →
+  upload → `files.completeUploadExternal` (acknowledged without a message
+  id), `reactions.add` with the short name from
+  `provider/slack/emoji.ts` (a character outside the table is refused, never
+  guessed). `ProviderTypingRoute` is one pulse the composition root may
+  repeat; nothing in the app consumes it yet (#1495).
+- `router/external-message.ts` — a direct-route prompt opens with one
+  `[from <actor|external id> on <surface> · channel <id> · message <id>[ ·
+  thread <id>]]` line, then the thread history and quoted message (#1490),
+  then the rendered body; a request answer and the `ws` surface carry no
+  header. `packages/channels/src/index.ts` exports `MediaBytes` and
+  `MediaResolver`.
+- `apps/openomni/src/bundles/messaging/send-message/index.ts` — the tool
+  takes `message` as a string or an array of parts, or `react` (one emoji on
+  the contact's `conversation.replyToMessageId`), exactly one of the two
+  (`.refine`, applied on the model path by the dispatcher's input parse). A
+  channel contact rides the gateway ingest door; `CONTACT_KINDS` is `cli`
+  only and the `ChannelEgressPort`/`HumanNotifyPort` connectors are deleted.
+  The turn-end report (#1482/#1485/#1490) still sends the result text through
+  the string sugar. `apps/openomni/src/composition/media.ts` is the app's
+  `MediaResolver`: a ref with an authority is an `https` URL fetched with
+  manual redirects (at most three hops, every hop re-admitted: https only,
+  no loopback/link-local/private host), a 30 s timeout, and the body read in
+  chunks that stop at `MEDIA_BYTE_CAP` (50 MiB) whether or not
+  `content-length` was sent; anything else is a machine locus stat'd then
+  read through the `read` tool's door (`FilePorts`, #1271), refused unread
+  over the cap. The read is admitted by the `send_message` call's own policy
+  gate and the daemon's export enforcement, not by the `read` tool's gate.
+  `MediaRefused{code: scheme | host | fetch_failed | too_large}` is the
+  typed refusal. The ws route pushes `Outbound.text(payload)` and answers a
+  `react` with a `rejected` receipt. `router/messaging/admission.ts` signs a
+  one-text-part letter as `body: <text>`, the form recorded before payloads
+  existed, so an admission written then still matches on replay.
+
+Tests: `packages/channels/test/translate.test.ts` (folding, media upload
+and fallback, react refusal, partial delivery), provider golden/conformance
+suites over payloads, router prompt pins (`ownerPrompt` fixture),
+`apps/openomni/test/media-resolver.test.ts` (machine stat-first cap,
+streamed-body cap, hop-by-hop redirect admission, private hosts),
+`apps/openomni/test/send-message-contacts.test.ts` (string, four-part and
+react letters through the gateway door; react without a conversation
+refused; schema exactly-one rule), `test/router/messaging/send.test.ts`
+(legacy `body` admission replays). Channels 838/0, app 870/0 at commit time.
+Not in this PR: inbound photo/voice/file normalization, an app loop that
+repeats the typing pulse (#1495), and bot emoji reactions on inbound
+messages as an automation action.
+
 ## #1500 a content-filter stop with no output is a failed attempt (base `663471f19`)
 
 On `fix/llm-refusal-stop` (2026-10-14). A completed provider stream whose last
@@ -1133,7 +1222,8 @@ tool; the sealed 12-tool catalog is unchanged — the bundle face shares the
 catalog definition name). Contact registry: `telegram:<id>` / `discord:<id>` /
 `human:<id>` / `cli:claude-code|codex|omp`; one Effect connector per kind over
 injected ports (`ChannelEgressPort`, `HumanNotifyPort`, `CliRunnerPort`,
-`ContactReplyPort`); a connector never throws — failure is the journaled
+`ContactReplyPort`; the channel and human connectors were deleted by #1497 —
+channel contacts ride the gateway ingest door); a connector never throws — failure is the journaled
 `{contact, status: not_sent, reason}` fact, and captured CLI stdout returns as
 the sender's prompt. Session/new-session sends keep riding the gateway ingest
 door; a `to.new` send with `deadline_ms` arms the `delegation.deadline`

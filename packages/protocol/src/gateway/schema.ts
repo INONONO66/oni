@@ -6,6 +6,7 @@ import { Ingress } from "../ingress/index.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 import { EpochMs } from "../time.js";
 import { MessageContract } from "./message.js";
+import { Outbound } from "./outbound.js";
 
 /**
  * Gateway contracts (docs/gateway-design.md §2, stage 0 — #706).
@@ -331,7 +332,7 @@ const SendInputBase = z
     senderId: z.string().min(1),
     target: MessageTargetSchema,
     operation: MessageOperationSchema,
-    body: z.string().min(1),
+    payload: Outbound.Payload,
     /** Injected timestamp — messaging never reads the wall clock. */
     at: EpochMs,
     requestSpec: RequestSpecSchema.optional(),

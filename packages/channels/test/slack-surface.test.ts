@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { injectedOptions } from "./helpers/injected";
-import { type Gateway, type Channel, Operational, type PlainObject, PlainValueSchema } from "@openomni/protocol";
+import { type Gateway, type Channel, Operational, Outbound, type PlainObject, PlainValueSchema } from "@openomni/protocol";
 import { z } from "zod";
 import { SlackAdapter } from "../src/provider/slack/surface";
 import { SlackEndpointKeyError, SlackHandlerMissingError } from "../src/errors";
@@ -230,13 +230,13 @@ describe("SlackAdapter", () => {
     const api = installSlackApi();
     try {
       const adapter = new SlackAdapter({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, noopPublish, injectedOptions());
-      const receipt = adapter.deliver("T9:U5", "direct note", "message-1");
+      const receipt = adapter.deliver("T9:U5", Outbound.payload("direct note"), "message-1");
       expect(await bounded(api.posts)).toEqual({ channel: "D-open", text: "direct note" });
       expect(api.calls.find((call) => call.method === "conversations.open")?.body).toEqual({
         users: "U5",
       });
       expect(await receipt).toEqual({ value: "sent", externalMessageId: "999.1" });
-      await expect(adapter.deliver("U5", "no workspace", "message-2")).rejects.toBeInstanceOf(
+      await expect(adapter.deliver("U5", Outbound.payload("no workspace"), "message-2")).rejects.toBeInstanceOf(
         SlackEndpointKeyError,
       );
     } finally {
@@ -248,7 +248,7 @@ describe("SlackAdapter", () => {
     const api = installSlackApi();
     try {
       const adapter = new SlackAdapter({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, noopPublish, injectedOptions());
-      const receipt = adapter.deliver("T9:U5", "in thread", "message-3", {
+      const receipt = adapter.deliver("T9:U5", Outbound.payload("in thread"), "message-3", {
         channelId: "C123",
         replyToMessageId: "1710.0002",
       });

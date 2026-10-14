@@ -1,4 +1,4 @@
-import type { Channel, BusEvent } from "@openomni/protocol";
+import type { Channel, BusEvent, Outbound } from "@openomni/protocol";
 import type { Effect } from "effect";
 
 /**
@@ -19,6 +19,23 @@ export interface ChannelClient {
   /** `traceId` is the causing occurrence's trace (D11) — the inbound message for replies, the surface's documented origin mint for outbound sends; retries of one send share it. */
   send(channelId: string, text: string, traceId: string): Promise<string | undefined>;
 }
+
+/**
+ * The bytes behind one outbound media part, with the name and mime the
+ * platform upload names them by.
+ */
+export interface MediaBytes {
+  readonly bytes: Uint8Array;
+  readonly name: string;
+  readonly mime: string;
+}
+
+/**
+ * Resolves an image or file part's `ref` (a path on the attached machine or
+ * an https URL) to its bytes at delivery time. The composition root owns
+ * this: drivers never read a filesystem or fetch beyond their platform API.
+ */
+export type MediaResolver = (part: Outbound.Part & { kind: "image" | "file" }) => Promise<MediaBytes>;
 
 /**
  * Raw platform payload → Channel.InboundMessage.

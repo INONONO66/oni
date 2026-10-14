@@ -1,4 +1,5 @@
-import { kernelDeliveryReceipt, refuseConversation } from "../../support/deliver.js";
+import { kernelDeliveryReceipt } from "../../support/deliver.js";
+import { DeliveryNotSent } from "../../errors.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
 import { GitHubAdapter } from "./surface.js";
@@ -21,6 +22,9 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     webhook: true,
     // GitHub renders markdown natively and comments carry no driver-enforced limit.
     render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
+    media: false,
+    react: false,
+    typing: false,
   },
   credentials: z
     .object({
@@ -43,9 +47,13 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     );
     return {
       surface,
-      deliveryRoute: async (externalId, body, key, conversation) => {
-        refuseConversation("github", conversation);
-        return kernelDeliveryReceipt(await surface.deliver(externalId, body, key));
+      deliveryRoute: async (externalId, payload, key, conversation) => {
+        if (conversation !== undefined)
+          throw new DeliveryNotSent({
+            operation: "github.deliver",
+            cause: `github cannot post into conversation ${conversation.channelId}; only direct delivery`,
+          });
+        return kernelDeliveryReceipt(await surface.deliver(externalId, payload, key));
       },
       webhookHandler: (request) => surface.handleWebhook(request),
     };

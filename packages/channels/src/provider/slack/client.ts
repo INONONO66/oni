@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
-import type { ChannelClient, EffectRunner, PublishPort } from "../../types";
+import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
 import { SlackApiError } from "../../errors";
+import type { PlainValue } from "@openomni/protocol";
 
 const BASE_URL = "https://slack.com/api";
 
@@ -21,6 +22,8 @@ const ThreadMessageSchema = z.object({
   text: z.string().optional(),
 });
 const ThreadRepliesSchema = z.object({ messages: z.array(ThreadMessageSchema) });
+const UploadUrlSchema = z.object({ upload_url: z.string(), file_id: z.string() });
+const OkSchema = z.object({});
 export type SlackThreadMessage = z.infer<typeof ThreadMessageSchema>;
 
 /** How much of a thread a new thread session is seeded with. */
@@ -104,6 +107,61 @@ export class SlackClient implements ChannelClient {
     return data.messages;
   }
 
+  /**
+   * The v2 upload: reserve a URL sized to the bytes, POST them, then complete
+   * the upload into the channel (and thread). The share's message carries no
+   * ts in the response, so the caller gets an acknowledgement without one.
+   */
+  async sendMedia(
+    channelId: string,
+    threadTs: string | undefined,
+    media: MediaBytes,
+    caption: string | undefined,
+    traceId: string,
+  ): Promise<void> {
+    const reserved = await this.api(
+      "files.getUploadURLExternal",
+      { filename: media.name, length: media.bytes.byteLength },
+      traceId,
+      this.botToken,
+      { schema: UploadUrlSchema, malformed: "files.getUploadURLExternal returned no upload url" },
+    );
+    const put = await fetchWithRetry(
+      reserved.upload_url,
+      { method: "POST", headers: { "Content-Type": media.mime }, body: media.bytes },
+      { traceId, run: this.run, label: "slack upload", publish: this.publish },
+    );
+    if (!put.ok) {
+      throw new SlackApiError({
+        message: `slack upload failed (${put.status})`,
+        rejected: put.status >= 400 && put.status < 500,
+      });
+    }
+    await this.api(
+      "files.completeUploadExternal",
+      {
+        files: [{ id: reserved.file_id, title: media.name }],
+        channel_id: channelId,
+        ...(threadTs === undefined ? {} : { thread_ts: threadTs }),
+        ...(caption === undefined ? {} : { initial_comment: caption }),
+      },
+      traceId,
+      this.botToken,
+      { schema: OkSchema, malformed: "files.completeUploadExternal returned a malformed envelope" },
+    );
+  }
+
+  /** `reactions.add` takes the emoji's short name without colons. */
+  async react(channelId: string, messageTs: string, name: string, traceId: string): Promise<void> {
+    await this.api(
+      "reactions.add",
+      { channel: channelId, timestamp: messageTs, name },
+      traceId,
+      this.botToken,
+      { schema: OkSchema, malformed: "reactions.add returned a malformed envelope" },
+    );
+  }
+
   /** DM channel for a user id (`conversations.open`). */
   async openDm(userId: string, traceId: string): Promise<string> {
     const data = await this.api("conversations.open", { users: userId }, traceId, this.botToken, {
@@ -115,7 +173,7 @@ export class SlackClient implements ChannelClient {
 
   private async api<T>(
     method: string,
-    body: Record<string, string>,
+    body: Record<string, PlainValue>,
     traceId: string,
     token: string,
     shape: { readonly schema: z.ZodType<T>; readonly malformed: string },

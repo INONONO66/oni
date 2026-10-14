@@ -128,6 +128,13 @@ export function messageFixture(
   };
 }
 
+/** The tool's letter face for a gateway content: the string sugar, the parts, or the one reaction. */
+function toolLetter(content: Gateway.SendMessage["content"]): Pick<SendMessageInput, "message" | "react"> {
+  if (typeof content === "string") return { message: content };
+  if (content.kind === "react") return { react: content.emoji };
+  return { message: content.parts };
+}
+
 /**
  * Fixtures speak the gateway contract; the tool speaks the model vocabulary
  * (§3.5). Deadlines are absolute against the fixture clock of 100.
@@ -135,7 +142,7 @@ export function messageFixture(
 function toolInput(send: Gateway.SendMessage): SendMessageInput {
   return {
     to: send.to.kind === "actor" ? { kind: "contact", id: send.to.actorId } : send.to,
-    message: send.content,
+    ...toolLetter(send.content),
     kind: send.type === "message" ? "prompt" : send.type,
     ...(send.replyTo === undefined ? {} : { reply_to: send.replyTo }),
     ...(send.deadline === undefined ? {} : { deadline_ms: send.deadline - 100 }),

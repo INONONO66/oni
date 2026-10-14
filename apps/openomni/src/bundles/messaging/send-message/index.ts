@@ -1,5 +1,5 @@
 import { Bundle, Core } from "@openomni/agent";
-import { Gateway } from "@openomni/protocol";
+import { Gateway, Outbound } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { ToolCapabilitySeam } from "../../seams";
@@ -11,10 +11,11 @@ const ToolRefused = Core.ToolRefused;
  * The `send-message` bundle (#1258): the one `send_message` tool face, the
  * contact registry, and one connector per contact kind. The agent owns
  * exactly one session; every other party — another session, a new child
- * session, a telegram/discord channel, a human, an external CLI agent — is a
- * contact reached through this single tool. Session-addressed sends keep
- * riding the gateway's ingest door (the cluster runtime owns session
- * creation); channel/human/CLI contacts route through the connectors below.
+ * session, a person on a channel, an external CLI agent — is a contact
+ * reached through this single tool. Sessions and channel contacts ride the
+ * gateway's ingest door (the cluster runtime owns session creation; the
+ * channels perimeter owns grants, egress and the per-platform translation of
+ * one `Outbound.Payload`, #1497); CLI contacts route through the connector below.
  */
 
 /** The tool needs exactly the router's ingest door; composition supplies the router itself. */
@@ -45,7 +46,19 @@ const Target = z.discriminatedUnion("kind", [
 const SendMessageInput = z
   .object({
     to: Target,
-    message: z.string(),
+    message: z
+      .union([z.string(), z.array(Outbound.Part).min(1)])
+      .optional()
+      .describe(
+        "The letter: plain markdown, or ordered parts — text, code {text, lang?}, image {ref, name?, caption?}, file {ref, name, mime?, caption?}. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+      ),
+    react: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Instead of a letter, put this emoji on the message the contact wrote (to.conversation.replyToMessageId names it). Channel contacts only.",
+      ),
     kind: z
       .enum(["prompt", "interrupt", "resume"])
       .default("prompt")
@@ -65,8 +78,26 @@ const SendMessageInput = z
         "Spending cap granted to a new child session; creation without one is refused by policy.",
       ),
   })
-  .strict();
+  .strict()
+  .refine((input) => (input.message === undefined) !== (input.react === undefined), {
+    message: "exactly one of message or react",
+  });
 type SendMessageInput = z.output<typeof SendMessageInput>;
+
+/** The one outbound value the gateway carries: a letter of parts, or one reaction on the contact's message. */
+function outboundPayload(input: SendMessageInput): Outbound.Payload {
+  if (input.react === undefined) {
+    if (input.message === undefined)
+      throw new ToolRefused("send_message", "exactly one of message or react");
+    return typeof input.message === "string"
+      ? Outbound.payload(input.message)
+      : { kind: "message", parts: input.message };
+  }
+  const messageId = input.to.kind === "contact" ? input.to.conversation?.replyToMessageId : undefined;
+  if (messageId === undefined)
+    throw new ToolRefused("send_message", "react needs a channel contact with conversation.replyToMessageId");
+  return { kind: "react", messageId, emoji: input.react };
+}
 
 /** The tool's vocabulary folded onto the gateway's consumer surface. */
 function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessage {
@@ -81,7 +112,7 @@ function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessag
           }
         : input.to,
     type: input.kind === "prompt" ? "message" : input.kind,
-    content: input.message,
+    content: outboundPayload(input),
     ...(input.reply_to === undefined ? {} : { replyTo: input.reply_to }),
     ...(input.deadline_ms === undefined ? {} : { deadline: now + input.deadline_ms }),
   };
@@ -89,8 +120,8 @@ function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessag
 
 // ─── contact registry ───
 
-/** The connector-routed contact kinds; `session`/`new_session` stay on the gateway ingest door. */
-const CONTACT_KINDS = ["telegram", "discord", "human", "cli"] as const;
+/** The connector-routed contact kinds; sessions and channel contacts stay on the gateway ingest door. */
+const CONTACT_KINDS = ["cli"] as const;
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
 /** The external CLI agents (#1180 absorbed): contacts, not a separate integration. */
@@ -101,7 +132,7 @@ export interface ContactAddress {
   readonly id: string;
 }
 
-/** `telegram:<id>` / `discord:<id>` / `human:owner` / `cli:claude-code|codex|omp`. */
+/** `cli:claude-code|codex|omp`; any other id is a registered contact reached through the gateway. */
 export function parseContactAddress(contact: string): ContactAddress | undefined {
   const split = contact.indexOf(":");
   if (split <= 0 || split === contact.length - 1) return undefined;
@@ -133,21 +164,6 @@ type ContactOutcome = z.infer<typeof ContactOutcome>;
 
 /** A connector never throws: failure is the journaled `not_sent` fact. */
 export type Connector = (send: OutboundSend) => Effect.Effect<ContactOutcome>;
-
-/** Channel egress door (telegram/discord): the channels perimeter owns grant/egress/idempotency. */
-export interface ChannelEgressPort {
-  send(input: {
-    readonly surface: "telegram" | "discord";
-    readonly chatId: string;
-    readonly text: string;
-    readonly replyTo?: string;
-  }): Effect.Effect<void, { readonly reason: string }>;
-}
-
-/** Human contact door: the desktop surface or a configured channel. */
-export interface HumanNotifyPort {
-  notify(input: { readonly to: string; readonly text: string }): Effect.Effect<void, { readonly reason: string }>;
-}
 
 /** External CLI agent runner over the machines exec/pty surface; injected, never ambient. */
 export interface CliRunnerPort {
@@ -181,8 +197,6 @@ type RunContactEffect = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
 export interface ContactPorts {
   readonly run?: RunContactEffect;
-  readonly channels?: ChannelEgressPort;
-  readonly human?: HumanNotifyPort;
   readonly cli?: CliRunnerPort;
   readonly reply?: ContactReplyPort;
   readonly deadline?: DelegationDeadlinePort;
@@ -198,35 +212,6 @@ function delivered(address: ContactAddress): ContactOutcome {
 
 function notSent(address: ContactAddress, reason: string): ContactOutcome {
   return { contact: contactName(address), status: "not_sent", reason };
-}
-
-/** telegram/discord connector: one egress door, outcome is the journaled fact. */
-export function channelConnector(surface: "telegram" | "discord", port: ChannelEgressPort | undefined): Connector {
-  return (send) =>
-    port === undefined
-      ? Effect.succeed(notSent(send.address, "channel egress is not composed"))
-      : port
-          .send({
-            surface,
-            chatId: send.address.id,
-            text: send.message,
-            ...(send.replyTo === undefined ? {} : { replyTo: send.replyTo }),
-          })
-          .pipe(
-            Effect.as(delivered(send.address)),
-            Effect.catch((refused: { readonly reason: string }) => Effect.succeed(notSent(send.address, refused.reason))),
-          );
-}
-
-/** human connector: the desktop or a configured channel decides presentation. */
-export function humanConnector(port: HumanNotifyPort | undefined): Connector {
-  return (send) =>
-    port === undefined
-      ? Effect.succeed(notSent(send.address, "human contact door is not composed"))
-      : port.notify({ to: send.address.id, text: send.message }).pipe(
-          Effect.as(delivered(send.address)),
-          Effect.catch((refused: { readonly reason: string }) => Effect.succeed(notSent(send.address, refused.reason))),
-        );
 }
 
 /**
@@ -257,12 +242,7 @@ export function cliConnector(runner: CliRunnerPort | undefined, reply: ContactRe
 
 /** kind → connector; composition builds it once from the injected ports. */
 function createContactRegistry(ports: ContactPorts): ReadonlyMap<ContactKind, Connector> {
-  return new Map<ContactKind, Connector>([
-    ["telegram", channelConnector("telegram", ports.channels)],
-    ["discord", channelConnector("discord", ports.channels)],
-    ["human", humanConnector(ports.human)],
-    ["cli", cliConnector(ports.cli, ports.reply)],
-  ]);
+  return new Map<ContactKind, Connector>([["cli", cliConnector(ports.cli, ports.reply)]]);
 }
 
 // ─── the tool face ───
@@ -282,11 +262,13 @@ function routeContact(
     throw new ToolRefused("send_message", `no connector for contact kind ${address.kind}`);
   if (contacts.run === undefined)
     throw new ToolRefused("send_message", "contact effect runner is not composed");
+  if (input.react !== undefined)
+    throw new ToolRefused("send_message", "a CLI agent takes a letter, not a reaction");
   return contacts.run(
     connector({
       sender: context.sessionId,
       address,
-      message: input.message,
+      message: Outbound.text(outboundPayload(input)),
       ...(input.reply_to === undefined ? {} : { replyTo: input.reply_to }),
       ...(input.deadline_ms === undefined ? {} : { deadlineMs: input.deadline_ms }),
     }),
@@ -319,7 +301,7 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter to a contact: a session, a new child session, a telegram or discord channel, a human, or an external CLI agent (cli:claude-code|codex|omp). Returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), or an external CLI agent (cli:claude-code|codex|omp). Returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },

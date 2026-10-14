@@ -1,5 +1,5 @@
 import { newTraceId } from "../../support/trace";
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
 import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { requireHandler } from "../../support/handler-frame";
@@ -19,9 +19,10 @@ import {
   DiscordMessageSchema,
   DiscordReactionSchema,
 } from "./types";
-import type { EffectRunner, PublishPort } from "../../types";
-import { sendText } from "../../support/send-text";
-import { DISCORD_RENDER } from "./format";
+import type { PublishPort } from "../../types";
+import type { ProviderOptions } from "../contract";
+import { translate } from "../../support/translate";
+import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
 
 export class DiscordAdapter implements Channel.Surface {
   readonly id = "discord";
@@ -36,12 +37,7 @@ export class DiscordAdapter implements Channel.Surface {
     token: string,
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
-    private readonly options: {
-      readonly now: () => number;
-      readonly id: () => string;
-      readonly random: () => number;
-      readonly run: EffectRunner;
-    },
+    private readonly options: ProviderOptions,
   ) {
     this.dedupe = new Dedupe(options.now);
     this.client = new DiscordClient(token, publish, options.run);
@@ -109,19 +105,42 @@ export class DiscordAdapter implements Channel.Surface {
 
   /**
    * Existing-agent delivery: a registered ActorEndpoint's externalId is a
-   * Discord user id — deliver by DM and report the platform message id of
-   * the final chunk (the message a reply would reference).
+   * Discord user id — deliver by DM, or into the conversation's channel when
+   * the person wrote in one — and report the platform message id of the
+   * final chunk (the message a reply would reference).
    */
-  deliver(externalId: string, body: string, idempotencyKey: string): Promise<DeliveryReceipt> {
+  deliver(
+    externalId: string,
+    payload: Outbound.Payload,
+    idempotencyKey: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<DeliveryReceipt> {
     return deliverKeyed(
       this.outbound,
       idempotencyKey,
       async (traceId) => {
-        const channelId = await this.client.createDmChannel(externalId, traceId).catch((error) => {
-          throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: String(error) });
-        });
-        return await sendText(body, DISCORD_RENDER, (chunk) =>
-          this.client.send(channelId, chunk, traceId),
+        const channelId = conversation?.channelId ?? (await this.dmChannel(externalId, traceId));
+        return await translate(
+          payload,
+          DISCORD_RENDER,
+          {
+            text: (chunk) => this.client.send(channelId, chunk, traceId, conversation),
+            media: {
+              limits: DISCORD_MEDIA_LIMITS,
+              upload: async (_kind, bytes, caption) => {
+                const externalMessageId = await this.client.sendMedia(
+                  channelId,
+                  bytes,
+                  caption,
+                  traceId,
+                  conversation,
+                );
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
+            },
+            react: (messageId, emoji) => this.client.react(channelId, messageId, emoji, traceId),
+          },
+          this.options.media,
         );
       },
       (error) =>
@@ -130,6 +149,18 @@ export class DiscordAdapter implements Channel.Surface {
       this.publish,
       this.options,
     );
+  }
+
+  async typing(externalId: string, conversation?: Gateway.Conversation): Promise<void> {
+    const traceId = newTraceId(this.options.id);
+    const channelId = conversation?.channelId ?? (await this.dmChannel(externalId, traceId));
+    await this.client.typing(channelId, traceId);
+  }
+
+  private dmChannel(externalId: string, traceId: string): Promise<string> {
+    return this.client.createDmChannel(externalId, traceId).catch((error) => {
+      throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: String(error) });
+    });
   }
 
   private handleMessageCreate(message: DiscordMessage | DiscordReaction, traceId: string): void {

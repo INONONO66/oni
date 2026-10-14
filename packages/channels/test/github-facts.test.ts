@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { injectedOptions } from "./helpers/injected";
 import { expect, test } from "bun:test";
-import { Gateway, type Channel } from "@openomni/protocol";
+import { Gateway, Outbound, type Channel } from "@openomni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface";
 
 for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
@@ -84,7 +84,7 @@ for (const value of ["sent", "not_sent", "unknown"] as const) {
     );
     try {
       const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions(), "token");
-      expect(await adapter.deliver("owner/repo#7", "content", "stable-key")).toEqual(
+      expect(await adapter.deliver("owner/repo#7", Outbound.payload("content"), "stable-key")).toEqual(
         value === "sent" ? { value, externalMessageId: "99" } : { value },
       );
       expect(posts).toBe(1);
@@ -105,7 +105,7 @@ test("GitHub reports a refused connection as not_sent, like every other driver",
   );
   try {
     const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions(), "token");
-    expect(await adapter.deliver("owner/repo#7", "content", "refused-key")).toEqual({
+    expect(await adapter.deliver("owner/repo#7", Outbound.payload("content"), "refused-key")).toEqual({
       value: "not_sent",
     });
   } finally {
@@ -131,7 +131,7 @@ test("GitHub refuses malformed destinations and missing credentials before effec
       "owner/..#7",
       "owner/repo#999999999999999999999",
     ])
-      expect(await adapter.deliver(endpoint, "content", endpoint)).toEqual({ value: "not_sent" });
+      expect(await adapter.deliver(endpoint, Outbound.payload("content"), endpoint)).toEqual({ value: "not_sent" });
     expect(calls).toBe(0);
   } finally {
     globalThis.fetch = realFetch;

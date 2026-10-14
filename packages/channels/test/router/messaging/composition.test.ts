@@ -3,7 +3,7 @@ import { effectFailure } from "../../helpers/effect-failure";
 import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../helpers/effect";
 import { replaceDecisionFacts } from "../../helpers/ledger";
-import type { Gateway } from "@openomni/protocol";
+import { type Gateway, Outbound } from "@openomni/protocol";
 import type { ChannelDeliveryRoute } from "../../../src/router";
 import { makeRouter as makeFixtureRouter, resetRouterState } from "../_router-fixture";
 
@@ -34,8 +34,8 @@ function makeRouter(routes?: ReadonlyMap<string, ChannelDeliveryRoute>) {
         new Map([
           [
             "discord",
-            async (externalId: string, body: string, idempotencyKey: string) => {
-              delivered.push({ externalId, body, idempotencyKey });
+            async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
+              delivered.push({ externalId, body: Outbound.text(payload), idempotencyKey });
               return { value: "accepted", externalMessageId: `platform-${delivered.length}` };
             },
           ],
@@ -128,8 +128,8 @@ test("an admission denied after preflight fails as a typed send-admission confli
       deliveryRoutes: new Map([
         [
           "discord",
-          async (externalId: string, body: string, idempotencyKey: string) => {
-            delivered.push({ externalId, body, idempotencyKey });
+          async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
+            delivered.push({ externalId, body: Outbound.text(payload), idempotencyKey });
             return { value: "accepted" as const };
           },
         ],
