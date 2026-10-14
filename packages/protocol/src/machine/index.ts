@@ -65,6 +65,8 @@ export namespace Machine {
   export type ReportResult = Schema.ReportResult;
   export const CellRequest = Schema.CellRequest;
   export type CellRequest = Schema.CellRequest;
+  export const CELL_OUTPUT_MAX_BYTES = Schema.CELL_OUTPUT_MAX_BYTES;
+  export const CellOutput = Schema.CellOutput;
   export const CellResult = Schema.CellResult;
   export type CellResult = Schema.CellResult;
   export type CellOutput = Schema.CellOutput;

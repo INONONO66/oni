@@ -302,12 +302,24 @@ export const CellRequest = z
   .strict();
 export type CellRequest = z.infer<typeof CellRequest>;
 
+/** Maximum retained UTF-8 prefix bytes per cell output stream. */
+export const CELL_OUTPUT_MAX_BYTES = 65_536;
+const TruncatedStream = z.object({ originalBytes: z.number().int().nonnegative() }).strict();
 export const CellOutput = z
   .object({
     stdout: z.string(),
     stderr: z.string(),
+    truncated: z.object({ stdout: TruncatedStream.optional(), stderr: TruncatedStream.optional() }).strict().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((output, context) => {
+    for (const stream of ["stdout", "stderr"] as const) {
+      const bytes = new TextEncoder().encode(output[stream]).length;
+      // A truncated stream retains its bounded prefix and a short visible marker.
+      if (bytes > CELL_OUTPUT_MAX_BYTES + (output.truncated?.[stream] ? 96 : 0))
+        context.addIssue({ code: "custom", path: [stream], message: "cell output exceeds its per-stream byte bound" });
+    }
+  });
 export type CellOutput = z.infer<typeof CellOutput>;
 
 /**

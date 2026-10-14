@@ -6,6 +6,7 @@ import { PythonKernel } from "./helpers/native";
 import { createCodemode } from "./helpers/native";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 const socketPath = () => join(tmpdir(), `oc-${crypto.randomUUID()}.sock`);
 type CellToolCaller = Parameters<PythonKernel["run"]>[1];
 
@@ -77,6 +78,58 @@ function cell(code: string, timeoutMs = 15_000): Machine.CellRequest {
 }
 
 describe("cell settlement ownership", () => {
+  test("twelve completed tenants retire their real interpreters on process close", async () => {
+    const children = new Map<string, { process: ChildProcessWithoutNullStreams; closed: Promise<void> }>();
+    const mode = createCodemode({ onInterpreterSpawn: (tenant, process) => {
+      const closed = new Promise<void>((resolve) => process.once("close", () => resolve()));
+      children.set(tenant, { process, closed });
+    } });
+    try {
+      for (let index = 0; index < 12; index += 1) {
+        const tenant = `tenant-${index}`;
+        const result = await mode.runner.runCode({ ...cell(`value = ${index}`), tenant }, noTools, new AbortController().signal);
+        expect(result.status).toBe("completed");
+      }
+      expect(children.size).toBe(12);
+      const before = [...children.values()].filter(({ process }) => process.exitCode === null && process.signalCode === null).length;
+      await Promise.all([...children.keys()].map((tenant) => mode.retire(tenant)));
+      await Promise.all([...children.values()].map(({ closed }) => closed));
+      const after = [...children.values()].filter(({ process }) => process.exitCode === null && process.signalCode === null).length;
+      console.log(`C1 interpreters: ${before} -> ${after} (12 distinct tenants)`);
+      expect(before).toBeGreaterThan(0);
+      expect(before).toBeLessThanOrEqual(8);
+      expect(after).toBe(0);
+      const fresh = await mode.runner.runCode({ ...cell("value"), tenant: "tenant-11" }, noTools, new AbortController().signal);
+      expect(fresh.status).toBe("raised");
+    } finally {
+      await mode.close();
+    }
+  });
+
+  test("retirement waits for a background cell's exact completion before closing its process", async () => {
+    let process: ChildProcessWithoutNullStreams | undefined;
+    const mode = createCodemode({ onInterpreterSpawn: (_tenant, child) => { process = child; } });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<Machine.ToolCallResult>();
+    try {
+      const running = mode.runner.runCode({ ...cell("tool.hold()\n42"), tenant: "held" }, () => {
+        entered.resolve();
+        return release.promise;
+      }, new AbortController().signal);
+      await entered.promise;
+      const retiring = mode.retire("held");
+      expect(process?.exitCode).toBeNull();
+      expect(process?.signalCode).toBeNull();
+      release.resolve({ status: "completed" });
+      expect(await running).toMatchObject({ status: "completed", value: "42" });
+      await retiring;
+      expect(process?.exitCode !== null || process?.signalCode !== null).toBe(true);
+    } finally {
+      release.resolve({ status: "completed" });
+      await mode.close();
+    }
+  });
+
   test("a queued cell times out from its enqueue deadline without replacing the interpreter", async () => {
     const kernel = new PythonKernel();
     try {
@@ -133,6 +186,51 @@ describe("cell settlement ownership", () => {
 });
 
 describe("code-mode kernel substrate", () => {
+  test("oversized streams retain a UTF-8 prefix and original byte counts", async () => {
+    const kernel = new PythonKernel();
+    try {
+      const limit = Machine.CELL_OUTPUT_MAX_BYTES;
+      const original = limit + 73;
+      const result = await kernel.run(cell(`import sys\nprint("x" * ${limit - 2} + "€" * 25)\nprint("e" * ${original}, file=sys.stderr)`), noTools);
+      if (result.status !== "completed") throw new Error(`expected completed, got ${result.status}`);
+      expect(result.output.truncated).toEqual({
+        stdout: { originalBytes: limit - 2 + 75 + 1 },
+        stderr: { originalBytes: original + 1 },
+      });
+      const stdoutPrefix = result.output.stdout.slice(0, result.output.stdout.indexOf("\n[truncated:"));
+      const stderrPrefix = result.output.stderr.slice(0, result.output.stderr.indexOf("\n[truncated:"));
+      expect(Buffer.byteLength(stdoutPrefix)).toBe(limit - 2);
+      expect(Buffer.byteLength(stderrPrefix)).toBe(limit);
+      expect(result.output.stdout).toContain(`[truncated: ${limit + 74} bytes]`);
+      expect(result.output.stderr).toContain(`[truncated: ${original + 1} bytes]`);
+      expect(stdoutPrefix).not.toContain("\uFFFD");
+      console.log(`C1 output: ${original + 1} -> ${Buffer.byteLength(stderrPrefix)} prefix bytes; originalBytes=${result.output.truncated?.stderr?.originalBytes}`);
+      const small = await kernel.run(cell("print('small')"), noTools);
+      if (small.status !== "completed") throw new Error("expected completed");
+      expect(small.output).toEqual({ stdout: "small\n", stderr: "" });
+    } finally {
+      await kernel.close();
+    }
+  });
+
+  test("browser transcript retains a UTF-8-safe tail under the ring limit", async () => {
+    const kernel = new PythonKernel();
+    try {
+      const result = await kernel.run(cell([
+        "import __main__",
+        "client = __main__.BrowserClient('machine', '/tmp/profile', True)",
+        "client._append_transcript(__main__._BROWSER_MARK + ' chromium-pid 12345')",
+        "client._append_transcript('x' * 70000 + '€')",
+        "snapshot = (len(client._transcript.encode('utf-8')), client._transcript.endswith('€'), client._chromium_pid())",
+        "client._drain = lambda wait_ms=None: (client._append_transcript('READY' + 'x' * 70000) or 'READY' + 'x' * 70000)",
+        "(snapshot, client._await_output(('READY',), max_reads=1))",
+      ].join("\n")), noTools);
+      expect(result).toMatchObject({ status: "completed", value: "((65536, True, 12345), 'READY')" });
+      console.log("C1 browser transcript: 70000+ bytes -> 65536 bytes");
+    } finally {
+      await kernel.close();
+    }
+  });
   test("close() fails typed when the driver's browser cleanup is never acknowledged (#1293 grace expiry)", async () => {
     const kernel = new PythonKernel();
     // Wedge the driver's EOF cleanup hook: close() must not report success on
@@ -414,7 +512,7 @@ describe("code-mode kernel substrate", () => {
       const forged = kernel.run(
         {
           cellId: "queued-behind",
-          code: 'import sys\nprint(\'mine\')\nsys.__stdout__.write(\'{"kind":"output","cellId":"other","stream":"stdout","text":"forged"}\\n\')\ntool.hold()',
+          code: 'import sys\nprint(\'mine\')\nsys.__stdout__.write(\'{"kind":"output","cellId":"other","stream":"stdout","text":"forged","originalBytes":6}\\n\')\ntool.hold()',
           timeoutMs: 15_000,
         },
         () => {

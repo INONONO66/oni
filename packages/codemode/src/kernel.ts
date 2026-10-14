@@ -26,6 +26,8 @@ import threading
 import time
 import traceback
 
+_OUTPUT_LIMIT = ${Machine.CELL_OUTPUT_MAX_BYTES}
+_BROWSER_TRANSCRIPT_LIMIT = 65_536
 _emit_lock = threading.Lock()
 _cell_context = threading.local()
 _cell_requests = queue.Queue()
@@ -136,18 +138,47 @@ class _Output(io.TextIOBase):
         self._cell_id = cell_id
         self._stream = stream
         self._buffer = io.StringIO()
+        self.original_bytes = 0
+        self._retained_bytes = 0
+        self._cut = False
 
     def writable(self):
         return True
 
     def write(self, text):
         if text:
-            self._buffer.write(text)
-            _emit({"kind": "output", "cellId": self._cell_id, "stream": self._stream, "text": text})
+            encoded = text.encode("utf-8")
+            self.original_bytes += len(encoded)
+            remaining = _OUTPUT_LIMIT - self._retained_bytes
+            kept = encoded[:remaining].decode("utf-8", "ignore") if not self._cut else ""
+            self._buffer.write(kept)
+            kept_bytes = len(kept.encode("utf-8"))
+            self._retained_bytes += kept_bytes
+            previously_cut = self._cut
+            self._cut = self._cut or kept_bytes < len(encoded)
+            if kept or not previously_cut:
+                _emit({"kind": "output", "cellId": self._cell_id, "stream": self._stream,
+                       "text": kept, "originalBytes": len(encoded)})
         return len(text)
 
     def getvalue(self):
-        return self._buffer.getvalue()
+        value = self._buffer.getvalue()
+        return value + ("\n[truncated: " + str(self.original_bytes) + " bytes]\n" if self._cut else "")
+
+    def metadata(self):
+        return {"originalBytes": self.original_bytes} if self._cut else None
+
+
+def _cell_output(stdout, stderr):
+    output = {"stdout": stdout.getvalue(), "stderr": stderr.getvalue()}
+    truncated = {}
+    if stdout.metadata() is not None:
+        truncated["stdout"] = stdout.metadata()
+    if stderr.metadata() is not None:
+        truncated["stderr"] = stderr.metadata()
+    if truncated:
+        output["truncated"] = truncated
+    return output
 
 
 def tool_output(output_id):
@@ -410,6 +441,7 @@ class BrowserClient:
         self.endpoint = None
         self._cursor = None
         self._transcript = ""
+        self._browser_pid = None
         self._browser = None
         self._cdp = None
 
@@ -426,15 +458,24 @@ class BrowserClient:
             return None
         self._cursor = view["cursor"]
         text = view["data"].decode("utf-8", "replace")
-        self._transcript += text
+        self._append_transcript(text)
         return text
 
+    def _append_transcript(self, text):
+        found = re.findall(re.escape(_BROWSER_MARK) + r" chromium-pid (\d+)", self._transcript + text)
+        if found:
+            self._browser_pid = int(found[-1])
+        combined = (self._transcript + text).encode("utf-8")
+        self._transcript = combined[-_BROWSER_TRANSCRIPT_LIMIT:].decode("utf-8", "ignore")
+
     def _await_output(self, markers, quiet_rounds=120, wait_ms=1000, max_reads=10000):
-        """Block on pty_read long-polls until a marker line is retained: readiness
+        """Block on pty_read long-polls until a marker line is observed: readiness
         is decided by exact output, never by elapsed time. Non-empty reads return
         immediately (terminal echo arrives as many tiny events), so the failure
         bound counts QUIET long-poll rounds plus a generous total-read cap."""
         quiet = 0
+        carry = ""
+        marker_width = max(map(len, markers), default=0)
         for _ in range(max_reads):
             for marker in markers:
                 if marker in self._transcript:
@@ -442,6 +483,10 @@ class BrowserClient:
             chunk = self._drain(wait_ms)
             if chunk is None:
                 return None
+            for marker in markers:
+                if marker in carry + chunk:
+                    return marker
+            carry = (carry + chunk)[-marker_width:]
             quiet = quiet + 1 if chunk == "" else 0
             if quiet >= quiet_rounds:
                 return None
@@ -471,6 +516,7 @@ class BrowserClient:
             )
         self._cursor = opened["cursor"]
         self._transcript = ""
+        self._browser_pid = None
         if executable_path is not None:
             resolve = "OMO_EXE=" + _shell_quote(executable_path)
         else:
@@ -628,7 +674,7 @@ class BrowserClient:
         """The launch line retains the browser pid in the session output; cells
         run on the same machine as the session (the localhost CDP assumption)."""
         found = re.findall(re.escape(_BROWSER_MARK) + r" chromium-pid (\d+)", self._transcript)
-        return int(found[-1]) if found else None
+        return int(found[-1]) if found else self._browser_pid
 
     def _stop_chromium(self):
         """Builds that honor CDP Browser.close exit on it; this is the fallback
@@ -769,7 +815,7 @@ while True:
         _result = {
             "status": "completed",
             "cellId": _request["cellId"],
-            "output": {"stdout": _stdout.getvalue(), "stderr": _stderr.getvalue()},
+            "output": _cell_output(_stdout, _stderr),
         }
         if _has_value:
             _result["value"] = repr(_value)
@@ -780,7 +826,7 @@ while True:
         _result = {
             "status": "raised",
             "cellId": _request["cellId"],
-            "output": {"stdout": _stdout.getvalue(), "stderr": _stderr.getvalue()},
+            "output": _cell_output(_stdout, _stderr),
             "error": "".join(traceback.format_exception(type(_exc), _exc, _tb)),
         }
     _cell_context.cell_id = None
@@ -799,6 +845,7 @@ const OutputFrame = z
     cellId: z.string().min(1),
     stream: z.enum(["stdout", "stderr"]),
     text: z.string(),
+    originalBytes: z.number().int().nonnegative(),
   })
   .strict();
 const Frame = z.discriminatedUnion("kind", [
@@ -836,12 +883,15 @@ type PendingCell = {
   readonly cellId: string;
   readonly process: ChildProcessWithoutNullStreams;
   readonly frames: Queue.Queue<string | DriverFailure>;
-  readonly output: { stdout: string; stderr: string };
+  readonly output: Machine.CellOutput;
+  readonly prefix: { stdout: string; stderr: string };
+  readonly originalBytes: { stdout: number; stderr: number };
   readonly inFlight: Set<string>;
 };
 
 /** A serial interpreter; fibers belong to each invocation, not a package runtime. */
 export class PythonKernel {
+  constructor(private readonly onSpawn?: (process: ChildProcessWithoutNullStreams) => void) {}
   private process: ChildProcessWithoutNullStreams | undefined;
   private lines: Interface | undefined;
   private pending: PendingCell | undefined;
@@ -861,7 +911,7 @@ export class PythonKernel {
   run(request: Machine.CellRequest, callTool: CellToolCaller, signal?: AbortSignal): Effect.Effect<Machine.CellResult, CodeError> {
     return Effect.suspend(() => {
       const cancellation = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal;
-      const output = { stdout: "", stderr: "" };
+      const output: Machine.CellOutput = { stdout: "", stderr: "" };
       const cancelled = (): Machine.CellResult => ({ status: "cancelled", cellId: request.cellId, output: { ...output } });
       if (cancellation.aborted) return Effect.succeed(cancelled());
       return this.lock.withPermits(1)(this.execute(request, callTool, output)).pipe(
@@ -935,11 +985,32 @@ export class PythonKernel {
     });
   }
 
+  private captureOutput(pending: PendingCell, frame: z.infer<typeof OutputFrame>): void {
+    if (frame.cellId !== pending.cellId) return;
+    const stream = frame.stream;
+    pending.originalBytes[stream] += frame.originalBytes;
+    const remaining = Machine.CELL_OUTPUT_MAX_BYTES - Buffer.byteLength(pending.prefix[stream]);
+    if (remaining > 0) {
+      const bytes = Buffer.from(frame.text).subarray(0, remaining);
+      let end = bytes.length;
+      while (end > 0) {
+        try { new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end)); break; }
+        catch { end -= 1; }
+      }
+      pending.prefix[stream] += bytes.subarray(0, end).toString("utf8");
+    }
+    const originalBytes = pending.originalBytes[stream];
+    const cut = originalBytes > Buffer.byteLength(pending.prefix[stream]);
+    pending.output[stream] = pending.prefix[stream] + (cut ? `\n[truncated: ${originalBytes} bytes]\n` : "");
+    if (cut) pending.output.truncated = { ...pending.output.truncated, [stream]: { originalBytes } };
+  }
+
   private execute(request: Machine.CellRequest, callTool: CellToolCaller, output: PendingCell["output"]): Effect.Effect<Machine.CellResult, CodeError> {
     return Effect.scoped(Effect.gen({ self: this }, function* () {
       const process = this.process ?? (yield* this.start());
       const frames = yield* Queue.unbounded<string | DriverFailure>();
-      const pending: PendingCell = { cellId: request.cellId, process, frames, output, inFlight: new Set() };
+      const pending: PendingCell = { cellId: request.cellId, process, frames, output,
+        prefix: { stdout: "", stderr: "" }, originalBytes: { stdout: 0, stderr: 0 }, inFlight: new Set() };
       this.pending = pending;
       return yield* Effect.gen({ self: this }, function* () {
         yield* this.write(process, request);
@@ -952,7 +1023,7 @@ export class PythonKernel {
           if (frame.kind === "tool_call") {
             yield* this.answerToolCall(pending, frame, callTool);
           } else if (frame.kind === "output") {
-            if (frame.cellId === pending.cellId) pending.output[frame.stream] += frame.text;
+            this.captureOutput(pending, frame);
           } else {
             this.pending = undefined;
             return frame.result;
@@ -1018,6 +1089,7 @@ export class PythonKernel {
       const exited = yield* Deferred.make<void>();
       const cleanup = yield* Deferred.make<CleanupCompleteFrame["failed"]>();
       const process = yield* Effect.try({ try: () => spawn("python3", ["-u", "-c", PYTHON_DRIVER]), catch: decodeCodeFailure("driver.spawn") });
+      this.onSpawn?.(process);
       this.exits.add(exited);
       this.processExits.set(process, exited);
       this.cleanups.set(process, cleanup);
