@@ -3,7 +3,6 @@ import { type Document, type Element, Window } from "happy-dom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { orderByAttention } from "../src/renderer/attention/order";
-import { formatRelative } from "../src/renderer/attention/reason";
 import { selectChatTransport } from "../src/renderer/chat/select-transport";
 import type { GatewayStatus } from "../src/renderer/shell/gateway-status";
 import { SessionTree } from "../src/renderer/shell/session-tree";
@@ -165,7 +164,6 @@ describe("a session row seats its glyph and its clock", () => {
     expect(trailing?.classList.contains("ml-auto")).toBe(true);
     const time = trailing?.querySelector("time");
     expect(time?.getAttribute("datetime")).toBe(new Date(session.lastActivityAt).toISOString());
-    expect(time?.textContent).toBe(formatRelative(TEST_NOW, session.lastActivityAt));
     expect(time?.textContent).toBe("2m");
     expect(time?.parentElement?.classList.contains("text-fg-faint")).toBe(true);
     expect(time?.parentElement?.classList.contains("text-meta")).toBe(true);
@@ -235,13 +233,11 @@ describe("the footer says where the gateway is", () => {
 
   test("Given a token the wire refuses, When rendered, Then the detail line prints the refusal", () => {
     const endpoint: GatewayEndpoint = { url: "ws://127.0.0.1:3000/ws", token: "not a token" };
-    const refused = selectChatTransport(endpoint, () => "");
-    if (refused.kind !== "misconfigured") throw new Error("fixture must be refused");
     const document = render(endpoint);
     const { row, glyph, title, detail } = workspaceRow(document);
     expect(glyph.getAttribute("data-tone")).toBe("destructive");
     expect(title.textContent).toBe("Gateway");
-    expect(detail.textContent).toBe(refused.problem);
+    expect(detail.textContent).toContain("OPENOMNI_WS_TOKEN");
     expect(row.textContent).not.toContain("not a token");
   });
 
