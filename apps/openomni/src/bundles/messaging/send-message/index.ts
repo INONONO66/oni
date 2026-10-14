@@ -35,6 +35,9 @@ const Target = z.discriminatedUnion("kind", [
       surface: Id.optional().describe(
         "Channel to reach the contact on (telegram, slack, …) when they are reachable on several; omit when they have one.",
       ),
+      conversation: Gateway.Conversation.optional().describe(
+        "Where on that channel to answer: the chat and thread the contact wrote in (needs surface). Omit to reach them directly.",
+      ),
     })
     .strict(),
 ]);
@@ -74,6 +77,7 @@ function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessag
             kind: "actor",
             actorId: input.to.id,
             ...(input.to.surface === undefined ? {} : { surface: input.to.surface }),
+            ...(input.to.conversation === undefined ? {} : { conversation: input.to.conversation }),
           }
         : input.to,
     type: input.kind === "prompt" ? "message" : input.kind,

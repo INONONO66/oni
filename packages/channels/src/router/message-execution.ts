@@ -73,6 +73,33 @@ function transformedContent(
   return content;
 }
 
+/** The conversation a person wrote in, kept on the prompt origin so the answer can go back there. */
+function originConversation(
+  external: MessageContext["external"],
+): { readonly conversation?: PlainValue } {
+  if (external === undefined) return {};
+  const { facts } = external;
+  return {
+    conversation: {
+      channelId: facts.channelId,
+      messageId: facts.eventId,
+      dm: facts.dm,
+      ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
+    },
+  };
+}
+
+/** The gateway's actor target as the messaging seam's target: surface pin and conversation carried as given. */
+export function actorTarget(
+  to: Extract<Gateway.SendMessage["to"], { kind: "actor" }>,
+): Gateway.MessageTarget {
+  return {
+    actorId: to.actorId,
+    ...(to.surface === undefined ? {} : { surface: to.surface }),
+    ...(to.conversation === undefined ? {} : { conversation: to.conversation }),
+  };
+}
+
 function deliveryAdmission(
   context: MessageContext,
   intent: LedgerAction.Receipt,
@@ -109,6 +136,7 @@ function deliveryAdmission(
               surface: sender.surface,
               externalId: sender.externalId,
               actorId: external?.event.meta?.actor?.actorId ?? "",
+              ...originConversation(external),
             })),
         ...(external === undefined ? {} : { inboundTreatment: external.route.decision.inboundTreatment ?? "full_access" }),
         ...(external?.automation?.kind === "action"
@@ -182,10 +210,7 @@ export function executeMessage(
       messageId,
       traceId: intent.action.id,
       senderId: sender.kind === "session" ? sender.id : sender.externalId,
-      target: {
-        actorId: send.to.actorId,
-        ...(send.to.surface === undefined ? {} : { surface: send.to.surface }),
-      },
+      target: actorTarget(send.to),
       body: content,
       at: startedAt,
       operation: send.deadline === undefined ? "fire_and_forget" : "awaited",

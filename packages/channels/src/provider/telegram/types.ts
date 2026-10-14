@@ -30,6 +30,8 @@ export interface TelegramMessage {
   text?: string;
   entities?: z.infer<typeof TelegramEntitySchema>[];
   reply_to_message?: TelegramMessage;
+  message_thread_id?: number;
+  is_topic_message?: boolean;
 }
 
 /** Recursive (`reply_to_message`) — the interface above carries the type, z.lazy the runtime shape. */
@@ -42,6 +44,8 @@ const TelegramMessageSchema: z.ZodType<TelegramMessage> = z.lazy(() =>
     text: z.string().optional(),
     entities: z.array(TelegramEntitySchema).optional(),
     reply_to_message: TelegramMessageSchema.optional(),
+    message_thread_id: z.number().optional(),
+    is_topic_message: z.boolean().optional(),
   }),
 );
 

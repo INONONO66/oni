@@ -56,9 +56,14 @@ export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent> {
         channelId: channel,
         addressees: [...new Set(mentions)].map((id) => ({ externalId: `${this.ctx.team}:${id}` })),
         dm: isDM,
+        // A thread reply keys on its root; a mention at channel top level keys on
+        // its own ts, the root of the thread the answer opens, so the follow-ups
+        // written under that answer land on the same session.
         ...(event.thread_ts !== undefined
           ? { reply: { chain: [event.thread_ts], threadId: event.thread_ts } }
-          : {}),
+          : !isDM && !reaction && mentions.includes(this.ctx.botUserId)
+            ? { reply: { chain: [], threadId: messageId } }
+            : {}),
         // Subtypes including bot_message, message_changed and channel_join remain raw facts;
         // bot_message author falls back to bot_id, message_changed to message.user above.
         payload: event,

@@ -53,10 +53,18 @@ function replyingLlm(reply: string, toolCall?: { readonly contact: string; reado
   };
 }
 
+interface ExternalOrigin {
+  readonly surface: string;
+  readonly externalId: string;
+  readonly actorId: string;
+  readonly messageId: string;
+  readonly conversation?: Readonly<Record<string, string | boolean>>;
+}
+
 async function deliverExternal(
   resident: ReturnType<typeof residentRunner>,
   sessionId: string,
-  origin: Record<string, string>,
+  origin: ExternalOrigin,
   content: string,
 ) {
   const exists = resident.plane.listSessions().some((row) => row.id === sessionId);
@@ -113,6 +121,35 @@ test("the report goes back on the channel the person wrote on, not another of th
     "ping",
   );
   expect(ingested.map((item) => item.to)).toEqual([{ kind: "actor", actorId: "person:owner", surface: "slack" }]);
+});
+
+test("a message written in a channel thread is answered in that thread, a DM directly (#1490)", async () => {
+  const ingested: Ingested[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(ingested) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  const slackOwner = { surface: "slack", externalId: "T1:U1", actorId: "person:owner", messageId: "1710.0002" };
+  await deliverExternal(resident, "reply-origin-thread", {
+    ...slackOwner,
+    conversation: { channelId: "C1", threadId: "1710.0001", messageId: "1710.0002", dm: false },
+  }, "ping");
+  await deliverExternal(resident, "reply-origin-dm", {
+    ...slackOwner,
+    conversation: { channelId: "D1", messageId: "1710.0003", dm: true },
+  }, "ping");
+  expect(ingested.map((item) => item.to)).toEqual([
+    {
+      kind: "actor",
+      actorId: "person:owner",
+      surface: "slack",
+      conversation: { channelId: "C1", threadId: "1710.0001", replyToMessageId: "1710.0002" },
+    },
+    { kind: "actor", actorId: "person:owner", surface: "slack" },
+  ]);
 });
 
 test("an explicit send_message to the same person in the turn is not duplicated by the report", async () => {

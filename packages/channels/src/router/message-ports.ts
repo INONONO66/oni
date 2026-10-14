@@ -10,6 +10,7 @@ export type ChannelDeliveryRoute = (
   externalId: string,
   content: string,
   idempotencyKey: string,
+  conversation?: Gateway.Conversation,
 ) => Promise<KernelDeliveryReceipt>;
 
 interface MessageExecution {

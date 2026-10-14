@@ -1,5 +1,5 @@
 import { newTraceId } from "../../support/trace";
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational } from "@openomni/protocol";
 import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
@@ -95,13 +95,18 @@ export class TelegramAdapter implements Channel.Surface {
    * Telegram chat id — deliver there and report the platform message id of
    * the final chunk (the message a reply would reference).
    */
-  deliver(externalId: string, body: string, idempotencyKey: string): Promise<DeliveryReceipt> {
+  deliver(
+    externalId: string,
+    body: string,
+    idempotencyKey: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<DeliveryReceipt> {
     return deliverKeyed(
       this.outbound,
       idempotencyKey,
       (traceId) =>
         sendText(body, TELEGRAM_RENDER, (chunk) =>
-          this.client.sendMarkdown(externalId, chunk, traceId),
+          this.client.sendMarkdown(conversation?.channelId ?? externalId, chunk, traceId, conversation),
         ),
       (error) =>
         (error instanceof TelegramApiError && error.rejected) ||

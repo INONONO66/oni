@@ -1,4 +1,4 @@
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational } from "@openomni/protocol";
 import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
@@ -97,6 +97,7 @@ export class SlackAdapter implements Channel.Surface {
     externalId: string,
     body: string,
     idempotencyKey: string,
+    conversation?: Gateway.Conversation,
   ): Promise<DeliveryReceipt> {
     const [team, user] = externalId.split(":");
     if (!(team && user)) {
@@ -104,15 +105,20 @@ export class SlackAdapter implements Channel.Surface {
         message: `slack endpoint externalId must be "TEAM:USER", got "${externalId}"`,
       });
     }
+    // Slack answers a message by threading under it, so a reply-to is a thread root too.
+    const threadTs = conversation?.threadId ?? conversation?.replyToMessageId;
     return deliverKeyed(
       this.outbound,
       idempotencyKey,
       async (traceId) => {
-        const channelId = await this.client.openDm(user, traceId).catch((error) => {
-          throw new DeliveryNotSent({ operation: "slack.openDm", cause: String(error) });
-        });
+        const channelId = conversation?.channelId ??
+          await this.client.openDm(user, traceId).catch((error) => {
+            throw new DeliveryNotSent({ operation: "slack.openDm", cause: String(error) });
+          });
         return await sendText(body, SLACK_RENDER, (chunk) =>
-          this.client.send(channelId, chunk, traceId),
+          threadTs === undefined
+            ? this.client.send(channelId, chunk, traceId)
+            : this.client.sendInThread(channelId, threadTs, chunk, traceId),
         );
       },
       (error) =>

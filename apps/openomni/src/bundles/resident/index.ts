@@ -11,7 +11,15 @@ const ToolRefused = Core.ToolRefused;
 type ChatAgentConfig = Core.ChatAgentConfig;
 type SessionRunner = Core.SessionRunner;
 type SessionRuntime = Core.SessionRuntime;
-import { traceIdFromUuid, type LedgerSession, type Model, type Tool } from "@openomni/protocol";
+import {
+  traceIdFromUuid,
+  type Gateway,
+  type LedgerSession,
+  type Model,
+  type PlainValue,
+  type Tool,
+} from "@openomni/protocol";
+import { z } from "zod";
 import { chatProviderConfig } from "../../composition/chat-provider";
 import type { ComposedContext } from "../../composition/composed";
 import { pinnedModelSelection, restoreModelSelection } from "../../composition/model-selection";
@@ -41,7 +49,24 @@ interface ReplyTarget {
   readonly actorId: string;
   /** The channel the person wrote on: a person on several channels is answered where they asked (#1485). */
   readonly surface: string;
+  /** The chat and thread they wrote in; a group message is answered there, not in a DM (#1490). */
+  readonly conversation?: Gateway.Conversation;
 }
+
+/**
+ * The conversation to answer in, from the prompt origin's record of where the
+ * message was written. A DM already is the direct channel, so it carries none.
+ */
+function originConversation(recorded: PlainValue | undefined): Gateway.Conversation | undefined {
+  const parsed = OriginConversation.safeParse(recorded);
+  if (!parsed.success || parsed.data.dm) return undefined;
+  const { channelId, threadId, messageId } = parsed.data;
+  return { channelId, ...(threadId === undefined ? {} : { threadId }), replyToMessageId: messageId };
+}
+
+const OriginConversation = z
+  .object({ channelId: z.string().min(1), messageId: z.string().min(1), dm: z.boolean(), threadId: z.string().min(1).optional() })
+  .strict();
 
 /**
  * The external human the turn answers: the last delivered prompt whose
@@ -54,9 +79,25 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
     const origin = input.kernel.actionById(message.id)?.intent.value;
     if (origin === null || typeof origin !== "object" || Array.isArray(origin)) continue;
     if (origin.kind !== "external" || typeof origin.surface !== "string" || origin.surface === "ws") continue;
-    if (typeof origin.actorId === "string") return { actorId: origin.actorId, surface: origin.surface };
+    if (typeof origin.actorId !== "string") continue;
+    const conversation = originConversation(origin.conversation);
+    return {
+      actorId: origin.actorId,
+      surface: origin.surface,
+      ...(conversation === undefined ? {} : { conversation }),
+    };
   }
   return undefined;
+}
+
+/** The `send_message` contact a report is addressed to. */
+function contactFor(target: ReplyTarget) {
+  return {
+    kind: "contact" as const,
+    id: target.actorId,
+    surface: target.surface,
+    ...(target.conversation === undefined ? {} : { conversation: target.conversation }),
+  };
 }
 
 function contactTarget(call: Tool.Call): string | undefined {
@@ -247,7 +288,7 @@ export function createResident(options: ResidentOptions) {
             id: ports.id(),
             tool: "send_message",
             input: {
-              to: { kind: "contact", id: report.target.actorId, surface: report.target.surface },
+              to: contactFor(report.target),
               message: report.text,
             },
           },

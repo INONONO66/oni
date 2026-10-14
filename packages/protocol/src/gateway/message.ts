@@ -30,7 +30,18 @@ const Target = z.discriminatedUnion("kind", [
   NewSessionTarget,
   // `surface` narrows delivery to one channel when the actor is reachable on
   // several (#1485); the send kernel's endpointId pin is not a model-facing fact.
-  z.object({ kind: z.literal("actor"), actorId: Id, surface: Id.optional() }).strict(),
+  z
+    .object({
+      kind: z.literal("actor"),
+      actorId: Id,
+      surface: Id.optional(),
+      // The conversation the actor wrote in; delivery posts there, not to a DM.
+      conversation: z
+        .object({ channelId: Id, threadId: Id.optional(), replyToMessageId: Id.optional() })
+        .strict()
+        .optional(),
+    })
+    .strict(),
 ]);
 
 const Send = z

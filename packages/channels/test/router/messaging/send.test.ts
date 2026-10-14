@@ -235,6 +235,37 @@ describe("explicit target resolution (fail closed)", () => {
     expectDenied(elsewhere, "target_stale");
     expect(deliveries.map((delivery) => delivery.target.channel)).toEqual(["slack", "qa"]);
   });
+
+  test("a conversation rides on the delivery target under its surface pin and is stale without one (#1490)", async () => {
+    ledger().stores.actors.registerEndpoint({
+      id: "endpoint:target-slack",
+      actorId: "actor:target",
+      channel: "slack",
+      externalId: "T1:U1",
+      createdAt: messagingNow,
+      updatedAt: messagingNow,
+    });
+    const conversation = { channelId: "C1", threadId: "1710.0001", replyToMessageId: "1710.0002" };
+
+    const inThread = await runEffect(messaging().send(
+      buildSendInput({ target: { actorId: "actor:target", surface: "slack", conversation } }),
+    ));
+    const unpinned = await runEffect(messaging().send(
+      buildSendInput({ messageId: "message:test-unpinned", target: { actorId: "actor:target", conversation } }),
+    ));
+
+    expect(inThread.kind).toBe("sent");
+    if (inThread.kind !== "sent") throw new Error("expected sent");
+    expect(inThread.target).toEqual({
+      actorId: "actor:target",
+      endpointId: "endpoint:target-slack",
+      channel: "slack",
+      externalId: "T1:U1",
+      conversation,
+    });
+    expectDenied(unpinned, "target_stale");
+    expect(deliveries.map((delivery) => delivery.target.conversation)).toEqual([conversation]);
+  });
 });
 
 describe("fire-and-forget delivery", () => {

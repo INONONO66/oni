@@ -170,6 +170,7 @@
     "origin",
     "trustTier"
   ],
+  "Gateway.Conversation": ["channelId", "replyToMessageId", "threadId"],
   "Gateway.DelegationResult": ["pointer", "preview", "status"],
   "Gateway.Deliver": [
     "actorContext",
@@ -382,7 +383,7 @@
     "turnId",
     "waitedMs"
   ],
-  "Gateway.MessageTarget": ["actorId", "endpointId", "surface"],
+  "Gateway.MessageTarget": ["actorId", "conversation", "endpointId", "surface"],
   "Gateway.NewSessionTarget": ["kind", "parent", "role", "runner"],
   "Gateway.Origin": ["externalId", "surface"],
   "Gateway.ReplyGrantRule": [

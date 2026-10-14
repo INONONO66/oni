@@ -1,5 +1,5 @@
 import { TelegramApiError } from "../../errors";
-import { Operational } from "@openomni/protocol";
+import { type Gateway, Operational } from "@openomni/protocol";
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, PublishPort } from "../../types";
@@ -49,9 +49,10 @@ export class TelegramClient implements ChannelClient {
     channelId: string,
     text: string,
     traceId: string,
+    conversation?: Gateway.Conversation,
   ): Promise<string | undefined> {
     try {
-      return await this.sendMessage(channelId, text, traceId, "MarkdownV2");
+      return await this.sendMessage(channelId, text, traceId, "MarkdownV2", conversation);
     } catch (error) {
       if (
         !(
@@ -68,20 +69,26 @@ export class TelegramClient implements ChannelClient {
         msg: "telegram markdown rejected — delivered as plain text",
         context: { err: String(error) },
       });
-      return await this.sendMessage(channelId, text, traceId);
+      return await this.sendMessage(channelId, text, traceId, undefined, conversation);
     }
   }
 
+  /** `threadId` is a forum topic; `replyToMessageId` quotes the message answered. */
   private async sendMessage(
     channelId: string,
     text: string,
     traceId: string,
     parseMode?: string,
+    conversation?: Gateway.Conversation,
   ): Promise<string | undefined> {
     const message = await this.api("sendMessage", traceId, SentMessageSchema, {
       chat_id: channelId,
       text,
       ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
+      ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+      ...(conversation?.replyToMessageId === undefined
+        ? {}
+        : { reply_to_message_id: Number(conversation.replyToMessageId) }),
     });
     return message.message_id === undefined ? undefined : String(message.message_id);
   }

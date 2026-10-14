@@ -5,7 +5,7 @@ import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
 import { automationReplay, recordAutomation } from "./automation/ledger.js";
-import { executeMessage } from "./message-execution";
+import { actorTarget, executeMessage } from "./message-execution";
 import { createExistingAgentMessaging } from "./messaging/send";
 import { createReplyGrantInstances } from "./messaging/reply-grant";
 import { externalMessage, replayExternal } from "./external-message";
@@ -63,7 +63,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
                 operation: "message.deliver",
                 cause: `no delivery route: ${message.target.channel}`,
               });
-            return route(message.target.externalId, message.body, message.idempotencyKey);
+            return route(message.target.externalId, message.body, message.idempotencyKey, message.target.conversation);
           },
         });
 
@@ -79,10 +79,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       (messaging !== undefined &&
         messaging.preflight({
           senderId: sender.kind === "session" ? sender.id : sender.externalId,
-          target: {
-            actorId: send.to.actorId,
-            ...(send.to.surface === undefined ? {} : { surface: send.to.surface }),
-          },
+          target: actorTarget(send.to),
           operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
           at: startedAt,
         }) === undefined);
