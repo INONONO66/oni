@@ -35,6 +35,7 @@
   --color-bg: var(--color-neutral-50);
   --color-sunken: var(--color-neutral-0);
   --color-raised: var(--color-neutral-100);
+  --color-panel: oklch(18.59% 0 0); /* the main panel: between bg and raised */
   --color-hover: --alpha(#fff / 5%);
   --color-active: --alpha(#fff / 8%);
 
@@ -134,16 +135,26 @@
   --stroke-glyph: 1.5px;
 
   /* ---- Shell geometry ---------------------------------------------------- */
-  /* The tab strip's height (reference: `desktopTabsHeight: 42`) and the one
-     tab's inside it (`desktopTabHeight: 26`). `--shell-top` reads the strip's
-     token once the renderer declares a strip. */
-  --spacing-shell-strip: 42px;
-  --spacing-tab-height: 26px;
+  /* A 28px tab in a 40px strip sits 6px off each edge. `--shell-top` reads the
+     strip's token once the renderer declares a strip. */
+  --spacing-shell-strip: 40px;
+  --spacing-tab-height: 28px;
 
-  --spacing-traffic-safe: 81px;
+  /* Traffic lights at x 16: three 12px lights with two 8px gaps. */
+  --spacing-traffic-safe: 68px;
   --spacing-strip-inset-darwin: calc(var(--spacing-traffic-safe) + 8px);
+  /* Collapsed zone = inset + 10 lead + four 28 boxes with 4 gaps + 12 trail. */
+  --spacing-strip-zone-collapsed: calc(
+    var(--spacing-strip-inset-darwin) +
+    10px +
+    4 *
+    var(--spacing-control-base) +
+    3 *
+    4px +
+    12px
+  );
 
-  --spacing-sidebar-overlay: 240px;
+  --spacing-sidebar-overlay: 252px;
   --status-progress: oklch(82.4% 0.179 91.3);
   --status-attention: oklch(72% 0.19 41);
   --status-success: oklch(61.7% 0.208 142.85);
@@ -169,8 +180,6 @@
 }
 
 :root[data-tab-strip] {
-  /* The strip's own height. The main process centres the traffic lights in it
-     (`trafficLightPosition.y` = 15 for a 12px light in 42). */
   --shell-top: var(--spacing-shell-strip);
 }
 
@@ -186,6 +195,7 @@
   --color-bg: var(--color-neutral-1000);
   --color-sunken: var(--color-neutral-900);
   --color-raised: var(--color-neutral-800);
+  --color-panel: oklch(98.5% 0 0);
   --color-hover: --alpha(#000 / 4%);
   --color-active: --alpha(#000 / 6%);
   --shadow-panel: 0 8px 24px -8px --alpha(#000 / 18%);

@@ -52,8 +52,8 @@ for (const [phase, kind, tone, shape] of cases) {
     const rows = document.querySelectorAll('[data-ui="TreeRow"] [data-ui="StatusGlyph"]');
     expect(rows).toHaveLength(2);
     for (const glyph of rows) {
-      expect(glyph.parentElement?.lastElementChild).toBe(glyph);
-      expect(glyph.parentElement?.firstElementChild).not.toBe(glyph);
+      expect(glyph.parentElement?.firstElementChild).toBe(glyph);
+      expect(glyph.parentElement?.classList.contains("row-span-2")).toBe(true);
       expect(glyph.getAttribute("data-shape")).toBe(shape);
       expect(glyph.getAttribute("data-tone")).toBe(tone);
     }

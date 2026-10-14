@@ -24,7 +24,7 @@ export const UI_NAMES = {
   TabStrip: "TabStrip",
   /** The strip's left zone: window controls, sidebar toggle, history trio. */
   TabStripControls: "TabStrip.Controls",
-  /** The one sidebar toggle, first in the strip's zone in every state. */
+  /** The one sidebar toggle: last in the header while the column is open, first in the strip's zone while collapsed. */
   SidebarToggle: "Sidebar.Toggle",
   /** The toggle's glyph; `data-opened` is the column's visibility (pinned or revealed). */
   SidebarToggleIcon: "Sidebar.Toggle.Icon",
@@ -49,7 +49,9 @@ export const UI_NAMES = {
   SidebarEdge: "Sidebar.Edge",
   /** The 16px grab zone on the sidebar's right edge; pinned mode only. */
   SidebarResizeHandle: "Sidebar.ResizeHandle",
-  /** The primary destinations: the column's first row, directly under the strip. */
+  /** The column's first row: the brand slot, then its actions, the collapse toggle last. */
+  SidebarHeader: "Sidebar.Header",
+  /** The primary destinations, directly under the header. */
   SidebarNav: "Sidebar.Nav",
   /** One destination in the nav. */
   NavItem: "NavItem",

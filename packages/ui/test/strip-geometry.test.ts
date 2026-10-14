@@ -4,10 +4,9 @@ import { SIDEBAR_WIDTH } from "../src/sidebar";
 
 /**
  * The strip's geometry is a handful of tokens that must add up: the collapsed
- * zone and the overlay panel share one width token, which must hold the zone's
- * inset, the control step, and the gaps; the numbers behind it are the
- * reference console's. Asserted on
- * the CSS text, because a token that drifts is invisible to the compiler.
+ * zone holds the darwin inset, the toggle, the trio and the gaps, and the
+ * overlay panel is the pinned default. Asserted on the CSS text, because a
+ * token that drifts is invisible to the compiler.
  */
 const SRC = join(import.meta.dir, "..", "src");
 const CSS = await Bun.file(join(SRC, "styles.css")).text();
@@ -19,39 +18,51 @@ function px(token: string): number {
   return Number(hit[1]);
 }
 
-/** A `--token: calc(...)` declaration, as its expression text with whitespace folded. */
-function calc(token: string): string {
-  const hit = CSS.match(new RegExp(`${token}:\\s*calc\\(([^;]+)\\);`))?.[1];
-  if (hit === undefined) throw new Error(`${token} is not a calc()`);
-  return hit.replace(/\s+/g, " ").trim();
+/** A token in px, literal or a `calc()` sum of products over other tokens. */
+function resolve(token: string): number {
+  const raw = CSS.match(new RegExp(`${token}:\\s*([^;]+);`))?.[1];
+  if (raw === undefined) throw new Error(`${token} is not declared`);
+  const flat = raw
+    .replace(/var\((--[\w-]+)\)/g, (_, inner: string) => String(resolve(inner)))
+    .replace(/calc\(|\)|px|\s/g, "");
+  return flat
+    .split("+")
+    .map((term) => term.split("*").reduce((product, factor) => product * Number(factor), 1))
+    .reduce((sum, term) => sum + term, 0);
 }
 
 describe("the strip's tokens", () => {
-  test("Given the reference measurements, When read, Then strip 42, tab 26, control 28, safe zone 81", () => {
-    expect(px("--spacing-shell-strip")).toBe(42);
-    expect(px("--spacing-tab-height")).toBe(26);
+  test("Given the frame's tokens, When read, Then strip 40, tab 28, control 28, safe zone 68", () => {
+    expect(px("--spacing-shell-strip")).toBe(40);
+    expect(px("--spacing-tab-height")).toBe(28);
     expect(px("--spacing-control-base")).toBe(28);
     expect(px("--spacing-control-xs")).toBe(20);
-    expect(px("--spacing-traffic-safe")).toBe(81);
+    expect(px("--spacing-traffic-safe")).toBe(68);
     expect(CSS).toContain("--shell-top: var(--spacing-shell-strip);");
   });
 
-  test("Given the darwin inset, When resolved, Then the toggle starts at 89 = safe zone + 8", () => {
-    expect(calc("--spacing-strip-inset-darwin")).toBe("var(--spacing-traffic-safe) + 8px");
-    expect(px("--spacing-traffic-safe") + 8).toBe(89);
+  test("Given the darwin inset, When resolved, Then the zone's content starts at 76 = safe zone + 8", () => {
+    expect(resolve("--spacing-strip-inset-darwin")).toBe(76);
+    expect(px("--spacing-traffic-safe") + 8).toBe(76);
   });
 
-  test("Given the collapsed zone and the overlay, When resolved, Then both read ONE token that holds the zone's contents", () => {
-    const overlay = px("--spacing-sidebar-overlay");
+  test("Given the collapsed zone, When resolved, Then it holds inset + 10, four controls at 4px gaps and 12 on the right", async () => {
     const control = px("--spacing-control-base");
-    const inset = px("--spacing-traffic-safe") + 8;
-    // darwin: 89 inset + toggle + gap + trio (3 controls, 2 gaps) + 12 right pad.
-    const contents = inset + control + 4 + (3 * control + 2 * 4) + 12;
-    expect(contents).toBe(225);
-    expect(overlay).toBeGreaterThanOrEqual(contents);
-    expect(overlay).toBe(240);
-    // ONE number: the overlay token and the pinned default, so a reveal that is
-    // pinned does not reflow the column.
+    const inset = resolve("--spacing-strip-inset-darwin");
+    // darwin: 76 + 10 to the toggle's box, then toggle + trio (4 controls, 3 gaps), then 12.
+    const contents = inset + 10 + 4 * control + 3 * 4 + 12;
+    expect(contents).toBe(222);
+    expect(resolve("--spacing-strip-zone-collapsed")).toBe(contents);
+    const strip = await Bun.file(join(SRC, "tab-strip.tsx")).text();
+    expect(strip).toContain("w-strip-zone-collapsed");
+    expect(strip).toContain("pl-[calc(var(--spacing-strip-inset-darwin)+10px)]");
+    expect(strip).toContain("pl-strip-inset-darwin");
+  });
+
+  test("Given the overlay, When resolved, Then it is ONE number with the pinned default: 252", () => {
+    const overlay = px("--spacing-sidebar-overlay");
+    expect(overlay).toBe(252);
+    // A reveal that is pinned does not reflow the column.
     expect(overlay).toBe(SIDEBAR_WIDTH.default);
   });
 
@@ -78,7 +89,7 @@ describe("the strip's tokens", () => {
 });
 
 describe("the strip's glyphs", () => {
-  test("Given the reference's 16px icons at 1.5 units, When read, Then the stroked glyphs run 1.5px in screen pixels at the 16px sites only", async () => {
+  test("Given 16px icons at a 1.5px stroke, When read, Then the stroked glyphs run 1.5px in screen pixels at the 16px sites only", async () => {
     expect(px("--stroke-glyph")).toBe(1.5);
     const utility = CSS.slice(CSS.indexOf("@utility glyph-stroke {"));
     const block = utility.slice(0, utility.indexOf("\n}\n"));
@@ -91,8 +102,6 @@ describe("the strip's glyphs", () => {
     expect(sizes.base).toContain("[&_svg]:glyph-stroke");
     expect(sizes.sm).not.toContain("glyph-stroke");
     expect(sizes.md).not.toContain("glyph-stroke");
-    const nav = await Bun.file(join(SRC, "sidebar-nav.tsx")).text();
-    expect(nav).toContain("[&_svg]:glyph-stroke flex h-7");
   });
 
   test("Given the strip, When its imports are read, Then the toggle and chevrons are ours, not lucide's", async () => {

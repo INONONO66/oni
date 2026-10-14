@@ -149,7 +149,7 @@ export const pending: readonly PendingApproval[] = [
 export const SHELL: ConsoleShell = {
   sidebarOpen: true,
   sidebarFloating: false,
-  sidebarWidth: 240,
+  sidebarWidth: 252,
   onToggleSidebar: () => undefined,
   onSidebarFloatingChange: () => undefined,
   onSidebarWidthCommit: () => undefined,

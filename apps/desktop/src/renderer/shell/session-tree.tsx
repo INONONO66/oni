@@ -5,8 +5,10 @@ import {
   SectionList,
   SectionSearchInput,
   SidebarFooter,
+  SidebarHeader,
   SidebarNav,
   SidebarSection,
+  SidebarToggle,
   Text,
   TreeRow,
 } from "@openomni/ui";
@@ -42,6 +44,7 @@ export function SessionTree({
   onNavigate,
   onSearchingChange,
   defaultSearching = false,
+  sidebarOpen = false,
 }: {
   readonly ordered: Ordered;
   readonly now: number;
@@ -59,6 +62,7 @@ export function SessionTree({
   readonly onSearchingChange?: (searching: boolean) => void;
   /** Whether the section opens in search mode; uncontrolled after mount. */
   readonly defaultSearching?: boolean;
+  readonly sidebarOpen?: boolean;
 }) {
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
@@ -107,6 +111,14 @@ export function SessionTree({
 
   return (
     <>
+      <SidebarHeader
+        actions={sidebarOpen ? <SidebarToggle /> : null}
+        brand={
+          <Text className="font-semibold" level="label" tone="fg">
+            OpenOmni
+          </Text>
+        }
+      />
       <SidebarNav>
         {ROUTES.map((destination) => (
           <NavItem

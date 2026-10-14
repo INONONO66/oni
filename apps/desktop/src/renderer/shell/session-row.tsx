@@ -24,7 +24,7 @@ export function SessionRow({
           {...(project === undefined ? {} : { project })}
         />
       }
-      trailing={<StatusGlyph {...sessionGlyphProps(session.phase)} />}
+      leading={<StatusGlyph {...sessionGlyphProps(session.phase)} />}
     />
   );
 }

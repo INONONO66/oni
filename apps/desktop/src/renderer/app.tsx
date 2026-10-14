@@ -264,6 +264,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
       route={place?.kind === "route" ? place.route : null}
       selectedId={place?.kind === "session" ? place.sessionId : null}
       sessions={listed}
+      sidebarOpen={sidebarOpen}
       now={now}
     />
   );

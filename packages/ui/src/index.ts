@@ -19,9 +19,11 @@ export {
   SectionList,
   SectionSearchInput,
   SidebarFooter,
+  SidebarHeader,
   SidebarNav,
   SidebarSection,
 } from "./sidebar-nav";
+export { SidebarToggle } from "./tab-strip";
 export type { WindowPlatform } from "./tab-strip";
 export type { PendingApproval, TranscriptNode, TurnCost } from "./timeline/model";
 export { Timeline } from "./timeline/timeline";

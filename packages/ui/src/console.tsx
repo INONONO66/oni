@@ -42,7 +42,7 @@ export function Console({
         as="main"
         className="mr-2 mb-2 flex min-w-0 flex-1 flex-col transition-[margin-left] duration-base ease-frame group-data-[sidebar-state=collapsed]/sidebar:ml-2 group-data-[resizing]/sidebar:duration-0 motion-reduce:transition-none"
         edge="box"
-        tone="bg"
+        tone="panel"
       >
         <div
           className="flex min-h-0 flex-1 flex-col"

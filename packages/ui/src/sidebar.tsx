@@ -9,8 +9,8 @@ import {
 } from "react";
 import { UI_NAMES } from "./names";
 
-/** The width the handle may drag between, and where a fresh window starts. */
-export const SIDEBAR_WIDTH = { min: 224, max: 330, default: 240 } as const;
+/** The width the handle may drag between; a fresh window starts at the overlay token's 252px, so pinning a reveal changes no width. */
+export const SIDEBAR_WIDTH = { min: 224, max: 330, default: 252 } as const;
 
 export function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, Math.round(width)));
