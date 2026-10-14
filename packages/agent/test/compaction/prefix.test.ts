@@ -44,6 +44,25 @@ test.each(["synchronous", "speculative"] as const)(
   }))),
 );
 
+test("an overflow-sized prefix still yields a summary through the bounded input", () =>
+  isolated(Effect.gen(function* () {
+    const sequence = messageSequence("overflow");
+    const finding = sequence.assistant("recent finding");
+    const messages = [
+      sequence.user("goal"), sequence.assistant("evidence ".repeat(2000)), finding, sequence.user("tail"),
+    ];
+    const calls: Message.WithParts[][] = [];
+    const result = yield* Compaction.compact(messages, {
+      contextWindowTokens: 1000, protectRecentMessages: 1,
+      onSummarize: (input) => Effect.sync(() => { calls.push(input); return "summary"; }),
+    }, { traceId: "overflow", sessionId: "overflow" }, { publish: () => undefined }, {
+      trigger: "threshold", measuredTokens: 5000,
+    });
+    expect(calls).toEqual([[finding]]);
+    expect(result.summarizerFailed).toBeUndefined();
+    expect(result.messages[0]?.parts[0]).toMatchObject({ metadata: { anchorBody: "summary" } });
+  })));
+
 test("speculation does not summarize a prefix containing only preserved users", () =>
   isolated(Effect.scoped(Effect.gen(function* () {
     const sequence = messageSequence("users-only");

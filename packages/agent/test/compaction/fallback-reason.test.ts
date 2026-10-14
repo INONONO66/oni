@@ -6,7 +6,7 @@ import { AgentFailure } from "../../src/core/ports/failure";
 import { isolated } from "../helpers/isolated";
 import { recoveryRecording } from "../helpers/effect-g3r";
 import { runTestAgent } from "../helpers/effect-g3";
-import { completeModel, providerFailure, windowedLlm } from "../helpers/mock-llm";
+import { overflowThenCompleteLlm } from "../helpers/mock-llm";
 import { runInput } from "../helpers/run-input";
 
 test.each(["failure", "deadline"] as const)(
@@ -14,8 +14,8 @@ test.each(["failure", "deadline"] as const)(
   (mode) => isolated(Effect.gen(function* () {
     const recording = recoveryRecording();
     const entered = yield* Deferred.make<void>();
-    let calls = 0;
     let cancelled = false;
+    const overflow = overflowThenCompleteLlm();
     const run = yield* Effect.forkChild(runTestAgent(
       runInput([
         { role: "user", content: "goal" },
@@ -38,16 +38,7 @@ test.each(["failure", "deadline"] as const)(
               Effect.onInterrupt(() => Effect.sync(() => { cancelled = true; })),
             ),
         },
-        llm: windowedLlm(async (input, sink) => {
-          calls += 1;
-          if (calls === 1) return {
-            type: "error",
-            error: providerFailure("prompt is too long", {
-              failureClass: { kind: "overflow" }, contextOverflow: true, retryable: false,
-            }),
-          };
-          return completeModel(input, sink);
-        }),
+        llm: overflow.llm,
       },
     ));
     if (mode === "deadline") {
@@ -56,7 +47,7 @@ test.each(["failure", "deadline"] as const)(
     }
     const terminal = yield* Fiber.join(run);
     expect(terminal.finishReason).toBe("stop");
-    expect(calls).toBe(2);
+    expect(overflow.calls).toBe(2);
     expect(cancelled).toBe(mode === "deadline");
     const rows = recording.committed.filter((action) => action.kind === "compaction");
     const result = rows.find((action) => "revert" in action);

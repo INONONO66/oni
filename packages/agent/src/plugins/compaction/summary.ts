@@ -128,10 +128,11 @@ export function attemptAnchoredCut(
   const { messages: summarizerInput, budget } = prepareSummarizerInput(
     summaryPrefix,
     contextWindowTokens,
+    previousAnchor,
   );
   let anchorText = precomputed ?? previousAnchor;
   let summarizerError: Error | undefined;
-  if (precomputed === undefined && hasSummarizableContent) {
+  if (precomputed === undefined && hasSummarizableContent && summarizerInput.length > 0) {
     const merged = yield* Effect.result(onSummarize(summarizerInput, previousAnchor, budget));
     if (Result.isSuccess(merged)) {
       anchorText = merged.success.trim().length > 0 ? merged.success : previousAnchor;

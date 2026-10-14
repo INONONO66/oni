@@ -19,8 +19,11 @@ function readProjection(
     const page = kernel.historyPage(authority.sessionId, { afterRevision: payload.cursor, limit: 256 });
     const actions = [...page.actions];
     if (payload.model === "metrics") {
+      const parentIds = new Set<string>();
       for (const action of page.actions) {
         if (action.kind !== "llm" || action.parentId === null) continue;
+        if (parentIds.has(action.parentId)) continue;
+        parentIds.add(action.parentId);
         const parent = kernel.actionById(action.parentId);
         if (parent?.kind === "llm" && parent.ordinal <= payload.cursor) actions.push(parent);
       }

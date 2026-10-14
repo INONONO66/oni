@@ -58,18 +58,45 @@ export function isIneffectiveCompaction(savedTokens: number, tokensBefore: numbe
   return savedTokens < 1024 || savedTokens / Math.max(1, tokensBefore) < 0.1;
 }
 
+/**
+ * The unchanged leading prefix when it fits beside the anchor merge state and the output
+ * reserve (#1476 item 3); otherwise the bounded input: no user messages or anchor renders
+ * (both user-role), completed tool outputs elided, oldest dropped to half the window.
+ */
 export function prepareSummarizerInput(
-  messages: readonly Message.WithParts[],
+  prefix: readonly Message.WithParts[],
   contextWindowTokens: number,
+  previousAnchor?: string,
 ): { readonly messages: Message.WithParts[]; readonly budget: SummarizationBudget } {
   const halfWindow = Math.max(0, Math.floor(contextWindowTokens * 0.5));
-  const budget = {
-    maxInputTokens: halfWindow,
-    maxOutputTokens: Math.min(32_768, halfWindow),
-    contextWindowTokens,
-  };
-  // The budget advises the summarizer; rewriting the supplied prefix breaks cache identity.
-  return { messages: [...messages], budget };
+  const maxOutputTokens = Math.min(32_768, halfWindow);
+  const budget = { maxInputTokens: halfWindow, maxOutputTokens, contextWindowTokens };
+  const anchorTokens = Math.ceil(weightedTextChars(previousAnchor ?? "") / ESTIMATED_CHARS_PER_TOKEN);
+  if (estimateMessagesTokens(prefix) + anchorTokens + maxOutputTokens <= contextWindowTokens) {
+    return { messages: [...prefix], budget };
+  }
+
+  const messageBudget = Math.max(0, halfWindow - anchorTokens);
+  const elided = prefix.filter((message) => message.info.role !== "user").map((message) => {
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "tool" || part.state.status !== "completed") return part;
+      const marker = `[tool output elided for summarization: ${part.state.output.length} chars]`;
+      if (marker.length >= part.state.output.length) return part;
+      changed = true;
+      return { ...part, state: { ...part.state, output: marker } };
+    });
+    return changed ? { ...message, parts } : message;
+  });
+  const weights = elided.map(weightedMessageChars);
+  let suffixChars = 0;
+  for (const weight of weights) suffixChars += weight;
+  let first = 0;
+  while (first < elided.length && Math.ceil(suffixChars / ESTIMATED_CHARS_PER_TOKEN) > messageBudget) {
+    suffixChars -= weights[first] ?? 0;
+    first += 1;
+  }
+  return { messages: elided.slice(first), budget };
 }
 
 export function resolveThresholdTokens(

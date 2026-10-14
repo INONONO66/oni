@@ -25,7 +25,7 @@ export interface CompactionYield {
 }
 
 export interface SummarizationBudget {
-  /** Advisory input allocation; the leading messages are delivered without trimming. */
+  /** Input bound applied only when the unchanged prefix does not fit beside the output reserve. */
   readonly maxInputTokens: number;
   readonly maxOutputTokens: number;
   readonly contextWindowTokens: number;
@@ -41,7 +41,7 @@ export interface CompactionOptions {
   contextWindowTokens?: number;
   reserveTokens?: number;
   protectRecentMessages?: number;
-  /** Receives the unchanged leading prefix, including users and the prior anchor render. */
+  /** Receives the unchanged leading prefix when it fits, else the bounded input; merges into the previous anchor. */
   onSummarize?: (
     messages: Message.WithParts[],
     previousAnchor: string | undefined,

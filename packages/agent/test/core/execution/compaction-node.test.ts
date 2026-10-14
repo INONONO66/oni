@@ -2,7 +2,7 @@ import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { CommitRefused } from "../../../src/core/store/errors";
 import { isolated } from "../../helpers/isolated";
 import { failure } from "../../helpers/effect-g3";
-import { completeModel, providerFailure, windowedLlm } from "../../helpers/mock-llm";
+import { overflowThenCompleteLlm } from "../../helpers/mock-llm";
 import { expect, it } from "bun:test";
 import type { Message } from "@openomni/protocol";
 import { runTestAgent } from "../../helpers/effect-g3";
@@ -107,11 +107,13 @@ it("retains concurrent entries after restoring a full-range elision", () => {
 it("commits a reversible compaction result before completion observations and the next model call", async () => {
   // Given: a real executor and an overflow at the provider I/O seam.
   const recording = recordingExecutor();
-  let calls = 0;
   let durableAtObservation = false;
   let durableAtNextCall = false;
   const committedRecord = () =>
     recording.committed.some((action) => action.kind === "compaction" && "revert" in action);
+  const overflow = overflowThenCompleteLlm(() => {
+    durableAtNextCall = committedRecord();
+  });
   // When: the production run loop recovers through its compaction path.
   await isolated(runTestAgent(
     runInput([
@@ -134,20 +136,7 @@ it("commits a reversible compaction result before completion observations and th
         speculate: false,
         onSummarize: () => Effect.promise(async () => "checkpoint"),
       },
-      llm: windowedLlm(async (input, sink) => {
-        calls += 1;
-        if (calls === 1)
-          return {
-            type: "error",
-            error: providerFailure("prompt is too long", {
-              failureClass: { kind: "overflow" },
-              contextOverflow: true,
-              retryable: false,
-            }),
-          };
-        durableAtNextCall = committedRecord();
-        return completeModel(input, sink);
-      }),
+      llm: overflow.llm,
     },
   ));
   // Then: the durable reversible action precedes both consumers.

@@ -82,6 +82,31 @@ export function windowedLlm(run: MockLlmFn, context = 1000): ChatAgentConfig["ll
   };
 }
 
+/** One overflow failure, then completion; `beforeContinue` observes state at the next call. */
+export function overflowThenCompleteLlm(beforeContinue?: () => void) {
+  let calls = 0;
+  return {
+    get calls() {
+      return calls;
+    },
+    llm: windowedLlm(async (input, sink) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          type: "error",
+          error: providerFailure("prompt is too long", {
+            failureClass: { kind: "overflow" },
+            contextOverflow: true,
+            retryable: false,
+          }),
+        };
+      }
+      beforeContinue?.();
+      return completeModel(input, sink);
+    }),
+  };
+}
+
 /** The port fake resolving to the anthropic haiku fixture with `run` as its provider behavior. */
 export function mockLlm(run: MockLlmFn): NonNullable<ChatAgentConfig["llm"]> {
   return {

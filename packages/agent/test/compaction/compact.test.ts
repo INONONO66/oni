@@ -192,7 +192,7 @@ describe("Compaction", () => {
       expect(texts).not.toContain("old-1");
     });
 
-    it("passes an advisory budget without rewriting the leading prefix", async () => {
+    it("passes a bounded summarizer budget contract", async () => {
       const messages = Array.from({ length: 8 }, (_: undefined, index: number) =>
         index % 2 === 0
           ? makeUserMessage(`user ${index}`)
@@ -228,7 +228,7 @@ describe("Compaction", () => {
       );
       expect(observed?.maxInputTokens).toBe(1000);
       expect(observed?.maxOutputTokens).toBe(1000);
-      expect(observed?.input).toEqual(messages.slice(0, -2));
+      expect(estimateMessagesTokens(observed?.input ?? [])).toBeLessThanOrEqual(1000);
     });
 
     it("weights long base64-like runs at four times their character length", () => {
@@ -238,7 +238,7 @@ describe("Compaction", () => {
         300,
       );
       const bounded = prepareSummarizerInput([encoded], 1000);
-      expect(bounded.messages).toEqual([encoded]);
+      expect(bounded.messages).toHaveLength(0);
     });
 
     it("inserts summary message when onSummarize is provided", async () => {
@@ -264,34 +264,18 @@ describe("Compaction", () => {
   });
 
   describe("unchanged summarizer input", () => {
-    it("preserves all 500 individually over-budget messages", () => {
-      const messages = Array.from({ length: 500 }, (_: undefined, i: number) =>
-        i % 2 === 0
-          ? makeUserMessage(`user ${i} ${"content ".repeat(600)}`)
-          : makeAssistantMessage(`assistant ${i} ${"content ".repeat(600)}`),
-      );
-      const result = prepareSummarizerInput(messages, 2000);
-      expect(result.messages).toEqual(messages);
-    });
-
-    it("preserves the leading messages when their total exceeds the advisory allocation", () => {
+    it("sends the unchanged prefix only when it fits beside the output reserve", () => {
       const messages = Array.from({ length: 64 }, (_: undefined, i: number) =>
         i % 2 === 0
           ? makeUserMessage(`user ${i} ${"content ".repeat(20)}`)
           : makeAssistantMessage(`assistant ${i} ${"content ".repeat(20)}`),
       );
-      const result = prepareSummarizerInput(messages, 8000);
-      expect(estimateMessagesTokens(messages)).toBeGreaterThan(result.budget.maxInputTokens);
-      expect(result.messages).toEqual(messages);
-    });
-
-    it("preserves the prefix even when a suffix would fit exactly", () => {
-      const messages = Array.from({ length: 4 }, (_: undefined, i: number) =>
-        makeUserMessage(`${i}`.padEnd(400, "x")),
-      );
-      const result = prepareSummarizerInput(messages, 400);
-      expect(result.messages).toEqual(messages);
-      expect(estimateMessagesTokens(result.messages)).toBe(400);
+      expect(prepareSummarizerInput(messages, 100_000).messages).toEqual(messages);
+      const bounded = prepareSummarizerInput(messages, 2000);
+      const assistants = messages.filter((message) => message.info.role === "assistant");
+      expect(bounded.messages.length).toBeGreaterThan(0);
+      expect(bounded.messages).toEqual(assistants.slice(assistants.length - bounded.messages.length));
+      expect(estimateMessagesTokens(bounded.messages)).toBeLessThanOrEqual(bounded.budget.maxInputTokens);
     });
 
     it("returns no messages and an intact budget for zero inputs", () => {

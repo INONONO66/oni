@@ -38,7 +38,7 @@ export class CompactionSession implements CompactionSessionPort {
       const firstKept = messages[plan?.prefixIds.length ?? -1];
       if (plan === undefined || plan.summarizerInput.length === 0 || firstKept === undefined)
         return Effect.void;
-      const prepared = prepareSummarizerInput(plan.summarizerInput, contextWindowTokens);
+      const prepared = prepareSummarizerInput(plan.summarizerInput, contextWindowTokens, plan.previousAnchor);
       if (prepared.messages.length === 0) return Effect.void;
       this.#inFlight = true;
       // A preparation aborted before its summarizer call leaves `#entered` unresolved; the waiters
