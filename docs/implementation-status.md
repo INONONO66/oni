@@ -2,32 +2,6 @@
 
 ## #1476 compaction purpose accounting, fallback reason, and fitting unchanged prefix (PR #1537, base `6deb863ad`)
 
-## #1495 typing during channel-origin Resident turns (PR #1530, base `030d50500`)
-
-On `feat/channels-typing-pulse` (2026-10-14). Mounted channel instances
-register and revoke their optional `typingRoute` alongside delivery and
-webhook routes. A Resident turn with a recorded external channel origin opens
-the route's conversation once (a Discord DM channel is created once per turn),
-pulses it immediately, then repeats on the route's own window (Telegram every
-4 s against its ~5 s indicator, Discord every 8 s against ~10 s) until the
-model run ends; the scope closes before the post-turn report is sent, so no
-pulse lands after the reply. The fiber uses the injected runtime clock, is
-interrupted on every exit path, and treats a refused pulse as a skipped beat
-and a refused open as no pulse. Evidence-only turns start no pulse. The recorded origin's external id and
-conversation select the same chat or thread the report answers. Channels
-without a typing route, WebSocket owners, and child sessions start no pulse.
-
-Tests: virtual-clock calls and cancellation with Telegram and Discord
-fake-fetch routes (`packages/channels/test/typing-pulse.test.ts`), mounted route
-cleanup (`apps/openomni/test/boot-wiring.test.ts`), and an external Resident
-turn with a refused typing receipt (`apps/openomni/test/resident-reply-to-origin.test.ts`).
-Not in this change: Slack typing (`assistant.threads.setStatus` needs the
-`assistant:write` scope; Slack declares `typing: false` until that scope and
-route land); outbound emoji reactions, already shipped in #1504; inbound
-media normalization and automated reactions remain outside this lane.
-
-## #1476 compaction purpose accounting, fallback reason, and unchanged prefix (PR #TBD, base `030d50500`)
-
 On `feat/1476-compaction-accounting` (2026-10-14), following the app half
 in #1427 / PR #1475 and part of #1421.
 
@@ -64,6 +38,30 @@ in #1427 / PR #1475 and part of #1421.
   `check-core-end-state` (clone pins unchanged), `check-deps`,
   `check-dead-exports`, `check-import-cycles` and `lint:docs` exit 0. CI is
   the record for the remaining lanes.
+
+## #1495 typing during channel-origin Resident turns (PR #1530, base `030d50500`)
+
+On `feat/channels-typing-pulse` (2026-10-14). Mounted channel instances
+register and revoke their optional `typingRoute` alongside delivery and
+webhook routes. A Resident turn with a recorded external channel origin opens
+the route's conversation once (a Discord DM channel is created once per turn),
+pulses it immediately, then repeats on the route's own window (Telegram every
+4 s against its ~5 s indicator, Discord every 8 s against ~10 s) until the
+model run ends; the scope closes before the post-turn report is sent, so no
+pulse lands after the reply. The fiber uses the injected runtime clock, is
+interrupted on every exit path, and treats a refused pulse as a skipped beat
+and a refused open as no pulse. Evidence-only turns start no pulse. The recorded origin's external id and
+conversation select the same chat or thread the report answers. Channels
+without a typing route, WebSocket owners, and child sessions start no pulse.
+
+Tests: virtual-clock calls and cancellation with Telegram and Discord
+fake-fetch routes (`packages/channels/test/typing-pulse.test.ts`), mounted route
+cleanup (`apps/openomni/test/boot-wiring.test.ts`), and an external Resident
+turn with a refused typing receipt (`apps/openomni/test/resident-reply-to-origin.test.ts`).
+Not in this change: Slack typing (`assistant.threads.setStatus` needs the
+`assistant:write` scope; Slack declares `typing: false` until that scope and
+route land); outbound emoji reactions, already shipped in #1504; inbound
+media normalization and automated reactions remain outside this lane.
 
 ## #1481 app port identifiers and durable keys (PR #1536, base `030d50500`)
 
@@ -544,6 +542,7 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   without r2; post-rebase CI reds were three stale test expectations; CI green
   at merge. Receipt names #1434.
 
+
 ## #1347 — restore budget, persisted step budget, strikes, row byte cap (PR #1445, base `c99bb6d5c`)
 
 - `fold.checkpoint` rows carry `budgetState`; the checkpoint policy (`everyActions`, `maxTailBytes`) lives in `session.configure` settings. A crash-open reactivation resumes its step/budget counters from the checkpoint through `createSessionChatRunner` and stops with the existing `AgentStopError{reason: "budget"}` before any model call (the reactivation test drives `createController(...).reconcile()` over reopened SQLite files and fails when the `budgetState` hand-off in `run.ts` is removed).
@@ -579,6 +578,7 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   gates after the review fixes, eight light/dark × desktop/narrow captures with
   no horizontal overflow; live-gateway integration is covered by #1341's wire
   tests, not by desktop tests.
+
 
 ## #1352 model-call layer extracted to `@openomni/llm` (epic #1356, rung 5)
 

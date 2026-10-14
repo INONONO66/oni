@@ -57,10 +57,7 @@ export function executeCompaction(input: CompactionExecutionInput): Effect.Effec
   });
 }
 
-/**
- * The row's result value. `reason: "fallback"` means the summarizer failed and a deterministic
- * result replaced its summary: a snap-cut, the carried-forward previous anchor, or elision only.
- */
+/** The row's result; `reason: "fallback"` means a deterministic result replaced a failed summary. */
 function recordedValue(result: CompactionResult): PlainValue {
   if (result.record === undefined) return null;
   return PlainValueSchema.parse({

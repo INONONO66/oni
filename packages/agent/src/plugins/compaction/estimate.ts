@@ -58,11 +58,7 @@ export function isIneffectiveCompaction(savedTokens: number, tokensBefore: numbe
   return savedTokens < 1024 || savedTokens / Math.max(1, tokensBefore) < 0.1;
 }
 
-/**
- * The unchanged leading prefix when it fits beside the anchor merge state and the output
- * reserve (#1476 item 3); otherwise the bounded input: no user messages or anchor renders
- * (both user-role), completed tool outputs elided, oldest dropped to half the window.
- */
+/** The unchanged prefix when it fits beside the anchor and output reserve; else the bounded input. */
 export function prepareSummarizerInput(
   prefix: readonly Message.WithParts[],
   contextWindowTokens: number,
