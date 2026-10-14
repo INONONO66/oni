@@ -1,10 +1,48 @@
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
-import { appManifest } from "../src/manifest";
+import { canonicalDigest } from "@openomni/protocol";
+import { appManifest, toolCapability } from "../src/manifest";
+import { compactionSummarizerBundle } from "../src/bundles/compaction/index";
 import { createMonitorTool } from "../src/bundles/alarms/monitor/index";
-import { ToolCapabilitySeam } from "../src/bundles/seams";
+import { CompactionSummarizerPort, ToolCapabilityPort } from "../src/bundles/seams";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import { runEffect } from "./helpers/effect";
+
+test("app port identifiers preserve persisted keys and the legacy manifest hash preimage", () => {
+  const toolKey = "@openomni/openomni/ToolCapabilitySeam";
+  const summarizerKey = "@openomni/openomni/CompactionSummarizerSeam";
+  const manifest = Bundle.Manifest.define({
+    capabilities: [toolCapability],
+    bundles: [
+      compactionSummarizerBundle(),
+      Bundle.define({
+        name: "consumer",
+        requires: [ToolCapabilityPort, CompactionSummarizerPort],
+      }),
+    ],
+  });
+  const generation = Bundle.composeSync(manifest);
+  expect(Buffer.from(ToolCapabilityPort.key)).toEqual(Buffer.from(toolKey));
+  expect(Buffer.from(CompactionSummarizerPort.key)).toEqual(Buffer.from(summarizerKey));
+  expect(generation.hash).toBe(canonicalDigest({
+    capabilities: [{
+      name: "tool", requires: [], seam: toolKey, kinds: [], inputs: [],
+      points: ["tool.pre", "tool.post"], purposes: [], handlers: ["kernel/budget-clamp"],
+    }],
+    bundles: [
+      {
+        name: "compaction-summarizer", requires: [], provides: [summarizerKey],
+        tools: [], rows: [], handlers: [], purposes: [],
+      },
+      {
+        name: "consumer", requires: [toolKey, summarizerKey], provides: [],
+        tools: [], rows: [], handlers: [], purposes: [],
+      },
+    ],
+    off: [],
+    disabled: [],
+  }));
+});
 
 test("the manifest is THE product list: tool/action/hook/compaction/alarm capabilities, eight bundles, empty off by default", async () => {
   const manifest = appManifest({
@@ -86,7 +124,7 @@ test("a second bundle declaring the `monitor` tool is the typed duplicate compos
   });
   const copy = Bundle.define({
     name: "monitor-copy",
-    requires: [ToolCapabilitySeam],
+    requires: [ToolCapabilityPort],
     tools: [Core.eraseTool(createMonitorTool(() => undefined))],
   });
   const manifest = Bundle.Manifest.define({

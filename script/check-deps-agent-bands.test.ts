@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { coreGateFiles } from "./core-gate.test-helper";
+import { appPortVocabularyViolations, checkCoreEndState } from "./check-core-end-state";
 import {
   AGENT_PLUGINS,
   agentBandViolations,
@@ -19,6 +20,7 @@ import {
   appsAgentTokenCount,
   appsSessionWriteSites,
   validateAgentBands,
+  validateAppsAgentBarrel,
   validateAppsAgentTokens,
   validateAppsSessionWrites,
 } from "./check-deps";
@@ -332,6 +334,41 @@ function scratchAppsTree(
   }
   return root;
 }
+
+test.each([
+  'import { ToolCapabilitySeam as Port } from "./bundles/seams";',
+  'export { Port as CompactionSummarizerSeam } from "./ports";',
+  "type CustomSeam = object;",
+  "const port = source.CustomSeam;",
+  'const view = <CustomSeam />;',
+])("#1481: retired app port identifiers fail in code: %s", (source) => {
+  expect(appPortVocabularyViolations("apps/openomni/src/probe.tsx", source)).toHaveLength(1);
+});
+
+test("#1481: persisted keys, module paths and prose are not TypeScript identifiers", () => {
+  const source = [
+    'import { ToolCapabilityPort } from "./bundles/seams";',
+    'const key = "@openomni/openomni/ToolCapabilitySeam";',
+    'const other = "@openomni/openomni/CompactionSummarizerSeam";',
+    "// CustomSeam",
+    "const pattern = /CustomSeam/;",
+    "const view = <p>CustomSeam</p>;",
+  ].join("\n");
+  expect(appPortVocabularyViolations("apps/openomni/src/probe.tsx", source)).toEqual([]);
+  expect(appPortVocabularyViolations("apps/openomni/test/probe.ts", "const CustomSeam = 1;")).toEqual([]);
+});
+
+test("#1481: the end-state scan alone rejects a returning app port identifier", async () => {
+  const root = scratchAppsTree({ "bundles/probe.ts": "export const ToolCapabilitySeam = {};\n" });
+  const violation = "VIOLATION: apps/openomni/src/bundles/probe.ts:1 names retired app port identifier ToolCapabilitySeam";
+  try {
+    // One enforcement layer per invariant: the dependency scan does not repeat it.
+    expect(await validateAppsAgentBarrel(root)).toEqual([]);
+    expect(await checkCoreEndState(root)).toContain(violation);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("#1343: a core token in a comment, string, or template text is prose, not a reference", () => {
   expect(

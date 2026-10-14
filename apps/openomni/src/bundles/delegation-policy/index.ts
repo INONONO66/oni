@@ -10,7 +10,7 @@ import {
 } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
-import { ToolCapabilitySeam } from "../seams";
+import { ToolCapabilityPort } from "../seams";
 
 /**
  * The `delegation-policy` bundle (#1258): the caps on child-session creation
@@ -353,7 +353,7 @@ export function delegationPolicyBundle(): Bundle.BundleContract<
     // #1316: the three rows below target `tool.pre`, so the bundle requires
     // the tool capability's seam — `off: ["tool"]` cascades it off instead of
     // rejecting the rows as `unknown_point`.
-    requires: [Bundle.ActionPort, Bundle.AlarmPort, ToolCapabilitySeam],
+    requires: [Bundle.ActionPort, Bundle.AlarmPort, ToolCapabilityPort],
     rows: delegationRows(),
     handlers: {
       "delegation-policy/spawn-depth": spawnDepthGuard(UNBOUND_READS),

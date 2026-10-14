@@ -5,7 +5,7 @@ import { compactionBundle, compactionSummarizerBundle } from "./bundles/compacti
 import { delegationPolicyBundle } from "./bundles/delegation-policy/index";
 import { hooksJsonBundle, type HooksJsonInput } from "./bundles/hooks-json/index";
 import { monitorBundle } from "./bundles/alarms/monitor/index";
-import { ToolCapabilitySeam } from "./bundles/seams";
+import { ToolCapabilityPort } from "./bundles/seams";
 import type { MonitorPorts } from "./bundles/tools/core/watch";
 import { sendMessageBundle } from "./bundles/messaging/send-message/index";
 
@@ -22,7 +22,7 @@ export const toolCapability = Bundle.Capability.define({
   points: ["tool.pre", "tool.post"],
   handlers: { "kernel/budget-clamp": {} },
   verbs: {},
-  port: ToolCapabilitySeam,
+  port: ToolCapabilityPort,
 });
 
 /**

@@ -3,7 +3,7 @@ import { Duration, Effect } from "effect";
 import type { OpenOmniConfig } from "../../config";
 import { modelTransport } from "../../config";
 import { createCompactionSummarizer, MAX_SUMMARY_OUTPUT_TOKENS, summaryDeadline } from "./summarizer";
-import { CompactionSummarizerSeam } from "../seams";
+import { CompactionSummarizerPort } from "../seams";
 
 /**
  * The app's summarizer provider: the model-backed adapter, or — with
@@ -13,7 +13,7 @@ export function compactionSummarizerBundle(): Bundle.BundleContract<"compaction-
   return Bundle.define({
     name: "compaction-summarizer",
     requires: [],
-    provides: [CompactionSummarizerSeam],
+    provides: [CompactionSummarizerPort],
   });
 }
 
@@ -25,7 +25,7 @@ export function compactionSummarizerBundle(): Bundle.BundleContract<"compaction-
 export function compactionBundle(): Bundle.BundleContract<"compaction-strategy"> {
   return Bundle.define({
     name: "compaction-strategy",
-    requires: [Bundle.CompactionPort, CompactionSummarizerSeam],
+    requires: [Bundle.CompactionPort, CompactionSummarizerPort],
   });
 }
 
