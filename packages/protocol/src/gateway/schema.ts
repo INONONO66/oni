@@ -121,14 +121,16 @@ const MessageClassSchema = z.enum(["notify", "converse"]);
 
 /**
  * Explicit target: always one existing actor; an optional endpoint pin
- * disambiguates actors reachable at more than one endpoint. No broadcast or
- * wildcard form — resolution yields exactly one delivery address or a typed
- * denial.
+ * disambiguates actors reachable at more than one endpoint, and an optional
+ * surface narrows resolution to that channel's endpoint (#1485; the pin wins
+ * when both are given). No broadcast or wildcard form — resolution yields
+ * exactly one delivery address or a typed denial.
  */
 const MessageTargetSchema = z
   .object({
     actorId: z.string().min(1),
     endpointId: z.string().min(1).optional(),
+    surface: z.string().min(1).optional(),
   })
   .strict();
 

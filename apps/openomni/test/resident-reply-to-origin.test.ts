@@ -16,11 +16,15 @@ interface Ingested {
   readonly content: string;
 }
 
-function capturingPort(ingested: Ingested[]): MessagePort {
+function capturingPort(
+  ingested: Ingested[],
+  admit: (send: Gateway.SendMessage) => boolean = () => true,
+): MessagePort {
   return {
     ingest: async (sender, message) => {
       const send = message as Gateway.SendMessage;
       ingested.push({ sender, to: send.to, content: send.content });
+      if (!admit(send)) return { status: "blocked_pre", reasonCode: "message.resident.actor_grant" } satisfies Gateway.IngestResult;
       return {
         status: "executed",
         handle: { messageId: `m-${ingested.length}`, target: "person:owner" },
@@ -85,8 +89,30 @@ test("a turn answering an approved person on a channel reports its result to tha
   const result = await deliverExternal(resident, "reply-origin-telegram", telegramOwner, "ping");
   expect(result.kind).toBe("result");
   expect(ingested).toEqual([
-    { sender: { kind: "session", id: "reply-origin-telegram" }, to: { kind: "actor", actorId: "person:owner" }, content: "pong" },
+    {
+      sender: { kind: "session", id: "reply-origin-telegram" },
+      to: { kind: "actor", actorId: "person:owner", surface: "telegram" },
+      content: "pong",
+    },
   ]);
+});
+
+test("the report goes back on the channel the person wrote on, not another of their endpoints (#1485)", async () => {
+  const ingested: Ingested[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(ingested) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  await deliverExternal(
+    resident,
+    "reply-origin-slack",
+    { surface: "slack", externalId: "T1:U1", actorId: "person:owner", messageId: "slack::T1:U1:1" },
+    "ping",
+  );
+  expect(ingested.map((item) => item.to)).toEqual([{ kind: "actor", actorId: "person:owner", surface: "slack" }]);
 });
 
 test("an explicit send_message to the same person in the turn is not duplicated by the report", async () => {
@@ -100,6 +126,23 @@ test("an explicit send_message to the same person in the turn is not duplicated 
   });
   await deliverExternal(resident, "reply-origin-explicit", telegramOwner, "send a test");
   expect(ingested.map((item) => item.content)).toEqual(["테스트 OK"]);
+});
+
+test("a refused explicit send leaves the person still owed the report (#1485)", async () => {
+  const ingested: Ingested[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    // The model's own send (no surface) is refused; the pinned report is admitted.
+    tools: { messages: capturingPort(ingested, (send) => send.to.kind === "actor" && send.to.surface !== undefined) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("could not send it", { contact: "person:owner", message: "테스트 OK" }),
+  });
+  await deliverExternal(resident, "reply-origin-refused", telegramOwner, "send a test");
+  expect(ingested.map((item) => [item.content, item.to.kind === "actor" ? item.to.surface : undefined])).toEqual([
+    ["테스트 OK", undefined],
+    ["could not send it", "telegram"],
+  ]);
 });
 
 test("a WebSocket owner reads the turn stream and is not written to again", async () => {

@@ -182,7 +182,10 @@ export function executeMessage(
       messageId,
       traceId: intent.action.id,
       senderId: sender.kind === "session" ? sender.id : sender.externalId,
-      target: { actorId: send.to.actorId },
+      target: {
+        actorId: send.to.actorId,
+        ...(send.to.surface === undefined ? {} : { surface: send.to.surface }),
+      },
       body: content,
       at: startedAt,
       operation: send.deadline === undefined ? "fire_and_forget" : "awaited",

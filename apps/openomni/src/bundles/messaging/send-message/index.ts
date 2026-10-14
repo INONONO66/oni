@@ -28,7 +28,15 @@ const Id = z.string().min(1);
 const Target = z.discriminatedUnion("kind", [
   Gateway.SessionTarget,
   Gateway.NewSessionTarget,
-  z.object({ kind: z.literal("contact"), id: Id }).strict(),
+  z
+    .object({
+      kind: z.literal("contact"),
+      id: Id,
+      surface: Id.optional().describe(
+        "Channel to reach the contact on (telegram, slack, …) when they are reachable on several; omit when they have one.",
+      ),
+    })
+    .strict(),
 ]);
 
 const SendMessageInput = z
@@ -60,7 +68,14 @@ type SendMessageInput = z.output<typeof SendMessageInput>;
 /** The tool's vocabulary folded onto the gateway's consumer surface. */
 function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessage {
   return {
-    to: input.to.kind === "contact" ? { kind: "actor", actorId: input.to.id } : input.to,
+    to:
+      input.to.kind === "contact"
+        ? {
+            kind: "actor",
+            actorId: input.to.id,
+            ...(input.to.surface === undefined ? {} : { surface: input.to.surface }),
+          }
+        : input.to,
     type: input.kind === "prompt" ? "message" : input.kind,
     content: input.message,
     ...(input.reply_to === undefined ? {} : { replyTo: input.reply_to }),

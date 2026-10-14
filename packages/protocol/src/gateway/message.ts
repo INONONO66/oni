@@ -28,7 +28,9 @@ const NewSessionTarget = z
 const Target = z.discriminatedUnion("kind", [
   SessionTarget,
   NewSessionTarget,
-  z.object({ kind: z.literal("actor"), actorId: Id }).strict(),
+  // `surface` narrows delivery to one channel when the actor is reachable on
+  // several (#1485); the send kernel's endpointId pin is not a model-facing fact.
+  z.object({ kind: z.literal("actor"), actorId: Id, surface: Id.optional() }).strict(),
 ]);
 
 const Send = z

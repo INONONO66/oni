@@ -54,20 +54,26 @@ function resolveExistingTarget(
     }
     return { ok: true, target: deliveryTarget(target.actorId, endpoint) };
   }
-  const endpoints = stores.actors.listEndpoints(target.actorId);
+  // A surface hint narrows to that channel's endpoints before the
+  // one-or-ambiguous rule (#1485): a person on several channels is reached
+  // on the one named, without the caller knowing endpoint ids.
+  const endpoints = stores.actors
+    .listEndpoints(target.actorId)
+    .filter((candidate) => target.surface === undefined || candidate.channel === target.surface);
+  const where = target.surface === undefined ? "" : ` on ${target.surface}`;
   const [endpoint, ...rest] = endpoints;
   if (endpoint === undefined) {
     return {
       ok: false,
       code: "target_stale",
-      reason: `actor ${target.actorId} has no allocated endpoint`,
+      reason: `actor ${target.actorId} has no allocated endpoint${where}`,
     };
   }
   if (rest.length > 0) {
     return {
       ok: false,
       code: "target_ambiguous",
-      reason: `actor ${target.actorId} is reachable at ${endpoints.length} endpoints — pin target.endpointId`,
+      reason: `actor ${target.actorId} is reachable at ${endpoints.length} endpoints${where} — pin target.endpointId`,
     };
   }
   return { ok: true, target: deliveryTarget(target.actorId, endpoint) };

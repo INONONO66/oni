@@ -339,6 +339,11 @@
                 "id": {
                   "type": "string",
                   "minLength": 1
+                },
+                "surface": {
+                  "description": "Channel to reach the contact on (telegram, slack, …) when they are reachable on several; omit when they have one.",
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "required": ["kind", "id"],
