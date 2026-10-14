@@ -9,6 +9,7 @@ import { z } from "zod";
 import { PlainValueSchema } from "../packages/protocol/src/json.js";
 import { commandOutput } from "./command-output";
 import { findCycles, valueImportSpecifiers } from "./check-import-cycles";
+import { appPortVocabularyViolations } from "./check-core-end-state";
 import { CORE_END_STATE_TARGETS } from "./core-end-state-targets";
 import { runScriptMain } from "./main-runner";
 import { AGENT_CORE_EDGES, assertTopologyComplete, TOPOLOGY, type WorkspaceTopology } from "./topology";
@@ -1226,6 +1227,7 @@ export async function validateAppsAgentBarrel(root = "."): Promise<string[]> {
   for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
     violations.push(...appsAgentInternalViolations(filePath, source));
     violations.push(...appsRetiredHostViolations(filePath, source));
+    violations.push(...appPortVocabularyViolations(filePath, source));
   }
   return violations;
 }

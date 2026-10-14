@@ -1,5 +1,33 @@
 # Implementation Status
 
+## #1481 app port identifiers and durable keys (PR #TBD, base `030d50500`)
+
+On `refactor/1481-app-pins-seams` (2026-10-14). Item 2 is implemented:
+`ToolCapabilitySeam` and `CompactionSummarizerSeam` become
+`ToolCapabilityPort` and `CompactionSummarizerPort` in
+`apps/openomni/src/bundles/seams.ts` and every importer, without aliases.
+Their persisted keys remain byte-identical:
+`"@openomni/openomni/ToolCapabilitySeam"` and
+`"@openomni/openomni/CompactionSummarizerSeam"`. The manifest test compares
+both UTF-8 keys and the composed hash against the literal legacy preimage.
+The dependency and end-state gates reject TypeScript identifiers containing
+`Seam` throughout `apps/openomni/src`, while preserving quoted keys, module
+paths, and prose. This does not claim a repository-wide prose rename.
+
+Item 1 remains open: the direct agent-core token pin is **1 before, 1
+after**, and its exact `tools.add` write allow-list entry remains. Tracing
+the real entity writer and exercising its RPC established that
+`Deliver(kind: "session.configure")` returns `unknown_kind` with no new
+facts; sending the same configuration as `action` appends an ordinary
+action and leaves the generation unchanged. `DeliverBody` has only
+content/control/delivery/cursor fields, and `SessionEntityPorts` has no
+configure authority or generation-acquisition port. Safely removing the
+write requires an explicit configure delivery contract that preserves
+pinned policy authorization, durable replay identity, and candidate-layer
+acquisition before commit with rollback on failure. This PR does not
+claim that contract, a zero direct-token pin, or removal of app-owned
+ledger writes.
+
 ## #1049 nightly mutation schedule removed (base `030d50500`)
 
 On `ci/mutation-schedule-off` (2026-10-14). `quality-mutation.yml` is
@@ -31,6 +59,7 @@ require platform resolution. Automation rules and conditions, animated/video
 stickers, and inbound download/authentication tooling are not changed here.
 
 ||||||| parent of b1e8f9b38 (ci(mutation): drop the nightly schedule that never completed a shard (#1049))
+||||||| parent of ad0cacb1b (refactor(app): direct-token pin to 0 via entity deliver; seam identifiers renamed (#1481))
 ## #1497 one outbound payload for every channel: parts, media, reactions (PR #1504, base `55ac51ecd`)
 
 On `feat/channels-unified-outbound` (2026-10-14). The agent produces one

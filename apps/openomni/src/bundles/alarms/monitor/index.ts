@@ -1,7 +1,7 @@
 import { Bundle, Core } from "@openomni/agent";
 import { Alarm } from "@openomni/protocol";
 import { z } from "zod";
-import { ToolCapabilitySeam } from "../../seams";
+import { ToolCapabilityPort } from "../../seams";
 import { armCron, armWatch, type MonitorPorts, WatchState } from "../../tools/core/watch";
 
 const defineTool = Core.defineTool;
@@ -158,7 +158,7 @@ export function monitorBundle(
     // #1316: the wake-budget row below targets `tool.pre`, so the bundle
     // requires the tool capability's seam — `off: ["tool"]` cascades monitor
     // off instead of rejecting the row as `unknown_point`.
-    requires: [Bundle.AlarmPort, ToolCapabilitySeam],
+    requires: [Bundle.AlarmPort, ToolCapabilityPort],
     // #1308: the bundle is the ONE `monitor` declaration and it is live —
     // the catalog no longer builds a competing copy.
     tools: [Core.eraseTool(createMonitorTool(alarms))],

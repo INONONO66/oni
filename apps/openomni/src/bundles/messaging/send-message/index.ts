@@ -2,7 +2,7 @@ import { Bundle, Core } from "@openomni/agent";
 import { Gateway, Outbound } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
-import { ToolCapabilitySeam } from "../../seams";
+import { ToolCapabilityPort } from "../../seams";
 
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;
@@ -338,7 +338,7 @@ export function sendMessageBundle(): Bundle.BundleContract<"send-message"> {
     // #1309: approval answers ride the owner contact this tool reaches, so the
     // send door requires the approval policy's seam — a manifest without the
     // approval-policy provider refuses typed (`seam_missing`) at compose.
-    requires: [ToolCapabilitySeam, Core.ApprovalPolicyPort],
+    requires: [ToolCapabilityPort, Core.ApprovalPolicyPort],
     tools: [Core.eraseTool(createSendMessageTool(undefined, () => 0))],
   });
 }
