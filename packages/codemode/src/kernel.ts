@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { env } from "node:process";
 import { createInterface, type Interface } from "node:readline";
 import { parseJson, Machine } from "@openomni/protocol";
 import { onAbort, type MachineError } from "@openomni/machines";
@@ -26,7 +27,7 @@ import threading
 import time
 import traceback
 
-_OUTPUT_LIMIT = ${Machine.CELL_OUTPUT_MAX_BYTES}
+_OUTPUT_LIMIT = int(os.environ["OPENOMNI_CELL_OUTPUT_MAX_BYTES"])
 _BROWSER_TRANSCRIPT_LIMIT = 65_536
 _emit_lock = threading.Lock()
 _cell_context = threading.local()
@@ -1088,7 +1089,9 @@ export class PythonKernel {
     return Effect.gen({ self: this }, function* () {
       const exited = yield* Deferred.make<void>();
       const cleanup = yield* Deferred.make<CleanupCompleteFrame["failed"]>();
-      const process = yield* Effect.try({ try: () => spawn("python3", ["-u", "-c", PYTHON_DRIVER]), catch: decodeCodeFailure("driver.spawn") });
+      const process = yield* Effect.try({ try: () => spawn("python3", ["-u", "-c", PYTHON_DRIVER], {
+        env: { ...env, OPENOMNI_CELL_OUTPUT_MAX_BYTES: String(Machine.CELL_OUTPUT_MAX_BYTES) },
+      }), catch: decodeCodeFailure("driver.spawn") });
       this.onSpawn?.(process);
       this.exits.add(exited);
       this.processExits.set(process, exited);
