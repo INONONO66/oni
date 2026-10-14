@@ -1,5 +1,14 @@
 # Implementation Status
 
+## #1426 — watch-sources reconcile cadence on the alarm plane (PR #1474, base `11061c992`)
+
+- Cadence: `apps/openomni/src/composition/watch-plane.ts` arms one `watch`-purpose cadence chain per native path source on the app alarm plane (one-second cadence as the issue specifies), re-armed from its own fired row while the path watch is live and superseded with `at: null` on close; restoring a source arms once and never restarts an existing handle; arm refusals surface the entity's typed reason. Empty ticks return the no-drain `exhausted` outcome so the session can passivate; they still write two durable rows per watch per second, which is the Owner decision in #1477.
+- Lifecycle: `composition/watch-sources.ts` reports typed retire failures through `options.failure`; `closeAll()` awaits pending installs and in-flight retirements with `allSettled`, and installs after shutdown started refuse with `WatchRefused({ reason: "shutdown" })`. `index.ts` runs `watchSources.closeAll()` while the Effect runtime is live so retirement can complete.
+- Capacity: a path watch holds two armed rows (three with a timeout) under the 64 armed-row cap — `2P + 3T + other ≤ 64`; an install past the cap is a typed `alarm_budget` refusal with complete cleanup.
+- Clock: the CLI reconnect and termination delays (`cli/machine.ts`, `cli/main.ts`) run on the Effect clock; CLI readiness is signalled over the child's stdout pipe. `setInterval|setTimeout` under `apps/openomni/src` is zero.
+- Review r1: High 2 (close/closeAll rejections; missing real-wiring TestClock test → `test/app-watch-cadence.test.ts` proves one armed cadence row per live path watch, a dropped create recovered by the fired cadence, zero rows after cancel), Medium 5 (per-tick drain, capacity, install after shutdown, `fs.watch` readiness, docs) all fixed; Lows recorded on the PR.
+- Verification (bun 1.4.1 pinned, behind the host gate lock): focused files after the r1 fix watch-sources 23 / app-watch-cadence 1 / cli-entry 28 pass; openomniApp lane and patch coverage rerun after the rebase onto `11061c992` (recorded on the PR); check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
+
 ## #1427 — compaction summaries as session llm rows, no failed turn on summary failure (PR #1475, base `5d2de7484`, app half)
 
 - Accounting: `apps/openomni/src/bundles/compaction/summarizer.ts` runs the summary through the compacting session's own executor (`src/composition/completion.ts`), so the call lands as that session's `llm` row with `intent.purpose: "compaction"` and usage; no side session, no direct provider call. Grouping by purpose in the metrics read model is core work tracked in #1476.
@@ -359,7 +368,7 @@ added there. Comment-only; zero behavior change; no lint or script added.
 
 | module | forcing API | Effect entry call | verdict |
 | --- | --- | --- | --- |
-| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll, `setInterval` reconcile cadence | injected `WatchSenders.deliver` (bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
+| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll; the reconcile cadence is a `watch`-purpose alarm chain on the app alarm plane (#1426) | injected `WatchSenders.deliver` (bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
 | `composition/process-session.ts` | `Bun.spawn` stdin/stdout byte streams (`ReadableStream` reader, `child.exited`) | injected `answer` (`runAppEffect(runtime, requests.answer(...))`) | keep |
 | `provisioning/supervisor.ts` | channels driver `surface.start` Promise contract (`stop` is synchronous; channels is the #1248 Promise band with its own injected `EffectRunner`) | the driver runner (`ChannelRuntimeDeps.run` = `runAppEffect`) that `deps.desired()` passes into each built surface; `.then(() => undefined, ThrownError.parse)` narrows the rejection to a typed Error that `mountRow` re-throws and `startRow` records as breaker status, never a swallow | keep |
 
