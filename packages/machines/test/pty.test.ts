@@ -47,11 +47,17 @@ async function writeText(adapter: PtyAdapter, name: string, text: string): Promi
   expect(written).toEqual({ status: "ok" });
 }
 
-/** Event-driven drain: every round blocks on the adapter's long-poll, no sleeps. */
-async function readUntil(adapter: PtyAdapter, name: string, cursor: string, marker: string, rounds = 200) {
+/**
+ * Event-driven drain: every round blocks on the adapter's long-poll, no
+ * sleeps, until the marker lands or the deadline passes. A round-count bound
+ * would depend on how many bytes each wake carries, which a loaded runner
+ * decides.
+ */
+async function readUntil(adapter: PtyAdapter, name: string, cursor: string, marker: string, deadlineMs = 20_000) {
   let seen = "";
   let at = cursor;
-  for (let round = 0; round < rounds && !seen.includes(marker); round += 1) {
+  const deadline = Date.now() + deadlineMs;
+  while (!seen.includes(marker) && Date.now() < deadline) {
     const view = okRead(await run(adapter.read({ name, cursor: at, waitMs: 2000 })));
     seen += Buffer.from(view.data, "base64").toString("utf8");
     at = view.cursor;
@@ -139,7 +145,7 @@ describe("pty.session over real tmux", () => {
     await writeText(adapter, "flood", "yes | head -c 300000; printf 'FLOOD-%s\\n' done\r");
     // A fast producer wakes each long-poll with one arrival's worth of bytes;
     // draining 300000+ bytes therefore takes many immediate rounds.
-    await readUntil(adapter, "flood", opened.cursor, "FLOOD-done", 1000);
+    await readUntil(adapter, "flood", opened.cursor, "FLOOD-done");
     // One read over the whole retained stream crosses the response cap.
     const capped = okRead(await run(adapter.read({ name: "flood" })));
     expect(capped.truncated).toBe(true);
