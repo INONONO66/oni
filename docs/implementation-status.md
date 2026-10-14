@@ -901,6 +901,11 @@ key:
   an empty cascade keeps the genesis stamp and appends nothing. A composed-off
   `tool` capability returns zero model tool faces (`toolChoice: "none"`), so
   `eval`/`bash`/`read` vanish with the dispatcher's capability.
+- `packages/agent/src/core/composition/compose.ts` (#1487): the composed hash
+  folds each bundle tool's projected `inputSchema`, so a schema-only tool
+  change rotates the generation at each session's next turn start instead of
+  stranding the session on a `captured catalog mismatch` at
+  `dispatcher.acquire` (seen on oni after #1486 widened `send_message`).
 - `apps/openomni/test/capability-off-boot.test.ts` (8 pass / 0 fail): one
   boot per row through `suite.boot` with injected clock and entropy. Measured
   cascades on this base: alarm → alarm, monitor, cron, delegation-policy;

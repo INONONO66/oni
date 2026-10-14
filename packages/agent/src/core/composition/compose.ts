@@ -1,13 +1,14 @@
 import type { HandlerTable as PolicyRegistry, NamedConsultant } from "../gate/compile";
 import { canonicalDigest, CORE_POINT_RECORDS, type PlainValue } from "@openomni/protocol";
 import { type Clock, Context, Effect, Schema, type Scope } from "effect";
-import type {
-  BundleContract,
-  BundleGateRow,
-  BundleTool,
-  CapabilityDefinition,
-  CapabilityKindDeclaration,
-  ManifestDefinition,
+import {
+  type BundleContract,
+  type BundleGateRow,
+  type BundleTool,
+  type CapabilityDefinition,
+  type CapabilityKindDeclaration,
+  type ManifestDefinition,
+  toolInputSchema,
 } from "../ports/capability";
 
 export class GenerationHandlers extends Context.Service<GenerationHandlers, PolicyRegistry>()("@openomni/agent/GenerationHandlers") {}
@@ -233,9 +234,13 @@ function hashProjection(
       name: bundle.name,
       requires: bundle.requires.map((tag) => tag.key),
       provides: bundle.provides.map((tag) => tag.key),
+      // The dispatcher digests the captured tool WITH its input schema, so
+      // the schema is part of the manifest identity — a schema-only change must
+      // rotate the generation or every existing session refuses its next turn.
       tools: bundle.tools.map((tool) => ({
         name: tool.name,
         category: tool.category,
+        inputSchema: toolInputSchema(tool),
         sequential: tool.sequential === true,
         idempotent: tool.idempotent === true,
       })),

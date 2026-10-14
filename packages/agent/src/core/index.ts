@@ -29,8 +29,9 @@ export {
 export { assertPointGenerationRows, POINT_GENERATION_ROW, translateLegacyPolicyRow } from "./gate/migrate";
 export {
   currentExecutor, defineTool, eraseTool, projectTools,
-  ToolRefused, toolInputSchema, type ToolProjections, type ProjectableTool,
+  ToolRefused, type ToolProjections, type ProjectableTool,
 } from "./loop/tool";
+export { toolInputSchema } from "./ports/capability";
 
 export {
   adoptedExecutor, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,

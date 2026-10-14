@@ -1,14 +1,15 @@
 import { type Effect, type Layer, Schema } from "effect";
-import type { z } from "zod";
-import type {
-  AnyToolDefinition,
-  GateRow,
-  PlainValue,
-  PointId,
-  Tool,
+import { z } from "zod";
+import {
+  type AnyToolDefinition,
+  type GateRow,
+  type PlainValue,
+  PlainValueSchema,
+  type PointId,
+  type Tool,
 } from "@openomni/protocol";
 import type { AlarmFired } from "./alarm";
-import type { SessionError } from "./failure";
+import { AgentInvariantViolation, type SessionError } from "./failure";
 import type { BundleLayerServices } from "./ports";
 
 /**
@@ -195,6 +196,23 @@ export const Capability = Object.freeze({ define: defineCapability });
 type BundleLayer = Layer.Layer<never, SessionError, BundleLayerServices>;
 
 export type BundleTool = AnyToolDefinition & { readonly idempotent?: boolean };
+
+type JsonSchemaObject = Record<string, PlainValue>;
+
+/**
+ * One projection of a tool's input schema, shared by the composed manifest hash
+ * (`composition/compose.ts`) and the per-turn catalog digest (`loop/tool.ts`),
+ * so a schema change rotates a session's generation instead of stranding it.
+ */
+export function toolInputSchema(definition: AnyToolDefinition): JsonSchemaObject {
+  const { $schema: _dialect, ...projected } = z
+    .record(z.string(), PlainValueSchema)
+    .parse(z.toJSONSchema(definition.input, { io: "input", target: "draft-7" }));
+  if (projected.type !== "object") {
+    throw new AgentInvariantViolation(`${definition.name} input schema root must be an object`);
+  }
+  return projected;
+}
 
 /** Generation assigned at compose. */
 export type BundleGateRow = Omit<GateRow, "generation">;
