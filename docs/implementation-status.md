@@ -20,12 +20,20 @@ project groups with counts, `StatusGlyph` session rows, and a gateway footer
 showing the configured endpoint from the one preload call. `ensureBootTab` opens
 one new-session tab when the store has no tabs and is called once from the
 shell lifecycle, so every boot lands on the hero. Shell hooks moved out of
-`app.tsx` into `shell/`. No local data, no mock sessions: the sessions list
-and the transcript still come from the gateway transport.
+`app.tsx` into `shell/`. No mock sessions: the sessions list is the client
+store's session handles (`state/store.ts`, created by New session and the boot
+tab) enriched per durable session by the gateway's session read pages
+(`useSessionReadModels` in `state/queries.ts`: phase, ancestry, fork anchors,
+last activity), and the transcript comes from the gateway transport.
 
 Verified on this branch: build, check-types, lint, lint:tools, topology,
 deps, import cycles, dead exports, effect boundaries, journal writers,
-tsconfig inheritance and `bun test --timeout 15000` (receipts in the PR).
+tsconfig inheritance, patch coverage, and the hosted CI test lanes (every
+lane green on the branch head). The local root `bun test --timeout 15000`
+run passed every `packages/ui`, `apps/desktop`, and `packages/protocol` test;
+its remaining failures are host-environment classes (the Python mutation
+worker fixture without `D945_PYTHON`, Playwright without Chromium) that the
+hosted lanes do not share.
 Screenshots at 1280x800 and 1000x700 in dark and light with a `data-ui`
 geometry dump match the token values above within 1px.
 

@@ -93,6 +93,12 @@ interface SidebarState {
   readonly rootRef: RefObject<HTMLDivElement | null>;
   /** Pointer enter/leave for the hot zones: the strip's toggle, the edge, the floating panel. */
   readonly reveal: Pick<RevealIntent, "enter" | "leave">;
+  /**
+   * True between a focused toggle's activation and its replacement's mount:
+   * the toggle moves between the strip and the header, so the node that owned
+   * focus unmounts and the one that takes its place must receive it.
+   */
+  readonly toggleHandoff: RefObject<boolean>;
 }
 
 const SidebarContext = createContext<SidebarState | null>(null);
@@ -131,6 +137,7 @@ export function Sidebar({
   readonly children: ReactNode;
 } & Omit<React.ComponentPropsWithoutRef<"div">, "className" | "children" | "style">) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const toggleHandoff = useRef(false);
   const mode: SidebarMode = open ? "pinned" : floating ? "overlay" : "hidden";
 
   // The intent reads the LATEST state through refs so one instance lives for
@@ -165,7 +172,7 @@ export function Sidebar({
 
   return (
     <SidebarContext.Provider
-      value={{ open, mode, width, onToggle, onWidthCommit, rootRef, reveal }}
+      value={{ open, mode, width, onToggle, onWidthCommit, rootRef, reveal, toggleHandoff }}
     >
       <div
         className="group/sidebar flex h-dvh w-full overflow-hidden bg-sunken pt-(--shell-top)"

@@ -18,10 +18,12 @@ import { SidebarFrame } from "./sidebar-frame";
  */
 GlobalRegistrator.register();
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const { act, useEffect } = await import("react");
+const { act, useEffect, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Sidebar } = await import("../src/sidebar");
-const { SidebarToggle } = await import("../src/tab-strip");
+const { SidebarToggle, TabStrip } = await import("../src/tab-strip");
+const { SidebarHeader } = await import("../src/sidebar-nav");
+const { STRIP } = await import("./fixture");
 
 afterAll(() => GlobalRegistrator.unregister());
 
@@ -96,6 +98,72 @@ describe("the trio's identity", () => {
 
     await act(() => root.unmount());
     container.remove();
+  });
+});
+
+/** The toggle drives the open state, as it does under the app's store. */
+function LiveFrame() {
+  const [open, setOpen] = useState(true);
+  return (
+    <Sidebar
+      floating={false}
+      onFloatingChange={() => undefined}
+      onToggle={() => setOpen((value) => !value)}
+      onWidthCommit={() => undefined}
+      open={open}
+      width={252}
+    >
+      <TabStrip {...STRIP} platform="darwin" />
+      <Sidebar.Gap />
+      <Sidebar.Container>
+        <SidebarHeader actions={open ? <SidebarToggle /> : null} brand={null} />
+      </Sidebar.Container>
+    </Sidebar>
+  );
+}
+
+describe("the toggle's focus", () => {
+  test("Given the toggle focused, When it is activated, Then its replacement in the other host owns focus", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(() => root.render(<LiveFrame />));
+    const headerToggle = toggleOf(host);
+    headerToggle.focus();
+    expect(document.activeElement).toBe(headerToggle);
+
+    await act(() => headerToggle.click());
+    const stripToggle = toggleOf(host);
+    expect(stripToggle).not.toBe(headerToggle);
+    expect(stripToggle.closest('[data-ui="TabStrip.Controls"]')).not.toBeNull();
+    expect(document.activeElement).toBe(stripToggle);
+
+    await act(() => stripToggle.click());
+    const reopened = toggleOf(host);
+    expect(reopened.closest('[data-ui="Sidebar.Header"]')).not.toBeNull();
+    expect(document.activeElement).toBe(reopened);
+
+    await act(() => root.unmount());
+    host.remove();
+  });
+
+  test("Given focus elsewhere, When the toggle is clicked, Then the replacement does not take focus", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(() => root.render(<LiveFrame />));
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    expect(document.activeElement).toBe(elsewhere);
+
+    await act(() => toggleOf(host).click());
+    expect(toggleOf(host).closest('[data-ui="TabStrip.Controls"]')).not.toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+
+    await act(() => root.unmount());
+    host.remove();
+    elsewhere.remove();
   });
 });
 

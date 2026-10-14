@@ -137,15 +137,29 @@ export function TabStrip({
  * Mounted by the strip while the column is collapsed and by the sidebar's
  * header while it is open. Collapsed, it is also a hot zone: resting on it
  * reveals the column. `plain` because the glyph's widening bar is the hover answer.
+ *
+ * Toggling moves the control between those two hosts, so the activated node
+ * unmounts. When it owned focus, the replacement takes focus on mount; a
+ * pointer click elsewhere leaves focus where it was.
  */
 export function SidebarToggle() {
-  const { open, mode, onToggle, reveal } = useSidebar();
+  const { open, mode, onToggle, reveal, toggleHandoff } = useSidebar();
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!toggleHandoff.current) return;
+    toggleHandoff.current = false;
+    button.current?.focus();
+  }, [toggleHandoff]);
   return (
     <IconButton
       aria-expanded={open}
       data-ui={UI_NAMES.SidebarToggle}
       label={open ? "Collapse sidebar" : "Expand sidebar"}
-      onClick={onToggle}
+      onClick={() => {
+        toggleHandoff.current = button.current !== null && document.activeElement === button.current;
+        onToggle();
+      }}
+      ref={button}
       onPointerEnter={open ? undefined : reveal.enter}
       onPointerLeave={open ? undefined : reveal.leave}
       size="base"
