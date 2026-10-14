@@ -686,8 +686,9 @@ describe("bash session door", () => {
   }
 
   test("a named session keeps shell state across calls and across a daemon restart", async () => {
-    await sessionFixture(async ({ stdoutUntil, restartDaemon }) => {
-      expect(await stdoutUntil("$", "export BRIDGE_X=42")).toContain("BRIDGE_X");
+    await sessionFixture(async ({ bash, stdoutUntil, restartDaemon }) => {
+      const exported = await bash({ machine: "m-1", session: "qa", command: "export BRIDGE_X=42" } satisfies PlainObject);
+      expect(JSON.parse(String(exported.content))).toMatchObject({ exitCode: 0, pending: false });
       expect(await stdoutUntil("door-42", "echo door-$BRIDGE_X")).toContain("door-42");
       // Restart ONLY the daemon; the tmux server owns the terminal.
       await restartDaemon();

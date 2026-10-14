@@ -27,6 +27,7 @@ const Output = z.object({
   exitCode: z.number().int().nullable(),
   signal: z.string().nullable(),
   truncated: z.boolean(),
+  pending: z.boolean(),
 });
 
 /**
@@ -55,88 +56,235 @@ async function machineBash(args: z.output<typeof Input>, ports: FilePorts) {
     exitCode: result.exitCode,
     signal: result.signal,
     truncated: result.truncated,
+    pending: false,
   };
 }
 
 /** Long-poll quantum: each round waits for output events, never spins. */
 const SESSION_DRAIN_WAIT_MS = 600;
-// Bound on rounds, not time: non-empty reads return immediately, so a busy
-// terminal spends the cap fast and returns what it has; the loop only ends
-// early once the terminal stays quiet for a whole long-poll round.
-const SESSION_DRAIN_ROUNDS = 32;
+const SESSION_DRAIN_DEADLINE_MS = 20_000;
 
-type SessionTarget = ReturnType<typeof machineTarget>["target"];
 type SessionRefusal = { readonly status: "refused"; readonly reason: string };
 function refusedSession(result: SessionRefusal): never {
   throw new ToolRefused("bash", result.reason);
 }
 
-/**
- * First touch of a session in this process: open (reattach-or-create under
- * the daemon's export confinement) and consume the first read. A fresh shell
- * swallows bytes typed during startup, so the opening read long-polls for the
- * first prompt bytes; on reattach it returns the scrollback snapshot instead,
- * which is exactly the context worth showing once.
- */
-async function openSessionCursor(target: SessionTarget, session: string, sink: Buffer[]) {
-  const opened = await target.pty.open(session, "/");
-  if (opened.status !== "ok") refusedSession(opened);
-  const first = await target.pty.read(session, { cursor: opened.cursor, waitMs: 2000 });
-  if (first.status !== "ok") refusedSession(first);
-  sink.push(Buffer.from(first.data));
-  return { cursor: first.cursor, truncated: first.truncated };
+class SessionInvalidExitCode extends ToolRefused {
+  constructor() {
+    super("bash", "session command sentinel contained a non-numeric exit code");
+    this.name = "SessionInvalidExitCode";
+  }
 }
 
-async function sessionBash(args: z.output<typeof Input>, ports: FilePorts, cursors: Map<string, string>) {
+class SessionBusy extends ToolRefused {
+  constructor() {
+    super("bash", "session command is still pending; use an empty command to drain it");
+    this.name = "SessionBusy";
+  }
+}
+
+type SessionReadPort = (
+  cursor: string,
+  waitMs: number,
+) => Promise<
+  | { readonly status: "ok"; readonly data: Uint8Array; readonly cursor: string; readonly truncated: boolean }
+  | { readonly status: "refused"; readonly reason: string }
+>;
+// OSC (title, bracketed-paste markers) and CSI (cursor, colour) sequences carry no command output.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape bytes are the subject
+const oscSequence = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape bytes are the subject
+const csiSequence = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const normalizeTerminalText = (text: string) =>
+  text.replace(oscSequence, "").replace(csiSequence, "").replaceAll("\r", "");
+
+function stripEchoedCommand(text: string, command: string, sentinel: string): string {
+  let cleaned = normalizeTerminalText(text);
+  // Input typed ahead of the prompt is echoed twice: by the tty, then by the line editor's redisplay.
+  for (const line of [...(command.length > 0 ? command.split("\n") : []), sentinel]) {
+    cleaned = cleaned.replaceAll(`${line}\n`, "");
+    if (cleaned.endsWith(line)) cleaned = cleaned.slice(0, -line.length);
+  }
+  return cleaned;
+}
+
+/** Holds back a trailing partial line that could still be the echoed command or the sentinel, so it is never delivered twice. */
+function deliverablePrefix(text: string, pending: PendingSentinel): string {
+  const lastLine = normalizeTerminalText(text).split("\n").at(-1) ?? "";
+  const fragment = lastLine.trimStart();
+  if (
+    fragment.length > 0 &&
+    (pending.nonce.startsWith(fragment) ||
+      fragment.startsWith(pending.nonce) ||
+      pending.command.startsWith(fragment) ||
+      pending.sentinel.includes(fragment))
+  ) {
+    return text.slice(0, text.lastIndexOf("\n") + 1);
+  }
+  return text;
+}
+
+function markerLine(text: string, marker: string): { readonly prefix: string; readonly suffix: string } | undefined {
+  const lines = normalizeTerminalText(text).split("\n");
+  const line = lines.findIndex(
+    (candidate, index) => index < lines.length - 1 && candidate.trimStart().startsWith(marker),
+  );
+  if (line < 0) return undefined;
+  const found = lines[line];
+  if (found === undefined) return undefined;
+  const markerAt = found.indexOf(marker);
+  return { prefix: lines.slice(0, line).join("\n"), suffix: found.slice(markerAt + marker.length) };
+}
+
+type SessionMarkerResult = {
+  readonly prefix: string;
+  readonly suffix: string;
+  readonly cursor: string;
+  readonly truncated: boolean;
+  readonly pending: boolean;
+  readonly output: string;
+};
+
+async function readUntilMarker(
+  read: SessionReadPort,
+  cursor: string,
+  marker: string,
+  previous: string,
+  onCursor: (next: string) => void,
+): Promise<SessionMarkerResult> {
+  let output = previous;
+  let nextCursor = cursor;
+  let truncated = false;
+  const deadline = Date.now() + SESSION_DRAIN_DEADLINE_MS;
+  while (Date.now() < deadline) {
+    const view = await read(nextCursor, Math.min(SESSION_DRAIN_WAIT_MS, Math.max(1, deadline - Date.now())));
+    if (view.status !== "ok") refusedSession(view);
+    nextCursor = view.cursor;
+    onCursor(nextCursor);
+    truncated = truncated || view.truncated;
+    output += Buffer.from(view.data).toString("utf8");
+    const found = markerLine(output, marker);
+    if (found !== undefined) return { ...found, cursor: nextCursor, truncated, pending: false, output };
+  }
+  return { prefix: output, suffix: "", cursor: nextCursor, truncated, pending: true, output };
+}
+
+type PendingSentinel = {
+  nonce: string;
+  command: string;
+  sentinel: string;
+  output: string;
+  delivered: string;
+  readiness: boolean;
+  truncated: boolean;
+};
+type SessionState = { cursor: string; pending?: PendingSentinel };
+type SessionTarget = ReturnType<typeof machineTarget>["target"];
+
+/** Writes the command (if any) and a sentinel line whose nonce is split across printf arguments so the echo never contains it. */
+async function writeSession(
+  target: SessionTarget,
+  session: string,
+  state: SessionState,
+  command: string,
+  readiness: boolean,
+): Promise<PendingSentinel> {
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const half = nonce.length / 2;
+  const halves = `'${nonce.slice(0, half)}' '${nonce.slice(half)}'`;
+  const sentinel = readiness
+    ? `printf '%s%s\\n' ${halves}`
+    : `printf '%s%s %s\\n' ${halves} "$?"`;
+  const written = await target.pty.write(session, Buffer.from(`${readiness ? "" : `${command}\n`}${sentinel}\n`, "utf8"));
+  if (written.status !== "ok") refusedSession(written);
+  state.pending = { nonce, command, sentinel, output: "", delivered: "", readiness, truncated: false };
+  return state.pending;
+}
+
+async function drainSession(target: SessionTarget, session: string, state: SessionState, pending: PendingSentinel) {
+  const result = await readUntilMarker(
+    (cursor, waitMs) => target.pty.read(session, { cursor, waitMs }),
+    state.cursor,
+    pending.nonce,
+    pending.output,
+    (next) => { state.cursor = next; },
+  );
+  pending.output = result.output;
+  pending.truncated ||= result.truncated;
+  const prefix = result.pending ? deliverablePrefix(result.prefix, pending) : result.prefix;
+  const cleaned = stripEchoedCommand(prefix, pending.command, pending.sentinel);
+  const stdout = cleaned.slice(pending.delivered.length);
+  pending.delivered = cleaned;
+  if (result.pending) return { stdout, stderr: "", exitCode: null, signal: null, truncated: pending.truncated, pending: true };
+  state.pending = undefined;
+  if (pending.readiness) return { stdout, stderr: "", exitCode: null, signal: null, truncated: pending.truncated, pending: false };
+  const suffix = result.suffix.trim();
+  if (!/^\d+$/.test(suffix)) throw new SessionInvalidExitCode();
+  return { stdout, stderr: "", exitCode: Number(suffix), signal: null, truncated: pending.truncated, pending: false };
+}
+
+/**
+ * First touch of a session in this process: open (reattach-or-create under
+ * the daemon's export confinement) and synchronize with the shell using a
+ * readiness nonce, so a fresh shell cannot swallow the first real command.
+ * A command whose sentinel has not arrived by the deadline stays pending;
+ * later calls keep draining it, and a new command is refused until then.
+ */
+async function sessionBash(args: z.output<typeof Input>, ports: FilePorts, sessions: Map<string, SessionState>) {
   const session = args.session ?? "";
   const machine = args.machine ?? "";
   const { target } = machineTarget(machine, "/", ports);
   const key = `${machine}:${session}`;
-  const chunks: Buffer[] = [];
-  let truncated = false;
-  let cursor = cursors.get(key);
-  if (cursor === undefined) {
-    const openedState = await openSessionCursor(target, session, chunks);
-    cursor = openedState.cursor;
-    truncated = openedState.truncated;
+  let state = sessions.get(key);
+  const fresh = state === undefined;
+  if (state === undefined) {
+    const opened = await target.pty.open(session, "/");
+    if (opened.status !== "ok") refusedSession(opened);
+    state = { cursor: opened.cursor };
+    sessions.set(key, state);
+    await writeSession(target, session, state, "", true);
+  }
+  if (state.pending !== undefined && !fresh && args.command.length > 0) throw new SessionBusy();
+  let readinessOutput = "";
+  let readinessTruncated = false;
+  if (state.pending !== undefined) {
+    const reading = state.pending.readiness;
+    const result = await drainSession(target, session, state, state.pending);
+    if (result.pending || !reading || args.command.length === 0) return result;
+    readinessOutput = result.stdout;
+    readinessTruncated = result.truncated;
   }
   if (args.command.length > 0) {
-    const written = await target.pty.write(session, Buffer.from(`${args.command}\n`, "utf8"));
-    if (written.status !== "ok") refusedSession(written);
+    const pending = await writeSession(target, session, state, args.command, false);
+    const result = await drainSession(target, session, state, pending);
+    return { ...result, stdout: readinessOutput + result.stdout, truncated: readinessTruncated || result.truncated };
   }
-  // Drain until the terminal goes quiet for one round; each round blocks on
-  // the daemon's long-poll, so there is no timing-based polling here.
-  for (let round = 0; round < SESSION_DRAIN_ROUNDS; round += 1) {
-    const view = await target.pty.read(session, { cursor, waitMs: SESSION_DRAIN_WAIT_MS });
-    if (view.status !== "ok") refusedSession(view);
-    cursor = view.cursor;
-    truncated = truncated || view.truncated;
-    if (view.data.length === 0) break;
-    chunks.push(Buffer.from(view.data));
-  }
-  cursors.set(key, cursor);
+  const view = await target.pty.read(session, { cursor: state.cursor, waitMs: SESSION_DRAIN_WAIT_MS });
+  if (view.status !== "ok") refusedSession(view);
+  state.cursor = view.cursor;
   return {
-    stdout: Buffer.concat(chunks).toString("utf8"),
+    stdout: normalizeTerminalText(Buffer.from(view.data).toString("utf8")),
     stderr: "",
     exitCode: null,
     signal: null,
-    truncated,
+    truncated: view.truncated,
+    pending: false,
   };
 }
 
-function routeBash(args: z.output<typeof Input>, ports: FilePorts, cursors: Map<string, string>) {
+function routeBash(args: z.output<typeof Input>, ports: FilePorts, sessions: Map<string, SessionState>) {
   if (args.session !== undefined) {
     if (args.machine === undefined) throw new ToolRefused("bash", "session requires machine: persistent terminals live on the daemon");
     if (args.cwd !== undefined) throw new ToolRefused("bash", "cwd applies to one-shot commands; sessions open at /");
-    return sessionBash(args, ports, cursors);
+    return sessionBash(args, ports, sessions);
   }
   if (args.command.length === 0) throw new ToolRefused("bash", "command is required without session");
   return machineBash(args, ports);
 }
 
 export function createBashTool(ports: FilePorts) {
-  /** Session read positions; the model never sees or manages cursor tokens. */
-  const cursors = new Map<string, string>();
+  /** Session read positions and unfinished sentinel; neither is model-managed. */
+  const sessions = new Map<string, SessionState>();
   return defineTool({
     name: "bash",
     description:
@@ -149,7 +297,7 @@ export function createBashTool(ports: FilePorts) {
     execute: (args, ctx) =>
       fileOperation("bash", () => {
         ctx.signal.throwIfAborted();
-        return routeBash(args, ports, cursors);
+        return routeBash(args, ports, sessions);
       }),
     render: (_args, value) => JSON.stringify(value),
   });
