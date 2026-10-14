@@ -140,7 +140,7 @@ describe("translate: media", () => {
   test("a reference that fails to resolve refuses the whole letter before anything is sent", async () => {
     const r = recorder({ media: true });
     const failing = () => Promise.reject(new Error("no such file"));
-    const error = await translate(letter, UNBOUNDED, r.sends, failing).catch((e: unknown) => e);
+    const error = await translate(letter, UNBOUNDED, r.sends, failing).catch((e) => e);
     expect(error).toBeInstanceOf(DeliveryNotSent);
     expect(error).toMatchObject({ operation: "media.resolve", cause: "Error: no such file" });
     expect(r.sent).toEqual([]);
@@ -177,7 +177,7 @@ describe("translate: media", () => {
       UNBOUNDED,
       r.sends,
       async () => ({ bytes: new Uint8Array(size), name: "part", mime: "application/octet-stream" }),
-    ).catch((e: unknown) => e);
+    ).catch((e) => e);
     expect(error).toBeInstanceOf(DeliveryNotSent);
     expect(error).toMatchObject({ operation, cause });
     expect(r.sent).toEqual([]);
@@ -205,7 +205,7 @@ describe("translate: media", () => {
       UNBOUNDED,
       r.sends,
       async () => ({ bytes, name: "part.png", mime: "image/png" }),
-    ).catch((e: unknown) => e);
+    ).catch((e) => e);
     expect(error).toBeInstanceOf(DeliveryNotSent);
     expect(error).toMatchObject({
       operation: "media.limit",
@@ -246,7 +246,7 @@ describe("translate: reactions", () => {
 
   test("a surface without reactions refuses, never posts the emoji as text", async () => {
     const r = recorder();
-    const error = await translate(react, UNBOUNDED, r.sends).catch((e: unknown) => e);
+    const error = await translate(react, UNBOUNDED, r.sends).catch((e) => e);
     expect(error).toBeInstanceOf(DeliveryNotSent);
     expect(error).toMatchObject({ operation: "react" });
     expect(r.sent).toEqual([]);
@@ -271,7 +271,7 @@ describe("translate: partial delivery", () => {
         return `m${calls}`;
       },
     };
-    const error = await translate(long, RENDER, sends).catch((e: unknown) => e);
+    const error = await translate(long, RENDER, sends).catch((e) => e);
     expect(error).toBeInstanceOf(PartialDeliveryError);
     const partial = error as PartialDeliveryError;
     expect(partial.reason).toBe("send_failed");
@@ -284,7 +284,7 @@ describe("translate: partial delivery", () => {
   test("a failure on the first chunk propagates as itself so the send stays retryable", async () => {
     const sends: SurfaceSends = { text: () => Promise.reject(new Error("refused")) };
     const error = await translate(Outbound.payload("hi"), UNBOUNDED, sends).catch(
-      (e: unknown) => e,
+      (e) => e,
     );
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(PartialDeliveryError);
@@ -292,7 +292,7 @@ describe("translate: partial delivery", () => {
 
   test("a chunk accepted without a receipt after one with a receipt is a missing-receipt partial", async () => {
     const r = recorder({ ids: ["m1", undefined] });
-    const error = await translate(long, RENDER, r.sends).catch((e: unknown) => e);
+    const error = await translate(long, RENDER, r.sends).catch((e) => e);
     expect(r.sent.length).toBe(chunkCount);
     expect(error).toBeInstanceOf(PartialDeliveryError);
     const partial = error as PartialDeliveryError;

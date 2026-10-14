@@ -103,7 +103,7 @@ async function plan(
     }
     steps.push(...textSteps(pending, render));
     pending = [];
-    const bytes = await media.resolve(part).catch((error: unknown) => {
+    const bytes = await media.resolve(part).catch((error) => {
       throw new DeliveryNotSent({ operation: "media.resolve", cause: String(error) });
     });
     const limit = part.kind === "image" ? media.limits.imageBytes : media.limits.fileBytes;

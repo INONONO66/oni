@@ -100,7 +100,7 @@ function admitUrl(ref: string, url: URL): void {
 async function fetchHops(
   ref: string,
   url: URL,
-  fetchImpl: typeof fetch,
+  fetchImpl: MediaFetch,
 ): Promise<{ response: Response; at: URL }> {
   let current = url;
   for (let hop = 0; hop <= REDIRECT_HOPS; hop += 1) {
@@ -108,7 +108,7 @@ async function fetchHops(
     const response = await fetchImpl(current, {
       redirect: "manual",
       signal: AbortSignal.timeout(MEDIA_FETCH_TIMEOUT_MS),
-    }).catch((error: unknown) => {
+    }).catch((error) => {
       throw new MediaRefused({ code: "fetch_failed", ref, detail: String(error) });
     });
     const location = response.headers.get("location");
@@ -150,7 +150,7 @@ async function boundedBody(ref: string, response: Response): Promise<Uint8Array>
   }
 }
 
-async function fromUrl(part: MediaPart, url: URL, fetchImpl: typeof fetch): Promise<MediaBytes> {
+async function fromUrl(part: MediaPart, url: URL, fetchImpl: MediaFetch): Promise<MediaBytes> {
   const { response, at } = await fetchHops(part.ref, url, fetchImpl);
   if (!response.ok)
     throw new MediaRefused({
@@ -186,9 +186,12 @@ function asUrl(ref: string): URL | undefined {
   return url !== undefined && url.host !== "" ? url : undefined;
 }
 
+/** The one call shape the resolver makes; a test supplies it without reaching for the whole `fetch` surface. */
+export type MediaFetch = (url: URL, init: RequestInit) => Promise<Response>;
+
 export function createMediaResolver(
   ports: FilePorts,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: MediaFetch = fetch,
 ): MediaResolver {
   return (part) => {
     const url = asUrl(part.ref);

@@ -6,6 +6,7 @@
 import { expect, test } from "bun:test";
 import {
   MEDIA_BYTE_CAP,
+  type MediaFetch,
   MediaRefused,
   createMediaResolver,
   mediaMime,
@@ -21,7 +22,7 @@ function machineWith(
   sizes: Record<string, number> = {},
 ): ToolMachine {
   const unsupported = () => Promise.reject(new Error("not under test"));
-  return {
+  const machine: ToolMachine = {
     fs: {
       read: (path: string, window?: { offset?: number }) => {
         reads.push(path);
@@ -57,7 +58,8 @@ function machineWith(
       close: unsupported,
       read: unsupported,
     },
-  } as unknown as ToolMachine;
+  };
+  return machine;
 }
 
 function ports(machine: ToolMachine, defaultMachine = "self"): FilePorts {
@@ -66,7 +68,7 @@ function ports(machine: ToolMachine, defaultMachine = "self"): FilePorts {
 
 type Resolve = ReturnType<typeof createMediaResolver>;
 async function refusal(resolve: Resolve, part: Parameters<Resolve>[0]): Promise<string> {
-  const error: unknown = await resolve(part).catch((caught: unknown) => caught);
+  const error = await resolve(part).catch((caught) => caught);
   expect(error).toBeInstanceOf(MediaRefused);
   return (error as MediaRefused).data.code;
 }
@@ -112,7 +114,7 @@ test("an oversize machine file is refused on stat, before any byte is read", asy
 
 test("an https URL is fetched; non-https schemes, private hosts, failed fetches and oversize bodies are typed refusals", async () => {
   const calls: string[] = [];
-  const fetchImpl = ((input: URL) => {
+  const fetchImpl: MediaFetch = (input) => {
     calls.push(input.href);
     if (input.pathname === "/missing") return Promise.resolve(new Response("", { status: 404 }));
     if (input.pathname === "/big")
@@ -124,7 +126,7 @@ test("an https URL is fetched; non-https schemes, private hosts, failed fetches 
         headers: { "content-type": "image/webp; charset=binary" },
       }),
     );
-  }) as unknown as typeof fetch;
+  };
   const resolve = createMediaResolver(ports(machineWith({})), fetchImpl);
   expect(await resolve({ kind: "image", ref: "https://cdn.test/pics/cat.webp?x=1" })).toEqual({
     bytes: new Uint8Array([7, 8]),
@@ -168,7 +170,7 @@ test("a streamed body with no content-length stops at the cap instead of bufferi
       controller.enqueue(chunk);
     },
   });
-  const fetchImpl = (() => Promise.resolve(new Response(endless))) as unknown as typeof fetch;
+  const fetchImpl: MediaFetch = () => Promise.resolve(new Response(endless));
   const resolve = createMediaResolver(ports(machineWith({})), fetchImpl);
   expect(await refusal(resolve, { kind: "file", ref: "https://cdn.test/stream", name: "s" })).toBe(
     "too_large",
@@ -178,8 +180,8 @@ test("a streamed body with no content-length stops at the cap instead of bufferi
 
 test("redirects are followed hop by hop with every hop admitted; the final hop names the download", async () => {
   const calls: { href: string; redirect: RequestInit["redirect"] }[] = [];
-  const fetchImpl = ((input: URL, init?: RequestInit) => {
-    calls.push({ href: input.href, redirect: init?.redirect });
+  const fetchImpl: MediaFetch = (input, init) => {
+    calls.push({ href: input.href, redirect: init.redirect });
     switch (input.pathname) {
       case "/start":
         return Promise.resolve(Response.redirect("https://cdn.test/hop/final.gif", 302));
@@ -194,7 +196,7 @@ test("redirects are followed hop by hop with every hop admitted; the final hop n
           new Response(new Uint8Array([1]), { headers: { "content-type": "image/gif" } }),
         );
     }
-  }) as unknown as typeof fetch;
+  };
   const resolve = createMediaResolver(ports(machineWith({})), fetchImpl);
   expect(await resolve({ kind: "image", ref: "https://cdn.test/start" })).toEqual({
     bytes: new Uint8Array([1]),
