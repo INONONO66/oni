@@ -248,7 +248,11 @@ function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from:
   const threadId = facts.reply?.threadId;
   return [
     ...(from === undefined ? [] : [
-      `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
+      [
+        `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
+        ...(facts.attachments ?? []).map((attachment) =>
+          `[attached: ${attachment.kind}${attachment.name === undefined ? "" : ` ${attachment.name}`} → ${attachment.ref}]`),
+      ].join("\n"),
     ]),
     ...(thread.length === 0 ? [] : [
       `[earlier in this thread]\n${thread.map((message) => `${message.author}: ${message.text}`).join("\n")}\n[end of thread]`,

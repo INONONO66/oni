@@ -17,6 +17,12 @@ const SlackMessageEventSchema = z.object({
   /** Set when a bot (including this one) authored the message. */
   bot_id: z.string().optional(),
   text: z.string().optional(),
+  files: z.array(z.object({
+    url_private_download: z.string().optional(),
+    mimetype: z.string().optional(),
+    name: z.string().optional(),
+    size: z.number().optional(),
+  })).optional(),
   ts: z.string().optional(),
   thread_ts: z.string().optional(),
   reaction: z.string().optional(),
@@ -26,6 +32,12 @@ const SlackMessageEventSchema = z.object({
     .object({
       user: z.string().optional(),
       text: z.string().optional(),
+      files: z.array(z.object({
+        url_private_download: z.string().optional(),
+        mimetype: z.string().optional(),
+        name: z.string().optional(),
+        size: z.number().optional(),
+      })).optional(),
       bot_id: z.string().optional(),
     })
     .optional(),

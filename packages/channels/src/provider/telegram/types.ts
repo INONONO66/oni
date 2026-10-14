@@ -29,6 +29,13 @@ export interface TelegramMessage {
   date: number;
   text?: string;
   entities?: z.infer<typeof TelegramEntitySchema>[];
+  caption?: string;
+  caption_entities?: z.infer<typeof TelegramEntitySchema>[];
+  photo?: { file_id: string; file_size?: number }[];
+  document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  voice?: { file_id: string; mime_type?: string; file_size?: number };
+  audio?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  sticker?: { file_id: string; is_animated?: boolean; is_video?: boolean; file_size?: number };
   reply_to_message?: TelegramMessage;
   message_thread_id?: number;
   is_topic_message?: boolean;
@@ -43,6 +50,24 @@ const TelegramMessageSchema: z.ZodType<TelegramMessage> = z.lazy(() =>
     date: z.number(),
     text: z.string().optional(),
     entities: z.array(TelegramEntitySchema).optional(),
+    caption: z.string().optional(),
+    caption_entities: z.array(TelegramEntitySchema).optional(),
+    photo: z.array(z.object({ file_id: z.string(), file_size: z.number().optional() })).optional(),
+    document: z.object({
+      file_id: z.string(), file_name: z.string().optional(),
+      mime_type: z.string().optional(), file_size: z.number().optional(),
+    }).optional(),
+    voice: z.object({
+      file_id: z.string(), mime_type: z.string().optional(), file_size: z.number().optional(),
+    }).optional(),
+    audio: z.object({
+      file_id: z.string(), file_name: z.string().optional(),
+      mime_type: z.string().optional(), file_size: z.number().optional(),
+    }).optional(),
+    sticker: z.object({
+      file_id: z.string(), is_animated: z.boolean().optional(), is_video: z.boolean().optional(),
+      file_size: z.number().optional(),
+    }).optional(),
     reply_to_message: TelegramMessageSchema.optional(),
     message_thread_id: z.number().optional(),
     is_topic_message: z.boolean().optional(),

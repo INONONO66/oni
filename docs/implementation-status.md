@@ -1,5 +1,22 @@
 # Implementation Status
 
+## #1505 inbound attachment references
+
+On `feat/channels-inbound-attachments` (2026-10-14, base `030d50500`).
+Telegram photo (largest size), document, voice, audio and static sticker,
+Slack files, and Discord attachments now retain their platform download
+reference and available kind, name, MIME type and byte count in
+`Gateway.IngressFacts.attachments`. Telegram's poller hands off media-only
+messages before advancing its offset. Direct-route prompts place each
+attachment reference immediately below the sender header, preserving the
+caption or text body. Protocol parsing, platform wire fixtures, Telegram
+handoff and direct-route prompt rendering have regression tests.
+
+No media bytes are copied into the ingress facts. Slack's private download
+URLs require bot-token authentication when retrieved; Telegram file IDs
+require platform resolution. Automation rules and conditions, animated/video
+stickers, and inbound download/authentication tooling are not changed here.
+
 ## #1497 one outbound payload for every channel: parts, media, reactions (PR #1504, base `55ac51ecd`)
 
 On `feat/channels-unified-outbound` (2026-10-14). The agent produces one

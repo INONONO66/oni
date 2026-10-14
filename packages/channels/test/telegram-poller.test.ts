@@ -14,6 +14,30 @@ function message(updateId: number): TelegramMessage {
 }
 
 describe("TelegramPoller checkpoints", () => {
+  it("hands off a media-only update before advancing its offset", async () => {
+    const updates: TelegramUpdate[] = [
+      { update_id: 5, message: { ...message(5), text: undefined, photo: [{ file_id: "photo-5" }] } },
+    ];
+    const offsets: number[] = [];
+    const received: string[] = [];
+    const poller = new TelegramPoller({
+      async getUpdates(offset: number) {
+        offsets.push(offset);
+        return updates.filter((update) => update.update_id >= offset);
+      },
+    }, {
+      onMessage: (incoming) => {
+        if ("new_reaction" in incoming) return;
+        received.push(incoming.photo?.[0]?.file_id ?? "");
+      },
+    }, () => undefined, injectedOptions());
+
+    await poller.pollOnce("media");
+    await poller.pollOnce("after-media");
+
+    expect(received).toEqual(["photo-5"]);
+    expect(offsets).toEqual([0, 6]);
+  });
   it("resumes at a failed handoff without skipping later updates", async () => {
     const batch: TelegramUpdate[] = [
       { update_id: 10 },

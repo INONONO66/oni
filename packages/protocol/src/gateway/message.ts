@@ -98,6 +98,13 @@ const IngressFacts = z
       .optional(),
     payload: z.json(),
     render: z.string(),
+    attachments: z.array(z.object({
+      kind: z.enum(["image", "audio", "file"]),
+      ref: Id,
+      name: z.string().optional(),
+      mime: z.string().optional(),
+      bytes: z.number().int().nonnegative().optional(),
+    }).strict()).readonly().optional(),
     // What the person could see that the model has not: the thread's earlier
     // messages (shown once, when the thread's session starts) and the message
     // this one quotes (shown with every such message).

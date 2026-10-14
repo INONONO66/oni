@@ -8,6 +8,39 @@ interface SlackNormalizerContext {
   team: string;
 }
 
+function slackAttachments(files: NonNullable<SlackMessageEvent["files"]>) {
+  return files.flatMap((file) =>
+    file.url_private_download === undefined ? [] : [{
+      kind: file.mimetype?.startsWith("image/") ? "image" as const
+        : file.mimetype?.startsWith("audio/") ? "audio" as const : "file" as const,
+      ref: file.url_private_download,
+      ...(file.mimetype === undefined ? {} : { mime: file.mimetype }),
+      ...(file.name === undefined ? {} : { name: file.name }),
+      ...(file.size === undefined ? {} : { bytes: file.size }),
+    }]);
+}
+
+function slackMentions(text: string) {
+  return [...text.matchAll(/<@([^>]+)>/g)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]]);
+}
+
+function slackReply(
+  event: SlackMessageEvent, reaction: boolean, isDM: boolean,
+  mentions: readonly string[], botUserId: string, messageId: string,
+) {
+  // A top-level mention is the root for later replies.
+  if (event.thread_ts !== undefined)
+    return { reply: { chain: [event.thread_ts], threadId: event.thread_ts } };
+  if (!isDM && !reaction && mentions.includes(botUserId))
+    return { reply: { chain: [], threadId: messageId } };
+  return {};
+}
+
+function slackText(event: SlackMessageEvent, changed: SlackMessageEvent["message"], reaction: boolean) {
+  return reaction ? event.reaction : changed?.text ?? event.text;
+}
+
 export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent> {
   constructor(private readonly ctx: SlackNormalizerContext) {}
 
@@ -23,16 +56,14 @@ export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent> {
     if (authorId === this.ctx.botUserId) return null;
     // A frame with no identifiable author at all is not an outside message.
     if (authorId === undefined) return null;
-    const text = reaction ? event.reaction : (changed?.text ?? event.text);
+    const text = slackText(event, changed, reaction);
+    // Slack private download URLs require the bot token when fetched.
+    const attachments = reaction ? [] : slackAttachments(changed?.files ?? event.files ?? []);
     // A frame without renderable content is not an outside message.
-    if (!text) return null;
+    if (!text && attachments.length === 0) return null;
 
     const isDM = event.channel_type === "im";
-    const mentions = reaction
-      ? []
-      : [...text.matchAll(/<@([^>]+)>/g)].flatMap((match) =>
-          match[1] === undefined ? [] : [match[1]],
-        );
+    const mentions = reaction ? [] : slackMentions(text ?? "");
     const channel = reaction ? event.item?.channel : event.channel;
     const messageId = reaction ? event.item?.ts : event.ts;
     // A reaction without its target is not an outside event we can address.
@@ -56,18 +87,12 @@ export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent> {
         channelId: channel,
         addressees: [...new Set(mentions)].map((id) => ({ externalId: `${this.ctx.team}:${id}` })),
         dm: isDM,
-        // A thread reply keys on its root; a mention at channel top level keys on
-        // its own ts, the root of the thread the answer opens, so the follow-ups
-        // written under that answer land on the same session.
-        ...(event.thread_ts !== undefined
-          ? { reply: { chain: [event.thread_ts], threadId: event.thread_ts } }
-          : !isDM && !reaction && mentions.includes(this.ctx.botUserId)
-            ? { reply: { chain: [], threadId: messageId } }
-            : {}),
+        ...slackReply(event, reaction, isDM, mentions, this.ctx.botUserId, messageId),
         // Subtypes including bot_message, message_changed and channel_join remain raw facts;
         // bot_message author falls back to bot_id, message_changed to message.user above.
         payload: event,
-        render: text,
+        render: text ?? "",
+        ...(attachments.length === 0 ? {} : { attachments }),
       },
     };
   }

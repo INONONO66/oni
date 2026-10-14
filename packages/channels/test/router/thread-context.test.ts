@@ -39,3 +39,20 @@ test("a quoted message is shown with every prompt that answers one (#1490)", asy
     `${ownerPrompt({ ...q2, render: "[replying to @seller]\n> shipped\n> today" })}\n\nand eta?`,
   ]);
 });
+
+test("direct ingress lists media references immediately below the sender header", async () => {
+  const router = kernelRouter();
+  await runEffect(router.ingest(ownerSender, {
+    ...ownerFacts, eventId: "media", render: "see these",
+    attachments: [
+      { kind: "image", ref: "photo-id" },
+      { kind: "file", name: "report.pdf", ref: "https://example.com/report.pdf" },
+    ],
+  }));
+  expect(commits[0]?.content).toBe(
+    "[from actor-owner on discord · channel owner-dm · message media]\n" +
+    "[attached: image → photo-id]\n" +
+    "[attached: file report.pdf → https://example.com/report.pdf]\n\n" +
+    "see these",
+  );
+});
