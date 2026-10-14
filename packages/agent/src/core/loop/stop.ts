@@ -58,7 +58,6 @@ function advanceStopState(previous: StopState, observation: StopObservation): St
       : outputHash === previous.outputHash ? previous.repetition + 1 : 1,
     stall: observation.progress || observation.toolCalls > 0 ? 0 : previous.stall + 1,
     blocked: observation.blocked && !observation.progress ? previous.blocked + 1 : 0,
-    // This is the per-invocation step budget, independent of progress and repeat detection.
     continuation: previous.continuation + 1,
   };
 }

@@ -134,24 +134,24 @@ function probeSessionFileSchemaVersion(path: string): number {
     statSync(path);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return 0;
-    throw unreadableSessionFile(path, error);
+    throw unreadableSessionFile(path, error instanceof Error ? error : new Error(String(error)));
   }
   let db: Database | undefined;
   try {
     db = new Database(path, { readonly: true });
     return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
   } catch (error) {
-    throw unreadableSessionFile(path, error);
+    throw unreadableSessionFile(path, error instanceof Error ? error : new Error(String(error)));
   } finally {
     db?.close();
   }
 }
 
-function unreadableSessionFile(path: string, error: unknown): SessionFileUnreadable {
+function unreadableSessionFile(path: string, error: Error): SessionFileUnreadable {
   return new SessionFileUnreadable({
     path,
-    ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
-    ...(error instanceof Error && "errno" in error && typeof error.errno === "number" ? { errno: error.errno } : {}),
+    ...("code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+    ...("errno" in error && typeof error.errno === "number" ? { errno: error.errno } : {}),
   });
 }
 

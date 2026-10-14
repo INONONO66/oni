@@ -16,10 +16,6 @@ import { pointOfRow } from "./migrate";
 import type { CompileErrorData, CompiledRow } from "./row-parse";
 import type { ProjectedGeneration } from "./project";
 
-/**
- * The legacy `PolicyEvaluation` shape and the evaluator that formats a gate decision back into it.
- */
-
 export interface PolicyEvaluationInput {
   readonly kind: string;
   readonly phase: PolicyRow.Phase;

@@ -151,4 +151,5 @@ export type LedgerError =
   | CatalogVersionRefused
   | StorageUnavailable
   | CorruptRecord
+  | SessionFileUnreadable
   | AgentFailure;
