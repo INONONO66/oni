@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { injectedOptions } from "./helpers/injected";
-import { type Channel, Operational, type PlainObject, PlainValueSchema } from "@openomni/protocol";
+import { type Gateway, type Channel, Operational, type PlainObject, PlainValueSchema } from "@openomni/protocol";
 import { z } from "zod";
 import { SlackAdapter } from "../src/provider/slack/surface";
 import { SlackEndpointKeyError, SlackHandlerMissingError } from "../src/errors";
@@ -16,7 +16,7 @@ interface ApiCall {
   readonly body: PlainObject;
 }
 
-function installSlackApi() {
+function installSlackApi(replies: () => Response = () => Response.json({ ok: true, messages: [] })) {
   const calls: ApiCall[] = [];
   const posted = Promise.withResolvers<PlainObject>();
   const opened = Promise.withResolvers<Socket>();
@@ -45,6 +45,7 @@ function installSlackApi() {
         return Response.json({ ok: true, user_id: "UBOT", team_id: "T9" });
       if (method === "conversations.open")
         return Response.json({ ok: true, channel: { id: "D-open" } });
+      if (method === "conversations.replies") return replies();
       posted.resolve(body);
       return Response.json({ ok: true, ts: "999.1" });
     },
@@ -96,6 +97,81 @@ describe("SlackAdapter", () => {
         sender: { externalId: "T9:U77" },
         facts: { workspaceId: "T9", channelId: "C123", reply: { chain: ["1710.0001"] } },
       });
+    } finally {
+      adapter.stop("trace-stop");
+      await api.stop();
+    }
+  });
+
+  const threadCases: Array<{
+    name: string;
+    replies: () => Response;
+    ts: string;
+    thread_ts: string;
+    fetched: boolean;
+    context: Gateway.IngressFacts["context"];
+  }> = [
+    {
+      name: "an in-thread message carries the thread's earlier messages, the bot's own as assistant",
+      replies: () =>
+        Response.json({
+          ok: true,
+          messages: [
+            { ts: "1710.0001", user: "U77", text: "deploy is red" },
+            { ts: "1710.0002", user: "UBOT", text: "looking" },
+            { ts: "1710.0003", user: "U77", text: "" },
+            { ts: "1710.0005", user: "U78", text: "later, not seen yet" },
+          ],
+        }),
+      ts: "1710.0004",
+      thread_ts: "1710.0001",
+      fetched: true,
+      context: { thread: [{ author: "<@U77>", text: "deploy is red" }, { author: "assistant", text: "looking" }] },
+    },
+    {
+      name: "a thread root is not fetched",
+      replies: () => Response.json({ ok: true, messages: [{ ts: "1710.0001", user: "U77", text: "x" }] }),
+      ts: "1710.0001",
+      thread_ts: "1710.0001",
+      fetched: false,
+      context: undefined,
+    },
+    {
+      name: "a failing history call still delivers the message, without history",
+      replies: () => Response.json({ ok: false, error: "missing_scope" }),
+      ts: "1710.0004",
+      thread_ts: "1710.0001",
+      fetched: true,
+      context: undefined,
+    },
+  ];
+  it.each(threadCases)("$name (#1490)", async ({ replies, ts, thread_ts, fetched, context }) => {
+    const api = installSlackApi(replies);
+    const adapter = new SlackAdapter({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, noopPublish, injectedOptions());
+    const facts = Promise.withResolvers<Channel.InboundMessage>();
+    adapter.onMessage(async (message) => {
+      facts.resolve(message);
+    });
+    try {
+      const started = adapter.start("trace-1");
+      const socket = await bounded(api.sockets);
+      socket.send(JSON.stringify({ type: "hello" }));
+      await bounded(started);
+      socket.send(
+        JSON.stringify({
+          type: "events_api",
+          envelope_id: "env-thread",
+          payload: {
+            event: { type: "message", channel: "C123", channel_type: "channel", user: "U77", text: "still red?", ts, thread_ts },
+          },
+        }),
+      );
+      const inbound = await bounded(facts.promise);
+      expect(inbound.facts.context).toEqual(context);
+      expect(inbound.facts.render).toBe("still red?");
+      expect(api.calls.filter((call) => call.method === "conversations.replies").map((call) => call.body)).toEqual(
+        fetched ? [{ channel: "C123", ts: thread_ts, limit: "21" }] : [],
+      );
     } finally {
       adapter.stop("trace-stop");
       await api.stop();

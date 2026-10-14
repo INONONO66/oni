@@ -14,6 +14,17 @@ const SocketUrlSchema = z.object({ url: z.string() });
 const IdentitySchema = z.object({ user_id: z.string(), team_id: z.string() });
 const PostedTsSchema = z.object({ ts: z.string().optional() });
 const DmChannelSchema = z.object({ channel: z.object({ id: z.string() }) });
+const ThreadMessageSchema = z.object({
+  ts: z.string(),
+  user: z.string().optional(),
+  bot_id: z.string().optional(),
+  text: z.string().optional(),
+});
+const ThreadRepliesSchema = z.object({ messages: z.array(ThreadMessageSchema) });
+export type SlackThreadMessage = z.infer<typeof ThreadMessageSchema>;
+
+/** How much of a thread a new thread session is seeded with. */
+export const THREAD_HISTORY_LIMIT = 20;
 
 /**
  * Slack Web API client. Two tokens by design (Socket Mode): the app-level
@@ -75,6 +86,22 @@ export class SlackClient implements ChannelClient {
       { schema: PostedTsSchema, malformed: "chat.postMessage returned a malformed ts" },
     );
     return data.ts;
+  }
+
+  /** The thread's messages, root first (`conversations.replies`), as far as one page reaches. */
+  async threadReplies(
+    channelId: string,
+    threadTs: string,
+    traceId: string,
+  ): Promise<readonly SlackThreadMessage[]> {
+    const data = await this.api(
+      "conversations.replies",
+      { channel: channelId, ts: threadTs, limit: String(THREAD_HISTORY_LIMIT + 1) },
+      traceId,
+      this.botToken,
+      { schema: ThreadRepliesSchema, malformed: "conversations.replies returned no messages" },
+    );
+    return data.messages;
   }
 
   /** DM channel for a user id (`conversations.open`). */

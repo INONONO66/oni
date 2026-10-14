@@ -6,7 +6,7 @@ import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../.
 import { sendText } from "../../support/send-text";
 import { SLACK_RENDER } from "./format";
 import type { EffectRunner, PublishPort } from "../../types";
-import { SlackClient } from "./client";
+import { SlackClient, THREAD_HISTORY_LIMIT } from "./client";
 import {
   DeliveryNotSent,
   SlackApiError,
@@ -153,9 +153,46 @@ export class SlackAdapter implements Channel.Surface {
       rethrowFailure: false,
       handle: async () => {
         const inbound = normalizer.normalize(event);
-        if (inbound) await this.handleIncoming(inbound);
+        if (inbound) await this.handleIncoming(await this.withThreadHistory(inbound, event, botUserId, traceId));
       },
     });
+  }
+
+  /**
+   * An in-thread message carries the thread's earlier messages so a session
+   * opened mid-thread starts with what the person can see. The fetch failing
+   * (scope, rate limit) costs the context, never the message.
+   */
+  private async withThreadHistory(
+    inbound: Channel.InboundMessage,
+    event: SlackMessageEvent,
+    botUserId: string,
+    traceId: string,
+  ): Promise<Channel.InboundMessage> {
+    const threadTs = event.type === "reaction_added" ? undefined : event.thread_ts;
+    if (threadTs === undefined || event.channel === undefined || threadTs === event.ts) return inbound;
+    try {
+      const earlier = (await this.client.threadReplies(event.channel, threadTs, traceId))
+        .filter((message) => message.text && Number(message.ts) < Number(event.ts))
+        .slice(-THREAD_HISTORY_LIMIT)
+        .map((message) => ({
+          author: message.user === botUserId ? "assistant"
+            : message.user !== undefined ? `<@${message.user}>`
+            : message.bot_id !== undefined ? `bot ${message.bot_id}` : "someone",
+          text: message.text ?? "",
+        }));
+      return earlier.length === 0 ? inbound
+        : { ...inbound, facts: { ...inbound.facts, context: { ...inbound.facts.context, thread: earlier } } };
+    } catch (error) {
+      this.publish(Operational.Events.Warn, {
+        traceId,
+        time: this.options.now(),
+        component: "server",
+        msg: "slack thread history unavailable; message delivered without it",
+        context: { err: String(error), channel: event.channel, threadTs },
+      });
+      return inbound;
+    }
   }
 
   private async handleIncoming(inbound: Channel.InboundMessage): Promise<void> {

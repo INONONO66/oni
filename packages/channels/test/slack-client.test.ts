@@ -63,6 +63,22 @@ describe("SlackClient", () => {
     ]);
   });
 
+  it("reads a thread's messages with the bot token, one page sized to the history limit (#1490)", async () => {
+    const messages: PlainValue = [{ ts: "1.0", user: "U1", text: "root" }, { ts: "1.1", bot_id: "B1", text: "ci" }];
+    const { calls } = installFetchMock(() => ({ body: { ok: true, messages } }));
+    expect(await client().threadReplies("C1", "1.0", "trace-1")).toEqual([
+      { ts: "1.0", user: "U1", text: "root" },
+      { ts: "1.1", bot_id: "B1", text: "ci" },
+    ]);
+    expect(calls).toEqual([
+      {
+        method: "conversations.replies",
+        authorization: "Bearer xoxb-bot",
+        body: { channel: "C1", ts: "1.0", limit: "21" },
+      },
+    ]);
+  });
+
   it("throws a typed error when apps.connections.open returns no url", async () => {
     installFetchMock(() => ({ body: { ok: true } }));
     await expect(client().openSocketUrl("trace-1")).rejects.toBeInstanceOf(SlackApiError);
