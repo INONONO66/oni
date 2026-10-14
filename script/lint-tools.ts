@@ -808,6 +808,7 @@ export async function main(
   argv: readonly string[] = process.argv.slice(2),
   hooks: {
     readonly writeSnapshot?: (path: string, contents: string) => void;
+    readonly coreEndState?: () => Promise<string[]>;
   } = {},
 ): Promise<void> {
   const args = new Set(argv);
@@ -840,7 +841,7 @@ export async function main(
     ...(await checkEarned()),
     ...(await checkSchemaSnapshot()),
     ...checkToolSchemaSnapshot(),
-    ...(await checkCoreEndState()).map((message): Violation => ({
+    ...(await (hooks.coreEndState ?? checkCoreEndState)()).map((message): Violation => ({
       check: "core-end-state", subject: "packages/agent", message,
     })),
   ];

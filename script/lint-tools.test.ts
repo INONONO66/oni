@@ -444,3 +444,40 @@ test("self-test detects mutant check implementations", () => {
   });
   expect(failures).toHaveLength(18);
 });
+
+test("main runs every conformance check including the core end-state gate against the real tree", async () => {
+  const written: string[] = [];
+  const stdout = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    written.push(String(chunk));
+    return true;
+  });
+  const exit = spyOn(process, "exit").mockImplementation((code) => {
+    throw new Error(`exit ${code}`);
+  });
+  try {
+    await lintToolsMain([]);
+  } finally {
+    exit.mockRestore();
+    stdout.mockRestore();
+  }
+  expect(exit).not.toHaveBeenCalled();
+  expect(written.join("")).toStartWith("OK: conformance lint — vocab ratchet");
+}, 300_000);
+
+test("main maps every core end-state violation to a core-end-state check row and exits 1", async () => {
+  const errors: string[] = [];
+  const stderr = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errors.push(String(chunk));
+    return true;
+  });
+  const exit = spyOn(process, "exit").mockImplementation((code) => {
+    throw new Error(`exit ${code}`);
+  });
+  try {
+    await expect(lintToolsMain([], { coreEndState: async () => ["VIOLATION: synthetic"] })).rejects.toThrow("exit 1");
+  } finally {
+    exit.mockRestore();
+    stderr.mockRestore();
+  }
+  expect(errors).toEqual(["VIOLATION [core-end-state] packages/agent — VIOLATION: synthetic\n"]);
+}, 300_000);
