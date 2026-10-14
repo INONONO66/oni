@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Deferred, Duration, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "bun:test";
 import { Core } from "@openomni/agent";
 const Llm = Core.Llm;
@@ -17,8 +18,8 @@ import { executor } from "./helpers/executor";
 import { runEffect, runSyncEffect } from "./helpers/effect";
 import { testIds } from "./helpers/test-entropy";
 
-function createCompactionSummarizer(config: Parameters<typeof summarizer>[0] & { readonly io: Partial<FixtureLlm> }) {
-  const run = runSyncEffect(summarizer(config).pipe(Effect.provideService(Llm, fakeLlm(config.io)), Effect.provideService(ObservationSink, Bus)));
+function createCompactionSummarizer(config: Omit<Parameters<typeof summarizer>[0], "sessionId" | "system"> & { readonly io: Partial<FixtureLlm> }) {
+  const run = runSyncEffect(summarizer({ ...config, sessionId: "session", system: "turn instructions" }).pipe(Effect.provideService(Llm, fakeLlm(config.io)), Effect.provideService(ObservationSink, Bus)));
   return (...args: Parameters<typeof run>) => Effect.provideService(run(...args), ExecutorContext, executor);
 }
 
@@ -98,15 +99,59 @@ describe("production compaction summarizer", () => {
     });
     const summarize = createCompactionSummarizer({ model: MODEL, now: () => 1000, id: testIds("summarizer"), io: { run, resolveModel } });
 
-    await expect(runEffect(summarize([message("m1", "new span")], "prior anchor", BUDGET))).resolves.toBe(
+    const messages = [message("m1", "first span"), message("m2", "second span")];
+    await expect(runEffect(summarize(messages, "prior anchor", BUDGET))).resolves.toBe(
       "dense merged summary",
     );
     expect(captured?.tools).toEqual([]);
     expect(captured?.toolChoice).toBe("none");
     expect(captured?.maxTokens).toBe(20_000);
     expect(captured?.providerOptions).toEqual({ openai: { reasoningEffort: "minimal" } });
-    const prompt = captured?.messages[0]?.parts[0];
+    expect(captured?.system).toBe("turn instructions");
+    expect(captured?.trace.sessionId).toBe("session");
+    expect(captured?.messages.slice(0, -1)).toEqual(messages);
+    expect(captured?.messages).toHaveLength(3);
+    expect(captured?.messages.at(-1)?.info).toMatchObject({ role: "user", sessionID: "session" });
+    const prompt = captured?.messages.at(-1)?.parts[0];
     expect(prompt?.type === "text" ? prompt.text : "").toContain("prior anchor");
+  });
+
+  it("gives each overflow attempt its own deadline and returns a typed timeout", async () => {
+    await runEffect(Effect.gen(function* () {
+      const firstEntered = yield* Deferred.make<void>();
+      const secondEntered = yield* Deferred.make<void>();
+      const thirdEntered = yield* Deferred.make<void>();
+      const releaseFirst = yield* Deferred.make<void>();
+      const releaseSecond = yield* Deferred.make<void>();
+      let calls = 0;
+      const run: NonNullable<FixtureLlm["run"]> = () => {
+        calls += 1;
+        if (calls === 1) return Deferred.succeed(firstEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseFirst)),
+          Effect.as({ type: "error" as const, error: runFailure(true, "overflow") }),
+        );
+        if (calls === 2) return Deferred.succeed(secondEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseSecond)),
+          Effect.as({ type: "error" as const, error: runFailure(true, "overflow") }),
+        );
+        return Deferred.succeed(thirdEntered, undefined).pipe(Effect.andThen(Effect.never));
+      };
+      const summarize = createCompactionSummarizer({
+        model: MODEL, now: () => 1000, id: testIds("deadline"), deadline: Duration.seconds(60),
+        io: { resolveModel, run },
+      });
+      const fiber = yield* Effect.flip(summarize([message("m1", "span")], undefined, BUDGET)).pipe(Effect.forkChild);
+      yield* Deferred.await(firstEntered);
+      yield* TestClock.adjust(50_000);
+      yield* Deferred.succeed(releaseFirst, undefined);
+      yield* Deferred.await(secondEntered);
+      yield* TestClock.adjust(15_000);
+      yield* Deferred.succeed(releaseSecond, undefined);
+      yield* Deferred.await(thirdEntered);
+      yield* TestClock.adjust(60_000);
+      expect(yield* Fiber.join(fiber)).toMatchObject({ _tag: "AgentFailure", kind: "timeout" });
+      expect(calls).toBe(3);
+    }).pipe(Effect.provide(TestClock.layer())));
   });
 
   it("throws a typed empty error for an empty model response", async () => {

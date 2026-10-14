@@ -1,5 +1,14 @@
 # Implementation Status
 
+## #1427 — compaction summaries as session llm rows, no failed turn on summary failure (PR #1475, base `5d2de7484`, app half)
+
+- Accounting: `apps/openomni/src/bundles/compaction/summarizer.ts` runs the summary through the compacting session's own executor (`src/composition/completion.ts`), so the call lands as that session's `llm` row with `intent.purpose: "compaction"` and usage; no side session, no direct provider call. Grouping by purpose in the metrics read model is core work tracked in #1476.
+- Failure shape: a thrown or timed-out summary yields the core's deterministic window cut (`summarizerFailed: true`) and a completed turn, never a failed turn. Each overflow attempt has its own deadline on the injected Clock, `summaryDeadline = 30 s + ceil(maxOutputTokens / 20) s` unless configured; the core speculative guard (`summarizerDeadlineMs`) wraps nine attempts plus 60 s. A timeout sets `summarizerFailed`, after which core policy disables speculative compaction for that session. A literal `fallback` compaction reason is #1476.
+- Request shape: [turn system prompt as instructions, the messages the core hands over in order, instruction last]. Not yet prefix-cache equivalent: the request sends no tools, `toolChoice: "none"` and different reasoning options, so sessions with tools get no provider cache hit; parity and the unfiltered leading prefix are #1476.
+- Unchanged: compaction policy thresholds and the four core ports; `git diff --stat 5d2de7484..HEAD -- packages apps/desktop script` is empty.
+- Review r1: High 0, Medium 3 — M1 whole-loop 60 s deadline → per-attempt, derived, configurable; M2 acceptance criteria over-claimed → marked partial with the deferred halves on #1476; M3 missing stamp and this row. Lows recorded on the PR.
+- Verification (bun 1.4.1 pinned, behind the host gate lock): apps/openomni 849 pass / 1 hang-class failure in the full lane (a 989 s stall under host load; the four compaction files pass isolated 14/14, then 15 focused after the r1 fix), patch coverage all changed executable lines covered; check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
+
 ## #1353 — compaction four core ports with a plugin-owned policy (PR #1470, base `91eb15949`)
 
 - Port: `packages/agent/src/core/compaction-ports.ts` declares the four operations the turn loop needs and nothing else (132 formatter-canonical lines, 172 before; the issue's ~70-100 guide is noted as a follow-up). `core/turn.ts` reaches compaction through exactly one `maybeCompact(` call; the old tokens (`applyCompaction`, `prepareCompactionAfterContinue`, `createCompactionSession`, `geometry`, `shouldCompact`, `createSession`, `thresholdTokens`) go 11 → 0 in turn.ts.

@@ -41,7 +41,7 @@ describe("Resident compaction", () => {
       plane,
       model: { provider: "fake", id: "resident-test" },
       apiKey: "test-key",
-      compaction: Effect.succeed({
+      compaction: () => Effect.succeed({
         contextWindowTokens: 700,
         elideToolOutputs: { minOutputChars: 4000, keepHeadChars: 500 },
       }),
