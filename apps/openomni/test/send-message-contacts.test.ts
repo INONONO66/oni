@@ -1,10 +1,11 @@
 /**
  * #1258 send-message contacts: one `send_message` tool reaches every contact
- * kind — session/new_session on the gateway ingest door, telegram/discord/
- * human/CLI through the connector registry — plus the composition-root
- * bindings a unit fixture would hide (#1254 lesson): both bundles bound at
- * boot, the first-prompt deliver's idempotency replay, and the `action`-off
- * cascade that takes delegation-policy with it.
+ * kind — session/new_session and channel contacts on the gateway ingest door
+ * (one `Outbound.Payload` of parts or one reaction, #1497), CLI agents through
+ * the connector registry — plus the composition-root bindings a unit fixture
+ * would hide (#1254 lesson): both bundles bound at boot, the first-prompt
+ * deliver's idempotency replay, and the `action`-off cascade that takes
+ * delegation-policy with it.
  */
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
@@ -13,12 +14,9 @@ import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import {
-  channelConnector,
   cliConnector,
   createSendMessageTool,
-  humanConnector,
   parseContactAddress,
-  type ContactPorts,
   type MessagePort,
 } from "../src/bundles/messaging/send-message/index";
 import { assistantMessage } from "./helpers/assistant-message";
@@ -39,50 +37,14 @@ const context = {
   signal: new AbortController().signal,
 } as const;
 
-test("contact addresses parse per kind; unknown kinds and unknown CLI agents are no address", () => {
-  expect(parseContactAddress("telegram:12345")).toEqual({ kind: "telegram", id: "12345" });
-  expect(parseContactAddress("discord:chan-9")).toEqual({ kind: "discord", id: "chan-9" });
-  expect(parseContactAddress("human:owner")).toEqual({ kind: "human", id: "owner" });
+test("contact addresses parse per kind; channel ids, unknown kinds and unknown CLI agents are no connector address", () => {
   expect(parseContactAddress("cli:claude-code")).toEqual({ kind: "cli", id: "claude-code" });
   expect(parseContactAddress("cli:vim")).toBeUndefined();
+  expect(parseContactAddress("telegram:12345")).toBeUndefined();
+  expect(parseContactAddress("human:owner")).toBeUndefined();
   expect(parseContactAddress("slack:general")).toBeUndefined();
   expect(parseContactAddress("owner")).toBeUndefined();
-  expect(parseContactAddress("telegram:")).toBeUndefined();
-});
-
-test("channel and human connectors: delivered on egress, journaled not_sent on refusal or missing door", async () => {
-  const sent: object[] = [];
-  const egress = {
-    send: (input: object) => Effect.sync(() => void sent.push(input)),
-  };
-  const send = {
-    sender: "sender",
-    address: { kind: "telegram", id: "12345" } as const,
-    message: "hello",
-    replyTo: "m-1",
-  };
-  expect(await runEffect(channelConnector("telegram", egress)(send))).toEqual({
-    contact: "telegram:12345",
-    status: "delivered",
-  });
-  expect(sent).toEqual([{ surface: "telegram", chatId: "12345", text: "hello", replyTo: "m-1" }]);
-  const refusing = { send: () => Effect.fail({ reason: "grant revoked" }) };
-  expect(await runEffect(channelConnector("discord", refusing)(send))).toEqual({
-    contact: "telegram:12345",
-    status: "not_sent",
-    reason: "grant revoked",
-  });
-  expect(await runEffect(channelConnector("discord", undefined)(send))).toEqual({
-    contact: "telegram:12345",
-    status: "not_sent",
-    reason: "channel egress is not composed",
-  });
-  const human = { kind: "human", id: "owner" } as const;
-  expect(await runEffect(humanConnector(undefined)({ ...send, address: human }))).toEqual({
-    contact: "human:owner",
-    status: "not_sent",
-    reason: "human contact door is not composed",
-  });
+  expect(parseContactAddress("cli:")).toBeUndefined();
 });
 
 test("the scripted CLI connector forwards captured stdout to the sender as its prompt", async () => {
@@ -123,11 +85,12 @@ test("the scripted CLI connector forwards captured stdout to the sender as its p
   });
 });
 
-test("the tool routes contact targets through connectors and everything else through the gateway door", async () => {
-  const ingested: { sender: Gateway.IngestSender; to: Gateway.SendMessage["to"] }[] = [];
+test("the tool routes CLI contacts through connectors and everything else through the gateway door as one payload", async () => {
+  const ingested: { sender: Gateway.IngestSender; to: Gateway.SendMessage["to"]; content: Gateway.SendMessage["content"] }[] = [];
   const port: MessagePort = {
     ingest: async (sender, message) => {
-      ingested.push({ sender, to: (message as Gateway.SendMessage).to });
+      const send = message as Gateway.SendMessage;
+      ingested.push({ sender, to: send.to, content: send.content });
       return {
         status: "executed",
         handle: { messageId: "m-1", target: "child-1" },
@@ -135,20 +98,52 @@ test("the tool routes contact targets through connectors and everything else thr
       } satisfies Gateway.IngestResult;
     },
   };
-  const notified: object[] = [];
-  const contacts: ContactPorts = {
-    run: runEffect,
-    human: { notify: (input) => Effect.sync(() => void notified.push(input)) },
-  };
-  const tool = createSendMessageTool(port, () => 1_000, contacts);
-  const outcome = await tool.execute({ to: { kind: "contact", id: "human:owner" }, message: "ping", kind: "prompt" }, context);
-  expect(outcome).toEqual({ contact: "human:owner", status: "delivered" });
-  expect(notified).toEqual([{ to: "owner", text: "ping" }]);
-  // An unprefixed contact id is the protocol's actor path, not a connector.
+  const tool = createSendMessageTool(port, () => 1_000, { run: runEffect });
+  const conversation = { channelId: "C1", replyToMessageId: "1700000000.000100" };
+  // A contact id is the protocol's actor path; a string letter is one text part.
   await tool.execute({ to: { kind: "contact", id: "known-owner" }, message: "hi", kind: "prompt" }, context);
+  // Parts ride through untouched; a reaction names the message the contact wrote.
+  const parts = [
+    { kind: "text", text: "here" },
+    { kind: "code", text: "ls", lang: "sh" },
+    { kind: "image", ref: "/tmp/a.png" },
+    { kind: "file", ref: "https://example.test/r.pdf", name: "r.pdf" },
+  ] as const;
+  await tool.execute(
+    { to: { kind: "contact", id: "known-owner", surface: "slack", conversation }, message: [...parts], kind: "prompt" },
+    context,
+  );
+  await tool.execute(
+    { to: { kind: "contact", id: "known-owner", surface: "slack", conversation }, react: "\u{1F44D}", kind: "prompt" },
+    context,
+  );
   expect(ingested).toEqual([
-    { sender: { kind: "session", id: "sender" }, to: { kind: "actor", actorId: "known-owner" } },
+    {
+      sender: { kind: "session", id: "sender" },
+      to: { kind: "actor", actorId: "known-owner" },
+      content: { kind: "message", parts: [{ kind: "text", text: "hi" }] },
+    },
+    {
+      sender: { kind: "session", id: "sender" },
+      to: { kind: "actor", actorId: "known-owner", surface: "slack", conversation },
+      content: { kind: "message", parts: [...parts] },
+    },
+    {
+      sender: { kind: "session", id: "sender" },
+      to: { kind: "actor", actorId: "known-owner", surface: "slack", conversation },
+      content: { kind: "react", messageId: "1700000000.000100", emoji: "\u{1F44D}" },
+    },
   ]);
+  // A reaction without the message it sits on is refused before any send; the
+  // input schema the loop parses with admits exactly one of letter or reaction.
+  await expect(
+    tool.execute({ to: { kind: "contact", id: "known-owner" }, react: "\u{1F44D}", kind: "prompt" }, context),
+  ).rejects.toThrow("react needs a channel contact with conversation.replyToMessageId");
+  expect(ingested).toHaveLength(3);
+  const both = tool.input.safeParse({ to: { kind: "contact", id: "known-owner" }, message: "hi", react: "\u{1F44D}" });
+  expect(both.success).toBe(false);
+  expect(tool.input.safeParse({ to: { kind: "contact", id: "known-owner" } }).success).toBe(false);
+  expect(tool.input.safeParse({ to: { kind: "contact", id: "known-owner" }, react: "\u{1F44D}" }).success).toBe(true);
   const sealed = createSendMessageTool(undefined, () => 0);
   await expect(
     sealed.execute({ to: { kind: "session", id: "s-2" }, message: "hi", kind: "prompt" }, context),

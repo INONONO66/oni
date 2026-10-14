@@ -1,5 +1,5 @@
 import { ChannelProviders } from "@openomni/channels";
-import type { Channel } from "@openomni/protocol";
+import type { Channel, Outbound } from "@openomni/protocol";
 
 type ProviderCredentials =
   | Parameters<typeof ChannelProviders.telegram.create>[0]
@@ -34,7 +34,7 @@ class FakeSurface implements Channel.Surface {
 /** Keep shipped schemas and capabilities; record only the external provider IO. */
 export function fakeProviders() {
   const surfaces: FakeSurface[] = [];
-  const delivered: { externalId: string; body: string }[] = [];
+  const delivered: { externalId: string; payload: Outbound.Payload }[] = [];
   const webhookCalls: Request[] = [];
   const delivery = (
     id: string,
@@ -46,8 +46,8 @@ export function fakeProviders() {
     surfaces.push(surface);
     return {
       surface,
-      deliveryRoute: (externalId: string, body: string) => {
-        delivered.push({ externalId, body });
+      deliveryRoute: (externalId: string, payload: Outbound.Payload) => {
+        delivered.push({ externalId, payload });
         return Promise.resolve({ value: "accepted" as const, externalMessageId: messageId });
       },
     };

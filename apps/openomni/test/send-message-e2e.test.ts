@@ -124,7 +124,8 @@ test("an explicit model send_message routes through MessagePort.ingest to the ex
   expect((await terminal).text).toBe("LOCAL_ONLY_SENTINEL");
   expect(ingest.mock.calls.filter(([sender]) => sender.kind === "session")).toEqual([
     [containing<IngestCall[0]>({ kind: "session" }), containing<IngestCall[1]>({
-      to: { kind: "actor", actorId: "owner" }, content: "EXPLICIT_SENTINEL",
+      to: { kind: "actor", actorId: "owner" },
+      content: { kind: "message", parts: [{ kind: "text", text: "EXPLICIT_SENTINEL" }] },
     })],
   ]);
 });

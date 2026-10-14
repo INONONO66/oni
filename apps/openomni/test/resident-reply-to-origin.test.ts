@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { Core } from "@openomni/agent";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
-import type { Gateway } from "@openomni/protocol";
+import { Outbound, type Gateway } from "@openomni/protocol";
 import type { MessagePort } from "../src/bundles/messaging/send-message/index";
 import { residentRunner } from "./helpers/resident-runner";
 import { requestToolStep, assistantMessage } from "./helpers/assistant-message";
@@ -100,7 +100,7 @@ test("a turn answering an approved person on a channel reports its result to tha
     {
       sender: { kind: "session", id: "reply-origin-telegram" },
       to: { kind: "actor", actorId: "person:owner", surface: "telegram" },
-      content: "pong",
+      content: Outbound.payload("pong"),
     },
   ]);
 });
@@ -162,7 +162,7 @@ test("an explicit send_message to the same person in the turn is not duplicated 
     llm: replyingLlm("sent it", { contact: "person:owner", message: "테스트 OK" }),
   });
   await deliverExternal(resident, "reply-origin-explicit", telegramOwner, "send a test");
-  expect(ingested.map((item) => item.content)).toEqual(["테스트 OK"]);
+  expect(ingested.map((item) => item.content)).toEqual([Outbound.payload("테스트 OK")]);
 });
 
 test("a refused explicit send leaves the person still owed the report (#1485)", async () => {
@@ -177,8 +177,8 @@ test("a refused explicit send leaves the person still owed the report (#1485)", 
   });
   await deliverExternal(resident, "reply-origin-refused", telegramOwner, "send a test");
   expect(ingested.map((item) => [item.content, item.to.kind === "actor" ? item.to.surface : undefined])).toEqual([
-    ["테스트 OK", undefined],
-    ["could not send it", "telegram"],
+    [Outbound.payload("테스트 OK"), undefined],
+    [Outbound.payload("could not send it"), "telegram"],
   ]);
 });
 

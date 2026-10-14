@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { fakeProviders } from "./helpers/channel-providers";
-import type { Channel, Provisioning } from "@openomni/protocol";
+import { Outbound, type Channel, type Provisioning } from "@openomni/protocol";
 import { declaredChannelProfile } from "../src/channels";
 import { testChannelDeps } from "./helpers/test-entropy";
 
@@ -119,8 +119,8 @@ describe("declared channel composition", () => {
     expect(discord?.webhookHandler).toBeUndefined();
     expect(github?.deliveryRoute).toBeUndefined();
     expect(github?.webhookHandler).toBeDefined();
-    await telegram?.deliveryRoute?.("actor-1", "hello", "key-1");
-    expect(fakes.delivered).toEqual([{ externalId: "actor-1", body: "hello" }]);
+    await telegram?.deliveryRoute?.("actor-1", Outbound.payload("hello"), "key-1");
+    expect(fakes.delivered).toEqual([{ externalId: "actor-1", payload: Outbound.payload("hello") }]);
     expect((await github?.webhookHandler?.(new Request("https://x.test/webhook")))?.status).toBe(
       200,
     );
