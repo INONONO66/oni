@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { orderByAttention } from "../src/renderer/attention";
 import { SessionTree } from "../src/renderer/shell/session-tree";
@@ -27,18 +28,21 @@ const tree = (
   options: { pendingChanges?: number; collapsed?: ReadonlySet<string | null> } = {},
 ) =>
   renderToStaticMarkup(
-    <SessionTree
-      collapsedProjectIds={options.collapsed ?? new Set()}
-      onNavigate={() => undefined}
-      onSelect={() => undefined}
-      onToggleProject={() => undefined}
-      now={10}
-      ordered={orderByAttention(list, 10)}
-      pendingChanges={options.pendingChanges ?? 0}
-      route="sessions"
-      selectedId={selectedId}
-      sessions={list}
-    />,
+    <QueryClientProvider client={new QueryClient()}>
+      <SessionTree
+        collapsedProjectIds={options.collapsed ?? new Set()}
+        onCreate={() => undefined}
+        onNavigate={() => undefined}
+        onSelect={() => undefined}
+        onToggleProject={() => undefined}
+        now={10}
+        ordered={orderByAttention(list, 10)}
+        pendingChanges={options.pendingChanges ?? 0}
+        route="sessions"
+        selectedId={selectedId}
+        sessions={list}
+      />
+    </QueryClientProvider>,
   );
 
 describe("the sidebar marks exactly one selected row", () => {
@@ -96,13 +100,13 @@ describe("the sidebar is project groups over sessions", () => {
 });
 
 describe("the empty sidebar says so", () => {
-  test("Given no sessions, When the tree renders, Then the sentence names the way out and no group is drawn", () => {
+  test("Given no sessions, When the tree renders, Then the sentence says so and no group is drawn", () => {
     const html = tree(null, []);
 
     expect(html).toContain("No sessions yet");
     expect(html).not.toContain('data-ui="Disclosure"');
     expect(html).not.toContain('id="session-row-');
-    // The sentence names the way out: the `+` in the tab strip.
-    expect(html).toContain("press +");
+    // The way out is the nav's own "New session" row, so the sentence no longer points elsewhere.
+    expect(html).not.toContain("press +");
   });
 });

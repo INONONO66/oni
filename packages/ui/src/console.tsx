@@ -2,12 +2,11 @@ import type { ComponentProps, ReactNode } from "react";
 import { Composer } from "./composer";
 import { UI_NAMES } from "./names";
 import { ScrollArea } from "./primitives/scroll-area";
-import { Panel } from "./primitives/surface";
+import { Panel, Text } from "./primitives/surface";
 import { Sidebar } from "./sidebar";
 import { TabStrip } from "./tab-strip";
 import type { PendingApproval, TranscriptNode, TurnCost } from "./timeline/model";
 import { Timeline } from "./timeline/timeline";
-import { Voice } from "./timeline/voice";
 
 export function Console({
   shell,
@@ -86,9 +85,7 @@ export function ConsoleContent({
       >
         {transcript === undefined ? (
           (children ?? (
-            <Voice className="text-voice-ambient" voice="meta">
-              {emptyLabel}
-            </Voice>
+            <Text as="p" level="meta" tone="faint">{emptyLabel}</Text>
           ))
         ) : (
           <Timeline

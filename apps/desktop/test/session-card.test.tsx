@@ -35,16 +35,22 @@ for (const [phase, kind, tone, shape] of cases) {
     consoleStore.setState((s) => ({ ...s, sessions: [session] }));
     openTab({ kind: "session", sessionId: session.id });
     const html = renderShell(null, [session]);
-    expect(html.match(/data-ui="StatusGlyph"/g)).toHaveLength(3);
-    expect(html.match(new RegExp(`data-tone="${tone}"`, "g"))).toHaveLength(3);
-    expect(html.match(new RegExp(`data-shape="${shape}"`, "g"))).toHaveLength(3);
+    const document = new Window().document;
+    document.body.innerHTML = html;
+    const sessionGlyphs = document.querySelectorAll(
+      '[data-ui="Tab.Icon"] [data-ui="StatusGlyph"], [data-ui="TreeRow"] [data-ui="StatusGlyph"], h1 [data-ui="StatusGlyph"]',
+    );
+    expect(sessionGlyphs).toHaveLength(3);
+    for (const glyph of sessionGlyphs) {
+      expect(glyph.getAttribute("data-tone")).toBe(tone);
+      expect(glyph.getAttribute("data-shape")).toBe(shape);
+    }
     const list = renderToStaticMarkup(
       <SessionList now={now} sessions={[session]} onSelect={() => undefined} />,
     );
     expect(list).toContain(`data-tone="${tone}"`);
     expect(list).toContain(`data-shape="${shape}"`);
-    const document = new Window().document;
-    document.body.innerHTML = html + list;
+    document.body.innerHTML += list;
     const tabIcon = document.querySelector('[data-ui="Tab.Icon"]');
     expect(tabIcon?.firstElementChild?.getAttribute("data-ui")).toBe("StatusGlyph");
     expect(tabIcon?.firstElementChild?.getAttribute("data-size")).toBe("compact");

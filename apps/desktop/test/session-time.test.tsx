@@ -41,7 +41,7 @@ function withClock<T>(run: () => T): T {
 }
 
 for (const phase of ["interrupted", "waiting_approval", "waiting_input", "running"] as const) {
-  test(`${phase} names its state on both surfaces instead of a time`, () => {
+  test(`${phase} names its state and keeps the last activity clock on both surfaces`, () => {
     withClock(() => {
       const session = makeSession({
         phase,
@@ -50,7 +50,12 @@ for (const phase of ["interrupted", "waiting_approval", "waiting_input", "runnin
       });
       expect(hasActiveState(session)).toBe(true);
       const document = renderRows(session);
-      expect(document.querySelectorAll('[data-ui="TreeRow"] time')).toHaveLength(0);
+      const times = [...document.querySelectorAll('[data-ui="TreeRow"] time')];
+      expect(times.map((time) => time.textContent?.trim())).toEqual(["2m", "2m"]);
+      expect(times.map((time) => time.getAttribute("datetime"))).toEqual([
+        new Date(session.lastActivityAt).toISOString(),
+        new Date(session.lastActivityAt).toISOString(),
+      ]);
       const reasons = [...document.querySelectorAll("[data-secondary]")].map((node) =>
         node.textContent?.includes(sessionReason(session, now)),
       );

@@ -374,11 +374,11 @@ body {
   transform-origin: center;
 }
 
-[data-ui="TreeRow"] .status-glyph[data-shape="hollow"] {
+[data-density="double"] .status-glyph[data-shape="hollow"] {
   opacity: 0.45;
 }
 
-[data-ui="TreeRow"]:hover .status-glyph {
+[data-density="double"]:hover .status-glyph {
   opacity: 1 !important;
 }
 

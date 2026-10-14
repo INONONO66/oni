@@ -44,12 +44,12 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     await act(() => key("["));
     expect(consoleStore.state.sidebarOpen).toBe(true);
     expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("true");
-    await click('[data-ui="Sidebar.Nav"] button:nth-child(2)');
+    await click('[data-ui="Sidebar.Nav"] button:nth-child(3)');
     expect(activeTab(consoleStore.state)?.place ?? null).toEqual({ kind: "route", route: "automations" });
     // A plain click moves the current tab (the empty column materializes exactly one); it never grows the strip.
     const tabsBefore = consoleStore.state.tabs.length;
     expect(tabsBefore).toBe(1);
-    await click('[data-ui="Sidebar.Nav"] button:nth-child(1)');
+    await click('[data-ui="Sidebar.Nav"] button:nth-child(2)');
     expect(activeTab(consoleStore.state)?.place ?? null).toEqual({
       kind: "route",
       route: "sessions",
@@ -57,7 +57,7 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     expect(consoleStore.state.tabs.length).toBe(tabsBefore);
     await act(() =>
       window.document
-        .querySelector('[data-ui="Sidebar.Nav"] button:nth-child(2)')
+        .querySelector('[data-ui="Sidebar.Nav"] button:nth-child(3)')
         ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true })),
     );
     expect(consoleStore.state.tabs.length).toBe(tabsBefore + 1);
@@ -69,7 +69,7 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     expect(consoleStore.state.sidebarOpen).toBe(false);
     await act(() => key("["));
     expect(consoleStore.state.sidebarOpen).toBe(true);
-    await click('button[aria-label="New session"]');
+    await click('[data-ui="Sidebar.Nav"] button:first-child');
     expect(consoleStore.state.sessions).toHaveLength(1);
     const selected = consoleStore.state.sessions[0]?.id ?? "";
     expect(selected).not.toBe("");
@@ -78,7 +78,7 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
       sessionId: selected,
     });
     expect(host.querySelector("textarea")?.disabled).toBe(true);
-    await click('button[aria-label="New session"]');
+    await click('[data-ui="Sidebar.Nav"] button:first-child');
     expect(consoleStore.state.sessions).toHaveLength(2);
     // Neither session has been prompted: the tree lists nothing until one earns a title.
     expect(host.querySelector(`#session-row-${selected}`)).toBeNull();

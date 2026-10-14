@@ -31,3 +31,4 @@ export { segmentTurns } from "./timeline/turns";
 export { TreeRow } from "./tree-row";
 export { StatusGlyph } from "./status-glyph";
 export { isOriginSurface, OriginMark } from "./origin-mark";
+export { UI_NAMES } from "./names";

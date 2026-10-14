@@ -197,7 +197,7 @@ test("pointer navigation, local history and list selection keep one frame and pr
   expect(consoleStore.state.activeTabId).toBe(firstTab);
   await click(`#tab-${secondTab}`);
   expect(consoleStore.state.activeTabId).toBe(secondTab);
-  await click('[data-ui="Sidebar.Nav"] button');
+  await click('[data-ui="Sidebar.Nav"] button:nth-child(2)');
   const listTab = consoleStore.state.activeTabId;
   const list = node('[role="tabpanel"] ul');
   expect(list.querySelectorAll("li")).toHaveLength(3);
@@ -206,7 +206,7 @@ test("pointer navigation, local history and list selection keep one frame and pr
   await act(() => {
     if (listTab) activateTab(listTab);
   });
-  await click('button[aria-label="gamma"]', node('[role="tabpanel"] ul'));
+  await click('[role="tabpanel"] button[aria-label="gamma"]');
   expect(consoleStore.state.activeTabId).toBe(listTab);
   expect(activeTab(consoleStore.state)?.place).toEqual({ kind: "session", sessionId: unopened });
   expect(node('[data-ui="TabStrip"]')).toBe(frame);

@@ -37,6 +37,10 @@ export const UI_NAMES = {
   TabTitle: "Tab.Title",
   TabClose: "Tab.Close",
   ConsoleContent: "Console.Content",
+  SessionContentAncestry: "SessionContent.Ancestry",
+  SessionContentForks: "SessionContent.Forks",
+  SessionContentForkChild: "SessionContent.ForkChild",
+  SessionContentFork: "SessionContent.Fork",
   /** The window root: sidebar state and the runtime `--sidebar-width` live here. */
   Sidebar: "Sidebar",
   /** The in-flow spacer the fixed sidebar container sits over. */
