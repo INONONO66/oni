@@ -175,10 +175,34 @@ test("a streamed body with no content-length stops at the cap instead of bufferi
     "too_large",
   );
   expect(pulled).toBeLessThanOrEqual(MEDIA_BYTE_CAP / chunk.byteLength + 2);
+  // A finite chunked body under the cap is concatenated in arrival order.
+  const chunked = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3]));
+      controller.close();
+    },
+  });
+  const short = createMediaResolver(
+    ports(machineWith({})),
+    () => Promise.resolve(new Response(chunked, { headers: { "content-type": "image/png" } })),
+  );
+  expect(await short({ kind: "image", ref: "https://cdn.test/two.png" })).toEqual({
+    bytes: new Uint8Array([1, 2, 3]),
+    name: "two.png",
+    mime: "image/png",
+  });
 });
 
 test("redirects are followed hop by hop with every hop admitted; the final hop names the download", async () => {
   const calls: { href: string; redirect: RequestInit["redirect"] }[] = [];
+  // A 3xx whose location is not a URL: the platform mints only valid redirects,
+  // so the header is replaced on a copy.
+  const seed = Response.redirect("https://cdn.test/seed", 302);
+  const badLocation = new Response(seed.body, {
+    status: seed.status,
+    headers: { location: "https://" },
+  });
   const fetchImpl: MediaFetch = (input, init) => {
     calls.push({ href: input.href, redirect: init.redirect });
     switch (input.pathname) {
@@ -190,6 +214,10 @@ test("redirects are followed hop by hop with every hop admitted; the final hop n
         return Promise.resolve(Response.redirect("https://169.254.169.254/latest", 307));
       case "/loop":
         return Promise.resolve(Response.redirect("https://cdn.test/loop", 302));
+      case "/to-nowhere":
+        return Promise.resolve(badLocation);
+      case "/down":
+        return Promise.reject(new Error("ECONNRESET"));
       default:
         return Promise.resolve(
           new Response(new Uint8Array([1]), { headers: { "content-type": "image/gif" } }),
@@ -207,6 +235,12 @@ test("redirects are followed hop by hop with every hop admitted; the final hop n
     "host",
   );
   expect(await refusal(resolve, { kind: "image", ref: "https://cdn.test/loop" })).toBe(
+    "fetch_failed",
+  );
+  expect(await refusal(resolve, { kind: "image", ref: "https://cdn.test/to-nowhere" })).toBe(
+    "fetch_failed",
+  );
+  expect(await refusal(resolve, { kind: "image", ref: "https://cdn.test/down" })).toBe(
     "fetch_failed",
   );
   expect(calls.every((call) => call.redirect === "manual")).toBe(true);

@@ -140,6 +140,34 @@ test("the tool routes CLI contacts through connectors and everything else throug
     tool.execute({ to: { kind: "contact", id: "known-owner" }, react: "\u{1F44D}", kind: "prompt" }, context),
   ).rejects.toThrow("react needs a channel contact with conversation.replyToMessageId");
   expect(ingested).toHaveLength(3);
+  // A CLI agent reads a letter from stdin: a reaction has nowhere to land, and a
+  // parts letter folds to the text the connector pipes through.
+  const piped: string[] = [];
+  const cli = createSendMessageTool(port, () => 1_000, {
+    run: runEffect,
+    cli: {
+      run: (input: { message: string }) =>
+        Effect.sync(() => {
+          piped.push(input.message);
+          return { stdout: "ok", code: 0 };
+        }),
+    },
+    reply: { prompt: () => Effect.void },
+  });
+  await expect(
+    cli.execute({ to: { kind: "contact", id: "cli:claude-code" }, react: "\u{1F44D}", kind: "prompt" }, context),
+  ).rejects.toThrow("a CLI agent takes a letter, not a reaction");
+  expect(
+    await cli.execute(
+      {
+        to: { kind: "contact", id: "cli:claude-code" },
+        message: [{ kind: "text", text: "review" }, { kind: "code", text: "x = 1", lang: "py" }],
+        kind: "prompt",
+      },
+      context,
+    ),
+  ).toEqual({ contact: "cli:claude-code", status: "delivered" });
+  expect(piped).toEqual(["review\n\n```py\nx = 1\n```"]);
   const both = tool.input.safeParse({ to: { kind: "contact", id: "known-owner" }, message: "hi", react: "\u{1F44D}" });
   expect(both.success).toBe(false);
   expect(tool.input.safeParse({ to: { kind: "contact", id: "known-owner" } }).success).toBe(false);
