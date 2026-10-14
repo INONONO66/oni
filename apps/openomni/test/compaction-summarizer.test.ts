@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Duration, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "bun:test";
 import { Core } from "@openomni/agent";
@@ -116,17 +116,41 @@ describe("production compaction summarizer", () => {
     expect(prompt?.type === "text" ? prompt.text : "").toContain("prior anchor");
   });
 
-  it("bounds the summary with the injected Clock and returns a typed timeout", async () => {
+  it("gives each overflow attempt its own deadline and returns a typed timeout", async () => {
     await runEffect(Effect.gen(function* () {
-      const entered = yield* Deferred.make<void>();
+      const firstEntered = yield* Deferred.make<void>();
+      const secondEntered = yield* Deferred.make<void>();
+      const thirdEntered = yield* Deferred.make<void>();
+      const releaseFirst = yield* Deferred.make<void>();
+      const releaseSecond = yield* Deferred.make<void>();
+      let calls = 0;
+      const run: NonNullable<FixtureLlm["run"]> = () => {
+        calls += 1;
+        if (calls === 1) return Deferred.succeed(firstEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseFirst)),
+          Effect.as({ type: "error" as const, error: runFailure(true, "overflow") }),
+        );
+        if (calls === 2) return Deferred.succeed(secondEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseSecond)),
+          Effect.as({ type: "error" as const, error: runFailure(true, "overflow") }),
+        );
+        return Deferred.succeed(thirdEntered, undefined).pipe(Effect.andThen(Effect.never));
+      };
       const summarize = createCompactionSummarizer({
-        model: MODEL, now: () => 1000, id: testIds("deadline"),
-        io: { resolveModel, run: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)) },
+        model: MODEL, now: () => 1000, id: testIds("deadline"), deadline: Duration.seconds(60),
+        io: { resolveModel, run },
       });
       const fiber = yield* Effect.flip(summarize([message("m1", "span")], undefined, BUDGET)).pipe(Effect.forkChild);
-      yield* Deferred.await(entered);
+      yield* Deferred.await(firstEntered);
+      yield* TestClock.adjust(50_000);
+      yield* Deferred.succeed(releaseFirst, undefined);
+      yield* Deferred.await(secondEntered);
+      yield* TestClock.adjust(15_000);
+      yield* Deferred.succeed(releaseSecond, undefined);
+      yield* Deferred.await(thirdEntered);
       yield* TestClock.adjust(60_000);
       expect(yield* Fiber.join(fiber)).toMatchObject({ _tag: "AgentFailure", kind: "timeout" });
+      expect(calls).toBe(3);
     }).pipe(Effect.provide(TestClock.layer())));
   });
 

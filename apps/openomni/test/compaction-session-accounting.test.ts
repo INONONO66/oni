@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
-import { Clock, Deferred, Effect, Fiber } from "effect";
+import { Clock, Deferred, Duration, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { z } from "zod";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
@@ -27,8 +27,12 @@ const CompactionResult = z.object({
   terminal: z.literal("executed"),
   result: z.object({ summarizerFailed: z.literal(true) }),
 });
+const ExecutedCompaction = z.object({
+  phase: z.literal("result"),
+  terminal: z.literal("executed"),
+});
 
-test.each(["success", "throws", "timeout"] as const)(
+test.each(["success", "throws", "provider-failure", "timeout"] as const)(
   "summary %s stays in the compacting session and completes the turn",
   async (outcome) => {
     await runEffect(Effect.gen(function* () {
@@ -48,6 +52,7 @@ test.each(["success", "throws", "timeout"] as const)(
           ...session,
           now: () => 1000,
           id: testIds(sessionId),
+          deadline: Duration.seconds(60),
           model: { provider: "fake", id: "summary-test", apiKey: "test-key" },
         }).pipe(Effect.map((summarize) => ({
           contextWindowTokens: constrained ? 700 : 100_000,
@@ -56,11 +61,14 @@ test.each(["success", "throws", "timeout"] as const)(
           onSummarize: (...args) => summarize(...args).pipe(Effect.provideService(Clock.Clock, clock)),
         }))),
         llm: {
+          classifyFailure: (facts) => Core.isLlmRunFailure(facts.error)
+            ? { kind: "retryable", reason: "transient_error", providerReason: "server_error", instant: false, afterMs: 0, directed: true }
+            : { kind: "terminal", reason: "transient_error", providerReason: "non_retryable" },
           resolveModel: (model) => Effect.succeed({
             id: model.id, name: model.id, providerID: model.provider,
             limit: { context: constrained ? 700 : 100_000 },
           }),
-          run: (input, sink) => Effect.suspend(() => {
+          run: (input, sink) => Effect.suspend((): Effect.Effect<Core.RunResult> => {
             if (input.model.id === "summary-test") {
               summaries.push(input);
               switch (outcome) {
@@ -68,6 +76,12 @@ test.each(["success", "throws", "timeout"] as const)(
                   return Effect.sync(() => {
                     throw new Core.AgentFailure({ operation: "fixture.summary", cause: "provider threw" });
                   });
+                case "provider-failure":
+                  return Effect.succeed({ type: "error", error: new Core.LlmRunFailure({
+                    message: "typed provider failure",
+                    usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+                    aborted: false, contextOverflow: false, visibleOutput: false,
+                  }) });
                 case "timeout":
                   return Deferred.succeed(entered, undefined).pipe(
                     Effect.andThen(Effect.never),
@@ -109,9 +123,9 @@ test.each(["success", "throws", "timeout"] as const)(
       const actions = sessionTree(sessionId, resident.plane.sessionStore(sessionId).actions);
       expect(terminal).toMatchObject({ kind: "result" });
       const attempts = actions.filter((action) => action.kind === "llm" && SummaryIntent.safeParse(action.intent.value).success);
-      expect(attempts).toHaveLength(1);
+      expect(attempts).toHaveLength(outcome === "provider-failure" ? 3 : 1);
       expect(attempts[0]?.sessionId).toBe(sessionId);
-      expect(summaries).toHaveLength(1);
+      expect(summaries).toHaveLength(outcome === "provider-failure" ? 3 : 1);
       expect(summaries[0]?.trace.sessionId).toBe(sessionId);
       expect(summaries[0]?.system).toBe(requests[0]?.system);
       expect(requests).toHaveLength(2);
@@ -126,6 +140,21 @@ test.each(["success", "throws", "timeout"] as const)(
           phase: "result", terminal: "executed", usageProvenance: "reported",
           evidence: { usage: SUMMARY_USAGE },
         });
+        const compaction = actions.find((action) => action.kind === "compaction" && ExecutedCompaction.safeParse(action.effect.value).success);
+        expect(compaction?.effect.value).toMatchObject({
+          phase: "result",
+          terminal: "executed",
+          result: {
+            projection: expect.arrayContaining([
+              expect.objectContaining({
+                parts: expect.arrayContaining([
+                  expect.objectContaining({ metadata: expect.objectContaining({ anchorBody: "retained decisions" }) }),
+                ]),
+              }),
+            ]),
+          },
+        });
+        expect(compaction?.effect.value).not.toHaveProperty("result.summarizerFailed");
       } else {
         expect(actions.some((action) => action.kind === "compaction" && CompactionResult.safeParse(action.effect.value).success)).toBe(true);
         expect(cancelled).toBe(outcome === "timeout");
