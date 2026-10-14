@@ -676,10 +676,7 @@ interface ProcessToolFailures {
 function closeUnderFailingProcessTools(failing: ProcessToolFailures) {
   const failures: Error[] = [];
   const reported = Promise.withResolvers<Error>();
-  const source = commandSource("read hold", () => undefined, () => undefined, (error) => {
-    failures.push(error);
-    reported.resolve(error);
-  });
+  let terminalClosed = 0;
   const spawn = Bun.spawn;
   const failing_ = (stderr: string, before = "") => ["/bin/sh", "-c", `${before}printf '${stderr}\\n' >&2; exit 1`];
   const failingSpawn = new Proxy(spawn, {
@@ -690,6 +687,14 @@ function closeUnderFailingProcessTools(failing: ProcessToolFailures) {
     ): ReturnType<typeof Bun.spawn> {
       const [command, options] = args;
       if (!Array.isArray(command)) return Reflect.apply(target, thisArg, args);
+      if (command[0] === "/bin/sh") {
+        // The watched child: count its PTY master closes so teardown is observable.
+        const child = Reflect.apply(target, thisArg, args);
+        const close = child.terminal?.close.bind(child.terminal);
+        if (child.terminal && close)
+          child.terminal.close = () => { terminalClosed += 1; return close(); };
+        return child;
+      }
       if (command[0] === "/bin/kill")
         return Reflect.apply(target, thisArg, [failing_(failing.kill, `/bin/kill -KILL -- ${command.at(-1)}; `), options]);
       if (command[0] === "ps" && failing.ps !== undefined)
@@ -697,9 +702,14 @@ function closeUnderFailingProcessTools(failing: ProcessToolFailures) {
       return Reflect.apply(target, thisArg, args);
     },
   });
+  // Installed before the source spawns its child so the PTY close hook sees that child.
   Reflect.set(Bun, "spawn", failingSpawn);
+  const source = commandSource("read hold", () => undefined, () => undefined, (error) => {
+    failures.push(error);
+    reported.resolve(error);
+  });
   const closed = source.close().finally(() => Reflect.set(Bun, "spawn", spawn));
-  return { closed, failures, reported: reported.promise };
+  return { closed, failures, reported: reported.promise, terminalClosed: () => terminalClosed };
 }
 
 test("command close accepts EPERM after readback finds no live group members", async () => {
@@ -720,11 +730,13 @@ test.each([
     /^alarm process-group readback failed: ps: readback unavailable$/,
   ],
 ])("command close reports %s as a named process-group failure", async (_case, failing, message) => {
-  const { closed, reported } = closeUnderFailingProcessTools(failing);
+  const { closed, reported, terminalClosed } = closeUnderFailingProcessTools(failing);
   // Both the caller's close and the source's failure port receive the one typed error.
   const [rejection, failure] = await Promise.all([closed.then(() => undefined, (error: Error) => error), reported]);
   expect(rejection).toBe(failure);
   expect(failure).toMatchObject({ name: "AlarmProcessGroupError", message: expect.stringMatching(message) });
+  // The kill failure must not leak the PTY master: teardown still closes it.
+  expect(terminalClosed()).toBeGreaterThanOrEqual(1);
 });
 
 test("a faulting path source sends a terminal source_error summary and the typed failure", async () => {
