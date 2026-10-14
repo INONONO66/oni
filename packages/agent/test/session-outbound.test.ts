@@ -247,6 +247,53 @@ test("restart after receiving commit reconciles exact bytes without dispatch or 
   );
 });
 
+test("activation redrives a pending outbound once and later seals skip it", () => {
+  const ledger = reopenableLedger("outbound-activation-");
+  return isolated(
+    Effect.scoped(
+      Effect.gen(function* () {
+        seedPolicy();
+        let current = dispatchRuntime(() => Effect.fail(foreign("receiver", "lost")));
+        yield* Effect.addFinalizer(() => closeSessions(current).pipe(Effect.orDie));
+        yield* openSession(current, { id: "parent", role: "resident", runner: parentRunner });
+        const child = yield* openSession(current, { id: "child", parentId: "parent", role: "child", runner: childRunner });
+        expect(yield* Effect.flip(child.prompt("work", origin))).toMatchObject({
+          _tag: "AgentFailure",
+          operation: "receiver",
+          cause: "lost",
+        });
+        expect(isolatedLedger().kernel.outboundRows("child")).toMatchObject([{ state: "pending" }]);
+        yield* closeSessions(current);
+        ledger.reopen();
+
+        const dispatched: string[] = [];
+        let recoveredId = 0;
+        current = {
+          ...dispatchRuntime(({ message }) =>
+            Effect.gen(function* () {
+              dispatched.push(message.messageId);
+              return (yield* receiveOutbound(message, 200)).receipt;
+            }),
+          ),
+          entropy: () => `recovered-${++recoveredId}`,
+        };
+        const recovered = yield* openSession(current, {
+          id: "child",
+          parentId: "parent",
+          role: "child",
+          runner: childRunner,
+        });
+        expect(dispatched).toHaveLength(1);
+        expect(isolatedLedger().kernel.outboundRows("child")).toMatchObject([{ state: "delivered" }]);
+        yield* recovered.prompt("later");
+        expect(dispatched).toHaveLength(1);
+        yield* closeSessions(current);
+      }),
+    ),
+    () => ledger,
+  );
+});
+
 test("a destination receipt for different bytes is refused and the obligation stays pending", () =>
   isolated(
     Effect.scoped(

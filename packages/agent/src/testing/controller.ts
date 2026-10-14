@@ -163,6 +163,8 @@ export function createController(
         yield* releaseAfterClose();
       })),
     };
+    if (runtime.dispatchOutbound !== undefined)
+      yield* dispatchSessionOutbound(kernel, sessionId, runtime, owner, state.fence, clock);
 
     /**
      * Ingress is a fenced received-message chain action (the input-queue table is
