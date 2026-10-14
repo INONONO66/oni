@@ -124,7 +124,7 @@ import {
   webSocketCallbacks,
 } from "./gateway";
 import { configureAuthority, type GenerationDefinitions } from "./composition/generation-layers";
-import { createResident } from "./bundles/resident/index";
+import { createResident } from "./composition/resident";
 import { composeCodemode, sessionOutputsSource, type ComposedCodemode } from "./composition/codemode";
 import { createRequestDomainRevisions } from "./bundles/tools/core/request-domain-revisions";
 

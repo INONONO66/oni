@@ -27,10 +27,7 @@ import { pinnedModelSelection, restoreModelSelection } from "../../composition/m
 import { messageMaterialization } from "../../composition/message-session";
 import { classifyTurnFailure } from "../../observation/llm-failure";
 import { observeComponent } from "../../observation/component";
-import { buildAgentPrompt } from "../prompt/build";
-import { CHILD_PRESET, RESIDENT_PRESET } from "../prompt/roles";
-import { toolCatalogLayer, type GenerationDefinitions } from "../../composition/generation-layers";
-import { catalogDefinitions, type ToolPorts } from "../tools/core/catalog";
+import type { GenerationDefinitions } from "../../composition/generation-layers";
 
 export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly errorKind: "precondition_failed" } {
   const refusal = new ToolRefused(call.tool, "evidence-only message");
@@ -167,7 +164,10 @@ export interface ResidentOptions {
     readonly sessionId: string;
     readonly system: string;
   }) => Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>, never, Core.Llm | ObservationSink>;
-  readonly tools: ToolPorts;
+  readonly tools: GenerationDefinitions;
+  readonly presets: Readonly<Record<LedgerSession.Role, string>>;
+  readonly id: () => string;
+  readonly clock: () => number;
   readonly sessionRuntime: SessionRuntime;
   /** The catalog's current policy generation; new sessions pin it at creation. */
   readonly policyGeneration: () => number;
@@ -187,15 +187,7 @@ export interface ResidentOptions {
 
 /** Resident and child use the same session-owned runner and dispatcher. */
 export function createResident(options: ResidentOptions) {
-  const ports = options.tools;
-  const catalog = catalogDefinitions(ports);
-  const definitionsFor = (role: LedgerSession.Role) =>
-    catalog.filter((tool) => tool.visibility.model.includes(role) || tool.visibility.cell.includes(role));
-  const definitions: GenerationDefinitions = {
-    resident: definitionsFor("resident"),
-    child: definitionsFor("child"),
-    catalogLayer: (select) => toolCatalogLayer(ports, select),
-  };
+  const definitions = options.tools;
   /**
    * The journaled tool faces of one role under the current composition
    * (#1255 P3): bundle-owned names come ONLY from the composed generation —
@@ -234,7 +226,7 @@ export function createResident(options: ResidentOptions) {
         compactionOff || options.compaction === undefined
           ? undefined
           : yield* options.compaction({ sessionId: input.sessionId, system: input.system });
-      const traceId = traceIdFromUuid(ports.id());
+      const traceId = traceIdFromUuid(options.id());
       const observation = observeComponent({
         traceId,
         sessionId: input.sessionId,
@@ -308,7 +300,7 @@ export function createResident(options: ResidentOptions) {
       if (report !== undefined) {
         yield* dispatcher.execute(
           {
-            id: ports.id(),
+            id: options.id(),
             tool: "send_message",
             input: {
               to: contactFor(report.target),
@@ -334,15 +326,15 @@ export function createResident(options: ResidentOptions) {
         throw new AppInvariantError(`runner is not registered: ${runner}`);
       }
       const composed = options.composed?.current();
-      return messageMaterialization(options.policyGeneration, ports.id)({
+      return messageMaterialization(options.policyGeneration, options.id)({
         id,
         parentId,
         role,
         runner,
         tools: composedFaces(role),
         bundles: composed?.generation.bundles ?? [],
-        preset: buildAgentPrompt(role === "resident" ? RESIDENT_PRESET : CHILD_PRESET),
-        at: ports.clock(),
+        preset: options.presets[role],
+        at: options.clock(),
         // #1306: an off cascade leaves genesis unstamped so the first turn's
         // adoption appends the `session.configure{operation: "compose"}` row
         // carrying the typed `disabled` entries; an empty cascade keeps the

@@ -11,7 +11,7 @@ import type { AnyToolDefinition } from "@openomni/protocol";
 import { Effect, type Layer } from "effect";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../src/gateway";
 import { seedKernelPolicyRows } from "../src/composition/policy";
-import { createResident } from "../src/bundles/resident/index";
+import { createResident } from "../src/composition/resident";
 import type { CatalogSelection, GenerationDefinitions } from "../src/composition/generation-layers";
 import { testToolPorts } from "./helpers/tool-ports";
 import { allowConfigure } from "./helpers/generation-services";
