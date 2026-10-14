@@ -12,12 +12,8 @@ import type { SessionKernel } from "../store/fence";
 import { actionPayloadBytes } from "../store/action-hash";
 import { consumptionSettings } from "../journal/delivery";
 import type { LedgerError } from "../store/errors";
-import type {
-  SessionForkReceipt,
-  SessionIndexUnit,
-  SessionStore,
-  ToolOutputWrite,
-} from "../store/session-file/index.js";
+import type { SessionForkReceipt, SessionIndexUnit, SessionStore } from "../store/session-file/index.js";
+import type { ToolOutputWrite } from "../store/session-file/outputs";
 import { SESSION_FILE_SCHEMA_VERSION } from "../store/session-file/index.js";
 
 /**
