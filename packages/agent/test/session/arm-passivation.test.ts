@@ -49,6 +49,21 @@ afterAll(() => {
 const isArm = (input: { readonly actions: readonly LedgerAction.Append[] }) =>
   input.actions.some((action) => action.kind === "alarm" && JSON.stringify(action.intent ?? "").includes("arm"));
 
+type ClusterStore = Parameters<NonNullable<TestClusterOptions["wrapStore"]>>[1];
+
+/** `store` with `sessions.commit` (and optionally `close`) replaced; every other member reads through, bound. */
+function withCommit(store: ClusterStore, commit: ClusterStore["sessions"]["commit"], close?: () => void): ClusterStore {
+  const sessions = { ...store.sessions, commit };
+  return new Proxy(store, {
+    get(target, key) {
+      if (key === "sessions") return sessions;
+      if (key === "close" && close !== undefined) return close;
+      const value = target[key as keyof typeof target];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 /**
  * Holds the next arm commit at `mode` ("pre": before the write, "post": after it returns) until `release`, and
  * records the finalizer-visible order of releaseLive, the held commit returning, and store.close.
@@ -73,18 +88,10 @@ function heldArmHarness(mode: "pre" | "post") {
         ? enter.pipe(Effect.andThen(wait), Effect.andThen(sessions.commit(input)), Effect.tap(returned))
         : sessions.commit(input).pipe(Effect.tap(enter), Effect.tap(wait), Effect.tap(returned));
     };
-    return new Proxy(store, {
-      get(target, key) {
-        if (key === "sessions") return { ...sessions, commit };
-        if (key === "close")
-          return () => {
-            events.push("store.close");
-            target.close();
-            closed.fire();
-          };
-        const value = target[key as keyof typeof target];
-        return typeof value === "function" ? value.bind(target) : value;
-      },
+    return withCommit(store, commit, () => {
+      events.push("store.close");
+      store.close();
+      closed.fire();
     });
   };
   const onLive: NonNullable<TestClusterOptions["onLive"]> = (sessionId, activation) => {
@@ -165,13 +172,7 @@ test("a refused quiet-tick send retires its moved occurrence, and a stale retire
               currentFence: input.fence + 1,
             }))));
           };
-          return new Proxy(store, {
-            get(target, key) {
-              if (key === "sessions") return { ...sessions, commit };
-              const value = target[key as keyof typeof target];
-              return typeof value === "function" ? value.bind(target) : value;
-            },
-          });
+          return withCommit(store, commit);
         },
         wrapSendAlarm: () => (_id, occurrence) =>
           Effect.suspend(() => {
@@ -278,13 +279,7 @@ test("a pre-write arm revision retry commits exactly one durable row", async () 
             }),
           );
         };
-        return new Proxy(store, {
-          get(target, key) {
-            if (key === "sessions") return { ...sessions, commit };
-            const value = target[key as keyof typeof target];
-            return typeof value === "function" ? value.bind(target) : value;
-          },
-        });
+        return withCommit(store, commit);
       },
     },
     Effect.gen(function* () {
