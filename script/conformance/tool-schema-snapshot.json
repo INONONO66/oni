@@ -372,100 +372,63 @@
           ]
         },
         "message": {
-          "description": "The letter: plain markdown, or ordered parts — text, code {text, lang?}, image {ref, name?, caption?}, file {ref, name, mime?, caption?}. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+          "description": "Plain markdown, or a structured message spec — see the Structured messages section of your instructions.",
           "anyOf": [
             {
               "type": "string"
             },
             {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "const": "text"
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": ["kind", "text"],
-                    "additionalProperties": false
+              "type": "object",
+              "properties": {
+                "root": {
+                  "type": "string"
+                },
+                "elements": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
                   },
-                  {
+                  "additionalProperties": {
                     "type": "object",
                     "properties": {
-                      "kind": {
+                      "type": {
                         "type": "string",
-                        "const": "code"
+                        "enum": [
+                          "Stack",
+                          "Markdown",
+                          "Code",
+                          "Table",
+                          "Image",
+                          "File",
+                          "Buttons",
+                          "Button",
+                          "Card",
+                          "Carousel",
+                          "Poll",
+                          "Status",
+                          "Divider",
+                          "Context"
+                        ]
                       },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
+                      "props": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
                       },
-                      "lang": {
-                        "type": "string",
-                        "minLength": 1
+                      "children": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
                       }
                     },
-                    "required": ["kind", "text"],
-                    "additionalProperties": false
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "const": "image"
-                      },
-                      "ref": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "name": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "caption": {
-                        "type": "string"
-                      }
-                    },
-                    "required": ["kind", "ref"],
-                    "additionalProperties": false
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "const": "file"
-                      },
-                      "ref": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "name": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "mime": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "caption": {
-                        "type": "string"
-                      }
-                    },
-                    "required": ["kind", "ref", "name"],
-                    "additionalProperties": false
+                    "required": ["type", "props", "children"]
                   }
-                ]
-              }
+                }
+              },
+              "required": ["root", "elements"]
             }
           ]
         },

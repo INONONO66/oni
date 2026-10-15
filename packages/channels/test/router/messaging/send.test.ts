@@ -486,6 +486,23 @@ describe("durable send admission faults", () => {
     expect(deliveries).toHaveLength(1);
   });
 
+  test("a spec message is retained in the admission signature as a payload", async () => {
+    const spec: Outbound.Spec = {
+      root: "body",
+      elements: {
+        body: { type: "Markdown", props: { text: "structured" }, children: [] },
+      },
+    };
+    const input = buildAwaitedSendInput({ messageId: "message:spec-admitted", payload: { kind: "message", spec } });
+    expect((await runEffect(messaging().send(input))).kind).toBe("sent");
+    const facts = ledger().sessions.decisionFacts;
+    if (facts === undefined) throw new Error("decision fact sub-adapter missing");
+    const fact = facts.head(`gateway_send:${encodeURIComponent(input.messageId)}`);
+    if (fact?.type !== "gateway.send.admitted" || typeof fact.data.signature !== "string")
+      throw new Error("admission fact missing");
+    expect(JSON.parse(fact.data.signature).payload).toEqual(input.payload);
+  });
+
   test("fails closed when a budget callback replaces the active adapter before admission", async () => {
     const input = buildSendInput({ messageId: "message:reentrant-adapter-swap" });
     const detachedFacts = ledger().sessions.decisionFacts;

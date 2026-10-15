@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  Catalog,
-  Spec as CatalogSpec,
-  type Element as CatalogElement,
-  type ElementType as CatalogElementType,
-} from "./catalog.js";
+import * as catalogModule from "./catalog.js";
 
 /**
  * The one outbound value an agent produces for a person (#1497): a letter
@@ -36,16 +31,20 @@ const FilePart = z
   .strict();
 const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, FilePart]);
 
-const PartsMessageSchema = z
-  .object({ kind: z.literal("message"), parts: z.array(PartSchema).min(1) })
-  .strict();
-const SpecMessageSchema = z.object({ kind: z.literal("message"), spec: CatalogSpec }).strict();
-const MessageSchema = z.union([PartsMessageSchema, SpecMessageSchema]);
+/** A letter is ordered parts or one catalog spec (#1545), never both. */
+const MessageSchema = z
+  .object({ kind: z.literal("message"), parts: z.array(PartSchema).min(1).optional(), spec: catalogModule.Spec.optional() })
+  .strict()
+  .superRefine((message, ctx) => {
+    if ((message.parts === undefined) === (message.spec === undefined)) {
+      ctx.addIssue({ code: "custom", message: "a message carries exactly one of parts or spec" });
+    }
+  });
 /** One emoji on the contact's message; `replaces` names the sender's earlier emoji the platform must take off first. */
 const ReactSchema = z
   .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1), replaces: z.string().min(1).optional() })
   .strict();
-const PayloadSchema = z.union([MessageSchema, ReactSchema]);
+const PayloadSchema = z.discriminatedUnion("kind", [MessageSchema, ReactSchema]);
 
 /**
  * What a channel reports after translating one payload: whether the platform
@@ -76,7 +75,7 @@ function partText(part: z.infer<typeof PartSchema>): string {
   }
 }
 
-function specText(spec: z.infer<typeof CatalogSpec>): string {
+function specText(spec: catalogModule.Spec): string {
   const lines: string[] = [];
   const visit = (id: string): void => {
     const element = spec.elements[id];
@@ -133,11 +132,10 @@ function specText(spec: z.infer<typeof CatalogSpec>): string {
 export namespace Outbound {
   export const Part = PartSchema;
   export type Part = z.infer<typeof PartSchema>;
-  export const catalog = Catalog;
-  export const Spec = CatalogSpec;
-  export type Spec = z.infer<typeof CatalogSpec>;
-  export type Element = CatalogElement;
-  export type ElementType = CatalogElementType;
+  export const catalog = catalogModule.Catalog;
+  export import Spec = catalogModule.Spec;
+  export import Element = catalogModule.Element;
+  export import ElementType = catalogModule.ElementType;
   export const Message = MessageSchema;
   export type Message = z.infer<typeof MessageSchema>;
   export const React = ReactSchema;
@@ -161,10 +159,11 @@ export namespace Outbound {
    */
   export function text(payload: Payload): string {
     if (payload.kind === "react") return `${payload.emoji} on ${payload.messageId}`;
-    return "spec" in payload ? specText(payload.spec) : payload.parts.map(partText).join("\n\n");
+    if (payload.spec !== undefined) return specText(payload.spec);
+    return (payload.parts ?? []).map(partText).join("\n\n");
   }
 
   export function prompt(): string {
-    return catalog.prompt();
+    return catalogModule.Catalog.prompt();
   }
 }

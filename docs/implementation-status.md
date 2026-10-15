@@ -20,11 +20,24 @@ Discord interaction callback and Telegram poller ordering tests.
 
 ## #1545 outbound catalog (L1)
 
-The protocol now ships a static `Outbound` catalog and validated flat `Spec`
-for structured channel-neutral messages, including a readable digest and
-model-facing catalog prompt. `send_message` accepts either plain text or a
-validated spec. Channel rendering, desktop rendering, and postback delivery
-are not wired yet; those belong to later lanes.
+On `feat/1545-protocol-catalog` (2026-10-15, base `35d60a491`). The protocol
+ships a static `Outbound.catalog` (Stack, Markdown, Code, Table, Image, File,
+Buttons/Button, Card, Carousel, Poll, Status, Divider, Context) and a
+validated flat `Outbound.Spec`: one tree hung off `root` (no orphans, sharing
+or cycles), leaf elements carry no children, Button lives only under Buttons,
+Carousel holds 2–10 Cards, Buttons at most 5, and any client-state field
+(`$`-prefixed, `visible`, `watch`) is refused. `Outbound.text` digests a spec
+to readable text and `Outbound.prompt()` is the model-facing catalog
+description the Resident preset carries. `send_message.message` is plain
+markdown or a spec; the ordered-parts form left the tool (the catalog's Code,
+Image and File elements cover it). `Outbound.Message` is one object carrying
+exactly one of `parts` (the text doors) or `spec`, so the schema snapshot only
+grew; the reviewed `send_message` tool snapshot was regenerated for the new
+input. Channels fold a spec message to its digest until L2 renders it
+natively; desktop rendering belongs to L4 and postback delivery landed in L3.
+Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
+and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,
+and `apps/openomni/test/prompt.test.ts`.
 
 ## #1506 auto-ack reaction
 

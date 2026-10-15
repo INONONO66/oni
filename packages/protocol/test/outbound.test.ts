@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Outbound } from "../src/index.js";
-import { z } from "zod";
+import type { z } from "zod";
 type JsonValue = z.infer<ReturnType<typeof z.json>>;
 
 describe("Outbound (#1497)", () => {
@@ -68,19 +68,25 @@ describe("Outbound (#1497)", () => {
       Divider: {},
       Context: { text: "Aside" },
     };
+    const wrapped: Record<string, Outbound.Spec> = {
+      Carousel: {
+        root: "carousel",
+        elements: {
+          carousel: { type: "Carousel", props: {}, children: ["card-a", "card-b"] },
+          "card-a": { type: "Card", props: { title: "A" }, children: [] },
+          "card-b": { type: "Card", props: { title: "B" }, children: [] },
+        },
+      },
+      Button: {
+        root: "buttons",
+        elements: {
+          buttons: { type: "Buttons", props: {}, children: ["open"] },
+          open: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+        },
+      },
+    };
     for (const [type, value] of Object.entries(props)) {
-      const spec =
-        type === "Carousel"
-          ? {
-              root: "stack",
-              elements: {
-                stack: { type: "Stack", props: {}, children: ["carousel"] },
-                carousel: { type, props: value, children: ["card-a", "card-b"] },
-                "card-a": { type: "Card", props: { title: "A" }, children: [] },
-                "card-b": { type: "Card", props: { title: "B" }, children: [] },
-              },
-            }
-          : { root: type, elements: { [type]: { type, props: value, children: [] } } };
+      const spec = wrapped[type] ?? { root: type, elements: { [type]: { type, props: value, children: [] } } };
       const parsed = Outbound.Spec.safeParse(spec);
       expect(parsed.success, type).toBe(true);
     }
@@ -105,9 +111,52 @@ describe("Outbound (#1497)", () => {
       { root: "markdown", elements: { markdown: { type: "Markdown", props: { text: "x" }, children: [], watch: {} } } },
       { root: "button", elements: { button: { type: "Button", props: { label: "x", id: "a", url: "https://example.com" }, children: [] } } },
       { root: "button", elements: { button: { type: "Button", props: { label: "x" }, children: [] } } },
+      { root: "button", elements: { button: { type: "Button", props: { label: "x", id: "x" }, children: [] } } },
     ])
       expect(Outbound.Spec.safeParse(element).success).toBe(false);
+  });
+
+  test("a spec is one tree: no orphan, shared, or self-referencing elements", () => {
+    const markdown = { type: "Markdown", props: { text: "x" }, children: [] };
+    const issues = (spec: JsonValue) =>
+      Outbound.Spec.safeParse(spec).error?.issues.map((issue) => `${issue.path.join(".")}:${issue.message}`) ?? [];
+    expect(issues({ root: "stack", elements: { stack: { type: "Stack", props: {}, children: ["a"] }, a: markdown, b: markdown } })).toEqual([
+      "elements.b:element is not reachable from root",
+    ]);
+    expect(issues({ root: "stack", elements: { stack: { type: "Stack", props: {}, children: ["a", "a"] }, a: markdown } })).toEqual([
+      "elements.stack.children:element is referenced more than once",
+    ]);
+    expect(issues({ root: "stack", elements: { stack: { type: "Stack", props: {}, children: ["stack"] } } })).toEqual([
+      "elements.stack.children:element is referenced more than once",
+    ]);
+    expect(issues({ root: "a", elements: { a: { type: "Stack", props: {}, children: ["b"] }, b: { type: "Stack", props: {}, children: ["a"] } } })).toEqual([
+      "elements.b.children:element is referenced more than once",
+    ]);
+    expect(issues({ root: "stack", elements: { stack: { type: "Stack", props: {}, children: [] } } })).toEqual([
+      "elements.stack.children:Stack must contain at least one child",
+    ]);
+    expect(issues({ root: "m", elements: { m: { ...markdown, children: ["a"] }, a: markdown } })).toEqual([
+      "elements.m.children:this element cannot have children",
+    ]);
+  });
+
+  test("Button lives only under Buttons and Carousel holds only Cards", () => {
+    const issues = (spec: JsonValue) =>
+      Outbound.Spec.safeParse(spec).error?.issues.map((issue) => `${issue.path.join(".")}:${issue.message}`) ?? [];
     const button = { type: "Button", props: { label: "x", id: "x" }, children: [] };
+    const markdown = { type: "Markdown", props: { text: "x" }, children: [] };
+    const card = { type: "Card", props: { title: "x" }, children: [] };
+    expect(issues({ root: "b", elements: { b: { type: "Buttons", props: {}, children: ["m"] }, m: markdown } })).toEqual([
+      "elements.b.children.0:Buttons children must be Button elements",
+    ]);
+    expect(issues({ root: "c", elements: { c: { type: "Carousel", props: {}, children: ["k", "m"] }, k: card, m: markdown } })).toEqual([
+      "elements.c.children.1:Carousel children must be Card elements",
+    ]);
+    expect(issues({ root: "s", elements: { s: { type: "Stack", props: {}, children: ["x"] }, x: button } })).toEqual([
+      "elements.s.children.0:Button must be a child of Buttons",
+    ]);
+    expect(issues({ root: "b", elements: { b: { type: "Buttons", props: {}, children: ["x"] }, x: button } })).toEqual([]);
+    expect(issues({ root: "c", elements: { c: { type: "Carousel", props: {}, children: ["k", "j"] }, k: card, j: card } })).toEqual([]);
     expect(
       Outbound.Spec.safeParse({
         root: "buttons",
@@ -120,19 +169,50 @@ describe("Outbound (#1497)", () => {
     }
   });
 
-  test("catalog digest walks depth-first and renders structured elements", () => {
-    const spec: Outbound.Spec = {
-        root: "stack",
+  test("catalog digest walks depth-first and keeps every element readable as text", () => {
+    const spec = Outbound.Spec.parse({
+      root: "stack",
       elements: {
-        stack: { type: "Stack", props: {}, children: ["card", "table", "buttons"] },
-        card: { type: "Card", props: { title: "Summary", body: "Details" }, children: [] },
+        stack: { type: "Stack", props: {}, children: ["md", "sh", "plain", "table", "shot", "bare", "file", "buttons", "carousel", "poll", "ok", "busy", "rule", "aside"] },
+        md: { type: "Markdown", props: { text: "# Hi" }, children: [] },
+        sh: { type: "Code", props: { text: "ls", lang: "sh" }, children: [] },
+        plain: { type: "Code", props: { text: "x" }, children: [] },
         table: { type: "Table", props: { columns: [{ header: "A" }, { header: "B" }], rows: [["1", "2"]] }, children: [] },
-        buttons: { type: "Buttons", props: {}, children: ["button"] },
-        button: { type: "Button", props: { label: "Continue", id: "continue" }, children: [] },
+        shot: { type: "Image", props: { ref: "/tmp/a.png", caption: "shot" }, children: [] },
+        bare: { type: "Image", props: { ref: "/tmp/b.png" }, children: [] },
+        file: { type: "File", props: { ref: "/tmp/r.pdf", name: "r.pdf" }, children: [] },
+        buttons: { type: "Buttons", props: {}, children: ["go"] },
+        go: { type: "Button", props: { label: "Continue", id: "continue" }, children: [] },
+        carousel: { type: "Carousel", props: {}, children: ["k1", "k2"] },
+        k1: { type: "Card", props: { title: "Summary", body: "Details" }, children: [] },
+        k2: { type: "Card", props: { title: "Second" }, children: [] },
+        poll: { type: "Poll", props: { question: "Which?", options: ["A", "B"] }, children: [] },
+        ok: { type: "Status", props: { kind: "ok", title: "Done", body: "All green" }, children: [] },
+        busy: { type: "Status", props: { kind: "progress", title: "Working" }, children: [] },
+        rule: { type: "Divider", props: {}, children: [] },
+        aside: { type: "Context", props: { text: "aside" }, children: [] },
       },
-    };
+    });
     expect(Outbound.text({ kind: "message", spec })).toBe(
-      "Summary\n\nDetails\n\nA | B\n1 | 2\n\n[Continue]",
+      [
+        "# Hi",
+        "```sh\nls\n```",
+        "```\nx\n```",
+        "A | B\n1 | 2",
+        "[image] /tmp/a.png\nshot",
+        "[image] /tmp/b.png",
+        "[file: r.pdf] /tmp/r.pdf",
+        "[Continue]",
+        "Summary",
+        "Details",
+        "Second",
+        "Which?\n- A\n- B",
+        "OK: Done",
+        "All green",
+        "PROGRESS: Working",
+        "---",
+        "aside",
+      ].join("\n\n"),
     );
     const prompt = Outbound.prompt();
     expect(prompt).toContain("Markdown");

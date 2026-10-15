@@ -71,6 +71,16 @@ const resolve = async (part: Outbound.Part & { kind: "image" | "file" }): Promis
 });
 
 describe("translate: text folding", () => {
+  test("a spec message is delivered as one digest text step", async () => {
+    const spec: Outbound.Spec = {
+      root: "body",
+      elements: { body: { type: "Markdown", props: { text: "structured" }, children: [] } },
+    };
+    const r = recorder();
+    await translate({ kind: "message", spec }, UNBOUNDED, r.sends);
+    expect(r.sent).toEqual([{ kind: "text", chunk: "<structured>" }]);
+  });
+
   test("adjacent text and code parts fold into one rendered message", async () => {
     const r = recorder();
     const outcome = await translate(

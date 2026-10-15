@@ -100,13 +100,7 @@ type ElementOf<T extends ElementType, P> = { type: T; props: P; children: string
 export type Element = {
   [K in keyof typeof definitions]: ElementOf<K, z.infer<(typeof definitions)[K]["props"]>>;
 }[keyof typeof definitions];
-export type SpecValue = { root: string; elements: Record<string, Element> };
-
-function hasExpression(value: JsonValue): boolean {
-  if (Array.isArray(value)) return value.some(hasExpression);
-  if (value === null || typeof value !== "object") return false;
-  return Object.entries(value).some(([key, nested]) => key.startsWith("$") || hasExpression(nested));
-}
+export type Spec = { root: string; elements: Record<string, Element> };
 
 function hasClientStateField(value: JsonValue): boolean {
   if (Array.isArray(value)) return value.some(hasClientStateField);
@@ -116,63 +110,71 @@ function hasClientStateField(value: JsonValue): boolean {
   );
 }
 
+type Issue = { path: (string | number)[]; message: string };
+
+function childCountIssue(type: ElementType, count: number): string | undefined {
+  if (type === "Stack") return count === 0 ? "Stack must contain at least one child" : undefined;
+  if (type === "Buttons") return count > 5 ? "Buttons may contain at most 5 children" : undefined;
+  if (type === "Carousel") return count < 2 || count > 10 ? "Carousel must contain 2 to 10 children" : undefined;
+  return count > 0 ? "this element cannot have children" : undefined;
+}
+
+function nestingIssue(parent: ElementType, child: ElementType | undefined): string | undefined {
+  if (parent === "Buttons" && child !== undefined && child !== "Button") return "Buttons children must be Button elements";
+  if (parent === "Carousel" && child !== undefined && child !== "Card") return "Carousel children must be Card elements";
+  if (parent !== "Buttons" && child === "Button") return "Button must be a child of Buttons";
+  return undefined;
+}
+
+function elementIssues(id: string, element: Element, elements: Record<string, Element>): Issue[] {
+  const issues: Issue[] = [];
+  if (!definitions[element.type].props.safeParse(element.props).success) {
+    issues.push({ path: ["elements", id, "props"], message: "invalid catalog props" });
+  }
+  for (const [index, child] of element.children.entries()) {
+    if (!(child in elements)) issues.push({ path: ["elements", id, "children", index], message: "dangling child id" });
+    const nesting = nestingIssue(element.type, elements[child]?.type);
+    if (nesting !== undefined) issues.push({ path: ["elements", id, "children", index], message: nesting });
+  }
+  const count = childCountIssue(element.type, element.children.length);
+  if (count !== undefined) issues.push({ path: ["elements", id, "children"], message: count });
+  return issues;
+}
+
+/** Every element hangs off the root exactly once: no orphans, no sharing, no cycles. */
+function treeIssues(spec: Spec): Issue[] {
+  const root = spec.elements[spec.root];
+  if (root === undefined) return [{ path: ["root"], message: "root element is missing" }];
+  const issues: Issue[] = root.type === "Button" ? [{ path: ["root"], message: "Button must be a child of Buttons" }] : [];
+  const reached = new Set<string>([spec.root]);
+  const walk = (id: string): void => {
+    for (const child of spec.elements[id]?.children ?? []) {
+      if (reached.has(child)) {
+        issues.push({ path: ["elements", id, "children"], message: "element is referenced more than once" });
+        continue;
+      }
+      reached.add(child);
+      walk(child);
+    }
+  };
+  walk(spec.root);
+  for (const id of Object.keys(spec.elements)) {
+    if (!reached.has(id)) issues.push({ path: ["elements", id], message: "element is not reachable from root" });
+  }
+  return issues;
+}
+
 // The library's catalog schema returns an untyped Zod schema for dynamic catalog props.
-const SpecBody = (Catalog.zodSchema() as z.ZodType<SpecValue>).superRefine((spec, ctx) => {
-  if (!(spec.root in spec.elements)) {
-    ctx.addIssue({ code: "custom", path: ["root"], message: "root element is missing" });
-  }
-  for (const [id, element] of Object.entries(spec.elements)) {
-    const propsResult = definitions[element.type].props.safeParse(element.props);
-    if (!propsResult.success) {
-      ctx.addIssue({ code: "custom", path: ["elements", id, "props"], message: "invalid catalog props" });
-    }
-    if (hasExpression(element.props)) {
-      ctx.addIssue({ code: "custom", path: ["elements", id, "props"], message: "chat specs carry no client state" });
-    }
-    for (const [index, child] of element.children.entries()) {
-      if (!(child in spec.elements)) {
-        ctx.addIssue({ code: "custom", path: ["elements", id, "children", index], message: "dangling child id" });
-      }
-    }
-    if (element.type === "Buttons" && element.children.length > 5) {
-      ctx.addIssue({ code: "custom", path: ["elements", id, "children"], message: "Buttons may contain at most 5 children" });
-    }
-    if (element.type === "Carousel" && (element.children.length < 2 || element.children.length > 10)) {
-      ctx.addIssue({ code: "custom", path: ["elements", id, "children"], message: "Carousel must contain 2 to 10 children" });
-    }
-    if (element.type === "Stack" && element.children.length === 0) {
-      ctx.addIssue({ code: "custom", path: ["elements", id, "children"], message: "Stack must contain at least one child" });
-    }
-    if (["Markdown", "Code", "Table", "Image", "File", "Divider", "Context", "Status", "Poll", "Button", "Card"].includes(element.type) && element.children.length > 0) {
-      ctx.addIssue({ code: "custom", path: ["elements", id, "children"], message: "this element cannot have children" });
-    }
-  }
-  if (spec.elements[spec.root]?.type !== "Stack" && Object.keys(spec.elements).length > 1) {
-    ctx.addIssue({ code: "custom", path: ["root"], message: "Stack is required for multiple sections" });
-  }
-  for (const [parentId, parent] of Object.entries(spec.elements)) {
-    for (const childId of parent.children) {
-      const child = spec.elements[childId];
-      if (child === undefined) continue;
-      if (parent.type === "Buttons" && child.type !== "Button") {
-        ctx.addIssue({ code: "custom", path: ["elements", parentId, "children"], message: "Buttons children must be Button elements" });
-      }
-      if (parent.type === "Carousel" && child.type !== "Card") {
-        ctx.addIssue({ code: "custom", path: ["elements", parentId, "children"], message: "Carousel children must be Card elements" });
-      }
-      if (child.type === "Button" && parent.type !== "Buttons") {
-        ctx.addIssue({ code: "custom", path: ["elements", childId], message: "Button must be a child of Buttons" });
-      }
-      if (parent.type === "Stack" && child.type === "Button") {
-        ctx.addIssue({ code: "custom", path: ["elements", parentId, "children"], message: "Stack cannot contain Button elements" });
-      }
-    }
-  }
+const SpecBody = (Catalog.zodSchema() as z.ZodType<Spec>).superRefine((spec, ctx) => {
+  const issues = [
+    ...treeIssues(spec),
+    ...Object.entries(spec.elements).flatMap(([id, element]) => elementIssues(id, element, spec.elements)),
+  ];
+  for (const issue of issues) ctx.addIssue({ code: "custom", ...issue });
 });
 export const Spec = z.preprocess((input: JsonValue, ctx) => {
   if (hasClientStateField(input)) {
     ctx.addIssue({ code: "custom", message: "chat specs carry no client state" });
   }
   return input;
-}, SpecBody) as z.ZodType<SpecValue>;
-export type Spec = z.infer<typeof Spec>;
+}, SpecBody) as z.ZodType<Spec>;

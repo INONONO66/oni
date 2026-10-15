@@ -9,7 +9,7 @@
  */
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway, Outbound } from "@openomni/protocol";
 import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
@@ -102,15 +102,19 @@ test("the tool routes CLI contacts through connectors and everything else throug
   const conversation = { channelId: "C1", replyToMessageId: "1700000000.000100" };
   // A contact id is the protocol's actor path; a string letter is one text part.
   await tool.execute({ to: { kind: "contact", id: "known-owner" }, message: "hi", kind: "prompt" }, context);
-  // Parts ride through untouched; a reaction names the message the contact wrote.
-  const parts = [
-    { kind: "text", text: "here" },
-    { kind: "code", text: "ls", lang: "sh" },
-    { kind: "image", ref: "/tmp/a.png" },
-    { kind: "file", ref: "https://example.test/r.pdf", name: "r.pdf" },
-  ] as const;
+  // A spec rides through untouched; a reaction names the message the contact wrote.
+  const spec: Outbound.Spec = {
+    root: "body",
+    elements: {
+      body: { type: "Stack", props: {}, children: ["here", "ls", "shot", "report"] },
+      here: { type: "Markdown", props: { text: "here" }, children: [] },
+      ls: { type: "Code", props: { text: "ls", lang: "sh" }, children: [] },
+      shot: { type: "Image", props: { ref: "/tmp/a.png" }, children: [] },
+      report: { type: "File", props: { ref: "https://example.test/r.pdf", name: "r.pdf" }, children: [] },
+    },
+  };
   await tool.execute(
-    { to: { kind: "contact", id: "known-owner", surface: "slack", conversation }, message: [...parts], kind: "prompt" },
+    { to: { kind: "contact", id: "known-owner", surface: "slack", conversation }, message: spec, kind: "prompt" },
     context,
   );
   await tool.execute(
@@ -126,7 +130,7 @@ test("the tool routes CLI contacts through connectors and everything else throug
     {
       sender: { kind: "session", id: "sender" },
       to: { kind: "actor", actorId: "known-owner", surface: "slack", conversation },
-      content: { kind: "message", parts: [...parts] },
+      content: { kind: "message", spec },
     },
     {
       sender: { kind: "session", id: "sender" },
@@ -161,7 +165,14 @@ test("the tool routes CLI contacts through connectors and everything else throug
     await cli.execute(
       {
         to: { kind: "contact", id: "cli:claude-code" },
-        message: [{ kind: "text", text: "review" }, { kind: "code", text: "x = 1", lang: "py" }],
+        message: {
+          root: "body",
+          elements: {
+            body: { type: "Stack", props: {}, children: ["ask", "code"] },
+            ask: { type: "Markdown", props: { text: "review" }, children: [] },
+            code: { type: "Code", props: { text: "x = 1", lang: "py" }, children: [] },
+          },
+        },
         kind: "prompt",
       },
       context,
