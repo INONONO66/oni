@@ -47,7 +47,7 @@ export function desiredChannels(
   kek: KekResolution,
   deps: ChannelRuntimeDeps,
 ): DesiredChannels {
-  const instances = stores.instances.list().filter((instance) => instance.provider !== "machine");
+  const instances = stores.instances.list();
   const secrets = new Map<string, ReturnType<SecretStore["get"]>>();
   const readSecret: SecretStore["get"] = (ref) => {
     if (!secrets.has(ref)) secrets.set(ref, stores.secrets.get(ref));

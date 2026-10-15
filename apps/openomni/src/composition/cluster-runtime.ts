@@ -4,7 +4,7 @@ type SessionHandle = Core.SessionHandle;
 type SessionRunner = Core.SessionRunner;
 type SessionEntityPorts = Core.SessionEntityPorts;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
-import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore } from "@openomni/channels";
+import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createMachineEnrollmentStore, createPersonStore, createSecretStore, openChannelStore } from "@openomni/channels";
 import { Context, Deferred, Effect, Exit, Layer } from "effect";
 
 /**
@@ -36,6 +36,7 @@ interface AppCatalogStores {
   readonly actors: ReturnType<typeof createActorRegistry>;
   readonly persons: ReturnType<typeof createPersonStore>;
   readonly instances: ReturnType<typeof createChannelInstanceStore>;
+  readonly machineEnrollments: ReturnType<typeof createMachineEnrollmentStore>;
   readonly secrets: ReturnType<typeof createSecretStore>;
   readonly channelGrants: ReturnType<typeof createChannelGrantStore>;
 }
@@ -65,6 +66,7 @@ export function withChannelStores(ledger: Core.LedgerPlane, now: () => number): 
       actors: createActorRegistry(channel),
       persons: createPersonStore(channel),
       instances: createChannelInstanceStore(channel),
+      machineEnrollments: createMachineEnrollmentStore(ledger.catalogDatabase),
       secrets: createSecretStore(channel),
       channelGrants: createChannelGrantStore(channel),
     },

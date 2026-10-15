@@ -1,11 +1,11 @@
 import { Core } from "@openomni/agent";
+import type { createMachineEnrollmentStore } from "@openomni/channels";
 import type { MachineHost } from "@openomni/machines";
 import { canonicalDigest, Machine, type BusEvent, type ToolExecutionContext } from "@openomni/protocol";
-import type { machineEnrollments } from "./machine-enrollment";
 import type { MachineOperation, MachineResult } from "./machine-schema";
 
 export interface MachinePort {
-  readonly enrollments: ReturnType<typeof machineEnrollments>;
+  readonly enrollments: ReturnType<typeof createMachineEnrollmentStore>;
   readonly host: Pick<MachineHost, "list" | "unenroll">;
   readonly selfId: string;
   readonly events: BusEvent.Sink;
@@ -26,20 +26,23 @@ export function executeMachine(
       if (caller !== "owner") return { op: operation.op, result: { type: "require_approval", id: machineId } };
       const time = port.now();
       const enrollment = { ...operation.args, enrolledAt: time };
-      port.enrollments.add(enrollment);
+      port.enrollments.put(enrollment);
       port.events.publish(Machine.Events.Enrolled, { machineId, time, enrollment });
       return { op: operation.op, result: { enrollment } };
     }
     case "machine_remove": {
-      if (port.enrollments.get(machineId) === undefined)
-        throw new Core.ToolRefused("provision", `machine is not enrolled: ${machineId}`);
       const time = port.now();
-      port.enrollments.remove(machineId, time);
+      if (!port.enrollments.remove(machineId, time))
+        throw new Core.ToolRefused("provision", `machine is not enrolled: ${machineId}`);
       port.host.unenroll(machineId);
       port.events.publish(Machine.Events.Unenrolled, { machineId, time });
       return { op: operation.op, result: { machineId } };
     }
   }
+}
+
+export function machineDomainRevisions(enrollments: MachinePort["enrollments"] | undefined, machineId: string): Record<string, number> {
+  return { [`machine:${machineId}`]: enrollments?.get(machineId)?.revision ?? -1 };
 }
 
 /** The saved tool invocation holds the proposed key; revisions bind consent to current authority. */
@@ -50,7 +53,7 @@ export function executeApprovedMachine(
 ): MachineResult {
   if (context.domainRevisions === undefined)
     return executeMachine(port, operation, `session:${context.sessionId}`);
-  if (canonicalDigest({ ...context.domainRevisions }) !== canonicalDigest(port?.enrollments.revisions(operation.args.machineId) ?? {}))
+  if (canonicalDigest({ ...context.domainRevisions }) !== canonicalDigest(machineDomainRevisions(port?.enrollments, operation.args.machineId)))
     throw new Core.ToolRefused("provision", "domain revision changed");
   return executeMachine(port, operation, "owner");
 }

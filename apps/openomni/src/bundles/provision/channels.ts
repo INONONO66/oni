@@ -120,8 +120,6 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
     const badSettings = validateProviderSettings(input.provider, input.settings);
     if (badSettings !== undefined) return refusal("channel_add", badSettings);
     const existing = port.instances.get(input.id);
-    if (input.id.startsWith("channel:machine:"))
-      return refusal("channel_add", "machine declarations require machine_add");
     let credentialRef = existing?.credentialRef;
     if (input.credential !== undefined) {
       // §5: the provider schema gates BEFORE any row lands.
@@ -164,8 +162,6 @@ function channelToggleExecutor(port: ProvisionPort, enabled: boolean, now: () =>
     if (existing === undefined) {
       return refusal(tool, `channel ${input.instanceId} is not declared`);
     }
-    if (existing.provider === "machine")
-      return refusal(tool, "machine declarations require machine_add or machine_remove");
     if (enabled) {
       // Manual breaker re-arm (§5): enabling is the operator saying "try again".
       port.supervisor.resume(existing.id);

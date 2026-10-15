@@ -5,7 +5,6 @@ import { retryableOnce } from "./retryable-once";
 import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
 import { automationWire } from "./composition/automation-wire";
-import { machineEnrollments } from "./bundles/provision/machine-enrollment";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
 import { createAutomationDelivery } from "./composition/automation-delivery";
@@ -185,7 +184,7 @@ async function composeMachinePlane(
   runtime: AppRuntime,
   machines: NonNullable<OpenOmniConfig["machines"]>,
   deps: {
-    readonly enrollments: ReturnType<typeof machineEnrollments>;
+    readonly enrollments: MachinePort["enrollments"];
     readonly events: BusEvent.Sink;
     readonly id: () => string;
     readonly now: () => number;
@@ -214,10 +213,11 @@ async function composeMachinePlane(
     createMachineHost({
       listen: machines.listen,
       ...(machines.tls === undefined ? {} : { tls: machines.tls }),
-      enrollment: (machineId) =>
-        machineId === plane.self.id
-          ? selfRecord
-          : deps.enrollments.get(machineId),
+      enrollment: (machineId) => {
+        if (machineId === plane.self.id) return selfRecord;
+        const row = deps.enrollments.get(machineId);
+        return row?.removedAt === null ? row.enrollment : undefined;
+      },
       events: deps.events,
       id: deps.id,
       // #1312: injected IPC callback bound — queue depth and callback fan-out
@@ -394,7 +394,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const plane = services.plane;
     const channelStores = createChannelStores(channelStoreSource(plane, services.now));
     const automations = { store: channelStores.automations, id: services.entropy.id };
-    const enrollments = machineEnrollments(plane.stores.instances);
+    const enrollments = plane.stores.machineEnrollments;
     const incident = (msg: string, error: Error | Cause.Cause<Error>): void =>
       services.observations.publish(Operational.Events.Error, {
         traceId: traceIdFromUuid(services.entropy.id()),

@@ -4,8 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Machine, ToolExecutionContext } from "@openomni/protocol";
 import { createProvisionTool } from "../src/bundles/provision/provision";
-import { machineEnrollments } from "../src/bundles/provision/machine-enrollment";
-import { executeMachine, type MachinePort } from "../src/bundles/provision/machines";
+import { executeMachine, machineDomainRevisions, type MachinePort } from "../src/bundles/provision/machines";
 import { machineWire } from "../src/composition/machine-wire";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
@@ -27,9 +26,16 @@ test("provision enrolls and attaches a daemon without restarting, then removes i
   const directory = mkdtempSync(join(tmpdir(), "machine-provision-"));
   const plane = testPlane();
   const events = eventCollector();
-  const enrollments = machineEnrollments(plane.stores.instances);
+  const enrollments = plane.stores.machineEnrollments;
   const socketPath = join(directory, "host.sock");
-  const host = await createMachineHost({ listen: { unix: socketPath }, enrollment: enrollments.get, events: events.sink, now: () => 5 });
+  const host = await createMachineHost({
+    listen: { unix: socketPath },
+    enrollment: (id) => {
+      const row = enrollments.get(id);
+      return row?.removedAt === null ? row.enrollment : undefined;
+    },
+    events: events.sink, now: () => 5,
+  });
   const machines: MachinePort = { enrollments, host: host.native, selfId: "self", events: events.sink, now: () => 5 };
   const port = { ...provisionPort(plane), machines };
   const tool = createProvisionTool(port, () => 5);
@@ -72,18 +78,18 @@ test("removed boot seeds remain removed after reopening the provisioning store",
   const directory = mkdtempSync(join(tmpdir(), "machine-seeds-"));
   const catalogPath = join(directory, "catalog.sqlite");
   const plane = testPlane({ catalogPath });
-  const records = machineEnrollments(plane.stores.instances);
+  const records = plane.stores.machineEnrollments;
   records.seed([enrollment]);
   records.remove(enrollment.machineId, 2);
   plane.close();
   const reopened = testPlane({ catalogPath });
   try {
-    const recovered = machineEnrollments(reopened.stores.instances);
+    const recovered = reopened.stores.machineEnrollments;
     recovered.seed([enrollment]);
-    expect(recovered.get(enrollment.machineId)).toBeUndefined();
-    expect(Object.values(recovered.revisions(enrollment.machineId))).toEqual([1]);
-    recovered.add({ ...enrollment, name: "Re-added" });
-    expect(recovered.get(enrollment.machineId)?.name).toBe("Re-added");
+    expect(recovered.list()).toEqual([]);
+    expect(recovered.get(enrollment.machineId)).toMatchObject({ revision: 1, removedAt: 2 });
+    recovered.put({ ...enrollment, name: "Re-added" });
+    expect(recovered.get(enrollment.machineId)?.enrollment.name).toBe("Re-added");
   } finally {
     reopened.close();
     rmSync(directory, { recursive: true, force: true });
@@ -92,7 +98,7 @@ test("removed boot seeds remain removed after reopening the provisioning store",
 
 test.each(["approve", "refuse", "changed"] as const)("machine key consent is bound to the current revision: %s", async (decision) => {
   const plane = testPlane();
-  const enrollments = machineEnrollments(plane.stores.instances);
+  const enrollments = plane.stores.machineEnrollments;
   const machines: MachinePort = { enrollments, host: { list: () => [], unenroll: () => undefined }, selfId: "self", events: { publish: () => undefined }, now: () => 5 };
   const tool = createProvisionTool({ ...provisionPort(plane), machines }, () => 5);
   const dispatch = protectedDispatch(tool, { operation: add }, undefined, { plane });
@@ -101,23 +107,23 @@ test.each(["approve", "refuse", "changed"] as const)("machine key consent is bou
     if (decision === "changed") {
       executeMachine(machines, { ...add, args: { ...args, publicKey: "b".repeat(64) } }, "owner");
       await expect(dispatch.answer()).rejects.toMatchObject({ code: "stale_approval" });
-      expect(enrollments.get(args.machineId)?.publicKey).toBe("b".repeat(64));
+      expect(enrollments.get(args.machineId)?.enrollment.publicKey).toBe("b".repeat(64));
     } else {
       expect((await dispatch.answer(decision)).isError === true).toBe(decision === "refuse");
-      expect(enrollments.get(args.machineId)?.publicKey).toBe(decision === "approve" ? args.publicKey : undefined);
+      expect(enrollments.get(args.machineId)?.enrollment.publicKey).toBe(decision === "approve" ? args.publicKey : undefined);
     }
   } finally { await dispatch.close(); plane.close(); }
 });
 
 test("direct session calls never grant a key and stale consent cannot overwrite authority", async () => {
   const plane = testPlane();
-  const enrollments = machineEnrollments(plane.stores.instances);
+  const enrollments = plane.stores.machineEnrollments;
   const machines: MachinePort = { enrollments, host: { list: () => [], unenroll: () => undefined }, selfId: "self", events: { publish: () => undefined }, now: () => 5 };
   const tool = createProvisionTool({ ...provisionPort(plane), machines }, () => 5);
   try {
     expect(await tool.execute({ operation: add }, context)).toEqual({ op: "machine_add", result: { type: "require_approval", id: args.machineId } });
     expect(enrollments.get(args.machineId)).toBeUndefined();
-    const revisions = enrollments.revisions(args.machineId);
+    const revisions = machineDomainRevisions(enrollments, args.machineId);
     executeMachine(machines, add, "owner");
     await expect(tool.execute({ operation: add }, { ...context, domainRevisions: revisions })).rejects.toThrow("domain revision changed");
     expect(() => executeMachine(machines, { ...add, args: { ...args, machineId: "self" } }, "owner")).toThrow("self enrollment");
@@ -126,19 +132,19 @@ test("direct session calls never grant a key and stale consent cannot overwrite 
   } finally { plane.close(); }
 });
 
-test("channel operations cannot replace or enable reserved machine declarations", async () => {
+test("machine enrollment and channel declarations have independent identities", async () => {
   const plane = testPlane();
   const port = provisionPort(plane);
-  const enrollments = machineEnrollments(plane.stores.instances);
-  enrollments.seed([enrollment]);
-  const id = plane.stores.instances.list()[0]?.id;
-  if (id === undefined) throw new Error("missing declaration");
+  const enrollments = plane.stores.machineEnrollments;
+  const id = "channel:telegram:main";
+  const machine = { ...enrollment, machineId: id };
+  enrollments.seed([machine]);
   const tool = createProvisionTool(port, () => 5);
   try {
-    await expect(tool.execute({ operation: { op: "channel_add", args: { id, provider: "telegram", enabled: true, settings: {} } } }, context))
-      .rejects.toThrow("machine declarations require machine_add");
-    await expect(tool.execute({ operation: { op: "channel_enable", args: { instanceId: id } } }, context))
-      .rejects.toThrow("machine declarations require");
-    expect(enrollments.get(args.machineId)).toEqual(enrollment);
+    expect(plane.stores.instances.list()).toEqual([]);
+    await tool.execute({ operation: { op: "channel_add", args: { id, provider: "telegram", enabled: true, settings: {} } } }, context);
+    await tool.execute({ operation: { op: "channel_disable", args: { instanceId: id } } }, context);
+    expect(plane.stores.instances.get(id)).toMatchObject({ provider: "telegram", enabled: false });
+    expect(enrollments.list()).toEqual([machine]);
   } finally { plane.close(); }
 });

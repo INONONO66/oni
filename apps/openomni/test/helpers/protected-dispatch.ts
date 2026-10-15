@@ -19,7 +19,6 @@ import { SHIPPED_OWNER_POLICY } from "../../src/composition/policy";
 import { executorLayer, catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";
 import { runEffect, runSyncEffect } from "./effect";
 import { provisionPort } from "./provision-port";
-import { machineEnrollments } from "../../src/bundles/provision/machine-enrollment";
 
 export { bounded };
 export function protectedDispatch(
@@ -39,7 +38,7 @@ export function protectedDispatch(
   const recording = runSyncEffect(requestLedger({
     id: sessionId,
     clock: () => clockRef.now,
-    domainRevisions: createRequestDomainRevisions({ ...plane.stores, automations: provisionPort(plane).automations, machineEnrollments: machineEnrollments(plane.stores.instances) }),
+    domainRevisions: createRequestDomainRevisions({ ...plane.stores, automations: provisionPort(plane).automations }),
     kernel,
     onRequest(request) {
       if (request.state === "open") opened.resolve(request);

@@ -5,10 +5,10 @@ import { ContactOperation, contactDomainRevisions } from "../bundles/provision/c
 import { AutomationOperation } from "../bundles/provision/automation-schema";
 import { automationDomainRevisions, automationId, type AutomationPort } from "../bundles/provision/automation";
 import { MachineOperation } from "../bundles/provision/machine-schema";
-import type { machineEnrollments } from "../bundles/provision/machine-enrollment";
+import { machineDomainRevisions, type MachinePort } from "../bundles/provision/machines";
 
 export interface RequestDomainDeps {
-  readonly machineEnrollments?: ReturnType<typeof machineEnrollments>;
+  readonly machineEnrollments?: MachinePort["enrollments"];
   readonly automations?: AutomationPort;
   readonly actors: ActorRegistry;
   readonly persons: Pick<PersonStore, "get">;
@@ -49,7 +49,7 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
     if (input !== null && typeof input === "object" && !Array.isArray(input)) {
       const machine = MachineOperation.safeParse(input.operation);
       if (machine.success && machine.data.op === "machine_add")
-        return deps.machineEnrollments?.revisions(machine.data.args.machineId) ?? {};
+        return machineDomainRevisions(deps.machineEnrollments, machine.data.args.machineId);
       const automation = AutomationOperation.safeParse(input.operation);
       if (automation.success)
         return automationDomainRevisions(deps.automations, automationId(automation.data, request));
