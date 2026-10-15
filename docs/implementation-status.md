@@ -39,6 +39,41 @@ Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
 and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,
 and `apps/openomni/test/prompt.test.ts`.
 
+## #1545 channel renderers (L2)
+
+On `feat/1545-channel-render` (2026-10-15, base `ba8382800`), catalog
+messages use one channel-side planning fold: consecutive text is rendered and
+chunked, native elements go through the provider's existing send client, and
+media bytes resolve with the established per-platform and letter limits before
+the first physical send. A later native-send failure preserves the partial /
+unknown receipt rule. Providers declare every catalog element in their
+`format.ts` capabilities; this is the current matrix:
+
+| Element | Slack | Discord | Telegram | GitHub | Webhook |
+| --- | --- | --- | --- | --- | --- |
+| Markdown | native | text | text | text | text |
+| Code | native | text | text | text | text |
+| Table | native | downgrade:table-to-bullets | downgrade:table-to-code | text | text |
+| Image | native | native | native | text | text |
+| File | native | native | native | text | text |
+| Buttons | native | native | native | text | text |
+| Button | native | native | native | text | text |
+| Card | native | native | native | text | text |
+| Carousel | downgrade:carousel-to-sequence | native | native | text | text |
+| Poll | downgrade:poll-to-buttons | native | native | text | text |
+| Status | native | native | native | text | text |
+| Divider | native | downgrade:divider-to-rule | downgrade:divider-to-rule | text | text |
+| Context | native | text | text | text | text |
+
+Slack posts Block Kit with a text notification fallback; Discord uses embeds,
+Components V2 galleries, action rows and polls; Telegram sends HTML text,
+inline keyboards, photo albums and polls. HTTPS images can be embedded
+directly; local card images take the same resolved-media upload path as parts.
+The `table-to-image` and `card-to-image` downgrades rasterize through
+`@json-render/image` and `@resvg/resvg-js` with a bundled CC0 font; no provider
+selects them yet. The font's compact character set is suitable for Latin text,
+so the selected policies above keep tables as native blocks, bullets or code.
+
 ## #1506 auto-ack reaction
 
 On `feat/app-ack-reaction` (2026-10-14, base `72ce6b7be`). A Resident turn
