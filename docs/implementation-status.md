@@ -1,5 +1,24 @@
 # Implementation Status
 
+## #1572 Owner policy rows
+
+On `feat/1572-policy-rows` (2026-10-15, rebased onto `e1bb6369b`). The Owner's
+approval values and every app-owned message, provision and delegation policy
+row ship in one file, `apps/openomni/policy/owner-policy.json`.
+`OPENOMNI_POLICY_PATH` selects a replacement before composition; blank selects
+the shipped file. The loader parses the file through Zod and refuses boot with
+`AppInvariantError` codes `unreadable_path`, `invalid_policy_file`,
+`unknown_point` or `unknown_handler`. Named handler rows resolve only against
+the guards and transformers the app bundles register, so data cannot invent an
+executable handler.
+
+`packages/agent` remains the owner of `SEEDED_POLICY_ROWS` and
+`POINT_GENERATION_ROW`. The app compiler adds those kernel rows around the
+Owner rows when seeding a generation. `apps/openomni/test/owner-policy.test.ts`
+pins the pre-move row id/point set and both C2 typed refusals; the real-run
+receipts are `/tmp/ulw-r3/c2-unknown-point.txt` and
+`/tmp/ulw-r3/c2-unknown-handler.txt`.
+
 ## #1573 external tool packs
 
 `OPENOMNI_TOOL_PACKS_DIR` optionally names a directory of JSON manifests, one
