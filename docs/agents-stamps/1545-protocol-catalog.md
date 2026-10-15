@@ -1,0 +1,1 @@
+#1545 on `feat/1545-protocol-catalog` (PR pending, 2026-10-15, base `7eb1a02e4`): the protocol owns `Outbound.catalog`, static `Outbound.Spec` validation, structured-message digest/prompt, and `send_message` spec input; channel rendering, desktop rendering, and postback delivery remain for later lanes. Receipt: PR body.

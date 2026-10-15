@@ -1,7 +1,8 @@
 import type { Model } from "@openomni/protocol";
 import { describe, expect, test } from "bun:test";
 import { buildAgentPrompt } from "../src/bundles/prompt/build";
-import { RESIDENT_PRESET, type RolePreset } from "../src/bundles/prompt/roles";
+import { CHILD_PRESET, RESIDENT_PRESET, type RolePreset } from "../src/bundles/prompt/roles";
+import { Outbound } from "@openomni/protocol";
 
 const residentBase = [
   RESIDENT_PRESET.identity,
@@ -67,5 +68,15 @@ describe("buildAgentPrompt", () => {
     expect(buildAgentPrompt(preset, { model: yModel })).toBe(
       [preset.identity, preset.mandate].join("\n\n"),
     );
+  });
+
+  test("resident instructions include structured messages, but child instructions do not", () => {
+    const resident = buildAgentPrompt(RESIDENT_PRESET, {
+      structuredMessages: `Structured messages\n\n${Outbound.prompt()}`,
+    });
+    expect(resident).toContain("Structured messages");
+    expect(resident).toContain("Stack");
+    expect(buildAgentPrompt(RESIDENT_PRESET)).not.toContain("Structured messages");
+    expect(buildAgentPrompt(CHILD_PRESET)).not.toContain("Structured messages");
   });
 });

@@ -18,6 +18,14 @@ lane. Slack Interactivity and Discord developer-console setup belong to #1546.
 Receipts: protocol schema and driver normalizer tests, Slack Socket Mode,
 Discord interaction callback and Telegram poller ordering tests.
 
+## #1545 outbound catalog (L1)
+
+The protocol now ships a static `Outbound` catalog and validated flat `Spec`
+for structured channel-neutral messages, including a readable digest and
+model-facing catalog prompt. `send_message` accepts either plain text or a
+validated spec. Channel rendering, desktop rendering, and postback delivery
+are not wired yet; those belong to later lanes.
+
 ## #1506 auto-ack reaction
 
 On `feat/app-ack-reaction` (2026-10-14, base `72ce6b7be`). A Resident turn

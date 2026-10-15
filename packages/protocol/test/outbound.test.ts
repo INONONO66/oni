@@ -50,6 +50,98 @@ describe("Outbound (#1497)", () => {
     );
   });
 
+  test("catalog validates every element and rejects state, bad references, and invalid buttons", () => {
+    const props: Record<string, Record<string, unknown>> = {
+      Markdown: { text: "hello" },
+      Code: { text: "echo hi", lang: "sh" },
+      Table: { columns: [{ header: "Name" }], rows: [["Ada"]] },
+      Image: { ref: "https://example.com/a.png" },
+      File: { ref: "/tmp/a.txt", name: "a.txt" },
+      Buttons: {},
+      Button: { label: "Open", id: "open" },
+      Card: { title: "A card" },
+      Carousel: {},
+      Poll: { question: "Choose", options: ["A", "B"] },
+      Status: { kind: "progress", title: "Working" },
+      Divider: {},
+      Context: { text: "Aside" },
+    };
+    for (const [type, value] of Object.entries(props)) {
+      const spec =
+        type === "Carousel"
+          ? {
+              root: "stack",
+              elements: {
+                stack: { type: "Stack", props: {}, children: ["carousel"] },
+                carousel: { type, props: value, children: ["card-a", "card-b"] },
+                "card-a": { type: "Card", props: { title: "A" }, children: [] },
+                "card-b": { type: "Card", props: { title: "B" }, children: [] },
+              },
+            }
+          : { root: type, elements: { [type]: { type, props: value, children: [] } } };
+      const parsed = Outbound.Spec.safeParse(spec);
+      expect(parsed.success, type).toBe(true);
+    }
+    expect(
+      Outbound.Spec.safeParse({
+        root: "buttons",
+        elements: {
+          buttons: { type: "Buttons", props: {}, children: ["missing"] },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      Outbound.Spec.safeParse({
+        root: "markdown",
+        elements: { markdown: { type: "Unknown", props: {}, children: [] } },
+      }).success,
+    ).toBe(false);
+    for (const element of [
+      { root: "missing", elements: { present: { type: "Markdown", props: { text: "x" }, children: [] } } },
+      { root: "markdown", elements: { markdown: { type: "Markdown", props: { text: { $state: "/x" } }, children: [] } } },
+      { root: "markdown", elements: { markdown: { type: "Markdown", props: { text: "x" }, children: [], visible: true } } },
+      { root: "markdown", elements: { markdown: { type: "Markdown", props: { text: "x" }, children: [], watch: {} } } },
+      { root: "button", elements: { button: { type: "Button", props: { label: "x", id: "a", url: "https://example.com" }, children: [] } } },
+      { root: "button", elements: { button: { type: "Button", props: { label: "x" }, children: [] } } },
+    ])
+      expect(Outbound.Spec.safeParse(element).success).toBe(false);
+    const button = { type: "Button", props: { label: "x", id: "x" }, children: [] };
+    expect(
+      Outbound.Spec.safeParse({
+        root: "buttons",
+        elements: { buttons: { type: "Buttons", props: {}, children: ["1", "2", "3", "4", "5", "6"] }, ...Object.fromEntries(["1", "2", "3", "4", "5", "6"].map((id) => [id, button])) },
+      }).success,
+    ).toBe(false);
+    for (const count of [1, 11]) {
+      const cards = Object.fromEntries(Array.from({ length: count }, (_, index) => [`card-${index}`, { type: "Card", props: { title: String(index) }, children: [] }]));
+      expect(Outbound.Spec.safeParse({ root: "carousel", elements: { carousel: { type: "Carousel", props: {}, children: Object.keys(cards) }, ...cards } }).success).toBe(false);
+    }
+  });
+
+  test("catalog digest walks depth-first and renders structured elements", () => {
+    const spec: Outbound.Spec = {
+        root: "stack",
+      elements: {
+        stack: { type: "Stack", props: {}, children: ["card", "table", "buttons"] },
+        card: { type: "Card", props: { title: "Summary", body: "Details" }, children: [] },
+        table: { type: "Table", props: { columns: [{ header: "A" }, { header: "B" }], rows: [["1", "2"]] }, children: [] },
+        buttons: { type: "Buttons", props: {}, children: ["button"] },
+        button: { type: "Button", props: { label: "Continue", id: "continue" }, children: [] },
+      },
+    };
+    expect(Outbound.text({ kind: "message", spec })).toBe(
+      "Summary\n\nDetails\n\nA | B\n1 | 2\n\n[Continue]",
+    );
+    const prompt = Outbound.prompt();
+    expect(prompt).toContain("Markdown");
+    expect(prompt).toContain("Stack");
+    expect(prompt).not.toContain("$state");
+    expect(prompt).not.toContain("repeat");
+    expect(prompt).not.toContain("visible");
+    expect(prompt).not.toContain("JSONL");
+    expect(prompt).not.toContain("pushState");
+  });
+
   test("a receipt names the outcome and at most one external message id", () => {
     expect(Outbound.Receipt.parse({ value: "accepted", externalMessageId: "7" })).toEqual({
       value: "accepted",

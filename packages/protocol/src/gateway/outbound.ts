@@ -96,7 +96,6 @@ function specText(spec: z.infer<typeof CatalogSpec>): string {
         ].join("\n"));
         break;
       case "Buttons":
-        for (const child of element.children) visit(child);
         break;
       case "Button":
         lines.push(`[${element.props.label}]`);
@@ -115,8 +114,8 @@ function specText(spec: z.infer<typeof CatalogSpec>): string {
         lines.push(element.props.title);
         if (element.props.body !== undefined) lines.push(element.props.body);
         break;
+      case "Stack":
       case "Carousel":
-        for (const child of element.children) visit(child);
         break;
       case "Poll":
         lines.push(`${element.props.question}\n${element.props.options.map((option) => `- ${option}`).join("\n")}`);
@@ -125,6 +124,7 @@ function specText(spec: z.infer<typeof CatalogSpec>): string {
         lines.push("---");
         break;
     }
+    for (const child of element.children) visit(child);
   };
   visit(spec.root);
   return lines.join("\n\n");
