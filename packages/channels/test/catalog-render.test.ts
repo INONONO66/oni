@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Outbound } from "@openomni/protocol";
-import { CallbackDataTooLong } from "../src/errors";
+import { CallbackDataTooLong, RenderLimitExceeded } from "../src/errors";
 import { renderDiscord } from "../src/provider/discord/render";
 import { DiscordProvider } from "../src/provider/discord/provider";
 import { renderSlack } from "../src/provider/slack/render";
@@ -48,6 +48,16 @@ describe("catalog native renderers", () => {
       [{ type: "raw_text", text: "Name" }, { type: "raw_text", text: "Score" }],
       [{ type: "raw_text", text: "A" }, { type: "raw_text", text: "9" }],
     ] }]);
+  });
+
+  test("Slack falls back to code when a table cell exceeds the block limit", () => {
+    const table = spec.elements.table;
+    if (table?.type !== "Table") throw new Error("missing table fixture");
+    const oversized: NativeStep = { ...step("table"), element: {
+      ...table, props: { ...table.props, rows: [["x".repeat(2001), "9"]] },
+    } };
+    expect(renderSlack(oversized)).toEqual([{ type: "section",
+      text: { type: "mrkdwn", text: "```Name | Score\nA | 9```" } }]);
   });
 
   test("Discord renders button rows, media gallery, and native poll", () => {
@@ -116,6 +126,16 @@ describe("catalog downgrades", () => {
     expect(result.spec?.elements["poll:option:0"]).toEqual({
       type: "Button", props: { id: "poll:option:0", label: "Yes" }, children: [],
     });
+  });
+
+  test("native and downgraded polls refuse unsupported option counts", () => {
+    const poll = spec.elements.poll;
+    if (poll?.type !== "Poll") throw new Error("missing poll fixture");
+    const invalid: Outbound.Spec = { ...spec, elements: { ...spec.elements,
+      poll: { ...poll, props: { ...poll.props, options: ["Only one"] } } } };
+    expect(() => downgrade("poll-to-buttons", "poll", invalid)).toThrow(RenderLimitExceeded);
+    expect(() => renderDiscord({ ...step("poll"), spec: invalid, element: invalid.elements.poll ?? poll }))
+      .toThrow(RenderLimitExceeded);
   });
 
   test("image downgrade remains a declared result, never a silent text send", () => {

@@ -1,4 +1,5 @@
 import { Outbound } from "@openomni/protocol";
+import { RenderLimitExceeded } from "../errors.js";
 
 export type Downgrade =
   | "table-to-code"
@@ -42,6 +43,8 @@ export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Dow
       return { kind: "album", ids: element.children };
     case "poll-to-buttons":
       if (element.type !== "Poll") return { kind: "text", text: digest };
+      if (element.props.options.length < 2 || element.props.options.length > 10)
+        throw new RenderLimitExceeded({ kind: "options", count: element.props.options.length, limit: 10 });
       return {
         kind: "sequence",
         ids: [`${id}:question`, ...Array.from({ length: Math.ceil(element.props.options.length / 5) }, (_, index) => `${id}:choices:${index}`)],

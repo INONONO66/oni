@@ -57,7 +57,7 @@ export function renderDiscord(step: NativeStep): DiscordBody {
       return { components: [{ type: 1, components: [buttonComponent(element)] }] };
     }
     case "Poll":
-      if (element.props.options.length > 10)
+      if (element.props.options.length < 2 || element.props.options.length > 10)
         throw new RenderLimitExceeded({ kind: "options", count: element.props.options.length, limit: 10 });
       return { poll: { question: { text: element.props.question },
         answers: element.props.options.map((text) => ({ poll_media: { text } })),
