@@ -70,6 +70,40 @@ it("utf8Prefix keeps a code point that ends exactly at the limit and drops one t
   expect(utf8Prefix("abc", 0)).toBe("");
 });
 
+/** The pre-encode-once algorithm, kept verbatim as the identity oracle. */
+function referenceUtf8Prefix(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let kept = Math.max(0, maxBytes);
+  for (;;) {
+    if ((text.codePointAt(kept - 1) ?? 0) > 0xffff) kept -= 1;
+    const prefix = text.slice(0, kept);
+    if (Buffer.byteLength(prefix, "utf8") <= maxBytes) return prefix;
+    kept -= 1;
+  }
+}
+
+const utf8PrefixIdentityVectors: readonly (readonly [string, number])[] = [
+  ["m".repeat(4096), 1024],
+  ["short ascii", 64],
+  ["\u00e9".repeat(300), 255],
+  ["\ud55c".repeat(5000), 1000],
+  ["\ud55c".repeat(5000), 1001],
+  ["\ud83d\ude00".repeat(2000), 1023],
+  ["a\ud55cb\u00e9\ud83d\ude00c".repeat(400), 777],
+  ["\u00e9\ud55c\ud83d\ude00".repeat(50), 9],
+  ["\ud83d\ude00x", 3],
+  ["\ud55c\uae00 mixed \ud83d\ude00 tail".repeat(100), 0],
+];
+
+it("utf8Prefix is byte-identical to the reference algorithm on all ten identity vectors", () => {
+  expect(utf8PrefixIdentityVectors).toHaveLength(10);
+  for (const [text, maxBytes] of utf8PrefixIdentityVectors) {
+    const actual = utf8Prefix(text, maxBytes);
+    expect(Buffer.from(actual, "utf8")).toEqual(Buffer.from(referenceUtf8Prefix(text, maxBytes), "utf8"));
+    expect(Buffer.byteLength(actual, "utf8")).toBeLessThanOrEqual(Math.max(0, maxBytes));
+  }
+});
+
 function kernelLedger(
   authority: { sessionId: string; owner: string; fence: number },
   mode: "projecting" | "baseline" = "projecting",

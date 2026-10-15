@@ -646,6 +646,26 @@ test("legacy compaction without captured context reconstructs its predecessor be
   expect(expectReplay(sessionId).history).toEqual(history);
 }));
 
+test("one-pass folds are digest-identical to per-action folds across seven compaction-bearing prefixes", () => isolatedRun(async (ledger) => {
+  const fixture = await reconstructionFixture(undefined, { updates: 3, padding: 2 });
+  await fixture.compact();
+  await fixture.suffix();
+  const actions = sessionTree(ledger.kernel, reconstructionSession);
+  expect(actions.some((action) => action.kind === "compaction")).toBe(true);
+  const digestOf = (state: FoldCheckpoint.State) => canonicalDigest(PlainValueSchema.parse(state));
+  const cuts = Array.from({ length: 7 }, (_value: never, index: number) => Math.ceil((actions.length * (index + 1)) / 7));
+  const identical = cuts.filter((cut) => {
+    const prefix = actions.slice(0, cut);
+    const stepwise = prefix.reduce<FoldCheckpoint.State | undefined>(
+      (state, action) => foldHistoryState(reconstructionSession, [action], state),
+      undefined,
+    );
+    return stepwise !== undefined && digestOf(foldHistoryState(reconstructionSession, prefix)) === digestOf(stepwise);
+  });
+  expect(new Set(cuts).size).toBe(7);
+  expect(identical).toEqual(cuts);
+}));
+
 for (const change of ["replacement", "delivered-tail"] as const) {
   test(`prepared compaction refuses a later ${change} without overwriting or dropping it`, () => isolatedRun(async (ledger) => {
     const kernel = ledger.kernel;
