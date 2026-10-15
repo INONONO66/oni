@@ -2,7 +2,7 @@
 
 ## #1560 prompts and skills as data
 
-On `feat/1560-prompts-skills-data` (2026-10-15, base `35d60a491`). The
+On `feat/1560-prompts-skills-data` (2026-10-15, base `b74f3c652`). The
 Resident and child role presets are markdown files with `name`/`role`
 frontmatter and `## Identity`, `Mandate`, `Policies`, `Style` sections under
 `apps/openomni/prompts/roles/`; `bundles/prompt/roles.ts` parses them into the
