@@ -1,6 +1,6 @@
 export {
   APIError, AuthInvalidFileError, AuthResolutionError, InvalidProviderData, LlmOperationFailure, LlmRunFailure,
-  ModelCatalogError, ModelResolutionError, ProxyModelsError, TransportFailure,
+  ModelCatalogError, ModelResolutionError, ProviderRowsError, ProxyModelsError, TransportFailure,
 } from "./errors";
 export type { LlmError } from "./errors";
 export { coerceApiError } from "./error";
@@ -10,6 +10,7 @@ export { makeLlmService } from "./services";
 export type { LlmService } from "./services";
 export { Auth } from "./auth";
 export { ModelsDev } from "./provider";
+export { ProviderRow, readProviderRows } from "./provider/rows";
 export { run } from "./run";
 export type { Run, RunInput } from "./run";
 export type { Sink } from "./sink";

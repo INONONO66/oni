@@ -4,6 +4,7 @@ import { ModelResolutionError as ResolutionError, type LlmError } from "../error
 import { ModelsDev } from "../model";
 import { Auth } from "../auth/storage";
 import { enrichWithCatalog, fetchProxyModels } from "./proxy-models";
+import { BUNDLED_ROWS, type ProviderRow } from "./rows";
 
 export namespace Provider {
   /**
@@ -20,6 +21,8 @@ export namespace Provider {
         id: z.string().optional(),
         url: z.string().optional(),
         npm: z.string(),
+        style: z.enum(["responses", "chat"]).optional(),
+        headers: z.record(z.string(), z.string()).optional(),
       })
       .optional(),
     name: z.string(),
@@ -49,6 +52,22 @@ export namespace Provider {
     };
   }
 
+  /** The provider's row, when one exists, decides the SDK, endpoint, headers and API surface. */
+  export function withRow(model: Model, row: ProviderRow | undefined): Model {
+    if (row === undefined) return model;
+    const url = row.baseUrl ?? model.api?.url;
+    return {
+      ...model,
+      api: {
+        id: model.api?.id ?? model.id,
+        npm: row.npm,
+        ...(url === undefined ? {} : { url }),
+        ...(row.api === undefined ? {} : { style: row.api }),
+        ...(row.headers === undefined ? {} : { headers: row.headers }),
+      },
+    };
+  }
+
   function catalogModels(provider: ModelsDev.Provider): Record<string, Model> {
     const models: Record<string, Model> = {};
 
@@ -65,6 +84,20 @@ export namespace Provider {
     readonly id: string;
     readonly now: () => number;
     /** Resolved once by the composition root. */
+    readonly authFilePath: string;
+    readonly rows?: readonly ProviderRow[];
+  }): Effect.Effect<Model, LlmError> {
+    const row = (input.rows ?? BUNDLED_ROWS).find((candidate) => candidate.id === input.provider);
+    return resolveCatalogModel(input).pipe(Effect.map((model) => withRow(model, row)), Effect.catchTag("ModelResolutionError", (error) =>
+      row !== undefined && error.reason === "provider_not_found"
+        ? Effect.succeed(withRow({ id: input.id, providerID: row.id, name: input.id }, row))
+        : Effect.fail(error)));
+  }
+
+  function resolveCatalogModel(input: {
+    readonly provider: string;
+    readonly id: string;
+    readonly now: () => number;
     readonly authFilePath: string;
   }): Effect.Effect<Model, LlmError> {
     return Effect.gen(function* () {

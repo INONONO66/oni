@@ -25,6 +25,7 @@ const llm = {
   AuthInvalidFileError: new Llm.AuthInvalidFileError({ ...message, path: "auth.json" }),
   AuthResolutionError: new Llm.AuthResolutionError({ ...message, provider: "provider", reason: "missing_auth" }),
   ModelCatalogError: new Llm.ModelCatalogError({ ...message, source: "cache", path: "models.json" }),
+  ProviderRowsError: new Llm.ProviderRowsError({ ...message, path: "providers.json", reason: "invalid_rows" }),
   ProxyModelsError: new Llm.ProxyModelsError({ ...message, url: "https://fixture.invalid" }),
   TransportFailure: new Llm.TransportFailure({ ...diagnostic, ...message }),
   InvalidProviderData: new Llm.InvalidProviderData({ ...diagnostic, ...message }),

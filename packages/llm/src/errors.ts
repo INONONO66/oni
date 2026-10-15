@@ -70,6 +70,9 @@ type ResolutionFields = MessageFields & {
   readonly reason: "provider_not_found" | "proxy_listing_failed" | "model_not_found";
 };
 export class ModelResolutionError extends Data.TaggedError("ModelResolutionError")<ResolutionFields> {}
+export class ProviderRowsError extends Data.TaggedError("ProviderRowsError")<
+  MessageFields & { readonly path: string; readonly reason: "unreadable" | "invalid_json" | "invalid_rows" | "unsupported_npm" }
+> {}
 export class AuthInvalidFileError extends Data.TaggedError("AuthInvalidFileError")<MessageFields & { readonly path: string }> {}
 export class AuthResolutionError extends Data.TaggedError("AuthResolutionError")<MessageFields & { readonly provider: string; readonly reason: "missing_auth" | "invalid_auth" }> {}
 export class ProxyModelsError extends Data.TaggedError("ProxyModelsError")<MessageFields & { readonly url: string; readonly status?: number }> {}
@@ -94,4 +97,4 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<Bound
 export class InvalidProviderData extends Data.TaggedError("InvalidProviderData")<BoundaryFields> {}
 
 export type LlmError = LlmOperationFailure | APIError | LlmRunFailure | ModelResolutionError |
-  AuthInvalidFileError | AuthResolutionError | ModelCatalogError | ProxyModelsError | TransportFailure | InvalidProviderData;
+  AuthInvalidFileError | AuthResolutionError | ModelCatalogError | ProviderRowsError | ProxyModelsError | TransportFailure | InvalidProviderData;

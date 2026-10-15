@@ -1,5 +1,27 @@
 # Implementation Status
 
+## #1562 provider rows
+
+On `feat/1562-provider-rows` (2026-10-15, base `35d60a491`). Providers are
+data: `packages/llm/src/provider/rows.ts` defines the `ProviderRow` schema
+(id, npm package among `@ai-sdk/anthropic` | `@ai-sdk/openai`, optional
+baseUrl, headers, auth environment-variable name and API surface
+`responses` | `chat`) and `readProviderRows`. The two bundled providers ship
+as `bundled-rows.json` (the anthropic beta header, the openai responses
+surface). Model resolution applies the provider's row; a row id absent from the
+catalog resolves to a catalog-free model on that row. `sdk.ts` keeps only the
+npm-package -> factory selection; proxy auth still selects Chat Completions.
+
+`OPENOMNI_PROVIDERS_PATH` is optional. When set, rows replace bundled rows by
+id, and the configured provider's row outranks `OPENOMNI_MODEL_BASE_URL`,
+`OPENOMNI_MODEL_HEADERS` (row headers win by name) and the API key variable;
+row ids are admitted in `OPENOMNI_MODEL_FALLBACKS`. Env-only deployments are
+unchanged. A malformed, unreadable or unsupported-npm file refuses boot with
+`invalid_providers_file` (config) / `ProviderRowsError` (llm), never a
+fallback. The scope named `packages/agent/src/model`; that code now lives in
+`packages/llm` (#1352).
+
+
 ## #1560 prompts and skills as data
 
 On `feat/1560-prompts-skills-data` (2026-10-15, base `b74f3c652`). The
@@ -19,6 +41,7 @@ into the Resident/child `buildAgentPrompt` calls and forwarding the two
 directories to process children (#1563, composition-owned files). Receipts:
 `apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
 
+||||||| parent of 3e0125689 (feat(llm): providers as Zod-validated rows data with OPENOMNI_PROVIDERS_PATH (#1562))
 ## #1545 inbound postback (L3)
 
 On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).

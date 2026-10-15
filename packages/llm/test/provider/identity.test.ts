@@ -4,28 +4,34 @@ import { anthropicResponse, captureRequest, openAIResponse } from "../helpers/pr
 import { arch, platform, release } from "node:os";
 import type { Auth } from "../../src/auth";
 import { clientIdentity } from "../../src/provider/identity";
-import type { Provider } from "../../src/provider";
+import { Provider } from "../../src/provider";
+import { BUNDLED_ROWS } from "../../src/provider/rows";
 import { getLanguage, getSDK } from "../../src/provider/sdk";
 
 /** `pi/<version> (<platform> <kernelRelease>; <arch>)` — the whole contract. */
 const IDENTITY_PATTERN = /^pi\/\d+\.\d+\.\d+ \(.+; .+\)$/;
 
+/** Resolution applies the provider's bundled row; fixtures take the same path. */
+function rowed(model: Provider.Model): Provider.Model {
+  return Provider.withRow(model, BUNDLED_ROWS.find((row) => row.id === model.providerID));
+}
+
 function anthropicModel(): Provider.Model {
-  return {
+  return rowed({
     id: "claude-3-haiku",
     providerID: "anthropic",
     name: "Claude 3 Haiku",
     api: { npm: "@ai-sdk/anthropic" },
-  };
+  });
 }
 
 function openAIModel(): Provider.Model {
-  return {
+  return rowed({
     id: "gpt-4o-mini",
     providerID: "openai",
     name: "GPT-4o mini",
     api: { npm: "@ai-sdk/openai" },
-  };
+  });
 }
 
 function openAICompatibleModel(): Provider.Model {

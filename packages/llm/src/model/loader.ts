@@ -5,6 +5,7 @@ import { Effect, Semaphore } from "effect";
 import { decodeLlmFailure } from "../error";
 import { ModelCatalogError, type LlmError } from "../errors";
 import { Catalog, RemoteCatalog } from "./schema";
+import { readProviderRows, type ProviderRow } from "../provider/rows";
 
 const DEFAULT_CACHE_PATH = join(homedir(), ".openomni", "models.json");
 const REMOTE_TIMEOUT_MS = 10_000;
@@ -15,6 +16,13 @@ export function resolveAuthFilePath(
 ): string {
   const override = env.OPENOMNI_AUTH_FILE;
   return override ? resolve(override) : join(homedir(), ".openomni", "auth.json");
+}
+/** `OPENOMNI_PROVIDERS_PATH` read here like the credential file: unset is no configured rows, a bad file throws `ProviderRowsError`. */
+export function resolveProviderRows(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): readonly ProviderRow[] {
+  const path = env.OPENOMNI_PROVIDERS_PATH?.trim();
+  return path ? readProviderRows(resolve(path)) : [];
 }
 async function snapshot(): Promise<Catalog> {
   return Catalog.parse((await import("./models-snapshot.json")).default);

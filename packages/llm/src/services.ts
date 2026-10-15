@@ -2,9 +2,10 @@ import type { Model } from "@openomni/protocol";
 import type { Effect } from "effect";
 import { classifyFailure } from "./classify";
 import type { LlmError } from "./errors";
-import { resolveAuthFilePath } from "./model/loader";
+import { resolveAuthFilePath, resolveProviderRows } from "./model/loader";
 import type { FailureClass, FailureFacts } from "./port";
 import { Provider } from "./provider";
+import { mergeRows, type ProviderRow } from "./provider/rows";
 import { run, type Run, type RunInput } from "./run";
 import type { Sink } from "./sink";
 
@@ -31,9 +32,13 @@ export interface LlmService {
  * later environment change cannot redirect the credential reads and writes
  * of a running service.
  */
-export function makeLlmService(authFilePath = resolveAuthFilePath()): LlmService {
+export function makeLlmService(
+  authFilePath = resolveAuthFilePath(),
+  providers: readonly ProviderRow[] = resolveProviderRows(),
+): LlmService {
+  const rows = mergeRows(providers);
   return {
-    resolveModel: (ref, now) => Provider.resolveModel({ provider: ref.provider, id: ref.id, now, authFilePath }),
+    resolveModel: (ref, now) => Provider.resolveModel({ provider: ref.provider, id: ref.id, now, authFilePath, rows }),
     run: (input, sink, dependencies) => run({ ...input, authFilePath }, sink, dependencies),
     classifyFailure,
   };

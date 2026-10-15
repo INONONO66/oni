@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Actor, Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
+import { ProviderRowsError, readProviderRows, type ProviderRow } from "@openomni/llm";
 import { Result } from "effect";
 import { z } from "zod";
 
@@ -20,6 +21,7 @@ export const ConfigurationError = NamedError.create(
       "invalid_machines_self",
       "invalid_machines_tcp",
       "invalid_model_fallbacks",
+      "invalid_providers_file",
       "invalid_tool_output_budget_bytes",
       "invalid_ack_reaction",
       "invalid_ws_port",
@@ -457,7 +459,10 @@ const ModelHeaders = z.record(
 // failure until a live turn reaches it.
 const CATALOG_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
-function modelFallbacksFromEnv(env: Record<string, string | undefined>): readonly Model.Ref[] | undefined {
+function modelFallbacksFromEnv(
+  env: Record<string, string | undefined>,
+  rows: readonly ProviderRow[],
+): readonly Model.Ref[] | undefined {
   const raw = env.OPENOMNI_MODEL_FALLBACKS?.trim();
   if (raw === undefined || raw.length === 0) return undefined;
   return raw.split(",").map((entry) => {
@@ -471,7 +476,7 @@ function modelFallbacksFromEnv(env: Record<string, string | undefined>): readonl
         message: `OPENOMNI_MODEL_FALLBACKS is invalid: "${entry}" is not a "provider/model" entry`,
       });
     }
-    if (!CATALOG_PROVIDER_IDS.has(provider)) {
+    if (!CATALOG_PROVIDER_IDS.has(provider) && !rows.some((row) => row.id === provider)) {
       throw new ConfigurationError({
         code: "invalid_model_fallbacks",
         message: `OPENOMNI_MODEL_FALLBACKS is invalid: provider "${provider}" is not in the bundled catalog`,
@@ -669,16 +674,36 @@ function socialBudgetsFromEnv(env: Record<string, string | undefined>): OpenOmni
   return parseEnvJson("OPENOMNI_SOCIAL_BUDGETS", SocialBudgets, env);
 }
 
+/**
+ * `OPENOMNI_PROVIDERS_PATH` — a providers rows file. A malformed file refuses
+ * the boot; it never falls back to the env tuple.
+ */
+function providerRowsFromEnv(env: Record<string, string | undefined>): readonly ProviderRow[] {
+  const path = env.OPENOMNI_PROVIDERS_PATH?.trim();
+  if (path === undefined || path.length === 0) return [];
+  const rows = Result.try({
+    try: () => readProviderRows(path),
+    catch: (cause) => (cause instanceof ProviderRowsError ? `${cause.reason}: ${cause.message}` : String(cause)),
+  });
+  if (Result.isSuccess(rows)) return rows.success;
+  throw new ConfigurationError({ code: "invalid_providers_file", message: `OPENOMNI_PROVIDERS_PATH ${rows.failure}` });
+}
+
+/** The configured provider's row outranks the env tuple's endpoint, headers, and key variable. */
 function modelFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["model"] {
-  const baseUrl = env.OPENOMNI_MODEL_BASE_URL?.trim();
+  const provider = required("OPENOMNI_MODEL_PROVIDER", env);
+  const rows = providerRowsFromEnv(env);
+  const row = rows.find((candidate) => candidate.id === provider);
+  const baseUrl = row?.baseUrl ?? env.OPENOMNI_MODEL_BASE_URL?.trim();
   const fastId = env.OPENOMNI_FAST_MODEL_ID?.trim();
-  const headers = parseEnvJson("OPENOMNI_MODEL_HEADERS", ModelHeaders, env);
-  const fallbacks = modelFallbacksFromEnv(env);
+  const envHeaders = parseEnvJson("OPENOMNI_MODEL_HEADERS", ModelHeaders, env);
+  const headers = row?.headers === undefined ? envHeaders : { ...envHeaders, ...row.headers };
+  const fallbacks = modelFallbacksFromEnv(env, rows);
   return {
-    provider: required("OPENOMNI_MODEL_PROVIDER", env),
+    provider,
     id: required("OPENOMNI_MODEL_ID", env),
     ...(fastId === undefined || fastId.length === 0 ? {} : { fastId }),
-    apiKey: required("OPENOMNI_MODEL_API_KEY", env),
+    apiKey: required(row?.auth ?? "OPENOMNI_MODEL_API_KEY", env),
     ...(baseUrl === undefined || baseUrl.length === 0 ? {} : { baseUrl }),
     ...(headers === undefined ? {} : { headers }),
     ...(fallbacks === undefined ? {} : { fallbacks }),
