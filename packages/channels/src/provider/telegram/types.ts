@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TelegramUserSchema = z.object({
+const TelegramUserSchema = z.object({
   id: z.number(),
   is_bot: z.boolean(),
   first_name: z.string(),
@@ -54,29 +54,52 @@ const TelegramMessageSchema: z.ZodType<TelegramMessage> = z.lazy(() =>
     caption: z.string().optional(),
     caption_entities: z.array(TelegramEntitySchema).optional(),
     photo: z.array(z.object({ file_id: z.string(), file_size: z.number().optional() })).optional(),
-    document: z.object({
-      file_id: z.string(), file_name: z.string().optional(),
-      mime_type: z.string().optional(), file_size: z.number().optional(),
-    }).optional(),
-    voice: z.object({
-      file_id: z.string(), mime_type: z.string().optional(), file_size: z.number().optional(),
-    }).optional(),
-    audio: z.object({
-      file_id: z.string(), file_name: z.string().optional(),
-      mime_type: z.string().optional(), file_size: z.number().optional(),
-    }).optional(),
-    sticker: z.object({
-      file_id: z.string(), is_animated: z.boolean().optional(), is_video: z.boolean().optional(),
-      file_size: z.number().optional(),
-    }).optional(),
+    document: z
+      .object({
+        file_id: z.string(),
+        file_name: z.string().optional(),
+        mime_type: z.string().optional(),
+        file_size: z.number().optional(),
+      })
+      .optional(),
+    voice: z
+      .object({
+        file_id: z.string(),
+        mime_type: z.string().optional(),
+        file_size: z.number().optional(),
+      })
+      .optional(),
+    audio: z
+      .object({
+        file_id: z.string(),
+        file_name: z.string().optional(),
+        mime_type: z.string().optional(),
+        file_size: z.number().optional(),
+      })
+      .optional(),
+    sticker: z
+      .object({
+        file_id: z.string(),
+        is_animated: z.boolean().optional(),
+        is_video: z.boolean().optional(),
+        file_size: z.number().optional(),
+      })
+      .optional(),
     reply_to_message: TelegramMessageSchema.optional(),
     message_thread_id: z.number().optional(),
     is_topic_message: z.boolean().optional(),
-    reply_markup: z.object({
-      inline_keyboard: z.array(z.array(z.object({
-        text: z.string(), callback_data: z.string().optional(),
-      }))),
-    }).optional(),
+    reply_markup: z
+      .object({
+        inline_keyboard: z.array(
+          z.array(
+            z.object({
+              text: z.string(),
+              callback_data: z.string().optional(),
+            }),
+          ),
+        ),
+      })
+      .optional(),
   }),
 );
 
@@ -104,6 +127,3 @@ export const TelegramUpdateSchema = z.object({
   message_reaction: TelegramReactionSchema.optional(),
   callback_query: TelegramCallbackSchema.optional(),
 });
-
-export type TelegramUser = z.infer<typeof TelegramUserSchema>;
-export type TelegramUpdate = z.infer<typeof TelegramUpdateSchema>;

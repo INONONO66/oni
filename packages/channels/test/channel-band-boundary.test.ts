@@ -14,6 +14,7 @@ const DRIVER_ALLOWED_PACKAGES = new Set(["@openomni/protocol", "zod", "effect"])
 const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/slackbot", "src/provider/slack/sdk.ts"],
   ["agent-messenger/discordbot", "src/provider/discord/sdk.ts"],
+  ["agent-messenger/telegrambot", "src/provider/telegram/sdk.ts"],
 ]);
 const JUDGMENT_ALLOWED_PACKAGES = new Set(["@openomni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;

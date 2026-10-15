@@ -1,102 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { FIXED_NOW, injectedOptions } from "./helpers/injected";
-import { type Channel, Outbound, type PlainValue } from "@openomni/protocol";
-import type { TelegramMessage } from "../src/provider/telegram/types";
+import { Outbound } from "@openomni/protocol";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { TelegramAdapter } from "../src/provider/telegram/surface";
 import { Dedupe } from "../src/support/dedupe";
 import { DeliveryReconciliation, type DeliveryReceipt } from "../src/support/deliver";
 
 /**
- * D1: telegram message_id is a PER-CHAT counter, so two different chats can
- * legitimately share one id inside the dedupe window. The surface must key
- * dedupe on `${chat.id}:${message_id}` — keying on the bare message_id
- * silently dropped the second chat's message with no trace.
+ * Outbound dedupe over the delivery reconciliation: a stale claim released
+ * after its replacement must not drop the replacement's receipt. The inbound
+ * D1 case (per-chat message_id, dedupe keyed on `${chat.id}:${message_id}`)
+ * rides the SDK listener fake in telegram-surface.test.ts (#1569).
  */
 
 const realFetch = globalThis.fetch;
-
-function jsonResponse(result: PlainValue): Response {
-  return new Response(JSON.stringify({ ok: true, result }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-function tgMessage(messageId: number, chatId: number, text: string) {
-  return {
-    message_id: messageId,
-    chat: { id: chatId, type: "private" },
-    from: { id: chatId, is_bot: false, first_name: `u${chatId}`, username: `u${chatId}` },
-    date: 1_700_000_000,
-    text,
-  } satisfies TelegramMessage;
-}
-
-describe("TelegramAdapter dedupe (D1)", () => {
-  afterEach(() => {
-    globalThis.fetch = realFetch;
-  });
-
-  beforeEach(() => {
-    let getUpdatesCall = 0;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/getMe")) {
-        return jsonResponse({ id: 42, is_bot: true, username: "bot", first_name: "Bot" });
-      }
-      if (url.endsWith("/getUpdates")) {
-        getUpdatesCall += 1;
-        if (getUpdatesCall === 1) {
-          // Same message_id (100) across two distinct chats within the window.
-          return jsonResponse([
-            { update_id: 1, message: tgMessage(100, 111, "hello from chat one") },
-            { update_id: 2, message: tgMessage(100, 222, "hello from chat two") },
-          ]);
-        }
-        return new Promise<Response>((_resolve, reject) => {
-          const signal = init?.signal;
-          signal?.addEventListener(
-            "abort",
-            () => reject(signal.reason ?? new DOMException("Aborted", "AbortError")),
-            { once: true },
-          );
-        });
-      }
-      // sendChatAction / sendMessage / anything else
-      return jsonResponse(true);
-    }) as typeof fetch;
-  });
-
-  it("delivers same message_id from two different chats (no cross-chat collision)", async () => {
-    const delivered: Channel.InboundMessage[] = [];
-    const deliveredBoth = Promise.withResolvers<void>();
-    const adapter = new TelegramAdapter("test-token", {}, () => undefined, injectedOptions());
-    adapter.onMessage(async (message) => {
-      delivered.push(message);
-      if (delivered.length === 2) deliveredBoth.resolve();
-      return undefined;
-    });
-
-    const timeout = setTimeout(
-      () => deliveredBoth.reject(new Error("Telegram handoff timed out")),
-      2_000,
-    );
-    try {
-      await adapter.start("trace-dedupe-test");
-      await deliveredBoth.promise;
-    } finally {
-      clearTimeout(timeout);
-      adapter.stop("trace-dedupe-test");
-    }
-
-    expect(delivered).toHaveLength(2);
-    const surfaceKeys = delivered.map((m) => m.facts.channelId).sort();
-    expect(new Set(surfaceKeys).size).toBe(2);
-    expect(surfaceKeys.some((k) => k.includes("111"))).toBe(true);
-    expect(surfaceKeys.some((k) => k.includes("222"))).toBe(true);
-  });
-});
 
 function expectStaleReleasePreservesReplacement(
   dedupe: Dedupe,
@@ -188,7 +105,11 @@ describe("outbound adapter delivery dedupe capability", () => {
   test("Discord returns the final chunk id as the reply correlation", async () => {
     const { owner, outboundCalls } = discordFixture();
 
-    const receipt = await owner.deliver("recipient-1", Outbound.payload("a".repeat(2001)), "chunked-message");
+    const receipt = await owner.deliver(
+      "recipient-1",
+      Outbound.payload("a".repeat(2001)),
+      "chunked-message",
+    );
 
     expect(outboundCalls()).toBe(2);
     expect(receipt).toEqual({ value: "sent", externalMessageId: "discord-message-2" });

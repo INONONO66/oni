@@ -1,5 +1,51 @@
 # Implementation Status
 
+## #1569 messaging on the agent-messenger SDK — Telegram bot long-poll (PR 3 of the epic)
+
+On `feat/1569-sdk-telegram-bot` (2026-10-16, stacked on PR 2). Telegram
+ingest is the SDK's `TelegramBotListener` (`agent-messenger/telegrambot`,
+imported only by `packages/channels/src/provider/telegram/sdk.ts`): it runs
+`deleteWebhook` and `getMe`, emits `connected` with the bot user the surface
+binds its normalizer to, long-polls `getUpdates` with the consumed classes
+(`message`, `message_reaction`, `callback_query` on the first poll's
+`allowed_updates`) and backs off on poll errors. Each failed poll is a
+cause-less `disconnected` the custody wrapper counts: `RECONNECT_ATTEMPT_BOUND`
+of them without a reconnect is one Operational Error (`unreachable`), and
+because the SDK never re-emits `connected` after its first `getMe` the
+streak alarms once per process — the deleted poller's per-cycle Warn with
+the error cause has no SDK equivalent. `message_reaction` is not a typed
+SDK event, so every update is read off the raw `telegram_update` event
+through the surface's own `TelegramUpdateSchema`; a message, reaction and
+callback are each handed off once, the callback answered through the raw
+client first (a refused answer warns and still delivers; an answer still in
+flight at `stop()` still hands off afterwards, since the SDK has already
+confirmed the update server-side and dropping it would lose the tap — the
+same shape as Discord's interaction ack). The SDK advances
+its offset before dispatch: a failed handoff is an Operational Error with
+the dedupe claim released, not a platform redelivery — the #1505
+"checkpoint after handoff" receipt narrows to the same at-least-once
+remainder Slack keeps after its ack. REST stays on the package's own
+`TelegramClient` over `fetch-retry` (the SDK client re-sends on network and
+5xx up to three times with no off switch, takes media as paths or URLs, and
+has no `sendChatAction`/`answerCallbackQuery`); its `getMe`/`getUpdates`
+were deleted with the poller. A terminal code (`unauthorized`, `conflict`)
+is a typed dead surface. Deleted: `provider/telegram/poller.ts`,
+`support/schedule.ts` (`RECONNECT_ATTEMPT_BOUND` now lives in
+`support/sdk-listener.ts`; no reconnect schedule remains — every SDK
+listener owns its backoff), tests `telegram-poller`, `poller-interrupt`,
+`backoff-schedule`, `native-reconnect`, the fetch-driven Telegram arm of
+`telegram-dedupe` and the `getUpdates` pin of `telegram-postback-client`.
+Receipts: `test/telegram-surface.test.ts` (login, allowed updates, identity
+on connected, self-echo, reaction, cross-chat ids, media-only update,
+callback ack-then-handoff and refused answer, late handoff after stop,
+malformed update, failed-handoff release awaited on its Error, error before
+connected, poll-failure streak reported once without a stop, terminal code,
+provider seam), `test/telegram-sdk.test.ts` (real seam, update classes, the
+real listener's first poll carries offset 0 and the allowed updates, real
+listener error on refused start, terminal codes), `telegram-media`/`telegram-markdown-send`/
+`telegram-postback-client` (raw REST pins), `channel-band-boundary`
+(`agent-messenger/telegrambot` → `telegram/sdk.ts`); channels suite 893 pass.
+
 ## #1569 messaging on the agent-messenger SDK — Discord bot gateway (PR 2 of the epic)
 
 On `feat/1569-sdk-discord-bot` (2026-10-16, stacked on PR 1). The Discord
@@ -45,7 +91,8 @@ streak. Deleted:
 schemas in `discord/types.ts`, and the tests `discord-gateway`,
 `discord-facts-startup`, `heartbeat-watchdog`, `socket-shell-interrupt`,
 `supervisor-bounce` plus the Discord arm of `native-reconnect`.
-`support/schedule.ts` stays for the Telegram poller. Receipts:
+`support/schedule.ts` stayed for the Telegram poller until PR 3 (above)
+deleted both. Receipts:
 `test/sdk-listener.test.ts` (both close-before-connected policies, SDK
 start rejection, close and reopen-error streaks reported once without a
 stop, terminal errors), `test/discord-surface.test.ts` (READY binding,
@@ -3055,7 +3102,7 @@ WebSocket/path wake still commits one fired pair and reaches revision 59.
 | --- | --- | --- |
 | Kernel app | Boot/shutdown, Resident, channels, gateway, provisioning, machines, messaging, cells, and compaction. No built-in curated memory or replacement port. | `apps/openomni/src/index.ts` |
 | Desktop console | Electron shell and app-owned AI SDK chat state; the renderer selects the configured gateway or the explicit preview transport. Gateway admission receipts and later message frames are distinct. Presentation is shared with the UI showcase. | `apps/desktop/`, `packages/ui/` |
-| Channel drivers | Discord, GitHub, Slack, Telegram providers and a separate WebSocket bootstrap surface. Providers own credential/settings validation and outbound rendering; the app composes them. Slack's transport is the agent-messenger bot SDK (#1569, first PR): `SlackBotListener` owns Socket Mode and `SlackBotClient` the Web API, pinned to one physical attempt per idempotency key; Discord and Telegram still ride the hand-rolled gateway and poller. | `packages/channels/src/provider/`, `packages/channels/src/provider/slack/sdk.ts`, `packages/channels/src/websocket.ts`, `apps/openomni/src/channels.ts` |
+| Channel drivers | Discord, GitHub, Slack, Telegram providers and a separate WebSocket bootstrap surface. Providers own credential/settings validation and outbound rendering; the app composes them. The three bot transports are the agent-messenger SDK (#1569 PRs 1–3): Slack Socket Mode (`SlackBotListener` + `SlackBotClient` pinned to one physical attempt per idempotency key), the Discord gateway (`DiscordBotListener`) and the Telegram long poll (`TelegramBotListener`), each under `support/sdk-listener.ts` custody; Discord and Telegram REST stays on the package's own clients over `fetch-retry`. No hand-rolled gateway, poller, reconnect schedule or socket shell remains. | `packages/channels/src/provider/`, `packages/channels/src/provider/{slack,discord,telegram}/sdk.ts`, `packages/channels/src/support/sdk-listener.ts`, `packages/channels/src/websocket.ts`, `apps/openomni/src/channels.ts` |
 | Perimeter gateway | Blacklist, physical request correlation, channel ceiling, actor identity, surface sessions, durable route decisions, and grant/egress/idempotency-controlled sends survive. Removed dialogue stores confer no routing rights. WebSocket credentials use the canonical auth subprotocol; query-only authentication is rejected (#974). | `packages/channels/src/router/`, `packages/channels/src/authn/websocket.ts`, `apps/openomni/src/gateway.ts` |
 | Provisioning | Durable persons, channel instances, and encrypted secrets; declared instances are the only channel provisioning owner, and nonblank legacy channel env credentials are refused at config load with `legacy_channel_credentials` (W2 #1110). The vault key and channel supervisor are composed at boot. The one-shot environment import command is deleted. | `packages/channels/src/store/provisioning/`, `apps/openomni/src/bundles/provision/` |
 | Runtime administration | The `provision` op union uses the live supervisor for channel/secret changes and status. Person mutations suspend their original invocation for authenticated approval when `approvalRequirement` demands one (editing the existing owner Person, or raising a tier above collaborator); other declarations and non-sole-owner `person_remove` apply directly. `contact_promote` and `contact_merge` suspend under the `require_approval` policy row until the Owner's answer re-admits the original invocation; the separate `approval` tool was deleted in `239b4273` (2026-09-08). | `apps/openomni/src/tools/provision.ts`, `apps/openomni/src/provisioning/supervisor.ts` |

@@ -3,10 +3,10 @@ import { Operational } from "@openomni/protocol";
 import { z } from "zod";
 import {
   listenerCustody,
+  RECONNECT_ATTEMPT_BOUND,
   type SdkListener,
   type SdkListenerEventMap,
 } from "../src/support/sdk-listener";
-import { RECONNECT_ATTEMPT_BOUND } from "../src/support/schedule";
 import type { PublishPort } from "../src/types";
 import { injectedOptions } from "./helpers/injected";
 
