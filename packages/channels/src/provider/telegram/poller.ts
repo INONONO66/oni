@@ -5,10 +5,10 @@ import { reconnectSchedule } from "../../support/schedule";
 import { ThrownError } from "../../support/thrown";
 import type { EffectRunner, PublishPort } from "../../types";
 import type { TelegramClient } from "./client";
-import type { TelegramMessage, TelegramReaction } from "./types";
+import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
 
 interface PollerCallbacks {
-  onMessage: (message: TelegramMessage | TelegramReaction) => void | Promise<void>;
+  onMessage: (message: TelegramMessage | TelegramReaction | TelegramCallback) => void | Promise<void>;
 }
 
 /**
@@ -26,7 +26,7 @@ export class TelegramPoller {
   private pollController: AbortController | null = null;
 
   constructor(
-    private readonly client: Pick<TelegramClient, "getUpdates">,
+    private readonly client: Pick<TelegramClient, "getUpdates" | "answerCallbackQuery">,
     private readonly callbacks: PollerCallbacks,
     private readonly publish: PublishPort,
     private readonly options: {
@@ -95,6 +95,20 @@ export class TelegramPoller {
         if (controller.signal.aborted) return;
         if (update.message) await this.callbacks.onMessage(update.message);
         if (update.message_reaction) await this.callbacks.onMessage(update.message_reaction);
+        if (update.callback_query) {
+          const callback = update.callback_query;
+          try {
+            await this.client.answerCallbackQuery(callback.id, pollTraceId);
+          } catch (error) {
+            this.publish(Operational.Events.Warn, {
+              traceId: pollTraceId, time: this.options.now(), component: "server",
+              msg: "telegram callback acknowledgment failed; delivering anyway",
+              context: { err: String(error) },
+            });
+          }
+          if (controller.signal.aborted) return;
+          await this.callbacks.onMessage(callback);
+        }
         if (controller.signal.aborted) return;
         this.offset = update.update_id + 1;
       }

@@ -20,6 +20,7 @@ test("stop() interrupts the poll loop mid-backoff; a retired sleeper never polls
       requests += 1;
       throw new Error("telegram unreachable");
     },
+    async answerCallbackQuery() { return; },
   };
   const poller = new TelegramPoller(
     client,
@@ -58,6 +59,7 @@ test("a pre-aborted signal performs zero getUpdates calls", async () => {
       requests += 1;
       return [];
     },
+    async answerCallbackQuery() { return; },
   };
   const poller = new TelegramPoller(
     client,

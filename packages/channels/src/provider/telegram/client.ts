@@ -145,6 +145,11 @@ export class TelegramClient implements ChannelClient {
     return this.api("getMe", traceId, TelegramUserSchema);
   }
 
+  /** This acknowledgment only dismisses the client spinner; failure must not block handoff. */
+  async answerCallbackQuery(id: string, traceId: string): Promise<void> {
+    await this.api("answerCallbackQuery", traceId, TrueSchema, { callback_query_id: id });
+  }
+
   async getUpdates(
     offset: number,
     traceId: string,
@@ -154,7 +159,7 @@ export class TelegramClient implements ChannelClient {
       "getUpdates",
       traceId,
       z.array(TelegramUpdateSchema),
-      { offset, timeout: 30, allowed_updates: ["message", "message_reaction"] },
+      { offset, timeout: 30, allowed_updates: ["message", "message_reaction", "callback_query"] },
       signal,
     );
   }

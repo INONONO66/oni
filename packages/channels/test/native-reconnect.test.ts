@@ -35,12 +35,14 @@ function telegramUpdates(server: Bun.Server<undefined>) {
     async getUpdates() {
       return z.array(TelegramUpdateSchema).parse(await (await fetch(server.url)).json());
     },
+    async answerCallbackQuery() { return; },
   };
 }
 
 function collectTelegramMessages(delivered: number[], onDelivery: () => void = () => undefined) {
   return {
-    onMessage(message: { message_id: number }) {
+    onMessage(message: { message_id: number } | { id: string }) {
+      if ("id" in message) return;
       delivered.push(message.message_id);
       onDelivery();
     },

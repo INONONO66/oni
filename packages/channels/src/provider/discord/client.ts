@@ -93,6 +93,18 @@ export class DiscordClient implements ChannelClient {
     await this.request(`/channels/${channelId}/typing`, { method: "POST" }, traceId, z.undefined());
   }
 
+  /** Defer the button interaction before any potentially slow inbound handoff. */
+  async ackInteraction(id: string, token: string, traceId: string): Promise<void> {
+    await this.request(
+      `/interactions/${id}/${token}/callback`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: 6 }) },
+      traceId,
+      z.undefined(),
+      [],
+      "/interactions/*/callback",
+    );
+  }
+
   async createDmChannel(recipientId: string, traceId: string): Promise<string> {
     const channel = await this.api(
       "/users/@me/channels",
@@ -149,6 +161,7 @@ export class DiscordClient implements ChannelClient {
     traceId: string,
     schema: z.ZodType<T>,
     settled: readonly number[] = [],
+    operation = path,
   ): Promise<T> {
     const res = await fetchWithRetry(
       `${BASE_URL}${path}`,
@@ -158,14 +171,14 @@ export class DiscordClient implements ChannelClient {
         run: this.run,
         publish: this.publish,
         retryAfterSchema: RetryAfterSchema.transform((hint) => hint.retry_after ?? 5),
-        label: `discord${path}`,
+        label: `discord${operation}`,
       },
     );
 
     if (!res.ok && !settled.includes(res.status)) {
       const text = await res.text();
       throw new DiscordApiError({
-        message: `Discord API ${path} failed (${res.status}): ${text}`,
+        message: `Discord API ${operation} failed (${res.status}): ${text}`,
         rejected: res.status >= 400 && res.status < 500,
       });
     }
@@ -173,7 +186,7 @@ export class DiscordClient implements ChannelClient {
     const parsed = schema.safeParse(res.status === 204 || !res.ok ? undefined : await res.json());
     if (!parsed.success) {
       throw new DiscordApiError({
-        message: `Discord API ${path} returned a malformed body`,
+        message: `Discord API ${operation} returned a malformed body`,
       });
     }
     return parsed.data;

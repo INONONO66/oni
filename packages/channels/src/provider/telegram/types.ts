@@ -39,6 +39,7 @@ export interface TelegramMessage {
   reply_to_message?: TelegramMessage;
   message_thread_id?: number;
   is_topic_message?: boolean;
+  reply_markup?: { inline_keyboard: { text: string; callback_data?: string }[][] };
 }
 
 /** Recursive (`reply_to_message`) — the interface above carries the type, z.lazy the runtime shape. */
@@ -71,6 +72,11 @@ const TelegramMessageSchema: z.ZodType<TelegramMessage> = z.lazy(() =>
     reply_to_message: TelegramMessageSchema.optional(),
     message_thread_id: z.number().optional(),
     is_topic_message: z.boolean().optional(),
+    reply_markup: z.object({
+      inline_keyboard: z.array(z.array(z.object({
+        text: z.string(), callback_data: z.string().optional(),
+      }))),
+    }).optional(),
   }),
 );
 
@@ -84,10 +90,19 @@ const TelegramReactionSchema = z.object({
 });
 export type TelegramReaction = z.infer<typeof TelegramReactionSchema>;
 
+const TelegramCallbackSchema = z.object({
+  id: z.string(),
+  from: TelegramUserSchema,
+  message: TelegramMessageSchema.optional(),
+  data: z.string().optional(),
+});
+export type TelegramCallback = z.infer<typeof TelegramCallbackSchema>;
+
 export const TelegramUpdateSchema = z.object({
   update_id: z.number(),
   message: TelegramMessageSchema.optional(),
   message_reaction: TelegramReactionSchema.optional(),
+  callback_query: TelegramCallbackSchema.optional(),
 });
 
 export type TelegramUser = z.infer<typeof TelegramUserSchema>;

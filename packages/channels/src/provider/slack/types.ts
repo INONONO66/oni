@@ -49,6 +49,20 @@ const SlackMessageEventSchema = z.object({
 
 export type SlackMessageEvent = z.infer<typeof SlackMessageEventSchema>;
 
+export const SlackInteractionSchema = z.object({
+  type: z.literal("block_actions"),
+  user: z.object({ id: z.string() }),
+  channel: z.object({ id: z.string() }),
+  actions: z.tuple([z.object({
+    action_id: z.string(),
+    action_ts: z.string(),
+    text: z.object({ text: z.string() }),
+  })]).rest(z.json()),
+  container: z.object({ message_ts: z.string().optional() }).optional(),
+  message: z.object({ ts: z.string().optional(), thread_ts: z.string().optional() }).optional(),
+});
+export type SlackInteraction = z.infer<typeof SlackInteractionSchema>;
+
 /**
  * One Socket Mode frame: `hello`, `events_api` (must be acked), or
  * `disconnect`. `event` is tolerant by design (`catch(undefined)`): a
@@ -62,8 +76,14 @@ export const SocketEnvelopeSchema = z.object({
     .object({
       team_id: z.string().optional(),
       event: SlackMessageEventSchema.optional().catch(undefined),
+      type: z.string().optional().catch(undefined),
+      user: z.object({ id: z.string() }).optional().catch(undefined),
+      channel: z.object({ id: z.string() }).optional().catch(undefined),
+      actions: z.array(z.json()).optional().catch(undefined),
+      container: z.object({ message_ts: z.string().optional() }).optional().catch(undefined),
+      message: z.object({ ts: z.string().optional(), thread_ts: z.string().optional() }).optional().catch(undefined),
     })
-    .optional(),
+    .optional().catch(undefined),
   reason: z.string().optional(),
 });
 

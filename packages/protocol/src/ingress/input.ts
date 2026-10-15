@@ -10,7 +10,7 @@ export const Input = z
   .object({
     eventId: Id,
     surface: Id,
-    event: z.enum(["message", "reaction", "mention", "webhook", "github", "schedule"]),
+    event: z.enum(["message", "reaction", "postback", "mention", "webhook", "github", "schedule"]),
     /** Stored credential reference that verified a webhook, never the secret itself. */
     secretRef: Id.optional(),
     /** GitHub event/action key, for example pull_request.opened. */

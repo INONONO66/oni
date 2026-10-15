@@ -14,7 +14,7 @@ const input = {
   receivedAt: 1_750_000_000_000,
 };
 
-for (const event of ["message", "reaction", "mention", "webhook", "github", "schedule"] as const) {
+for (const event of ["message", "reaction", "postback", "mention", "webhook", "github", "schedule"] as const) {
   test(`normalizes ${event} inputs without dropping fields`, () => {
     const value = {
       ...input, event,

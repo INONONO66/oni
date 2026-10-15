@@ -53,6 +53,21 @@ test("the same message routes when the grant carries no posture", async () => {
   expect(routingDecisions().some((decision) => decision.reason === "mention_only")).toBe(false);
 });
 
+test("an addressed postback follows the ordinary prompt grant without a new routing rule", async () => {
+  mount(true);
+  const facts: Gateway.IngressFacts = {
+    ...channelFacts, eventId: "tap-1", event: "postback",
+    addressees: [{ externalId: RESIDENT }],
+    payload: { type: "block_actions" }, render: "Approve",
+    postback: { id: "approve", label: "Approve", messageRef: "sent-1" },
+  };
+  expect((await ingest(facts)).status).toBe("executed");
+  expect(commits).toHaveLength(1);
+  expect(commits[0]).toMatchObject({ kind: "prompt" });
+  expect(commits[0]?.content).toContain("Approve");
+  expect(routingDecisions().some((decision) => decision.reason === "mention_only")).toBe(false);
+});
+
 const addressedCases: readonly [string, Gateway.IngressFacts][] = [
   ["a DM", { ...channelFacts, eventId: "dm-1", channelId: "D-owner", dm: true }],
   ["a mention", { ...channelFacts, eventId: "mention-1", addressees: [{ externalId: RESIDENT }] }],

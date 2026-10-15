@@ -10,7 +10,7 @@ import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format";
 import { TelegramClient } from "./client";
 import { TelegramNormalizer } from "./normalizer";
 import { TelegramPoller } from "./poller";
-import type { TelegramMessage, TelegramReaction } from "./types";
+import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
 import type { ProviderOptions } from "../contract";
 import type { PublishPort } from "../../types";
 
@@ -58,7 +58,9 @@ export class TelegramAdapter implements Channel.Surface {
           return handoffInbound({
             dedupe: this.dedupe,
             key:
-              "new_reaction" in message
+              "id" in message
+                ? message.id
+                : "new_reaction" in message
                 ? `${message.chat.id}:${message.message_id}:${message.new_reaction[0]?.emoji}:${message.user?.id ?? message.actor_chat?.id}`
                 : `${message.chat.id}:${message.message_id}`,
             traceId: messageTraceId,
@@ -144,7 +146,7 @@ export class TelegramAdapter implements Channel.Surface {
   }
 
   private async handleMessage(
-    message: TelegramMessage | TelegramReaction,
+    message: TelegramMessage | TelegramReaction | TelegramCallback,
     traceId: string,
   ): Promise<void> {
     if (!this.normalizer) return;
@@ -155,7 +157,7 @@ export class TelegramAdapter implements Channel.Surface {
       time: this.options.now(),
       component: "server",
       msg: "telegram message received",
-      context: { chatId: String(message.chat.id) },
+      context: { chatId: String("id" in message ? message.message?.chat.id : message.chat.id) },
     });
     await requireHandler(this.handler, "telegram")(inbound);
   }

@@ -61,6 +61,29 @@ export const DiscordReactionSchema = z.object({
 });
 export type DiscordReaction = z.infer<typeof DiscordReactionSchema>;
 
+export const DiscordInteractionSchema = z.object({
+  id: z.string(),
+  token: z.string(),
+  type: z.literal(3),
+  channel_id: z.string(),
+  guild_id: z.string().optional(),
+  member: z.object({ user: DiscordUserSchema.optional() }).optional(),
+  user: DiscordUserSchema.optional(),
+  data: z.object({ custom_id: z.string() }),
+  message: z.object({
+    id: z.string(),
+    components: z.array(z.object({
+      custom_id: z.string().optional(),
+      label: z.string().optional(),
+      components: z.array(z.object({
+        custom_id: z.string().optional(),
+        label: z.string().optional(),
+      })).optional(),
+    })).optional(),
+  }).optional(),
+});
+export type DiscordInteraction = z.infer<typeof DiscordInteractionSchema>;
+
 /** Outer gateway frame; `d` stays op-specific and is parsed at each op's arm. */
 export const GatewayFrameSchema = z.object({
   op: z.number(),

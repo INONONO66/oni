@@ -22,7 +22,7 @@ interface SocketCallbacks {
  * protocol design: no client heartbeat (Slack pings at the WebSocket layer
  * and the runtime pongs automatically), no resume — every (re)connect fetches
  * a fresh one-shot wss URL via `apps.connections.open`. The two protocol
- * duties are acking every `events_api` envelope immediately (Slack redelivers
+ * duties are acking every `events_api` or `interactive` envelope immediately (Slack redelivers
  * unacked envelopes) and reconnecting on `disconnect` frames, which Slack
  * sends routinely to refresh connections.
  */
@@ -126,7 +126,7 @@ export class SlackSocket {
       ws.close(4000);
       return;
     }
-    if (envelope.type !== "events_api") return;
+    if (envelope.type !== "events_api" && envelope.type !== "interactive") return;
     // Origin: the first frame of an inbound Slack event (D11).
     const traceId = newTraceId(this.options.id);
     try {
