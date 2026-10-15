@@ -80,6 +80,13 @@ export class TelegramClient implements ChannelClient {
     return sent.message_id === undefined ? undefined : String(sent.message_id);
   }
 
+  async edit(channelId: string, messageId: string, method: "editMessageText" | "editMessageCaption",
+    body: TelegramBody, traceId: string): Promise<void> {
+    await this.api(method, traceId, SentMessageSchema, {
+      chat_id: channelId, message_id: Number(messageId), ...body,
+    });
+  }
+
   /** `threadId` is a forum topic; `replyToMessageId` quotes the message answered. */
   private async sendMessage(
     channelId: string,

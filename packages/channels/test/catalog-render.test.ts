@@ -388,6 +388,100 @@ function capture(platform: "slack" | "discord" | "telegram"): Request[] {
 }
 
 describe("catalog surface request bodies", () => {
+  test("Slack updates exactly one rendered status in place", async () => {
+    const calls = capture("slack");
+    const runtime = SlackProvider.create({ botToken: "xoxb-test", appToken: "xapp-test" }, {}, () => undefined, injectedOptions());
+    const replacement: Outbound.Spec = { root: "status", elements: {
+      status: { type: "Status", props: { kind: "ok", title: "Done" }, children: [] },
+    } };
+    expect(await runtime.deliveryRoute?.("T1:U1",
+      { kind: "edit", messageId: "1.2", spec: replacement }, "slack-edit", { channelId: "C1" }))
+      .toEqual({ value: "accepted", externalMessageId: "1.2" });
+    expect(calls.map((request) => request.url)).toEqual(["https://slack.com/api/chat.update"]);
+    expect(await calls[0]?.json()).toEqual({ channel: "C1", ts: "1.2", text: "OK: Done",
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "*:white_check_mark: Done*" } }] });
+  });
+
+  test("Discord PATCH replaces native components without posting", async () => {
+    const calls = capture("discord");
+    const runtime = DiscordProvider.create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("U1", { kind: "edit", messageId: "55",
+      spec: { ...spec, root: "choices" } }, "discord-edit", { channelId: "C1" }))
+      .toEqual({ value: "accepted", externalMessageId: "55" });
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.url).toBe("https://discord.com/api/v10/channels/C1/messages/55");
+    expect(await calls[0]?.json()).toEqual({ content: "", embeds: [], components: [{ type: 1, components: [
+      { type: 2, label: "Yes", style: 1, custom_id: "vote:yes" },
+      { type: 2, label: "Docs", style: 5, url: "https://example.test" },
+    ] }] });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("Telegram edits status text and a caption with their original message ids", async () => {
+    const calls = capture("telegram");
+    const runtime = TelegramProvider.create({ token: "tg-test" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("123", { kind: "edit", messageId: "47",
+      spec: { ...spec, root: "status" } }, "tg-edit-status"))
+      .toEqual({ value: "accepted", externalMessageId: "47" });
+    expect(await runtime.deliveryRoute?.("123", { kind: "edit", messageId: "48",
+      spec: { ...spec, root: "card" } }, "tg-edit-caption"))
+      .toEqual({ value: "accepted", externalMessageId: "48" });
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://api.telegram.org/bottg-test/editMessageText",
+      "https://api.telegram.org/bottg-test/editMessageCaption",
+    ]);
+    expect(await calls[0]?.json()).toEqual({ chat_id: "123", message_id: 47,
+      text: "<b>⏳ Working</b>\nSoon", parse_mode: "HTML" });
+    expect(await calls[1]?.json()).toEqual({ chat_id: "123", message_id: 48,
+      caption: "<b>Report</b>\nFinished", parse_mode: "HTML" });
+  });
+
+  test("multi-message edits refuse before opening a DM or posting", async () => {
+    const calls = capture("discord");
+    const runtime = DiscordProvider.create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
+    const replacement: Outbound.Spec = { root: "stack", elements: {
+      stack: { type: "Stack", props: {}, children: ["first", "second"] },
+      first: { type: "Status", props: { kind: "progress", title: "First" }, children: [] },
+      second: { type: "Status", props: { kind: "ok", title: "Second" }, children: [] },
+    } };
+    expect(await runtime.deliveryRoute?.("U1", { kind: "edit", messageId: "55",
+      spec: replacement }, "discord-multi")).toEqual({ value: "rejected" });
+    expect(calls).toEqual([]);
+  });
+
+  test("Telegram refuses poll and album edits before any API call", async () => {
+    const calls = capture("telegram");
+    const runtime = TelegramProvider.create({ token: "tg-test" }, {}, () => undefined, injectedOptions());
+    for (const root of ["poll", "carousel"]) {
+      expect(await runtime.deliveryRoute?.("123", { kind: "edit", messageId: "48",
+        spec: { ...spec, root } }, `tg-unsupported-${root}`)).toEqual({ value: "rejected" });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("GitHub refuses edit instead of creating a comment", async () => {
+    const calls = capture("discord");
+    const runtime = GitHubProvider.create({ secret: "hook", token: "token" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("owner/repo#7", { kind: "edit", messageId: "12",
+      spec: { ...spec, root: "status" } }, "gh-edit")).toEqual({ value: "rejected" });
+    expect(calls).toEqual([]);
+  });
+
+  test("an uncertain PATCH outcome remains unknown and is never retried", async () => {
+    const calls: Request[] = [];
+    globalThis.fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push(new Request(String(input), init));
+      throw new Error("connection reset after request");
+    }, { preconnect: originalFetch.preconnect });
+    const runtime = DiscordProvider.create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
+    const payload: Outbound.Edit = { kind: "edit", messageId: "55", spec: { ...spec, root: "status" } };
+    expect(await runtime.deliveryRoute?.("U1", payload, "uncertain-edit", { channelId: "C1" }))
+      .toEqual({ value: "unknown" });
+    expect(await runtime.deliveryRoute?.("U1", payload, "uncertain-edit", { channelId: "C1" }))
+      .toEqual({ value: "unknown" });
+    expect(calls).toHaveLength(1);
+  });
+
   test("Slack sends Block Kit with a notification fallback", async () => {
     const calls = capture("slack");
     const runtime = SlackProvider.create({ botToken: "xoxb-test", appToken: "xapp-test" }, {}, () => undefined, injectedOptions());

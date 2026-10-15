@@ -5,7 +5,7 @@ import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import { requireHandler } from "../../support/handler-frame";
 import { translate } from "../../support/translate";
-import { RateLimited, TelegramApiError } from "../../errors";
+import { EditUnsupported, RateLimited, TelegramApiError } from "../../errors";
 import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format";
 import { TelegramClient } from "./client";
 import { renderTelegram } from "./render.js";
@@ -130,6 +130,24 @@ export class TelegramAdapter implements Channel.Surface {
                 const externalMessageId = await this.client.sendNative(chatId, rendered.method, rendered.body, traceId, conversation);
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
+            },
+            edit: async (messageId, step) => {
+              if (step.kind === "text") {
+                await this.client.edit(chatId, messageId, "editMessageText",
+                  { text: step.chunk, parse_mode: "HTML" }, traceId);
+                return;
+              }
+              const { method, body } = step.body;
+              if (method === "sendPoll" || method === "sendMediaGroup")
+                throw new EditUnsupported({ provider: "telegram" });
+              if (method === "sendPhoto") {
+                const { caption, parse_mode } = body;
+                await this.client.edit(chatId, messageId, "editMessageCaption",
+                  { ...(caption === undefined ? {} : { caption }),
+                    ...(parse_mode === undefined ? {} : { parse_mode }) }, traceId);
+                return;
+              }
+              await this.client.edit(chatId, messageId, "editMessageText", body, traceId);
             },
             // setMessageReaction sets the bot's whole reaction list, so `replaces` needs no second call.
             react: (messageId, emoji) => this.client.react(chatId, messageId, emoji, traceId),

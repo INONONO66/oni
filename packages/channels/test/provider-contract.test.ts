@@ -25,6 +25,7 @@ interface ConformanceCase {
   readonly build: (publish: PublishPort) => ProviderRuntime;
   readonly rendered: string;
   readonly limit: number | null;
+  readonly edit: "native" | "unsupported";
 }
 /** Surfaces whose deliver posts into a conversation (covered by their surface tests). */
 const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
@@ -34,6 +35,7 @@ const cases: readonly ConformanceCase[] = [
     provider: ChannelProviders.telegram,
     rendered: "<b>hi</b> <code>code</code>",
     limit: 4096,
+    edit: "native",
     credential: { token: "tg-token" },
     build: (publish) =>
       ChannelProviders.telegram.create({ token: "tg-token" }, {}, publish, injectedOptions()),
@@ -42,6 +44,7 @@ const cases: readonly ConformanceCase[] = [
     provider: ChannelProviders.discord,
     rendered: "**hi** `code`",
     limit: 2000,
+    edit: "native",
     credential: { token: "dc-token" },
     build: (publish) =>
       ChannelProviders.discord.create({ token: "dc-token" }, {}, publish, injectedOptions()),
@@ -50,6 +53,7 @@ const cases: readonly ConformanceCase[] = [
     provider: ChannelProviders.github,
     rendered: "**hi** `code`",
     limit: null,
+    edit: "unsupported",
     credential: { secret: "hook-secret", token: "api", botUsername: "omni-bot" },
     build: (publish) =>
       ChannelProviders.github.create(
@@ -63,6 +67,7 @@ const cases: readonly ConformanceCase[] = [
     provider: ChannelProviders.slack,
     rendered: "**hi** `code`",
     limit: 4000,
+    edit: "native",
     credential: { botToken: "xoxb-test", appToken: "xapp-test" },
     build: (publish) =>
       ChannelProviders.slack.create(
@@ -76,6 +81,7 @@ const cases: readonly ConformanceCase[] = [
     provider: ChannelProviders.webhook,
     rendered: "**hi** `code`",
     limit: null,
+    edit: "unsupported",
     credential: { id: "hook-1", secretRef: "secret:hook-1" },
     build: (publish) =>
       ChannelProviders.webhook.create(
@@ -132,6 +138,7 @@ describe("provider conformance", () => {
         const policy = kase.provider.capabilities.render;
         expect(policy.renderMarkdown("**hi** `code`")).toBe(kase.rendered);
         expect(policy.messageLimit).toBe(kase.limit);
+        expect(policy.edit).toBe(kase.edit);
       });
       test("render capabilities cover exactly the catalog element types", () => {
         expect(Object.keys(kase.provider.capabilities.render.capabilities).sort()).toEqual(

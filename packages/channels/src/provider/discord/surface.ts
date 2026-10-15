@@ -142,17 +142,22 @@ export class DiscordAdapter implements Channel.Surface {
       this.outbound,
       idempotencyKey,
       async (traceId) => {
-        const channelId = conversation?.channelId ?? (await this.dmChannel(externalId, traceId));
+        let opened: Promise<string> | undefined;
+        const channel = (): Promise<string> => {
+          if (conversation?.channelId !== undefined) return Promise.resolve(conversation.channelId);
+          opened ??= this.dmChannel(externalId, traceId);
+          return opened;
+        };
         return await translate(
           payload,
           DISCORD_RENDER,
           {
-            text: (chunk) => this.client.send(channelId, chunk, traceId, conversation),
+            text: async (chunk) => this.client.send(await channel(), chunk, traceId, conversation),
             media: {
               limits: DISCORD_MEDIA_LIMITS,
               upload: async (_kind, bytes, caption) => {
                 const externalMessageId = await this.client.sendMedia(
-                  channelId,
+                  await channel(),
                   bytes,
                   caption,
                   traceId,
@@ -164,13 +169,16 @@ export class DiscordAdapter implements Channel.Surface {
             native: {
               render: renderDiscord,
               post: async (body) => {
-                const externalMessageId = await this.client.sendNative(channelId, body, traceId, conversation);
+                const externalMessageId = await this.client.sendNative(await channel(), body, traceId, conversation);
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },
+            edit: async (messageId, step) => this.client.edit(await channel(), messageId,
+              { content: "", embeds: [], components: [],
+                ...(step.kind === "text" ? { content: step.chunk } : step.body) }, traceId),
             react: async (messageId, emoji, replaces) => {
-              if (replaces !== undefined) await this.client.removeReaction(channelId, messageId, replaces, traceId);
-              await this.client.react(channelId, messageId, emoji, traceId);
+              if (replaces !== undefined) await this.client.removeReaction(await channel(), messageId, replaces, traceId);
+              await this.client.react(await channel(), messageId, emoji, traceId);
             },
           },
           this.options.media,

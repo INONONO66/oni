@@ -61,6 +61,14 @@ export class DiscordClient implements ChannelClient {
     return message.id;
   }
 
+  async edit(channelId: string, messageId: string, body: DiscordBody, traceId: string): Promise<void> {
+    await this.request(
+      `/channels/${channelId}/messages/${messageId}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      traceId, CreatedMessageSchema,
+    );
+  }
+
   /** One attachment: multipart with the JSON body in `payload_json` and the bytes in `files[0]`. */
   async sendMedia(
     channelId: string,

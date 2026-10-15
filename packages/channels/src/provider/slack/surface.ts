@@ -11,6 +11,7 @@ import type { ProviderOptions } from "../contract";
 import { SlackClient, THREAD_HISTORY_LIMIT } from "./client";
 import {
   DeliveryNotSent,
+  EditNotSingleMessage,
   SlackApiError,
   SlackEndpointKeyError,
   SlackHandlerMissingError,
@@ -113,23 +114,26 @@ export class SlackAdapter implements Channel.Surface {
       this.outbound,
       idempotencyKey,
       async (traceId) => {
-        const channelId =
-          conversation?.channelId ??
-          (await this.client.openDm(user, traceId).catch((error) => {
+        let opened: Promise<string> | undefined;
+        const channel = (): Promise<string> => {
+          if (conversation?.channelId !== undefined) return Promise.resolve(conversation.channelId);
+          opened ??= this.client.openDm(user, traceId).catch((error) => {
             throw new DeliveryNotSent({ operation: "slack.openDm", cause: String(error) });
-          }));
+          });
+          return opened;
+        };
         return await translate(
           payload,
           SLACK_RENDER,
           {
-            text: (chunk) =>
+            text: async (chunk) =>
               threadTs === undefined
-                ? this.client.send(channelId, chunk, traceId)
-                : this.client.sendInThread(channelId, threadTs, chunk, traceId),
+                ? this.client.send(await channel(), chunk, traceId)
+                : this.client.sendInThread(await channel(), threadTs, chunk, traceId),
             media: {
               limits: SLACK_MEDIA_LIMITS,
               upload: async (_kind, bytes, caption) => {
-                await this.client.sendMedia(channelId, threadTs, bytes, caption, traceId);
+                await this.client.sendMedia(await channel(), threadTs, bytes, caption, traceId);
                 return {};
               },
             },
@@ -138,9 +142,18 @@ export class SlackAdapter implements Channel.Surface {
               post: async ({ blocks: batches, text }) => {
                 let externalMessageId: string | undefined;
                 for (const blocks of batches)
-                  externalMessageId = await this.client.sendBlocks(channelId, blocks, text, traceId, threadTs);
+                  externalMessageId = await this.client.sendBlocks(await channel(), blocks, text, traceId, threadTs);
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
+            },
+            edit: async (messageId, step) => {
+              if (step.kind === "text") {
+                await this.client.edit(await channel(), messageId, [], step.chunk, traceId);
+                return;
+              }
+              if (step.body.blocks.length !== 1)
+                throw new EditNotSingleMessage({ count: step.body.blocks.length });
+              await this.client.edit(await channel(), messageId, step.body.blocks[0] ?? [], step.body.text, traceId);
             },
             react: async (messageId, emoji, replaces) => {
               const name = slackEmojiName(emoji);
@@ -150,8 +163,8 @@ export class SlackAdapter implements Channel.Surface {
                   operation: "slack.react",
                   cause: `no slack name for ${name === undefined ? emoji : replaces}`,
                 });
-              if (replaced !== undefined) await this.client.removeReaction(channelId, messageId, replaced, traceId);
-              await this.client.react(channelId, messageId, name, traceId);
+              if (replaced !== undefined) await this.client.removeReaction(await channel(), messageId, replaced, traceId);
+              await this.client.react(await channel(), messageId, name, traceId);
             },
           },
           this.options.media,

@@ -86,6 +86,11 @@ export class SlackClient implements ChannelClient {
     return data.ts;
   }
 
+  async edit(channelId: string, messageId: string, blocks: readonly SlackBlock[], text: string, traceId: string): Promise<void> {
+    await this.api("chat.update", { channel: channelId, ts: messageId, blocks: [...blocks], text },
+      traceId, this.botToken, { schema: OkSchema, malformed: "chat.update returned a malformed envelope" });
+  }
+
   /** Threaded reply — same postMessage, anchored to the thread root ts. */
   async sendInThread(
     channelId: string,
