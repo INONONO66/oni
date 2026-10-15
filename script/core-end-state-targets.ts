@@ -42,6 +42,6 @@ export const CORE_END_STATE_TARGETS = {
   testClonePercent: 0.5,
   inheritedClones: {
     production: { count: 0, reason: "packages/agent production census; no inherited production clones" },
-    test: { duplicatedLines: 248, reason: "#945 agent test debt: packages/agent-only duplicated lines, pinned absolutely so unrelated repository changes cannot alter the allowance" },
+    test: { duplicatedLines: 230, reason: "#945 agent test debt: packages/agent-only duplicated lines, pinned absolutely so unrelated repository changes cannot alter the allowance" },
   },
 } as const;

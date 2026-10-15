@@ -6,16 +6,21 @@ import { RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
 import { isolatedRun, runTestSync } from "./helpers/isolated";
 import { paddingActions } from "./helpers/reconstruction-fixture";
 
-test("#1347 a typed activation restore refusal logs its warning and measured work", () => isolatedRun((ledger) => {
-  const id = "bounded-restore-log";
-  const kernel = ledger.kernel;
-  const maxTailBytes = 10_000;
+const maxTailBytes = 10_000;
+
+/** A resident pinned at genesis to 256-row checkpoint pages capped at `maxTailBytes`. */
+const materializeBounded = (kernel: Parameters<Parameters<typeof isolatedRun>[0]>[0]["kernel"], id: string) =>
   runTestSync(kernel.materialize({
     id, role: "resident", parentId: null, policyGeneration: 1, tools: [],
     system: { preset: "", blocks: [] },
     settings: { steering: "all", followUp: "all", checkpoint: { everyActions: 256, maxTailBytes } },
     actionId: `${id}:configure`, at: 100,
   }));
+
+test("#1347 a typed activation restore refusal logs its warning and measured work", () => isolatedRun((ledger) => {
+  const id = "bounded-restore-log";
+  const kernel = ledger.kernel;
+  materializeBounded(kernel, id);
   for (const action of paddingActions(id, `${id}:configure`, 600, "legacy")) {
     expect(ledger.session.actions.append(action, kernel.row(id).revision)).toBeDefined();
   }
@@ -53,12 +58,7 @@ test("#1347 a typed activation restore refusal logs its warning and measured wor
 test("an unexpected activation restore failure logs the affected session", () => isolatedRun((ledger) => {
   const id = "restore-log-error";
   const kernel = ledger.kernel;
-  runTestSync(kernel.materialize({
-    id, role: "resident", parentId: null, policyGeneration: 1, tools: [],
-    system: { preset: "", blocks: [] },
-    settings: { steering: "all", followUp: "all", checkpoint: { everyActions: 256, maxTailBytes: 10_000 } },
-    actionId: `${id}:configure`, at: 100,
-  }));
+  materializeBounded(kernel, id);
   const failing = Object.create(kernel, {
     latestFoldCheckpoint: {
       value: () => {
