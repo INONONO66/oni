@@ -24,7 +24,8 @@ On `feat/1545-protocol-catalog` (2026-10-15, base `35d60a491`). The protocol
 ships a static `Outbound.catalog` (Stack, Markdown, Code, Table, Image, File,
 Buttons/Button, Card, Carousel, Poll, Status, Divider, Context) and a
 validated flat `Outbound.Spec`: one tree hung off `root` (no orphans, sharing
-or cycles), leaf elements carry no children, Button lives only under Buttons,
+or cycles), leaf elements carry no children except a Card's optional Buttons
+child, Button lives only under Buttons,
 Carousel holds 2–10 Cards, Buttons 1–5 Buttons, a Poll 2–10 options, a table
 row one value per column, and a Button URL an http(s) link. Fields the catalog
 does not define are refused rather than dropped, and a client-state field
@@ -75,10 +76,11 @@ and `apps/openomni/test/prompt.test.ts`.
 
 On `feat/1545-channel-render` (2026-10-15, base `d0ef13176`), catalog
 messages use one channel-side planning fold: consecutive text is rendered and
-chunked, native elements go through the provider's existing send client, and
-media bytes resolve with the established per-platform and letter limits before
-the first physical send. A later native-send failure preserves the partial /
-unknown receipt rule. Providers declare every catalog element in their
+chunked, native request bodies and their field limits are prepared before
+any physical send, and media bytes resolve with the established per-platform
+and letter limits. A limit refusal is `not_sent`; a later native-send failure
+preserves the partial / unknown receipt rule. Providers declare every catalog
+element in their
 `format.ts` capabilities; this is the current matrix:
 
 | Element | Slack | Discord | Telegram | GitHub | Webhook |
@@ -86,7 +88,7 @@ unknown receipt rule. Providers declare every catalog element in their
 | Stack | native | native | native | text | text |
 | Markdown | native | text | text | text | text |
 | Code | native | text | text | text | text |
-| Table | native | downgrade:table-to-bullets | downgrade:table-to-code | text | text |
+| Table | native | downgrade:table-to-image | downgrade:table-to-image | text | text |
 | Image | native | native | native | text | text |
 | File | native | native | native | text | text |
 | Buttons | native | native | native | text | text |
@@ -99,15 +101,16 @@ unknown receipt rule. Providers declare every catalog element in their
 | Context | native | text | text | text | text |
 
 Stack walks its children vertically, retaining adjacent text as one send.
-Slack posts Block Kit with a text notification fallback; Discord uses embeds,
+Slack escapes mrkdwn and posts bounded Block Kit with a notification fallback;
+URL buttons never enter the postback path. Discord uses embeds,
 Components V2 galleries, action rows and polls; Telegram sends HTML text,
-inline keyboards, photo albums and polls. HTTPS images can be embedded
-directly; local card images send one resolved-media upload with the card digest
-as caption.
-The `table-to-image` and `card-to-image` downgrades rasterize through
-`@json-render/image` and `@resvg/resvg-js` with a bundled CC0 font; no provider
-selects them yet. The font's compact character set is suitable for Latin text,
-so the selected policies above keep tables as native blocks, bullets or code.
+inline keyboards, photo albums and polls. An optional Buttons child on a Card
+remains actionable after the card; the caption-keyboard downgrade sends its
+actions after the photo. HTTPS images embed directly; local card images send
+one resolved-media upload with a caption. Discord and Telegram choose
+`table-to-image`, rasterized through `@json-render/image` and
+`@resvg/resvg-js` with a bundled compact CC0 font. Unsupported glyphs refuse
+at plan time rather than silently dropping table content.
 
 ## #1506 auto-ack reaction
 
