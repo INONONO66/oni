@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Catalog, Spec as CatalogSpec, type Element as CatalogElement } from "./catalog.js";
 
 /**
  * The one outbound value an agent produces for a person (#1497): a letter
@@ -30,14 +31,16 @@ const FilePart = z
   .strict();
 const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, FilePart]);
 
-const MessageSchema = z
+const PartsMessageSchema = z
   .object({ kind: z.literal("message"), parts: z.array(PartSchema).min(1) })
   .strict();
+const SpecMessageSchema = z.object({ kind: z.literal("message"), spec: CatalogSpec }).strict();
+const MessageSchema = z.union([PartsMessageSchema, SpecMessageSchema]);
 /** One emoji on the contact's message; `replaces` names the sender's earlier emoji the platform must take off first. */
 const ReactSchema = z
   .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1), replaces: z.string().min(1).optional() })
   .strict();
-const PayloadSchema = z.discriminatedUnion("kind", [MessageSchema, ReactSchema]);
+const PayloadSchema = z.union([MessageSchema, ReactSchema]);
 
 /**
  * What a channel reports after translating one payload: whether the platform
@@ -68,9 +71,67 @@ function partText(part: z.infer<typeof PartSchema>): string {
   }
 }
 
+function specText(spec: z.infer<typeof CatalogSpec>): string {
+  const lines: string[] = [];
+  const visit = (id: string): void => {
+    const element = spec.elements[id];
+    if (element === undefined) return;
+    switch (element.type) {
+      case "Markdown":
+      case "Context":
+        lines.push(element.props.text);
+        break;
+      case "Code":
+        lines.push(`\`\`\`${element.props.lang ?? ""}\n${element.props.text}\n\`\`\``);
+        break;
+      case "Table":
+        lines.push([
+          element.props.columns.map((column) => column.header).join(" | "),
+          ...element.props.rows.map((row) => row.join(" | ")),
+        ].join("\n"));
+        break;
+      case "Buttons":
+        for (const child of element.children) visit(child);
+        break;
+      case "Button":
+        lines.push(`[${element.props.label}]`);
+        break;
+      case "Status":
+        lines.push(`${element.props.kind.toUpperCase()}: ${element.props.title}`);
+        if (element.props.body !== undefined) lines.push(element.props.body);
+        break;
+      case "Image":
+        lines.push(`[image] ${element.props.ref}${element.props.caption === undefined ? "" : `\n${element.props.caption}`}`);
+        break;
+      case "File":
+        lines.push(`[file: ${element.props.name}] ${element.props.ref}`);
+        break;
+      case "Card":
+        lines.push(element.props.title);
+        if (element.props.body !== undefined) lines.push(element.props.body);
+        break;
+      case "Carousel":
+        for (const child of element.children) visit(child);
+        break;
+      case "Poll":
+        lines.push(`${element.props.question}\n${element.props.options.map((option) => `- ${option}`).join("\n")}`);
+        break;
+      case "Divider":
+        lines.push("---");
+        break;
+    }
+  };
+  visit(spec.root);
+  return lines.join("\n\n");
+}
+
 export namespace Outbound {
   export const Part = PartSchema;
   export type Part = z.infer<typeof PartSchema>;
+  export const catalog = Catalog;
+  export const Spec = CatalogSpec;
+  export type Spec = z.infer<typeof CatalogSpec>;
+  export type Element = CatalogElement;
   export const Message = MessageSchema;
   export type Message = z.infer<typeof MessageSchema>;
   export const React = ReactSchema;
@@ -94,6 +155,10 @@ export namespace Outbound {
    */
   export function text(payload: Payload): string {
     if (payload.kind === "react") return `${payload.emoji} on ${payload.messageId}`;
-    return payload.parts.map(partText).join("\n\n");
+    return "spec" in payload ? specText(payload.spec) : payload.parts.map(partText).join("\n\n");
+  }
+
+  export function prompt(): string {
+    return catalog.prompt();
   }
 }
