@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 import { Outbound } from "@openomni/protocol";
 import { DeliveryNotSent } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
@@ -525,6 +525,32 @@ describe("translate: catalog specs", () => {
     expect(uploads).toHaveLength(1);
     expect(uploads[0]?.mime).toBe("image/png");
     expect([...uploads[0]?.bytes.slice(0, 8) ?? []]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  test("an image rasterization failure becomes a typed delivery refusal", async () => {
+    mock.module("../src/support/render-image", () => ({
+      renderElementImage: () => Promise.reject(new Error("raster failed")),
+    }));
+    try {
+      const imagePolicy: RenderPolicy = { ...policy, capabilities: {
+        ...policy.capabilities, Table: "downgrade:table-to-image",
+      } };
+      const sends: SurfaceSends = {
+        text: async () => "text",
+        media: { limits: { imageBytes: 1_000_000, fileBytes: 1_000_000, captionLength: 128 },
+          upload: async () => ({}) },
+      };
+      const error = await translate(
+        { kind: "message", spec: { ...spec, root: "table" } },
+        imagePolicy,
+        sends,
+        resolve,
+      ).catch((value) => value);
+      expect(error).toBeInstanceOf(DeliveryNotSent);
+      expect(error).toMatchObject({ operation: "image.render", cause: "Error: raster failed" });
+    } finally {
+      mock.restore();
+    }
   });
 });
 
