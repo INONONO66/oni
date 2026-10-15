@@ -3,14 +3,20 @@ import { Outbound } from "@openomni/protocol";
 import { DeliveryNotSent } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
 import { slackEmojiName } from "../src/provider/slack/emoji";
-import { PartialDeliveryError, type SurfaceSends, translate } from "../src/support/translate";
+import { PartialDeliveryError, type NativeStep, type SurfaceSends, translate } from "../src/support/translate";
 import type { MediaBytes } from "../src/types";
 
 /** Identity dialect with a small limit so chunking is observable. */
-const RENDER: RenderPolicy = { renderMarkdown: (markdown) => markdown, messageLimit: 64 };
+const CAPABILITIES = {
+  Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",
+  Buttons: "text", Button: "text", Card: "text", Carousel: "text", Poll: "text",
+  Status: "text", Divider: "text", Context: "text",
+} as const;
+const RENDER: RenderPolicy = { renderMarkdown: (markdown) => markdown, messageLimit: 64, capabilities: CAPABILITIES };
 const UNBOUNDED: RenderPolicy = {
   renderMarkdown: (markdown) => `<${markdown}>`,
   messageLimit: null,
+  capabilities: CAPABILITIES,
 };
 
 type Sent =
@@ -314,6 +320,97 @@ describe("translate: partial delivery", () => {
     const partial = error as PartialDeliveryError;
     expect(partial.reason).toBe("missing_receipt");
     expect(partial.acceptedChunks).toEqual([{ index: 1, externalMessageId: "m1" }]);
+  });
+});
+
+describe("translate: catalog specs", () => {
+  const spec: Outbound.Spec = {
+    root: "cards",
+    elements: {
+      cards: { type: "Carousel", props: {}, children: ["first", "second"] },
+      first: { type: "Card", props: { title: "First", image: "/first.png" }, children: [] },
+      second: { type: "Card", props: { title: "Second" }, children: [] },
+      poll: { type: "Poll", props: { question: "Choose", options: ["One", "Two"] }, children: [] },
+      image: { type: "Image", props: { ref: "/image.png" }, children: [] },
+      table: { type: "Table", props: { columns: [{ header: "Name" }], rows: [["A"]] }, children: [] },
+    },
+  };
+  const policy: RenderPolicy = {
+    ...UNBOUNDED,
+    capabilities: { ...CAPABILITIES, Card: "native", Carousel: "native", Image: "native",
+      Poll: "downgrade:poll-to-buttons", Buttons: "native" },
+  };
+
+  test("catalog carousel falls back to ordered card sends and resolves media before posting", async () => {
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "m1"; },
+      native: async (step) => { calls.push(`native:${step.id}`); return { externalMessageId: "m2" }; },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "m3" };
+      } },
+    };
+    const outcome = await translate({ kind: "message", spec }, policy, sends, async (part) => {
+      calls.push(`resolve:${part.ref}`);
+      return resolve(part);
+    });
+    expect(calls).toEqual(["resolve:/first.png", "native:first", "media:image.png", "native:second"]);
+    expect(outcome).toEqual({ accepted: true, externalMessageId: "m2" });
+  });
+
+  test("poll downgrade creates actionable button steps after the question", async () => {
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "m1"; },
+      native: async (step: NativeStep) => {
+        calls.push(`native:${step.element.type}:${step.spec.elements["poll:option:0"]?.type}`);
+        return { externalMessageId: "m2" };
+      },
+    };
+    await translate({ kind: "message", spec: { ...spec, root: "poll" } }, policy, sends);
+    expect(calls).toEqual(["text:<Choose>", "native:Buttons:Button"]);
+  });
+
+  test("a failed native step after text reports partial delivery", async () => {
+    const sends: SurfaceSends = {
+      text: async () => "m1",
+      native: async () => { throw new Error("upstream reset"); },
+    };
+    const error = await translate({ kind: "message", spec: { ...spec, root: "poll" } }, policy, sends).catch((value) => value);
+    expect(error).toBeInstanceOf(PartialDeliveryError);
+    expect(error).toMatchObject({ reason: "send_failed", attemptedChunks: 2,
+      acceptedChunks: [{ index: 1, externalMessageId: "m1" }] });
+  });
+
+  test("media reference failure rejects all planned sends", async () => {
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async () => { calls.push("text"); return "m1"; },
+      native: async () => { calls.push("native"); return { externalMessageId: "m2" }; },
+      media: { limits: LIMITS, upload: async () => { calls.push("media"); return {}; } },
+    };
+    await expect(translate({ kind: "message", spec }, policy, sends,
+      async () => { throw new Error("missing image"); })).rejects.toBeInstanceOf(DeliveryNotSent);
+    expect(calls).toEqual([]);
+  });
+
+  test("table-to-image uses the same upload and limit path", async () => {
+    const uploads: { mime: string; caption: string | undefined; bytes: Uint8Array }[] = [];
+    const sends: SurfaceSends = {
+      text: async () => "text",
+      media: { limits: { imageBytes: 1_000_000, fileBytes: 1_000_000, captionLength: 128 },
+        upload: async (_kind, bytes, caption) => {
+          uploads.push({ mime: bytes.mime, caption, bytes: bytes.bytes });
+          return { externalMessageId: "png-1" };
+        } },
+    };
+    const imagePolicy = { ...policy, capabilities: { ...policy.capabilities,
+      Table: "downgrade:table-to-image" as const } };
+    expect(await translate({ kind: "message", spec: { ...spec, root: "table" } },
+      imagePolicy, sends, resolve)).toEqual({ accepted: true, externalMessageId: "png-1" });
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]?.mime).toBe("image/png");
+    expect([...uploads[0]?.bytes.slice(0, 8) ?? []]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   });
 });
 
