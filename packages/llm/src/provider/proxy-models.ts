@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { Deferred, Effect, Exit } from "effect";
 import { decodeLlmFailure } from "../error";
 import { ProxyModelsError, type LlmError } from "../errors";
@@ -19,6 +20,13 @@ const MAX_ENTRIES = 64;
 const modelCache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Deferred.Deferred<string[], LlmError>>();
 
+export function proxyModelsCacheKey(url: string, apiKey?: string): string {
+  const credentialFingerprint = apiKey === undefined
+    ? null
+    : createHash("sha256").update(apiKey).digest("hex");
+  return JSON.stringify([url, credentialFingerprint]);
+}
+
 function normalizeModelsURL(baseURL: string): string {
   const trimmed = baseURL.replace(/\/+$/u, "");
   const root = trimmed.replace(/\/v1$/u, "");
@@ -36,8 +44,7 @@ const ModelListing = z.object({ data: z.array(z.json()) });
 export function fetchProxyModels(baseURL: string, now: () => number, apiKey?: string): Effect.Effect<string[], LlmError> {
   return Effect.suspend(() => {
     const url = normalizeModelsURL(baseURL);
-    // The raw key is already resident in memory as the Authorization header, so keying by it adds no exposure.
-    const cacheKey = JSON.stringify([url, apiKey ?? null]);
+    const cacheKey = proxyModelsCacheKey(url, apiKey);
     const cached = modelCache.get(cacheKey);
     if (cached !== undefined) {
       modelCache.delete(cacheKey);
