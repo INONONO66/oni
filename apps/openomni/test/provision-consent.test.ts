@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect, Fiber } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -22,7 +22,8 @@ import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { testPlane } from "./helpers/ledger";
 const eraseTool = Core.eraseTool;
 import type { PlainObject } from "@openomni/protocol";
-import { createProvisionTool, PROVISION_POLICY_ROWS } from "../src/bundles/provision/provision";
+import { createProvisionTool } from "../src/bundles/provision/provision";
+import { SHIPPED_OWNER_POLICY } from "../src/composition/policy";
 import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { executor } from "./helpers/executor";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
@@ -41,6 +42,9 @@ const plane = (): AppLedgerPlane => {
 };
 const actors = () => plane().stores.actors;
 const provision = () => eraseTool(createProvisionTool(provisionPort(plane()), () => 1000));
+const provisionPolicyRows = SHIPPED_OWNER_POLICY.rows.filter((row) =>
+  row.name.startsWith("provision-")
+);
 /** The provisional contact's current standing in the actor registry. */
 const malloryStanding = () => actors().getIdentity("contact:mallory")?.standing;
 
@@ -59,7 +63,7 @@ afterEach(() => {
 });
 
 it("consent is a require_approval policy row on the contact and bundle authority ops, nothing else", () => {
-  expect(PROVISION_POLICY_ROWS.map((row) => [row.match.value, row.verdict.value])).toEqual([
+  expect(provisionPolicyRows.map((row) => [row.match.value, row.verdict.value])).toEqual([
     [
       { op: "provision", operation: "contact_promote" },
       { type: "require_approval", reason: "provision.contact_promote requires Owner consent" },
@@ -85,7 +89,7 @@ it("consent is a require_approval policy row on the contact and bundle authority
       { type: "require_approval", reason: "provision.automation_enable requires Owner consent" },
     ],
   ]);
-  expect(PROVISION_POLICY_ROWS.every((row) => row.kind === "tool" && row.phase === "pre")).toBe(
+  expect(provisionPolicyRows.every((row) => row.kind === "tool" && row.phase === "pre")).toBe(
     true,
   );
 });
@@ -249,7 +253,7 @@ function restartDispatcher(recording: RequestLedger, ready?: () => void) {
       Effect.provide(catalogLayer([provision()])),
       Effect.provide(executorLayer({
         clock: recording.clock, entropy: recording.entropy, observations: { publish: () => undefined },
-        policy: compiledPolicy(PROVISION_POLICY_ROWS.map((row: (typeof PROVISION_POLICY_ROWS)[number]) => ({ ...row, generation: 1 }))),
+        policy: compiledPolicy(provisionPolicyRows.map((row) => ({ ...row, generation: 1 }))),
       })),
     );
     return dispatcher;

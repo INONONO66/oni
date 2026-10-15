@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { testToolPorts, toolComposition } from "./tool-ports";
 import { alarmPortsSlot, composedHolderOf } from "../../src/composition/composed";
 import { Context, Effect, Layer, Scope } from "effect";

@@ -21,7 +21,7 @@ import { timingSafeEqual } from "node:crypto";
 import { statSync } from "node:fs";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
-import { APPROVAL_POLICY } from "./bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "./composition/policy";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
 import { seedKernelPolicyRows } from "./composition/policy";
 import { AppPointTable } from "./composition/point-table";

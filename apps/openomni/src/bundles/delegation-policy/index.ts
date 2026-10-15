@@ -147,41 +147,16 @@ export function spendCapGuard(): { decide: Core.NamedGuard["decide"] } {
   };
 }
 
-/** The three cap rows at `tool.pre`, matching the one send door. */
-export function delegationRows(): readonly Bundle.BundleGateRow[] {
-  return [
-    {
-      id: "delegation-policy/tool.pre#1",
-      on: "tool.pre",
-      when: { op: "send_message" },
-      do: "gate",
-      how: {
-        ref: "delegation-policy/spawn-depth",
-        params: { limit: Gateway.DelegationCaps.maxDepth },
-      },
-      order: 910,
-    },
-    {
-      id: "delegation-policy/tool.pre#2",
-      on: "tool.pre",
-      when: { op: "send_message" },
-      do: "gate",
-      how: {
-        ref: "delegation-policy/spawn-children",
-        params: { limit: Gateway.DelegationCaps.maxActiveChildren },
-      },
-      order: 911,
-    },
-    {
-      id: "delegation-policy/tool.pre#3",
-      on: "tool.pre",
-      when: { op: "send_message" },
-      do: "gate",
-      how: { ref: "delegation-policy/spend-cap" },
-      order: 912,
-    },
-  ];
-}
+/**
+ * The named guards this bundle implements (#1572): the Owner policy file's
+ * handler rows may name exactly these; the rows themselves are data.
+ */
+export const SPAWN_DEPTH_REF = "delegation-policy/spawn-depth";
+export const DELEGATION_GUARD_REFS: readonly string[] = [
+  SPAWN_DEPTH_REF,
+  "delegation-policy/spawn-children",
+  "delegation-policy/spend-cap",
+];
 
 // ─── delegation.deadline ───
 
@@ -334,27 +309,29 @@ const UNBOUND_READS: DelegationReads = {
 };
 
 /**
- * The bundle contract (#1255 `Bundle.define`): three guard rows, their guard
- * handlers, and the deadline purpose. The contract's handler and purpose
+ * The bundle contract (#1255 `Bundle.define`): the Owner policy file's guard
+ * rows (#1572), their guard handlers, and the deadline purpose. The contract's handler and purpose
  * faces are declarations with fail-closed doors; composition rebinds them —
  * `generation-layers` binds the guards to the live catalog reads and the
  * watch plane binds the deadline cancel door — the same pattern as bundle
  * tool faces deferring to the ported catalog definitions.
  */
-export function delegationPolicyBundle(): Bundle.BundleContract<
+export function delegationPolicyBundle(
+  rows: readonly Bundle.BundleGateRow[],
+): Bundle.BundleContract<
   "delegation-policy",
   object,
   Bundle.AlarmPurposeHandler
 > {
   return Bundle.define({
     name: "delegation-policy",
-    // #1316: the three rows below target `tool.pre`, so the bundle requires
+    // #1316: the shipped rows target `tool.pre`, so the bundle requires
     // the tool capability's seam — `off: ["tool"]` cascades it off instead of
     // rejecting the rows as `unknown_point`.
     requires: [Bundle.ActionPort, Bundle.AlarmPort, ToolCapabilityPort],
-    rows: delegationRows(),
+    rows,
     handlers: {
-      "delegation-policy/spawn-depth": spawnDepthGuard(UNBOUND_READS),
+      [SPAWN_DEPTH_REF]: spawnDepthGuard(UNBOUND_READS),
       "delegation-policy/spawn-children": spawnChildrenGuard(UNBOUND_READS),
       "delegation-policy/spend-cap": spendCapGuard(),
     },
@@ -371,7 +348,7 @@ export function delegationGuardHandlers(
   reads: DelegationReads,
 ): Readonly<Record<string, { decide: Core.NamedGuard["decide"] }>> {
   return {
-    "delegation-policy/spawn-depth": spawnDepthGuard(reads),
+    [SPAWN_DEPTH_REF]: spawnDepthGuard(reads),
     "delegation-policy/spawn-children": spawnChildrenGuard(reads),
     "delegation-policy/spend-cap": spendCapGuard(),
   };

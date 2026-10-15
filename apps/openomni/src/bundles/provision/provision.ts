@@ -2,7 +2,6 @@ import { z } from "zod";
 import { Bundle, Core } from "@openomni/agent";
 import { boundTool, ToolCapabilityPort } from "../seams";
 const defineTool = Core.defineTool;
-import type { PolicyRow } from "@openomni/protocol";
 import { AutomationOperation, AutomationResult } from "./automation-schema";
 import { ContactOperation, ContactResult } from "./contact-mutations";
 import {
@@ -52,27 +51,6 @@ export function createProvisionTool(port: ProvisionPort | undefined, now: () => 
     provisionApproval(port),
   );
 }
-
-/** Owner consent is policy; the executor owns the original invocation's approval request. */
-export const PROVISION_POLICY_ROWS: readonly Omit<PolicyRow.Row, "generation">[] = [
-  "contact_promote",
-  "contact_merge",
-  "bundle_enable",
-  "bundle_disable",
-  "automation_add",
-  "automation_enable",
-].map((operation) => ({
-  name: `provision-${operation.replaceAll("_", "-")}-consent`,
-  kind: "tool",
-  phase: "pre",
-  priority: 1_000,
-  match: { encodingVersion: 1, value: { op: "provision", operation } },
-  verdict: {
-    encodingVersion: 1,
-    value: { type: "require_approval", reason: `provision.${operation} requires Owner consent` },
-  },
-}));
-
 /** The `provision` bundle (#1561): Owner administration, bundle toggles included. */
 export interface ProvisionToolPorts {
   readonly provisioning: ProvisionPort | undefined;

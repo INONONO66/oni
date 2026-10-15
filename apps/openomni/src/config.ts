@@ -146,6 +146,11 @@ export interface OpenOmniConfig {
    */
   readonly hooksPath?: string;
   /**
+   * Path of the Owner policy JSON (`OPENOMNI_POLICY_PATH`). Absent selects
+   * the shipped `policy/owner-policy.json`.
+   */
+  readonly policyPath?: string;
+  /**
    * Directory of the Owner's prompt templates (`OPENOMNI_PROMPTS_DIR`): every
    * `<dir>/*.md` is listed in the system prompt. Unset or absent lists none.
    */
@@ -672,6 +677,16 @@ function offFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["of
   return parseEnvJson("OPENOMNI_BUNDLES_OFF", OffNames, env);
 }
 
+/** The optional Owner policy path; blank selects the shipped policy. */
+function policyPathFromEnv(
+  env: Record<string, string | undefined>,
+): string | undefined {
+  return env.OPENOMNI_POLICY_PATH?.trim() || undefined;
+}
+
+/** The process-wide Owner policy selection, captured before composition. */
+export const ACTIVE_POLICY_PATH = policyPathFromEnv(process.env);
+
 function socialBudgetsFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["socialBudgets"] {
   return parseEnvJson("OPENOMNI_SOCIAL_BUDGETS", SocialBudgets, env);
 }
@@ -825,6 +840,7 @@ export function loadConfig(
   const ackReaction = ackReactionFromEnv(env);
   const off = offFromEnv(env);
   const hooksPath = env.OPENOMNI_HOOKS_PATH?.trim() || undefined;
+  const policyPath = policyPathFromEnv(env);
   return {
     ...resolveClusterStorage(
       {
@@ -854,6 +870,7 @@ export function loadConfig(
     ...(env.OPENOMNI_TOOL_PACKS_DIR?.trim()
       ? { toolPacksDir: env.OPENOMNI_TOOL_PACKS_DIR.trim() }
       : {}),
+    ...(policyPath === undefined ? {} : { policyPath }),
     ...promptsFromEnv(env),
   };
 }

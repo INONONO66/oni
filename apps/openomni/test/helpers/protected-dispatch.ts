@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { Effect } from "effect";
 import { Bundle, Core } from "@openomni/agent";
 const createDispatcher = Bundle.createDispatcher;
@@ -15,7 +15,7 @@ import { requestLedger } from "../../../../packages/agent/test/helpers/effect-g1
 import { createRequestDomainRevisions } from "../../src/composition/request-domain-revisions";
 import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
 import { testPlane } from "./ledger";
-import { PROVISION_POLICY_ROWS } from "../../src/bundles/provision/provision";
+import { SHIPPED_OWNER_POLICY } from "../../src/composition/policy";
 import { executorLayer, catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";
 import { runEffect, runSyncEffect } from "./effect";
 import { provisionPort } from "./provision-port";
@@ -53,7 +53,15 @@ export function protectedDispatch(
       principalId: "owner",
       evidenceId: "authenticated",
     }),
-  }).pipe(Effect.provide(executorLayer({ ...recording, observations, policy: compiledPolicy(PROVISION_POLICY_ROWS.map((row) => ({ ...row, generation: 1 }))) }))));
+  }).pipe(Effect.provide(executorLayer({
+    ...recording,
+    observations,
+    policy: compiledPolicy(
+      SHIPPED_OWNER_POLICY.rows
+        .filter((row) => row.name.startsWith("provision-"))
+        .map((row) => ({ ...row, generation: 1 })),
+    ),
+  }))));
   const dispatcher = runSyncEffect(createDispatcher({ executor }).pipe(Effect.provide(catalogLayer([definition]))));
   const execution = dispatcher.execute(
     { id: "original-call", tool: definition.name, input },

@@ -1,5 +1,5 @@
 import { Bundle, Core } from "@openomni/agent";
-import type { PlainValue, PolicyRow } from "@openomni/protocol";
+import { PointId, type PlainValue, type PolicyRow } from "@openomni/protocol";
 import { AppInvariantError } from "../../invariant";
 
 /** The live policy plane's legacy `kind`/`phase` address of each #1251 point. */
@@ -18,6 +18,12 @@ const LEGACY_ADDRESS_BY_POINT: Readonly<Record<string, { kind: string; phase: Po
   "compaction.post": { kind: "compaction", phase: "post" },
   "alarm.fired": { kind: "alarm.fired", phase: "post" },
 };
+
+/** The legacy `kind`/`phase` address of a #1251 point; `undefined` names no point. */
+export function legacyPolicyAddress(point: string): { kind: string; phase: PolicyRow.Phase } | undefined {
+  const parsed = PointId.safeParse(point);
+  return parsed.success ? LEGACY_ADDRESS_BY_POINT[parsed.data] : undefined;
+}
 
 /**
  * The kernel's SYNCHRONOUS named services (#1256 r3 G-3): a gate row naming
@@ -105,7 +111,7 @@ export function gateRowPolicySeeds(
 ): readonly Omit<PolicyRow.Row, "generation">[] {
   const consultants = consultantRefs(generation);
   return generation.rows.map((row) => {
-    const address = LEGACY_ADDRESS_BY_POINT[row.on];
+    const address = legacyPolicyAddress(row.on);
     if (address === undefined)
       throw new AppInvariantError(`gate row ${row.id} targets ${row.on}, which has no legacy policy address`);
     return {

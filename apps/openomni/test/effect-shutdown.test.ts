@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { expect, spyOn, test } from "bun:test";
 import { Bundle, Core, Testing } from "@openomni/agent";

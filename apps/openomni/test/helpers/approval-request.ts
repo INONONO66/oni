@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { type PlainValue, SessionTransition } from "@openomni/protocol";
 
 /** Invariant open-approval facts; the per-call Request.parse validates the whole. */
