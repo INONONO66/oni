@@ -20,10 +20,11 @@ src/
 
 ## KEY PATTERNS
 
-- `createCodemode` consumes only the structural machines port (`Pick<MachineHost, "list" | "get">`) and protocol; it owns machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the facade never spawns Python outside `src/kernel.ts`.
-- Typed refusals are `CodemodeError` (`closed`, `machines_not_bound`, `machine_not_found`, `all_stale`, `machine_saturated`, `unknown_cell_id`); driver boundary faults are `DriverFailure`; everything untyped decodes to `MachinesFailure` via `decodeCodeFailure`.
+- `createCodemode` consumes only the structural machines port (`Pick<MachineHost, "list" | "get" | "place">`) and protocol; it owns machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the facade never spawns Python outside `src/kernel.ts`.
+- Tag selection calls `host.place` with `exec` credit and retains its token for the Python handle. Renewal supplies the actual `exec`/`eval` class; PTY operations supply their name and open/use transition to `renewPtyWhile`. Detached cells use exact-member `job` placement for their full execution. Host invalidation prunes both lease references and cached handles; closing releases remaining handles. Codemode owns no capacity counts, placement fold, scheduler or idle timer; host saturation/expiry become `CodemodeError` with the host's credit.
+- Typed refusals are `CodemodeError` (`closed`, `machines_not_bound`, `machine_not_found`, `all_stale`, `machine_saturated`, `lease_expired`, `unknown_cell_id`); driver boundary faults are `DriverFailure`; everything untyped decodes to `MachinesFailure` via `decodeCodeFailure`.
 - Injected entropy (#1245): cell ids come from the injected `id` source; no ambient crypto fallback.
-- Prelude `m.job(command, cwd)` starts a named terminal job derived from its generated cell id; `m.job_wait(name, timeout)` long-polls the terminal cursor with a bounded sentinel tail (timeout in seconds, no accumulated output), and `m.job_read(name)` replays retained terminal bytes by name. Gone sessions return `status: lost`.
+- Prelude `m.job(command, cwd)` starts a named terminal job derived from its generated cell id and charges the host's `job` class, including exact-id handles; its terminal claim lasts until close or detach. `m.job_wait(name, timeout)` long-polls the terminal cursor with a bounded sentinel tail (timeout in seconds, no accumulated output), and `m.job_read(name)` replays retained terminal bytes by name. Gone sessions return `status: lost`.
 
 ## TESTS
 

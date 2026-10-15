@@ -1,8 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import type { LeaseHandle } from "@openomni/machines";
+import { Effect } from "effect";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachMachineDaemon, createMachineHost } from "../../../machines/test/helpers/native";
+import { startPtyControl, type PtyControlFactory } from "../../../machines/src/pty-control";
 import { CodemodeError, createCodemode } from "./helpers/native";
 
 const silent = {
@@ -35,7 +38,7 @@ async function pair(
     b: string;
     da: Awaited<ReturnType<typeof attachMachineDaemon>>;
   }) => Promise<void>,
-  tools?: Parameters<typeof createCodemode>[0],
+  tools?: Parameters<typeof createCodemode>[0] & Partial<Pick<Parameters<typeof createMachineHost>[0], "scheduler" | "now" | "idleTtlMs" | "capacity">> & { pty?: boolean; onLease?: (lease: LeaseHandle) => void },
   sharedTag = false,
 ) {
   const base = mkdtempSync(join(tmpdir(), "oc-consumer-"));
@@ -44,7 +47,9 @@ async function pair(
   mkdirSync(a);
   mkdirSync(b);
   const socketPath = join(tmpdir(), `oc-${crypto.randomUUID()}.sock`);
-  const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py"];
+  const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py", ...(tools?.pty ? ["pty.session"] : [])];
+  const ptySocket = `oc-capacity-${crypto.randomUUID()}`;
+  const ptyServers = new Set<string>();
   let mode: ReturnType<typeof createCodemode>;
   const host = await createMachineHost({
     listen: { unix: socketPath },
@@ -58,17 +63,28 @@ async function pair(
       enrolledAt: 1,
     }),
     events: silent,
-    now: () => 2,
+    now: tools?.now ?? (() => 2),
+    scheduler: tools?.scheduler ?? { schedule: () => () => undefined },
+    idleTtlMs: tools?.idleTtlMs,
+    capacity: tools?.capacity,
     callTool: (call) => mode.callTool(call),
   });
   mode = createCodemode({
     ...tools,
-    machines: host,
+    machines: { ...host, place(request, workClass) {
+      const result = host.place(request, workClass);
+      if (result.kind === "placed") tools?.onLease?.(result.lease);
+      return result;
+    } },
     self: tools?.self ?? "A",
-    scheduler: tools?.scheduler ?? { schedule: () => () => undefined },
   });
-  const attach = (id: string, root: string) =>
-    attachMachineDaemon({
+  const attach = (id: string, root: string) => {
+    const socketName = `${ptySocket}-${id}`;
+    const control: PtyControlFactory = (input) => startPtyControl(input).pipe(Effect.tap((client) => {
+      ptyServers.add(socketName);
+      return client.command("set-option -g default-shell /bin/sh");
+    }));
+    return attachMachineDaemon({
       socketPath,
       offer: {
         machineId: id,
@@ -79,8 +95,10 @@ async function pair(
         exports: [{ name: "data", path: root }],
       },
       fsExports: new Map([["data", root]]),
+      ...(tools?.pty ? { pty: { socketName, control } } : {}),
       runner: createCodemode().runner,
     });
+  };
   const da = await attach("A", a);
   const db = await attach("B", b);
   try {
@@ -89,7 +107,11 @@ async function pair(
     await mode.close();
     await da.close();
     await db.close();
-    host.close();
+    await host.close();
+    for (const socket of ptyServers) {
+      const stopped = Bun.spawn(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "inherit" });
+      expect(await stopped.exited).toBe(0);
+    }
     rmSync(base, { recursive: true, force: true });
   }
 }
@@ -210,16 +232,18 @@ test("concurrent tag placement reserves at pick time and spreads evenly", async 
 });
 
 test("a picked lease releases on the injected idle scheduler", async () => {
+  let now = 0;
   const pending: Array<() => void> = [];
   const scheduler = { schedule(_delayMs: number, task: () => void) { pending.push(task); return () => undefined; } };
   await pair(async ({ mode, a }) => {
     const handle = mode.findMachine({ tag: "worker" });
     expect(handle.id).toBe("A");
+    now = 11;
     pending.shift()?.();
     await expect(handle.read(join(a, "expired"))).rejects.toMatchObject({ reason: "lease_expired" });
     const next = mode.findMachine({ tag: "worker" });
     expect(next.id).toBe("A");
-  }, { scheduler, idleTtlMs: 10 }, true);
+  }, { scheduler, now: () => now, idleTtlMs: 10 }, true);
 });
 
 test("an exclusive pick on a member without reported resources takes the whole member", async () => {
@@ -324,28 +348,9 @@ test("close cancels live facade work and no kernel starts without a daemon runne
 });
 
 test("tag placement is deterministic and an unbound machine port is typed", async () => {
-  const row = {
-    machineId: "A",
-    name: "A",
-    tags: ["same"],
-    publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    enrolledAt: 1,
-    allowedCapabilities: ["kernel.py"],
-    capabilities: ["kernel.py"],
-    os: "linux",
-    arch: "arm64",
-  };
-  const mode = createCodemode({
-    scheduler: { schedule: () => () => undefined },
-    machines: {
-      list: () => [row, { ...row, machineId: "B" }],
-      get: () => {
-        throw new Error("ambiguous selection must not route");
-      },
-    },
-  });
-  expect(mode.findMachine({ tag: "same" }).id).toBe("A");
-  await mode.close();
+  await pair(async ({ mode }) => {
+    expect(mode.findMachine({ tag: "worker" }).id).toBe("A");
+  }, undefined, true);
   const runner = createCodemode();
   expect((await codemodeFailure(() => runner.listMachines())).reason).toBe(
     "machines_not_bound",
@@ -354,6 +359,144 @@ test("tag placement is deterministic and an unbound machine port is typed", asyn
     runner.callTool({ cellId: "ghost", name: "x", arguments: {} }),
   ).resolves.toMatchObject({ status: "failed" });
   await runner.close();
+});
+
+test("host saturation is a typed SDK refusal and a catchable Python ToolError", async () => {
+  await pair(async ({ mode, host }) => {
+    mode.findMachine({ tag: "A" });
+    expect((await codemodeFailure(() => mode.findMachine({ tag: "A" }))).credit).toMatchObject({
+      machineId: "A", reason: "slots", slots: 1, inFlight: 1,
+    });
+    const result = await mode.cell.run([
+      "try:",
+      "    machine(tag='A')",
+      "except ToolError as error:",
+      "    refusal = ('machine_saturated' in str(error), type(error).__name__)",
+      "refusal",
+    ].join("\n"), "capacity");
+    expect(result).toMatchObject({ status: "completed", value: "(True, 'ToolError')" });
+    await mode.close();
+    expect(host.place({ tag: "A", prefer: "spread" }).kind).toBe("placed");
+  }, { capacity: [{ machineId: "A", slots: 1 }] });
+});
+
+test("a nested Python call retains its host lease until physical completion", async () => {
+  const gate = holdGate();
+  let now = 0;
+  const pending: Array<() => void> = [];
+  const scheduler = { schedule(_delay: number, task: () => void) { pending.push(task); return () => undefined; } };
+  await pair(async ({ mode, host }) => {
+    const running = mode.cell.run("machine(tag='B').eval('tool.hold()')", "nested-lease");
+    await gate.entered.promise;
+    now = 100;
+    for (const task of pending.splice(0)) task();
+    expect(host.place({ tag: "B", prefer: "spread" }).kind).toBe("machine_saturated");
+    gate.release.resolve();
+    expect((await running).status).toBe("completed");
+    now = 111;
+    for (const task of pending.splice(0)) task();
+    expect(host.place({ tag: "B", prefer: "spread" }).kind).toBe("placed");
+  }, { ...gate.tools, capacity: [{ machineId: "B", slots: 1 }], scheduler, now: () => now, idleTtlMs: 10 });
+});
+
+test("an expired nested lease releases generation ownership without quarantining an unstarted cell", async () => {
+  let now = 0;
+  let owners = 0;
+  const pending: Array<() => void> = [];
+  const scheduler = { schedule(_delay: number, task: () => void) { pending.push(task); return () => undefined; } };
+  await pair(async ({ mode }) => {
+    expect((await mode.cell.run("retained = machine(tag='B')", "expired-nested")).status).toBe("completed");
+    now = 11;
+    for (const task of pending.splice(0)) task();
+    const result = await mode.cell.run("retained.eval('1')", "expired-nested", {
+      ownership: { retain() { owners += 1; return () => { owners -= 1; }; } },
+    });
+    expect(result).toMatchObject({ status: "raised", error: expect.stringContaining("lease_expired") });
+    expect(owners).toBe(0);
+    await mode.close();
+  }, { scheduler, now: () => now, idleTtlMs: 10 });
+});
+
+test.each(["release", "expiry"] as const)("codemode prunes a host-invalidated lease on %s", async (invalidation) => {
+  let granted: LeaseHandle | undefined;
+  let now = 0;
+  const pending: Array<() => void> = [];
+  await pair(async ({ mode, a }) => {
+    const handle = mode.findMachine({ tag: "A" });
+    if (granted === undefined) throw new Error("expected host grant");
+    const renewal = spyOn(granted, "renewWhile");
+    try {
+      if (invalidation === "release") granted.release();
+      else { now = 11; for (const task of pending.splice(0)) task(); }
+      await expect(handle.read(join(a, "never-routed"))).rejects.toMatchObject({ reason: "lease_expired" });
+      expect(renewal).not.toHaveBeenCalled();
+    } finally { renewal.mockRestore(); }
+  }, {
+    onLease: (lease) => { granted = lease; }, now: () => now, idleTtlMs: 10,
+    scheduler: { schedule(_delay, task) { pending.push(task); return () => undefined; } },
+  });
+});
+
+test("a background cell charges the configured job cost until its execution settles", async () => {
+  const gate = holdGate();
+  const settled = Promise.withResolvers<void>();
+  await pair(async ({ mode, host }) => {
+    const running = mode.cell.run("tool.hold()", "job-credit", {
+      waitMs: 0, ownership: { retain: () => () => settled.resolve() },
+    });
+    await gate.entered.promise;
+    const cell = await running;
+    expect(cell.status).toBe("running");
+    expect(host.place({ machineId: "A" }, "exec")).toMatchObject({ kind: "machine_saturated", inFlight: 2 });
+    gate.release.resolve();
+    await settled.promise;
+    expect(host.place({ machineId: "A" }, "exec").kind).toBe("placed");
+  }, { ...gate.tools, capacity: [{ machineId: "A", slots: 2, classCosts: { exec: 1, eval: 1, pty: 1, job: 2 } }] });
+});
+
+test("an open terminal keeps its slot through idle time and releases it after close", async () => {
+  let now = 0;
+  const pending: Array<() => void> = [];
+  const scheduler = { schedule(_delay: number, task: () => void) { pending.push(task); return () => undefined; } };
+  await pair(async ({ mode, host, b }) => {
+    expect(await mode.cell.run([
+      "member = machine(tag='B')",
+      `terminal = member.pty('held')`,
+      `terminal.open(${JSON.stringify(b)})['status']`,
+    ].join("\n"), "terminal-credit")).toMatchObject({ status: "completed", value: "'ok'" });
+    now = 100;
+    for (const task of pending.splice(0)) task();
+    expect(host.place({ tag: "B", prefer: "spread" }).kind).toBe("machine_saturated");
+    expect(await mode.cell.run("terminal.resize(80, 24)['status']", "terminal-credit")).toMatchObject({ status: "completed", value: "'ok'" });
+    expect(await mode.cell.run("terminal.close()['status']", "terminal-credit")).toMatchObject({ status: "completed", value: "'ok'" });
+    now = 111;
+    for (const task of pending.splice(0)) task();
+    expect(host.place({ tag: "B", prefer: "spread" }).kind).toBe("placed");
+  }, { pty: true, capacity: [{ machineId: "B", slots: 1 }], scheduler, now: () => now, idleTtlMs: 10 });
+});
+
+test.each(["machine('B')", "machine(tag='B')"])("terminal jobs charge their class through %s", async (select) => {
+  let now = 0;
+  const pending: Array<() => void> = [];
+  await pair(async ({ mode, host, b }) => {
+    expect(await mode.cell.run([
+      `member = ${select}`,
+      `job_info = member.job('printf job', ${JSON.stringify(b)})`,
+      "member.job_wait(job_info['name'], 5)['status']",
+    ].join("\n"), "job-terminal")).toMatchObject({ status: "completed", value: "'completed'" });
+    now = 100;
+    for (const task of pending.splice(0)) task();
+    expect(host.place({ machineId: "B" }, "job")).toMatchObject({ kind: "machine_saturated", inFlight: 2 });
+    expect(await mode.cell.run("member.pty(job_info['name']).close()['status']", "job-terminal"))
+      .toMatchObject({ status: "completed", value: "'ok'" });
+    now = 111;
+    for (const task of pending.splice(0)) task();
+    expect(host.place({ machineId: "B" }, "job").kind).toBe("placed");
+  }, {
+    pty: true, now: () => now, idleTtlMs: 10,
+    scheduler: { schedule(_delay, task) { pending.push(task); return () => undefined; } },
+    capacity: [{ machineId: "B", slots: 2, classCosts: { exec: 1, eval: 1, pty: 1, job: 2 } }],
+  });
 });
 
 test("injected completion batches through parallel and tenant state never crosses interpreters", async () => {

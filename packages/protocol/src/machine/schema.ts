@@ -150,6 +150,37 @@ export const Resources = z
   .strict();
 export type Resources = z.infer<typeof Resources>;
 
+const CapacityFields = {
+  slots: z.number().int().positive().optional(),
+  memReserveBytes: z.number().int().nonnegative().optional(),
+  classCosts: z.object({
+    exec: z.literal(1),
+    eval: z.literal(1),
+    pty: z.literal(1),
+    job: z.number().positive(),
+  }).strict().optional(),
+};
+export const CapacityRow = z.union([
+  z.object({ machineId: MachineId, ...CapacityFields }).strict(),
+  z.object({ tag: z.string().min(1), ...CapacityFields }).strict(),
+]);
+export type CapacityRow = z.infer<typeof CapacityRow>;
+export const CapacityRows = z.array(CapacityRow).superRefine((rows, ctx) => {
+  const selectors = rows.map((row) => "machineId" in row ? `id:${row.machineId}` : `tag:${row.tag}`);
+  if (new Set(selectors).size !== selectors.length)
+    ctx.addIssue({ code: "custom", message: "capacity selectors must be unique" });
+});
+export const LeaseRefusal = z.object({
+  machineId: MachineId,
+  reason: z.enum(["slots", "memory"]),
+  /** Null means no slot count was offered or configured. */
+  slots: z.number().int().positive().nullable(),
+  inFlight: z.number().nonnegative(),
+  memoryAvailableBytes: z.number().int().nonnegative().optional(),
+  memReserveBytes: z.number().int().nonnegative().optional(),
+}).strict();
+export type LeaseRefusal = z.infer<typeof LeaseRefusal>;
+
 /**
  * Daemon-side attach report: what this machine CAN do right now.
  * May be empty — a daemon is allowed to attach before any capability module

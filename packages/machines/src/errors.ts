@@ -20,10 +20,11 @@ const RefusalFields = z.object({
     "machine_not_attached", "fs_not_available", "export_not_available", "path_escapes_export",
     "not_found", "wrong_kind", "io_error", "too_large", "ambiguous_export", "invalid_method",
     "invalid_response", "closed", "ambiguous_machine", "peer_key_mismatch", "disconnected",
-    "host_tool_missing",
+    "host_tool_missing", "machine_saturated", "lease_expired", "lease_scheduler_missing",
     "transfer_not_found", "invalid_sequence", "digest_mismatch",
   ]),
   message: z.string(),
+  credit: Machine.LeaseRefusal.optional(),
 });
 export class MachineRefusalError extends Data.TaggedError("MachineRefusalError")<z.infer<typeof RefusalFields>> {}
 const BoundaryFields = Diagnostic.extend({ message: z.string() });

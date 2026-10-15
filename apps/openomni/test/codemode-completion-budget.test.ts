@@ -29,6 +29,7 @@ test("two cells in one turn each own a full completion budget", async () => {
     dispatcherBound: 8,
     listen: { unix: path },
     id: testIds("budget-host"),
+    scheduler: { schedule: () => () => undefined },
     enrollment: (machineId: string) => ({ machineId, name: "budget", allowedCapabilities: ["kernel.py"], publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", enrolledAt: 0 }),
     events: { publish: () => undefined }, now: () => 1,
     callTool: (call: Machine.ToolCall) => Effect.suspend(() => {
@@ -101,6 +102,7 @@ test("a non-ToolRefused defect inside the cell door dies instead of folding to a
     dispatcherBound: 8,
     listen: { unix: path },
     id: testIds("defect-host"),
+    scheduler: { schedule: () => () => undefined },
     enrollment: (machineId: string) => ({ machineId, name: "defect", allowedCapabilities: ["kernel.py"], publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", enrolledAt: 0 }),
     events: { publish: () => undefined }, now: () => 1,
     // The defect is recorded HERE, at the host's callback boundary, then

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BusEvent } from "../bus/index.js";
-import { CapabilityId, Enrollment, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
+import { CapabilityId, Enrollment, LeaseRefusal, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
 
 const EventBase = z.object({
@@ -13,6 +13,9 @@ export const Events = {
     visibility: "llm_reason",
   }),
   Unenrolled: BusEvent.define("machine.unenrolled", EventBase, { visibility: "llm_reason" }),
+  LeaseRefused: BusEvent.define("machine.lease_refused", LeaseRefusal.extend({ time: EpochMs }), {
+    visibility: "llm_reason",
+  }),
   /** A daemon attached and negotiation settled: this is the effective set in force. */
   Attached: BusEvent.define(
     "machine.attached",

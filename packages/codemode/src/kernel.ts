@@ -227,7 +227,10 @@ class _Machine:
             (cell_id + ':' + str(next(_call_ids))).encode('utf-8')
         ).hexdigest()[:24]
         terminal = self.pty(name)
-        opened = terminal.open(cwd)
+        opened = tool['codemode.ptyOpen'](
+            machineId=self.machine_id, leaseId=self.lease_id,
+            name=name, cwd=cwd, workClass='job',
+        )
         if opened['status'] != 'ok':
             raise ToolError('job open refused: ' + opened['reason'])
         launch = (

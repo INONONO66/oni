@@ -48,7 +48,7 @@ export function attachConfiguredMachine(configPath: string, id: () => string) {
     const report = { scheduler, now };
     const contents = yield* Effect.tryPromise({ try: () => Bun.file(configPath).text(), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.read") });
     const config = yield* Effect.try({ try: () => Configuration.parse(JSON.parse(contents)), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.decode") });
-    const mode = yield* createCodemode({ id, scheduler });
+    const mode = yield* createCodemode({ id });
     const common = {
       id,
       // #1312: injected IPC callback bound for the remote machine daemon.

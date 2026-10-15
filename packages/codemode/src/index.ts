@@ -1,4 +1,4 @@
-import { MachinesFailure, type CodeRunner, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@openomni/machines";
+import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type CodeRunner, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@openomni/machines";
 import { listenForAbort, Machine } from "@openomni/protocol";
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
 import { z } from "zod";
@@ -27,17 +27,11 @@ interface BackgroundCell {
 const RETAINED_SETTLED_CELLS = 64;
 /** Upper bound on tenant interpreters shut down at once during close. */
 const CLOSE_CONCURRENCY = 16;
-export interface LeaseScheduler {
-  schedule(delayMs: number, task: () => void): () => void;
-  close?(): void;
-}
 export interface CodemodeOptions {
   /** Injected cell-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
-  readonly machines?: Pick<MachineHost, "list" | "get">;
+  readonly machines?: Pick<MachineHost, "list" | "get" | "place">;
   readonly self?: string;
-  readonly scheduler?: LeaseScheduler;
-  readonly idleTtlMs?: number;
   readonly completion?: (request: Machine.CompletionRequest) => Effect.Effect<string, Failure>;
   /**
    * #1305: resolves a projected tool result's stored output for the owning
@@ -60,7 +54,7 @@ const InputInput = Machine.InputWriteRequest.extend({ machineId: Machine.Machine
 const FindInput = Machine.PlacementRequest.extend({
   prefer: Machine.PlacementRequest.shape.prefer.optional(),
 });
-const PtyOpenInput = Machine.PtyOpenRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const PtyOpenInput = Machine.PtyOpenRequest.extend({ machineId: Machine.MachineId, workClass: z.enum(["pty", "job"]).optional() }).merge(LeaseInput);
 const PtyWriteInput = Machine.PtyWriteRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
 const PtyReadInput = Machine.PtyReadRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
 const PtyResizeInput = Machine.PtyResizeRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
@@ -77,102 +71,82 @@ export function createCodemode(options: CodemodeOptions) {
     const lifetime = new AbortController();
     const running = new Set<Deferred.Deferred<void>>();
     const background = new Map<string, BackgroundCell>();
-    interface Lease {
-      readonly leaseId: string;
-      readonly machineId: string;
-      readonly units: number;
-      inFlight: number;
-      cancel?: () => void;
-      released: boolean;
-    }
-    const leases = new Map<string, Set<Lease>>();
-    const leaseTtl = options.idleTtlMs ?? 10_000;
+    const leases = new Map<string, LeaseHandle>();
     let closed = false;
     function requireOpen(): void {
       if (closed) throw new CodemodeError({ reason: "closed", message: "codemode is closed" });
     }
-    function machines(): Pick<MachineHost, "list" | "get"> {
+    function machines(): NonNullable<CodemodeOptions["machines"]> {
       requireOpen();
       if (!options.machines) throw new CodemodeError({ reason: "machines_not_bound", message: "machine port is not bound" });
       return options.machines;
     }
-    function expire(lease: Lease): void {
-      if (lease.released || lease.inFlight > 0) return;
-      lease.released = true;
-      lease.cancel?.();
-      leases.get(lease.machineId)?.delete(lease);
-      handles.delete(`${lease.machineId}\0${lease.leaseId}`);
-    }
-    function arm(lease: Lease): void {
-      if (options.scheduler === undefined)
-        throw new CodemodeError({ reason: "lease_scheduler_missing", message: "machine leases require an injected scheduler" });
-      lease.cancel?.();
-      lease.cancel = options.scheduler?.schedule(leaseTtl, () => expire(lease));
-    }
-    function reserve(machineId: string, units: number): Lease {
-      if (options.scheduler === undefined)
-        throw new CodemodeError({ reason: "lease_scheduler_missing", message: "machine leases require an injected scheduler" });
-      const lease: Lease = { leaseId: options.id(), machineId, units, inFlight: 0, released: false };
-      const members = leases.get(machineId) ?? new Set<Lease>();
-      members.add(lease);
-      leases.set(machineId, members);
-      arm(lease);
-      return lease;
-    }
-    function useMachine<T>(machineId: string, leaseId: string | null | undefined, operation: Effect.Effect<T, Failure>): Effect.Effect<T, Failure> {
-      if (leaseId == null) return operation;
+    function withLease<T>(target: { machineId: string; leaseId?: string | null }, operation: (lease?: LeaseHandle) => Effect.Effect<T, Failure>): Effect.Effect<T, Failure> {
       return Effect.suspend(() => {
-        const lease = [...(leases.get(machineId) ?? [])].find((candidate) => candidate.leaseId === leaseId);
-        if (lease === undefined || lease.released)
-          return Effect.fail(new CodemodeError({ reason: "lease_expired", message: `machine lease expired: ${leaseId}` }));
-        lease.inFlight += 1;
-        lease.cancel?.();
-        lease.cancel = undefined;
-        return operation.pipe(Effect.ensuring(Effect.sync(() => {
-          lease.inFlight -= 1;
-          if (lease.inFlight === 0) arm(lease);
-        })));
-      });
+        const { machineId, leaseId } = target;
+        if (leaseId === undefined || leaseId === null) return operation();
+        const lease = leases.get(leaseId);
+        if (lease === undefined || lease.machineId !== machineId)
+          return Effect.fail(new CodemodeError({ reason: "lease_expired", message: `lease_expired: ${leaseId}` }));
+        return operation(lease);
+      }).pipe(Effect.mapError((error) =>
+          error instanceof MachineRefusalError && (error.reason === "lease_expired" || error.reason === "machine_saturated")
+            ? new CodemodeError({ reason: error.reason, message: error.message, credit: error.credit })
+            : error));
     }
-    function select(query: z.input<typeof FindInput>): { machineId: string; lease: Lease } {
-      const parsed = FindInput.parse(query);
-      const outcome = Machine.place({
-        tag: parsed.tag,
-        ...(parsed.requires === undefined ? {} : { requires: parsed.requires }),
-        prefer: parsed.prefer ?? "spread",
-      }, machines().list().map((machine) => ({
-        ...machine,
-        leases: [...(leases.get(machine.machineId) ?? [])].reduce((total, lease) => total + lease.units, 0),
-      })));
+    function useMachine<T>(target: { machineId: string; leaseId?: string | null }, operation: Effect.Effect<T, Failure>, workClass: LeaseClass) {
+      return withLease(target, (lease) => lease ? lease.renewWhile(operation, workClass) : operation);
+    }
+    function reserve(request: Parameters<MachineHost["place"]>[0], workClass: LeaseClass) {
+      const outcome = machines().place(request, workClass);
       if (outcome.kind === "no_member") throw new CodemodeError({ reason: "machine_not_found", message: "no machine matches the request" });
       if (outcome.kind === "all_stale") throw new CodemodeError({ reason: "all_stale", message: "all matching machines are stale" });
-      if (outcome.kind === "machine_saturated") throw new CodemodeError({ reason: "machine_saturated", message: "all matching machines are saturated" });
-      const target = machines().list().find((machine) => machine.machineId === outcome.machineId);
-      const units = parsed.prefer === "exclusive"
-        ? (target?.resources?.cpus
-          ?? 1)
-        : 1;
-      return { machineId: outcome.machineId, lease: reserve(outcome.machineId, units) };
+      if (outcome.kind === "machine_saturated") throw new CodemodeError({ reason: "machine_saturated", message: `machine_saturated: ${outcome.machineId} (${outcome.reason})`, credit: outcome });
+      leases.set(outcome.lease.id, outcome.lease);
+      outcome.lease.signal.addEventListener("abort", () => {
+        leases.delete(outcome.lease.id);
+        handles.delete(`${outcome.machineId}\0${outcome.lease.id}`);
+      }, { once: true });
+      return outcome;
+    }
+    function select(query: z.input<typeof FindInput>) {
+      const parsed = FindInput.parse(query);
+      return reserve({ ...parsed, prefer: parsed.prefer ?? "spread" }, "exec");
     }
     function makeHandle(id: string, leaseId?: string | null) {
       const target = (): MachineHandle => machines().get(id);
+      const binding = { machineId: id, leaseId };
+      function pty<T extends { readonly status: "ok" | "refused" }>(
+        name: string,
+        operation: Effect.Effect<T, Failure>,
+        work: { readonly op: "open" | "use"; readonly workClass?: "pty" | "job" } = { op: "use" },
+      ) {
+        const use = (lease?: LeaseHandle) => lease ? lease.renewPtyWhile(operation, { name, ...work }) : operation;
+        if (leaseId == null && work.workClass === "job")
+          return Effect.acquireUseRelease(
+            Effect.try({ try: () => reserve({ machineId: id }, "job").lease, catch: decodeCodeFailure("job.admit") }),
+            (lease) => withLease({ machineId: id, leaseId: lease.id }, use),
+            (lease) => Effect.sync(() => lease.release()),
+          );
+        return withLease(binding, use);
+      }
       return {
         id,
-        read: (path: string) => useMachine(id, leaseId, Effect.suspend(() => target().fs.read(path))),
-        write: (path: string, data: Uint8Array) => useMachine(id, leaseId, Effect.suspend(() => target().fs.write(path, data))),
-        ls: (path: string) => useMachine(id, leaseId, Effect.suspend(() => target().fs.list(path))),
-        bash: (command: string, cwd: string) => useMachine(id, leaseId, Effect.suspend(() => target().exec(command, cwd))),
-        eval: (cell: Machine.CellRequest, signal?: AbortSignal) => useMachine(id, leaseId, Effect.suspend(() => target().runCode(cell, signal))),
-        screen: (request: Machine.ScreenReadRequest) => useMachine(id, leaseId, Effect.suspend(() => target().screen(request))),
-        input: (request: Machine.InputWriteRequest) => useMachine(id, leaseId, Effect.suspend(() => target().input(request))),
+        read: (path: string) => useMachine(binding, Effect.suspend(() => target().fs.read(path)), "exec"),
+        write: (path: string, data: Uint8Array) => useMachine(binding, Effect.suspend(() => target().fs.write(path, data)), "exec"),
+        ls: (path: string) => useMachine(binding, Effect.suspend(() => target().fs.list(path)), "exec"),
+        bash: (command: string, cwd: string) => useMachine(binding, Effect.suspend(() => target().exec(command, cwd)), "exec"),
+        eval: (cell: Machine.CellRequest, signal?: AbortSignal) => useMachine(binding, Effect.suspend(() => target().runCode(cell, signal)), "eval"),
+        screen: (request: Machine.ScreenReadRequest) => useMachine(binding, Effect.suspend(() => target().screen(request)), "exec"),
+        input: (request: Machine.InputWriteRequest) => useMachine(binding, Effect.suspend(() => target().input(request)), "exec"),
         // Persistent terminals (#1273): mirror of MachineHandle.pty.
         pty: {
-          open: (name: string, cwd: string) => useMachine(id, leaseId, Effect.suspend(() => target().pty.open(name, cwd))),
-          write: (name: string, data: Uint8Array) => useMachine(id, leaseId, Effect.suspend(() => target().pty.write(name, data))),
-          read: (name: string, options?: { cursor?: string; waitMs?: number }) => useMachine(id, leaseId, Effect.suspend(() => target().pty.read(name, options))),
-          resize: (name: string, cols: number, rows: number) => useMachine(id, leaseId, Effect.suspend(() => target().pty.resize(name, cols, rows))),
-          close: (name: string) => useMachine(id, leaseId, Effect.suspend(() => target().pty.close(name))),
-          list: () => useMachine(id, leaseId, Effect.suspend(() => target().pty.list())),
+          open: (name: string, cwd: string, workClass: "pty" | "job" = "pty") => pty(name, Effect.suspend(() => target().pty.open(name, cwd)), { op: "open", workClass }),
+          write: (name: string, data: Uint8Array) => pty(name, Effect.suspend(() => target().pty.write(name, data))),
+          read: (name: string, options?: { cursor?: string; waitMs?: number }) => pty(name, Effect.suspend(() => target().pty.read(name, options))),
+          resize: (name: string, cols: number, rows: number) => pty(name, Effect.suspend(() => target().pty.resize(name, cols, rows))),
+          close: (name: string) => pty(name, Effect.suspend(() => target().pty.close(name))),
+          list: () => useMachine(binding, Effect.suspend(() => target().pty.list()), "pty"),
         },
       };
     }
@@ -193,7 +167,7 @@ export function createCodemode(options: CodemodeOptions) {
     }
     function dispatchCatalog(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
       if (call.name === "codemode.listMachines") return Effect.try({ try: () => Machine.ToolCallResult.parse({ status: "completed", value: machines().list() }), catch: decodeCodeFailure("machines.list") });
-      if (call.name === "codemode.findMachine") return Effect.try({ try: (): Machine.ToolCallResult => { const selected = select(z.object({ query: FindInput }).strict().parse(call.arguments).query); return { status: "completed", value: { machineId: selected.machineId, leaseId: selected.lease.leaseId } }; }, catch: decodeCodeFailure("machines.find") });
+      if (call.name === "codemode.findMachine") return Effect.try({ try: (): Machine.ToolCallResult => { const selected = select(z.object({ query: FindInput }).strict().parse(call.arguments).query); return { status: "completed", value: { machineId: selected.machineId, leaseId: selected.lease.id } }; }, catch: decodeCodeFailure("machines.find") });
       return Effect.succeed(undefined);
     }
     function dispatchMachineOp(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
@@ -244,7 +218,7 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.ptyOpen") {
           const input = yield* ptyArgs(call, PtyOpenInput, "ptyOpen");
-          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.open(input.name, input.cwd) };
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.open(input.name, input.cwd, input.workClass) };
         }
         if (call.name === "codemode.ptyWrite") {
           const input = yield* ptyArgs(call, PtyWriteInput, "ptyWrite");
@@ -289,13 +263,8 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.eval") {
           const input = yield* Effect.try({ try: () => RunInput.parse(call.arguments), catch: decodeCodeFailure("eval.arguments") });
-          const launched = launch(input.machineId, input.code, `${binding.tenant}/nested`, binding.caller,
-            { timeoutMs: binding.timeoutMs, signal: binding.signal, ownership: binding.ownership },
-            binding.boundary).pipe(Effect.flatMap((cell) => Fiber.join(cell.entry.execution)));
-          const value = yield* input.leaseId === undefined
-            ? launched
-            : useMachine(input.machineId, input.leaseId, launched);
-          return { status: "completed", value };
+          const started = yield* launch(input.machineId, input.code, `${binding.tenant}/nested`, binding.caller, { timeoutMs: binding.timeoutMs, signal: binding.signal, ownership: binding.ownership, leaseId: input.leaseId }, binding.boundary);
+          return { status: "completed", value: yield* Fiber.join(started.entry.execution) };
         }
         if (call.name === "completion" && options.completion) {
           const input = yield* Effect.try({ try: () => Machine.CompletionRequest.parse(call.arguments), catch: decodeCodeFailure("completion.arguments") });
@@ -344,7 +313,7 @@ export function createCodemode(options: CodemodeOptions) {
     function stop(cellId: string, tenant: string): Effect.Effect<Machine.CellResult, Failure> {
       return Effect.try({ try: () => tenantCell(cellId, tenant), catch: decodeCodeFailure("cell.stop") }).pipe(Effect.flatMap((entry) => { entry.controller.abort(); return settle(cellId, entry); }));
     }
-    function launch(id: string, code: string, tenant: string, caller: Caller, runOptions: RunOptions, boundary = (runOptions.bindings ?? options).boundary?.(tenant)) {
+    function launch(id: string, code: string, tenant: string, caller: Caller, runOptions: RunOptions & { readonly leaseId?: string | null }, boundary = (runOptions.bindings ?? options).boundary?.(tenant)) {
       return Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
         const timeoutMs = runOptions.timeoutMs ?? 15_000;
         const cellId = options.id();
@@ -360,10 +329,18 @@ export function createCodemode(options: CodemodeOptions) {
         let done = false;
         let entered = false;
         let quarantined = false;
-        const execution = yield* Effect.forkIn(restore(Effect.suspend(() => {
+        const operation = Effect.suspend(() => {
           entered = true;
           return handle.runCode({ cellId, code, tenant, timeoutMs }, signal);
-        })), scope);
+        });
+        const work = runOptions.waitMs === undefined
+          ? useMachine({ machineId: id, leaseId: runOptions.leaseId }, operation, "eval")
+          : Effect.acquireUseRelease(
+            Effect.try({ try: () => reserve({ machineId: id }, "job").lease, catch: decodeCodeFailure("cell.admit") }),
+            (lease) => lease.renewWhile(operation, "job"),
+            (lease) => Effect.sync(() => lease.release()),
+          );
+        const execution = yield* Effect.forkIn(restore(work), scope);
         const entry: BackgroundCell = { tenant, machineId: id, controller, execution,
           get done() { return done; }, get quarantined() { return quarantined; } };
         execution.addObserver((exit) => {
@@ -394,11 +371,7 @@ export function createCodemode(options: CodemodeOptions) {
       },
       close: () => Effect.gen(function* () {
         closed = true; lifetime.abort();
-        options.scheduler?.close?.();
-        for (const leaseSet of leases.values()) for (const lease of leaseSet) {
-          lease.cancel?.();
-          lease.released = true;
-        }
+        for (const lease of leases.values()) lease.release();
         leases.clear();
         handles.clear();
         yield* Effect.forEach([...kernels.values()], (kernel) => kernel.close(), { discard: true, concurrency: CLOSE_CONCURRENCY });
@@ -413,7 +386,7 @@ export function createCodemode(options: CodemodeOptions) {
       listMachines: (): MachineInfo[] => machines().list(), getMachine,
       findMachine: (query: { tag: string; requires?: Machine.CapabilityId[]; prefer?: Machine.PlacementRequest["prefer"] }) => {
         const selected = select(query);
-        return makeHandle(selected.machineId, selected.lease.leaseId);
+        return makeHandle(selected.machineId, selected.lease.id);
       },
       callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.tool", cause: error.message || String(error) }))),
       runner, close: runner.close,

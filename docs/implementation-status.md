@@ -1,5 +1,34 @@
 # Implementation Status
 
+## #1557 capacity rows and host-owned leases (epic #1554, rung E)
+
+On `feat/1557-machine-capacity` (2026-10-15, base `dc32b01a3`, PR #1580).
+`packages/protocol` adds strict `Machine.CapacityRows` (tag rows apply in
+array order, an exact machine row overrides their fields, duplicate
+selectors are rejected, selectors for future enrollments are allowed, and
+unknown slot capacity is `null` rather than a fabricated CPU count), the
+decision-credit `LeaseRefusal` schema and the `machine.lease_refused` bus
+fact. `packages/machines` is the one lease owner: `createMachineHost`
+validates the rows before binding, `host.capacity()` resolves each member to
+`{ machineId, slots, memReserveBytes, classCosts }`, and `host.place` reuses
+the protocol fold while atomically reserving credit — weighted job cost,
+whole-member exclusive claims, memory-reserve admission from the latest
+non-stale report (stale reports supply no memory evidence), idle expiry on
+the host's injected `now` and scheduler, retained named-terminal claims and
+detach cleanup. A placed outcome carries a host-issued
+`{ id, machineId, signal, renewWhile, renewPtyWhile, release }` lease so
+admission, active credit, renewal and invalidation stay under one owner.
+`packages/codemode` keeps only opaque lease references, translates
+`machine_saturated` and `lease_expired`, and holds the lease across nested
+execution; it owns no placement fold, counters, scheduler or TTL. The app
+reads optional `OPENOMNI_MACHINES_CAPACITY` JSON, injects capacity and the
+one Effect-clock scheduler (`composition/platform.ts`) into the host with a
+scope finalizer for pending timers, and codemode receives no clocks or
+schedulers. No new tool, wire method, store mechanic, capacity transport
+constant or app DB mechanics; the exact-line session-writer pin moved with
+the composition insertion.
+Receipts on `998482b72` (base `dc32b01a3`): lead final chain on `998482b72` (base `dc32b01a3`): 13/13 gates exit 0 (build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries); `check-deps-agent-bands.test.ts` 45/0; app machine/codemode/self/provision/config/code-mode-e2e suites 246/0; protocol 653/0; machines 282/0 (1 skip); codemode 53 pass, 1 fail = `browser.test.ts` host-only Chromium/playwright precondition; `check-patch-coverage --base origin/main` all changed executable lines covered (package lcov + `script/coverage/lcov.info` from the check-deps suites run in `script/`, 124/0). Lane receipts on `8af46f845` (base `5dffade3b`): app 63/0, machines 282/0, codemode 61/0, protocol 653/0, patch coverage all covered. Lead self-verify fix: the app's host scheduler now rides `effectScheduler` with a scope finalizer instead of an inline `setTimeout` (zero raw timers remain in `apps/openomni/src`).
+
 ## #1556 pooled placement, pick-time leases and one `machine()` (epic #1554, rung B)
 
 On `feat/1556-machine-place` (2026-10-15, base `ae351e71a`, PR #1576).
