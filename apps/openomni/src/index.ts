@@ -718,6 +718,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const typingRoutes = new Map<string, ProviderTypingRoute>();
     const resident = createResident({
       typingRoute: (surface) => typingRoutes.get(surface),
+      prompts: config.prompts,
       // #1257: the app's resolved cap is the input the composition writes
       // into every new session's genesis generation settings.
       forkCopyByteCap: resolveSessionFork(config).copyByteCap,
@@ -843,8 +844,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         model: config.model,
         apiKey: config.model.apiKey,
         ...(transport === undefined ? {} : { transport }),
-        ...(config.hooksPath === undefined ? {} : { hooksPath: config.hooksPath }),
-        ...(config.off === undefined ? {} : { off: [...config.off] }),
+        ...processSessionPromptOptions(config),
       },
       committed: (ids) => {
         for (const id of ids) void wake(id);
@@ -1393,5 +1393,16 @@ export interface AppSessionHandle {
   interrupt(): Effect.Effect<void, Core.SessionError>;
   readonly tools: {
     add: SessionHandle["tools"]["add"];
+  };
+}
+
+function processSessionPromptOptions(
+  config: Pick<OpenOmniConfig, "hooksPath" | "promptsDir" | "skillsDir" | "off">,
+) {
+  return {
+    ...(config.hooksPath === undefined ? {} : { hooksPath: config.hooksPath }),
+    ...(config.promptsDir === undefined ? {} : { promptsDir: config.promptsDir }),
+    ...(config.skillsDir === undefined ? {} : { skillsDir: config.skillsDir }),
+    ...(config.off === undefined ? {} : { off: [...config.off] }),
   };
 }

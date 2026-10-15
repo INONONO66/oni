@@ -47,6 +47,7 @@ import { appManifest } from "./manifest";
 import { createWatchPlane } from "./composition/watch-plane";
 import { composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
 import { readHooksJson } from "./bundles/hooks-json/index";
+import { loadPromptCatalog } from "./bundles/prompt/data";
 
 export const ProcessSessionRequest = z
   .object({
@@ -57,6 +58,8 @@ export const ProcessSessionRequest = z
     model: Model.Ref,
     apiKey: z.string().min(1),
     hooksPath: z.string().min(1).optional(),
+    promptsDir: z.string().min(1).optional(),
+    skillsDir: z.string().min(1).optional(),
     off: z.array(z.string().min(1)).optional(),
     transport: z
       .object({
@@ -155,6 +158,7 @@ export function serveProcessSession(
     model: request.model,
     apiKey: request.apiKey,
     ...(request.transport === undefined ? {} : { transport: request.transport }),
+    prompts: loadPromptCatalog(request),
     sessionRuntime: runtime,
     tools,
     policyGeneration: () =>
