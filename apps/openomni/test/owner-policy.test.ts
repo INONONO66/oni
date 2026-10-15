@@ -225,6 +225,45 @@ test("invalid row semantics refuse rather than partially compiling", () => {
   ).toBe("invalid_policy_file");
 });
 
+const messageRow = (verdict: { type: string; reason?: string }) =>
+  policyRow({
+    id: "probe/message.pre#1",
+    point: "message.pre",
+    when: {
+      message: {
+        id: "probe/message.pre#1",
+        effect: "deny",
+        table: "A",
+        sender: "external",
+        check: "identity",
+      },
+    },
+    verdict,
+  });
+
+test("a message row's verdict is derived from its rule: the effect and the row id as reason", () => {
+  const policy = compileOwnerPolicy({ approval, rows: [messageRow({ type: "deny" })] }, "derived.json");
+  expect(policy.rows[0]?.verdict).toEqual({
+    encodingVersion: 1,
+    value: { type: "deny", reason: "probe/message.pre#1" },
+  });
+});
+
+test("a message verdict that disagrees with its deny rule refuses typed", () => {
+  const mismatchedType = refusal(() =>
+    compileOwnerPolicy({ approval, rows: [messageRow({ type: "allow" })] }, "verdict-mismatch.json"),
+  );
+  expect(mismatchedType.code).toBe("invalid_policy_file");
+  const foreignReason = refusal(() =>
+    compileOwnerPolicy(
+      { approval, rows: [messageRow({ type: "deny", reason: "custom" })] },
+      "verdict-reason.json",
+    ),
+  );
+  expect(foreignReason.code).toBe("invalid_policy_file");
+  expect(foreignReason.message).toContain("verdict reason must be the row id");
+});
+
 test("unreadable and malformed policy files refuse before compilation", () => {
   const directory = mkdtempSync(join(tmpdir(), "owner-policy-"));
   try {

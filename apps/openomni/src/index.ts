@@ -22,7 +22,7 @@ import { timingSafeEqual } from "node:crypto";
 import { statSync } from "node:fs";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
-import { APPROVAL_POLICY } from "./composition/policy";
+import { ownerPolicy } from "./composition/policy";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
 import { seedKernelPolicyRows } from "./composition/policy";
 import { AppPointTable } from "./composition/point-table";
@@ -351,6 +351,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
   // #1256: the hooks file is config compiled once per boot; a bad file is a
   // typed refusal thrown here, before any listener exists.
   const hooks = config.hooksPath === undefined ? undefined : readHooksJson(config.hooksPath);
+  const policy = ownerPolicy(config.policyPath);
   // Boot is config -> manifest -> compose -> runtime (#1255): a ComposeRefused
   // here is the typed boot failure, thrown before any listener exists. An
   // injected runtime carries its own composed holder (tests).
@@ -364,6 +365,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       tools: toolsSlot.current,
       toolPacks: loadToolPacks(config.toolPacksDir, new Set([machinesConfig.self.id ?? "self", ...machinesConfig.enrolled.map((machine) => machine.machineId)]), toolsSlot.current, (message, code): never => { throw new AppInvariantError(message, code); }),
       ...(hooks === undefined ? {} : { hooks }),
+      policy,
       ...(config.off === undefined ? {} : { off: config.off }),
     });
     const generation = Bundle.composeSync(manifest);
@@ -419,6 +421,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       plane.catalog.policies,
       gateRowPolicySeeds(services.composed.current().generation),
       services.pointTable,
+      policy.rows,
     );
     // The Session entity client: THE delivery path for message and timer
     // traffic (W5.2 plan §1) — the RPC ack means the receiver committed.
@@ -459,7 +462,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       ...options.sessionRuntime,
       // #1309: the approval/budget product values come from the composed
       // approval-policy bundle; the core keeps no literal fallback.
-      approvalPolicy: APPROVAL_POLICY,
+      approvalPolicy: policy.approval,
       // #1307 (review M1): the kernel's commit pinning and restore paths get
       // the compaction verbs only while the CURRENT composed generation keeps
       // the capability on — off, the seam stays absent so a compaction append
@@ -475,6 +478,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       dispatchOutbound: dispatchOutboundMessage(
         (...args) => messages.ingest(...args),
         plane.openKernel,
+        policy.approval,
       ),
       requestDomainRevisions: domainRevisions,
       onRequestReady: (id) => {
@@ -636,6 +640,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
             plane.catalog.policies,
             gateRowPolicySeeds(generation),
             services.pointTable,
+            policy.rows,
           );
         },
       },
@@ -1003,6 +1008,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
                 })),
               ),
         },
+        policy.approval,
       ),
     );
     alarmIngress = automationAlarm(gateway, channelStores);
@@ -1422,10 +1428,11 @@ export interface AppSessionHandle {
 }
 
 function processSessionPromptOptions(
-  config: Pick<OpenOmniConfig, "hooksPath" | "promptsDir" | "skillsDir" | "off">,
+  config: Pick<OpenOmniConfig, "hooksPath" | "policyPath" | "promptsDir" | "skillsDir" | "off">,
 ) {
   return {
     ...(config.hooksPath === undefined ? {} : { hooksPath: config.hooksPath }),
+    ...(config.policyPath === undefined ? {} : { policyPath: config.policyPath }),
     ...(config.promptsDir === undefined ? {} : { promptsDir: config.promptsDir }),
     ...(config.skillsDir === undefined ? {} : { skillsDir: config.skillsDir }),
     ...(config.off === undefined ? {} : { off: [...config.off] }),

@@ -15,7 +15,7 @@ import { evalBundle } from "./bundles/tools/eval/index";
 import { fileBundle } from "./bundles/tools/file/index";
 import { AppInvariantError } from "./invariant";
 import type { ToolPorts } from "./composition/catalog";
-import { ACTIVE_OWNER_POLICY } from "./composition/policy";
+import { SHIPPED_OWNER_POLICY, type OwnerPolicy } from "./composition/policy";
 
 /**
  * The tool-capability contract (#1255 P3, #1316): the dispatcher lives in
@@ -61,6 +61,8 @@ export interface AppManifestInput {
   readonly toolPacks?: readonly Bundle.BundleContract[];
   /** The parsed hooks JSON config (#1256); absent composes zero hook rows. */
   readonly hooks?: HooksJsonInput;
+  /** The Owner policy compiled once at boot. */
+  readonly policy?: OwnerPolicy;
   /** Owner-configured off names (capabilities and bundles); absent means everything declared is on. */
   readonly off?: readonly string[];
 }
@@ -73,7 +75,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     monitorBundle(input.wake, input.alarms),
     cronBundle(input.wake.prompt),
     hooksJsonBundle(input.hooks),
-    delegationPolicyBundle(ACTIVE_OWNER_POLICY.delegationRows),
+    delegationPolicyBundle((input.policy ?? SHIPPED_OWNER_POLICY).delegationRows),
     approvalPolicyBundle(),
     sendMessageBundle(input.tools),
     provisionBundle(input.tools),

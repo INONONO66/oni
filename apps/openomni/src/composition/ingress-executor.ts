@@ -23,7 +23,10 @@ type NativeRun = (sender: Parameters<Run>[0], request: Parameters<Run>[1], body:
 export const GATEWAY_INGRESS_SESSION = "gateway-ingress";
 
 /** External authentication has no active model turn; its message actions have one fenced owner. */
-export function createIngressExecutor(plane: AppLedgerPlane): Effect.Effect<NativeRun, ExecutionError, SessionEntryServices | ComposedGeneration> {
+export function createIngressExecutor(
+  plane: AppLedgerPlane,
+  approvalPolicy: Core.ApprovalPolicy = APPROVAL_POLICY,
+): Effect.Effect<NativeRun, ExecutionError, SessionEntryServices | ComposedGeneration> {
   return Effect.gen(function* () {
     const id = GATEWAY_INGRESS_SESSION;
     const services = yield* Effect.context<SessionEntryServices>();
@@ -57,7 +60,7 @@ export function createIngressExecutor(plane: AppLedgerPlane): Effect.Effect<Nati
       // executor — run under the gate — never a ledger, fence or commit.
       const work = Effect.gen(function* () {
       const executor = yield* Core.adoptedExecutor(kernel, id, owner, clock, {
-        approvalPolicy: APPROVAL_POLICY,
+        approvalPolicy,
         identity: { sessionId: id, role: "resident", parentActionId: null },
       });
       return yield* executor.run(request, body).pipe(

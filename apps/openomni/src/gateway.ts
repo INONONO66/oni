@@ -30,6 +30,7 @@ const toolWallMs = Inspect.toolWallMs;
 import { Gateway as GatewayProtocol, L0Observation, SessionGeneration, type PlainValue, type SessionFork, SessionRead, toolOutputRefSchema } from "@openomni/protocol";
 import { messageDecisionRules } from "./composition/message-decision";
 import { createIngressExecutor, GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
+import { SHIPPED_OWNER_POLICY } from "./composition/policy";
 import { outboundMessage } from "./composition/terminal-message";
 import { type Context, Effect, Result, Exit, ManagedRuntime, Scope } from "effect";
 import { AppLedger, type AppLedgerPlane } from "./composition/cluster-runtime";
@@ -671,6 +672,7 @@ export function createResidentGateway(
     readonly stores: NonNullable<Parameters<typeof createGatewayRouter>[0]["stores"]>;
   },
   messaging: OutboundMessaging | undefined,
+  approvalPolicy: Core.ApprovalPolicy = SHIPPED_OWNER_POLICY.approval,
 ): Effect.Effect<GatewayRouter, Core.ExecutionError, SessionEntryServices | ComposedGeneration | AppLedger> {
   return Effect.gen(function* () {
     const plane = yield* AppLedger;
@@ -680,7 +682,7 @@ export function createResidentGateway(
       surface: "ws",
       defaultTier: LOOPBACK_BOOTSTRAP_TIER,
     });
-    const externalRun = yield* createIngressExecutor(plane);
+    const externalRun = yield* createIngressExecutor(plane, approvalPolicy);
     return createGatewayRouter({
       ...ports,
       transaction: channelTransaction(plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction),

@@ -12,7 +12,6 @@ import { z } from "zod";
 import { legacyPolicyAddress } from "../bundles/core-policy/index";
 import { ADMISSION_DEPTH_MAX, DELEGATION_GUARD_REFS, SPAWN_DEPTH_REF } from "../bundles/delegation-policy/index";
 import { SECRETS_GUARD_REF } from "../bundles/hooks-json/index";
-import { ACTIVE_POLICY_PATH } from "../config";
 import { AppInvariantError } from "../invariant";
 import shippedPolicy from "../../policy/owner-policy.json";
 import { composedPointTable } from "./point-table";
@@ -151,7 +150,8 @@ function compileRow(row: PolicyFileRow, source: string): SeedRow | Bundle.Bundle
   if (!point.success) refuse(source, "unknown_point", `row ${row.id} targets unknown point ${row.point}`);
   const address = legacyPolicyAddress(point.data);
   if (address === undefined) refuse(source, "unknown_point", `row ${row.id} targets unsupported point ${row.point}`);
-  if (row.point === "message.pre" && !MessageRule.safeParse(row.when.message).success)
+  const message = row.point === "message.pre" ? MessageRule.safeParse(row.when.message) : undefined;
+  if (message !== undefined && !message.success)
     refuse(source, "invalid_policy_file", `row ${row.id} carries no valid message rule`);
   // #1432: admission and every depth cap share one number.
   const cap = depthCap(row);
@@ -159,13 +159,20 @@ function compileRow(row: PolicyFileRow, source: string): SeedRow | Bundle.Bundle
     refuse(source, "invalid_policy_file", `row ${row.id} caps depth at ${cap}; admission caps it at ${ADMISSION_DEPTH_MAX}`);
   if (row.handler !== undefined)
     return compileHandlerRow({ ...row, handler: row.handler }, point.data, source);
+  if (message?.success && row.verdict?.type !== message.data.effect)
+    refuse(source, "invalid_policy_file", `row ${row.id} verdict disagrees with message effect`);
+  if (message?.success && row.verdict?.reason !== undefined && row.verdict.reason !== row.id)
+    refuse(source, "invalid_policy_file", `row ${row.id} verdict reason must be the row id`);
   return {
     name: row.id,
     kind: address.kind,
     phase: address.phase,
     priority: row.order,
     match: { encodingVersion: 1, value: row.when },
-    verdict: { encodingVersion: 1, value: row.verdict ?? null },
+    verdict: {
+      encodingVersion: 1,
+      value: message?.success ? { type: message.data.effect, reason: row.id } : row.verdict ?? null,
+    },
   };
 }
 
@@ -193,7 +200,7 @@ export function compileOwnerPolicy(value: PlainValue, source: string): OwnerPoli
   return { approval: parsed.data.approval, rows, delegationRows, rowSet };
 }
 
-/** Reads and compiles the Owner policy file named by `OPENOMNI_POLICY_PATH`. */
+/** Reads and compiles the selected Owner policy file. */
 export function readOwnerPolicy(path: string): OwnerPolicy {
   let raw: string;
   try {
@@ -216,16 +223,12 @@ export const SHIPPED_OWNER_POLICY: OwnerPolicy = compileOwnerPolicy(
   "shipped owner-policy.json",
 );
 
-/** The configured file when `OPENOMNI_POLICY_PATH` names one, else the shipped default. */
-function ownerPolicy(path: string | undefined): OwnerPolicy {
+/** The policy file at `path` when one is configured, else the shipped default. */
+export function ownerPolicy(path: string | undefined): OwnerPolicy {
   return path === undefined ? SHIPPED_OWNER_POLICY : readOwnerPolicy(path);
 }
 
-/** The process-wide Owner policy selected before composition or listeners exist. */
-export const ACTIVE_OWNER_POLICY: OwnerPolicy = ownerPolicy(
-  ACTIVE_POLICY_PATH,
-);
-export const APPROVAL_POLICY: Core.ApprovalPolicy = ACTIVE_OWNER_POLICY.approval;
+export const APPROVAL_POLICY: Core.ApprovalPolicy = SHIPPED_OWNER_POLICY.approval;
 
 /**
  * Seeds the kernel's mandatory generation into the catalog's policy plane and
@@ -241,7 +244,7 @@ export function seedKernelPolicyRows(
   bundleRows: readonly SeedRow[] = [],
   /** The composition's merged point table (#1251); the default is the full built-in composition this app ships. */
   table: Core.GatePointTable = composedPointTable(),
-  ownerRows: readonly SeedRow[] = ACTIVE_OWNER_POLICY.rows,
+  ownerRows: readonly SeedRow[] = SHIPPED_OWNER_POLICY.rows,
 ): number {
   const kernelRows: readonly SeedRow[] = [...SEEDED_POLICY_ROWS, ...ownerRows, POINT_GENERATION_ROW];
   return policies.appendGeneration((current) => {
