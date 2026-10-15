@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
+import { injectedOptions, testRun } from "./helpers/injected";
 import { Operational } from "@openomni/protocol";
 import type { z } from "zod";
 import { DiscordAdapter } from "../src/provider/discord/surface";
@@ -70,7 +70,7 @@ describe("TelegramClient send result normalization", () => {
     globalThis.fetch = Object.assign(async () => jsonResponse({ message_id: 42 }), {
       preconnect: realFetch.preconnect,
     });
-    const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);
+    const client = new TelegramClient("token", () => undefined, testRun);
     expect(await client.send("chat-1", "hi", "trace-1")).toBe("42");
   });
 
@@ -79,7 +79,7 @@ describe("TelegramClient send result normalization", () => {
       async () => new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }),
       { preconnect: realFetch.preconnect },
     );
-    const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);
+    const client = new TelegramClient("token", () => undefined, testRun);
     await expect(client.send("chat-1", "hi", "trace-1")).rejects.toMatchObject({
       _tag: "TelegramApiError",
     });
@@ -94,7 +94,7 @@ describe("TelegramClient send result normalization", () => {
         }),
       { preconnect: realFetch.preconnect },
     );
-    const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);
+    const client = new TelegramClient("token", () => undefined, testRun);
     await expect(client.send("chat-1", "hi", "trace-1")).rejects.toMatchObject({
       _tag: "TelegramApiError",
     });
@@ -104,7 +104,7 @@ describe("TelegramClient send result normalization", () => {
     globalThis.fetch = Object.assign(async () => jsonResponse({}), {
       preconnect: realFetch.preconnect,
     });
-    const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);
+    const client = new TelegramClient("token", () => undefined, testRun);
     expect(await client.send("chat-1", "hi", "trace-1")).toBeUndefined();
   });
 });

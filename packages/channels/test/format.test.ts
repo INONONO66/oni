@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { ChunkLengthError, chunkMarkdown } from "../src/support/format/chunk";
 import { renderDiscordMarkdown } from "../src/support/format/discord";
 import { tablesToBullets } from "../src/support/format/table";
-import { renderTelegramMarkdown } from "../src/support/format/telegram";
+import { renderTelegramHtml } from "../src/support/format/telegram";
 
 describe("tablesToBullets", () => {
   it("passes text without pipes through byte-for-byte", () => {
@@ -124,55 +124,55 @@ describe("chunkMarkdown", () => {
   });
 });
 
-describe("renderTelegramMarkdown", () => {
+describe("renderTelegramHtml", () => {
   it("converts headers to bold and strips redundant bold inside them", () => {
-    expect(renderTelegramMarkdown("## Big **Deal** Title")).toBe("*Big Deal Title*");
+    expect(renderTelegramHtml("## Big **Deal** Title")).toBe("<b>Big Deal Title</b>");
   });
 
-  it("converts bold, italic, and strikethrough to MarkdownV2 entities", () => {
-    expect(renderTelegramMarkdown("**bold** and *ital* and ~~gone~~")).toBe(
-      "*bold* and _ital_ and ~gone~",
-    );
+  it("converts bold and italic to HTML entities", () => {
+    expect(renderTelegramHtml("**bold** and *ital*")).toBe("<b>bold</b> and <i>ital</i>");
   });
 
-  it("escapes every MarkdownV2 special in plain text", () => {
-    expect(renderTelegramMarkdown("a.b!c-d(e)f")).toBe("a\\.b\\!c\\-d\\(e\\)f");
+  it("escapes HTML syntax in plain text", () => {
+    expect(renderTelegramHtml("a<b && c>d")).toBe("a&lt;b &amp;&amp; c&gt;d");
   });
 
-  it("escapes specials inside styled bodies", () => {
-    expect(renderTelegramMarkdown("**v1.2!**")).toBe("*v1\\.2\\!*");
+  it("escapes HTML syntax inside styled bodies", () => {
+    expect(renderTelegramHtml("**a & b**")).toBe("<b>a &amp; b</b>");
   });
 
-  it("converts links, escaping the label and the url per spec", () => {
-    expect(renderTelegramMarkdown("[docs v1.0](https://x.dev/a(b))")).toBe(
-      "[docs v1\\.0](https://x.dev/a(b\\))",
+  it("converts links, escaping their attributes and labels", () => {
+    expect(renderTelegramHtml("[docs](https://x.dev/?a=1&b=2)")).toBe(
+      '<a href="https://x.dev/?a=1&amp;b=2">docs</a>',
     );
   });
 
   it("keeps bold styling around a link via nested placeholder restore", () => {
-    expect(renderTelegramMarkdown("**see [site](https://a.io)**")).toBe(
-      "*see [site](https://a.io)*",
+    expect(renderTelegramHtml("**see [site](https://a.io)**")).toBe(
+      '<b>see <a href="https://a.io">site</a></b>',
     );
   });
 
-  it("protects inline code bodies and escapes backslashes inside them", () => {
-    expect(renderTelegramMarkdown("run `a_b\\c.d` now")).toBe("run `a_b\\\\c.d` now");
+  it("protects inline code bodies and escapes HTML syntax inside them", () => {
+    expect(renderTelegramHtml("run `a<b&c` now")).toBe("run <code>a&lt;b&amp;c</code> now");
   });
 
-  it("protects fenced code and escapes backticks and backslashes in the body", () => {
-    expect(renderTelegramMarkdown("```py\nx = '`\\\\'\n```")).toBe("```py\nx = '\\`\\\\\\\\'\n```");
+  it("protects fenced code and escapes HTML syntax in the body", () => {
+    expect(renderTelegramHtml("```py\nx = '<&';\n```")).toBe(
+      "<pre><code class=\"language-py\">x = '&lt;&amp;';\n</code></pre>",
+    );
   });
 
-  it("protects a single-line fenced span from styling and escape passes", () => {
-    expect(renderTelegramMarkdown("```raw**not bold**```")).toBe("```raw**not bold**```");
+  it("protects a single-line fenced span from styling", () => {
+    expect(renderTelegramHtml("```raw**not bold**```")).toBe("<pre><code>raw**not bold**</code></pre>");
   });
 
   it("rewrites tables before conversion so groups render as bold", () => {
-    expect(renderTelegramMarkdown("| H | V |\n| - | - |\n| k | 1 |")).toBe("*k*\n\\- V: 1");
+    expect(renderTelegramHtml("| H | V |\n| - | - |\n| k | 1 |")).toBe("<b>k</b>\n- V: 1");
   });
 
   it("strips the sentinel character so placeholder framing cannot be forged", () => {
-    expect(renderTelegramMarkdown("a\uE0000\uE000b")).toBe("a0b");
+    expect(renderTelegramHtml("a\uE0000\uE000b")).toBe("a0b");
   });
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
+import { injectedOptions, testRun } from "./helpers/injected";
 import { Operational, Outbound } from "@openomni/protocol";
 import { DiscordClient } from "../src/provider/discord/client";
 import { DiscordAdapter } from "../src/provider/discord/surface";
@@ -48,7 +48,7 @@ describe("provider retry and receipt paths", () => {
       success: { ok: true, result: { message_id: 7 } },
       address: "chat-1",
       id: "7",
-      client: (publish: PublishPort) => new TelegramClient("token", publish, () => FIXED_NOW, testRun),
+      client: (publish: PublishPort) => new TelegramClient("token", publish, testRun),
     },
   ])("retries $name rate limits and returns the platform id", async (scenario) => {
     const { published, publish } = collector();

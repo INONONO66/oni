@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { z } from "zod";
-import { FIXED_NOW, testRun } from "./helpers/injected";
+import { testRun } from "./helpers/injected";
 import { TelegramClient } from "../src/provider/telegram/client";
 
 type JsonValue = z.infer<ReturnType<typeof z.json>>;
@@ -21,7 +21,7 @@ test("TelegramClient acknowledges a callback and subscribes to callback updates"
     },
     { preconnect: realFetch.preconnect },
   );
-  const client = new TelegramClient("token", () => undefined, () => FIXED_NOW, testRun);
+  const client = new TelegramClient("token", () => undefined, testRun);
 
   await client.answerCallbackQuery("callback-1", "trace-ack");
   expect(await client.getUpdates(4, "trace-poll")).toEqual([]);
