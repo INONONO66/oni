@@ -388,6 +388,7 @@ describe("delivery receipt", () => {
     });
 
     const receipt = expectAwaited(await runEffect(withReceipt.send(buildAwaitedSendInput())));
+    expect(receipt.externalMessageId).toBe("platform:msg-77");
     // The send receipt carries the receipt-updated record (revision bumped
     // from 1 at create — head === revision on the owner stream, #510).
     expect(receipt.request.correlation.replyToMessageId).toBe("platform:msg-77");
@@ -430,6 +431,7 @@ describe("delivery receipt", () => {
     const receipt = await runEffect(withReceipt.send(buildSendInput()));
 
     expect(receipt.kind).toBe("sent");
+    if (receipt.kind === "sent") expect(receipt.externalMessageId).toBe("platform:msg-88");
     expect(ledger().kernel.requestRows()).toHaveLength(0);
   });
 });

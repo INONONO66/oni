@@ -37,6 +37,21 @@ describe("Outbound (#1497)", () => {
     expect(Outbound.Message.safeParse({ kind: "message", parts, spec }).success).toBe(false);
   });
 
+  test("an edit carries only a full replacement spec and keeps its digest and parts", () => {
+    const spec = Outbound.Spec.parse({
+      root: "status",
+      elements: { status: { type: "Status", props: { kind: "ok", title: "Done" }, children: [] } },
+    });
+    const edit = { kind: "edit", messageId: "42", spec } as const;
+    expect(Outbound.Payload.parse(edit)).toEqual(edit);
+    expect(Outbound.text(edit)).toBe(Outbound.text({ kind: "message", spec }));
+    expect(Outbound.parts(edit)).toEqual(Outbound.parts({ kind: "message", spec }));
+    expect(Outbound.Payload.safeParse({ ...edit, messageId: "" }).success).toBe(false);
+    expect(Outbound.Payload.safeParse({ ...edit, parts: [{ kind: "text", text: "patch" }] }).success).toBe(false);
+    expect(Outbound.Payload.safeParse({ kind: "edit", messageId: "42" }).success).toBe(false);
+    expect(Outbound.prompt()).toContain("edit replaces an earlier message");
+  });
+
   test("the text reading keeps every part visible: code fenced, media named by reference", () => {
     const text = Outbound.text({
       kind: "message",

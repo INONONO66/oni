@@ -7,6 +7,7 @@ import { escapeSlackText } from "./render.js";
  * mapping is identity; 4000 is the `chat.postMessage` text guidance limit.
  */
 export const SLACK_RENDER = {
+  edit: "native",
   renderMarkdown: escapeSlackText,
   messageLimit: 4000,
   capabilities: {

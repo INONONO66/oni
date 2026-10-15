@@ -224,7 +224,10 @@ export function executeMessage(
       return yield* Effect.fail(
         new SendAdmissionConflict({ message: `actor send admission changed: ${receipt.code}` }),
       );
-    const actorResult: PlainValue = { status: "executed", handle, delivery: { kind: "actor", value: receipt.delivery } };
+    const actorResult: PlainValue = { status: "executed", handle, delivery: {
+      kind: "actor", value: receipt.delivery,
+      ...(receipt.externalMessageId === undefined ? {} : { externalMessageId: receipt.externalMessageId }),
+    } };
     return actorResult;
   }
   if (yield* answerNativeRequest(ports.requests, sender, prepared.origin, content, clock()))

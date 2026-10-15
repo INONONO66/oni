@@ -6,6 +6,7 @@ import type { MediaLimits, RenderPolicy } from "../contract.js";
  * surface applies it. 4096 is the Bot API `sendMessage` text limit.
  */
 export const TELEGRAM_RENDER = {
+  edit: "native",
   renderMarkdown: renderTelegramHtml,
   messageLimit: 4096,
   capabilities: {

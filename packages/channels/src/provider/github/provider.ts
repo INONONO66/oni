@@ -21,7 +21,7 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     deliver: true,
     webhook: true,
     // GitHub renders markdown natively and comments carry no driver-enforced limit.
-    render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null,
+    render: { edit: "unsupported", renderMarkdown: (markdown: string) => markdown, messageLimit: null,
       capabilities: {
         Stack: "text",
         Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",

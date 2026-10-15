@@ -13,8 +13,9 @@ const CAPABILITIES = {
   Buttons: "text", Button: "text", Card: "text", Carousel: "text", Poll: "text",
   Status: "text", Divider: "text", Context: "text",
 } as const;
-const RENDER: RenderPolicy = { renderMarkdown: (markdown) => markdown, messageLimit: 64, capabilities: CAPABILITIES };
+const RENDER: RenderPolicy = { edit: "native", renderMarkdown: (markdown) => markdown, messageLimit: 64, capabilities: CAPABILITIES };
 const UNBOUNDED: RenderPolicy = {
+  edit: "native",
   renderMarkdown: (markdown) => `<${markdown}>`,
   messageLimit: null,
   capabilities: CAPABILITIES,

@@ -1,4 +1,4 @@
-import { CallbackDataTooLong, DeliveryNotSent, RenderLimitExceeded } from "../errors";
+import { CallbackDataTooLong, DeliveryNotSent, EditNotSingleMessage, EditUnsupported, RenderLimitExceeded } from "../errors";
 import { Operational, type Outbound } from "@openomni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
@@ -21,6 +21,8 @@ export function isNotSent(error: Error, isRejected: (error: Error) => boolean): 
   return (
     error instanceof DeliveryNotSent ||
     error instanceof RenderLimitExceeded ||
+    error instanceof EditNotSingleMessage ||
+    error instanceof EditUnsupported ||
     error instanceof CallbackDataTooLong ||
     isRejected(error) ||
     NotConnected.safeParse(error).success

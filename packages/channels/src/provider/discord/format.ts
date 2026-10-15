@@ -6,6 +6,7 @@ import type { MediaLimits, RenderPolicy } from "../contract.js";
  * surface applies it. 2000 is the message content limit for bots.
  */
 export const DISCORD_RENDER = {
+  edit: "native",
   renderMarkdown: renderDiscordMarkdown,
   messageLimit: 2000,
   capabilities: {

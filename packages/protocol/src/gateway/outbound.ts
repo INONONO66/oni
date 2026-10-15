@@ -44,7 +44,8 @@ const MessageSchema = z
 const ReactSchema = z
   .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1), replaces: z.string().min(1).optional() })
   .strict();
-const PayloadSchema = z.discriminatedUnion("kind", [MessageSchema, ReactSchema]);
+const EditSchema = z.object({ kind: z.literal("edit"), messageId: Id, spec: catalogModule.Spec }).strict();
+const PayloadSchema = z.discriminatedUnion("kind", [MessageSchema, ReactSchema, EditSchema]);
 
 /**
  * What a channel reports after translating one payload: whether the platform
@@ -142,6 +143,8 @@ export namespace Outbound {
   export type Message = z.infer<typeof MessageSchema>;
   export const React = ReactSchema;
   export type React = z.infer<typeof ReactSchema>;
+  export const Edit = EditSchema;
+  export type Edit = z.infer<typeof EditSchema>;
   export const Payload = PayloadSchema;
   export type Payload = z.infer<typeof PayloadSchema>;
   export const Receipt = ReceiptSchema;
@@ -161,11 +164,19 @@ export namespace Outbound {
    */
   export function text(payload: Payload): string {
     if (payload.kind === "react") return `${payload.emoji} on ${payload.messageId}`;
+    if (payload.kind === "edit") return specText(payload.spec);
     if (payload.spec !== undefined) return specText(payload.spec);
     return (payload.parts ?? []).map(partText).join("\n\n");
   }
 
+  /** The ordered part reading of a letter or replacement spec. */
+  export function parts(payload: Payload): Part[] {
+    if (payload.kind === "react") return [];
+    if (payload.kind === "message" && payload.parts !== undefined) return payload.parts;
+    return [{ kind: "text", text: text(payload) }];
+  }
+
   export function prompt(): string {
-    return catalogModule.Catalog.prompt();
+    return `${catalogModule.Catalog.prompt()}\nAn edit replaces an earlier message by the message id returned from its send.`;
   }
 }

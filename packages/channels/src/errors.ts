@@ -26,6 +26,14 @@ export class RenderLimitExceeded extends Data.TaggedError("RenderLimitExceeded")
   readonly limit: number;
 }> {}
 
+export class EditNotSingleMessage extends Data.TaggedError("EditNotSingleMessage")<{
+  readonly count: number;
+}> {}
+
+export class EditUnsupported extends Data.TaggedError("EditUnsupported")<{
+  readonly provider: string;
+}> {}
+
 export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
   readonly reason: "approval_required" | "not_found";
   readonly id: string;
@@ -115,6 +123,8 @@ export type ChannelError =
   | DeliveryNotSent
   | CallbackDataTooLong
   | RenderLimitExceeded
+  | EditNotSingleMessage
+  | EditUnsupported
   | InvalidInbound
   | DiscordGatewayFetchError
   | DiscordApiError

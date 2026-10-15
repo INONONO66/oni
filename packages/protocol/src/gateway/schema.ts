@@ -488,6 +488,7 @@ export namespace Gateway {
         kind: "sent";
         operation: "fire_and_forget";
         delivery: "accepted" | "rejected" | "unknown";
+        externalMessageId?: string;
         messageId: string;
         senderId: string;
         grantId: string;
@@ -498,6 +499,7 @@ export namespace Gateway {
         kind: "sent";
         operation: "awaited";
         delivery: "accepted" | "rejected" | "unknown";
+        externalMessageId?: string;
         messageId: string;
         senderId: string;
         grantId: string;

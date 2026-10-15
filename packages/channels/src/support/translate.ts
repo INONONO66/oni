@@ -1,5 +1,5 @@
 import { Outbound } from "@openomni/protocol";
-import { DeliveryNotSent } from "../errors";
+import { DeliveryNotSent, EditNotSingleMessage, EditUnsupported } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
@@ -68,6 +68,9 @@ export interface SurfaceSends<TNative = NativeStep> {
   readonly text: (chunk: string) => Promise<string | undefined>;
   readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
   readonly react?: (messageId: string, emoji: string, replaces?: string) => Promise<void>;
+  readonly edit?: (messageId: string, step:
+    | { readonly kind: "text"; readonly chunk: string }
+    | { readonly kind: "native"; readonly body: TNative }) => Promise<void>;
   readonly native?: {
     readonly render: (step: NativeStep) => TNative;
     readonly post: (body: TNative) => Promise<SendAck>;
@@ -404,9 +407,22 @@ export async function translate<TNative>(
     await sends.react(payload.messageId, payload.emoji, payload.replaces);
     return { accepted: true, externalMessageId: payload.messageId };
   }
+  const edit = sends.edit;
+  if (payload.kind === "edit" && (render.edit === "unsupported" || edit === undefined))
+    throw new EditUnsupported({ provider: "surface" });
   const media =
     sends.media === undefined || resolve === undefined ? undefined : { ...sends.media, resolve };
-  return runSteps(await (payload.spec !== undefined
+  const steps = await (payload.kind === "edit" || payload.spec !== undefined
     ? planSpec(payload.spec, render, sends, media)
-    : plan(payload.parts ?? [], render, media)), sends.text);
+    : plan(payload.parts ?? [], render, media));
+  if (payload.kind === "edit") {
+    if (steps.length !== 1) throw new EditNotSingleMessage({ count: steps.length });
+    const step = steps[0];
+    if (step === undefined) throw new EditNotSingleMessage({ count: 0 });
+    if (step.kind === "media") throw new EditUnsupported({ provider: "media" });
+    if (edit === undefined) throw new EditUnsupported({ provider: "surface" });
+    await edit(payload.messageId, step);
+    return { accepted: true, externalMessageId: payload.messageId };
+  }
+  return runSteps(steps, sends.text);
 }

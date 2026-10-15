@@ -81,6 +81,7 @@ function deliverSend(
 ): Effect.Effect<{
   readonly request: SessionTransition.Request | undefined;
   readonly value: "accepted" | "rejected" | "unknown";
+  readonly externalMessageId?: string;
 }, ChannelError> {
   return Effect.gen(function* () {
   const delivery = yield* Effect.tryPromise({ try: async () => ports.deliver({
@@ -93,7 +94,9 @@ function deliverSend(
     ...(request === undefined ? {} : { requestId: request.requestId }),
   }), catch: decodeChannelFailure("message.deliver") });
   const value = delivery.value;
-  if (request === undefined) return { request, value };
+  if (request === undefined) return { request, value, ...(
+    delivery.externalMessageId === undefined ? {} : { externalMessageId: delivery.externalMessageId }
+  ) };
   const recorded = yield* ports.requests.receipt({
     inputId: canonicalKey([
       input.messageId,
@@ -111,7 +114,9 @@ function deliverSend(
     value,
     at: input.at,
   });
-  return { request: recorded, value };
+  return { request: recorded, value, ...(
+    delivery.externalMessageId === undefined ? {} : { externalMessageId: delivery.externalMessageId }
+  ) };
   });
 }
 
@@ -123,6 +128,7 @@ function recordSent(
   const { input, target, grant } = authorization;
   const request = delivered.request;
   const delivery = delivered.value;
+  const externalMessageId = delivered.externalMessageId;
   ports.publish(MessagingEvents.Sent, {
     messageId: input.messageId,
     traceId: input.traceId,
@@ -139,6 +145,7 @@ function recordSent(
       kind: "sent",
       operation: "awaited",
       delivery,
+      ...(externalMessageId === undefined ? {} : { externalMessageId }),
       messageId: input.messageId,
       senderId: input.senderId,
       grantId: grant.id,
@@ -151,6 +158,7 @@ function recordSent(
     kind: "sent",
     operation: "fire_and_forget",
     delivery,
+    ...(externalMessageId === undefined ? {} : { externalMessageId }),
     messageId: input.messageId,
     senderId: input.senderId,
     grantId: grant.id,

@@ -1,4 +1,4 @@
-import { RateLimited } from "../../errors";
+import { EditUnsupported, RateLimited } from "../../errors";
 import { newTraceId } from "../../support/trace";
 import { type Channel, Operational, Outbound } from "@openomni/protocol";
 import { z } from "zod";
@@ -129,7 +129,10 @@ export class GitHubAdapter implements Channel.Surface {
     payload: Outbound.Payload,
     idempotencyKey: string,
   ): Promise<DeliveryReceipt> {
-    if (payload.kind === "react") return { value: "not_sent" };
+    if (payload.kind === "react" || payload.kind === "edit") {
+      const refusal = new EditUnsupported({ provider: "github" });
+      return { value: isNotSent(refusal, () => false) ? "not_sent" : "unknown" };
+    }
     const body = Outbound.text(payload);
     const target = /^([a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+)#([1-9][0-9]*)$/.exec(externalId);
     if (target?.[1] === undefined || target[2] === undefined) return { value: "not_sent" };

@@ -128,7 +128,7 @@ const IngressFacts = z
 const Delivery = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("session") }).strict(),
   z
-    .object({ kind: z.literal("actor"), value: z.enum(["accepted", "rejected", "unknown"]) })
+    .object({ kind: z.literal("actor"), value: z.enum(["accepted", "rejected", "unknown"]), externalMessageId: Id.optional() })
     .strict(),
 ]);
 const Result = z.discriminatedUnion("status", [
