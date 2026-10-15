@@ -20,6 +20,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "createChannelStores",
     "createEgressBudgetStore",
     "createGatewayRouter",
+    "createMachineEnrollmentStore",
     "createPersonStore",
     "createReplyGrantStore",
     "createSecretStore",
