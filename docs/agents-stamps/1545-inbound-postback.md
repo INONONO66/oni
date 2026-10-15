@@ -1,0 +1,1 @@
+#1545 on `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`, PR #1547): Slack/Discord/Telegram inbound postback schema, acknowledgment and normalization; receipts in protocol/channels postback tests and `docs/implementation-status.md`.

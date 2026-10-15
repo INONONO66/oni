@@ -1,5 +1,22 @@
 # Implementation Status
 
+## #1545 inbound postback (L3)
+
+On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).
+Slack Socket Mode `interactive` block actions are acknowledged before dispatch;
+Discord message-component interactions are deferred through the callback API
+before handoff; Telegram callback queries are answered before handoff and
+included in the long poll's explicit `allowed_updates`. Failed Discord or
+Telegram acknowledgments warn and drop the interaction. Each button tap carries
+the raw platform payload, button id, visible label and sent-message reference
+when available in `Gateway.IngressFacts.postback`; the label is the inbound
+rendered text. The existing ingress grant and prompt/action route applies.
+
+This lane receives button taps; native button rendering is the separate L2
+lane. Slack Interactivity and Discord developer-console setup belong to #1546.
+Receipts: protocol schema and driver normalizer tests, Slack Socket Mode,
+Discord interaction callback and Telegram poller ordering tests.
+
 ## #1506 auto-ack reaction
 
 On `feat/app-ack-reaction` (2026-10-14, base `72ce6b7be`). A Resident turn
