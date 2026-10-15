@@ -15,16 +15,18 @@ import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { Cause, Deferred, Effect, Exit, Queue } from "effect";
 import type { LedgerAction } from "@openomni/protocol";
-import type { AlarmFired, ArmVerb } from "../../src/core/ports/alarm";
+import { AlarmSendRefused, type AlarmFired, type ArmVerb } from "../../src/core/ports/alarm";
 import { CommitRefused } from "../../src/core/store/errors";
 import { openSessionStore } from "../../src/core/store/session-file";
 import { createArmedAlarmPorts } from "../../src/core/store/session-file/alarms";
 import { liveArmRegistry } from "../helpers/alarm-budget";
+import { quietCapability } from "../helpers/alarm-recovery";
 import {
   boundedAwait,
   clusterMessages,
   clusterTempDir,
   completionSignal,
+  readChain,
   runCluster,
   sendAlarm,
   sendPrompt,
@@ -128,6 +130,96 @@ function armedTotal(sessionId: string): number {
     db.close();
   }
 }
+
+test("a refused quiet-tick send retires its moved occurrence, and a stale retirement leaves the entity live", async () => {
+  for (const stale of [false, true]) {
+    const sessionId = stale ? "quiet-refused-stale" : "quiet-refused-retired";
+    const alarmId = `${sessionId}:alarm`;
+    const live = liveArmRegistry();
+    const originalSent = completionSignal();
+    const retirement = completionSignal();
+    const sent: AlarmFired[] = [];
+    const detail = "quiet tick send refused";
+    const result = await runCluster(
+      {
+        sessionsDir,
+        catalogFile,
+        onLive: live.onLive,
+        alarmCapability: quietCapability(1_500),
+        onArmed: (notice) => {
+          if (notice.alarmId === alarmId && notice.at === null) retirement.fire();
+        },
+        wrapStore: (_id, store) => {
+          if (!stale) return store;
+          const sessions = store.sessions;
+          const commit: typeof sessions.commit = (input) => {
+            if (!input.actions.some((action) =>
+              action.id.startsWith(`${alarmId}:arm:`) && JSON.stringify(action.intent.value).includes('"at":null')
+            )) return sessions.commit(input);
+            return Effect.sync(retirement.fire).pipe(Effect.andThen(Effect.fail(new CommitRefused({
+              sessionId: input.sessionId,
+              reason: "fence",
+              expectedRevision: input.expectedRevision,
+              currentRevision: input.expectedRevision,
+              fence: input.fence,
+              currentFence: input.fence + 1,
+            }))));
+          };
+          return new Proxy(store, {
+            get(target, key) {
+              if (key === "sessions") return { ...sessions, commit };
+              const value = target[key as keyof typeof target];
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          });
+        },
+        wrapSendAlarm: () => (_id, occurrence) =>
+          Effect.suspend(() => {
+            sent.push(occurrence);
+            if (occurrence.tick !== undefined) return Effect.fail(new AlarmSendRefused({ reason: detail }));
+            originalSent.fire();
+            return Effect.void;
+          }),
+      },
+      Effect.gen(function* () {
+        yield* sendPrompt(sessionId, `${sessionId}:seed`, "hello");
+        const arm = yield* live.live(sessionId);
+        const armed = yield* arm({ purpose: "note.due", at: 1_000, alarmId, sourceKey: "note", payload: {} });
+        yield* Effect.promise(() => boundedAwait("original arm forwarded", originalSent.done));
+        const original = sent[0];
+        if (original === undefined) return yield* Effect.die("original arm was not forwarded");
+        const receipt = yield* sendAlarm(sessionId, original);
+        yield* Effect.promise(() => boundedAwait("quiet-tick retirement attempted", retirement.done));
+        const next = yield* sendPrompt(sessionId, `${sessionId}:following`, "still serving");
+        return { occurrenceId: armed.occurrenceId, receipt, next };
+      }),
+    );
+    expect(result.receipt.outcome).toBe("delivered");
+    expect(result.next).toBeDefined();
+    expect(sent.map((occurrence) => [occurrence.occurrenceId, occurrence.tick])).toEqual([
+      [result.occurrenceId, undefined],
+      [result.occurrenceId, 1_500],
+    ]);
+    const file = sessionFileFor(sessionsDir, sessionId);
+    const armIds = readChain(file, sessionId).filter((row) => row.id.startsWith(`${alarmId}:arm:`));
+    expect(armIds).toHaveLength(stale ? 1 : 2);
+    const db = new Database(file, { readonly: true });
+    try {
+      const arms = db.query<{ intent: string }, [string]>(
+        "SELECT intent FROM action WHERE session_id = ? AND kind = 'alarm' ORDER BY ordinal ASC",
+      ).all(sessionId).map((row) => JSON.parse(row.intent));
+      expect(arms).toHaveLength(stale ? 1 : 2);
+      if (!stale) expect(arms[1]).toMatchObject({
+        op: "arm",
+        at: null,
+        supersedes: result.occurrenceId,
+        payload: { reason: "send_refused", detail },
+      });
+    } finally {
+      db.close();
+    }
+  }
+}, 60_000);
 
 for (const mode of ["pre", "post"] as const) {
   test(`an arm held ${mode}-write across passivation completes before store.close and never dies`, async () => {
