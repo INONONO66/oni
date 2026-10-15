@@ -222,7 +222,12 @@ function makeSessionKernel(context: SessionKernelContext) {
   };
 }
 
-export type SessionKernel = ReturnType<typeof makeSessionKernel>;
+/** File-backed host views use this internal hook to end a synchronous read scope. */
+export const releaseSessionKernel = Symbol("releaseSessionKernel");
+
+export type SessionKernel = ReturnType<typeof makeSessionKernel> & {
+  readonly [releaseSessionKernel]?: () => void;
+};
 
 /** Session facts from the session store, policy rows from the catalog; backlog folds the chain. */
 export function createSessionKernel(session: SessionStore, catalog: CatalogStore): SessionKernel {

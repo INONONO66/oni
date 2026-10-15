@@ -9,6 +9,7 @@ import type { SessionKernel } from "./entity";
 import { type SessionRuntime, getSessionHandle, adoptSessionAuthority } from "./run";
 import { Entropy } from "../ports/ports";
 import { decideRequestTransition, type RequestDecision } from "./request-transition";
+import { releaseSessionKernel } from "../store/fence";
 
 export interface SessionRequestPort {
   list(): readonly SessionTransition.Request[];
@@ -105,6 +106,19 @@ function openedRequest(
   return request;
 }
 
+function readKernel<A>(
+  runtime: SessionRuntime,
+  sessionId: string,
+  read: (kernel: SessionKernel) => A,
+): A {
+  const kernel = runtime.openKernel(sessionId);
+  try {
+    return read(kernel);
+  } finally {
+    kernel[releaseSessionKernel]?.();
+  }
+}
+
 export function createSessionRequests(runtime: SessionRuntime): Effect.Effect<SessionRequestPort, never, Entropy> {
   return Effect.gen(function* () {
   const clock = yield* Clock.clockWith(Effect.succeed).pipe(Effect.map((service) => () => service.currentTimeMillisUnsafe()));
@@ -153,13 +167,16 @@ export function createSessionRequests(runtime: SessionRuntime): Effect.Effect<Se
   }
   function findRequest(requestId: string): SessionTransition.Request | undefined {
     for (const row of runtime.listSessions()) {
-      const request = runtime.openKernel(row.id).requestById(requestId);
+      const request = readKernel(runtime, row.id, (kernel) => kernel.requestById(requestId));
       if (request !== undefined) return request;
     }
     return undefined;
   }
   return {
-    list: () => runtime.listSessions().flatMap((row) => runtime.openKernel(row.id).requestRows(row.id)),
+    list: () =>
+      runtime
+        .listSessions()
+        .flatMap((row) => readKernel(runtime, row.id, (kernel) => kernel.requestRows(row.id))),
     timeout,
     cancel(input) {
       return Effect.gen(function* () {

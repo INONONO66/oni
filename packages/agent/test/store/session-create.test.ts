@@ -5,7 +5,7 @@ import { materializationSeed, generationSnapshot } from "../../src/core/store/co
 // index back with it, a duplicate id refuses typed without rewriting genesis,
 // and supplied settings, generation, and action identity survive verbatim.
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
@@ -187,7 +187,6 @@ test("a fault after genesis preparation but before commit leaves neither the ind
     });
     expect(plane.catalog.sessionIndex("s-fault")).toBeUndefined();
     expect(store.sessions.get("s-fault")).toBeUndefined();
-
     // The id is still free: the same creation succeeds once the fault is gone.
     const receipt = runLedgerSync(
       createSession(plane, { id: "s-fault", parentId: null, role: "resident", genesis }),
@@ -214,6 +213,12 @@ test("a failed catalog index leaves no session file and retry creates the same i
     expect(Result.isFailure(result) ? result.failure : undefined).toBeInstanceOf(CreateRefused);
     expect(plane.catalog.sessionIndex("s-index-fail")).toBeUndefined();
     expect(existsSync(path)).toBe(false);
+    expect(
+      readdirSync(sessionsDir)
+        .filter((name) => name.endsWith(".sqlite"))
+        .map((name) => name.slice(0, -".sqlite".length))
+        .sort(),
+    ).toEqual(plane.catalog.sessionIds());
     console.info(`A2 failed create filesOnDisk=0 session_index=0`);
     plane.catalog.indexSession = index;
     const created = runLedgerSync(

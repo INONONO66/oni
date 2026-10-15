@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQLiteError } from "bun:sqlite";
@@ -8,8 +8,11 @@ import { TestClock } from "effect/testing";
 import { SessionEntity } from "../../src/core/session/entity";
 import { Ledger, type LedgerConfig, OpenRefused, openLedger, openLedgerPlane } from "../../src/core/session/host";
 import { createSession } from "../../src/core/session/create";
+import { createSessionRequests } from "../../src/core/session/request";
 import * as SessionFile from "../../src/core/store/session-file";
 import type { SessionStore } from "../../src/core/store/session-file";
+import { Entropy } from "../../src/core/ports/ports";
+import { releaseSessionKernel } from "../../src/core/store/fence";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 import {
   BunTestCrypto,
@@ -68,6 +71,36 @@ function home(name: string): { catalogPath: string; sessionsDir: string } {
   const dir = join(root, name);
   mkdirSync(dir, { recursive: true });
   return { catalogPath: join(dir, "catalog.sqlite"), sessionsDir: join(dir, "sessions") };
+}
+
+/** Process descriptors; other tests' handles may close meanwhile, so callers assert no growth. */
+function descriptorCount(): number {
+  return readdirSync("/dev/fd").length;
+}
+
+async function createFileSessions(
+  plane: ReturnType<typeof openLedgerPlane>,
+  count: number,
+): Promise<void> {
+  for (let n = 0; n < count; n += 1) {
+    const id = `s${n}`;
+    await runAgent(
+      createSession(plane, {
+        id,
+        parentId: null,
+        role: "resident",
+        genesis: {
+          tools: [],
+          bundles: [],
+          system: { preset: "", blocks: [] },
+          policyGeneration: 0,
+          actionId: `${id}:genesis`,
+          at: n,
+        },
+      }),
+    );
+    plane.releaseSession(id);
+  }
 }
 
 function config(overrides: Partial<LedgerConfig>): LedgerConfig {
@@ -196,33 +229,50 @@ test("file mode: catalog listing of 200 sessions closes every store it opens", a
   const options = { now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } };
   const creator = openLedgerPlane(options);
   try {
-    for (let n = 0; n < 200; n += 1) {
-      const id = `s${n}`;
-      await runAgent(createSession(creator, {
-        id,
-        parentId: null,
-        role: "resident",
-        genesis: {
-          tools: [],
-          bundles: [],
-          system: { preset: "", blocks: [] },
-          policyGeneration: 0,
-          actionId: `${id}:genesis`,
-          at: n,
-        },
-      }));
-      creator.releaseSession(id);
-    }
+    await createFileSessions(creator, 200);
   } finally {
     creator.close();
   }
   const plane = openLedgerPlane(options);
   const stores = trackSessionStores();
   try {
+    const descriptors = descriptorCount();
     for (let listing = 1; listing <= 2; listing += 1) {
       expect(plane.listSessions()).toHaveLength(200);
       expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 200 * listing, live: 0 });
+      expect(descriptorCount()).toBeLessThanOrEqual(descriptors);
     }
+  } finally {
+    stores.restore();
+    plane.close();
+  }
+});
+
+test("file mode: deadline lookup over 400 sessions releases every scoped kernel", async () => {
+  const { catalogPath, sessionsDir } = home("deadline-lookup");
+  const plane = openLedgerPlane({
+    now: () => 1,
+    catalog: { path: catalogPath },
+    sessions: { dir: sessionsDir },
+  });
+  await createFileSessions(plane, 400);
+  const stores = trackSessionStores();
+  try {
+    const descriptors = descriptorCount();
+    const port = await runAgent(
+      createSessionRequests({
+        approvalPolicy: TEST_APPROVAL_POLICY,
+        authorizeConfigure: () => Effect.succeed(true),
+        openKernel: plane.openKernel,
+        listSessions: plane.listSessions,
+      }).pipe(
+        Effect.provideService(Entropy, { id: () => "request-owner", random: () => 0 }),
+      ),
+    );
+    const exit = await runAgent(Effect.exit(port.timeout("missing-request", 1)));
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 800, live: 0 });
+    expect(descriptorCount()).toBeLessThanOrEqual(descriptors);
   } finally {
     stores.restore();
     plane.close();
@@ -253,16 +303,50 @@ test("file mode: listing inside a write transaction on a live session reads that
   }
 });
 
-test("file mode: failed indexed session open refuses with SQLite errno instead of a partial listing", async () => {
+test("file mode: a scoped request read keeps a live session's handle and releases only what it opened", async () => {
+  const { catalogPath, sessionsDir } = home("scoped-read-live");
+  const plane = openLedgerPlane({ now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } });
+  await createFileSessions(plane, 2);
+  const stores = trackSessionStores();
+  try {
+    const live = plane.openKernel("s0");
+    expect(plane.openKernel("s0")[releaseSessionKernel]).toBeUndefined();
+    const port = await runAgent(
+      createSessionRequests({
+        approvalPolicy: TEST_APPROVAL_POLICY,
+        authorizeConfigure: () => Effect.succeed(true),
+        openKernel: plane.openKernel,
+        listSessions: plane.listSessions,
+      }).pipe(Effect.provideService(Entropy, { id: () => "request-owner", random: () => 0 })),
+    );
+    const rows = plane.sessionStore("s0").transaction(() => port.list());
+    expect(rows).toEqual([]);
+    // s0 is opened once and stays held by its live opener; s1 is opened by the listing and by the read, both closed.
+    expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 3, live: 1 });
+    expect(live.row("s0").id).toBe("s0");
+    live[releaseSessionKernel]?.();
+    expect(stores.live()).toBe(0);
+  } finally {
+    stores.restore();
+    plane.close();
+  }
+});
+
+test("file mode: one failed open among 120 indexed sessions refuses instead of returning partial rows", async () => {
   const { catalogPath, sessionsDir } = home("listing-refused");
-  const plane = openLedgerPlane({
+  const options = {
     now: () => 1,
     catalog: { path: catalogPath },
     sessions: { dir: sessionsDir },
-  });
+  };
+  const creator = openLedgerPlane(options);
+  await createFileSessions(creator, 120);
+  creator.close();
+  rmSync(join(sessionsDir, "s82.sqlite"));
+  mkdirSync(join(sessionsDir, "s82.sqlite"));
+  const plane = openLedgerPlane(options);
   try {
-    plane.catalog.indexSession({ id: "s0", parentId: null, role: "resident", createdAt: 1 });
-    mkdirSync(join(sessionsDir, "s0.sqlite"));
+    expect(plane.catalog.sessionIds()).toHaveLength(120);
     let error: OpenRefused | undefined;
     try {
       plane.listSessions();
@@ -275,8 +359,8 @@ test("file mode: failed indexed session open refuses with SQLite errno instead o
     expect(error?.cause).toBeInstanceOf(SQLiteError);
     expect(error?.cause).toHaveProperty("errno", 14);
     console.info(`A2 listing refusal=${error?._tag} errno=14`);
-    expect(() => plane.openKernel("s0")).toThrow(OpenRefused);
-    expect(() => plane.handles.openSession("s0")).toThrow(OpenRefused);
+    expect(() => plane.openKernel("s82")).toThrow(OpenRefused);
+    expect(() => plane.handles.openSession("s82")).toThrow(OpenRefused);
   } finally {
     plane.close();
   }

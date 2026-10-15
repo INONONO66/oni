@@ -179,7 +179,14 @@ function planeOver(
           ? retained(opened(sessionId).store)
           : openEntitySession(sessionId),
     },
-    openKernel: (sessionId) => opened(sessionId).kernel,
+    openKernel: (sessionId) => {
+      const created = sessionsDir !== undefined && !memo.has(sessionId);
+      const { kernel } = opened(sessionId);
+      // Only the read that opened the store may end it; a live holder keeps its handle.
+      return created
+        ? { ...kernel, [SessionHandleStore.releaseSessionKernel]: () => releaseSession(sessionId) }
+        : kernel;
+    },
     sessionStore: (sessionId) => opened(sessionId).store,
     releaseSession,
     discardSession: (sessionId) => {
