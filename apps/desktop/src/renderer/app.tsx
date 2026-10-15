@@ -14,6 +14,7 @@ import type { RendererPlatform } from "./platform";
 import { placeIcon } from "./shell/place-icon";
 import { SessionList } from "./shell/session-list";
 import { AutomationView } from "./automation/view";
+import { MachinesView } from "./machines/view";
 import { IngressLedgerView } from "./ingress-ledger/view";
 import { sessionGlyphProps } from "./shell/session-glyph";
 import { SessionTree } from "./shell/session-tree";
@@ -46,6 +47,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
   const sessions = useSessionReadModels(localSessions, transport);
   const tab = activeTab(state);
   const place = tab?.place ?? null;
+  const route = place?.kind === "route" ? place.route : null;
   const byId = sessionIndex(sessions);
   const listed = useMemo(() => listedSessions(sessions), [sessions]);
 
@@ -116,7 +118,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
       onToggleProject={toggleProject}
       ordered={held.shown}
       pendingChanges={held.pendingChanges}
-      route={place?.kind === "route" ? place.route : null}
+      route={route}
       selectedId={place?.kind === "session" ? place.sessionId : null}
       sessions={listed}
       sidebarOpen={sidebarOpen}
@@ -125,10 +127,12 @@ export function App({ platform, storage, host }: AppEnvironment) {
   );
   const session = place?.kind === "session" ? byId.get(place.sessionId) : undefined;
   const content =
-    place?.kind === "route" && place.route === "automations" ? (
+    route === "automations" ? (
       <AutomationView key={tab?.id} transport={transport} sessions={localSessions} id={host.id} />
-    ) : place?.kind === "route" && place.route === "ingress" ? (
+    ) : route === "ingress" ? (
       <IngressLedgerView key={tab?.id} transport={transport} now={now} onOpenSession={onOpenChild} />
+    ) : route === "machines" ? (
+      <MachinesView key={tab?.id} transport={transport} />
     ) : session === undefined ? (
       <ConsoleContent
         emptyLabel={
@@ -136,7 +140,7 @@ export function App({ platform, storage, host }: AppEnvironment) {
         }
         key={tab?.id ?? "empty"}
       >
-        {place?.kind === "route" && place.route === "sessions" ? (
+        {route === "sessions" ? (
           <SessionList now={now} onSelect={select} ordered={held.shown} sessions={listed} />
         ) : undefined}
       </ConsoleContent>

@@ -1,0 +1,35 @@
+import { z } from "zod";
+import { EpochMs } from "../time.js";
+import { CapabilityId, Enrollment, Load, Resources } from "./schema.js";
+
+/** The host's attached-machine projection, shared by provision and the gateway. */
+export const Info = Enrollment.extend({
+  tags: z.array(z.string()),
+  capabilities: z.array(CapabilityId),
+  os: z.string(),
+  arch: z.string(),
+  resources: Resources.optional(),
+  live: z.object({ reportedAt: EpochMs, load: Load, stale: z.boolean() }).strict().optional(),
+});
+export type Info = z.infer<typeof Info>;
+
+export const Request = z.object({
+  type: z.literal("machine_list"),
+  requestId: z.string().min(1),
+}).strict();
+export type Request = z.infer<typeof Request>;
+
+export const Response = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("machine_listed"),
+    requestId: z.string().min(1),
+    rows: z.array(Info),
+  }).strict(),
+  z.object({
+    type: z.literal("machine_list_refused"),
+    requestId: z.string().min(1),
+    reason: z.enum(["unavailable", "invalid_request"]),
+    detail: z.string(),
+  }).strict(),
+]);
+export type Response = z.infer<typeof Response>;

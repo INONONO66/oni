@@ -1,5 +1,32 @@
 # Implementation Status
 
+## #1559 managed machine enrollment and the Machines place (epic #1554, rung G)
+
+On `feat/1559-machine-provision` (2026-10-15, base `ae351e71a`, PR #1579).
+`provision` gains `machine_add`, `machine_remove` and `machine_list`. Enrollment
+rows live in one additive channels store,
+`createMachineEnrollmentStore(client)` over its own `machine_enrollment`
+table: schema-validated JSON, monotonic revisions, removal tombstones,
+`seed` never overwriting a live row or a tombstone, and `list` returning only
+active rows; the package index adds that one export and nothing else in
+`packages/channels` changes. `OPENOMNI_MACHINES` is a first-boot seed: an
+env entry that differs from the stored row is ignored and logged as
+`enrollment_seed_ignored`. `machine_add` is a shipped `require_approval`
+policy row (`apps/openomni/policy/owner-policy.json`); a session add binds
+the approval to the public key and declaration revision stored in the
+original invocation. Re-adding a live machine revokes the old attachment
+with `enrollment_replaced`; `machine_remove` revokes with
+`enrollment_removed`, and `MachineHost.unenroll` closes only that peer. The
+app publishes `machine.enrolled` / `machine.unenrolled` after the durable
+change and before the disconnect; the host keeps attach, report and detach
+facts. `packages/protocol` adds the shared `Machine.Info` projection and the
+correlated `machine_list` / `machine_listed` / `machine_list_refused`
+gateway frames; the app decodes that frame at the authenticated WebSocket
+callback, and `apps/desktop` renders a read-only Machines place (names,
+tags, capabilities, capacity, load, staleness, with unreported, loading,
+offline, error and empty states) over it.
+Receipts on `c89127356` (rebased onto `ae351e71a`): app policy/provision/machine suites 235 pass / 0 fail (`provision-machine-add-consent` now a row in `apps/openomni/policy/owner-policy.json`, pinned by `owner-policy.test.ts`); lane receipts before the rebase: protocol 629/0, machines 264/0 (1 skip), channels 879/0, desktop 517/0, scripts 74/0, patch coverage green; lead gate chain 14/14 exit 0 (install, build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries). Forbidden surfaces grep-zero: `provider: "machine"` and `channel:machine:`.
+
 ## #1574 Pack conformance
 
 Pack conformance: tool + policy kinds; dialect kind pending #1549.

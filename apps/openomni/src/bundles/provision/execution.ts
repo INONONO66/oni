@@ -19,6 +19,7 @@ import {
 import { executeBundleDisable, executeBundleEnable } from "./bundles";
 import { executeProvisionStatus } from "./status";
 import { automationApproval, executeApprovedAutomation, executeAutomationTool } from "./automation";
+import { executeApprovedMachine, executeMachine, machineDomainRevisions } from "./machines";
 function provisionExecutors(port: ProvisionPort, now: () => number) {
   return {
     contact_add: executePersonDeclare(port, now),
@@ -38,6 +39,11 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
   const executors = () => composed ?? refusal("provision", "provisioning is not composed");
   return async ({ operation }: z.output<typeof ProvisionInput>, context: ToolExecutionContext) => {
     switch (operation.op) {
+      case "machine_add":
+        return executeApprovedMachine(port?.machines, operation, context);
+      case "machine_remove":
+      case "machine_list":
+        return executeMachine(port?.machines, operation, `session:${context.sessionId}`);
       case "automation_add":
       case "automation_enable":
         return executeApprovedAutomation(port?.automations, operation, context);
@@ -88,6 +94,8 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
 export function provisionApproval(port: ProvisionPort | undefined) {
   const automation = automationApproval(port?.automations);
   return ({ operation }: z.output<typeof ProvisionInput>, context?: ToolExecutionContext, prepare = false) => {
+    if (operation.op === "machine_add")
+      return { required: true, domainRevisions: machineDomainRevisions(port?.machines?.enrollments, operation.args.machineId) };
     if ((operation.op === "automation_add" || operation.op === "automation_enable") && context !== undefined)
       return automation(operation, context, prepare);
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {

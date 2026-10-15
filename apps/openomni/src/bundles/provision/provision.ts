@@ -3,6 +3,7 @@ import { Bundle, Core } from "@openomni/agent";
 import { boundTool, ToolCapabilityPort } from "../seams";
 const defineTool = Core.defineTool;
 import { AutomationOperation, AutomationResult } from "./automation-schema";
+import { MachineOperation, MachineResult } from "./machine-schema";
 import { ContactOperation, ContactResult } from "./contact-mutations";
 import {
   PERSON_DECLARE_INPUT,
@@ -21,6 +22,7 @@ const ProvisionOperation = z.discriminatedUnion("op", [
   ...ChannelOperation.options,
   ...BundleOperation.options,
   ...AutomationOperation.options,
+  ...MachineOperation.options,
   z.object({ op: z.literal("status"), args: EMPTY_INPUT }).strict(),
 ]);
 export const ProvisionInput = z.object({ operation: ProvisionOperation }).strict();
@@ -31,6 +33,7 @@ export const ProvisionOutput = z.discriminatedUnion("op", [
   ...ChannelResult.options,
   ...BundleResult.options,
   ...AutomationResult.options,
+  ...MachineResult.options,
   ProvisionStatusOutput.extend({ op: z.literal("status") }),
 ]);
 
@@ -41,7 +44,7 @@ export function createProvisionTool(port: ProvisionPort | undefined, now: () => 
       name: "provision",
       category: "mutation",
       description:
-        "Administer contacts, channels, credentials, automations, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|status. Authority changes require Owner consent. Session-created automations remain disabled until the Owner enables them.",
+        "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes and machine public keys require Owner consent. Session-created automations remain disabled until the Owner enables them.",
       input: ProvisionInput,
       output: ProvisionOutput,
       visibility: { model: ["resident"], cell: ["resident"] },

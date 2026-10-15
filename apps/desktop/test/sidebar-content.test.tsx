@@ -83,13 +83,14 @@ function element(root: Document | Element, selector: string): Element {
 }
 
 describe("the nav leads with a way to start", () => {
-  test("Given the nav, When rendered, Then the rows read New session, Sessions, Automations, Ingress ledger", () => {
+  test("Given the nav, When rendered, Then all places follow the new-session action", () => {
     const document = render();
     const items = [...document.querySelectorAll(NAV_ITEM)];
     expect(items.map((item) => item.textContent)).toEqual([
       "New session",
       "Sessions",
       "Automations",
+      "Machines",
       "Ingress ledger",
     ]);
     // Starting is an action, not a place: the row is never the current page, even on the Sessions route.
@@ -248,7 +249,7 @@ describe("the footer says where the gateway is", () => {
     expect(title.textContent).toBe("Gateway");
     expect(detail.textContent).toBe("Configured: ws://127.0.0.1:3000/ws");
     expect(row.textContent).not.toContain("secret");
-    expect(document.querySelectorAll('[data-ui="NavItem"]')).toHaveLength(4);
+    expect(document.querySelectorAll('[data-ui="NavItem"]')).toHaveLength(5);
     expect(document.body.textContent).not.toContain("Settings");
   });
 });

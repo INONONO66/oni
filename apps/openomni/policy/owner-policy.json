@@ -499,6 +499,19 @@
       }
     },
     {
+      "id": "provision-machine-add-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "machine_add"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.machine_add requires Owner consent"
+      }
+    },
+    {
       "id": "delegation-policy/tool.pre#1",
       "point": "tool.pre",
       "order": 910,

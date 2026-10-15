@@ -9,6 +9,7 @@ import { refusal, storeRefusal } from "./contacts";
 import type { BundlePort } from "./bundles";
 import { Statuses } from "./status";
 import type { AutomationPort } from "./automation";
+import type { MachinePort } from "./machines";
 
 export const CHANNEL_DECLARE_INPUT = z
   .object({
@@ -72,6 +73,7 @@ export const ChannelResult = z.discriminatedUnion("op", [
 ]);
 
 export interface ProvisionPort {
+  readonly machines?: MachinePort;
   readonly automations?: AutomationPort;
   readonly persons: Pick<PersonStore, "put" | "get" | "list" | "remove">;
   readonly instances: Pick<ChannelInstanceStore, "put" | "get" | "list">;

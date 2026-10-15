@@ -48,6 +48,7 @@ Namespace additions are gated: `script/lint-tools.ts` (#467) enforces a grandfat
 - **Policy vocabulary**: `Policy.PolicyDecision` verdict is one of `allow | deny | pending`; executable row verdicts live in `policy/row-verdict.ts`. The unconsumed interception-point contract registry, plan/obligation schemas, and the legacy `Timing` alias were deleted in #1246 — the gate engine in `packages/agent` evaluates compiled rows and permissions directly.
 - **Storage sub-adapters**: `storage/index.ts` holds the `Storage` namespace of pure interface contracts — no runtime logic. Implementations live in the agent store plane and the channels store plane.
 - **IPC contracts**: `ipc/` describes the generic wire envelopes and the machine wire method schemas only. Process delegation lifecycle lives in the product app.
+- **Machine gateway reads**: `machine/gateway.ts` owns `Machine.Info`, `Machine.Request` (`machine_list`) and `Machine.Response` (`machine_listed` or a correlated refusal). These are desktop gateway frames, not daemon IPC methods. Enrollment events carry the committed enrollment or removed machine id; detach reasons include `enrollment_removed`.
 - **Trace contract**: `trace/index.ts` defines `TraceContext` and the pure `traceIdFromUuid()` format codec. Runtime entropy belongs to telemetry or the consuming driver package.
 
 ## CONTRACT BOUNDARY

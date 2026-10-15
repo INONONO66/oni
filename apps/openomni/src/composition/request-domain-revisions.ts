@@ -4,8 +4,11 @@ import type { PlainValue, SessionTransition } from "@openomni/protocol";
 import { ContactOperation, contactDomainRevisions } from "../bundles/provision/contact-mutations";
 import { AutomationOperation } from "../bundles/provision/automation-schema";
 import { automationDomainRevisions, automationId, type AutomationPort } from "../bundles/provision/automation";
+import { MachineOperation } from "../bundles/provision/machine-schema";
+import { machineDomainRevisions, type MachinePort } from "../bundles/provision/machines";
 
 export interface RequestDomainDeps {
+  readonly machineEnrollments?: MachinePort["enrollments"];
   readonly automations?: AutomationPort;
   readonly actors: ActorRegistry;
   readonly persons: Pick<PersonStore, "get">;
@@ -44,6 +47,9 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
     if (Object.keys(request.domainRevisions).length === 0) return {};
     const input = request.parsedInput;
     if (input !== null && typeof input === "object" && !Array.isArray(input)) {
+      const machine = MachineOperation.safeParse(input.operation);
+      if (machine.success && machine.data.op === "machine_add")
+        return machineDomainRevisions(deps.machineEnrollments, machine.data.args.machineId);
       const automation = AutomationOperation.safeParse(input.operation);
       if (automation.success)
         return automationDomainRevisions(deps.automations, automationId(automation.data, request));

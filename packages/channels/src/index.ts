@@ -38,4 +38,5 @@ export {
 // their DDL; the app attaches this store to the catalog's database handle.
 export { openChannelStore, type ChannelStore } from "./store/sqlite/index.js";
 export { createSurfaceKeyStore } from "./store/surface-key/index.js";
+export { createMachineEnrollmentStore } from "./store/provisioning/machine-enrollment.js";
 export { StoredEndpoint, StoredIdentity } from "./store/sqlite/actor-schema.js";
