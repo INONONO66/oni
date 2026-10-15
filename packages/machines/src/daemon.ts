@@ -270,18 +270,28 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
      * One heartbeat (#1555); the next is scheduled only after the host
      * ACCEPTED it. A refusal means the host dropped this attachment while the
      * transport stood (superseded, or never held): terminal like a refused
-     * reattach, so the daemon closes rather than beat into a void. A failed
-     * call is logged and the cadence continues while the connection stands;
-     * transport loss releases the client, which cancels the pending beat.
+     * reattach — `attachment` records the refusal and the daemon closes
+     * rather than beat into a void. A failed call is logged and the cadence
+     * continues while the SAME connection stands; a beat that settles after
+     * transport loss touches nothing, so a reattach's first beat keeps its
+     * zero delay.
      */
     const sendReport: Effect.Effect<void> = Effect.suspend(() => {
-      if (report === undefined || client === undefined || attachment.status !== "attached") return Effect.void;
+      const connection = client;
+      if (report === undefined || connection === undefined || attachment.status !== "attached") return Effect.void;
       const heartbeat: Machine.Report = { machineId: offer.machineId, reportedAt: report.now(), load: { ...report.probe.load(), inFlight: cells.size } };
-      return typedCall(client, Machine.WireMethod.Report, heartbeat, report.intervalMs).pipe(
+      return typedCall(connection, Machine.WireMethod.Report, heartbeat, report.intervalMs).pipe(
         Effect.mapError(transportFailure("daemon.report")),
         Effect.flatMap((raw) => Effect.try({ try: () => Machine.ReportResult.parse(raw), catch: decodeMachineFailure("daemon.report.response") })),
-        Effect.flatMap((result) => result.status === "accepted" ? Effect.sync(() => scheduleReport(report.intervalMs)) : Effect.orDie(close)),
-        Effect.catch((error) => Effect.logWarning(`machine.report failed: ${error.message}`).pipe(Effect.andThen(Effect.sync(() => { if (client !== undefined) scheduleReport(report.intervalMs); })))),
+        Effect.flatMap((result) => {
+          if (client !== connection) return Effect.void;
+          if (result.status === "accepted") return Effect.sync(() => scheduleReport(report.intervalMs));
+          // `machine_not_attached` has no attach-side twin: the host no longer
+          // holds this connection's attachment, which is what `disconnected` names.
+          attachment = { status: "refused", reason: result.reason === "machine_mismatch" ? "machine_mismatch" : "disconnected" };
+          return Effect.orDie(close);
+        }),
+        Effect.catch((error) => Effect.logWarning(`machine.report failed: ${error.message}`).pipe(Effect.andThen(Effect.sync(() => { if (client === connection) scheduleReport(report.intervalMs); })))),
       );
     });
     function scheduleReport(delayMs: number): void {

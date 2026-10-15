@@ -174,7 +174,6 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         }
         detach(source.key, "superseded_by_reattach");
         attachments.set(source.key, { enrollment, offer, capabilities: outcome.capabilities, ...source });
-        reports.delete(source.key);
         connectionByMachine.set(offer.machineId, source.key);
         known.add(offer.machineId);
         options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...outcome.capabilities] });
@@ -190,8 +189,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       const attachment = attachments.get(source.key);
       if (attachment === undefined) return { status: "refused", reason: "machine_not_attached" };
       if (attachment.offer.machineId !== incoming.machineId) return { status: "refused", reason: "machine_mismatch" };
-      reports.set(source.key, { report: incoming, receivedAt: options.now() });
-      options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: incoming.reportedAt, load: incoming.load });
+      const receivedAt = options.now();
+      reports.set(source.key, { report: incoming, receivedAt });
+      options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: receivedAt, reportedAt: incoming.reportedAt, load: incoming.load });
       return { status: "accepted" };
     }
     function dispatchRequest(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachinesFailure> {

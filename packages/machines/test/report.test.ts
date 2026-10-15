@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { Machine } from "@openomni/protocol";
+import net from "node:net";
+import { type Ipc, Machine } from "@openomni/protocol";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
-import { connectIpcClient } from "./ipc/helpers/native";
+import { connectIpcClient, createIpcServer } from "./ipc/helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { eventCollector } from "./helpers/events";
+import { startProxy } from "./helpers/proxy";
 
 /**
  * #1555 heartbeat proof: the daemon's cadence runs ONLY through the injected
@@ -71,7 +73,7 @@ describe("machine.report heartbeat", () => {
       const reported = collector.next("machine.reported");
       const secondBeat = clock.nextScheduled();
       first.task();
-      expect((await reported).payload).toEqual({ machineId: "w-1", time: 10, load: { loadAvg1: 0.25, memoryAvailableBytes: 1024, inFlight: 0 } });
+      expect((await reported).payload).toEqual({ machineId: "w-1", time: 100, reportedAt: 10, load: { loadAvg1: 0.25, memoryAvailableBytes: 1024, inFlight: 0 } });
       expect((await secondBeat).delay).toBe(2000);
       expect(host.list()[0]?.live).toEqual({ reportedAt: 10, load: { loadAvg1: 0.25, memoryAvailableBytes: 1024, inFlight: 0 }, stale: false });
 
@@ -141,7 +143,7 @@ describe("machine.report heartbeat", () => {
     }
   });
 
-  test("a report the host refuses ends the cadence until the next attach", async () => {
+  test("a report the host refuses records the refusal and ends the cadence until the next attach", async () => {
     const hostPath = socketPath();
     const host = await createMachineHost({ listen: { unix: hostPath }, enrollment: () => enrollment, events: { publish: () => undefined }, now: () => 0 });
     const clock = fakeScheduler();
@@ -159,9 +161,89 @@ describe("machine.report heartbeat", () => {
         await usurper.close();
       }
       expect(clock.entries).toHaveLength(1);
+      expect(daemon.attachment).toEqual({ status: "refused", reason: "disconnected" });
     } finally {
       await daemon.close();
       await host.close();
+    }
+  });
+
+  test("transport loss cancels the pending beat and a reattach restarts the cadence from zero", async () => {
+    const hostPath = socketPath();
+    const proxyPath = socketPath();
+    const collector = eventCollector();
+    const host = await createMachineHost({ listen: { unix: hostPath }, enrollment: () => enrollment, events: collector.sink, now: () => 0 });
+    const proxy = await startProxy(proxyPath, () => net.connect(hostPath));
+    const reconnectClock = fakeScheduler();
+    const reportClock = fakeScheduler();
+    const firstBeat = reportClock.nextScheduled();
+    const daemon = await attachMachineDaemon({
+      socketPath: proxyPath,
+      offer: offer(),
+      reconnect: { scheduler: reconnectClock, random: () => 1 },
+      report: { scheduler: reportClock, now: () => 1, intervalMs: 2000, probe },
+    });
+    try {
+      const pendingBeat = reportClock.nextScheduled();
+      (await firstBeat).task();
+      const pending = await pendingBeat;
+      expect(host.list()[0]?.live?.stale).toBe(false);
+
+      const detached = collector.next("machine.detached");
+      const attempt = reconnectClock.nextScheduled();
+      proxy.sever();
+      await detached;
+      expect(host.list()).toEqual([]);
+      // The reconnect attempt is scheduled only after the daemon released its connection, beat included.
+      const scheduledAttempt = await attempt;
+      expect(pending.cancelled).toBe(true);
+
+      const reattached = collector.next("machine.attached");
+      const restarted = reportClock.nextScheduled();
+      scheduledAttempt.task();
+      await reattached;
+      expect(host.list()[0]?.live).toBeUndefined();
+      const beat = await restarted;
+      expect(beat.delay).toBe(0);
+      const reported = collector.next("machine.reported");
+      const resumed = reportClock.nextScheduled();
+      beat.task();
+      await reported;
+      expect(host.list()[0]?.live?.stale).toBe(false);
+      expect((await resumed).delay).toBe(2000);
+      expect(reportClock.entries.filter((entry) => !entry.cancelled)).toHaveLength(3);
+    } finally {
+      await daemon.close();
+      await proxy.stop();
+      await host.close();
+    }
+  });
+
+  test("a beat whose call fails keeps the cadence while the connection stands; a mismatch refusal is recorded and terminal", async () => {
+    const attached: Machine.AttachResult = { status: "attached", effectiveCapabilities: ["kernel.py"], effectiveExports: [] };
+    // Beat answers in order: a shape no ReportResult parses (a failed call, not a refusal), then accepted, then the refusal.
+    const answers: Ipc.Response["result"][] = [{ status: "bogus" }, { status: "accepted" }, { status: "refused", reason: "machine_mismatch" }];
+    const server = await createIpcServer(socketPath(), (method, _params, respond) => {
+      respond(method === Machine.WireMethod.Attach ? attached : answers.shift());
+    });
+    const clock = fakeScheduler();
+    const firstBeat = clock.nextScheduled();
+    const daemon = await attachMachineDaemon({ socketPath: server.socketPath, offer: offer(), report: { scheduler: clock, now: () => 0, intervalMs: 3000, probe } });
+    try {
+      const retry = clock.nextScheduled();
+      (await firstBeat).task();
+      expect((await retry).delay).toBe(3000);
+      expect(daemon.attachment.status).toBe("attached");
+      const afterAccepted = clock.nextScheduled();
+      (await retry).task();
+      expect((await afterAccepted).delay).toBe(3000);
+      (await afterAccepted).task();
+      await daemon.closed;
+      expect(daemon.attachment).toEqual({ status: "refused", reason: "machine_mismatch" });
+      expect(clock.entries).toHaveLength(3);
+    } finally {
+      await daemon.close();
+      await server.close();
     }
   });
 });

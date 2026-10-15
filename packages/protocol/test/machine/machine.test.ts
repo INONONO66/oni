@@ -115,7 +115,8 @@ describe("machine.report heartbeat (#1555)", () => {
     expect(Machine.Report.parse(report)).toEqual(report);
     expect(Machine.Report.safeParse({ ...report, load: { ...load, loadAvg1: -1 } }).success).toBe(false);
     expect(Machine.Events.Reported.name).toBe("machine.reported");
-    expect(Machine.Events.Reported.schema.parse({ machineId: "mac-0", time: 3, load })).toEqual({ machineId: "mac-0", time: 3, load });
+    expect(Machine.Events.Reported.visibility).toBe("ephemeral");
+    expect(Machine.Events.Reported.schema.parse({ machineId: "mac-0", time: 3, reportedAt: 2, load })).toEqual({ machineId: "mac-0", time: 3, reportedAt: 2, load });
   });
 
   test("a refusal names one of the two host reasons and nothing else", () => {

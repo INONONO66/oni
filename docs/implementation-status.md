@@ -71,11 +71,14 @@ in-flight cell count; every delay runs through the injected scheduler and
 clock (the #1270 reconnect shape). The next beat is scheduled only after the
 host accepted the previous one: a refusal (`machine_not_attached` |
 `machine_mismatch`) means the host no longer holds this attachment while the
-transport stands, and the daemon closes as it does after a refused reattach;
-a failed call is logged and the cadence continues. The host accepts a report
-only from the attaching connection for the machine it attached as, keeps the
-latest per attachment, drops it on detach or re-attach, and publishes
-`machine.reported`. `MachineHost.list()` projects `resources?` and
+transport stands, so `daemon.attachment` records it as `refused`
+(`disconnected` | `machine_mismatch`) and the daemon closes as it does after a
+refused reattach (`openomni machine attach` exits 1); a failed call is logged
+and the cadence continues on the same connection, and a beat that settles
+after transport loss touches nothing. The host accepts a report only from the
+attaching connection for the machine it attached as, keeps the latest per
+attachment, drops it on detach, and publishes `machine.reported` (ephemeral;
+`time` is host receipt, `reportedAt` the daemon's clock). `MachineHost.list()` projects `resources?` and
 `live?: { reportedAt, load, stale }` with `stale` judged by the host clock
 against `staleAfterMs` (default 15 000 = three missed default beats);
 `codemode.listMachines` exposes both for free. Without `report` wiring a daemon
@@ -87,7 +90,9 @@ that cannot go stale, and rung B treats unknown resources as last choice.
 Receipts: `packages/protocol/test/machine/machine.test.ts` (schema, wire
 registration, event), `packages/machines/test/report.test.ts` (fake
 scheduler/probe/host clock: cadence, floor, staleness flip, typed refusals,
-cadence end after supersede) and `apps/openomni/test/machine-config.test.ts`
+recorded refusal after supersede, beat cancelled by transport loss and
+restarted at zero by the reattach, failed call keeps the cadence) and
+`apps/openomni/test/machine-config.test.ts`
 (the configured TCP daemon's first beat lands and `list()` shows probed
 `resources` with non-stale `live`).
 
