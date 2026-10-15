@@ -19,6 +19,26 @@ const offer = {
   offeredAt: 2,
 } satisfies Machine.Offer;
 
+describe("managed machine enrollment", () => {
+  test("gateway rows preserve capacity and load, refusing invented fields", () => {
+    const row = { ...enrollment, tags: ["pool"], capabilities: ["fs.read"], os: "darwin", arch: "arm64",
+      resources: { cpus: 4, memoryBytes: 8192 },
+      live: { reportedAt: 4, stale: false, load: { loadAvg1: 0.5, memoryAvailableBytes: 4096, inFlight: 1 } } };
+    const reply = { type: "machine_listed", requestId: "list", rows: [row] } satisfies Machine.Response;
+    expect(Machine.Response.parse(reply)).toEqual(reply);
+    expect(Machine.Info.safeParse({ ...row, leases: 1 }).success).toBe(false);
+    expect(Machine.Request.safeParse({ type: "machine_list", requestId: "list", machineId: "extra" }).success).toBe(false);
+  });
+  test("enrollment facts and detach reasons validate their authority evidence", () => {
+    expect(Machine.Events.Enrolled.schema.parse({ machineId: enrollment.machineId, time: 1, enrollment }))
+      .toEqual({ machineId: enrollment.machineId, time: 1, enrollment });
+    expect(Machine.Events.Unenrolled.schema.parse({ machineId: enrollment.machineId, time: 2 }))
+      .toEqual({ machineId: enrollment.machineId, time: 2 });
+    expect(Machine.Events.Detached.schema.parse({ machineId: enrollment.machineId, time: 2, reason: "enrollment_removed" }).reason).toBe("enrollment_removed");
+    expect(Machine.Events.Detached.schema.safeParse({ machineId: enrollment.machineId, time: 2, reason: "untyped" }).success).toBe(false);
+  });
+});
+
 describe("Machine.WellKnownCapability", () => {
   test("exports the Python kernel capability", () => {
     expect(Machine.WellKnownCapability.pythonKernel).toBe("kernel.py");

@@ -45,6 +45,8 @@ interface IpcServerApi {
   /** Returns false when the notification was dropped because no client is connected. */
   notify(method: string, params?: Ipc.Notification["params"]): Effect.Effect<boolean, IpcError>;
   useConnection(id: string): void;
+  /** Fail pending calls before closing one revoked peer, leaving other peers live. */
+  disconnect(id: string): void;
   /**
    * The mutual-TLS peer key fingerprint of a live connection (#1270), or
    * undefined for Unix connections. The HANDLER judges it (the host compares
@@ -330,6 +332,11 @@ function makeServerCore(handler: RequestHandler, options: IpcServerOptions, disp
       },
       useConnection(id) {
         if (connections.has(id)) activeConnectionId = id;
+      },
+      disconnect(id) {
+        const state = connections.get(id);
+        removeConnection(id, "connection revoked");
+        state?.socket.end();
       },
       peerFingerprintOf(connectionId) {
         return connections.get(connectionId)?.peerFingerprint;

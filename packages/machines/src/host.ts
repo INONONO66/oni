@@ -74,26 +74,13 @@ export interface MachineHandle {
   runCode(cell: Machine.CellRequest, signal?: AbortSignal): Effect.Effect<Machine.CellResult, MachineError>;
   peekCode(cellId: string): Effect.Effect<Machine.PeekAnswer, MachineError>;
 }
-/** The latest accepted heartbeat of one attachment, as `list()` projects it (#1555). */
-interface MachineLive {
-  /** The daemon's own `reportedAt`; staleness is judged by the host clock. */
-  readonly reportedAt: number;
-  readonly load: Machine.Load;
-  readonly stale: boolean;
-}
-export interface MachineInfo extends Machine.Enrollment {
-  readonly tags: string[];
-  readonly capabilities: string[];
-  readonly os: string;
-  readonly arch: string;
-  /** Static capacity the daemon offered at attach; absent when it offered none. */
-  readonly resources?: Machine.Resources;
-  /** Absent until the first accepted heartbeat of the current attachment. */
-  readonly live?: MachineLive;
-}
+/** Attached enrollment, negotiated capabilities and optional resource observations. */
+export type MachineInfo = Machine.Info;
 export interface MachineHost {
   list(): MachineInfo[];
   get(id: Machine.MachineId): MachineHandle;
+  /** Enrollment persistence belongs to the caller; this revokes its live attachment. */
+  unenroll(id: Machine.MachineId): void;
   /** The bound endpoints — tcp carries the REAL port when the spec asked for 0. */
   readonly endpoints: {
     readonly unix?: string;
@@ -102,7 +89,7 @@ export interface MachineHost {
   close(): Effect.Effect<void, MachineError>;
 }
 /** The per-connection transport surface every machine operation routes through. */
-type HostListener = Pick<IpcServer, "call" | "useConnection" | "peerFingerprintOf">;
+type HostListener = Pick<IpcServer, "call" | "useConnection" | "peerFingerprintOf" | "disconnect">;
 interface Attachment {
   readonly enrollment: Machine.Enrollment;
   readonly offer: Machine.Offer;
@@ -131,7 +118,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
-    function detach(key: string, reason: string): void {
+    function detach(key: string, reason: import("zod").infer<typeof Machine.Events.Detached.schema>["reason"]): void {
       const attachment = attachments.get(key);
       if (attachment === undefined) return;
       attachments.delete(key);
@@ -464,6 +451,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     yield* Effect.addFinalizer(() => Effect.orDie(close));
     return {
       get,
+      unenroll(id) {
+        const key = connectionByMachine.get(id);
+        const attachment = key === undefined ? undefined : attachments.get(key);
+        if (attachment === undefined) return;
+        detach(attachment.key, "enrollment_removed");
+        attachment.server.disconnect(attachment.rawId);
+      },
       endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },
       list: () => [...attachments.values()].map(({ enrollment, offer, capabilities, key }): MachineInfo => {
         const latest = reports.get(key);

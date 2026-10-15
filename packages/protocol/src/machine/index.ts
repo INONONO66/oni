@@ -1,6 +1,7 @@
 import * as Fold from "./fold.js";
 import * as Schema from "./schema.js";
 import { Events as MachineEvents } from "./events.js";
+import * as Gateway from "./gateway.js";
 
 /**
  * Machine domain (docs/machines-and-delegation.md): attached devices as the
@@ -8,6 +9,12 @@ import { Events as MachineEvents } from "./events.js";
  * `machines` package; enrollment storage lives in the ledger.
  */
 export namespace Machine {
+  export const Info = Gateway.Info;
+  export type Info = Gateway.Info;
+  export const Request = Gateway.Request;
+  export type Request = Gateway.Request;
+  export const Response = Gateway.Response;
+  export type Response = Gateway.Response;
   export const CapabilityId = Schema.CapabilityId;
   export type CapabilityId = Schema.CapabilityId;
   export const WellKnownCapability = Schema.WellKnownCapability;

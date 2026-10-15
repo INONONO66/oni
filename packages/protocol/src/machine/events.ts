@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BusEvent } from "../bus/index.js";
-import { CapabilityId, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
+import { CapabilityId, Enrollment, Load, MachineId, PtyCursor, PtySessionName, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
 
 const EventBase = z.object({
@@ -9,6 +9,10 @@ const EventBase = z.object({
 });
 
 export const Events = {
+  Enrolled: BusEvent.define("machine.enrolled", EventBase.extend({ enrollment: Enrollment }), {
+    visibility: "llm_reason",
+  }),
+  Unenrolled: BusEvent.define("machine.unenrolled", EventBase, { visibility: "llm_reason" }),
   /** A daemon attached and negotiation settled: this is the effective set in force. */
   Attached: BusEvent.define(
     "machine.attached",
@@ -17,7 +21,9 @@ export const Events = {
     }),
     { visibility: "llm_reason" },
   ),
-  Detached: BusEvent.define("machine.detached", EventBase.extend({ reason: z.string().min(1) }), {
+  Detached: BusEvent.define("machine.detached", EventBase.extend({
+    reason: z.enum(["connection_closed", "superseded_by_reattach", "host_closed", "enrollment_removed"]),
+  }), {
     visibility: "llm_reason",
   }),
   /**
