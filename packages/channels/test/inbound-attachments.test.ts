@@ -3,7 +3,7 @@ import { Gateway } from "@openomni/protocol";
 import { TelegramNormalizer } from "../src/provider/telegram/normalizer";
 import { TelegramUpdateSchema } from "../src/provider/telegram/types";
 import { SlackNormalizer } from "../src/provider/slack/normalizer";
-import { SocketEnvelopeSchema } from "../src/provider/slack/types";
+import { SlackMessageEventSchema } from "../src/provider/slack/types";
 import { DiscordNormalizer } from "../src/provider/discord/normalizer";
 import { DiscordMessageSchema } from "../src/provider/discord/types";
 
@@ -62,21 +62,18 @@ describe("Telegram incoming media", () => {
  */
 describe("Slack incoming files", () => {
   test("retains private download URLs and metadata without text", () => {
-    const envelope = SocketEnvelopeSchema.parse({
-      type: "events_api", envelope_id: "e1", payload: { event: {
-        type: "message", user: "U1", channel: "C1", ts: "10", text: "",
-        files: [
-          { url_private_download: "https://files.slack.com/private/photo", mimetype: "image/png", name: "photo.png", size: 12 },
-          { url_private_download: "https://files.slack.com/private/audio", mimetype: "audio/mpeg", name: "note.mp3", size: 13 },
-          { url_private_download: "https://files.slack.com/private/file", mimetype: "application/pdf", name: "report.pdf", size: 14 },
-          { id: "F-ext", url_private: "https://files.slack.com/private/ext", name: "ext.txt" },
-          { id: "F-stub", name: "stub" },
-          { name: "no-handle" },
-        ],
-      } },
+    const event = SlackMessageEventSchema.parse({
+      type: "message", user: "U1", channel: "C1", ts: "10", text: "",
+      files: [
+        { url_private_download: "https://files.slack.com/private/photo", mimetype: "image/png", name: "photo.png", size: 12 },
+        { url_private_download: "https://files.slack.com/private/audio", mimetype: "audio/mpeg", name: "note.mp3", size: 13 },
+        { url_private_download: "https://files.slack.com/private/file", mimetype: "application/pdf", name: "report.pdf", size: 14 },
+        { id: "F-ext", url_private: "https://files.slack.com/private/ext", name: "ext.txt" },
+        { id: "F-stub", name: "stub" },
+        { name: "no-handle" },
+      ],
     });
-    if (envelope.payload?.event === undefined) throw new Error("event fixture was not parsed");
-    const inbound = slack.normalize(envelope.payload.event);
+    const inbound = slack.normalize(event);
     expect(inbound?.facts.render).toBe("");
     expect(inbound?.facts.attachments).toEqual([
       { kind: "image", ref: "https://files.slack.com/private/photo", mime: "image/png", name: "photo.png", bytes: 12 },

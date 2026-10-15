@@ -3,7 +3,6 @@ import type { ServerWebSocket, WebSocketOptions } from "bun";
 import { Operational } from "@openomni/protocol";
 import { Schedule } from "effect";
 import { z } from "zod";
-import { SlackSocket } from "../src/provider/slack/socket";
 import { DiscordGateway } from "../src/provider/discord/gateway";
 import { TelegramPoller } from "../src/provider/telegram/poller";
 import { TelegramUpdateSchema } from "../src/provider/telegram/types";
@@ -35,7 +34,9 @@ function telegramUpdates(server: Bun.Server<undefined>) {
     async getUpdates() {
       return z.array(TelegramUpdateSchema).parse(await (await fetch(server.url)).json());
     },
-    async answerCallbackQuery() { return; },
+    async answerCallbackQuery() {
+      return;
+    },
   };
 }
 
@@ -49,7 +50,8 @@ function collectTelegramMessages(delivered: number[], onDelivery: () => void = (
   };
 }
 
-for (const provider of ["slack", "discord"] as const) {
+// #1569: the Slack transport is the agent-messenger SDK listener; only the discord gateway rides the socket shell.
+for (const provider of ["discord"] as const) {
   test(`${provider}: callbacks on a retired real socket cannot dispatch or schedule reconnect`, async () => {
     const NativeWebSocket = globalThis.WebSocket;
     const clients: WebSocket[] = [];
@@ -69,56 +71,36 @@ for (const provider of ["slack", "discord"] as const) {
     const server = websocketServer((ws, server) => {
       peers.push(ws);
       ws.send(
-        JSON.stringify(
-          provider === "slack"
-            ? { type: "hello" }
-            : {
-                op: 0,
-                t: "READY",
-                s: 1,
-                d: {
-                  session_id: "session",
-                  resume_gateway_url: `ws://127.0.0.1:${server.port}`,
-                  user: { id: "bot", username: "bot" },
-                },
-              },
-        ),
+        JSON.stringify({
+          op: 0,
+          t: "READY",
+          s: 1,
+          d: {
+            session_id: "session",
+            resume_gateway_url: `ws://127.0.0.1:${server.port}`,
+            user: { id: "bot", username: "bot" },
+          },
+        }),
       );
     });
     const url = `ws://127.0.0.1:${server.port}`;
     const publish = (event: { name: string }) => {
       logs.push(event.name);
     };
-    const socket =
-      provider === "slack"
-        ? new SlackSocket(
-            async () => url,
-            {
-              onEvent(envelope) {
-                events.push(envelope.envelope_id ?? "missing");
-                received.resolve();
-              },
-            },
-            publish,
-            injectedOptions(),
-          )
-        : new DiscordGateway(
-            "token",
-            async () => url,
-            {
-              onReady: () => undefined,
-              onDispatch(event) {
-                events.push(event);
-                received.resolve();
-              },
-            },
-            publish,
-            injectedOptions(),
-          );
-    const frame = (id: string) =>
-      provider === "slack"
-        ? { type: "events_api", envelope_id: id, payload: { event: { type: "message" } } }
-        : { op: 0, t: id, s: 2, d: {} };
+    const socket = new DiscordGateway(
+      "token",
+      async () => url,
+      {
+        onReady: () => undefined,
+        onDispatch(event) {
+          events.push(event);
+          received.resolve();
+        },
+      },
+      publish,
+      injectedOptions(),
+    );
+    const frame = (id: string) => ({ op: 0, t: id, s: 2, d: {} });
     try {
       await bounded(socket.start());
       const retired = clients[0];

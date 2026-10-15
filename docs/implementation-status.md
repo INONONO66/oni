@@ -1,5 +1,55 @@
 # Implementation Status
 
+## #1569 messaging on the agent-messenger SDK — Slack bot (PR 1 of the epic)
+
+On `feat/1569-sdk-slack-bot` (2026-10-15, base `b74f3c652`). The Slack
+provider's transport is `agent-messenger@2.39.0` (`agent-messenger/slackbot`,
+pinned exactly): `packages/channels/src/provider/slack/sdk.ts` names the SDK
+slice the surface speaks (`SlackBotApi`, `SlackBotEvents`, the `SlackSdk`
+construction seam), `singleAttempt` pins the SDK's inner `@slack/web-api`
+client to zero retries and an immediate typed rate-limit refusal (its default
+ten-retries-in-thirty-minutes policy would re-post after a reset or 5xx the
+platform may already have accepted), and `classifySlackFailure` reads the
+forwarded `slack_webapi_*` codes into `rejected | not_connected | uncertain`.
+The surface logs in with the vault's bot token through `login({ token })`
+(the SDK's on-disk credential store is never used), reads identity from
+`testAuth`, acks every Socket Mode envelope before dispatch through the SDK's
+`slack_event` / `interactive` / `slash_commands` events, starts on the first
+hello and fails start on an error or a close before it (the SDK's own hello
+timeout included), opens the bot's direct channel first for a
+conversation-less delivery (`openDm` on the seam over the pinned inner
+client: uploads and reactions take a channel id and refuse a bare user id; a
+refused open is a proven `not_sent`) or posts into `conversation.channelId`
+threaded
+under `threadId ?? replyToMessageId`, uploads through `uploadFile`, reacts
+through `addReaction`/`removeReaction` with `already_reacted`/`no_reaction`
+read as settled, and seeds thread sessions from `getThreadReplies`
+(integration posts labelled `bot <username>`). Deleted: `provider/slack/client.ts`,
+`provider/slack/socket.ts`, the `SocketEnvelopeSchema`, and the Socket Mode
+protocol-pin tests (`slack-socket`, `slack-client`); Slack left the
+fetch-boundary delivery suites (`delivery-chunks`, `delivery-receipts`,
+`delivery-reconciliation`, `native-reconnect`) and its chunk, receipt and
+custody evidence is pinned over the SDK error shapes in `slack-surface.test.ts`.
+`channel-band-boundary.test.ts` admits each SDK subpath in exactly one home
+(`agent-messenger/slackbot` → `src/provider/slack/sdk.ts`); a surface, the
+router or a store importing the SDK is a band violation, and the real
+`SlackBotListener` is pinned to emit `error` (not swallow) on a fatal auth code
+during start. The seam's `appsConnectionsOpen` override rides the pinned
+inner client with the app token (the SDK's own builds a fresh web client per
+attempt under the ten-retries policy, which would hold `start()` for up to
+half an hour on a network failure). `classifySlackFailure` treats only the
+SDK's pre-request refusals (`missing_token`, `invalid_token_type`,
+`not_authenticated`, `missing_app_token`, `invalid_app_token_type`), platform
+`ok:false` and the typed rate-limit refusal as `rejected`; `file_not_found`
+(raised after a completed share) and `unknown_error` keep custody as
+`unknown`. Known limitation closed by the Discord PR's custody wrapper: a
+fatal post-hello stop (`disconnect_terminal`, a token revoked on re-open)
+leaves the SDK listener stopped and is reported as a Warn only. Capabilities are unchanged (`typing: false` until the `assistant:write`
+scope is declared). Discord, Telegram, GitHub and webhook are untouched; the
+identity axis, the Owner instance and the reply-door split are later PRs of
+#1569. Receipts: `packages/channels/test/{slack-sdk,slack-surface,slack-media}.test.ts`,
+`provider-contract.test.ts`, `channel-band-boundary.test.ts`; channels suite 877 pass.
+
 ## #1557 capacity rows and host-owned leases (epic #1554, rung E)
 
 On `feat/1557-machine-capacity` (2026-10-15, base `dc32b01a3`, PR #1580).
@@ -82,7 +132,6 @@ tags, capabilities, capacity, load, staleness, with unreported, loading,
 offline, error and empty states) over it.
 Receipts on `c89127356` (rebased onto `ae351e71a`): app policy/provision/machine suites 235 pass / 0 fail (`provision-machine-add-consent` now a row in `apps/openomni/policy/owner-policy.json`, pinned by `owner-policy.test.ts`); lane receipts before the rebase: protocol 629/0, machines 264/0 (1 skip), channels 879/0, desktop 517/0, scripts 74/0, patch coverage green; lead gate chain 14/14 exit 0 (install, build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries). Forbidden surfaces grep-zero: `provider: "machine"` and `channel:machine:`.
 
-||||||| parent of 3d86009ab (docs: stamp #1556 machine placement and sync implementation status)
 
 ## #1574 Pack conformance
 
@@ -2945,7 +2994,7 @@ WebSocket/path wake still commits one fired pair and reaches revision 59.
 | --- | --- | --- |
 | Kernel app | Boot/shutdown, Resident, channels, gateway, provisioning, machines, messaging, cells, and compaction. No built-in curated memory or replacement port. | `apps/openomni/src/index.ts` |
 | Desktop console | Electron shell and app-owned AI SDK chat state; the renderer selects the configured gateway or the explicit preview transport. Gateway admission receipts and later message frames are distinct. Presentation is shared with the UI showcase. | `apps/desktop/`, `packages/ui/` |
-| Channel drivers | Discord, GitHub, Slack, Telegram providers and a separate WebSocket bootstrap surface. Providers own credential/settings validation and outbound rendering; the app composes them. | `packages/channels/src/provider/`, `packages/channels/src/websocket.ts`, `apps/openomni/src/channels.ts` |
+| Channel drivers | Discord, GitHub, Slack, Telegram providers and a separate WebSocket bootstrap surface. Providers own credential/settings validation and outbound rendering; the app composes them. Slack's transport is the agent-messenger bot SDK (#1569, first PR): `SlackBotListener` owns Socket Mode and `SlackBotClient` the Web API, pinned to one physical attempt per idempotency key; Discord and Telegram still ride the hand-rolled gateway and poller. | `packages/channels/src/provider/`, `packages/channels/src/provider/slack/sdk.ts`, `packages/channels/src/websocket.ts`, `apps/openomni/src/channels.ts` |
 | Perimeter gateway | Blacklist, physical request correlation, channel ceiling, actor identity, surface sessions, durable route decisions, and grant/egress/idempotency-controlled sends survive. Removed dialogue stores confer no routing rights. WebSocket credentials use the canonical auth subprotocol; query-only authentication is rejected (#974). | `packages/channels/src/router/`, `packages/channels/src/authn/websocket.ts`, `apps/openomni/src/gateway.ts` |
 | Provisioning | Durable persons, channel instances, and encrypted secrets; declared instances are the only channel provisioning owner, and nonblank legacy channel env credentials are refused at config load with `legacy_channel_credentials` (W2 #1110). The vault key and channel supervisor are composed at boot. The one-shot environment import command is deleted. | `packages/channels/src/store/provisioning/`, `apps/openomni/src/bundles/provision/` |
 | Runtime administration | The `provision` op union uses the live supervisor for channel/secret changes and status. Person mutations suspend their original invocation for authenticated approval when `approvalRequirement` demands one (editing the existing owner Person, or raising a tier above collaborator); other declarations and non-sole-owner `person_remove` apply directly. `contact_promote` and `contact_merge` suspend under the `require_approval` policy row until the Owner's answer re-admits the original invocation; the separate `approval` tool was deleted in `239b4273` (2026-09-08). | `apps/openomni/src/tools/provision.ts`, `apps/openomni/src/provisioning/supervisor.ts` |

@@ -93,7 +93,8 @@ const cases: {
   },
 ];
 
-for (const provider of ["discord", "slack", "telegram"] as const) {
+// #1569: Slack rides the agent-messenger SDK; its physical evidence is pinned over the SDK error shapes in slack-surface.test.ts.
+for (const provider of ["discord", "telegram"] as const) {
   for (const scenario of cases) {
     test(`${provider} logical delivery preserves ${scenario.name} chunk evidence`, async () => {
       let sends = 0;

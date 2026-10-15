@@ -7,7 +7,8 @@ import { GitHubAdapter } from "../src/provider/github/surface";
 import { DeliveryReconciliation, deliverKeyed } from "../src/support/deliver";
 import { bounded } from "./helpers/bounded";
 
-for (const provider of ["discord", "slack", "telegram"] as const) {
+// #1569: Slack rides the agent-messenger SDK; its physical evidence is pinned over the SDK error shapes in slack-surface.test.ts.
+for (const provider of ["discord", "telegram"] as const) {
   test(`${provider}: lost ACK never repeats a physical send at a non-deduplicating destination`, async () => {
     const arrived = Promise.withResolvers<void>();
     const ack = Promise.withResolvers<void>();
@@ -40,7 +41,9 @@ for (const provider of ["discord", "slack", "telegram"] as const) {
       controller.abort();
       expect(await bounded(first)).toEqual({ value: "unknown" });
       expect(await bounded(concurrent)).toEqual({ value: "unknown" });
-      expect(await adapter.deliver(address, Outbound.payload("SENTINEL"), "lost-ack")).toEqual({ value: "unknown" });
+      expect(await adapter.deliver(address, Outbound.payload("SENTINEL"), "lost-ack")).toEqual({
+        value: "unknown",
+      });
       expect(physicalSends).toBe(1);
       // The destination does NOT suppress repeated content or delivery keys.
       ack.resolve();
@@ -168,8 +171,12 @@ test("GitHub uncertainty is terminal even when comment read-back would show no m
   );
   try {
     const adapter = new GitHubAdapter("secret", {}, () => undefined, injectedOptions(), "token");
-    expect(await adapter.deliver("owner/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({ value: "unknown" });
-    expect(await adapter.deliver("owner/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({ value: "unknown" });
+    expect(await adapter.deliver("owner/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({
+      value: "unknown",
+    });
+    expect(await adapter.deliver("owner/repo#1", Outbound.payload("SENTINEL"), "key")).toEqual({
+      value: "unknown",
+    });
     expect(physicalSends).toBe(1);
     await fetch(server.url, { method: "POST" });
     expect(physicalSends).toBe(2);
@@ -179,7 +186,8 @@ test("GitHub uncertainty is terminal even when comment read-back would show no m
   }
 });
 
-for (const provider of ["discord", "slack", "github"] as const) {
+// #1569: Slack has no DM preflight on the SDK (it posts to the user id directly).
+for (const provider of ["discord", "github"] as const) {
   test(`${provider}: a failed preflight is not_sent and can retry without resending a message`, async () => {
     const nativeFetch = globalThis.fetch;
     let sends = 0;
@@ -187,11 +195,7 @@ for (const provider of ["discord", "slack", "github"] as const) {
     globalThis.fetch = Object.assign(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
-        if (
-          init?.method === "GET" ||
-          url.endsWith("/users/@me/channels") ||
-          url.endsWith("/conversations.open")
-        ) {
+        if (init?.method === "GET" || url.endsWith("/users/@me/channels")) {
           if (failPreflight) throw new TypeError("preflight lost ACK");
           return init?.method === "GET"
             ? Response.json([])
@@ -215,7 +219,9 @@ for (const provider of ["discord", "slack", "github"] as const) {
       });
       expect(sends).toBe(0);
       failPreflight = false;
-      expect(await adapter.deliver(address, Outbound.payload("SENTINEL"), "preflight")).toMatchObject({
+      expect(
+        await adapter.deliver(address, Outbound.payload("SENTINEL"), "preflight"),
+      ).toMatchObject({
         value: "sent",
       });
       expect(sends).toBe(1);
@@ -233,8 +239,12 @@ test("Telegram never retries a transport failure whose prose resembles a parse r
   });
   try {
     const adapter = new TelegramAdapter("token", {}, () => undefined, injectedOptions());
-    expect(await adapter.deliver("1", Outbound.payload("SENTINEL"), "key")).toEqual({ value: "unknown" });
-    expect(await adapter.deliver("1", Outbound.payload("SENTINEL"), "key")).toEqual({ value: "unknown" });
+    expect(await adapter.deliver("1", Outbound.payload("SENTINEL"), "key")).toEqual({
+      value: "unknown",
+    });
+    expect(await adapter.deliver("1", Outbound.payload("SENTINEL"), "key")).toEqual({
+      value: "unknown",
+    });
     expect(sends).toBe(1);
   } finally {
     restore();
