@@ -51,10 +51,6 @@ export function live(line: string, context: LiveContext): ChildLifecycleEvidence
     case "SessionEnd":
       phase = "terminal";
       break;
-    default: {
-      const exhaustive: never = payload.hook_event_name;
-      return exhaustive;
-    }
   }
   return ChildLifecycleEvidence.parse({
     child: context.child,
