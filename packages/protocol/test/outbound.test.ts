@@ -31,6 +31,18 @@ describe("Outbound (#1497)", () => {
     expect(Outbound.Part.safeParse({ kind: "file", ref: "x" }).success).toBe(false);
   });
 
+  test("a message accepts exactly one of parts or a catalog spec", () => {
+    const parts = [{ kind: "text", text: "hello" }];
+    const spec = {
+      root: "message",
+      elements: { message: { type: "Markdown", props: { text: "hello" }, children: [] } },
+    };
+    expect(Outbound.Message.safeParse({ kind: "message", parts }).success).toBe(true);
+    expect(Outbound.Message.safeParse({ kind: "message", spec }).success).toBe(true);
+    expect(Outbound.Message.safeParse({ kind: "message" }).success).toBe(false);
+    expect(Outbound.Message.safeParse({ kind: "message", parts, spec }).success).toBe(false);
+  });
+
   test("the text reading keeps every part visible: code fenced, media named by reference", () => {
     const text = Outbound.text({
       kind: "message",
