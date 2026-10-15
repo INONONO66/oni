@@ -14,7 +14,7 @@ import { loadConfig } from "../src/config";
 import { socketPath } from "./helpers/socket-path";
 import { testSelfMachine } from "./helpers/self-machine";
 
-const fixture = join(import.meta.dir, "fixtures/tool-packs");
+const fixture = join(import.meta.dir, "fixtures/packs/tool/valid/echo");
 const file = join(fixture, "echo/manifest.json");
 const ids = new Set(["self"]);
 const absent = () => undefined;
