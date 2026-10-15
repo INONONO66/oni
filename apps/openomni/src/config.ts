@@ -684,9 +684,6 @@ function policyPathFromEnv(
   return env.OPENOMNI_POLICY_PATH?.trim() || undefined;
 }
 
-/** The process-wide Owner policy selection, captured before composition. */
-export const ACTIVE_POLICY_PATH = policyPathFromEnv(process.env);
-
 function socialBudgetsFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["socialBudgets"] {
   return parseEnvJson("OPENOMNI_SOCIAL_BUDGETS", SocialBudgets, env);
 }

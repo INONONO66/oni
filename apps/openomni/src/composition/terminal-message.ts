@@ -21,6 +21,7 @@ export const outboundMessage = Context.Reference<OutboundContext | undefined>("@
 export function dispatchOutboundMessage(
   ingest: GatewayRouter["ingest"],
   openKernel: (sessionId: string) => SessionKernel,
+  approvalPolicy: Core.ApprovalPolicy = APPROVAL_POLICY,
 ): NonNullable<SessionRuntime["dispatchOutbound"]> {
   return (input) => Effect.gen(function* () {
     const { message, ledger } = input;
@@ -28,7 +29,7 @@ export function dispatchOutboundMessage(
     // #1346: the source turn's own fenced ledger records the outbound
     // admission; this dispatcher copies no authority and sees no revision.
     const executor = yield* createExecutor({
-      approvalPolicy: APPROVAL_POLICY,
+      approvalPolicy,
       identity: {
         sessionId: message.sourceSessionId,
         role: source.row(message.sourceSessionId).role,

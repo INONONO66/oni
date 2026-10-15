@@ -225,6 +225,34 @@ test("invalid row semantics refuse rather than partially compiling", () => {
   ).toBe("invalid_policy_file");
 });
 
+test("a message verdict that disagrees with its deny rule refuses typed", () => {
+  const error = refusal(() =>
+    compileOwnerPolicy(
+      {
+        approval,
+        rows: [
+          policyRow({
+            id: "probe/message.pre#1",
+            point: "message.pre",
+            when: {
+              message: {
+                id: "probe/message.pre#1",
+                effect: "deny",
+                table: "A",
+                sender: "external",
+                check: "identity",
+              },
+            },
+            verdict: { type: "allow" },
+          }),
+        ],
+      },
+      "verdict-mismatch.json",
+    ),
+  );
+  expect(error.code).toBe("invalid_policy_file");
+});
+
 test("unreadable and malformed policy files refuse before compilation", () => {
   const directory = mkdtempSync(join(tmpdir(), "owner-policy-"));
   try {

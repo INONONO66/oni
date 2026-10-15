@@ -37,7 +37,7 @@ import { createResident } from "./composition/resident";
 import { type DeliverPayload, deliverPayload, prepareMessage } from "./composition/message-session";
 import { messageDecisionRules } from "./composition/message-decision";
 import { gateRowPolicySeeds } from "./bundles/core-policy/index";
-import { APPROVAL_POLICY, seedKernelPolicyRows } from "./composition/policy";
+import { ownerPolicy, seedKernelPolicyRows, SHIPPED_OWNER_POLICY, type OwnerPolicy } from "./composition/policy";
 import { AppPointTable } from "./composition/point-table";
 import { dispatchOutboundMessage, outboundMessage } from "./composition/terminal-message";
 import { settleChild } from "./bundles/delegation-policy/index";
@@ -57,6 +57,7 @@ export const ProcessSessionRequest = z
     model: Model.Ref,
     apiKey: z.string().min(1),
     hooksPath: z.string().min(1).optional(),
+    policyPath: z.string().min(1).optional(),
     promptsDir: z.string().min(1).optional(),
     skillsDir: z.string().min(1).optional(),
     off: z.array(z.string().min(1)).optional(),
@@ -106,6 +107,7 @@ export function serveProcessSession(
   committed: (ids: readonly string[]) => void,
   replies: ProcessReplies,
   appRuntime: AppRuntime,
+  policy: OwnerPolicy = SHIPPED_OWNER_POLICY,
 ) {
   const answer = replies.answer;
   return Effect.gen(function* () {
@@ -121,10 +123,15 @@ export function serveProcessSession(
   // plane is the typed child refusal here — the activation would otherwise
   // die building its handlers and the wake would never ack.
   plane.openKernel(request.sessionId).row(request.sessionId);
-  seedKernelPolicyRows(plane.catalog.policies, gateRowPolicySeeds(composed.current().generation), yield* AppPointTable);
+  seedKernelPolicyRows(
+    plane.catalog.policies,
+    gateRowPolicySeeds(composed.current().generation),
+    yield* AppPointTable,
+    policy.rows,
+  );
   const runtime: SessionRuntime = {
     // #1309: approval/budget policy values from the product bundle.
-    approvalPolicy: APPROVAL_POLICY,
+    approvalPolicy: policy.approval,
     openKernel: plane.openKernel,
     listSessions: plane.listSessions,
     processId: owner,
@@ -132,6 +139,7 @@ export function serveProcessSession(
     dispatchOutbound: dispatchOutboundMessage(
       (...args) => gateway.ingest(...args),
       plane.openKernel,
+      policy.approval,
     ),
     authorizeConfigure: configureAuthority(generations, plane.openKernel),
     // #1311: the product settlement fold injected into the core seam.
@@ -276,12 +284,14 @@ export async function runProcessEntry(io: {
     const toolsSlot = toolPortsSlot();
     const watchPlane = createWatchPlane();
     const hooks = request.hooksPath === undefined ? undefined : readHooksJson(request.hooksPath);
+    const policy = ownerPolicy(request.policyPath);
     const manifest = appManifest({
       alarm: watchPlane.contract,
       wake: watchPlane.wake,
       alarms: alarmsSlot.current,
       tools: toolsSlot.current,
       ...(hooks === undefined ? {} : { hooks }),
+      policy,
       ...(request.off === undefined ? {} : { off: request.off }),
     });
     const composed = composedHolderOf({ manifest, generation: Bundle.composeSync(manifest) }, alarmsSlot, toolsSlot);
@@ -301,6 +311,7 @@ export async function runProcessEntry(io: {
         (sessionIds) => io.log(JSON.stringify({ sessionIds })),
         { answer: replies.answer, deliver: replies.deliver },
         runtime,
+        policy,
       ));
     } finally {
       await runtime.dispose();

@@ -72,9 +72,10 @@ an empty case set or a declared code without a fixture. Receipt:
 On `feat/1572-policy-rows` (2026-10-15, rebased onto `e1bb6369b`). The Owner's
 approval values and every app-owned message, provision and delegation policy
 row ship in one file, `apps/openomni/policy/owner-policy.json`.
-`OPENOMNI_POLICY_PATH` selects a replacement before composition; blank selects
-the shipped file. The loader parses the file through Zod and refuses boot with
-`AppInvariantError` codes `unreadable_path`, `invalid_policy_file`,
+`OPENOMNI_POLICY_PATH` selects the file read at boot; blank selects the shipped
+file. The file seeds missing rows: on an existing database, stored rows win per
+id, and a reset starts a new generation. The loader parses the file through
+Zod and refuses boot with `AppInvariantError` codes `unreadable_path`, `invalid_policy_file`,
 `unknown_point` or `unknown_handler`. Named handler rows resolve only against
 the guards and transformers the app bundles register, so data cannot invent an
 executable handler.

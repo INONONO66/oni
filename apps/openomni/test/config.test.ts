@@ -15,6 +15,7 @@ import {
   validateMachinePlane,
 } from "../src/config";
 import { startOpenOmni } from "../src/index";
+import { ownerPolicy, SHIPPED_OWNER_POLICY } from "../src/composition/policy";
 import { runEffect } from "./helpers/effect";
 
 const ENV_KEYS = [
@@ -198,10 +199,20 @@ describe("declared channel cutover", () => {
   });
 
   it("reads OPENOMNI_POLICY_PATH and treats blank as absent", () => {
-    process.env.OPENOMNI_POLICY_PATH = " /etc/openomni/owner-policy.json ";
-    expect(loadConfig().policyPath).toBe("/etc/openomni/owner-policy.json");
-    process.env.OPENOMNI_POLICY_PATH = "  ";
-    expect(loadConfig().policyPath).toBeUndefined();
+    const directory = mkdtempSync(join(tmpdir(), "openomni-policy-config-"));
+    try {
+      const path = join(directory, "owner-policy.json");
+      writeFileSync(path, JSON.stringify({
+        approval: { ...SHIPPED_OWNER_POLICY.approval, responders: ["configured-owner"] },
+        rows: [],
+      }));
+      process.env.OPENOMNI_POLICY_PATH = ` ${path} `;
+      expect(ownerPolicy(loadConfig().policyPath).approval.responders).toEqual(["configured-owner"]);
+      process.env.OPENOMNI_POLICY_PATH = "  ";
+      expect(ownerPolicy(loadConfig().policyPath)).toBe(SHIPPED_OWNER_POLICY);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("reads the prompts and skills directories and treats blank as absent", () => {

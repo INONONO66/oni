@@ -1,0 +1,30 @@
+{
+  "approval": {
+    "responders": ["owner"],
+    "recentOpen": { "limit": 8, "windowMs": 3600000 },
+    "defaultExpiryMs": 86400000,
+    "defaultBudget": {
+      "maxTurns": 24,
+      "maxToolCalls": 40,
+      "maxWallTimeMs": 300000,
+      "maxToolRuntimeMs": 120000
+    }
+  },
+  "rows": [
+    {
+      "id": "message.external.identity",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.external.identity",
+          "effect": "deny",
+          "table": "A",
+          "sender": "external",
+          "check": "identity"
+        }
+      },
+      "verdict": { "type": "allow" }
+    }
+  ]
+}
