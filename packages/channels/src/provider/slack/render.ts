@@ -11,8 +11,6 @@ const STATUS = {
 export function renderSlack(step: NativeStep): readonly SlackBlock[] {
   const { element, spec } = step;
   switch (element.type) {
-    case "Stack":
-      return [{ type: "section", text: { type: "mrkdwn", text: step.digest } }];
     case "Markdown":
       return [{ type: "markdown", text: element.props.text }];
     case "Code":
@@ -57,6 +55,7 @@ export function renderSlack(step: NativeStep): readonly SlackBlock[] {
       return [{ type: "divider" }];
     case "Context":
       return [{ type: "context", elements: [{ type: "mrkdwn", text: element.props.text }] }];
+    case "Stack":
     case "Poll":
     case "Carousel":
     case "Image":

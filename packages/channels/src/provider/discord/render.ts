@@ -45,8 +45,6 @@ function renderButtons(element: Extract<Outbound.Element, { type: "Buttons" }>, 
 export function renderDiscord(step: NativeStep): DiscordBody {
   const { element, spec } = step;
   switch (element.type) {
-    case "Stack":
-      return { content: step.digest };
     case "Card":
       return { embeds: [cardEmbed(element.props.title, element.props.body, element.props.image)] };
     case "Carousel": {
@@ -68,6 +66,7 @@ export function renderDiscord(step: NativeStep): DiscordBody {
       const icon = { ok: "✅", warn: "⚠️", fail: "❌", progress: "⏳" }[element.props.kind];
       return { content: `**${icon} ${element.props.title}**${element.props.body === undefined ? "" : `\n${element.props.body}`}` };
     }
+    case "Stack":
     case "Markdown":
     case "Code":
     case "Table":

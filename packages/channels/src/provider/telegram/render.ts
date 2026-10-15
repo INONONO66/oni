@@ -45,8 +45,6 @@ function renderAlbum(step: NativeStep): TelegramNative {
 export function renderTelegram(step: NativeStep): TelegramNative {
   const { element } = step;
   switch (element.type) {
-    case "Stack":
-      return { method: "sendMessage", body: { text: escapeTelegramHtml(step.digest), parse_mode: "HTML" } };
     case "Buttons":
     case "Button":
       return renderKeyboard(step);
@@ -68,6 +66,7 @@ export function renderTelegram(step: NativeStep): TelegramNative {
       const icon = { ok: "✅", warn: "⚠️", fail: "❌", progress: "⏳" }[element.props.kind];
       return { method: "sendMessage", body: { text: `<b>${icon} ${escapeTelegramHtml(element.props.title)}</b>${element.props.body === undefined ? "" : `\n${escapeTelegramHtml(element.props.body)}`}`, parse_mode: "HTML" } };
     }
+    case "Stack":
     case "Markdown":
     case "Code":
     case "Table":
