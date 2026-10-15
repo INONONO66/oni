@@ -161,6 +161,8 @@ function compileRow(row: PolicyFileRow, source: string): SeedRow | Bundle.Bundle
     return compileHandlerRow({ ...row, handler: row.handler }, point.data, source);
   if (message?.success && row.verdict?.type !== message.data.effect)
     refuse(source, "invalid_policy_file", `row ${row.id} verdict disagrees with message effect`);
+  if (message?.success && row.verdict?.reason !== undefined && row.verdict.reason !== row.id)
+    refuse(source, "invalid_policy_file", `row ${row.id} verdict reason must be the row id`);
   return {
     name: row.id,
     kind: address.kind,
@@ -221,7 +223,7 @@ export const SHIPPED_OWNER_POLICY: OwnerPolicy = compileOwnerPolicy(
   "shipped owner-policy.json",
 );
 
-/** The configured file when `OPENOMNI_POLICY_PATH` names one, else the shipped default. */
+/** The policy file at `path` when one is configured, else the shipped default. */
 export function ownerPolicy(path: string | undefined): OwnerPolicy {
   return path === undefined ? SHIPPED_OWNER_POLICY : readOwnerPolicy(path);
 }
