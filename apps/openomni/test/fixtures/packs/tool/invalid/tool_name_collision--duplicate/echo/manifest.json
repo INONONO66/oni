@@ -1,0 +1,29 @@
+{
+  "name": "echo-pack",
+  "tools": [
+    {
+      "name": "machine_echo",
+      "description": "Print a supplied message on the selected machine.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "machine": "self",
+      "command": "printf '%s' {{text}}"
+    },
+    {
+      "name": "machine_echo",
+      "description": "Duplicate tool name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "machine": "self",
+      "command": "printf '%s' {{text}}"
+    }
+  ]
+}

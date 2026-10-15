@@ -1,0 +1,17 @@
+{
+  "name": "echo-pack",
+  "tools": [
+    {
+      "name": "machine_echo",
+      "description": "Print a supplied message on the selected machine.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "machine": "not-enrolled",
+      "command": "printf '%s' {{text}}"
+    }
+  ]
+}
