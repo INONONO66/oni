@@ -13,6 +13,7 @@ import { bashBundle } from "./bundles/tools/bash/index";
 import { completionBundle } from "./bundles/tools/completion/index";
 import { evalBundle } from "./bundles/tools/eval/index";
 import { fileBundle } from "./bundles/tools/file/index";
+import { AppInvariantError } from "./invariant";
 import type { ToolPorts } from "./composition/catalog";
 
 /**
@@ -55,6 +56,8 @@ export interface AppManifestInput {
   readonly alarms: () => MonitorPorts | undefined;
   /** The live ports every tool bundle executes against, late-bound like `alarms` (#1561). */
   readonly tools: () => ToolPorts | undefined;
+  /** Validated external tool bundles, compiled before the runtime starts. */
+  readonly toolPacks?: readonly Bundle.BundleContract[];
   /** The parsed hooks JSON config (#1256); absent composes zero hook rows. */
   readonly hooks?: HooksJsonInput;
   /** Owner-configured off names (capabilities and bundles); absent means everything declared is on. */
@@ -62,6 +65,30 @@ export interface AppManifestInput {
 }
 
 export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition {
+  const productBundles = [
+    fileBundle(input.tools),
+    bashBundle(input.tools),
+    evalBundle(input.tools),
+    monitorBundle(input.wake, input.alarms),
+    cronBundle(input.wake.prompt),
+    hooksJsonBundle(input.hooks),
+    delegationPolicyBundle(),
+    approvalPolicyBundle(),
+    sendMessageBundle(input.tools),
+    provisionBundle(input.tools),
+    completionBundle(input.tools),
+    compactionSummarizerBundle(),
+    compactionBundle(),
+  ];
+  const builtInTools = new Set(productBundles.flatMap((bundle) => bundle.tools.map((tool) => tool.name)));
+  const builtInBundles = new Set<string>(productBundles.map((bundle) => bundle.name));
+  for (const pack of input.toolPacks ?? []) {
+    if (builtInBundles.has(pack.name))
+      throw new AppInvariantError(`tool pack bundle ${pack.name} collides with a built-in`, "tool_name_collision");
+    for (const tool of pack.tools)
+      if (builtInTools.has(tool.name))
+        throw new AppInvariantError(`tool pack tool ${tool.name} collides with a built-in`, "tool_name_collision");
+  }
   return Bundle.Manifest.define({
     // #1307: compaction is a declared, removable capability; `off:
     // ["compaction"]` records the typed disabled entry and the kernel runs
@@ -73,25 +100,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
       Bundle.compactionCapability(),
       input.alarm,
     ],
-    bundles: [
-      // #1561: every model tool is bundle-owned; `off` removes it from the
-      // next generation. Compose orders bundles by dependency, then by this list.
-      fileBundle(input.tools),
-      bashBundle(input.tools),
-      evalBundle(input.tools),
-      monitorBundle(input.wake, input.alarms),
-      cronBundle(input.wake.prompt),
-      hooksJsonBundle(input.hooks),
-      delegationPolicyBundle(),
-      // #1309: the approval/budget product values; `send-message` requires its seam.
-      approvalPolicyBundle(),
-      sendMessageBundle(input.tools),
-      provisionBundle(input.tools),
-      completionBundle(input.tools),
-      // The binding requires the summarizer; dropping the provider refuses `seam_missing`.
-      compactionSummarizerBundle(),
-      compactionBundle(),
-    ],
+    bundles: [...productBundles, ...(input.toolPacks ?? [])],
     off: input.off ?? [],
   });
 }
