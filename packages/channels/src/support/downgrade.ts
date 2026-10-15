@@ -15,6 +15,11 @@ export type Downgraded =
   | { readonly kind: "caption-keyboard"; readonly caption: string; readonly image?: string; readonly buttons: readonly string[] }
   | { readonly kind: "image"; readonly element: Outbound.Element; readonly caption: string };
 
+/** A card's words without its picture: the caption that rides beside the uploaded image. */
+export function cardCaption(element: Extract<Outbound.Element, { type: "Card" }>): string {
+  return [element.props.title, element.props.body].filter((part) => part !== undefined).join("\n\n");
+}
+
 /** Pure translation of named platform compromises; rasterization is performed at the send boundary. */
 export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Downgraded {
   const element = spec.elements[id];
@@ -29,8 +34,9 @@ export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Dow
           row.map((value, index) => `- ${element.props.columns[index]?.header ?? index + 1}: ${value}`).join("\n")).join("\n\n") }
         : { kind: "text", text: digest };
     case "table-to-image":
-    case "card-to-image":
       return { kind: "image", element, caption: digest };
+    case "card-to-image":
+      return { kind: "image", element, caption: element.type === "Card" ? cardCaption(element) : digest };
     case "carousel-to-sequence":
       return { kind: "sequence", ids: element.children };
     case "carousel-to-album":
@@ -76,7 +82,7 @@ export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Dow
     case "card-to-caption-keyboard":
       return element.type === "Card"
         ? { kind: "caption-keyboard",
-          caption: [element.props.title, element.props.body].filter((part) => part !== undefined).join("\n\n"),
+          caption: cardCaption(element),
           image: element.props.image,
           buttons: element.children.flatMap((child) => {
             const nested = spec.elements[child];

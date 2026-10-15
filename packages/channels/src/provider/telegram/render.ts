@@ -1,5 +1,6 @@
 import type { PlainValue } from "@openomni/protocol";
 import { CallbackDataTooLong, RenderLimitExceeded } from "../../errors.js";
+import { cardCaption } from "../../support/downgrade.js";
 import { escapeTelegramHtml } from "../../support/format/telegram.js";
 import { bounded } from "../../support/render-limits.js";
 import type { NativeStep } from "../../support/translate.js";
@@ -37,18 +38,18 @@ function renderAlbum(step: NativeStep): TelegramNative {
   const { element, spec } = step;
   if (element.children.length < 1 || element.children.length > 10)
     throw new RenderLimitExceeded({ kind: "cards", count: element.children.length, limit: 10 });
-  const cards = element.children.map((id) => spec.elements[id]);
-  if (!cards.every((card) => card?.type === "Card" && card.props.image?.startsWith("https://")))
+  const cards = element.children.flatMap((id) => {
+    const card = spec.elements[id];
+    return card?.type === "Card" && card.props.image?.startsWith("https://") ? [{ card, image: card.props.image }] : [];
+  });
+  if (cards.length !== element.children.length)
     throw new RenderLimitExceeded({ kind: "cards", count: cards.length, limit: 10 });
-  if (cards.length === 1) {
-    const card = cards[0];
-    if (card?.type === "Card" && card.props.image !== undefined)
-      return { method: "sendPhoto", body: { photo: card.props.image,
-        caption: bounded(escapeTelegramHtml(step.digest), "caption", 1024), parse_mode: "HTML" } };
-  }
-  return { method: "sendMediaGroup", body: { media: cards.map((card, index) =>
-    card?.type === "Card" ? { type: "photo", media: card.props.image ?? "",
-      ...(index === 0 ? { caption: bounded(escapeTelegramHtml(step.digest), "caption", 1024), parse_mode: "HTML" } : {}) } : {}) } };
+  const caption = bounded(escapeTelegramHtml(cards.map(({ card }) => cardCaption(card)).join("\n\n")), "caption", 1024);
+  const [first] = cards;
+  if (cards.length === 1 && first !== undefined)
+    return { method: "sendPhoto", body: { photo: first.image, caption, parse_mode: "HTML" } };
+  return { method: "sendMediaGroup", body: { media: cards.map(({ image }, index) =>
+    ({ type: "photo", media: image, ...(index === 0 ? { caption, parse_mode: "HTML" } : {}) })) } };
 }
 
 export function renderTelegram(step: NativeStep): TelegramNative {

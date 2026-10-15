@@ -3,7 +3,7 @@ import { DeliveryNotSent } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
-import { DOWNGRADE_NAMES, downgrade, type Downgrade, type Downgraded } from "./downgrade.js";
+import { cardCaption, DOWNGRADE_NAMES, downgrade, type Downgrade, type Downgraded } from "./downgrade.js";
 import { renderElementImage } from "./render-image.js";
 
 /**
@@ -222,10 +222,10 @@ async function planSpec<TNative>(
     flush();
     if (element.type === "Card" && element.props.image !== undefined && !element.props.image.startsWith("https://")) {
       if (media === undefined) {
-        pending.push({ kind: "text", text: `${digest(id, current)}\n[image] ${element.props.image}` });
+        pending.push({ kind: "text", text: digest(id, current) });
         return;
       }
-      const caption = digest(id, current);
+      const caption = cardCaption(element);
       const bytes = await resolveImage(element.props.image, caption);
       steps.push({ kind: "media", part: { kind: "image", ref: element.props.image, caption },
         bytes, upload: media.upload });

@@ -149,7 +149,7 @@ describe("catalog native renderers", () => {
 
   test("Telegram renders HTML keyboard, media album, and native poll", () => {
     expect(renderTelegram(step("choices"))).toEqual({ method: "sendMessage", body: {
-      text: "[Yes]\n\n[Docs] (https://example.test)", parse_mode: "HTML",
+      text: "[Yes]\n\n[Docs](https://example.test)", parse_mode: "HTML",
       reply_markup: { inline_keyboard: [
         [{ text: "Yes", callback_data: "vote:yes" }],
         [{ text: "Docs", url: "https://example.test" }],
@@ -234,7 +234,9 @@ describe("catalog native renderers", () => {
       }, children: [] },
     }) },
     { name: "Telegram album caption", kind: "caption", render: () => renderTelegram({
-      ...step("carousel"), digest: "x".repeat(1025),
+      ...step("carousel"), spec: { ...spec, elements: { ...spec.elements, card: { type: "Card", props: {
+        title: "Report", body: "x".repeat(1025), image: "https://example.test/report.png",
+      }, children: [] } } },
     }) },
     { name: "Telegram status text", kind: "content", render: () => renderTelegram({
       ...step("status"), element: { type: "Status", props: { kind: "ok", title: "x".repeat(4096) }, children: [] },
@@ -394,7 +396,7 @@ describe("catalog surface request bodies", () => {
     expect(await runtime.deliveryRoute?.("T1:U1", { kind: "message", spec: { ...spec, root: "choices" } }, "slack-native",
       { channelId: "C1" })).toEqual({ value: "accepted", externalMessageId: "1.2" });
     expect(await calls[0]?.json()).toEqual({
-      channel: "C1", text: "[Yes]\n\n[Docs] (https://example.test)",
+      channel: "C1", text: "[Yes]\n\n[Docs](https://example.test)",
       blocks: [{ type: "actions", elements: [
         { type: "button", text: { type: "plain_text", text: "Yes" },
           action_id: "vote:yes", style: "primary" },
@@ -437,7 +439,7 @@ describe("catalog surface request bodies", () => {
     expect(await runtime.deliveryRoute?.("owner/repo#7",
       { kind: "message", spec: { ...spec, root: "choices" } }, "gh-spec"))
       .toEqual({ value: "accepted", externalMessageId: "12" });
-    expect(posted).toEqual(["[Yes]\n\n[Docs] (https://example.test)\n\n<!-- openomni-delivery:gh-spec -->"]);
+    expect(posted).toEqual(["[Yes]\n\n[Docs](https://example.test)\n\n<!-- openomni-delivery:gh-spec -->"]);
   });
 
   test("the webhook text-only policy retains the spec digest", async () => {
@@ -447,7 +449,7 @@ describe("catalog surface request bodies", () => {
       WebhookProvider.capabilities.render, {
         text: async (text) => { sent.push(text); return "receipt"; },
       });
-    expect(sent).toEqual(["[Yes]\n\n[Docs] (https://example.test)"]);
+    expect(sent).toEqual(["[Yes]\n\n[Docs](https://example.test)"]);
   });
 
   test("Slack classifies a button limit as rejected before any API call", async () => {
