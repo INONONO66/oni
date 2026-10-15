@@ -43,6 +43,14 @@ export namespace Machine {
   export type Offer = Schema.Offer;
   export const AttachResult = Schema.AttachResult;
   export type AttachResult = Schema.AttachResult;
+  export const Resources = Schema.Resources;
+  export type Resources = Schema.Resources;
+  export const Load = Schema.Load;
+  export type Load = Schema.Load;
+  export const Report = Schema.Report;
+  export type Report = Schema.Report;
+  export const ReportResult = Schema.ReportResult;
+  export type ReportResult = Schema.ReportResult;
   export const CellRequest = Schema.CellRequest;
   export type CellRequest = Schema.CellRequest;
   export const CellResult = Schema.CellResult;
