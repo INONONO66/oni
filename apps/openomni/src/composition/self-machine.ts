@@ -1,6 +1,7 @@
 import {
   attachMachineDaemon,
   MachineRefusalError,
+  type CodeRunner,
   type MachineError,
   type MachineHost,
 } from "@openomni/machines";
@@ -56,6 +57,7 @@ export interface SelfMachine {
    * only a dead or detached connection fails boot.
    */
   readonly ready: Effect.Effect<void, SelfAttachError>;
+  readonly bindRunner: (runner: CodeRunner) => void;
 }
 
 interface SelfAttachOptions {
@@ -87,6 +89,14 @@ export function attachSelfMachine(
 ): Effect.Effect<SelfMachine, SelfAttachError, Scope.Scope> {
   return Effect.gen(function* () {
     const { plane } = options;
+    let runner: CodeRunner | undefined;
+    const selfRunner: CodeRunner = {
+      runCode: (request, call, signal) => runner === undefined
+        ? Effect.fail(new MachineRefusalError({ reason: "machine_not_attached", message: "self machine runner is not bound" }))
+        : runner.runCode(request, call, signal),
+      peekCode: (cellId) => runner?.peekCode(cellId) ?? { stdout: "", stderr: "" },
+      close: () => Effect.void,
+    };
     const daemon = yield* attachMachineDaemon({
       socketPath: options.socketPath,
       id: options.id,
@@ -101,6 +111,7 @@ export function attachSelfMachine(
         exports: plane.self.exports.map((entry) => ({ ...entry })),
       },
       fsExports: new Map(plane.self.exports.map((entry) => [entry.name, entry.path])),
+      ...(plane.self.capabilities.includes(Machine.WellKnownCapability.pythonKernel) ? { runner: selfRunner } : {}),
     }).pipe(Effect.mapError((error) => selfAttachFailure(String(error))));
     if (daemon.attachment.status !== "attached")
       return yield* Effect.fail(selfAttachFailure(`machine.attach refused: ${daemon.attachment.reason}`));
@@ -128,6 +139,6 @@ export function attachSelfMachine(
             : Effect.void,
         ),
       );
-    return { machineId: plane.self.id, ready };
+    return { machineId: plane.self.id, ready, bindRunner: (next) => { runner = next; } };
   });
 }

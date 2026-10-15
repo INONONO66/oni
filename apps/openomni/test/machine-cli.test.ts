@@ -42,7 +42,7 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
     now: () => 2,
     callTool: (call) => cells.callTool(call),
   }));
-  cells = await acquireEffect(composeCodemode(host, { id: testIds("cli-compose") }));
+  cells = await acquireEffect(composeCodemode(host, { id: testIds("cli-compose"), selfMachineId: "A" }));
   const children: ReturnType<typeof spawn>[] = [];
   const exits: Promise<void>[] = [];
   async function attach(id: string, root: string) {
@@ -61,8 +61,8 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
     await attach("B", rootB);
     const code = [
       "ids = [m['machineId'] for m in codemode.listMachines()]",
-      "src = codemode.findMachine({'tag': 'A'})",
-      "dst = codemode.getMachine('B')",
+      "src = machine(tag='A')",
+      "dst = machine('B')",
       `src.write(${JSON.stringify(join(rootA, "source"))}, bytes([0, 255, 128, 65]))`,
       `data = src.read(${JSON.stringify(join(rootA, "source"))})['data']`,
       `written = dst.write(${JSON.stringify(join(rootB, "copy"))}, data)`,

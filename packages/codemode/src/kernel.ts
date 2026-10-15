@@ -169,32 +169,34 @@ def completion(prompt, model=None, system=None, schema=None):
 
 
 class _Machine:
-    def __init__(self, machine_id):
+    def __init__(self, machine_id, lease_id=None):
+        self.id = machine_id
         self.machine_id = machine_id
+        self.lease_id = lease_id
 
     def read(self, path):
-        value = tool['codemode.read'](machineId=self.machine_id, path=path)
+        value = tool['codemode.read'](machineId=self.machine_id, leaseId=self.lease_id, path=path)
         value['data'] = base64.b64decode(value['data'])
         return value
 
     def write(self, path, data):
-        return tool['codemode.write'](machineId=self.machine_id, path=path, data=base64.b64encode(data).decode('ascii'))
+        return tool['codemode.write'](machineId=self.machine_id, leaseId=self.lease_id, path=path, data=base64.b64encode(data).decode('ascii'))
 
     def ls(self, path):
-        return tool['codemode.ls'](machineId=self.machine_id, path=path)
+        return tool['codemode.ls'](machineId=self.machine_id, leaseId=self.lease_id, path=path)
 
     def bash(self, command, cwd):
-        value = tool['codemode.bash'](machineId=self.machine_id, cmd=command, cwd=cwd)
+        value = tool['codemode.bash'](machineId=self.machine_id, leaseId=self.lease_id, cmd=command, cwd=cwd)
         if value['status'] == 'completed':
             value['stdout'] = base64.b64decode(value['stdout'])
             value['stderr'] = base64.b64decode(value['stderr'])
         return value
 
     def eval(self, code):
-        return tool['codemode.eval'](machineId=self.machine_id, code=code)
+        return tool['codemode.eval'](machineId=self.machine_id, leaseId=self.lease_id, code=code)
 
     def screen(self, display=None, region=None):
-        args = {'machineId': self.machine_id}
+        args = {'machineId': self.machine_id, 'leaseId': self.lease_id}
         if display is not None:
             args['display'] = display
         if region is not None:
@@ -209,13 +211,13 @@ class _Machine:
         anchor = capture_id if capture_id is not None else getattr(self, '_capture_id', None)
         if anchor is None:
             raise ToolError('input requires a prior screen() capture or an explicit capture_id')
-        return tool['codemode.input'](machineId=self.machine_id, captureId=anchor, actions=actions)
+        return tool['codemode.input'](machineId=self.machine_id, leaseId=self.lease_id, captureId=anchor, actions=actions)
 
     def pty(self, name):
-        return _PtySession(self.machine_id, name)
+        return _PtySession(self.machine_id, name, self.lease_id)
 
     def ptyList(self):
-        return tool['codemode.ptyList'](machineId=self.machine_id)
+        return tool['codemode.ptyList'](machineId=self.machine_id, leaseId=self.lease_id)
 
     def job(self, command, cwd):
         cell_id = getattr(_cell_context, 'cell_id', None)
@@ -287,19 +289,20 @@ class _Machine:
 class _PtySession:
     """Named persistent terminal (#1273); reattach is just pty(name) again."""
 
-    def __init__(self, machine_id, name):
+    def __init__(self, machine_id, name, lease_id=None):
         self.machine_id = machine_id
         self.name = name
+        self.lease_id = lease_id
 
     def open(self, cwd):
-        return tool['codemode.ptyOpen'](machineId=self.machine_id, name=self.name, cwd=cwd)
+        return tool['codemode.ptyOpen'](machineId=self.machine_id, leaseId=self.lease_id, name=self.name, cwd=cwd)
 
     def write(self, data):
         payload = data.encode('utf-8') if isinstance(data, str) else data
-        return tool['codemode.ptyWrite'](machineId=self.machine_id, name=self.name, data=base64.b64encode(payload).decode('ascii'))
+        return tool['codemode.ptyWrite'](machineId=self.machine_id, leaseId=self.lease_id, name=self.name, data=base64.b64encode(payload).decode('ascii'))
 
     def read(self, cursor=None, wait_ms=None):
-        args = {'machineId': self.machine_id, 'name': self.name}
+        args = {'machineId': self.machine_id, 'leaseId': self.lease_id, 'name': self.name}
         if cursor is not None:
             args['cursor'] = cursor
         if wait_ms is not None:
@@ -310,21 +313,26 @@ class _PtySession:
         return value
 
     def resize(self, cols, rows):
-        return tool['codemode.ptyResize'](machineId=self.machine_id, name=self.name, cols=cols, rows=rows)
+        return tool['codemode.ptyResize'](machineId=self.machine_id, leaseId=self.lease_id, name=self.name, cols=cols, rows=rows)
 
     def close(self):
-        return tool['codemode.ptyClose'](machineId=self.machine_id, name=self.name)
+        return tool['codemode.ptyClose'](machineId=self.machine_id, leaseId=self.lease_id, name=self.name)
 
 
 class _Codemode:
     def listMachines(self):
         return tool['codemode.listMachines']()
 
-    def getMachine(self, machine_id):
-        return _Machine(machine_id)
-
-    def findMachine(self, query):
-        return _Machine(tool['codemode.findMachine'](query=query))
+def machine(id=None, *, tag=None, prefer="spread", requires=None):
+    if (id is None) == (tag is None):
+        raise ToolError("machine() requires exactly one of id or tag")
+    if id is not None:
+        return _Machine(id)
+    query = {"tag": tag, "prefer": prefer}
+    if requires is not None:
+        query["requires"] = requires
+    selected = tool['codemode.findMachine'](query=query)
+    return _Machine(selected['machineId'], selected['leaseId'])
 
 # --- Browser recipe (#1275): Playwright over CDP; Chromium lives in a pty.session. ---
 BROWSER_DEFAULT_CDP_PORT = 9222
@@ -723,6 +731,7 @@ _scope = {
     "parallel": parallel,
     "completion": completion,
     "tool_output": tool_output,
+    "machine": machine,
     "codemode": _Codemode(),
     "browser": browser,
     "BrowserLost": BrowserLost,

@@ -27,10 +27,17 @@ interface BackgroundCell {
 const RETAINED_SETTLED_CELLS = 64;
 /** Upper bound on tenant interpreters shut down at once during close. */
 const CLOSE_CONCURRENCY = 16;
-interface CodemodeOptions {
+export interface LeaseScheduler {
+  schedule(delayMs: number, task: () => void): () => void;
+  close?(): void;
+}
+export interface CodemodeOptions {
   /** Injected cell-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
   readonly machines?: Pick<MachineHost, "list" | "get">;
+  readonly self?: string;
+  readonly scheduler?: LeaseScheduler;
+  readonly idleTtlMs?: number;
   readonly completion?: (request: Machine.CompletionRequest) => Effect.Effect<string, Failure>;
   /**
    * #1305: resolves a projected tool result's stored output for the owning
@@ -42,20 +49,23 @@ interface CodemodeOptions {
   readonly tools?: (tenant: string) => Caller;
   readonly boundary?: (tenant: string) => (call: Machine.ToolCall, body: () => Effect.Effect<Machine.ToolCallResult, Failure>) => Effect.Effect<Machine.ToolCallResult, Failure>;
 }
-const PathInput = z.object({ machineId: Machine.MachineId, path: Machine.AbsolutePath }).strict();
-const WriteInput = PathInput.extend({ data: z.string() });
-const ShellInput = Machine.ExecRequest.extend({ machineId: Machine.MachineId });
-const RunInput = z.object({ machineId: Machine.MachineId, code: z.string() }).strict();
+const LeaseInput = z.object({ leaseId: z.string().min(1).nullish() }).strict();
+const PathLeaseInput = z.object({ machineId: Machine.MachineId, path: Machine.AbsolutePath }).merge(LeaseInput);
+const WriteLeaseInput = PathLeaseInput.extend({ data: z.string() });
+const ShellInput = Machine.ExecRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const RunInput = z.object({ machineId: Machine.MachineId, code: z.string() }).merge(LeaseInput);
 const ToolOutputInput = z.object({ outputId: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict();
-const ScreenInput = Machine.ScreenReadRequest.extend({ machineId: Machine.MachineId });
-const InputInput = Machine.InputWriteRequest.extend({ machineId: Machine.MachineId });
-const FindInput = z.object({ tag: z.string().min(1) }).strict();
-const PtyOpenInput = Machine.PtyOpenRequest.extend({ machineId: Machine.MachineId });
-const PtyWriteInput = Machine.PtyWriteRequest.extend({ machineId: Machine.MachineId });
-const PtyReadInput = Machine.PtyReadRequest.extend({ machineId: Machine.MachineId });
-const PtyResizeInput = Machine.PtyResizeRequest.extend({ machineId: Machine.MachineId });
-const PtyCloseInput = Machine.PtyCloseRequest.extend({ machineId: Machine.MachineId });
-const PtyListInput = z.object({ machineId: Machine.MachineId }).strict();
+const ScreenInput = Machine.ScreenReadRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const InputInput = Machine.InputWriteRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const FindInput = Machine.PlacementRequest.extend({
+  prefer: Machine.PlacementRequest.shape.prefer.optional(),
+});
+const PtyOpenInput = Machine.PtyOpenRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const PtyWriteInput = Machine.PtyWriteRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const PtyReadInput = Machine.PtyReadRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const PtyResizeInput = Machine.PtyResizeRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const PtyCloseInput = Machine.PtyCloseRequest.extend({ machineId: Machine.MachineId }).merge(LeaseInput);
+const PtyListInput = z.object({ machineId: Machine.MachineId }).merge(LeaseInput);
 
 /** One app-owned scope retains background cells and tenant interpreters. */
 export function createCodemode(options: CodemodeOptions) {
@@ -67,6 +77,16 @@ export function createCodemode(options: CodemodeOptions) {
     const lifetime = new AbortController();
     const running = new Set<Deferred.Deferred<void>>();
     const background = new Map<string, BackgroundCell>();
+    interface Lease {
+      readonly leaseId: string;
+      readonly machineId: string;
+      readonly units: number;
+      inFlight: number;
+      cancel?: () => void;
+      released: boolean;
+    }
+    const leases = new Map<string, Set<Lease>>();
+    const leaseTtl = options.idleTtlMs ?? 10_000;
     let closed = false;
     function requireOpen(): void {
       if (closed) throw new CodemodeError({ reason: "closed", message: "codemode is closed" });
@@ -76,40 +96,92 @@ export function createCodemode(options: CodemodeOptions) {
       if (!options.machines) throw new CodemodeError({ reason: "machines_not_bound", message: "machine port is not bound" });
       return options.machines;
     }
-    function select(query: { tag: string }): string {
-      const parsed = FindInput.parse(query);
-      const found = machines().list().filter((entry) => entry.tags.includes(parsed.tag));
-      const first = found[0];
-      if (!first) throw new CodemodeError({ reason: "machine_not_found", message: "no machine matches the tag" });
-      if (found.length > 1) throw new CodemodeError({ reason: "ambiguous_machine", message: "multiple machines match the tag" });
-      return first.machineId;
+    function expire(lease: Lease): void {
+      if (lease.released || lease.inFlight > 0) return;
+      lease.released = true;
+      lease.cancel?.();
+      leases.get(lease.machineId)?.delete(lease);
+      handles.delete(`${lease.machineId}\0${lease.leaseId}`);
     }
-    function makeHandle(id: string) {
+    function arm(lease: Lease): void {
+      if (options.scheduler === undefined)
+        throw new CodemodeError({ reason: "lease_scheduler_missing", message: "machine leases require an injected scheduler" });
+      lease.cancel?.();
+      lease.cancel = options.scheduler?.schedule(leaseTtl, () => expire(lease));
+    }
+    function reserve(machineId: string, units: number): Lease {
+      if (options.scheduler === undefined)
+        throw new CodemodeError({ reason: "lease_scheduler_missing", message: "machine leases require an injected scheduler" });
+      const lease: Lease = { leaseId: options.id(), machineId, units, inFlight: 0, released: false };
+      const members = leases.get(machineId) ?? new Set<Lease>();
+      members.add(lease);
+      leases.set(machineId, members);
+      arm(lease);
+      return lease;
+    }
+    function useMachine<T>(machineId: string, leaseId: string | null | undefined, operation: Effect.Effect<T, Failure>): Effect.Effect<T, Failure> {
+      if (leaseId == null) return operation;
+      return Effect.suspend(() => {
+        const lease = [...(leases.get(machineId) ?? [])].find((candidate) => candidate.leaseId === leaseId);
+        if (lease === undefined || lease.released)
+          return Effect.fail(new CodemodeError({ reason: "lease_expired", message: `machine lease expired: ${leaseId}` }));
+        lease.inFlight += 1;
+        lease.cancel?.();
+        lease.cancel = undefined;
+        return operation.pipe(Effect.ensuring(Effect.sync(() => {
+          lease.inFlight -= 1;
+          if (lease.inFlight === 0) arm(lease);
+        })));
+      });
+    }
+    function select(query: z.input<typeof FindInput>): { machineId: string; lease: Lease } {
+      const parsed = FindInput.parse(query);
+      const outcome = Machine.place({
+        tag: parsed.tag,
+        ...(parsed.requires === undefined ? {} : { requires: parsed.requires }),
+        prefer: parsed.prefer ?? "spread",
+      }, machines().list().map((machine) => ({
+        ...machine,
+        leases: [...(leases.get(machine.machineId) ?? [])].reduce((total, lease) => total + lease.units, 0),
+      })));
+      if (outcome.kind === "no_member") throw new CodemodeError({ reason: "machine_not_found", message: "no machine matches the request" });
+      if (outcome.kind === "all_stale") throw new CodemodeError({ reason: "all_stale", message: "all matching machines are stale" });
+      if (outcome.kind === "machine_saturated") throw new CodemodeError({ reason: "machine_saturated", message: "all matching machines are saturated" });
+      const target = machines().list().find((machine) => machine.machineId === outcome.machineId);
+      const units = parsed.prefer === "exclusive"
+        ? (target?.resources?.cpus
+          ?? 1)
+        : 1;
+      return { machineId: outcome.machineId, lease: reserve(outcome.machineId, units) };
+    }
+    function makeHandle(id: string, leaseId?: string | null) {
       const target = (): MachineHandle => machines().get(id);
       return {
-        read: (path: string) => Effect.suspend(() => target().fs.read(path)),
-        write: (path: string, data: Uint8Array) => Effect.suspend(() => target().fs.write(path, data)),
-        ls: (path: string) => Effect.suspend(() => target().fs.list(path)),
-        bash: (command: string, cwd: string) => Effect.suspend(() => target().exec(command, cwd)),
-        eval: (cell: Machine.CellRequest, signal?: AbortSignal) => Effect.suspend(() => target().runCode(cell, signal)),
-        screen: (request: Machine.ScreenReadRequest) => Effect.suspend(() => target().screen(request)),
-        input: (request: Machine.InputWriteRequest) => Effect.suspend(() => target().input(request)),
+        id,
+        read: (path: string) => useMachine(id, leaseId, Effect.suspend(() => target().fs.read(path))),
+        write: (path: string, data: Uint8Array) => useMachine(id, leaseId, Effect.suspend(() => target().fs.write(path, data))),
+        ls: (path: string) => useMachine(id, leaseId, Effect.suspend(() => target().fs.list(path))),
+        bash: (command: string, cwd: string) => useMachine(id, leaseId, Effect.suspend(() => target().exec(command, cwd))),
+        eval: (cell: Machine.CellRequest, signal?: AbortSignal) => useMachine(id, leaseId, Effect.suspend(() => target().runCode(cell, signal))),
+        screen: (request: Machine.ScreenReadRequest) => useMachine(id, leaseId, Effect.suspend(() => target().screen(request))),
+        input: (request: Machine.InputWriteRequest) => useMachine(id, leaseId, Effect.suspend(() => target().input(request))),
         // Persistent terminals (#1273): mirror of MachineHandle.pty.
         pty: {
-          open: (name: string, cwd: string) => Effect.suspend(() => target().pty.open(name, cwd)),
-          write: (name: string, data: Uint8Array) => Effect.suspend(() => target().pty.write(name, data)),
-          read: (name: string, options?: { cursor?: string; waitMs?: number }) => Effect.suspend(() => target().pty.read(name, options)),
-          resize: (name: string, cols: number, rows: number) => Effect.suspend(() => target().pty.resize(name, cols, rows)),
-          close: (name: string) => Effect.suspend(() => target().pty.close(name)),
-          list: () => Effect.suspend(() => target().pty.list()),
+          open: (name: string, cwd: string) => useMachine(id, leaseId, Effect.suspend(() => target().pty.open(name, cwd))),
+          write: (name: string, data: Uint8Array) => useMachine(id, leaseId, Effect.suspend(() => target().pty.write(name, data))),
+          read: (name: string, options?: { cursor?: string; waitMs?: number }) => useMachine(id, leaseId, Effect.suspend(() => target().pty.read(name, options))),
+          resize: (name: string, cols: number, rows: number) => useMachine(id, leaseId, Effect.suspend(() => target().pty.resize(name, cols, rows))),
+          close: (name: string) => useMachine(id, leaseId, Effect.suspend(() => target().pty.close(name))),
+          list: () => useMachine(id, leaseId, Effect.suspend(() => target().pty.list())),
         },
       };
     }
-    function getMachine(id: string) {
+    function getMachine(id: string, leaseId?: string | null) {
       const parsed = Machine.MachineId.parse(id);
       requireOpen();
-      let handle = handles.get(parsed);
-      if (!handle) { handle = makeHandle(parsed); handles.set(parsed, handle); }
+      const key = `${parsed}\0${leaseId ?? ""}`;
+      let handle = handles.get(key);
+      if (!handle) { handle = makeHandle(parsed, leaseId); handles.set(key, handle); }
       return handle;
     }
     function callTool(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult, Failure> {
@@ -121,27 +193,27 @@ export function createCodemode(options: CodemodeOptions) {
     }
     function dispatchCatalog(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
       if (call.name === "codemode.listMachines") return Effect.try({ try: () => Machine.ToolCallResult.parse({ status: "completed", value: machines().list() }), catch: decodeCodeFailure("machines.list") });
-      if (call.name === "codemode.findMachine") return Effect.try({ try: (): Machine.ToolCallResult => ({ status: "completed", value: select(z.object({ query: FindInput }).strict().parse(call.arguments).query) }), catch: decodeCodeFailure("machines.find") });
+      if (call.name === "codemode.findMachine") return Effect.try({ try: (): Machine.ToolCallResult => { const selected = select(z.object({ query: FindInput }).strict().parse(call.arguments).query); return { status: "completed", value: { machineId: selected.machineId, leaseId: selected.lease.leaseId } }; }, catch: decodeCodeFailure("machines.find") });
       return Effect.succeed(undefined);
     }
     function dispatchMachineOp(call: Machine.ToolCall): Effect.Effect<Machine.ToolCallResult | undefined, Failure> {
       return Effect.gen(function* () {
         if (call.name === "codemode.read") {
-          const input = yield* Effect.try({ try: () => PathInput.parse(call.arguments), catch: decodeCodeFailure("read.arguments") });
-          const value = yield* getMachine(input.machineId).read(input.path);
+          const input = yield* Effect.try({ try: () => PathLeaseInput.parse(call.arguments), catch: decodeCodeFailure("read.arguments") });
+          const value = yield* getMachine(input.machineId, input.leaseId).read(input.path);
           return { status: "completed", value: { ...value, data: Buffer.from(value.data).toString("base64") } };
         }
         if (call.name === "codemode.write") {
-          const input = yield* Effect.try({ try: () => WriteInput.parse(call.arguments), catch: decodeCodeFailure("write.arguments") });
-          return { status: "completed", value: yield* getMachine(input.machineId).write(input.path, Buffer.from(input.data, "base64")) };
+          const input = yield* Effect.try({ try: () => WriteLeaseInput.parse(call.arguments), catch: decodeCodeFailure("write.arguments") });
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).write(input.path, Buffer.from(input.data, "base64")) };
         }
         if (call.name === "codemode.ls") {
-          const input = yield* Effect.try({ try: () => PathInput.parse(call.arguments), catch: decodeCodeFailure("ls.arguments") });
-          return { status: "completed", value: yield* getMachine(input.machineId).ls(input.path) };
+          const input = yield* Effect.try({ try: () => PathLeaseInput.parse(call.arguments), catch: decodeCodeFailure("ls.arguments") });
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).ls(input.path) };
         }
         if (call.name === "codemode.bash") {
           const input = yield* Effect.try({ try: () => ShellInput.parse(call.arguments), catch: decodeCodeFailure("bash.arguments") });
-          const value = yield* getMachine(input.machineId).bash(input.cmd, input.cwd);
+          const value = yield* getMachine(input.machineId, input.leaseId).bash(input.cmd, input.cwd);
           return { status: "completed", value: value.status === "completed" ? { ...value, stdout: Buffer.from(value.stdout).toString("base64"), stderr: Buffer.from(value.stderr).toString("base64") } : value };
         }
         return undefined;
@@ -152,14 +224,14 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.screen") {
           const input = yield* Effect.try({ try: () => ScreenInput.parse(call.arguments), catch: decodeCodeFailure("screen.arguments") });
-          const { machineId, ...request } = input;
-          const value = yield* getMachine(machineId).screen(request);
+          const { machineId, leaseId, ...request } = input;
+          const value = yield* getMachine(machineId, leaseId).screen(request);
           return { status: "completed", value: value.status === "ok" ? { ...value, png: Buffer.from(value.png).toString("base64") } : value };
         }
         if (call.name === "codemode.input") {
           const input = yield* Effect.try({ try: () => InputInput.parse(call.arguments), catch: decodeCodeFailure("input.arguments") });
-          const { machineId, ...request } = input;
-          return { status: "completed", value: yield* getMachine(machineId).input(request) };
+          const { machineId, leaseId, ...request } = input;
+          return { status: "completed", value: yield* getMachine(machineId, leaseId).input(request) };
         }
         return undefined;
       });
@@ -172,15 +244,15 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.ptyOpen") {
           const input = yield* ptyArgs(call, PtyOpenInput, "ptyOpen");
-          return { status: "completed", value: yield* getMachine(input.machineId).pty.open(input.name, input.cwd) };
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.open(input.name, input.cwd) };
         }
         if (call.name === "codemode.ptyWrite") {
           const input = yield* ptyArgs(call, PtyWriteInput, "ptyWrite");
-          return { status: "completed", value: yield* getMachine(input.machineId).pty.write(input.name, Buffer.from(input.data, "base64")) };
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.write(input.name, Buffer.from(input.data, "base64")) };
         }
         if (call.name === "codemode.ptyRead") {
-          const { machineId, name, ...window } = yield* ptyArgs(call, PtyReadInput, "ptyRead");
-          const value = yield* getMachine(machineId).pty.read(name, window);
+          const { machineId, leaseId, name, ...window } = yield* ptyArgs(call, PtyReadInput, "ptyRead");
+          const value = yield* getMachine(machineId, leaseId).pty.read(name, window);
           return { status: "completed", value: value.status === "ok" ? { ...value, data: Buffer.from(value.data).toString("base64") } : value };
         }
         return undefined;
@@ -190,15 +262,15 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.ptyResize") {
           const input = yield* ptyArgs(call, PtyResizeInput, "ptyResize");
-          return { status: "completed", value: yield* getMachine(input.machineId).pty.resize(input.name, input.cols, input.rows) };
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.resize(input.name, input.cols, input.rows) };
         }
         if (call.name === "codemode.ptyClose") {
           const input = yield* ptyArgs(call, PtyCloseInput, "ptyClose");
-          return { status: "completed", value: yield* getMachine(input.machineId).pty.close(input.name) };
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.close(input.name) };
         }
         if (call.name === "codemode.ptyList") {
           const input = yield* ptyArgs(call, PtyListInput, "ptyList");
-          return { status: "completed", value: yield* getMachine(input.machineId).pty.list() };
+          return { status: "completed", value: yield* getMachine(input.machineId, input.leaseId).pty.list() };
         }
         return undefined;
       });
@@ -217,8 +289,13 @@ export function createCodemode(options: CodemodeOptions) {
       return Effect.gen(function* () {
         if (call.name === "codemode.eval") {
           const input = yield* Effect.try({ try: () => RunInput.parse(call.arguments), catch: decodeCodeFailure("eval.arguments") });
-          const started = yield* launch(input.machineId, input.code, `${binding.tenant}/nested`, binding.caller, { timeoutMs: binding.timeoutMs, signal: binding.signal, ownership: binding.ownership }, binding.boundary);
-          return { status: "completed", value: yield* Fiber.join(started.entry.execution) };
+          const launched = launch(input.machineId, input.code, `${binding.tenant}/nested`, binding.caller,
+            { timeoutMs: binding.timeoutMs, signal: binding.signal, ownership: binding.ownership },
+            binding.boundary).pipe(Effect.flatMap((cell) => Fiber.join(cell.entry.execution)));
+          const value = yield* input.leaseId === undefined
+            ? launched
+            : useMachine(input.machineId, input.leaseId, launched);
+          return { status: "completed", value };
         }
         if (call.name === "completion" && options.completion) {
           const input = yield* Effect.try({ try: () => Machine.CompletionRequest.parse(call.arguments), catch: decodeCodeFailure("completion.arguments") });
@@ -317,6 +394,13 @@ export function createCodemode(options: CodemodeOptions) {
       },
       close: () => Effect.gen(function* () {
         closed = true; lifetime.abort();
+        options.scheduler?.close?.();
+        for (const leaseSet of leases.values()) for (const lease of leaseSet) {
+          lease.cancel?.();
+          lease.released = true;
+        }
+        leases.clear();
+        handles.clear();
         yield* Effect.forEach([...kernels.values()], (kernel) => kernel.close(), { discard: true, concurrency: CLOSE_CONCURRENCY });
         yield* Effect.forEach([...running], Deferred.await, { discard: true });
         if ([...background.values()].some((entry) => entry.quarantined))
@@ -327,13 +411,16 @@ export function createCodemode(options: CodemodeOptions) {
     yield* Effect.addFinalizer(() => Effect.orDie(runner.close()));
     return {
       listMachines: (): MachineInfo[] => machines().list(), getMachine,
-      findMachine: (query: { tag: string }) => getMachine(select(query)),
+      findMachine: (query: { tag: string; requires?: Machine.CapabilityId[]; prefer?: Machine.PlacementRequest["prefer"] }) => {
+        const selected = select(query);
+        return makeHandle(selected.machineId, selected.lease.leaseId);
+      },
       callTool: (call: Machine.ToolCall) => callTool(call).pipe(Effect.mapError((error) => new MachinesFailure({ operation: "code.tool", cause: error.message || String(error) }))),
       runner, close: runner.close,
       cell: {
         run: (code: string, tenant: string, runOptions: RunOptions = {}): Effect.Effect<Machine.CellState, Failure> => Effect.gen(function* () {
-          const target = yield* Effect.try({ try: () => machines().list().find((entry) => entry.capabilities.includes(Machine.WellKnownCapability.pythonKernel)), catch: decodeCodeFailure("cell.select") });
-          if (!target) return { status: "refused", reason: "kernel_not_available" };
+          const target = yield* Effect.try({ try: () => machines().list().find((entry) => entry.machineId === (options.self ?? "self")), catch: decodeCodeFailure("cell.select") });
+          if (!target?.capabilities.includes(Machine.WellKnownCapability.pythonKernel)) return { status: "refused", reason: "kernel_not_available" };
           const caller = (runOptions.bindings ?? options).tools?.(tenant) ?? (() => Effect.succeed({ status: "failed", error: "this cell exposes no tools" } as const));
           const started = yield* launch(target.machineId, code, tenant, caller, runOptions);
           if (runOptions.waitMs === undefined) return yield* Fiber.join(started.entry.execution);

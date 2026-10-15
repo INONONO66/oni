@@ -31,11 +31,12 @@ export interface ResidentSuite {
 
 /**
  * One suite's app lifecycle: tracked temp state directories, at most one
- * running app per test, and a storage reset between tests. `beforeReset`
- * runs after registered disposers and before app/storage teardown, so
- * suite-specific completion witnesses can await the resources just closed.
+ * running app per test, and a storage reset between tests. `afterStop`
+ * runs after registered disposers and the app stop, before storage teardown,
+ * so suite-specific completion witnesses can await every resource just
+ * closed — including the app-owned self interpreter (#1556).
  */
-export function residentSuite(beforeReset?: () => Promise<void> | void): ResidentSuite {
+export function residentSuite(afterStop?: () => Promise<void> | void): ResidentSuite {
   const directories: string[] = [];
   let stop: (() => Promise<void>) | undefined;
   const sockets: WebSocket[] = [];
@@ -57,10 +58,10 @@ export function residentSuite(beforeReset?: () => Promise<void> | void): Residen
     }
     await Promise.all(sockets.splice(0).map((ws) => attempt(() => closeSocket(ws))));
     for (const dispose of disposers.splice(0).reverse()) await attempt(dispose);
-    await attempt(() => beforeReset?.());
     const stopApp = stop;
     stop = undefined;
     await attempt(() => stopApp?.());
+    await attempt(() => afterStop?.());
     for (const directory of directories.splice(0)) {
       await attempt(() => rmSync(directory, { recursive: true, force: true }));
     }

@@ -72,7 +72,7 @@ for (const stop of [false, true]) {
     }));
     suite.defer(async () => { await runEffect(daemon.close()); });
     expect(daemon.attachment.status).toBe("attached");
-    cells = acquireSyncEffect(composeCodemode(host, { id: testIds("lifetime-compose") }));
+    cells = acquireSyncEffect(composeCodemode(host, { id: testIds("lifetime-compose"), selfMachineId: "completion-test" }));
     suite.defer(async () => { await runEffect(cells.close()); });
     let calls = 0;
     const definitions = bundleTools(

@@ -26,7 +26,7 @@ test("a named job survives its Python handle and is read through a new handle", 
     events: { publish: () => undefined }, now: () => 2,
     callTool: (call) => mode.callTool(call),
   });
-  mode = createCodemode({ machines: host });
+  mode = createCodemode({ machines: host, self: "worker" });
   const kernel = createCodemode();
   const daemon = await attachMachineDaemon({
     socketPath: socket,
@@ -38,14 +38,14 @@ test("a named job survives its Python handle and is read through a new handle", 
   });
   try {
     const started = await mode.cell.run(
-      `m = codemode.getMachine('worker')\njob = m.job("printf 'finished-job\\\\n'; exit 7", ${JSON.stringify(root)})\nname = job['name']\ndel m\njob`,
+      `m = machine('worker')\njob = m.job("printf 'finished-job\\\\n'; exit 7", ${JSON.stringify(root)})\nname = job['name']\ndel m\njob`,
       "owner",
     );
     expect(started.status).toBe("completed");
     expect(started.status === "completed" ? started.value : "").toContain("'machineId': 'worker'");
     const finished = await mode.cell.run(
       [
-        "m = codemode.getMachine('worker')",
+        "m = machine('worker')",
         "result = m.job_wait(name, 10)",
         "view = m.job_read(name)",
         "assert result['status'] == 'completed' and result['exitCode'] == 7",

@@ -36,6 +36,7 @@ async function pair(
     da: Awaited<ReturnType<typeof attachMachineDaemon>>;
   }) => Promise<void>,
   tools?: Parameters<typeof createCodemode>[0],
+  sharedTag = false,
 ) {
   const base = mkdtempSync(join(tmpdir(), "oc-consumer-"));
   const a = join(base, "a");
@@ -50,7 +51,7 @@ async function pair(
     enrollment: (id) => ({
       machineId: id,
       name: id,
-      tags: [id],
+      tags: [id, ...(sharedTag ? ["worker"] : [])],
       allowedExports: ["data"],
       allowedCapabilities: capabilities,
       publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -60,7 +61,12 @@ async function pair(
     now: () => 2,
     callTool: (call) => mode.callTool(call),
   });
-  mode = createCodemode({ ...tools, machines: host });
+  mode = createCodemode({
+    ...tools,
+    machines: host,
+    self: tools?.self ?? "A",
+    scheduler: tools?.scheduler ?? { schedule: () => () => undefined },
+  });
   const attach = (id: string, root: string) =>
     attachMachineDaemon({
       socketPath,
@@ -118,7 +124,7 @@ test("running nested cells retain generation ownership until terminal completion
     };
   } };
   await pair(async ({ mode }) => {
-    const running = mode.cell.run(`codemode.getMachine('B').eval('tool.hold()')`, "owned", { waitMs: 0, ownership });
+    const running = mode.cell.run(`machine("B").eval('tool.hold()')`, "owned", { waitMs: 0, ownership });
     await gate.entered.promise;
     const result = await running;
     expect(result.status).toBe("running");
@@ -134,7 +140,7 @@ test("running nested cells retain generation ownership until terminal completion
 test("SDK handles and Python globals share raw endpoints across two machines", async () => {
   await pair(async ({ mode, a, b }) => {
     expect(mode.listMachines().map((entry) => entry.machineId)).toEqual(["A", "B"]);
-    expect(mode.findMachine({ tag: "A" })).toBe(mode.getMachine("A"));
+    expect(mode.findMachine({ tag: "A" }).id).toBe(mode.getMachine("A").id);
     expect((await codemodeFailure(() => mode.findMachine({ tag: "missing" }))).reason).toBe(
       "machine_not_found",
     );
@@ -146,8 +152,8 @@ test("SDK handles and Python globals share raw endpoints across two machines", a
     const result = await mode.cell.run(
       [
         "ids = [m['machineId'] for m in codemode.listMachines()]",
-        "src = codemode.findMachine({'tag': 'A'})",
-        "dst = codemode.getMachine('B')",
+        "src = machine(tag='A')",
+        "dst = machine('B')",
         `raw = src.read(${JSON.stringify(join(a, "source"))})`,
         `written = dst.write(${JSON.stringify(join(b, "copy"))}, raw['data'])`,
         `listed = dst.ls(${JSON.stringify(b)})`,
@@ -177,12 +183,75 @@ test("SDK handles and Python globals share raw endpoints across two machines", a
     expect(Object.keys(mode.getMachine("B")).sort()).toEqual([
       "bash",
       "eval",
+      "id",
       "input",
       "ls",
       "read",
       "screen",
       "write",
     ]);
+  });
+});
+
+test("concurrent tag placement reserves at pick time and spreads evenly", async () => {
+  const scheduled: Array<{ task: () => void; cancelled: boolean }> = [];
+  const scheduler = {
+    schedule(_delayMs: number, task: () => void) {
+      const entry = { task, cancelled: false };
+      scheduled.push(entry);
+      return () => { entry.cancelled = true; };
+    },
+  };
+  await pair(async ({ mode }) => {
+    const handles = await Promise.all(Array.from({ length: 8 }, () => Promise.resolve(mode.findMachine({ tag: "worker" }))));
+    expect(handles.map((handle) => handle.id).sort()).toEqual(["A", "A", "A", "A", "B", "B", "B", "B"]);
+    expect(scheduled).toHaveLength(8);
+  }, { scheduler, idleTtlMs: 10 }, true);
+});
+
+test("a picked lease releases on the injected idle scheduler", async () => {
+  const pending: Array<() => void> = [];
+  const scheduler = { schedule(_delayMs: number, task: () => void) { pending.push(task); return () => undefined; } };
+  await pair(async ({ mode, a }) => {
+    const handle = mode.findMachine({ tag: "worker" });
+    expect(handle.id).toBe("A");
+    pending.shift()?.();
+    await expect(handle.read(join(a, "expired"))).rejects.toMatchObject({ reason: "lease_expired" });
+    const next = mode.findMachine({ tag: "worker" });
+    expect(next.id).toBe("A");
+  }, { scheduler, idleTtlMs: 10 }, true);
+});
+
+test("an exclusive pick on a member without reported resources takes the whole member", async () => {
+  await pair(async ({ mode }) => {
+    const first = mode.findMachine({ tag: "worker", prefer: "exclusive" });
+    const second = mode.findMachine({ tag: "worker", prefer: "exclusive" });
+    expect([first.id, second.id].sort()).toEqual(["A", "B"]);
+    expect(() => mode.findMachine({ tag: "worker", prefer: "exclusive" })).toThrow(
+      expect.objectContaining({ reason: "machine_saturated" }),
+    );
+  }, { idleTtlMs: 10 }, true);
+});
+
+test("the Python prelude exposes one machine function with exact-one selection", async () => {
+  await pair(async ({ mode }) => {
+    const result = await mode.cell.run([
+      "by_id = machine('A').id",
+      "by_tag = machine(tag='A').id",
+      "try:",
+      "    machine('A', tag='A')",
+      "except Exception as error:",
+      "    both = str(error)",
+      "try:",
+      "    machine()",
+      "except Exception as error:",
+      "    neither = str(error)",
+      "(by_id, by_tag, both, neither)",
+    ].join("\n"), "prelude");
+    expect(result).toMatchObject({
+      status: "completed",
+      value: "('A', 'A', 'machine() requires exactly one of id or tag', 'machine() requires exactly one of id or tag')",
+    });
   });
 });
 
@@ -254,7 +323,7 @@ test("close cancels live facade work and no kernel starts without a daemon runne
   }, gate.tools);
 });
 
-test("tag ambiguity and an unbound machine port are typed, never arbitrary selection", async () => {
+test("tag placement is deterministic and an unbound machine port is typed", async () => {
   const row = {
     machineId: "A",
     name: "A",
@@ -267,6 +336,7 @@ test("tag ambiguity and an unbound machine port are typed, never arbitrary selec
     arch: "arm64",
   };
   const mode = createCodemode({
+    scheduler: { schedule: () => () => undefined },
     machines: {
       list: () => [row, { ...row, machineId: "B" }],
       get: () => {
@@ -274,9 +344,7 @@ test("tag ambiguity and an unbound machine port are typed, never arbitrary selec
       },
     },
   });
-  expect((await codemodeFailure(() => mode.findMachine({ tag: "same" }))).reason).toBe(
-    "ambiguous_machine",
-  );
+  expect(mode.findMachine({ tag: "same" }).id).toBe("A");
   await mode.close();
   const runner = createCodemode();
   expect((await codemodeFailure(() => runner.listMachines())).reason).toBe(

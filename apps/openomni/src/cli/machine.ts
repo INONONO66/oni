@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Effect, Fiber } from "effect";
+import { Effect } from "effect";
 import {
   attachMachineDaemon,
   MachinesFailure,
@@ -9,7 +9,7 @@ import { createCodemode } from "@openomni/codemode";
 import { Machine } from "@openomni/protocol";
 import { z } from "zod";
 import { foreignFailure } from "../composition/failure";
-import { captureNow } from "../composition/platform";
+import { captureNow, effectScheduler } from "../composition/platform";
 
 /**
  * Two ways to reach a host, named explicitly: same-box over the unix socket,
@@ -42,19 +42,13 @@ const Configuration = z.union([UnixConfiguration, TcpConfiguration]);
 export function attachConfiguredMachine(configPath: string, id: () => string) {
   return Effect.gen(function* () {
     const context = yield* Effect.context();
-    const scheduler: ReconnectOptions["scheduler"] = {
-      schedule(delayMs, task) {
-        const fiber = Effect.runForkWith(context)(
-          Effect.sleep(delayMs).pipe(Effect.tap(() => Effect.sync(task))),
-        );
-        return () => { void Effect.runPromiseWith(context)(Fiber.interrupt(fiber)); };
-      },
-    };
+    const scheduler: ReconnectOptions["scheduler"] = effectScheduler(context);
     const reconnect: ReconnectOptions = { scheduler, random: Math.random };
-    const report = { scheduler, now: yield* captureNow };
+    const now = yield* captureNow;
+    const report = { scheduler, now };
     const contents = yield* Effect.tryPromise({ try: () => Bun.file(configPath).text(), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.read") });
     const config = yield* Effect.try({ try: () => Configuration.parse(JSON.parse(contents)), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.decode") });
-    const mode = yield* createCodemode({ id });
+    const mode = yield* createCodemode({ id, scheduler });
     const common = {
       id,
       // #1312: injected IPC callback bound for the remote machine daemon.

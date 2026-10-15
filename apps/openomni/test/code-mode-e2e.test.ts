@@ -28,7 +28,7 @@ import { dispatchModelTool, modelToolOutput } from "./helpers/tool-dispatch";
 import { requestToolStep, assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { socketPath as testSocketPath } from "./helpers/socket-path";
-import { testSelfMachine } from "./helpers/self-machine";
+import { testKernelSelfMachine, testSelfMachine } from "./helpers/self-machine";
 import { nextResidentTurn } from "./helpers/resident-turn";
 
 import { cellDaemonOptions } from "./helpers/cell-daemon";
@@ -104,7 +104,7 @@ test("app root runs machine read write shell and code through one eval cell", as
   const config = suite.config("openomni-app-machine-", {
     wsToken: WS_TOKEN,
     model: { provider: "fake", id: "app-machine-test", apiKey: "test-key" },
-    machines: { self: testSelfMachine(), listen: { unix: socketPath }, enrolled: [appEnrollment] },
+    machines: { self: testKernelSelfMachine(), listen: { unix: socketPath }, enrolled: [appEnrollment] },
   });
   const app = await suite.boot({
     config,
@@ -118,7 +118,7 @@ test("app root runs machine read write shell and code through one eval cell", as
             operation: {
               op: "run",
               code: [
-                `m = codemode.getMachine('${MACHINE_ID}')`,
+                `m = machine('${MACHINE_ID}')`,
                 `m.write(${JSON.stringify(join(root, "value"))}, bytes([0, 255, 128, 65]))`,
                 `readback = list(m.read(${JSON.stringify(join(root, "value"))})['data'])`,
                 `shell = m.bash('printf shell; exit 7', ${JSON.stringify(root)})`,
@@ -172,10 +172,10 @@ test("a cell drives a named persistent terminal through m.pty (#1273)", async ()
   const config = suite.config("openomni-app-pty-", {
     wsToken: WS_TOKEN,
     model: { provider: "fake", id: "app-pty-test", apiKey: "test-key" },
-    machines: { self: testSelfMachine(), listen: { unix: socketPath }, enrolled: [appEnrollment] },
+    machines: { self: testKernelSelfMachine(), listen: { unix: socketPath }, enrolled: [appEnrollment] },
   });
   const code = [
-    `m = codemode.getMachine('${MACHINE_ID}')`,
+                `m = machine('${MACHINE_ID}')`,
     "t = m.pty('qa')",
     "opened = t.open('/')",
     "cur = opened['cursor']",
@@ -254,7 +254,7 @@ test("a cell creates three child sessions through send_message", async () => {
   const config = suite.config("openomni-code-mode-", {
     wsToken: WS_TOKEN,
     model: { provider: "fake", id: "code-mode-test", apiKey: "test-key" },
-    machines: { self: testSelfMachine(), listen: { unix: socketPath }, enrolled: [enrollment] },
+    machines: { self: testKernelSelfMachine(), listen: { unix: socketPath }, enrolled: [enrollment] },
   });
   const planeRef: { current: AppLedgerPlane | undefined } = { current: undefined };
   const app = await suite.boot({
@@ -359,7 +359,7 @@ test("a cell's refused send_message surfaces as ToolError inside the cell, not a
   const config = suite.config("openomni-code-mode-refused-", {
     wsToken: WS_TOKEN,
     model: { provider: "fake", id: "code-mode-test", apiKey: "test-key" },
-    machines: { self: testSelfMachine(), listen: { unix: socketPath }, enrolled: [enrollment] },
+    machines: { self: testKernelSelfMachine(), listen: { unix: socketPath }, enrolled: [enrollment] },
   });
   const planeRef: { current: AppLedgerPlane | undefined } = { current: undefined };
   const app = await suite.boot({
@@ -586,7 +586,7 @@ async function startCellHarness(ports: Partial<ToolPorts>) {
   const { socketPath, host } = await e2eHost((call) => cells.callTool(call));
   const daemon = await attachMachineDaemon(cellDaemonOptions(socketPath, MACHINE_ID));
   expect(daemon.attachment.status).toBe("attached");
-  cells = acquireSyncEffect(composeCodemode(host, { id: testIds("e2e-compose") }));
+  cells = acquireSyncEffect(composeCodemode(host, { id: testIds("e2e-compose"), selfMachineId: MACHINE_ID }));
   suite.defer(() => runEffect(cells.close()));
   const states: Machine.CellState[] = [];
   const portsForCells = cellPorts(cells);

@@ -33,6 +33,13 @@ export function testSelfMachine(
   };
 }
 
+export function testKernelSelfMachine(
+  root?: string,
+): NonNullable<OpenOmniConfig["machines"]>["self"] {
+  const self = testSelfMachine(root);
+  return { ...self, capabilities: [...self.capabilities, "kernel.py"] };
+}
+
 /** A full boot-ready machine plane (#1271): self on a fresh unix socket, nothing enrolled. */
 export function testMachinesPlane(): NonNullable<OpenOmniConfig["machines"]> {
   return { self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] };
