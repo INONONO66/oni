@@ -5,6 +5,23 @@ const normalizer = new SlackNormalizer({ botUserId: "B1", team: "T1" });
 const message = { type: "message", channel: "C1", user: "U1", ts: "1", text: "hello" };
 
 describe("Slack ingress facts", () => {
+  it("normalizes a button tap as an addressed postback with its visible label", () => {
+    const payload = {
+      type: "block_actions" as const,
+      user: { id: "U1" }, channel: { id: "D1" },
+      actions: [{ action_id: "approve", action_ts: "12.34", text: { text: "Approve" } }] as [{
+        action_id: string; action_ts: string; text: { text: string };
+      }],
+      container: { message_ts: "10.00" }, message: { thread_ts: "9.00" },
+    };
+    expect(normalizer.normalize(payload)?.facts).toMatchObject({
+      event: "postback", eventId: "12.34:U1", postback: {
+        id: "approve", label: "Approve", messageRef: "10.00",
+      }, render: "Approve", dm: true, channelId: "D1",
+      addressees: [{ externalId: "T1:B1" }], payload,
+      reply: { threadId: "9.00" },
+    });
+  });
   it("derives the author from bot_id for a real bot_message frame with no user", () => {
     // Recorded shape of a Slack incoming-webhook/CI bot post: bot_message
     // frames carry bot_id and username but never a `user` field.

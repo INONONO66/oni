@@ -16,6 +16,8 @@ import { DiscordNormalizer } from "./normalizer";
 import {
   type DiscordMessage,
   type DiscordReaction,
+  type DiscordInteraction,
+  DiscordInteractionSchema,
   DiscordMessageSchema,
   DiscordReactionSchema,
 } from "./types";
@@ -58,6 +60,26 @@ export class DiscordAdapter implements Channel.Surface {
           });
         },
         onDispatch: (event, data, traceId) => {
+          if (event === "INTERACTION_CREATE" && "type" in data && data.type === 3) {
+            const interaction = DiscordInteractionSchema.safeParse(data);
+            if (!interaction.success) {
+              this.publish(Operational.Events.Warn, {
+                traceId, time: this.options.now(), component: "server",
+                msg: "discord INTERACTION_CREATE payload malformed; dropped",
+              });
+              return;
+            }
+            void this.client.ackInteraction(interaction.data.id, interaction.data.token, traceId)
+              .then(() => this.handleMessageCreate(interaction.data, traceId))
+              .catch((error) => {
+                this.publish(Operational.Events.Warn, {
+                  traceId, time: this.options.now(), component: "server",
+                  msg: "discord interaction acknowledgment failed; dropped",
+                  context: { err: String(error) },
+                });
+              });
+            return;
+          }
           if (event !== "MESSAGE_CREATE" && event !== "MESSAGE_REACTION_ADD") return;
           const message =
             event === "MESSAGE_CREATE"
@@ -170,13 +192,15 @@ export class DiscordAdapter implements Channel.Surface {
     });
   }
 
-  private handleMessageCreate(message: DiscordMessage | DiscordReaction, traceId: string): void {
+  private handleMessageCreate(message: DiscordMessage | DiscordReaction | DiscordInteraction, traceId: string): void {
     const normalizer = this.normalizer;
     if (!normalizer) return;
     void handoffInbound({
       dedupe: this.dedupe,
       key:
-        "message_id" in message
+        "type" in message
+          ? message.id
+          : "message_id" in message
           ? `${message.message_id}:${message.emoji.name}:${message.user_id}`
           : message.id,
       traceId,

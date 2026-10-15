@@ -11,6 +11,21 @@ const message = {
 };
 
 describe("Telegram ingress facts", () => {
+  it("normalizes a callback with the keyboard label and message reference", () => {
+    const payload = {
+      id: "callback-1", from: message.from, data: "approve",
+      message: {
+        ...message, chat: { id: 5, type: "private" as const },
+        reply_markup: { inline_keyboard: [[{ text: "Approve", callback_data: "approve" }]] },
+      },
+    };
+    expect(normalizer.normalize(payload)?.facts).toMatchObject({
+      event: "postback", eventId: "callback-1", render: "Approve",
+      postback: { id: "approve", label: "Approve", messageRef: "7" },
+      addressees: [{ externalId: "99" }], channelId: "5", dm: true, payload,
+    });
+    expect(normalizer.normalize({ ...payload, message: message })?.facts.render).toBe("approve");
+  });
   it("carries bot authors", () => {
     expect(
       normalizer.normalize({ ...message, from: { ...message.from, is_bot: true } })?.facts,

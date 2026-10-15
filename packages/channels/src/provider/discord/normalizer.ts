@@ -1,11 +1,45 @@
 import type { Channel } from "@openomni/protocol";
 import type { InboundNormalizer } from "../../types";
-import type { DiscordMessage, DiscordReaction } from "./types";
+import type { DiscordInteraction, DiscordMessage, DiscordReaction } from "./types";
 
-export class DiscordNormalizer implements InboundNormalizer<DiscordMessage | DiscordReaction> {
+function discordPostback(message: DiscordInteraction, selfId: string): Channel.InboundMessage | null {
+  const authorId = message.member?.user?.id ?? message.user?.id;
+  if (authorId === undefined) return null;
+  const id = message.data.custom_id;
+  const button = message.message?.components?.flatMap((component) =>
+    component.components ?? [component]).find((component) => component.custom_id === id);
+  const label = button?.label || id;
+  return {
+    sender: { kind: "external", surface: "discord", externalId: authorId },
+    facts: {
+      eventId: message.id,
+      event: "postback",
+      author: { externalId: authorId, isBot: false },
+      surface: "discord",
+      channelId: message.channel_id,
+      ...(message.guild_id === undefined ? {} : { workspaceId: message.guild_id }),
+      addressees: [{ externalId: selfId }],
+      dm: message.guild_id === undefined,
+      payload: message,
+      render: label,
+      postback: {
+        id, label,
+        ...(message.message === undefined ? {} : { messageRef: message.message.id }),
+      },
+    },
+  };
+}
+
+export class DiscordNormalizer implements InboundNormalizer<DiscordMessage | DiscordReaction | DiscordInteraction> {
   constructor(private readonly selfId?: string) {}
 
-  normalize(message: DiscordMessage | DiscordReaction): Channel.InboundMessage | null {
+  normalize(message: DiscordMessage | DiscordReaction | DiscordInteraction): Channel.InboundMessage | null {
+    return "type" in message
+      ? this.selfId === undefined ? null : discordPostback(message, this.selfId)
+      : this.normalizeMessage(message);
+  }
+
+  private normalizeMessage(message: DiscordMessage | DiscordReaction): Channel.InboundMessage | null {
     const reaction = "message_id" in message;
     const authorId = reaction ? message.user_id : message.author.id;
     // The bot's own gateway echo is not an outside event.

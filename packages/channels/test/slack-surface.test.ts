@@ -59,6 +59,36 @@ afterEach(() => {
 });
 
 describe("SlackAdapter", () => {
+  it("routes an interactive button tap through the inbound handler", async () => {
+    const api = installSlackApi();
+    const adapter = new SlackAdapter({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, noopPublish, injectedOptions());
+    const incoming = Promise.withResolvers<Channel.InboundMessage>();
+    adapter.onMessage(async (message) => { incoming.resolve(message); });
+    try {
+      const started = adapter.start("trace-button");
+      const socket = await bounded(api.sockets);
+      socket.send(JSON.stringify({ type: "hello" }));
+      await bounded(started);
+      socket.send(JSON.stringify({
+        type: "interactive", envelope_id: "button-env",
+        payload: {
+          type: "block_actions", user: { id: "U77" }, channel: { id: "D123" },
+          actions: [{ action_id: "approve", action_ts: "12.34", text: { text: "Approve" } }],
+          container: { message_ts: "10.00" },
+        },
+      }));
+      expect(await bounded(incoming.promise)).toMatchObject({
+        sender: { externalId: "T9:U77" },
+        facts: { event: "postback", render: "Approve", postback: {
+          id: "approve", label: "Approve", messageRef: "10.00",
+        }, addressees: [{ externalId: "T9:UBOT" }], dm: true },
+      });
+    } finally {
+      adapter.stop("trace-stop");
+      await api.stop();
+    }
+  });
+
   it("refuses to start without a handler", async () => {
     const adapter = new SlackAdapter({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, noopPublish, injectedOptions());
     await expect(adapter.start("trace-1")).rejects.toBeInstanceOf(SlackHandlerMissingError);

@@ -10,6 +10,20 @@ const message = {
 };
 
 describe("Discord ingress facts", () => {
+  it("normalizes a component tap with the matching button label", () => {
+    const payload = {
+      id: "interaction-1", token: "token", type: 3 as const, channel_id: "c",
+      guild_id: "g", member: { user: { id: "u", username: "user" } },
+      data: { custom_id: "approve" },
+      message: { id: "m", components: [{ components: [{ custom_id: "approve", label: "Approve" }] }] },
+    };
+    expect(normalizer.normalize(payload)?.facts).toMatchObject({
+      event: "postback", eventId: "interaction-1", render: "Approve",
+      postback: { id: "approve", label: "Approve", messageRef: "m" },
+      addressees: [{ externalId: "BOT" }], channelId: "c", dm: false, payload,
+    });
+    expect(normalizer.normalize({ ...payload, message: { id: "m" } })?.facts.render).toBe("approve");
+  });
   it("carries bot authors", () => {
     expect(
       normalizer.normalize({ ...message, author: { ...message.author, bot: true } })?.facts,

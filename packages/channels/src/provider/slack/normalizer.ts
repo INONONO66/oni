@@ -1,6 +1,6 @@
 import type { Channel } from "@openomni/protocol";
 import type { InboundNormalizer } from "../../types";
-import type { SlackMessageEvent } from "./types";
+import type { SlackInteraction, SlackMessageEvent } from "./types";
 
 interface SlackNormalizerContext {
   botUserId: string;
@@ -45,10 +45,41 @@ function slackText(event: SlackMessageEvent, changed: SlackMessageEvent["message
   return reaction ? event.reaction : changed?.text ?? event.text;
 }
 
-export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent> {
+function slackPostback(event: SlackInteraction, ctx: SlackNormalizerContext): Channel.InboundMessage {
+  const action = event.actions[0];
+  const messageRef = event.container?.message_ts ?? event.message?.ts;
+  const threadId = event.message?.thread_ts;
+  return {
+    sender: { kind: "external", surface: "slack", externalId: `${ctx.team}:${event.user.id}` },
+    facts: {
+      eventId: `${action.action_ts}:${event.user.id}`,
+      event: "postback",
+      author: { externalId: `${ctx.team}:${event.user.id}`, isBot: false },
+      surface: "slack",
+      workspaceId: ctx.team,
+      channelId: event.channel.id,
+      addressees: [{ externalId: `${ctx.team}:${ctx.botUserId}` }],
+      dm: event.channel.id.startsWith("D"),
+      ...(threadId === undefined ? {} : { reply: { chain: [threadId], threadId } }),
+      payload: event,
+      render: action.text.text,
+      postback: {
+        id: action.action_id,
+        label: action.text.text,
+        ...(messageRef === undefined ? {} : { messageRef }),
+      },
+    },
+  };
+}
+
+export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent | SlackInteraction> {
   constructor(private readonly ctx: SlackNormalizerContext) {}
 
-  normalize(event: SlackMessageEvent): Channel.InboundMessage | null {
+  normalize(event: SlackMessageEvent | SlackInteraction): Channel.InboundMessage | null {
+    return "actions" in event ? slackPostback(event, this.ctx) : this.normalizeMessage(event);
+  }
+
+  private normalizeMessage(event: SlackMessageEvent): Channel.InboundMessage | null {
     const reaction = event.type === "reaction_added";
     // `message_changed` carries its author and text on the nested edited
     // message, not on the envelope itself.

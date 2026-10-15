@@ -5,6 +5,7 @@ import type { ServerWebSocket } from "bun";
 import { Operational } from "@openomni/protocol";
 import { z } from "zod";
 import { SlackSocket } from "../src/provider/slack/socket";
+import type { SocketReconnectShell } from "../src/support/socket-shell";
 import type { SocketEnvelope } from "../src/provider/slack/types";
 import type { PublishPort } from "../src/types";
 
@@ -147,6 +148,36 @@ describe("SlackSocket", () => {
     });
     return { fake, events, socket, fetchCount: () => fetches };
   }
+
+  it("acks an interactive block action before invoking the event callback", async () => {
+    const fake = startFakeSlack();
+    const calls: string[] = [];
+    const dispatched = Promise.withResolvers<void>();
+    const socket = new SlackSocket(
+      () => Promise.resolve(fake.url),
+      { onEvent: () => { calls.push("dispatch"); dispatched.resolve(); } },
+      noopPublish, injectedOptions(),
+    );
+    const shell = Reflect.get(socket, "shell") as SocketReconnectShell;
+    const open = shell.openWebSocket.bind(shell);
+    shell.openWebSocket = (url, wire) => open(url, (ws, settle) => {
+      const send = ws.send.bind(ws);
+      Reflect.set(ws, "send", (value: string) => {
+        calls.push("ack");
+        return send(value);
+      });
+      wire(ws, settle);
+    });
+    cleanups.push(() => { socket.stop(); return fake.stop(); });
+    const ws = await startReady(fake, socket);
+    ws.send(JSON.stringify({
+      type: "interactive", envelope_id: "env-button",
+      payload: { type: "block_actions", actions: [{ action_id: "approve" }] },
+    }));
+    await dispatched.promise;
+    expect(await fake.acks.next()).toEqual({ envelope_id: "env-button" });
+    expect(calls).toEqual(["ack", "dispatch"]);
+  });
 
   it("resolves start on hello, acks every events_api envelope, then dispatches it", async () => {
     const { fake, events, socket } = harness();

@@ -18,7 +18,7 @@ import {
 } from "../../errors";
 import { SlackNormalizer } from "./normalizer";
 import { SlackSocket } from "./socket";
-import type { SlackMessageEvent, SocketEnvelope } from "./types";
+import { SlackInteractionSchema, type SlackMessageEvent, type SocketEnvelope } from "./types";
 
 export class SlackAdapter implements Channel.Surface {
   readonly id = "slack";
@@ -152,20 +152,31 @@ export class SlackAdapter implements Channel.Surface {
   }
 
   private handleEnvelope(envelope: SocketEnvelope, traceId: string): void {
+    if (envelope.type === "interactive" && envelope.payload?.type === "block_actions") {
+      const interaction = SlackInteractionSchema.safeParse(envelope.payload);
+      if (interaction.success) this.handleMessageEvent(interaction.data, traceId);
+      else this.publish(Operational.Events.Warn, {
+        traceId, time: this.options.now(), component: "server",
+        msg: "slack block_actions payload malformed; dropped",
+      });
+      return;
+    }
     const event = envelope.payload?.event;
     if (event === undefined || (event.type !== "message" && event.type !== "reaction_added"))
       return;
     this.handleMessageEvent(event, traceId);
   }
 
-  private handleMessageEvent(event: SlackMessageEvent, traceId: string): void {
+  private handleMessageEvent(event: SlackMessageEvent | import("./types").SlackInteraction, traceId: string): void {
     const normalizer = this.normalizer;
     const botUserId = this.botUserId;
     if (!(normalizer && botUserId)) return;
     void handoffInbound({
       dedupe: this.dedupe,
       key:
-        event.type === "reaction_added"
+        "actions" in event
+          ? `${event.channel.id}:${event.actions[0].action_ts}:${event.user.id}`
+          : event.type === "reaction_added"
           ? `${event.item?.channel}:${event.item?.ts}:${event.reaction}:${event.user}`
           : `${event.channel}:${event.ts}`,
       traceId,
@@ -177,7 +188,7 @@ export class SlackAdapter implements Channel.Surface {
         const inbound = normalizer.normalize(event);
         if (inbound)
           await this.handleIncoming(
-            await this.withThreadHistory(inbound, event, botUserId, traceId),
+            "actions" in event ? inbound : await this.withThreadHistory(inbound, event, botUserId, traceId),
           );
       },
     });

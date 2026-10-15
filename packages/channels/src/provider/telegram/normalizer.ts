@@ -1,6 +1,6 @@
 import { type Channel, Gateway } from "@openomni/protocol";
 import type { InboundNormalizer } from "../../types";
-import type { TelegramMessage, TelegramReaction } from "./types";
+import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
 
 interface TelegramNormalizerContext {
   botId: string;
@@ -55,10 +55,42 @@ function telegramText(message: TelegramMessage | TelegramReaction) {
     : message.text ?? message.caption;
 }
 
-export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | TelegramReaction> {
+function telegramPostback(message: TelegramCallback, botId: string): Channel.InboundMessage | null {
+  const target = message.message;
+  const id = message.data;
+  if (target === undefined || !id) return null;
+  const label = target.reply_markup?.inline_keyboard.flat()
+    .find((button) => button.callback_data === id)?.text || id;
+  const userId = String(message.from.id);
+  return {
+    sender: { kind: "external", surface: "telegram", externalId: userId },
+    facts: {
+      eventId: message.id,
+      event: "postback",
+      author: { externalId: userId, isBot: false },
+      surface: "telegram",
+      channelId: String(target.chat.id),
+      addressees: [{ externalId: botId }],
+      dm: target.chat.type === "private",
+      ...(target.is_topic_message === true && target.message_thread_id !== undefined
+        ? { reply: { chain: [], threadId: String(target.message_thread_id) } } : {}),
+      payload: Gateway.IngressFacts.shape.payload.parse(message),
+      render: label,
+      postback: { id, label, messageRef: String(target.message_id) },
+    },
+  };
+}
+
+export class TelegramNormalizer implements InboundNormalizer<TelegramMessage | TelegramReaction | TelegramCallback> {
   constructor(private readonly ctx: TelegramNormalizerContext) {}
 
-  normalize(message: TelegramMessage | TelegramReaction): Channel.InboundMessage | null {
+  normalize(message: TelegramMessage | TelegramReaction | TelegramCallback): Channel.InboundMessage | null {
+    return "id" in message
+      ? telegramPostback(message, this.ctx.botId)
+      : this.normalizeMessage(message);
+  }
+
+  private normalizeMessage(message: TelegramMessage | TelegramReaction): Channel.InboundMessage | null {
     const reaction = "new_reaction" in message;
     const from = reaction ? message.user : message.from;
     const userId = from?.id ?? (reaction ? message.actor_chat?.id : undefined);
