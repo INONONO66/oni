@@ -788,7 +788,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const wsRoute = async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
       if (wsHandler === undefined)
         throw new AppInvariantError("ws delivery used before composition finished");
-      // The ws wire has no reaction vocabulary: refused, never posted as text.
       if (payload.kind === "react") return { value: "rejected" } as const;
       return wsHandler.push(externalId, Outbound.text(payload), idempotencyKey,
         payload.kind === "edit" ? payload.messageId : undefined);
