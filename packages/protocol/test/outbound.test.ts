@@ -21,7 +21,8 @@ describe("Outbound (#1497)", () => {
     expect(Outbound.Message.parse({ kind: "message", parts })).toEqual({ kind: "message", parts });
     expect(Outbound.Message.safeParse({ kind: "message", parts: [] }).success).toBe(false);
     const spec: Outbound.Spec = { root: "a", elements: { a: { type: "Markdown", props: { text: "hi" }, children: [] } } };
-    const issues = (input: unknown) => Outbound.Message.safeParse(input).error?.issues.map((issue) => `${issue.code}:${issue.message}`);
+    const issues = (input: { kind: "message"; parts?: Outbound.Part[]; spec?: Outbound.Spec }) =>
+      Outbound.Message.safeParse(input).error?.issues.map((issue) => `${issue.code}:${issue.message}`);
     expect(issues({ kind: "message" })).toEqual(["custom:a message carries exactly one of parts or spec"]);
     expect(issues({ kind: "message", parts, spec })).toEqual(["custom:a message carries exactly one of parts or spec"]);
     expect(Outbound.Message.parse({ kind: "message", spec })).toEqual({ kind: "message", spec });
