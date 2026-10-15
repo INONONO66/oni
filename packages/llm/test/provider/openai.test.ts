@@ -11,7 +11,7 @@ function makeModel(overrides?: Partial<Provider.Model>): Provider.Model {
     id: "gpt-4o",
     providerID: "openai",
     name: "GPT-4o",
-    api: { npm: "@ai-sdk/openai" },
+    api: { npm: "@ai-sdk/openai", style: "responses" },
     ...overrides,
   };
 }
@@ -48,11 +48,11 @@ describe("getSDK (OpenAI)", () => {
   test("rejects an OpenAI model wired to an SDK without Responses support", () => {
     const malformed = makeModel({
       id: "gpt-malformed-provider",
-      api: { npm: "@ai-sdk/anthropic" },
+      api: { npm: "@ai-sdk/anthropic", style: "responses" },
     });
 
     expect(() => getLanguage(malformed, { type: "api", key: "test-api-key" })).toThrow(
-      "OpenAI responses model loader requires responses support",
+      "The responses API requires the @ai-sdk/openai package, not @ai-sdk/anthropic",
     );
   });
 });

@@ -42,45 +42,6 @@ const LANGUAGE_CACHE = new Map<string, ResolvedLanguageModel>();
 const PROVIDER_SDK_CACHE_MAX_ENTRIES = 64;
 const PROVIDER_LANGUAGE_CACHE_MAX_ENTRIES = 256;
 
-type CustomModelLoader = (sdk: ProviderSDK, modelID: string) => ResolvedLanguageModel;
-
-interface CustomLoaderResult {
-  getModel?: CustomModelLoader;
-  options?: SdkOptions;
-}
-
-// A Map for the same reason as BUNDLED_PROVIDERS above.
-const CUSTOM_LOADERS = new Map<string, () => CustomLoaderResult>([
-  [
-    "anthropic",
-    () => ({
-      options: {
-        headers: {
-          "anthropic-beta":
-            "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
-        },
-      },
-    }),
-  ],
-  [
-    "openai",
-    () => ({
-      getModel(sdk: ProviderSDK, modelID: string) {
-        if (!("responses" in sdk)) {
-          throw new ModelResolutionError({
-            provider: "openai",
-            model: modelID,
-            reason: "model_not_found",
-            message: "OpenAI responses model loader requires responses support",
-          });
-        }
-        return sdk.responses(modelID);
-      },
-      options: {},
-    }),
-  ],
-]);
-
 // Auth material is hashed so credentials never sit in Map keys (heap dumps,
 // logs). SHA-256, not a fast hash: a collision would hand one credential's
 // cached SDK instance to a different credential.
@@ -104,21 +65,19 @@ function sdkCacheKey(
   auth: Auth.Info,
   transport: Transport | undefined,
 ): string {
-  return `${model.providerID}:${model.api?.npm ?? ""}:${model.api?.url ?? ""}:${authFingerprint(auth)}:${transportFingerprint(transport)}`;
+  const row = transportFingerprint(model.api?.headers === undefined ? undefined : { headers: model.api.headers });
+  return `${model.providerID}:${model.api?.npm ?? ""}:${model.api?.url ?? ""}:${model.api?.style ?? ""}:${row}:${authFingerprint(auth)}:${transportFingerprint(transport)}`;
 }
 
 function providerOptions(
   model: Provider.Model,
   auth: Auth.Info,
   transport: Transport | undefined,
-  custom: CustomLoaderResult | undefined,
 ): SdkOptions {
-  const customOptions = custom?.options ?? {};
   const options: SdkOptions = {
-    ...customOptions,
     headers: {
       "user-agent": clientIdentity(),
-      ...customOptions.headers,
+      ...model.api?.headers,
       ...transport?.headers,
     },
   };
@@ -160,9 +119,7 @@ export function getSDK(model: Provider.Model, auth: Auth.Info, transport?: Trans
   const cached = getCached(SDK_CACHE, cacheKey);
   if (cached) return cached;
   const npm = model.api?.npm ?? "@ai-sdk/openai";
-  const customLoader = CUSTOM_LOADERS.get(model.providerID);
-  const custom = customLoader ? customLoader() : undefined;
-  const options = providerOptions(model, auth, transport, custom);
+  const options = providerOptions(model, auth, transport);
   const factory = BUNDLED_PROVIDERS.get(npm);
   const sdk = factory ? factory(options) : createUnbundledSDK(model, npm, options);
   setCached(SDK_CACHE, cacheKey, sdk, PROVIDER_SDK_CACHE_MAX_ENTRIES);
@@ -179,12 +136,7 @@ export function getLanguage(
   const cached = getCached(LANGUAGE_CACHE, cacheKey);
   if (cached) return cached;
 
-  const sdk = getSDK(model, auth, transport);
-  const providerID = model.providerID;
-  const customLoader = CUSTOM_LOADERS.get(providerID);
-  const custom = customLoader ? customLoader() : undefined;
-
-  const languageModel = resolveLanguageModel(sdk, modelID, providerID, auth, custom);
+  const languageModel = resolveLanguageModel(getSDK(model, auth, transport), model, modelID, auth);
   setCached(LANGUAGE_CACHE, cacheKey, languageModel, PROVIDER_LANGUAGE_CACHE_MAX_ENTRIES);
   return languageModel;
 }
@@ -209,18 +161,26 @@ function setCached<T>(cache: Map<string, T>, key: string, value: T, maxEntries: 
   }
 }
 
+/**
+ * The row's API surface picks the model constructor. A proxy-minted
+ * credential speaks Chat Completions, so a responses row downgrades to chat
+ * under proxy auth.
+ */
 function resolveLanguageModel(
   sdk: ProviderSDK,
+  model: Provider.Model,
   modelID: string,
-  providerID: string,
   auth: Auth.Info,
-  custom: CustomLoaderResult | undefined,
 ): ResolvedLanguageModel {
-  if (providerID === "openai" && auth.type === "proxy" && "responses" in sdk) {
-    return sdk.chat(modelID);
+  const declared = model.api?.style;
+  if (declared === undefined) return sdk.languageModel(modelID);
+  if (!("responses" in sdk)) {
+    throw new ModelResolutionError({
+      provider: model.providerID,
+      model: modelID,
+      reason: "model_not_found",
+      message: `The ${declared} API requires the @ai-sdk/openai package, not ${model.api?.npm}`,
+    });
   }
-  if (custom?.getModel) {
-    return custom.getModel(sdk, modelID);
-  }
-  return sdk.languageModel(modelID);
+  return auth.type === "proxy" || declared === "chat" ? sdk.chat(modelID) : sdk.responses(modelID);
 }

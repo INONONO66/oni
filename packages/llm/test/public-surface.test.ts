@@ -64,12 +64,15 @@ describe("model barrel public surface", () => {
       "ModelResolutionError",
       "ModelsDev",
       "NEAR_WINDOW_RATIO",
+      "ProviderRow",
+      "ProviderRowsError",
       "ProxyModelsError",
       "TransportFailure",
       "classifyFailure",
       "coerceApiError",
       "isContextOverflow",
       "makeLlmService",
+      "readProviderRows",
       "run",
     ]);
   });
