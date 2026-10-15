@@ -40,6 +40,7 @@ const ENV_KEYS = [
   "OPENOMNI_COMPACTION_SUMMARIZER",
   "OPENOMNI_SOCIAL_BUDGETS",
   "OPENOMNI_HOOKS_PATH",
+  "OPENOMNI_POLICY_PATH",
   "OPENOMNI_PROMPTS_DIR",
   "OPENOMNI_SKILLS_DIR",
   "OPENOMNI_MACHINES_DEFAULT",
@@ -194,6 +195,13 @@ describe("declared channel cutover", () => {
     expect(loadConfig().hooksPath).toBe("/etc/openomni/hooks.json");
     process.env.OPENOMNI_HOOKS_PATH = "  ";
     expect(loadConfig().hooksPath).toBeUndefined();
+  });
+
+  it("reads OPENOMNI_POLICY_PATH and treats blank as absent", () => {
+    process.env.OPENOMNI_POLICY_PATH = " /etc/openomni/owner-policy.json ";
+    expect(loadConfig().policyPath).toBe("/etc/openomni/owner-policy.json");
+    process.env.OPENOMNI_POLICY_PATH = "  ";
+    expect(loadConfig().policyPath).toBeUndefined();
   });
 
   it("reads the prompts and skills directories and treats blank as absent", () => {

@@ -1,0 +1,537 @@
+{
+  "approval": {
+    "responders": [
+      "owner"
+    ],
+    "recentOpen": {
+      "limit": 8,
+      "windowMs": 3600000
+    },
+    "defaultExpiryMs": 86400000,
+    "defaultBudget": {
+      "maxTurns": 24,
+      "maxToolCalls": 40,
+      "maxWallTimeMs": 300000,
+      "maxToolRuntimeMs": 120000
+    }
+  },
+  "rows": [
+    {
+      "id": "message.external.identity",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.external.identity",
+          "effect": "deny",
+          "table": "A",
+          "sender": "external",
+          "check": "identity"
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.external.identity"
+      }
+    },
+    {
+      "id": "message.external.grant_tier",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.external.grant_tier",
+          "effect": "deny",
+          "table": "A",
+          "sender": "external",
+          "check": "grant_tier"
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.external.grant_tier"
+      }
+    },
+    {
+      "id": "message.external.egress_budget",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.external.egress_budget",
+          "effect": "deny",
+          "table": "A",
+          "sender": "external",
+          "check": "egress_budget"
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.external.egress_budget"
+      }
+    },
+    {
+      "id": "message.external.event_id_dedupe",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.external.event_id_dedupe",
+          "effect": "deny",
+          "table": "A",
+          "sender": "external",
+          "check": "event_id_dedupe"
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.external.event_id_dedupe"
+      }
+    },
+    {
+      "id": "message.external.reply_correlation",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.external.reply_correlation",
+          "effect": "deny",
+          "table": "A",
+          "sender": "external",
+          "check": "reply_correlation"
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.external.reply_correlation"
+      }
+    },
+    {
+      "id": "message.resident.parent",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.parent",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "session",
+          "check": {
+            "kind": "parent_child"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.parent"
+      }
+    },
+    {
+      "id": "message.resident.fanout",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.fanout",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "new_session",
+          "check": {
+            "kind": "fanout",
+            "max": 8
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.fanout"
+      }
+    },
+    {
+      "id": "message.resident.depth",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.depth",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "new_session",
+          "check": {
+            "kind": "depth",
+            "max": 3
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.depth"
+      }
+    },
+    {
+      "id": "message.resident.deadline",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.deadline",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "check": {
+            "kind": "deadline",
+            "withinParent": true
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.deadline"
+      }
+    },
+    {
+      "id": "message.child.parent",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.parent",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "session",
+          "check": {
+            "kind": "parent_child"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.parent"
+      }
+    },
+    {
+      "id": "message.child.fanout",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.fanout",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "new_session",
+          "check": {
+            "kind": "fanout",
+            "max": 8
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.fanout"
+      }
+    },
+    {
+      "id": "message.child.depth",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.depth",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "new_session",
+          "check": {
+            "kind": "depth",
+            "max": 3
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.depth"
+      }
+    },
+    {
+      "id": "message.child.deadline",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.deadline",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "check": {
+            "kind": "deadline",
+            "withinParent": true
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.deadline"
+      }
+    },
+    {
+      "id": "message.resident.actor_grant",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.actor_grant",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "actor",
+          "check": {
+            "kind": "actor_send"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.actor_grant"
+      }
+    },
+    {
+      "id": "message.child.actor",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.actor",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "actor",
+          "check": {
+            "kind": "type"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.actor"
+      }
+    },
+    {
+      "id": "message.child.allocate",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.allocate",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "new_session",
+          "check": {
+            "kind": "type"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.allocate"
+      }
+    },
+    {
+      "id": "message.child.interrupt_parent",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.interrupt_parent",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "session",
+          "targetRole": "resident",
+          "type": "interrupt",
+          "check": {
+            "kind": "type"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.interrupt_parent"
+      }
+    },
+    {
+      "id": "message.resident.actor_interrupt",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.actor_interrupt",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "actor",
+          "type": "interrupt",
+          "check": {
+            "kind": "type"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.actor_interrupt"
+      }
+    },
+    {
+      "id": "message.child.actor_interrupt",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.actor_interrupt",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "actor",
+          "type": "interrupt",
+          "check": {
+            "kind": "type"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.actor_interrupt"
+      }
+    },
+    {
+      "id": "provision-contact-promote-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "contact_promote"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.contact_promote requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-contact-merge-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "contact_merge"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.contact_merge requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-bundle-enable-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "bundle_enable"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.bundle_enable requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-bundle-disable-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "bundle_disable"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.bundle_disable requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-automation-add-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "automation_add"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.automation_add requires Owner consent"
+      }
+    },
+    {
+      "id": "provision-automation-enable-consent",
+      "point": "tool.pre",
+      "order": 1000,
+      "when": {
+        "op": "provision",
+        "operation": "automation_enable"
+      },
+      "verdict": {
+        "type": "require_approval",
+        "reason": "provision.automation_enable requires Owner consent"
+      }
+    },
+    {
+      "id": "delegation-policy/tool.pre#1",
+      "point": "tool.pre",
+      "order": 910,
+      "when": {
+        "op": "send_message"
+      },
+      "handler": "delegation-policy/spawn-depth",
+      "params": {
+        "limit": 3
+      }
+    },
+    {
+      "id": "delegation-policy/tool.pre#2",
+      "point": "tool.pre",
+      "order": 911,
+      "when": {
+        "op": "send_message"
+      },
+      "handler": "delegation-policy/spawn-children",
+      "params": {
+        "limit": 4
+      }
+    },
+    {
+      "id": "delegation-policy/tool.pre#3",
+      "point": "tool.pre",
+      "order": 912,
+      "when": {
+        "op": "send_message"
+      },
+      "handler": "delegation-policy/spend-cap"
+    }
+  ]
+}

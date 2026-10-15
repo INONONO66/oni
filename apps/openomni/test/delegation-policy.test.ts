@@ -18,13 +18,13 @@ import {
   DelegationRefusal,
   delegationPolicyBundle,
   delegationPurposes,
-  delegationRows,
   settleChild,
   spawnChildrenGuard,
   spawnDepthGuard,
   spendCapGuard,
   type DelegationReads,
 } from "../src/bundles/delegation-policy/index";
+import { SHIPPED_OWNER_POLICY } from "../src/composition/policy";
 import { runEffect } from "./helpers/effect";
 
 const NEW_SESSION = { to: { kind: "new_session", role: "child" }, message: "go" };
@@ -222,12 +222,12 @@ test("the bundle contract carries the three tool.pre rows, their guards, and the
     "@openomni/agent/capability/alarm",
     "@openomni/openomni/ToolCapabilitySeam",
   ]);
-  expect(delegationRows().map((row) => [row.on, row.how.ref])).toEqual([
+  expect(SHIPPED_OWNER_POLICY.delegationRows.map((row) => [row.on, row.how.ref])).toEqual([
     ["tool.pre", "delegation-policy/spawn-depth"],
     ["tool.pre", "delegation-policy/spawn-children"],
     ["tool.pre", "delegation-policy/spend-cap"],
   ]);
-  expect(delegationRows().every((row) => row.when.op === "send_message")).toBe(true);
+  expect(SHIPPED_OWNER_POLICY.delegationRows.every((row) => row.when.op === "send_message")).toBe(true);
   expect(Object.keys(bundle.handlers)).toEqual([
     "delegation-policy/spawn-depth",
     "delegation-policy/spawn-children",

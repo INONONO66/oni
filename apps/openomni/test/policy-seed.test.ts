@@ -8,10 +8,8 @@ const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import type { PolicyRow } from "@openomni/protocol";
 import { gateRowPolicySeeds } from "../src/bundles/core-policy/index";
-import { seedKernelPolicyRows } from "../src/composition/policy";
+import { SHIPPED_OWNER_POLICY, seedKernelPolicyRows } from "../src/composition/policy";
 import { monitorBundle } from "../src/bundles/alarms/monitor/index";
-import { MESSAGE_POLICY_ROWS } from "../src/bundles/messaging/index";
-import { PROVISION_POLICY_ROWS } from "../src/bundles/provision/provision";
 import { testClock } from "./helpers/test-entropy";
 
 // #1308: the wake-budget seed is the composed bundle row, projected the same
@@ -27,8 +25,7 @@ const budgetId = JSON.stringify(["monitor/tool.pre#1", "tool", "pre"]);
 // #1255 P2: the wake budget is the monitor bundle's row, passed by the boot.
 const expectedIds = [
   ...SEEDED_POLICY_ROWS.map(identity),
-  ...MESSAGE_POLICY_ROWS.map(identity),
-  ...PROVISION_POLICY_ROWS.map(identity),
+  ...SHIPPED_OWNER_POLICY.rows.map(identity),
   ...monitorRows.map(identity),
   identity(Core.POINT_GENERATION_ROW),
 ].sort();

@@ -19,6 +19,13 @@ const LEGACY_ADDRESS_BY_POINT: Readonly<Record<string, { kind: string; phase: Po
   "alarm.fired": { kind: "alarm.fired", phase: "post" },
 };
 
+/** The legacy `kind`/`phase` address of a #1251 point; `undefined` names no point. */
+export function legacyPolicyAddress(point: string): { kind: string; phase: PolicyRow.Phase } | undefined {
+  return Object.prototype.hasOwnProperty.call(LEGACY_ADDRESS_BY_POINT, point)
+    ? LEGACY_ADDRESS_BY_POINT[point]
+    : undefined;
+}
+
 /**
  * The kernel's SYNCHRONOUS named services (#1256 r3 G-3): a gate row naming
  * one of these without its full obligation params is a malformed obligation,
@@ -105,7 +112,7 @@ export function gateRowPolicySeeds(
 ): readonly Omit<PolicyRow.Row, "generation">[] {
   const consultants = consultantRefs(generation);
   return generation.rows.map((row) => {
-    const address = LEGACY_ADDRESS_BY_POINT[row.on];
+    const address = legacyPolicyAddress(row.on);
     if (address === undefined)
       throw new AppInvariantError(`gate row ${row.id} targets ${row.on}, which has no legacy policy address`);
     return {
