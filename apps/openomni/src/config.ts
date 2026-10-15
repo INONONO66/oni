@@ -156,6 +156,8 @@ export interface OpenOmniConfig {
    * lists none; a malformed file refuses boot.
    */
   readonly skillsDir?: string;
+  /** External tool-pack directories under `OPENOMNI_TOOL_PACKS_DIR`; unset loads none. */
+  readonly toolPacksDir?: string;
   /**
    * The skills and templates listed from `skillsDir`/`promptsDir`, loaded
    * once here so a malformed file refuses boot with `OpenOmniPromptDataError`.
@@ -849,6 +851,9 @@ export function loadConfig(
     ...(ackReaction === undefined ? {} : { ackReaction }),
     ...(off === undefined ? {} : { off }),
     ...(hooksPath === undefined ? {} : { hooksPath }),
+    ...(env.OPENOMNI_TOOL_PACKS_DIR?.trim()
+      ? { toolPacksDir: env.OPENOMNI_TOOL_PACKS_DIR.trim() }
+      : {}),
     ...promptsFromEnv(env),
   };
 }

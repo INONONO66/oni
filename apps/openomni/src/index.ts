@@ -110,6 +110,7 @@ import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
 import { appManifest } from "./manifest";
+import { loadToolPacks } from "./bundles/tool-packs/index";
 import {
   acquireAppResource,
   channelRequests,
@@ -344,11 +345,17 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // boot binds it after the runtime exists, unbound calls refuse typed.
     const alarmsSlot = alarmPortsSlot();
     const toolsSlot = toolPortsSlot();
+    const toolPacks = loadToolPacks(
+      config.toolPacksDir,
+      new Set([machinesConfig.self.id ?? "self", ...machinesConfig.enrolled.map((machine) => machine.machineId)]),
+      toolsSlot.current,
+    );
     const manifest = appManifest({
       alarm: watchPlane.contract,
       wake: watchPlane.wake,
       alarms: alarmsSlot.current,
       tools: toolsSlot.current,
+      toolPacks,
       ...(hooks === undefined ? {} : { hooks }),
       ...(config.off === undefined ? {} : { off: config.off }),
     });
