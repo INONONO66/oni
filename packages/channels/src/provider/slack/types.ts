@@ -76,14 +76,14 @@ export const SocketEnvelopeSchema = z.object({
     .object({
       team_id: z.string().optional(),
       event: SlackMessageEventSchema.optional().catch(undefined),
-      type: z.string().optional(),
-      user: z.object({ id: z.string() }).optional(),
-      channel: z.object({ id: z.string() }).optional(),
-      actions: z.array(z.json()).optional(),
-      container: z.object({ message_ts: z.string().optional() }).optional(),
-      message: z.object({ ts: z.string().optional(), thread_ts: z.string().optional() }).optional(),
+      type: z.string().optional().catch(undefined),
+      user: z.object({ id: z.string() }).optional().catch(undefined),
+      channel: z.object({ id: z.string() }).optional().catch(undefined),
+      actions: z.array(z.json()).optional().catch(undefined),
+      container: z.object({ message_ts: z.string().optional() }).optional().catch(undefined),
+      message: z.object({ ts: z.string().optional(), thread_ts: z.string().optional() }).optional().catch(undefined),
     })
-    .optional(),
+    .optional().catch(undefined),
   reason: z.string().optional(),
 });
 

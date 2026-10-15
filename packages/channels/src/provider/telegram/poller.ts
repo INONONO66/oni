@@ -102,11 +102,9 @@ export class TelegramPoller {
           } catch (error) {
             this.publish(Operational.Events.Warn, {
               traceId: pollTraceId, time: this.options.now(), component: "server",
-              msg: "telegram callback acknowledgment failed; dropped",
+              msg: "telegram callback acknowledgment failed; delivering anyway",
               context: { err: String(error) },
             });
-            this.offset = update.update_id + 1;
-            continue;
           }
           if (controller.signal.aborted) return;
           await this.callbacks.onMessage(callback);

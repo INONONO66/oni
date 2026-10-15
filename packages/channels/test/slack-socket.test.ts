@@ -179,6 +179,22 @@ describe("SlackSocket", () => {
     expect(calls).toEqual(["ack", "dispatch"]);
   });
 
+  it("acks interactive envelopes despite malformed payload fields", async () => {
+    const { fake, events, socket } = harness();
+    const ws = await startReady(fake, socket);
+    const acknowledged = fake.acks.next();
+    const dispatched = events.next();
+    ws.send(JSON.stringify({
+      type: "interactive", envelope_id: "env-malformed",
+      payload: { type: "block_actions", user: "unexpected", channel: [], actions: {} },
+    }));
+
+    expect(await acknowledged).toEqual({ envelope_id: "env-malformed" });
+    expect((await dispatched).payload).toMatchObject({
+      type: "block_actions", user: undefined, channel: undefined, actions: undefined,
+    });
+  });
+
   it("resolves start on hello, acks every events_api envelope, then dispatches it", async () => {
     const { fake, events, socket } = harness();
     const started = socket.start();
