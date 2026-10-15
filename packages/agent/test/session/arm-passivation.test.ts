@@ -16,6 +16,7 @@ import { rmSync } from "node:fs";
 import { Cause, Deferred, Effect, Exit, Queue } from "effect";
 import type { LedgerAction } from "@openomni/protocol";
 import type { AlarmFired, ArmVerb } from "../../src/core/ports/alarm";
+import { CommitRefused } from "../../src/core/store/errors";
 import { openSessionStore } from "../../src/core/store/session-file";
 import { createArmedAlarmPorts } from "../../src/core/store/session-file/alarms";
 import { liveArmRegistry } from "../helpers/alarm-budget";
@@ -158,6 +159,50 @@ for (const mode of ["pre", "post"] as const) {
     expect(armRows(sessionId, "a-late")).toEqual({ actions: 0, armed: 0 });
   }, 60_000);
 }
+
+test("a pre-write arm revision retry commits exactly one durable row", async () => {
+  const sessionId = "arm-pre-write-retry";
+  const live = liveArmRegistry();
+  let attempts = 0;
+  await runCluster(
+    {
+      sessionsDir,
+      catalogFile,
+      onLive: live.onLive,
+      wrapStore: (_sessionId, store) => {
+        const sessions = store.sessions;
+        const commit: typeof sessions.commit = (input) => {
+          if (!isArm(input)) return sessions.commit(input);
+          attempts += 1;
+          if (attempts !== 1) return sessions.commit(input);
+          return Effect.fail(
+            new CommitRefused({
+              sessionId: input.sessionId,
+              reason: "revision",
+              expectedRevision: input.expectedRevision,
+              currentRevision: input.expectedRevision + 1,
+              fence: input.fence,
+              currentFence: input.fence,
+            }),
+          );
+        };
+        return new Proxy(store, {
+          get(target, key) {
+            if (key === "sessions") return { ...sessions, commit };
+            const value = target[key as keyof typeof target];
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+    },
+    Effect.gen(function* () {
+      const arm = yield* sendPromptAndGetArm(sessionId, live);
+      yield* arm({ purpose: "test.tick", at: FAR, alarmId: "a-retry", sourceKey: "t", payload: {} });
+    }),
+  );
+  expect(attempts).toBe(2);
+  expect(armRows(sessionId, "a-retry")).toEqual({ actions: 1, armed: 1 });
+});
 
 test("the store-close wait is bounded; an arm queued behind the held one refuses stale_activation", async () => {
   const sessionId = "held-timeout";
