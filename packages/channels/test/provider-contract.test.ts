@@ -32,7 +32,7 @@ const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
 const cases: readonly ConformanceCase[] = [
   {
     provider: ChannelProviders.telegram,
-    rendered: "*hi* `code`",
+    rendered: "<b>hi</b> <code>code</code>",
     limit: 4096,
     credential: { token: "tg-token" },
     build: (publish) =>
@@ -132,6 +132,11 @@ describe("provider conformance", () => {
         const policy = kase.provider.capabilities.render;
         expect(policy.renderMarkdown("**hi** `code`")).toBe(kase.rendered);
         expect(policy.messageLimit).toBe(kase.limit);
+      });
+      test("render capabilities cover exactly the catalog element types", () => {
+        expect(Object.keys(kase.provider.capabilities.render.capabilities).sort()).toEqual(
+          Object.keys(Outbound.catalog.data.components).sort(),
+        );
       });
       test("media capability declares positive upload and caption limits or is disabled", () => {
         const media = kase.provider.capabilities.media;
