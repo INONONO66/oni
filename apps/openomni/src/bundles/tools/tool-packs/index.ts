@@ -3,10 +3,9 @@ import { join } from "node:path";
 import { Bundle, Core } from "@openomni/agent";
 import type { ToolExecutionContext } from "@openomni/protocol";
 import { z } from "zod";
-import { AppInvariantError } from "../../invariant";
-import { boundTool, ToolCapabilityPort } from "../seams";
-import { ABSENT_MACHINE_PORTS, type MachineToolPortsSource } from "../tools/core/ports";
-import { fileOperation } from "../tools/core/filesystem";
+import { boundTool, ToolCapabilityPort } from "../../seams";
+import { ABSENT_MACHINE_PORTS, type MachineToolPortsSource } from "../core/ports";
+import { fileOperation } from "../core/filesystem";
 
 const Tool = z.strictObject({
   name: z.string().regex(/^[a-z][a-z0-9_-]*$/),
@@ -29,26 +28,72 @@ const Output = z.strictObject({
   truncated: z.boolean(),
 });
 
-function invalid(path: string, detail: string): never {
-  throw new AppInvariantError(`tool pack ${path}: ${detail}`, "invalid_tool_pack");
+type Refuse = (message: string, code: string) => never;
+
+function invalid(path: string, detail: string, refuse: Refuse): never {
+  return refuse(`tool pack ${path}: ${detail}`, "invalid_tool_pack");
 }
 
-function readPack(path: string): Pack {
+function readPack(path: string, refuse: Refuse): Pack {
   let value: string;
   try {
     value = readFileSync(join(path, "manifest.json"), "utf8");
   } catch (cause) {
-    return invalid(path, `cannot read manifest.json: ${String(cause)}`);
+    return invalid(path, `cannot read manifest.json: ${String(cause)}`, refuse);
   }
   let parsed: z.infer<typeof z.json>;
   try {
     parsed = JSON.parse(value);
   } catch (cause) {
-    return invalid(path, `manifest.json is not JSON: ${String(cause)}`);
+    return invalid(path, `manifest.json is not JSON: ${String(cause)}`, refuse);
   }
   const result = Manifest.safeParse(parsed);
-  if (!result.success) return invalid(path, result.error.message);
+  if (!result.success) return invalid(path, result.error.message, refuse);
   return result.data;
+}
+
+function standaloneArgument(command: string, match: RegExpMatchArray): boolean {
+  const start = match.index;
+  if (start === undefined) return false;
+  const end = start + match[0].length;
+  let quote = "";
+  for (let i = 0; i < start; i++) {
+    const character = command[i];
+    if (character === "\\" && quote !== "'") { i++; continue; }
+    if (character === quote) quote = "";
+    else if (quote === "" && (character === "'" || character === '"' || character === "`"))
+      quote = character;
+  }
+  return quote === "" &&
+    (start === 0 || /\s/.test(command[start - 1] ?? "")) &&
+    (end === command.length || /\s/.test(command[end] ?? ""));
+}
+
+function packInput(path: string, tool: Pack["tools"][number], refuse: Refuse): z.ZodType {
+  if (tool.inputSchema.type !== "object") return invalid(path, `${tool.name} inputSchema must be an object`, refuse);
+  const properties = z.record(z.string(), z.json()).safeParse(tool.inputSchema.properties ?? {});
+  const required = z.array(z.string()).safeParse(tool.inputSchema.required ?? []);
+  if (!properties.success || !required.success)
+    return invalid(path, `${tool.name} inputSchema properties/required are invalid`, refuse);
+  const fields = new Set(Object.keys(properties.data));
+  const mandatory = new Set(required.data);
+  const placeholders = [...tool.command.matchAll(PLACEHOLDER)];
+  if (tool.command.replace(PLACEHOLDER, "").includes("{{") || tool.command.replace(PLACEHOLDER, "").includes("}}"))
+    return invalid(path, `${tool.name} has an invalid placeholder`, refuse);
+  for (const match of placeholders) {
+    if (!standaloneArgument(tool.command, match))
+      return invalid(path, `${tool.name} placeholder must be a standalone shell argument`, refuse);
+    const field = match[1];
+    if (field === undefined || !fields.has(field) || !mandatory.has(field))
+      return invalid(path, `${tool.name} placeholder ${field} must name a required input property`, refuse);
+  }
+  try {
+    const input = z.fromJSONSchema(tool.inputSchema);
+    z.toJSONSchema(input);
+    return input;
+  } catch (cause) {
+    return invalid(path, `${tool.name} inputSchema is unsupported: ${String(cause)}`, refuse);
+  }
 }
 
 /** A pack is data only: convert its JSON Schema to a tool face before composition. */
@@ -56,52 +101,33 @@ export function loadToolPacks(
   dir: string | undefined,
   machineIds: ReadonlySet<string>,
   ports: MachineToolPortsSource,
+  refuse: Refuse,
 ): readonly Bundle.BundleContract[] {
   if (dir === undefined) return [];
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (cause) {
-    return invalid(dir, `cannot list directory: ${String(cause)}`);
+    return invalid(dir, `cannot list directory: ${String(cause)}`, refuse);
   }
   const names = new Set<string>();
   const bundles = new Set<string>();
   return entries.sort((a, b) => a.name.localeCompare(b.name)).map((entry) => {
     const path = join(dir, entry.name);
-    if (!entry.isDirectory()) return invalid(path, "expected a pack directory");
-    const pack = readPack(path);
-    if (bundles.has(pack.name)) return invalid(path, `duplicate bundle ${pack.name}`);
+    if (!entry.isDirectory()) return invalid(path, "expected a pack directory", refuse);
+    const pack = readPack(path, refuse);
+    if (bundles.has(pack.name)) return invalid(path, `duplicate bundle ${pack.name}`, refuse);
     bundles.add(pack.name);
     return Bundle.define({
       name: pack.name,
       requires: [ToolCapabilityPort],
       tools: pack.tools.map((tool) => {
         if (names.has(tool.name))
-          throw new AppInvariantError(`tool pack ${path}: duplicate tool ${tool.name}`, "tool_name_collision");
+          return refuse(`tool pack ${path}: duplicate tool ${tool.name}`, "tool_name_collision");
         names.add(tool.name);
         if (!machineIds.has(tool.machine))
-          throw new AppInvariantError(`tool pack ${path}: machine ${tool.machine} is not enrolled`, "unknown_machine");
-        if (tool.inputSchema.type !== "object") return invalid(path, `${tool.name} inputSchema must be an object`);
-        const properties = z.record(z.string(), z.json()).safeParse(tool.inputSchema.properties ?? {});
-        const required = z.array(z.string()).safeParse(tool.inputSchema.required ?? []);
-        if (!properties.success || !required.success)
-          return invalid(path, `${tool.name} inputSchema properties/required are invalid`);
-        const fields = new Set(Object.keys(properties.data));
-        const mandatory = new Set(required.data);
-        const placeholders = [...tool.command.matchAll(PLACEHOLDER)].map((match) => match[1]);
-        if (tool.command.replace(PLACEHOLDER, "").includes("{{") || tool.command.replace(PLACEHOLDER, "").includes("}}"))
-          return invalid(path, `${tool.name} has an invalid placeholder`);
-        for (const field of placeholders) {
-          if (field === undefined || !fields.has(field) || !mandatory.has(field))
-            return invalid(path, `${tool.name} placeholder ${field} must name a required input property`);
-        }
-        let input: z.ZodType;
-        try {
-          input = z.fromJSONSchema(tool.inputSchema);
-          z.toJSONSchema(input);
-        } catch (cause) {
-          return invalid(path, `${tool.name} inputSchema is unsupported: ${String(cause)}`);
-        }
+          return refuse(`tool pack ${path}: machine ${tool.machine} is not enrolled`, "unknown_machine");
+        const input = packInput(path, tool, refuse);
         return boundTool(ports, ABSENT_MACHINE_PORTS, (live) =>
           Core.defineTool({
             name: tool.name,

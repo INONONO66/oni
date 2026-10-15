@@ -5,7 +5,8 @@ import * as childProcess from "node:child_process";
 import { expect, spyOn, test } from "bun:test";
 import { Bundle } from "@openomni/agent";
 import { z } from "zod";
-import { loadToolPacks } from "../src/bundles/tool-packs/index";
+import { loadToolPacks } from "../src/bundles/tools/tool-packs/index";
+import { AppInvariantError } from "../src/invariant";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import { loadConfig } from "../src/config";
@@ -14,6 +15,7 @@ const fixture = join(import.meta.dir, "fixtures/tool-packs");
 const file = join(fixture, "echo/manifest.json");
 const ids = new Set(["self"]);
 const absent = () => undefined;
+const refuse = (message: string, code: string): never => { throw new AppInvariantError(message, code); };
 const FixtureManifest = z.object({
   name: z.string(),
   tools: z.array(z.object({
@@ -40,8 +42,15 @@ function temporaryPack(change: (manifest: z.infer<typeof FixtureManifest>) => vo
   return dir;
 }
 
+function firstTool(pack: z.infer<typeof FixtureManifest>) {
+  const tool = pack.tools[0];
+  if (tool === undefined) throw new Error("missing fixture tool");
+  return tool;
+}
+
 test("a pack command reaches the attached machine with each argument shell-quoted and never spawns locally", async () => {
   const calls: { command: string; cwd: string }[] = [];
+  const unexpected = (): never => { throw new Error("unexpected machine operation"); };
   const spawn = spyOn(Bun, "spawn");
   const nodeSpawn = spyOn(childProcess, "spawn");
   try {
@@ -51,6 +60,8 @@ test("a pack command reaches the attached machine with each argument shell-quote
         get: (id) => {
           expect(id).toBe("self");
           return {
+            fs: { read: unexpected, write: unexpected, list: unexpected, stat: unexpected },
+            pty: { open: unexpected, write: unexpected, read: unexpected },
             exec: async (command, cwd) => {
               calls.push({ command, cwd });
               return {
@@ -67,7 +78,7 @@ test("a pack command reaches the attached machine with each argument shell-quote
       },
       cells: undefined,
       llm: undefined,
-    }));
+    }), refuse);
     const tool = packs[0]?.tools[0];
     if (tool === undefined) throw new Error("missing fixture tool");
     const input = { text: "hello'; touch /tmp/should-not-exist; echo '" };
@@ -88,30 +99,33 @@ test("a pack command reaches the attached machine with each argument shell-quote
 });
 
 test("unset pack directory loads no packs", () => {
-  expect(loadToolPacks(undefined, ids, absent)).toEqual([]);
+  expect(loadToolPacks(undefined, ids, absent, refuse)).toEqual([]);
 });
 
 test.each([
-  ["empty command", (pack: z.infer<typeof FixtureManifest>) => { pack.tools[0]!.command = ""; }, "invalid_tool_pack"],
-  ["unsupported schema", (pack: z.infer<typeof FixtureManifest>) => { pack.tools[0]!.inputSchema.properties.text!.type = "bogus"; }, "invalid_tool_pack"],
-  ["unbound placeholder", (pack: z.infer<typeof FixtureManifest>) => { pack.tools[0]!.command = "echo {{missing}}"; }, "invalid_tool_pack"],
-  ["unknown machine", (pack: z.infer<typeof FixtureManifest>) => { pack.tools[0]!.machine = "unattached"; }, "unknown_machine"],
-  ["duplicate tool", (pack: z.infer<typeof FixtureManifest>) => { pack.tools.push(pack.tools[0]!); }, "tool_name_collision"],
+  ["empty command", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).command = ""; }, "invalid_tool_pack"],
+  ["unsupported schema", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).inputSchema.properties.text = { type: "bogus" }; }, "invalid_tool_pack"],
+  ["unbound placeholder", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).command = "echo {{missing}}"; }, "invalid_tool_pack"],
+  ["quoted placeholder", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).command = "echo \"{{text}}\""; }, "invalid_tool_pack"],
+  ["embedded quoted placeholder", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).command = "echo \" {{text}} \""; }, "invalid_tool_pack"],
+  ["unknown machine", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).machine = "unattached"; }, "unknown_machine"],
+  ["duplicate tool", (pack: z.infer<typeof FixtureManifest>) => { pack.tools.push(firstTool(pack)); }, "tool_name_collision"],
 ])("refuses %s at load time with a typed code", (_name, change, code) => {
   const dir = temporaryPack(change);
   try {
-    expect(() => loadToolPacks(dir, ids, absent)).toThrow(expect.objectContaining({ code }));
+    expect(() => loadToolPacks(dir, ids, absent, refuse)).toThrow(expect.objectContaining({ code }));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("a built-in tool name collision refuses composition before boot", async () => {
-  const dir = temporaryPack((pack) => { pack.tools[0].name = "bash"; });
+  const dir = temporaryPack((pack) => { firstTool(pack).name = "bash"; });
   try {
-    const toolPacks = loadToolPacks(dir, ids, absent);
+    const toolPacks = loadToolPacks(dir, ids, absent, refuse);
+    const alarm = await alarmDefinition();
     expect(() => appManifest({
-      alarm: await alarmDefinition(),
+      alarm,
       wake: { close: () => undefined },
       alarms: () => undefined,
       tools: () => undefined,
@@ -123,7 +137,7 @@ test("a built-in tool name collision refuses composition before boot", async () 
 });
 
 test("disabling a pack bundle removes its tool from the composed generation", async () => {
-  const toolPacks = loadToolPacks(fixture, ids, absent);
+  const toolPacks = loadToolPacks(fixture, ids, absent, refuse);
   const input = {
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
