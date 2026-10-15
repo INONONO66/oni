@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { Catalog, Spec as CatalogSpec, type Element as CatalogElement } from "./catalog.js";
+import {
+  Catalog,
+  Spec as CatalogSpec,
+  type Element as CatalogElement,
+  type ElementType as CatalogElementType,
+} from "./catalog.js";
 
 /**
  * The one outbound value an agent produces for a person (#1497): a letter
@@ -132,6 +137,7 @@ export namespace Outbound {
   export const Spec = CatalogSpec;
   export type Spec = z.infer<typeof CatalogSpec>;
   export type Element = CatalogElement;
+  export type ElementType = CatalogElementType;
   export const Message = MessageSchema;
   export type Message = z.infer<typeof MessageSchema>;
   export const React = ReactSchema;
