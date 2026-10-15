@@ -28,7 +28,34 @@ or cycles), leaf elements carry no children, Button lives only under Buttons,
 Carousel holds 2–10 Cards, Buttons 1–5 Buttons, a Poll 2–10 options, a table
 row one value per column, and a Button URL an http(s) link. Fields the catalog
 does not define are refused rather than dropped, and a client-state field
-(`$`-prefixed, `visible`, `watch`) inside props is refused while element ids
+(`# Implementation Status
+
+## #1545 inbound postback (L3)
+
+On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).
+Slack Socket Mode `interactive` block actions are acknowledged before dispatch;
+Discord message-component interactions are deferred through the callback API
+before handoff; Telegram callback queries are answered before handoff and
+included in the long poll's explicit `allowed_updates`. A failed Discord
+acknowledgment warns and drops the interaction; a failed Telegram acknowledgment
+warns but still hands it off. Each button tap carries the parsed tap facts:
+action id, visible label, sent-message reference when available, and actor.
+The label is the inbound rendered text. The existing ingress grant and
+prompt/action route applies.
+
+This lane receives button taps; native button rendering is the separate L2
+lane. Slack Interactivity and Discord developer-console setup belong to #1546.
+Receipts: protocol schema and driver normalizer tests, Slack Socket Mode,
+Discord interaction callback and Telegram poller ordering tests.
+
+## #1545 outbound catalog (L1)
+
+On `feat/1545-protocol-catalog` (2026-10-15, base `35d60a491`). The protocol
+ships a static `Outbound.catalog` (Stack, Markdown, Code, Table, Image, File,
+Buttons/Button, Card, Carousel, Poll, Status, Divider, Context) and a
+validated flat `Outbound.Spec`: one tree hung off `root` (no orphans, sharing
+or cycles), leaf elements carry no children, Button lives only under Buttons,
+-prefixed, `visible`, `watch`) inside props is refused while element ids
 stay plain names. `Outbound.text` digests a spec to readable text and
 `Outbound.prompt()` is the model-facing catalog description the Resident
 preset carries. `send_message.message` is plain markdown or a spec; the
@@ -38,15 +65,15 @@ cover it). `Outbound.Message` is one object carrying exactly one of `parts`
 `send_message` tool snapshot was regenerated for the new input.
 `Outbound.parts` reads a spec depth-first into ordered parts — runs of text
 collapse into one text part while Code, Image, File and a Card's image keep
-their own part — so channels still upload a spec's media before L2 renders it
-natively; desktop rendering belongs to L4 and postback delivery landed in L3.
+their own part — so channels upload a spec's media and render the rest through the L2
+provider policies below; postback delivery landed in L3.
 Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
 and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,
 and `apps/openomni/test/prompt.test.ts`.
 
 ## #1545 channel renderers (L2)
 
-On `feat/1545-channel-render` (2026-10-15, base `ba8382800`), catalog
+On `feat/1545-channel-render` (2026-10-15, base `d0ef13176`), catalog
 messages use one channel-side planning fold: consecutive text is rendered and
 chunked, native elements go through the provider's existing send client, and
 media bytes resolve with the established per-platform and letter limits before
@@ -56,6 +83,7 @@ unknown receipt rule. Providers declare every catalog element in their
 
 | Element | Slack | Discord | Telegram | GitHub | Webhook |
 | --- | --- | --- | --- | --- | --- |
+| Stack | native | native | native | text | text |
 | Markdown | native | text | text | text | text |
 | Code | native | text | text | text | text |
 | Table | native | downgrade:table-to-bullets | downgrade:table-to-code | text | text |
@@ -70,10 +98,12 @@ unknown receipt rule. Providers declare every catalog element in their
 | Divider | native | downgrade:divider-to-rule | downgrade:divider-to-rule | text | text |
 | Context | native | text | text | text | text |
 
+Stack walks its children vertically, retaining adjacent text as one send.
 Slack posts Block Kit with a text notification fallback; Discord uses embeds,
 Components V2 galleries, action rows and polls; Telegram sends HTML text,
 inline keyboards, photo albums and polls. HTTPS images can be embedded
-directly; local card images take the same resolved-media upload path as parts.
+directly; local card images send one resolved-media upload with the card digest
+as caption.
 The `table-to-image` and `card-to-image` downgrades rasterize through
 `@json-render/image` and `@resvg/resvg-js` with a bundled CC0 font; no provider
 selects them yet. The font's compact character set is suitable for Latin text,
