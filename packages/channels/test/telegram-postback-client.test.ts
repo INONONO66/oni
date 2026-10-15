@@ -1,6 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
+import { z } from "zod";
 import { FIXED_NOW, testRun } from "./helpers/injected";
 import { TelegramClient } from "../src/provider/telegram/client";
+
+type JsonValue = z.infer<ReturnType<typeof z.json>>;
 
 const realFetch = globalThis.fetch;
 
@@ -9,11 +12,11 @@ afterEach(() => {
 });
 
 test("TelegramClient acknowledges a callback and subscribes to callback updates", async () => {
-  const requests: { path: string; method: string | undefined; body: unknown }[] = [];
+  const requests: { path: string; method: string | undefined; body: JsonValue }[] = [];
   globalThis.fetch = Object.assign(
     async (input: string | URL | Request, init?: RequestInit) => {
       const path = String(input);
-      requests.push({ path, method: init?.method, body: JSON.parse(String(init?.body)) });
+      requests.push({ path, method: init?.method, body: z.json().parse(JSON.parse(String(init?.body))) });
       return Response.json({ ok: true, result: path.endsWith("/getUpdates") ? [] : true });
     },
     { preconnect: realFetch.preconnect },

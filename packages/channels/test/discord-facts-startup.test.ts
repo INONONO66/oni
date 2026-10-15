@@ -80,7 +80,7 @@ test("Discord component interactions acknowledge through the API before handoff 
   const received = Promise.withResolvers<Channel.InboundMessage>();
   const warned = Promise.withResolvers<string>();
   const calls: string[] = [];
-  const callbacks: { path: string; method: string | undefined; body: unknown }[] = [];
+  const callbacks: { path: string; method: string | undefined; body: z.infer<ReturnType<typeof z.json>> }[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     fetch(request, self) {
@@ -107,7 +107,7 @@ test("Discord component interactions acknowledge through the API before handoff 
   globalThis.fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/gateway/bot")) return Response.json({ url: `ws://127.0.0.1:${server.port}` });
-    callbacks.push({ path, method: init?.method, body: JSON.parse(String(init?.body)) });
+    callbacks.push({ path, method: init?.method, body: z.json().parse(JSON.parse(String(init?.body))) });
     calls.push(`ack:${path.includes("/refused/") ? "refused" : "accepted"}`);
     return new Response(null, { status: path.includes("/refused/") ? 403 : 204 });
   }, { preconnect: realFetch.preconnect });
