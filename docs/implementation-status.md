@@ -1,5 +1,16 @@
 # Implementation Status
 
+## #1574 Pack conformance
+
+Pack conformance: tool + policy kinds; dialect kind pending #1549.
+`apps/openomni/test/helpers/pack-kinds.ts` registers each loader, typed refusal
+set and discovered fixture cases. `apps/openomni/test/pack-conformance.test.ts`
+runs the same non-empty, repeatable, typed-refusal and process-isolation checks
+for every kind, including a throwaway probe kind. Adding a pack of an existing
+kind requires only a fixture directory under `test/fixtures/packs/`; a new
+kind adds one registry row and a fixture directory. Receipt:
+`/tmp/ulw-r5/conformance.txt`.
+
 ## #1572 Owner policy rows
 
 On `feat/1572-policy-rows` (2026-10-15, rebased onto `e1bb6369b`). The Owner's

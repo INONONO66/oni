@@ -1,0 +1,22 @@
+{
+  "approval": {
+    "responders": ["owner"],
+    "recentOpen": { "limit": 1, "windowMs": 1000 },
+    "defaultExpiryMs": 1000,
+    "defaultBudget": {
+      "maxTurns": 1,
+      "maxToolCalls": 1,
+      "maxWallTimeMs": 1000,
+      "maxToolRuntimeMs": 1000
+    }
+  },
+  "rows": [
+    {
+      "id": "fixture/missing-handler",
+      "point": "tool.pre",
+      "order": 1,
+      "when": {},
+      "handler": "fixture/no-such-handler"
+    }
+  ]
+}
