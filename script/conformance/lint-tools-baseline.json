@@ -16,5 +16,10 @@
   },
   "naming": {
     "grandfathered": []
+  },
+  "tools": {
+    "exceptions": {
+      "send_message": ["tool-max-fields"]
+    }
   }
 }

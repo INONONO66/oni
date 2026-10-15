@@ -1,0 +1,1 @@
+#1545 on `feat/1545-edit-in-place` (2026-10-15, base `25ebb94db`, PR #1567): full-spec edit payload, external send id, single-message native edits and typed refusals in `packages/protocol/src/gateway/`, `apps/openomni/src/bundles/messaging/send-message/` and `packages/channels/src/`; provider behavior and verification in `docs/implementation-status.md`.
