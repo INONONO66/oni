@@ -9,6 +9,7 @@ import { monitorPurposes, type MonitorWakeDeps } from "../bundles/alarms/monitor
 import { createLiveArmRegistry, type LiveArmRegistry } from "../bundles/alarms/index";
 import type { WatchSources } from "./watch-sources";
 import type { AlarmIngress } from "./automation-alarm";
+import { CHILD_WATCH, ChildWatch, childActivityPurposes } from "../bundles/child-activity/index";
 
 /** The native-source alarm plane and its per-activation capability. */
 export interface WatchPlane {
@@ -24,6 +25,7 @@ export interface WatchPlane {
   ) => (sessionId: string, occurrence: AlarmOccurrence) => Effect.Effect<void, Core.AlarmSendRefused>;
   readonly onArmed: (notice: Core.AlarmArmNotice) => void;
   readonly retirePath: (sessionId: string, watchId: string) => Effect.Effect<void, Core.ArmRefused>;
+  readonly installChild: (spec: ChildWatch, enabled?: boolean) => Effect.Effect<void, Bundle.WatchRefused>;
 }
 
 interface AlarmOccurrence {
@@ -38,7 +40,7 @@ interface AlarmOccurrence {
   readonly tick?: number;
 }
 
-const WatchCadencePayload = z.object({ watchId: z.string().min(1) }).strict();
+const WatchCadencePayload = z.object({ watchId: z.string().min(1), child: ChildWatch.optional() }).strict();
 const WATCH_CADENCE_MS = 1_000;
 
 export function createWatchPlane(
@@ -46,7 +48,7 @@ export function createWatchPlane(
 ): WatchPlane {
   let sources: WatchSources | undefined;
   const liveArms = new Map<string, Core.ArmVerb>();
-  const cadence = new Map<string, string>();
+  const cadence = new Map<string, { readonly occurrenceId: string; readonly purpose: string }>();
   const cadenceId = (watchId: string) => `${watchId}:watch`;
   const cadenceSource = (watchId: string) => `watch:${watchId}`;
   const live = (): WatchSources => {
@@ -59,26 +61,37 @@ export function createWatchPlane(
       const arm = liveArms.get(sessionId);
       if (latest === undefined || arm === undefined) return Effect.void;
       return arm({
-        purpose: "watch",
+        purpose: latest.purpose,
         at: null,
         alarmId: cadenceId(watchId),
-        supersedes: latest,
+        supersedes: latest.occurrenceId,
         sourceKey: cadenceSource(watchId),
         payload: { watchId },
       }).pipe(Effect.tap(() => Effect.sync(() => cadence.delete(`${sessionId}:${watchId}`))), Effect.asVoid);
     });
-  const armCadence = (sessionId: string, watchId: string): Effect.Effect<void, Core.ArmRefused> =>
+  const armCadence = (sessionId: string, watchId: string, child?: ChildWatch): Effect.Effect<void, Core.ArmRefused> =>
     Effect.gen(function* () {
       const arm = liveArms.get(sessionId);
       if (arm === undefined) return yield* new Core.ArmRefused({ code: "not_live" });
       const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
       yield* arm({
-        purpose: "watch",
+        purpose: child === undefined ? "watch" : CHILD_WATCH,
         at: now + WATCH_CADENCE_MS,
         alarmId: cadenceId(watchId),
         sourceKey: cadenceSource(watchId),
-        payload: { watchId },
+        payload: { watchId, ...(child === undefined ? {} : { child }) },
       });
+    });
+  const restoreChild = (payload: z.infer<typeof WatchCadencePayload>, sessionId: string, purpose: string) =>
+    Effect.gen(function* () {
+      const child = payload.child;
+      if (child === undefined) return;
+      if (child.sessionId !== sessionId || child.id !== payload.watchId || purpose !== CHILD_WATCH)
+        return yield* new Bundle.AlarmWakeError({ purpose, reason: "payload" });
+      const restore = live().restoreChild;
+      if (restore === undefined)
+        return yield* new Bundle.AlarmWakeError({ purpose, reason: "source_missing" });
+      yield* Effect.sync(() => restore(child));
     });
   const wake: MonitorWakeDeps = {
     close: (watchId) => void live().close(watchId),
@@ -92,6 +105,7 @@ export function createWatchPlane(
         const latest = ctx.reads.latestArm(fired.alarmId);
         if (latest?.occurrenceId !== fired.occurrenceId || latest.at === null)
           return "exhausted" as const;
+        yield* restoreChild(payload, ctx.sessionId, fired.purpose);
         const observed = yield* Effect.sync(() => sources?.observe(ctx.sessionId, payload.watchId) ?? false);
         // Reconcile only queues native hits; their monitor.hit occurrence owns
         // delivery and drain. A cadence tick itself never delivers a prompt:
@@ -99,7 +113,7 @@ export function createWatchPlane(
         // same occurrence forward, no rows); a gone source retires the chain.
         if (observed) return { outcome: "quiet" as const, at: ctx.now + WATCH_CADENCE_MS };
         yield* ctx.arm({
-          purpose: "watch",
+          purpose: fired.purpose,
           at: null,
           alarmId: fired.alarmId,
           supersedes: fired.occurrenceId,
@@ -125,6 +139,7 @@ export function createWatchPlane(
   };
   const declared: readonly Bundle.AlarmBundlePurposes[] = [
     monitorPurposes(wake),
+    ...(wake.cadence === undefined ? [] : [childActivityPurposes(wake.cadence)]),
     cronPurposes(deps.ingress),
     delegationPurposes(
       deps.delegation ?? {
@@ -194,6 +209,18 @@ export function createWatchPlane(
     wake,
     arms,
     retirePath,
+    installChild: (spec, enabled = true) => Effect.gen(function* () {
+      if (!enabled) return yield* new Bundle.WatchRefused({ reason: "disabled" });
+      const install = live().installChild;
+      if (install === undefined) return yield* new Bundle.WatchRefused({ reason: "source_missing" });
+      yield* Effect.tryPromise({
+        try: () => install(spec),
+        catch: (error) => new Bundle.WatchRefused({ reason: String(error) }),
+      });
+      yield* armCadence(spec.sessionId, spec.id, spec).pipe(
+        Effect.mapError((error) => new Bundle.WatchRefused({ reason: error.code })),
+      );
+    }),
     bind: (bound) => {
       if (sources !== undefined) throw new AppInvariantError("watch sources are already bound");
       sources = bound;
@@ -204,10 +231,10 @@ export function createWatchPlane(
         ? installFromOccurrence(sessionId, occurrence)
         : deliver(sessionId, occurrence),
     onArmed: (notice) => {
-      if (notice.purpose === "watch") {
+      if (notice.purpose === "watch" || notice.purpose === CHILD_WATCH) {
         const payload = WatchCadencePayload.safeParse(notice.payload);
         if (payload.success && notice.at !== null)
-          cadence.set(`${notice.sessionId}:${payload.data.watchId}`, notice.occurrenceId);
+          cadence.set(`${notice.sessionId}:${payload.data.watchId}`, { occurrenceId: notice.occurrenceId, purpose: notice.purpose });
         else if (payload.success)
           cadence.delete(`${notice.sessionId}:${payload.data.watchId}`);
         return;

@@ -212,6 +212,7 @@ test("process entry logs committed sessions and disposes its runtime", async () 
       "bash",
       "eval",
       "monitor",
+      "child-activity",
       "cron",
       "hooks-json",
       "delegation-policy",

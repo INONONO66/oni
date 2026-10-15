@@ -63,6 +63,7 @@ const ROWS: readonly OffRow[] = [
     disabled: [
       { name: "alarm", because: "alarm" },
       { name: "monitor", because: "alarm" },
+      { name: "child-activity", because: "alarm" },
       { name: "cron", because: "alarm" },
       { name: "delegation-policy", because: "alarm" },
     ],
@@ -76,6 +77,7 @@ const ROWS: readonly OffRow[] = [
     disabled: [
       { name: "action", because: "action" },
       { name: "hook", because: "action" },
+      { name: "child-activity", because: "action" },
       { name: "hooks-json", because: "action" },
       { name: "delegation-policy", because: "action" },
     ],

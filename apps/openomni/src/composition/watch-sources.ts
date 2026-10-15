@@ -2,8 +2,15 @@ import { statSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { Bundle } from "@openomni/agent";
-import type { Alarm, Machine } from "@openomni/protocol";
+import { MachineRefusalError } from "@openomni/machines";
+import { TranscriptRef, canonicalJson, parseJson, type Alarm, type Machine } from "@openomni/protocol";
 import { processEnvironment } from "../cli/env-file";
+import type { FilePorts } from "../bundles/tools/core/filesystem";
+import type { ChildWatch } from "../bundles/child-activity/index";
+import { selectPack } from "../bundles/child-activity/dialects/index";
+import { decodeSpool, type SpoolCursor } from "../bundles/child-activity/spool";
+import { decodeTranscript, sourceDigest, transcriptCursor, type Generation, type TranscriptCursor } from "../bundles/child-activity/transcript";
+import { diagnosticRow, reconcile, type ChildRow } from "../bundles/child-activity/reconcile";
 
 /**
  * Watch plane over the Session entity (W5.2 plan §1 F2, #1254): this module
@@ -15,8 +22,8 @@ import { processEnvironment } from "../cli/env-file";
  */
 
 // Promise band (#1423): `node:fs` `watch`, `Bun.spawn` PTY streams, the machines `pty.read`
-// long-poll and native path-watch callbacks force callbacks here; Effect takes over only
-// inside the injected `WatchSenders.deliver`, so no alarm decision or durable write lives here.
+// long-poll, daemon fs reads and native path-watch callbacks force callbacks here; Effect takes over
+// inside the injected `WatchSenders.deliver` or `ChildSourcePorts.admit`; no durable write lives here.
 
 export class AlarmRuntimeError extends Error {
   readonly requiredVersion = ">=1.4.0";
@@ -393,6 +400,152 @@ export interface WatchSources {
   observe(sessionId: string, id: string): boolean;
   close(id: string): Promise<void>;
   closeAll(): Promise<void>;
+  installChild?(spec: ChildWatch): Promise<void>;
+  restoreChild?(spec: ChildWatch): void;
+}
+
+export interface ChildSourcePorts {
+  readonly machines: {
+    get(id: string): { readonly fs: Pick<ReturnType<NonNullable<FilePorts["machines"]>["get"]>["fs"], "read" | "stat"> };
+  };
+  readonly rows: (sessionId: string) => readonly ChildRow[];
+  readonly admit: (sessionId: string, rows: readonly ChildRow[]) => Promise<readonly ChildRow[]>;
+}
+
+class ChildSourceError extends Error {
+  constructor(readonly code: "pack_missing" | "source_missing" | "not_file" | "read_stalled" | "watch_conflict") {
+    super(`child source: ${code}`);
+    this.name = "ChildSourceError";
+  }
+}
+
+/** Both remote files share one source, one serialized drain, and the existing alarm cadence. */
+export function childSource(
+  spec: ChildWatch,
+  ports: ChildSourcePorts,
+  options: { readonly clock: () => number; readonly failure: (error: Error) => void },
+): AlarmSource & { observe(): Promise<void> } {
+  const selected = selectPack(spec.occupant);
+  if (selected === undefined) throw new ChildSourceError("pack_missing");
+  const pack = selected;
+  if ((spec.spool === undefined && spec.transcript === undefined) ||
+      (spec.spool !== undefined && pack.live === undefined) ||
+      (spec.transcript !== undefined && pack.transcript === undefined))
+    throw new ChildSourceError("source_missing");
+  const admitted = new Map(ports.rows(spec.sessionId).map((row) => [row.key, row]));
+  const childFacts = new Set([...admitted.values()].flatMap((row) =>
+    row.kind === "child_fact" && row.content.child === spec.child ? [row.key] : []));
+  let spool: SpoolCursor | undefined;
+  let transcript: TranscriptCursor | undefined;
+  let closed = false;
+
+  function restored(location: NonNullable<ChildWatch["spool"]>): TranscriptCursor | undefined {
+    const refs: TranscriptRef[] = [];
+    for (const row of admitted.values()) {
+      if (row.kind !== "child_receipt" || !childFacts.has(row.content.factKey)) continue;
+      const ref = row.content.ref;
+      if (!("kind" in ref)) refs.push(ref);
+      refs.push(...row.content.diagnostics.flatMap((diagnostic) => {
+        if (diagnostic.code !== "spool_ref") return [];
+        const parsed = parseJson(TranscriptRef, diagnostic.detail);
+        return parsed === undefined ? [] : [parsed];
+      }));
+    }
+    const ref = refs.filter((entry) =>
+      entry.machine === location.machine && entry.export === location.export && entry.path === location.path,
+    ).at(-1);
+    return ref?.generation.kind === "size-and-prefix-hash"
+      ? { checkpoint: { generation: ref.generation, offsetBytes: ref.range.offsetBytes + ref.range.lengthBytes }, tail: new Uint8Array() }
+      : undefined;
+  }
+
+  async function read(location: NonNullable<ChildWatch["spool"]>, previous: TranscriptCursor | undefined) {
+    const fs = ports.machines.get(location.machine).fs;
+    const stat = await fs.stat(location.path).catch((error: Error) => {
+      if (error instanceof MachineRefusalError && error.reason === "not_found") return undefined;
+      throw error;
+    });
+    if (stat === undefined) return undefined;
+    if (stat.kind !== "file") throw new ChildSourceError("not_file");
+    const old = previous?.checkpoint.generation;
+    const anchorSize = old !== undefined && stat.size >= old.size ? old.size : stat.size;
+    const prefix = anchorSize === 0 ? new Uint8Array() : (await fs.read(location.path, { offset: 0, limit: Math.min(anchorSize, 4096) })).data;
+    const prefixSha256 = sourceDigest(prefix);
+    const stable = old !== undefined && (old.size > 0 || stat.size === 0) &&
+      stat.size >= old.size && old.prefixSha256 === prefixSha256;
+    const generation: Generation = stable
+      ? old
+      : {
+          kind: "size-and-prefix-hash", size: stat.size,
+          prefixSha256: sourceDigest(anchorSize === stat.size ? prefix :
+            (await fs.read(location.path, { offset: 0, limit: Math.min(stat.size, 4096) })).data),
+        };
+    const resumed = transcriptCursor(previous, generation).cursor;
+    const offset = resumed.checkpoint.offsetBytes + resumed.tail.length;
+    const chunk = offset >= stat.size ? new Uint8Array() : (await fs.read(location.path, { offset, limit: 256 * 1024 })).data;
+    if (offset < stat.size && chunk.length === 0) throw new ChildSourceError("read_stalled");
+    return {
+      ref: { ...location, generation, range: { offsetBytes: offset, lengthBytes: chunk.length } },
+      chunk,
+      more: offset + chunk.length < stat.size,
+    };
+  }
+
+  async function accept(rows: readonly ChildRow[]) {
+    for (const row of rows) {
+      if (closed) return;
+      if (admitted.has(row.key)) continue;
+      for (const accepted of await ports.admit(spec.sessionId, [row])) admitted.set(accepted.key, accepted);
+    }
+  }
+
+  async function drainSpool(location: NonNullable<ChildWatch["spool"]>) {
+      const file = spool?.file ?? restored(location);
+      if (spool === undefined && file !== undefined) {
+        const lastSeq = [...admitted.values()].reduce((seq, row) =>
+          row.kind === "child_receipt" && childFacts.has(row.content.factKey) && "kind" in row.content.ref
+            ? Math.max(seq, row.content.ref.seq) : seq, -1);
+        spool = { file, lastSeq };
+      }
+      let more = true;
+      while (more && !closed) {
+        const input = await read(location, spool?.file);
+        if (input === undefined) break;
+        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, ...(spool === undefined ? {} : { cursor: spool }) });
+        await accept([...reconcile(decoded.observations, [...admitted.values()], decoded.replays), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
+        spool = decoded.cursor;
+        more = input.more;
+      }
+  }
+  async function drainTranscript(location: NonNullable<ChildWatch["transcript"]>) {
+      transcript ??= restored(location);
+      let more = true;
+      while (more && !closed) {
+        const input = await read(location, transcript);
+        if (input === undefined) break;
+        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: options.clock(), ...(transcript === undefined ? {} : { cursor: transcript }) });
+        await accept([...reconcile(decoded.observations, [...admitted.values()]), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
+        transcript = decoded.cursor;
+        more = input.more;
+      }
+  }
+  async function drain() {
+    if (spec.spool !== undefined) await drainSpool(spec.spool);
+    if (spec.transcript !== undefined) await drainTranscript(spec.transcript);
+  }
+  let pending = drain();
+  const ready = pending;
+  return {
+    ready,
+    observe() {
+      pending = pending.then(() => closed ? undefined : drain()).catch((error: Error) => options.failure(error));
+      return pending;
+    },
+    async close() {
+      closed = true;
+      await pending;
+    },
+  };
 }
 
 interface Holder {
@@ -414,12 +567,14 @@ export function createWatchSources(
     readonly pathWatch?: PathWatchInstaller | undefined;
     /** Retires the path's alarm chain through the live entity arm verb. */
     readonly retirePath?: (sessionId: string, watchId: string) => Promise<void>;
+    readonly children?: ChildSourcePorts;
   },
 ): WatchSources {
   // The watch plane owns the boot-time runtime requirement: composing it on a
   // Bun without PTY support is a typed refusal, not a first-watch surprise.
   assertAlarmRuntime();
   const holders = new Map<string, Holder>();
+  const children = new Map<string, { readonly spec: ChildWatch; readonly source: AlarmSource }>();
 
   function enqueue(holder: Holder, hit: WatchHit): void {
     const { sessionId, occurrence, base } = holder.current;
@@ -523,7 +678,21 @@ export function createWatchSources(
   const retirements = new Set<Promise<void>>();
   let shutdown: Promise<void> | undefined;
 
+  function trackRetirement(retirement: Promise<void>): Promise<void> {
+    retirements.add(retirement);
+    void retirement.then(
+      () => retirements.delete(retirement),
+      () => retirements.delete(retirement),
+    );
+    return retirement;
+  }
+
   function retire(id: string): Promise<void> {
+    const child = children.get(id);
+    if (child !== undefined) {
+      children.delete(id);
+      return trackRetirement(child.source.close().then(() => options.retirePath?.(child.spec.sessionId, id)));
+    }
     const holder = holders.get(id);
     if (holder === undefined) return Promise.resolve();
     holders.delete(id);
@@ -538,12 +707,7 @@ export function createWatchSources(
         }
       }
     })();
-    retirements.add(retirement);
-    void retirement.then(
-      () => retirements.delete(retirement),
-      () => retirements.delete(retirement),
-    );
-    return retirement;
+    return trackRetirement(retirement);
   }
 
   function close(id: string): Promise<void> {
@@ -584,7 +748,43 @@ export function createWatchSources(
       holders.set(spec.id, holder);
   }
 
+  async function installChild(spec: ChildWatch) {
+      if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
+      const existing = children.get(spec.id);
+      if (existing !== undefined) {
+        if (canonicalJson(existing.spec) !== canonicalJson(spec)) throw new ChildSourceError("watch_conflict");
+        await existing.source.ready;
+        return;
+      }
+      if (holders.has(spec.id) || [...children.values()].some((child) => child.spec.child === spec.child))
+        throw new ChildSourceError("watch_conflict");
+      if (options.children === undefined) throw new ChildSourceError("source_missing");
+      const source = childSource(spec, options.children, {
+        clock: options.clock,
+        failure: (error) => options.failure(spec.id, error),
+      });
+      children.set(spec.id, { spec, source });
+      try {
+        await source.ready;
+        if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
+      } catch (error) {
+        children.delete(spec.id);
+        await source.close().catch((closing: Error) => {
+          if (closing !== error) options.failure(spec.id, closing);
+        });
+        throw error;
+      }
+  }
+
+  function restoreChild(spec: ChildWatch): void {
+    // An alarm already owns the receiver's mailbox. Queue intake here and
+    // let the alarm return before its Deliver RPC waits on that same entity.
+    void installChild(spec).catch((error: Error) => options.failure(spec.id, error));
+  }
+
   return {
+    installChild,
+    restoreChild,
     async install(spec) {
       if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       // #1254 H2: an arm's forward and the watch verb's awaited install may
@@ -615,6 +815,11 @@ export function createWatchSources(
       return true;
     },
     observe(sessionId, id) {
+      const child = children.get(id);
+      if (child?.spec.sessionId === sessionId) {
+        child.source.observe?.();
+        return true;
+      }
       const holder = holders.get(id);
       const source = holder?.current.sessionId === sessionId ? holder.source : undefined;
       if (source?.observe === undefined) return false;
@@ -626,6 +831,7 @@ export function createWatchSources(
       shutdown ??= Promise.resolve().then(async () => {
         await Promise.allSettled([...pending.values()]);
         await Promise.allSettled([...holders.keys()].map(retire));
+        await Promise.allSettled([...children.keys()].map(retire));
         while (retirements.size > 0) await Promise.allSettled([...retirements]);
       });
       return shutdown;

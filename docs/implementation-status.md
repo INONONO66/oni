@@ -1,5 +1,16 @@
 # Implementation Status
 
+## #1511 child reconciler (epic #1508)
+
+On `feat/1511-child-reconciler` (2026-10-17, base `3f763326a`, PR #1570).
+The #1511 child-activity bundle consumes the #1527 dialect packs through
+retained-byte spool/transcript cursors, admits source-free facts and
+per-source receipts through entity Deliver, and exposes an
+authority-ordered read model; the existing watch owner reads verified remote
+locations through daemon filesystem calls and the alarm cadence, with
+fixture-backed real-daemon/entity tests but no live external-child launch
+claimed.
+
 ## #1527 worker dialect packs (epic #1508)
 
 On `feat/1527-dialect-packs` (2026-10-17, base `8638019e8`, PR #1549).
