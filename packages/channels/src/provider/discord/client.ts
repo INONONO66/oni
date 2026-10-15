@@ -3,6 +3,7 @@ import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
 import { DiscordApiError, DiscordGatewayFetchError } from "../../errors";
 import type { Gateway, PlainValue } from "@openomni/protocol";
+import type { DiscordBody } from "./render.js";
 
 const BASE_URL = "https://discord.com/api/v10";
 
@@ -39,6 +40,21 @@ export class DiscordClient implements ChannelClient {
     const message = await this.api(
       `/channels/${channelId}/messages`,
       { content: text, ...replyReference(conversation) },
+      traceId,
+      CreatedMessageSchema,
+    );
+    return message.id;
+  }
+
+  async sendNative(
+    channelId: string,
+    body: DiscordBody,
+    traceId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    const message = await this.api(
+      `/channels/${channelId}/messages`,
+      { ...body, ...replyReference(conversation) },
       traceId,
       CreatedMessageSchema,
     );

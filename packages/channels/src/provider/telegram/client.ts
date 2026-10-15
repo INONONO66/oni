@@ -9,6 +9,7 @@ import {
   TelegramUpdateSchema,
   TelegramUserSchema,
 } from "./types";
+import type { TelegramBody } from "./render.js";
 
 /** Telegram error envelope carries the flood-wait hint the retry helper reads. */
 const RetryAfterSchema = z.object({
@@ -23,6 +24,7 @@ const EnvelopeSchema = z.object({
 const SentMessageSchema = z.object({
   message_id: z.union([z.number(), z.string()]).optional(),
 });
+const SentGroupSchema = z.array(SentMessageSchema);
 const TrueSchema = z.literal(true);
 
 /** `sendPhoto` takes a `photo` field, `sendDocument` a `document` field. */
@@ -84,6 +86,32 @@ export class TelegramClient implements ChannelClient {
       });
       return await this.sendMessage(channelId, text, traceId, undefined, conversation);
     }
+  }
+
+  async sendHtml(
+    channelId: string,
+    text: string,
+    traceId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    return this.sendMessage(channelId, text, traceId, "HTML", conversation);
+  }
+
+  async sendNative(
+    channelId: string,
+    method: "sendMessage" | "sendPoll" | "sendPhoto" | "sendMediaGroup",
+    body: TelegramBody,
+    traceId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    const params = { chat_id: channelId, ...body, ...conversationParams(conversation) };
+    if (method === "sendMediaGroup") {
+      const group = await this.api(method, traceId, SentGroupSchema, params);
+      const last = group.at(-1);
+      return last?.message_id === undefined ? undefined : String(last.message_id);
+    }
+    const sent = await this.api(method, traceId, SentMessageSchema, params);
+    return sent.message_id === undefined ? undefined : String(sent.message_id);
   }
 
   /** `threadId` is a forum topic; `replyToMessageId` quotes the message answered. */

@@ -8,6 +8,28 @@
 
 import { tablesToBullets } from "./table";
 
+export function escapeTelegramHtml(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+/** Telegram's HTML entity subset; all unrecognized markdown becomes escaped literal text. */
+export function renderTelegramHtml(markdown: string): string {
+  const stash = new Stash();
+  const converted = markdown.replaceAll("\uE000", "")
+    .replace(FENCED_BLOCK, (block) => {
+      const boundary = block.indexOf("\n");
+      const lang = boundary < 0 ? "" : block.slice(3, boundary);
+      const body = boundary < 0 ? block.slice(3, -3) : block.slice(boundary + 1, -3);
+      return stash.keep(`<pre><code${lang === "" ? "" : ` class="language-${escapeTelegramHtml(lang)}"`}>${escapeTelegramHtml(body)}</code></pre>`);
+    })
+    .replace(INLINE_CODE, (code) => stash.keep(`<code>${escapeTelegramHtml(code.slice(1, -1))}</code>`))
+    .replace(LINK, (_, label: string, url: string) => stash.keep(`<a href="${escapeTelegramHtml(url)}">${escapeTelegramHtml(label)}</a>`))
+    .replace(HEADER, (_, title: string) => stash.keep(`<b>${escapeTelegramHtml(title.replace(BOLD, "$1"))}</b>`))
+    .replace(BOLD, (_, body: string) => stash.keep(`<b>${escapeTelegramHtml(body)}</b>`))
+    .replace(ITALIC, (_, body: string) => stash.keep(`<i>${escapeTelegramHtml(body)}</i>`));
+  return stash.restore(escapeTelegramHtml(converted));
+}
+
 /** Every character MarkdownV2 treats as syntax outside code/link entities. */
 const SPECIALS = /[_*[\]()~`>#+\-=|{}.!\\]/g;
 const FENCED_BLOCK = /```[^\n]*\n[\s\S]*?```|```[\s\S]*?```/g;

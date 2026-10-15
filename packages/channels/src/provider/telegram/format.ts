@@ -1,4 +1,4 @@
-import { renderTelegramMarkdown } from "../../support/format/telegram.js";
+import { renderTelegramHtml } from "../../support/format/telegram.js";
 import type { MediaLimits, RenderPolicy } from "../contract.js";
 
 /**
@@ -6,8 +6,14 @@ import type { MediaLimits, RenderPolicy } from "../contract.js";
  * surface applies it. 4096 is the Bot API `sendMessage` text limit.
  */
 export const TELEGRAM_RENDER = {
-  renderMarkdown: renderTelegramMarkdown,
+  renderMarkdown: renderTelegramHtml,
   messageLimit: 4096,
+  capabilities: {
+    Markdown: "text", Code: "text", Table: "downgrade:table-to-code",
+    Image: "native", File: "native", Buttons: "native", Button: "native",
+    Card: "native", Carousel: "native", Poll: "native", Status: "native",
+    Divider: "downgrade:divider-to-rule", Context: "text",
+  },
 } as const satisfies RenderPolicy;
 
 export const TELEGRAM_MEDIA_LIMITS = {
