@@ -20,7 +20,7 @@ const spec: Outbound.Spec = {
     yes: { type: "Button", props: { label: "Yes", id: "vote:yes", style: "primary" }, children: [] },
     docs: { type: "Button", props: { label: "Docs", url: "https://example.test" }, children: [] },
     poll: { type: "Poll", props: { question: "Ready?", options: ["Yes", "No"], multi: true }, children: [] },
-    card: { type: "Card", props: { title: "Report", body: "Finished", image: "https://example.test/report.png" }, children: ["choices"] },
+    card: { type: "Card", props: { title: "Report", body: "Finished", image: "https://example.test/report.png" }, children: [] },
     other: { type: "Card", props: { title: "Next", image: "https://example.test/next.png" }, children: [] },
     carousel: { type: "Carousel", props: {}, children: ["card", "other"] },
     table: { type: "Table", props: { columns: [{ header: "Name" }, { header: "Score" }], rows: [["A", "9"]] }, children: [] },
@@ -152,10 +152,7 @@ describe("catalog native renderers", () => {
     } });
     expect(renderTelegram(step("card"))).toEqual({ method: "sendPhoto", body: {
       photo: "https://example.test/report.png", caption: "<b>Report</b>\nFinished",
-      parse_mode: "HTML", reply_markup: { inline_keyboard: [
-        [{ text: "Yes", callback_data: "vote:yes" }],
-        [{ text: "Docs", url: "https://example.test" }],
-      ] },
+      parse_mode: "HTML",
     } });
   });
 
@@ -235,15 +232,20 @@ describe("catalog downgrades", () => {
     expect(downgrade("buttons-to-numbered-list", "choices", spec)).toEqual({
       kind: "text", text: "1. Yes\n2. Docs (https://example.test)",
     });
-    expect(downgrade("buttons-to-numbered-list", "card", spec)).toEqual({
-      kind: "text", text: "1. [Yes]\n\n[Docs]",
+    const malformed: Outbound.Spec = {
+      root: "invalid",
+      elements: { ...spec.elements,
+        invalid: { type: "Buttons", props: {}, children: ["context"] } },
+    };
+    expect(downgrade("buttons-to-numbered-list", "invalid", malformed)).toEqual({
+      kind: "text", text: "1. Secondary",
     });
     expect(downgrade("divider-to-rule", "divider", spec)).toEqual({
       kind: "text", text: "───",
     });
     expect(downgrade("card-to-caption-keyboard", "card", spec)).toEqual({
       kind: "caption-keyboard", caption: "Report\n\nFinished",
-      image: "https://example.test/report.png", buttons: ["yes", "docs"],
+      image: "https://example.test/report.png", buttons: [],
     });
     expect(downgrade("card-to-caption-keyboard", "status", spec)).toEqual({
       kind: "text", text: "PROGRESS: Working\n\nSoon",

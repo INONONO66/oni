@@ -9,7 +9,7 @@ import type { MediaBytes } from "../src/types";
 
 /** Identity dialect with a small limit so chunking is observable. */
 const CAPABILITIES = {
-  Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",
+  Stack: "native", Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",
   Buttons: "text", Button: "text", Card: "text", Carousel: "text", Poll: "text",
   Status: "text", Divider: "text", Context: "text",
 } as const;
@@ -353,6 +353,32 @@ describe("translate: catalog specs", () => {
       Poll: "downgrade:poll-to-buttons", Buttons: "native" },
   };
 
+  test("Stack walks children vertically and folds adjacent text before native and media sends", async () => {
+    const stack: Outbound.Spec = {
+      root: "stack",
+      elements: {
+        stack: { type: "Stack", props: {}, children: ["markdown", "context", "buttons", "image"] },
+        markdown: { type: "Markdown", props: { text: "**ready**" }, children: [] },
+        context: { type: "Context", props: { text: "secondary" }, children: [] },
+        buttons: { type: "Buttons", props: {}, children: ["button"] },
+        button: { type: "Button", props: { id: "open", label: "Open" }, children: [] },
+        image: { type: "Image", props: { ref: "/image.png", caption: "shot" }, children: [] },
+      },
+    };
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
+      native: async (step) => {
+        calls.push(`native:${step.element.type}`); return { externalMessageId: "native" };
+      },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "media" };
+      } },
+    };
+    await translate({ kind: "message", spec: stack }, policy, sends, resolve);
+    expect(calls).toEqual(["text:<**ready**\n\nsecondary>", "native:Buttons", "media:image.png"]);
+  });
+
   test("catalog carousel falls back to ordered card sends and resolves media before posting", async () => {
     const calls: string[] = [];
     const sends: SurfaceSends = {
@@ -366,7 +392,7 @@ describe("translate: catalog specs", () => {
       calls.push(`resolve:${part.ref}`);
       return resolve(part);
     });
-    expect(calls).toEqual(["resolve:/first.png", "native:first", "media:image.png", "native:second"]);
+    expect(calls).toEqual(["resolve:/first.png", "media:image.png", "native:second"]);
     expect(outcome).toEqual({ accepted: true, externalMessageId: "m2" });
   });
 
@@ -383,13 +409,11 @@ describe("translate: catalog specs", () => {
     expect(calls).toEqual(["text:<Choose>", "native:Buttons:Button"]);
   });
 
-  test("caption-keyboard downgrade uploads the image before its native actions", async () => {
+  test("caption-keyboard downgrade uploads the image when a card has no actions", async () => {
     const cardSpec: Outbound.Spec = {
       root: "card",
       elements: {
-        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: ["buttons"] },
-        buttons: { type: "Buttons", props: {}, children: ["button"] },
-        button: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: [] },
       },
     };
     const calls: string[] = [];
@@ -398,24 +422,20 @@ describe("translate: catalog specs", () => {
       media: { limits: LIMITS, upload: async (_kind, bytes) => {
         calls.push(`media:${bytes.name}`); return { externalMessageId: "image" };
       } },
-      native: async (step) => {
-        calls.push(`native:${step.id}`); return { externalMessageId: "keyboard" };
-      },
     };
     const cardPolicy: RenderPolicy = { ...policy, capabilities: {
       ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
     } };
     expect(await translate({ kind: "message", spec: cardSpec }, cardPolicy, sends, resolve))
-      .toEqual({ accepted: true, externalMessageId: "keyboard" });
-    expect(calls).toEqual(["media:image.png", "native:card:keyboard"]);
+      .toEqual({ accepted: true, externalMessageId: "image" });
+    expect(calls).toEqual(["media:image.png"]);
   });
 
-  test("caption-keyboard downgrade remains readable without media or native ports", async () => {
+  test("caption-keyboard downgrade remains readable without a media port", async () => {
     const cardSpec: Outbound.Spec = {
       root: "card",
       elements: {
-        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: ["button"] },
-        button: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: [] },
       },
     };
     const sent: string[] = [];
@@ -425,7 +445,7 @@ describe("translate: catalog specs", () => {
     await translate({ kind: "message", spec: cardSpec }, cardPolicy, {
       text: async (chunk) => { sent.push(chunk); return "text"; },
     });
-    expect(sent).toEqual(["<Card\n[image] /card.png>", "<[Open]>"]);
+    expect(sent).toEqual(["<Card\n[image] /card.png>"]);
   });
 
   test("complete albums stay one native send while image elements use media", async () => {

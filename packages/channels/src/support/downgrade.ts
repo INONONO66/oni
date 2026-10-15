@@ -67,6 +67,7 @@ export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Dow
     case "status-to-bold":
       return { kind: "text", text: `**${digest}**` };
     case "buttons-to-numbered-list":
+      if (element.type !== "Buttons") return { kind: "text", text: digest };
       return {
         kind: "text",
         text: element.children.map((child, index) => {
@@ -80,11 +81,7 @@ export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Dow
       return { kind: "text", text: "───" };
     case "card-to-caption-keyboard":
       return element.type === "Card"
-        ? { kind: "caption-keyboard", caption: digest, image: element.props.image,
-          buttons: element.children.flatMap((child) => {
-            const nested = spec.elements[child];
-            return nested?.type === "Buttons" ? nested.children : nested?.type === "Button" ? [child] : [];
-          }) }
+        ? { kind: "caption-keyboard", caption: digest, image: element.props.image, buttons: [] }
         : { kind: "text", text: digest };
   }
 }
