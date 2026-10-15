@@ -98,6 +98,11 @@ const IngressFacts = z
       .optional(),
     payload: z.json(),
     render: z.string(),
+    postback: z.object({
+      id: Id,
+      label: z.string().min(1),
+      messageRef: Id.optional(),
+    }).strict().optional(),
     attachments: z.array(z.object({
       kind: z.enum(["image", "audio", "file"]),
       ref: Id,
