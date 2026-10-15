@@ -181,6 +181,23 @@ describe("Outbound (#1497)", () => {
     }
   });
 
+  test("Card may contain one Buttons group and preserves link URLs in its digest", () => {
+    const spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Report", body: "Ready" }, children: ["actions"] },
+        actions: { type: "Buttons", props: {}, children: ["open"] },
+        open: { type: "Button", props: { label: "Open", url: "https://example.test" }, children: [] },
+      },
+    };
+    expect(Outbound.Spec.safeParse(spec).success).toBe(true);
+    expect(Outbound.text({ kind: "message", spec: Outbound.Spec.parse(spec) }))
+      .toBe("Report\n\nReady\n\n[Open] (https://example.test)");
+    const invalid = { ...spec, elements: { ...spec.elements,
+      card: { ...spec.elements.card, children: ["actions", "open"] } } };
+    expect(Outbound.Spec.safeParse(invalid).success).toBe(false);
+  });
+
   test("catalog digest walks depth-first and keeps every element readable as text", () => {
     const spec = Outbound.Spec.parse({
       root: "stack",

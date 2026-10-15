@@ -22,6 +22,19 @@ describe("Slack ingress facts", () => {
       reply: { threadId: "9.00" },
     });
   });
+  it("ignores link-button interactions without dropping callback postbacks", () => {
+    const link = {
+      type: "block_actions" as const,
+      user: { id: "U1" }, channel: { id: "D1" },
+      actions: [{ action_id: "url:docs", action_ts: "12.35", text: { text: "Docs" } }] as [{
+        action_id: string; action_ts: string; text: { text: string };
+      }],
+    };
+    expect(normalizer.normalize(link)).toBeNull();
+    expect(normalizer.normalize({
+      ...link, actions: [{ action_id: "approve", action_ts: "12.36", text: { text: "Approve" } }],
+    })?.facts.postback?.id).toBe("approve");
+  });
   it("derives the author from bot_id for a real bot_message frame with no user", () => {
     // Recorded shape of a Slack incoming-webhook/CI bot post: bot_message
     // frames carry bot_id and username but never a `user` field.

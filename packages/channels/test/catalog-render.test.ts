@@ -1,16 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Outbound } from "@openomni/protocol";
+import { z } from "zod";
 import { CallbackDataTooLong, RenderLimitExceeded } from "../src/errors";
 import { renderDiscord } from "../src/provider/discord/render";
 import { DiscordProvider } from "../src/provider/discord/provider";
+import { GitHubProvider } from "../src/provider/github/provider";
 import { renderSlack } from "../src/provider/slack/render";
 import { SlackProvider } from "../src/provider/slack/provider";
 import { renderTelegram } from "../src/provider/telegram/render";
 import { TelegramProvider } from "../src/provider/telegram/provider";
+import { WebhookProvider } from "../src/provider/webhook/provider";
 import { downgrade } from "../src/support/downgrade";
 import { escapeTelegramHtml, renderTelegramHtml } from "../src/support/format/telegram";
 import { renderElementImage } from "../src/support/render-image";
-import type { NativeStep } from "../src/support/translate";
+import { type NativeStep, translate } from "../src/support/translate";
 import { injectedOptions } from "./helpers/injected";
 
 const spec: Outbound.Spec = {
@@ -39,7 +42,7 @@ const spec: Outbound.Spec = {
 function step(id: string): NativeStep {
   const element = spec.elements[id];
   if (element === undefined) throw new Error(`missing fixture element ${id}`);
-  return { id, element, spec, digest: Outbound.text({ kind: "message", spec: { ...spec, root: id } }), attachments: {} };
+  return { id, element, spec, digest: Outbound.text({ kind: "message", spec: { ...spec, root: id } }) };
 }
 
 describe("catalog native renderers", () => {
@@ -47,7 +50,7 @@ describe("catalog native renderers", () => {
     expect(renderSlack(step("markdown"))).toEqual([{ type: "markdown", text: "**ready**" }]);
     expect(renderSlack(step("choices"))).toEqual([{ type: "actions", elements: [
       { type: "button", text: { type: "plain_text", text: "Yes" }, action_id: "vote:yes", style: "primary" },
-      { type: "button", text: { type: "plain_text", text: "Docs" }, action_id: "docs", url: "https://example.test" },
+      { type: "button", text: { type: "plain_text", text: "Docs" }, action_id: "url:docs", url: "https://example.test" },
     ] }]);
   });
 
@@ -60,14 +63,14 @@ describe("catalog native renderers", () => {
 
   test("Slack renders the remaining native blocks and text fallbacks", () => {
     expect(renderSlack(step("code"))).toEqual([{ type: "section",
-      text: { type: "mrkdwn", text: "```const ready = true;```" } }]);
+      text: { type: "mrkdwn", text: "```ts\nconst ready = true;\n```" } }]);
     expect(renderSlack(step("card"))).toEqual([
       { type: "header", text: { type: "plain_text", text: "Report" } },
       { type: "section", text: { type: "mrkdwn", text: "Finished" },
         accessory: { type: "image", image_url: "https://example.test/report.png", alt_text: "Report" } },
     ]);
     expect(renderSlack(step("yes"))).toEqual([{ type: "actions", elements: [
-      { type: "button", text: { type: "plain_text", text: "Yes" }, action_id: "vote:yes" },
+      { type: "button", text: { type: "plain_text", text: "Yes" }, action_id: "vote:yes", style: "primary" },
     ] }]);
     expect(renderSlack(step("status"))).toEqual([{ type: "section",
       text: { type: "mrkdwn", text: "*:hourglass_flowing_sand: Working*\nSoon" } }]);
@@ -86,7 +89,21 @@ describe("catalog native renderers", () => {
       ...table, props: { ...table.props, rows: [["x".repeat(2001), "9"]] },
     } };
     expect(renderSlack(oversized)).toEqual([{ type: "section",
-      text: { type: "mrkdwn", text: "```Name | Score\nA | 9```" } }]);
+      text: { type: "mrkdwn", text: "```\nName | Score\nA | 9\n```" } }]);
+  });
+
+  test("Slack escapes mrkdwn and splits long code into bounded sections", () => {
+    const code: Outbound.Element = { type: "Code", props: {
+      lang: "ts", text: `if (a<b && c>d) ${"x".repeat(4000)} <!channel>`,
+    }, children: [] };
+    const blocks = renderSlack({ ...step("code"), element: code });
+    expect(blocks.length).toBeGreaterThan(1);
+    expect(blocks.every((block) => block.type === "section"
+      && typeof block.text === "object" && block.text !== null
+      && "text" in block.text && typeof block.text.text === "string"
+      && block.text.text.length <= 3000)).toBe(true);
+    expect(JSON.stringify(blocks)).toContain("a&lt;b &amp;&amp; c&gt;d");
+    expect(JSON.stringify(blocks)).not.toContain("<!channel>");
   });
 
   test("Discord renders button rows, media gallery, and native poll", () => {
@@ -96,7 +113,7 @@ describe("catalog native renderers", () => {
     ] }] });
     expect(renderDiscord(step("carousel"))).toEqual({ flags: 1 << 15, components: [{ type: 12,
       items: [
-        { media: { url: "https://example.test/report.png" }, description: "Report" },
+        { media: { url: "https://example.test/report.png" }, description: "Report\n\nFinished" },
         { media: { url: "https://example.test/next.png" }, description: "Next" },
       ] }] });
     expect(renderDiscord(step("poll"))).toEqual({ poll: {
@@ -127,15 +144,12 @@ describe("catalog native renderers", () => {
     };
     expect(() => renderDiscord({ ...step("choices"), element: buttons })).toThrow(RenderLimitExceeded);
     expect(() => renderDiscord({ ...step("carousel"), element: cards })).toThrow(RenderLimitExceeded);
-    expect(renderDiscord(step("sequence"))).toEqual({ embeds: [
-      { title: "Report", description: "Finished", image: { url: "https://example.test/report.png" } },
-      { title: "Plain", description: "Body" },
-    ] });
+    expect(() => renderDiscord(step("sequence"))).toThrow(RenderLimitExceeded);
   });
 
   test("Telegram renders HTML keyboard, media album, and native poll", () => {
     expect(renderTelegram(step("choices"))).toEqual({ method: "sendMessage", body: {
-      text: "[Yes]\n\n[Docs]", parse_mode: "HTML",
+      text: "[Yes]\n\n[Docs] (https://example.test)", parse_mode: "HTML",
       reply_markup: { inline_keyboard: [
         [{ text: "Yes", callback_data: "vote:yes" }],
         [{ text: "Docs", url: "https://example.test" }],
@@ -164,6 +178,80 @@ describe("catalog native renderers", () => {
     expect(() => renderTelegram(longStep)).toThrow(CallbackDataTooLong);
   });
 
+  test("Telegram uses sendPhoto for a one-card image carousel", () => {
+    const carousel: Outbound.Element = { type: "Carousel", props: {}, children: ["card"] };
+    expect(renderTelegram({ ...step("carousel"), element: carousel, digest: "Report\n\nFinished" }))
+      .toEqual({ method: "sendPhoto", body: {
+        photo: "https://example.test/report.png", caption: "Report\n\nFinished", parse_mode: "HTML",
+      } });
+  });
+
+  test.each([
+    { name: "Discord button label", kind: "label", render: () => renderDiscord({
+      ...step("yes"), element: { type: "Button", props: { label: "x".repeat(81), id: "go" }, children: [] },
+    }) },
+    { name: "Discord custom id", kind: "custom_id", render: () => renderDiscord({
+      ...step("yes"), element: { type: "Button", props: { label: "Go", id: "x".repeat(101) }, children: [] },
+    }) },
+    { name: "Discord poll question", kind: "question", render: () => renderDiscord({
+      ...step("poll"), element: { type: "Poll", props: { question: "x".repeat(301), options: ["A", "B"] }, children: [] },
+    }) },
+    { name: "Discord poll answer", kind: "answer", render: () => renderDiscord({
+      ...step("poll"), element: { type: "Poll", props: { question: "Q", options: ["x".repeat(56), "B"] }, children: [] },
+    }) },
+    { name: "Discord message content", kind: "content", render: () => renderDiscord({
+      ...step("status"), element: { type: "Status", props: { kind: "ok", title: "x".repeat(2000) }, children: [] },
+    }) },
+    { name: "Discord embed title", kind: "title", render: () => renderDiscord({
+      ...step("plain"), element: { type: "Card", props: { title: "" }, children: [] },
+    }) },
+    { name: "Discord embed description", kind: "description", render: () => renderDiscord({
+      ...step("plain"), element: { type: "Card", props: { title: "Title", body: "x".repeat(4097) }, children: [] },
+    }) },
+    { name: "Discord gallery description", kind: "description", render: () => {
+      const oversized = { type: "Card" as const,
+        props: { title: "Report", body: "x".repeat(1025), image: "https://example.test/report.png" },
+        children: [] };
+      return renderDiscord({ ...step("carousel"), spec: { ...spec, elements: {
+        ...spec.elements, card: oversized,
+      } } });
+    } },
+    { name: "Slack empty header", kind: "title", render: () => renderSlack({
+      ...step("plain"), element: { type: "Card", props: { title: "" }, children: [] },
+    }) },
+    { name: "Slack long header", kind: "title", render: () => renderSlack({
+      ...step("plain"), element: { type: "Card", props: { title: "x".repeat(151) }, children: [] },
+    }) },
+    { name: "Slack button label", kind: "label", render: () => renderSlack({
+      ...step("yes"), element: { type: "Button", props: { label: "x".repeat(76), id: "go" }, children: [] },
+    }) },
+    { name: "Slack action id", kind: "action_id", render: () => renderSlack({
+      ...step("yes"), element: { type: "Button", props: { label: "Go", id: "x".repeat(256) }, children: [] },
+    }) },
+    { name: "Telegram photo caption", kind: "caption", render: () => renderTelegram({
+      ...step("card"), element: { type: "Card", props: {
+        title: "Report", body: "x".repeat(1025), image: "https://example.test/report.png",
+      }, children: [] },
+    }) },
+    { name: "Telegram album caption", kind: "caption", render: () => renderTelegram({
+      ...step("carousel"), digest: "x".repeat(1025),
+    }) },
+    { name: "Telegram status text", kind: "content", render: () => renderTelegram({
+      ...step("status"), element: { type: "Status", props: { kind: "ok", title: "x".repeat(4096) }, children: [] },
+    }) },
+    { name: "Telegram empty Buttons", kind: "buttons", render: () => renderTelegram({
+      ...step("choices"), element: { type: "Buttons", props: {}, children: [] },
+    }) },
+  ])("$name refuses overlong or empty fields before send", ({ kind, render }) => {
+    let failure: Error | undefined;
+    try { render(); } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(RenderLimitExceeded);
+    expect(failure).toMatchObject({ kind });
+  });
+
   test("Telegram renders plain cards, status, and text fallbacks", () => {
     expect(renderTelegram(step("plain"))).toEqual({ method: "sendMessage", body: {
       text: "<b>Plain</b>\nBody", parse_mode: "HTML",
@@ -176,9 +264,7 @@ describe("catalog native renderers", () => {
         text: escapeTelegramHtml(step(id).digest),
         parse_mode: "HTML",
       } });
-    expect(renderTelegram(step("sequence"))).toEqual({ method: "sendMessage", body: {
-      text: renderTelegramHtml(step("sequence").digest), parse_mode: "HTML",
-    } });
+    expect(() => renderTelegram(step("sequence"))).toThrow(RenderLimitExceeded);
   });
 
   test("Telegram escapes the HTML fallback carried with inline buttons", () => {
@@ -308,7 +394,13 @@ describe("catalog surface request bodies", () => {
     expect(await runtime.deliveryRoute?.("T1:U1", { kind: "message", spec: { ...spec, root: "choices" } }, "slack-native",
       { channelId: "C1" })).toEqual({ value: "accepted", externalMessageId: "1.2" });
     expect(await calls[0]?.json()).toEqual({
-      channel: "C1", text: "[Yes]\n\n[Docs]", blocks: renderSlack(step("choices")),
+      channel: "C1", text: "[Yes]\n\n[Docs] (https://example.test)",
+      blocks: [{ type: "actions", elements: [
+        { type: "button", text: { type: "plain_text", text: "Yes" },
+          action_id: "vote:yes", style: "primary" },
+        { type: "button", text: { type: "plain_text", text: "Docs" },
+          action_id: "url:docs", url: "https://example.test" },
+      ] }],
     });
   });
 
@@ -317,7 +409,10 @@ describe("catalog surface request bodies", () => {
     const runtime = DiscordProvider.create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
     expect(await runtime.deliveryRoute?.("U1", { kind: "message", spec: { ...spec, root: "choices" } }, "discord-native",
       { channelId: "C1" })).toEqual({ value: "accepted", externalMessageId: "12" });
-    expect(await calls[0]?.json()).toEqual(renderDiscord(step("choices")));
+    expect(await calls[0]?.json()).toEqual({ components: [{ type: 1, components: [
+      { type: 2, label: "Yes", style: 1, custom_id: "vote:yes" },
+      { type: 2, label: "Docs", style: 5, url: "https://example.test" },
+    ] }] });
   });
 
   test("Telegram sends a poll through sendPoll with chat identity", async () => {
@@ -326,6 +421,67 @@ describe("catalog surface request bodies", () => {
     expect(await runtime.deliveryRoute?.("123", { kind: "message", spec: { ...spec, root: "poll" } }, "telegram-native"))
       .toEqual({ value: "accepted", externalMessageId: "12" });
     expect(calls[0]?.url).toBe("https://api.telegram.org/bottg-test/sendPoll");
-    expect(await calls[0]?.json()).toEqual({ chat_id: "123", ...renderTelegram(step("poll")).body });
+    expect(await calls[0]?.json()).toEqual({ chat_id: "123",
+      question: "Ready?", options: ["Yes", "No"], allows_multiple_answers: true });
+  });
+
+  test("GitHub posts a spec digest including the link through its real comment route", async () => {
+    const posted: string[] = [];
+    globalThis.fetch = Object.assign(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "GET") return Response.json([]);
+      const payload = z.object({ body: z.string() }).parse(JSON.parse(String(init?.body)));
+      posted.push(payload.body);
+      return Response.json({ id: 12 });
+    }, { preconnect: originalFetch.preconnect });
+    const runtime = GitHubProvider.create({ secret: "hook", token: "token" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("owner/repo#7",
+      { kind: "message", spec: { ...spec, root: "choices" } }, "gh-spec"))
+      .toEqual({ value: "accepted", externalMessageId: "12" });
+    expect(posted).toEqual(["[Yes]\n\n[Docs] (https://example.test)\n\n<!-- openomni-delivery:gh-spec -->"]);
+  });
+
+  test("the webhook text-only policy retains the spec digest", async () => {
+    const sent: string[] = [];
+    expect(WebhookProvider.capabilities.deliver).toBe(false);
+    await translate({ kind: "message", spec: { ...spec, root: "choices" } },
+      WebhookProvider.capabilities.render, {
+        text: async (text) => { sent.push(text); return "receipt"; },
+      });
+    expect(sent).toEqual(["[Yes]\n\n[Docs] (https://example.test)"]);
+  });
+
+  test("Slack classifies a button limit as rejected before any API call", async () => {
+    const calls = capture("slack");
+    const children = Array.from({ length: 6 }, (_, index) => `choice-${index}`);
+    const oversized: Outbound.Spec = {
+      root: "buttons",
+      elements: {
+        buttons: { type: "Buttons", props: {}, children },
+        ...Object.fromEntries(children.map((id) => [
+          id, { type: "Button", props: { id, label: id }, children: [] },
+        ])),
+      },
+    };
+    const runtime = SlackProvider.create({ botToken: "xoxb-test", appToken: "xapp-test" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("T1:U1", { kind: "message", spec: oversized }, "slack-limit",
+      { channelId: "C1" })).toEqual({ value: "rejected" });
+    expect(calls).toEqual([]);
+  });
+
+  test("Telegram rejects an oversized callback before the preceding text posts", async () => {
+    const calls = capture("telegram");
+    const oversized: Outbound.Spec = {
+      root: "stack",
+      elements: {
+        stack: { type: "Stack", props: {}, children: ["intro", "choices"] },
+        intro: { type: "Markdown", props: { text: "before" }, children: [] },
+        choices: { type: "Buttons", props: {}, children: ["choice"] },
+        choice: { type: "Button", props: { id: "한".repeat(22), label: "Long" }, children: [] },
+      },
+    };
+    const runtime = TelegramProvider.create({ token: "tg-test" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("123", { kind: "message", spec: oversized }, "tg-limit"))
+      .toEqual({ value: "rejected" });
+    expect(calls).toEqual([]);
   });
 });

@@ -368,8 +368,11 @@ describe("translate: catalog specs", () => {
     const calls: string[] = [];
     const sends: SurfaceSends = {
       text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
-      native: async (step) => {
-        calls.push(`native:${step.element.type}`); return { externalMessageId: "native" };
+      native: {
+        render: (step) => step,
+        post: async (step) => {
+          calls.push(`native:${step.element.type}`); return { externalMessageId: "native" };
+        },
       },
       media: { limits: LIMITS, upload: async (_kind, bytes) => {
         calls.push(`media:${bytes.name}`); return { externalMessageId: "media" };
@@ -383,7 +386,8 @@ describe("translate: catalog specs", () => {
     const calls: string[] = [];
     const sends: SurfaceSends = {
       text: async (chunk) => { calls.push(`text:${chunk}`); return "m1"; },
-      native: async (step) => { calls.push(`native:${step.id}`); return { externalMessageId: "m2" }; },
+      native: { render: (step) => step,
+        post: async (step) => { calls.push(`native:${step.id}`); return { externalMessageId: "m2" }; } },
       media: { limits: LIMITS, upload: async (_kind, bytes) => {
         calls.push(`media:${bytes.name}`); return { externalMessageId: "m3" };
       } },
@@ -400,9 +404,12 @@ describe("translate: catalog specs", () => {
     const calls: string[] = [];
     const sends: SurfaceSends = {
       text: async (chunk) => { calls.push(`text:${chunk}`); return "m1"; },
-      native: async (step: NativeStep) => {
-        calls.push(`native:${step.element.type}:${step.spec.elements["poll:option:0"]?.type}`);
-        return { externalMessageId: "m2" };
+      native: {
+        render: (step: NativeStep) => step,
+        post: async (step) => {
+          calls.push(`native:${step.element.type}:${step.spec.elements["poll:option:0"]?.type}`);
+          return { externalMessageId: "m2" };
+        },
       },
     };
     await translate({ kind: "message", spec: { ...spec, root: "poll" } }, policy, sends);
@@ -429,6 +436,56 @@ describe("translate: catalog specs", () => {
     expect(await translate({ kind: "message", spec: cardSpec }, cardPolicy, sends, resolve))
       .toEqual({ accepted: true, externalMessageId: "image" });
     expect(calls).toEqual(["media:image.png"]);
+  });
+
+  test("card caption keyboard keeps nested actions after the image", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Report", image: "/card.png" }, children: ["actions"] },
+        actions: { type: "Buttons", props: {}, children: ["open"] },
+        open: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+      },
+    };
+    expect(Outbound.Spec.safeParse(cardSpec).success).toBe(true);
+    const posted: string[] = [];
+    const cardPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
+    } };
+    const sends: SurfaceSends = {
+      text: async (text) => { posted.push(`text:${text}`); return "text"; },
+      media: { limits: LIMITS, upload: async (_kind, bytes, caption) => {
+        posted.push(`media:${bytes.name}:${caption}`); return { externalMessageId: "photo" };
+      } },
+      native: { render: (step) => step,
+        post: async (step) => {
+          posted.push(`native:${step.element.type}:${step.spec.elements.open?.type}`);
+          return { externalMessageId: "buttons" };
+        } },
+    };
+    expect(await translate({ kind: "message", spec: cardSpec }, cardPolicy, sends, resolve))
+      .toEqual({ accepted: true, externalMessageId: "buttons" });
+    expect(posted).toEqual(["media:image.png:Report", "native:Buttons:Button"]);
+  });
+
+  test("a native card visits its nested Buttons after posting the card", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Report" }, children: ["actions"] },
+        actions: { type: "Buttons", props: {}, children: ["open"] },
+        open: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+      },
+    };
+    const posted: string[] = [];
+    await translate({ kind: "message", spec: cardSpec }, policy, {
+      text: async (text) => { posted.push(`text:${text}`); return "text"; },
+      native: { render: (step) => step,
+        post: async (step) => {
+          posted.push(`native:${step.element.type}`); return { externalMessageId: step.id };
+        } },
+    });
+    expect(posted).toEqual(["native:Card", "native:Buttons"]);
   });
 
   test("caption-keyboard downgrade remains readable without a media port", async () => {
@@ -464,8 +521,11 @@ describe("translate: catalog specs", () => {
       media: { limits: LIMITS, upload: async (_kind, bytes) => {
         calls.push(`media:${bytes.name}`); return { externalMessageId: "image" };
       } },
-      native: async (step) => {
-        calls.push(`native:${step.id}`); return { externalMessageId: "native" };
+      native: {
+        render: (step) => step,
+        post: async (step) => {
+          calls.push(`native:${step.id}`); return { externalMessageId: "native" };
+        },
       },
     };
     const albumPolicy: RenderPolicy = { ...policy, capabilities: {
@@ -508,7 +568,7 @@ describe("translate: catalog specs", () => {
   test("a failed native step after text reports partial delivery", async () => {
     const sends: SurfaceSends = {
       text: async () => "m1",
-      native: async () => { throw new Error("upstream reset"); },
+      native: { render: (step) => step, post: async () => { throw new Error("upstream reset"); } },
     };
     const error = await translate({ kind: "message", spec: { ...spec, root: "poll" } }, policy, sends).catch((value) => value);
     expect(error).toBeInstanceOf(PartialDeliveryError);
@@ -520,7 +580,8 @@ describe("translate: catalog specs", () => {
     const calls: string[] = [];
     const sends: SurfaceSends = {
       text: async () => { calls.push("text"); return "m1"; },
-      native: async () => { calls.push("native"); return { externalMessageId: "m2" }; },
+      native: { render: (step) => step,
+        post: async () => { calls.push("native"); return { externalMessageId: "m2" }; } },
       media: { limits: LIMITS, upload: async () => { calls.push("media"); return {}; } },
     };
     await expect(translate({ kind: "message", spec }, policy, sends,
