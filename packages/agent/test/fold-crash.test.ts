@@ -15,6 +15,7 @@ for (const point of foldCrashPoint.options) {
     seedPolicy();
     let cuts = 0;
     let revision = 0;
+    let pinned = false;
     await foldCrashMain(point, (_bodies, pending, proof) => {
       cuts += 1;
       revision = proof.revision;
@@ -38,9 +39,14 @@ for (const point of foldCrashPoint.options) {
         const pin = SessionTurn.Intent.parse(opened?.intent.value).context;
         expect(opened?.id).toBe(pin.snapshotActionId);
         expect(pin.messageIds).toEqual(proof.messageIds);
+        // The pin is a reference: the projection is rebuilt from the ledger at its source revision.
+        expect(pin.projection).toBeUndefined();
+        const rebuilt = hydrateSessionHistory(ledger.kernel, sessionId, pin.sourceRevision).history;
+        expect(rebuilt.map((message) => message.info.id)).toEqual(pin.messageIds);
         expect(pin.projectionHash).toBe(
-          canonicalDigest({ foldVersion: 1, projection: PlainValueSchema.parse(pin.projection) }),
+          canonicalDigest({ foldVersion: 1, projection: PlainValueSchema.parse(rebuilt) }),
         );
+        pinned = true;
       }
       if (point === "compaction_result_checkpoint_committed_before_publication")
         expect(proof.publicationCount).toBe(0);
@@ -50,6 +56,7 @@ for (const point of foldCrashPoint.options) {
       }
     });
     expect(cuts).toBe(1);
+    expect(pinned).toBe(point === "turn_context_snapshot_committed_before_model_entry");
     if (point === "fold_checkpoint_tampered_before_load") {
       expect(() => hydrateSessionHistory(ledger.kernel, sessionId)).toThrow(
         FoldCheckpointIntegrityError,

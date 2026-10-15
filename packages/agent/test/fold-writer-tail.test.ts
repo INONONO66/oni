@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalDigest, type LedgerAction } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, PlainValueSchema, SessionTurn } from "@openomni/protocol";
 import { Effect } from "effect";
 import { deliveryActions } from "../src/core/journal/delivery";
 import { turnIntentAction, turnTerminalAction } from "../src/core/journal/turn-rows";
+import { actionPayloadBytes } from "../src/core/store/action-hash";
 import { configureAction } from "../src/core/store/configure";
-import { restoreSessionHistory } from "../src/inspect/history";
+import { turnIntent } from "../src/core/store/session-reads";
+import { hydrateSessionHistory, restoreSessionHistory } from "../src/inspect/history";
 import { runAgentSync } from "./helpers/executor";
 import { isolatedRun, runTestSync } from "./helpers/isolated";
 import { nth } from "./helpers/nth";
@@ -70,7 +72,110 @@ function meterWriter(ledger: Ledger) {
   return counts;
 }
 
+/** One answered turn over `prompts`, then a second turn intent pinned by the fold writer; its rebuilt projection. */
+function pinnedTurn(ledger: Ledger, prompts: readonly string[]) {
+  const recording = requestLedger();
+  const id = recording.identity.sessionId;
+  const { kernel } = ledger;
+  const turnId = recording.identity.turnId;
+  for (const [index, content] of prompts.entries())
+    deliverPrompt(recording, ledger, `prompt:${index}`, content, turnId);
+  expect(
+    recording.commitBatch([
+      turnTerminalAction({
+        id: `${id}:reply`,
+        parentId: turnId,
+        sessionId: id,
+        turnId,
+        result: { kind: "result", text: "a" },
+        resumeCount: 0,
+        boundaryActionId: null,
+        at: 200,
+      }),
+    ]).ok,
+  ).toBe(true);
+  const pinnedId = `${id}:turn:2`;
+  const intent = turnIntentAction({
+    id: pinnedId,
+    parentId: `${id}:reply`,
+    sessionId: id,
+    resultId: `${id}:result:2`,
+    deliveryIds: [],
+    generation: kernel.latestGenerationFor(id),
+    resumeCount: 0,
+    boundaryActionId: null,
+    at: 300,
+  });
+  runAgentSync(recording.ledger.commit(intent));
+  const node = kernel.actionById(pinnedId);
+  const context = SessionTurn.Intent.parse(node?.intent.value).context;
+  const history = hydrateSessionHistory(kernel, id, context.sourceRevision).history;
+  // The row as written before the pin became a reference: the same context plus a copy of the projection.
+  const copy: LedgerAction.Append = {
+    ...intent,
+    id: `${id}:turn:copy`,
+    parentId: pinnedId,
+    ts: 301,
+    intent: {
+      encodingVersion: 1,
+      value: PlainValueSchema.parse({ ...SessionTurn.Intent.parse(node?.intent.value), context: { ...context, projection: history } }),
+    },
+  };
+  const commitCopy = () => {
+    const row = kernel.row(id);
+    return runTestSync(
+      Effect.result(
+        kernel.commit({
+          sessionId: id,
+          owner: row.fenceOwner ?? "",
+          fence: row.fence,
+          now: 301,
+          expectedRevision: row.revision,
+          actions: [copy],
+          state: row.state,
+        }),
+      ),
+    );
+  };
+  return { kernel, id, node, context, history, copy, commitCopy };
+}
+
 describe("fold writer tail", () => {
+  test("a 200k-token history whose projection-bearing intent is 1,354,051 B commits as a reference under the 1 MiB cap", () =>
+    isolatedRun((ledger) => {
+      // Two prompts, because one 1.35 MB prompt row would itself pass the cap.
+      const { kernel, id, node, context, history, copy, commitCopy } = pinnedTurn(ledger, [
+        "q".repeat(676_152),
+        "q".repeat(676_153),
+      ]);
+      expect(actionPayloadBytes(copy)).toBe(1_354_051);
+      expect(node === undefined ? 0 : actionPayloadBytes(node)).toBe(646);
+      expect(context.projectionHash).toBe(
+        canonicalDigest({ foldVersion: 1, projection: PlainValueSchema.parse(history) }),
+      );
+      const revision = kernel.row(id).revision;
+      const refused = commitCopy();
+      expect(refused._tag).toBe("Failure");
+      if (refused._tag !== "Failure") return;
+      expect(refused.failure).toMatchObject({ _tag: "SchemaRefused", actionId: copy.id, reason: "row_bytes" });
+      expect(kernel.row(id).revision).toBe(revision);
+    }));
+
+  test("an old projection-bearing intent and a new reference-only intent read back the same pin", () =>
+    isolatedRun((ledger) => {
+      const { kernel, id, node, context, history, copy, commitCopy } = pinnedTurn(ledger, ["q", "r"]);
+      expect(commitCopy()._tag).toBe("Success");
+      const reference = turnIntent(node);
+      const legacy = turnIntent(kernel.actionById(copy.id));
+      expect(reference !== undefined && "context" in reference ? reference.context.projection : null).toBeUndefined();
+      expect(legacy !== undefined && "context" in legacy ? legacy.context : null).toEqual({ ...context, projection: history });
+      expect(reference).toEqual(SessionTurn.Intent.parse(node?.intent.value));
+      const rebuilt = hydrateSessionHistory(kernel, id, context.sourceRevision).history;
+      expect(rebuilt).toEqual(history);
+      expect(rebuilt.map((message) => message.info.id)).toEqual(context.messageIds);
+      expect(hydrateSessionHistory(kernel, id).history.map((message) => message.info.id)).toEqual(context.messageIds);
+    }));
+
   test("a turn intent over a 200k-token history pins a reference, not a copy of the projection", () =>
     isolatedRun((ledger) => {
       const recording = requestLedger();
@@ -159,7 +264,8 @@ describe("fold writer tail", () => {
       let parentId = turnId;
       for (let call = 0; call < 5; call += 1) {
         const tool = `${id}:tool:${call}`;
-        const result = "y".repeat(900_000);
+        // The last result is sized so the refused tail is exactly 5,026,719 B.
+        const result = "y".repeat(call === 4 ? 893_583 : 900_000);
         const rows: LedgerAction.Append[] = [
           {
             id: tool,
@@ -194,5 +300,12 @@ describe("fold writer tail", () => {
       expect(restored.failure.data.code).toBe("budget");
       expect(restored.failure.data.maxTailBytes).toBe(4 * 1024 * 1024);
       expect(restored.failure.data.revision).toBe(kernel.row(id).revision);
+      expect(kernel.payloadBytes(id, 0, kernel.row(id).revision)).toBe(5_026_719);
+      expect(restored.failure.data.telemetry).toMatchObject({ rows: 22, bytes: 5_026_719, pages: 1 });
+      const again = runTestSync(Effect.result(restoreSessionHistory(kernel, id)));
+      expect(again._tag === "Failure" ? { ...again.failure.data, telemetry: { ...again.failure.data.telemetry, ms: 0 } } : again).toEqual({
+        ...restored.failure.data,
+        telemetry: { ...restored.failure.data.telemetry, ms: 0 },
+      });
     }));
 });
