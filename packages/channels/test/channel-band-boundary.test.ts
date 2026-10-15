@@ -65,6 +65,8 @@ function isAllowed(specifier: string, path: string): boolean {
     return true;
   }
   if (specifier === "bun:sqlite" && path.startsWith(SQLITE_BAND_DIR)) return true;
+  if (specifier === "@json-render/image/render" && path === "src/support/render-image.ts")
+    return true;
   const dependency = packageName(specifier);
   if (DRIVER_ALLOWED_PACKAGES.has(dependency)) return true;
   return (
@@ -93,6 +95,12 @@ describe("channels band import boundary", () => {
     expect(
       detectBandViolations([{ path: "src/websocket.ts", text: 'import ky from "ky";' }]),
     ).toEqual(["src/websocket.ts: imports ky"]);
+  });
+
+  test("confines the image renderer dependency to the rasterizer", () => {
+    expect(detectBandViolations([
+      { path: "src/provider/slack/render.ts", text: 'import { renderToPng } from "@json-render/image/render";' },
+    ])).toEqual(["src/provider/slack/render.ts: imports @json-render/image/render"]);
   });
 
   test("rejects non-literal dynamic imports", () => {

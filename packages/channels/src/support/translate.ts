@@ -3,7 +3,7 @@ import { DeliveryNotSent } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
-import { downgrade } from "./downgrade.js";
+import { downgrade, type Downgrade, type Downgraded } from "./downgrade.js";
 import { renderElementImage } from "./render-image.js";
 
 /**
@@ -126,88 +126,80 @@ async function planSpec(
   };
   const digest = (id: string, current: Outbound.Spec): string =>
     Outbound.text({ kind: "message", spec: { root: id, elements: current.elements } });
-  const visit = async (id: string, current: Outbound.Spec): Promise<void> => {
-    const element = current.elements[id];
-    if (element === undefined) return;
-    const policy = render.capabilities[element.type];
-    if (element.type === "Image" || element.type === "File") {
-      if (media === undefined || policy === "text") pending.push({ kind: "text", text: digest(id, current) });
-      else {
-        flush();
-        const part = element.type === "Image"
-          ? { kind: "image" as const, ref: element.props.ref, caption: element.props.caption }
-          : { kind: "file" as const, ref: element.props.ref, name: element.props.name };
-        steps.push({ kind: "media", part, bytes: await resolveImage(part.ref, part.kind === "image" ? part.caption : undefined, part.kind), upload: media.upload });
-      }
+  async function appendImage(result: Extract<Downgraded, { kind: "image" }>): Promise<void> {
+    if (media === undefined) {
+      pending.push({ kind: "text", text: result.caption });
       return;
     }
-    if (element.type === "Carousel" && element.children.some((child) => {
-      const card = current.elements[child];
-      return card?.type !== "Card" || card.props.image === undefined || !card.props.image.startsWith("https://");
-    })) {
-      for (const child of element.children) await visit(child, current);
-      return;
+    flush();
+    if (result.caption.length > media.limits.captionLength)
+      throw new DeliveryNotSent({ operation: "media.caption", cause: `${result.caption.length} characters exceeds the caption limit ${media.limits.captionLength}` });
+    const bytes = await renderElementImage(result.element, result.caption).catch((error) => {
+      throw new DeliveryNotSent({ operation: "image.render", cause: String(error) });
+    });
+    if (bytes.bytes.byteLength > media.limits.imageBytes)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${bytes.bytes.byteLength} bytes exceeds the image limit ${media.limits.imageBytes}` });
+    totalBytes += bytes.bytes.byteLength;
+    if (totalBytes > LETTER_MEDIA_BYTES)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}` });
+    steps.push({ kind: "media", part: { kind: "image", ref: bytes.name, caption: result.caption }, bytes, upload: media.upload });
+  }
+
+  async function appendCaptionKeyboard(
+    result: Extract<Downgraded, { kind: "caption-keyboard" }>, id: string, current: Outbound.Spec,
+  ): Promise<void> {
+    if (result.image === undefined || media === undefined)
+      pending.push({ kind: "text", text: `${result.caption}${result.image === undefined ? "" : `\n[image] ${result.image}`}` });
+    else {
+      flush();
+      const bytes = await resolveImage(result.image, result.caption);
+      steps.push({ kind: "media", part: { kind: "image", ref: result.image, caption: result.caption }, bytes, upload: media.upload });
     }
-    if (policy.startsWith("downgrade:")) {
-      const result = downgrade(policy.slice("downgrade:".length) as import("./downgrade.js").Downgrade, id, current);
-      switch (result.kind) {
-        case "text": pending.push({ kind: "text", text: result.text }); return;
-        case "sequence":
-          for (const child of result.ids) await visit(child, result.spec ?? current);
-          return;
-        case "album":
-          if (sends.native !== undefined && element.type === "Carousel" && result.ids.every((child) => {
-            const card = current.elements[child];
-            return card?.type === "Card" && card.props.image?.startsWith("https://");
-          })) {
-            flush();
-            steps.push({ kind: "native", step: {
-              id, element, spec: current, digest: digest(id, current), attachments: {},
-            }, send: sends.native });
-          } else for (const child of result.ids) await visit(child, current);
-          return;
-        case "caption-keyboard":
-          if (result.image === undefined || media === undefined)
-            pending.push({ kind: "text", text: `${result.caption}${result.image === undefined ? "" : `\n[image] ${result.image}`}` });
-          else {
-            flush();
-            const bytes = await resolveImage(result.image, result.caption);
-            steps.push({ kind: "media", part: { kind: "image", ref: result.image, caption: result.caption }, bytes, upload: media.upload });
-          }
-          if (result.buttons.length > 0) {
-            const buttons: Outbound.Element = { type: "Buttons", props: {}, children: [...result.buttons] };
-            const buttonSpec: Outbound.Spec = { root: `${id}:keyboard`, elements: {
-              ...current.elements, [`${id}:keyboard`]: buttons,
-            } };
-            flush();
-            if (sends.native === undefined)
-              pending.push({ kind: "text", text: result.buttons.map((child) => digest(child, current)).join("\n") });
-            else steps.push({ kind: "native", step: { id: buttonSpec.root, element: buttons,
-              spec: buttonSpec, digest: digest(buttonSpec.root, buttonSpec), attachments: {} }, send: sends.native });
-          }
-          return;
-        case "image":
-          if (media === undefined) {
-            pending.push({ kind: "text", text: result.caption });
-            return;
-          }
+    if (result.buttons.length === 0) return;
+    const buttons: Outbound.Element = { type: "Buttons", props: {}, children: [...result.buttons] };
+    const buttonSpec: Outbound.Spec = { root: `${id}:keyboard`, elements: {
+      ...current.elements, [`${id}:keyboard`]: buttons,
+    } };
+    flush();
+    if (sends.native === undefined)
+      pending.push({ kind: "text", text: result.buttons.map((child) => digest(child, current)).join("\n") });
+    else steps.push({ kind: "native", step: { id: buttonSpec.root, element: buttons,
+      spec: buttonSpec, digest: digest(buttonSpec.root, buttonSpec), attachments: {} }, send: sends.native });
+  }
+
+  async function appendDowngrade(name: Downgrade, id: string, current: Outbound.Spec): Promise<void> {
+    const result = downgrade(name, id, current);
+    switch (result.kind) {
+      case "text":
+        pending.push({ kind: "text", text: result.text });
+        return;
+      case "sequence":
+        for (const child of result.ids) await visit(child, result.spec ?? current);
+        return;
+      case "album": {
+        const element = current.elements[id];
+        if (sends.native !== undefined && element?.type === "Carousel" && result.ids.every((child) => {
+          const card = current.elements[child];
+          return card?.type === "Card" && card.props.image?.startsWith("https://");
+        })) {
           flush();
-          const bytes = await renderElementImage(result.element, result.caption);
-          if (bytes.bytes.byteLength > media.limits.imageBytes)
-            throw new DeliveryNotSent({ operation: "media.limit", cause: `${bytes.bytes.byteLength} bytes exceeds the image limit ${media.limits.imageBytes}` });
-          if (result.caption.length > media.limits.captionLength)
-            throw new DeliveryNotSent({ operation: "media.caption", cause: `${result.caption.length} characters exceeds the caption limit ${media.limits.captionLength}` });
-          totalBytes += bytes.bytes.byteLength;
-          if (totalBytes > LETTER_MEDIA_BYTES)
-            throw new DeliveryNotSent({ operation: "media.limit", cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}` });
-          steps.push({ kind: "media", part: { kind: "image", ref: bytes.name, caption: result.caption }, bytes, upload: media.upload });
-          return;
+          steps.push({ kind: "native", step: {
+            id, element, spec: current, digest: digest(id, current), attachments: {},
+          }, send: sends.native });
+        } else for (const child of result.ids) await visit(child, current);
+        return;
       }
+      case "caption-keyboard":
+        await appendCaptionKeyboard(result, id, current);
+        return;
+      case "image":
+        await appendImage(result);
+        return;
     }
-    if (policy === "text" || sends.native === undefined) {
-      pending.push({ kind: "text", text: digest(id, current) + (element.type === "Card" && element.props.image !== undefined ? `\n[image] ${element.props.image}` : "") });
-      return;
-    }
+  }
+
+  async function appendNative(id: string, element: Outbound.Element, current: Outbound.Spec): Promise<void> {
+    if (sends.native === undefined) return;
     flush();
     const attachments: Record<string, MediaBytes> = {};
     if (element.type === "Card" && element.props.image !== undefined && !element.props.image.startsWith("https://")) {
@@ -217,20 +209,60 @@ async function planSpec(
       }
       attachments[element.props.image] = await resolveImage(element.props.image);
     }
-    if (element.type === "Carousel" && media !== undefined) {
-      for (const child of element.children) {
-        const card = current.elements[child];
-        if (card?.type === "Card" && card.props.image !== undefined && !card.props.image.startsWith("https://") && attachments[card.props.image] === undefined)
-          attachments[card.props.image] = await resolveImage(card.props.image);
-      }
-    }
     steps.push({ kind: "native", step: { id, element, spec: current, digest: digest(id, current), attachments }, send: sends.native });
     if (element.type === "Card" && element.props.image !== undefined && media !== undefined) {
       const bytes = attachments[element.props.image];
       if (bytes !== undefined)
         steps.push({ kind: "media", part: { kind: "image", ref: element.props.image }, bytes, upload: media.upload });
     }
-  };
+  }
+
+  async function appendMedia(id: string, element: Extract<Outbound.Element, { type: "Image" | "File" }>,
+    current: Outbound.Spec, policy: string): Promise<void> {
+    if (media === undefined || policy === "text") {
+      pending.push({ kind: "text", text: digest(id, current) });
+      return;
+    }
+    flush();
+    const part = element.type === "Image"
+      ? { kind: "image" as const, ref: element.props.ref, caption: element.props.caption }
+      : { kind: "file" as const, ref: element.props.ref, name: element.props.name };
+    steps.push({ kind: "media", part, bytes: await resolveImage(part.ref,
+      part.kind === "image" ? part.caption : undefined, part.kind), upload: media.upload });
+  }
+
+  function hasIncompleteAlbum(element: Outbound.Element, current: Outbound.Spec):
+    element is Extract<Outbound.Element, { type: "Carousel" }> {
+    if (element.type !== "Carousel") return false;
+    return element.children.some((child) => {
+      const card = current.elements[child];
+      return card?.type !== "Card" || card.props.image === undefined || !card.props.image.startsWith("https://");
+    });
+  }
+
+  async function visit(id: string, current: Outbound.Spec): Promise<void> {
+    const element = current.elements[id];
+    if (element === undefined) return;
+    const policy = render.capabilities[element.type];
+    if (element.type === "Image" || element.type === "File") {
+      await appendMedia(id, element, current, policy);
+      return;
+    }
+    if (hasIncompleteAlbum(element, current)) {
+      for (const child of element.children) await visit(child, current);
+      return;
+    }
+    if (policy.startsWith("downgrade:")) {
+      await appendDowngrade(policy.slice("downgrade:".length) as Downgrade, id, current);
+      return;
+    }
+    if (policy === "text" || sends.native === undefined) {
+      const image = element.type === "Card" ? element.props.image : undefined;
+      pending.push({ kind: "text", text: digest(id, current) + (image === undefined ? "" : `\n[image] ${image}`) });
+      return;
+    }
+    await appendNative(id, element, current);
+  }
   await visit(spec.root, spec);
   flush();
   return steps;

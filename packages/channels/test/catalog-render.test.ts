@@ -39,7 +39,7 @@ describe("catalog native renderers", () => {
     expect(renderSlack(step("markdown"))).toEqual([{ type: "markdown", text: "**ready**" }]);
     expect(renderSlack(step("choices"))).toEqual([{ type: "actions", elements: [
       { type: "button", text: { type: "plain_text", text: "Yes" }, action_id: "vote:yes", style: "primary" },
-      { type: "button", text: { type: "plain_text", text: "Docs" }, url: "https://example.test" },
+      { type: "button", text: { type: "plain_text", text: "Docs" }, action_id: "docs", url: "https://example.test" },
     ] }]);
   });
 
