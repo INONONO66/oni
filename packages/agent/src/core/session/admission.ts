@@ -1,4 +1,4 @@
-import type { OpenTurn } from "../store/session-reads";
+import type { OpenTurn, PendingSnapshot } from "../store/session-reads";
 import { generationSnapshot, configureAction } from "../store/configure";
 import { Effect } from "effect";
 import { CommitRefused, type LedgerError } from "../store/errors";
@@ -89,6 +89,7 @@ export interface SessionTurnPorts<E> {
     readonly resumeCount: number;
     readonly generation: SessionGeneration.Snapshot;
     readonly resume: boolean;
+    readonly pending?: PendingSnapshot;
   }) => Effect.Effect<SessionRunnerResult, E>;
   readonly seal: (
     open: OpenTurn,
@@ -178,8 +179,9 @@ export function createSessionAdmission(
       const observations = yield* captured.provide(ObservationSink);
       // Turn end: steer and followUp rows are both eligible, each capped by its
       // width; the stale split lives INSIDE boundaryConsumption.
+      const backlog = kernel.pendingMessagesSince(sessionId);
       const { consumed: pending, stale } = boundaryConsumption(
-        kernel.pendingMessages(sessionId),
+        backlog.rows,
         "turn_end",
         consumptionSettings(kernel, sessionId),
         kernel.compactionHead(sessionId),
@@ -245,6 +247,8 @@ export function createSessionAdmission(
         resumeCount: 0,
         generation,
         resume: false,
+        // The turn's one full read: its boundaries fold the tail past it, this commit included.
+        pending: backlog,
       });
     }));
   }

@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { CatalogStore } from "./catalog.js";
 import { configurationSnapshot, generationSnapshot, latestGenerationForIn, latestSettingsIn, materializationSeed, type MaterializeInput } from "./configure";
 import { StorageUnavailable, type LedgerError } from "./errors";
-import { latestFoldCheckpointIn, openTurnsPageIn, latestOpenTurnIn, resultForIn, historyPageIn, stateEffect, requestStatesPageIn, requestRowsIn, outboundStatesPageIn, outboundRowsIn, inputMessagesIn, pendingMessagesIn, rowIn, policyRowsIn, getSnapshotIn, watchSnapshotIn, requiredSessionsIn, requiredActionsIn, turnTerminal, type OpenTurn } from "./session-reads";
+import { latestFoldCheckpointIn, openTurnsPageIn, latestOpenTurnIn, resultForIn, historyPageIn, stateEffect, requestStatesPageIn, requestRowsIn, outboundStatesPageIn, outboundRowsIn, inputMessagesIn, pendingMessagesIn, pendingMessagesSinceIn, type PendingSnapshot, rowIn, policyRowsIn, getSnapshotIn, watchSnapshotIn, requiredSessionsIn, requiredActionsIn, turnTerminal, type OpenTurn } from "./session-reads";
 import type { AdoptReceipt, CommitReceipt, SessionWriteAdapter } from "./services";
 import type { ArmedAlarmRow } from "./session-file/alarms";
 import type { SessionStore } from "./session-file/index.js";
@@ -111,6 +111,9 @@ function makeSessionKernel(context: SessionKernelContext) {
       sessionWritesIn(context).pipe(Effect.flatMap((sessions) => sessions.adoptFence(input))),
     commit: (input: LedgerSession.Commit) => commitIn(context, input),
     pendingMessages: (sessionId: string): Delivery.Row[] => pendingMessagesIn(context, sessionId),
+    /** The pending set past a snapshot from the appended tail only; without one, the full read and its head ordinal. */
+    pendingMessagesSince: (sessionId: string, since?: PendingSnapshot): PendingSnapshot =>
+      pendingMessagesSinceIn(context, sessionId, since),
     /** The staleness horizon for `action` inputs; 0 when nothing executed. */
     compactionHead: (sessionId: string): number =>
       requiredActionsIn(context).latestCompaction(sessionId)?.ordinal ?? 0,

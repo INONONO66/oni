@@ -226,6 +226,78 @@ export function pendingMessagesIn(context: SessionKernelContext, sessionId: stri
     });
 }
 
+/** One exact pending set and the chain ordinal it was read through. */
+export interface PendingSnapshot {
+  readonly rows: readonly Delivery.Row[];
+  readonly ordinal: number;
+}
+
+const INPUT_ROW_KINDS: ReadonlySet<string> = new Set(["prompt", "signal", "action"]);
+const TailFacts = z.looseObject({
+  deliveryKind: z.unknown().optional(),
+  deliveryId: z.unknown().optional(),
+  consumedStale: z.array(z.unknown()).optional(),
+});
+
+function tailFacts(value: PlainValue) {
+  const parsed = TailFacts.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
+/** The full read's two clauses for one tail row: is it an input, and which ids does it consume. */
+function tailFact(action: LedgerAction.Node): { readonly arrival: boolean; readonly consumes: readonly unknown[] } {
+  const intent = tailFacts(action.intent.value);
+  if (action.kind === "turn") return { arrival: false, consumes: intent.consumedStale ?? [] };
+  if (!INPUT_ROW_KINDS.has(action.kind)) return { arrival: false, consumes: [] };
+  const kind = tailFacts(action.effect.value).deliveryKind;
+  return { arrival: kind !== undefined && kind !== null, consumes: [intent.deliveryId] };
+}
+
+function tailSince(context: SessionKernelContext, sessionId: string, after: number) {
+  const arrived: LedgerAction.Node[] = [];
+  const consumed = new Set<unknown>();
+  let ordinal = after;
+  for (;;) {
+    const page = requiredActionsIn(context).range(sessionId, ordinal, 256);
+    for (const action of page) {
+      const fact = tailFact(action);
+      if (fact.arrival) arrived.push(action);
+      for (const id of fact.consumes) consumed.add(id);
+    }
+    ordinal = page.at(-1)?.ordinal ?? ordinal;
+    if (page.length < 256) return { arrived, consumed, ordinal };
+  }
+}
+
+/**
+ * The pending set after `since`, folded from the appended tail with the full read's
+ * rule: the chain is append-only and every consumption is an appended row, so
+ * pending(head) = pending(since) + arrivals(since, head] - consumed(since, head].
+ * Without `since` it is the one full read, paired with its head ordinal in one snapshot.
+ */
+export function pendingMessagesSinceIn(
+  context: SessionKernelContext,
+  sessionId: string,
+  since?: PendingSnapshot,
+): PendingSnapshot {
+  return context.stores().transaction(() => {
+    if (since === undefined)
+      return {
+        rows: pendingMessagesIn(context, sessionId),
+        ordinal: requiredActionsIn(context).latestAction(sessionId, Number.MAX_SAFE_INTEGER)?.ordinal ?? 0,
+      };
+    const { arrived, consumed, ordinal } = tailSince(context, sessionId, since.ordinal);
+    const opened = arrived.map((action, index) => {
+      const after = afterCursorOf(action.intent.value);
+      return openDeliveryRow(action, index, { status: "pending", ...(after === undefined ? {} : { after }) });
+    });
+    const rows = [...since.rows, ...opened]
+      .filter((row) => !consumed.has(row.id))
+      .map((row, index) => ({ ...row, ordinal: index + 1 }));
+    return { rows, ordinal };
+  });
+}
+
 export function rowIn(context: SessionKernelContext, sessionId: string): LedgerSession.Row {
   const current = requiredSessionsIn(context).get(sessionId);
   if (current === undefined) throw new SessionNotFound({ sessionId });
