@@ -235,8 +235,8 @@ export interface PendingSnapshot {
 const INPUT_ROW_KINDS: ReadonlySet<string> = new Set(["prompt", "signal", "action"]);
 const TailFacts = z.looseObject({
   deliveryKind: z.unknown().optional(),
-  deliveryId: z.unknown().optional(),
-  consumedStale: z.array(z.unknown()).optional(),
+  deliveryId: z.string().optional().catch(undefined),
+  consumedStale: z.array(z.string().nullable().catch(null)).optional().catch(undefined),
 });
 
 function tailFacts(value: PlainValue) {
@@ -244,18 +244,20 @@ function tailFacts(value: PlainValue) {
   return parsed.success ? parsed.data : {};
 }
 
-/** The full read's two clauses for one tail row: is it an input, and which ids does it consume. */
-function tailFact(action: LedgerAction.Node): { readonly arrival: boolean; readonly consumes: readonly unknown[] } {
+const idsOf = (values: readonly (string | null | undefined)[]) =>
+  values.filter((id) => typeof id === "string");
+
+function tailFact(action: LedgerAction.Node): { readonly arrival: boolean; readonly consumes: readonly string[] } {
   const intent = tailFacts(action.intent.value);
-  if (action.kind === "turn") return { arrival: false, consumes: intent.consumedStale ?? [] };
+  if (action.kind === "turn") return { arrival: false, consumes: idsOf(intent.consumedStale ?? []) };
   if (!INPUT_ROW_KINDS.has(action.kind)) return { arrival: false, consumes: [] };
   const kind = tailFacts(action.effect.value).deliveryKind;
-  return { arrival: kind !== undefined && kind !== null, consumes: [intent.deliveryId] };
+  return { arrival: kind !== undefined && kind !== null, consumes: idsOf([intent.deliveryId]) };
 }
 
 function tailSince(context: SessionKernelContext, sessionId: string, after: number) {
   const arrived: LedgerAction.Node[] = [];
-  const consumed = new Set<unknown>();
+  const consumed = new Set<string>();
   let ordinal = after;
   for (;;) {
     const page = requiredActionsIn(context).range(sessionId, ordinal, 256);
@@ -270,10 +272,8 @@ function tailSince(context: SessionKernelContext, sessionId: string, after: numb
 }
 
 /**
- * The pending set after `since`, folded from the appended tail with the full read's
- * rule: the chain is append-only and every consumption is an appended row, so
- * pending(head) = pending(since) + arrivals(since, head] - consumed(since, head].
- * Without `since` it is the one full read, paired with its head ordinal in one snapshot.
+ * Append-only chain: pending(head) = pending(since) + arrivals - consumed over (since, head].
+ * Without `since`, the one full read paired with its head ordinal.
  */
 export function pendingMessagesSinceIn(
   context: SessionKernelContext,

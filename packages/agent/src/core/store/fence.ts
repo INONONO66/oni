@@ -111,7 +111,6 @@ function makeSessionKernel(context: SessionKernelContext) {
       sessionWritesIn(context).pipe(Effect.flatMap((sessions) => sessions.adoptFence(input))),
     commit: (input: LedgerSession.Commit) => commitIn(context, input),
     pendingMessages: (sessionId: string): Delivery.Row[] => pendingMessagesIn(context, sessionId),
-    /** The pending set past a snapshot from the appended tail only; without one, the full read and its head ordinal. */
     pendingMessagesSince: (sessionId: string, since?: PendingSnapshot): PendingSnapshot =>
       pendingMessagesSinceIn(context, sessionId, since),
     /** The staleness horizon for `action` inputs; 0 when nothing executed. */

@@ -161,7 +161,6 @@ export function createSessionTurn(
   function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string, boundaryActionId: string | null, since: PendingSnapshot | undefined) {
     return Effect.gen(function* () {
       const observations = yield* ObservationService;
-      // One full read per turn: later boundaries fold only the rows appended since.
       const snapshot = kernel.pendingMessagesSince(sessionId, since);
       // Steer rows drain at tool.post boundaries, followUp rows at turn end. EVERY boundary
       // closes a late `action` with `after` behind the compaction head durably, never delivers it.

@@ -247,7 +247,6 @@ export function createSessionAdmission(
         resumeCount: 0,
         generation,
         resume: false,
-        // The turn's one full read: its boundaries fold the tail past it, this commit included.
         pending: backlog,
       });
     }));
