@@ -1,7 +1,9 @@
 import * as childProcess from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { AppInvariantError } from "../src/invariant";
 import { packKinds, type PackKind } from "./helpers/pack-kinds";
@@ -30,6 +32,25 @@ const probe: PackKind = {
 };
 
 const kinds: readonly PackKind[] = [...packKinds, probe];
+const temporaryFixtures = mkdtempSync(join(tmpdir(), "pack-conformance-"));
+afterAll(() => rmSync(temporaryFixtures, { recursive: true, force: true }));
+
+// Raw bytes retain intentionally malformed JSON without making the tracked
+// fixture tree fail the repository's JSON formatter.
+function fixtureDir(path: string): string {
+  const rawFiles = readdirSync(path, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json.raw"));
+  if (rawFiles.length === 0) return path;
+  const target = join(temporaryFixtures, randomUUID());
+  cpSync(path, target, { recursive: true });
+  for (const entry of readdirSync(target, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".json.raw")) {
+      const source = join(entry.parentPath, entry.name);
+      renameSync(source, source.slice(0, -".raw".length));
+    }
+  }
+  return target;
+}
 
 function refusal(load: () => readonly object[]): AppInvariantError {
   try {
@@ -44,7 +65,7 @@ function refusal(load: () => readonly object[]): AppInvariantError {
 for (const kind of kinds) {
   for (const name of kind.valid) {
     test(`${kind.kind}: ${name} loads reproducibly without process creation`, () => {
-      const path = kind.fixturePath(join(kind.fixturesRoot, "valid", name));
+      const path = kind.fixturePath(fixtureDir(join(kind.fixturesRoot, "valid", name)));
       const bunSpawn = spyOn(Bun, "spawn");
       const nodeSpawn = spyOn(childProcess, "spawn");
       const fetch = spyOn(globalThis, "fetch");
@@ -66,7 +87,7 @@ for (const kind of kinds) {
 
   for (const { name, code } of kind.invalid) {
     test(`${kind.kind}: ${name} refuses with a typed code without process creation`, () => {
-      const path = kind.fixturePath(join(kind.fixturesRoot, "invalid", name));
+      const path = kind.fixturePath(fixtureDir(join(kind.fixturesRoot, "invalid", name)));
       const bunSpawn = spyOn(Bun, "spawn");
       const nodeSpawn = spyOn(childProcess, "spawn");
       const fetch = spyOn(globalThis, "fetch");
