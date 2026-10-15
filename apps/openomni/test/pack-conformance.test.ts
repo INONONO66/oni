@@ -1,12 +1,12 @@
 import * as childProcess from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cpSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { AppInvariantError } from "../src/invariant";
-import { packKinds, type PackKind } from "./helpers/pack-kinds";
+import { cases, packKinds, type PackKind, refusals } from "./helpers/pack-kinds";
 
 // The probe has no production pack loader. Its registration still runs through
 // the same fixture discovery and assertions as the shipped kinds.
@@ -23,11 +23,8 @@ const probe: PackKind = {
     return parsed.data.rows;
   },
   codes: new Set(["invalid_probe"]),
-  valid: readdirSync(join(probeRoot, "valid")),
-  invalid: readdirSync(join(probeRoot, "invalid")).map((name) => ({
-    name,
-    code: name.split("--")[0] ?? "",
-  })),
+  valid: cases(join(probeRoot, "valid")),
+  invalid: refusals(join(probeRoot, "invalid")),
   fixturePath: (path) => path,
 };
 
@@ -43,11 +40,22 @@ function fixtureDir(path: string): string {
   if (rawFiles.length === 0) return path;
   const target = join(temporaryFixtures, randomUUID());
   cpSync(path, target, { recursive: true });
+  const materialized: string[] = [];
   for (const entry of readdirSync(target, { recursive: true, withFileTypes: true })) {
     if (entry.isFile() && entry.name.endsWith(".json.raw")) {
       const source = join(entry.parentPath, entry.name);
-      renameSync(source, source.slice(0, -".raw".length));
+      const file = source.slice(0, -".raw".length);
+      renameSync(source, file);
+      materialized.push(file);
     }
+  }
+  // A raw file exists only to carry malformed JSON: every copy must be present
+  // and unparseable, otherwise the case would refuse for a different reason
+  // (a missing file) and still match the expected code.
+  expect(materialized).toHaveLength(rawFiles.length);
+  for (const file of materialized) {
+    expect(existsSync(file)).toBe(true);
+    expect(() => JSON.parse(readFileSync(file, "utf8"))).toThrow();
   }
   return target;
 }
@@ -63,6 +71,12 @@ function refusal(load: () => readonly object[]): AppInvariantError {
 }
 
 for (const kind of kinds) {
+  test(`${kind.kind}: every declared refusal code has a fixture and the suite cannot pass vacuously`, () => {
+    expect(kind.valid.length).toBeGreaterThan(0);
+    expect(kind.invalid.length).toBeGreaterThan(0);
+    expect(new Set(kind.invalid.map((entry) => entry.code))).toEqual(new Set(kind.codes));
+  });
+
   for (const name of kind.valid) {
     test(`${kind.kind}: ${name} loads reproducibly without process creation`, () => {
       const path = kind.fixturePath(fixtureDir(join(kind.fixturesRoot, "valid", name)));
@@ -94,7 +108,6 @@ for (const kind of kinds) {
       try {
         const error = refusal(() => kind.load(path));
         expect(kind.codes.has(code)).toBe(true);
-        expect(error).toBeInstanceOf(AppInvariantError);
         expect(kind.codes.has(error.code ?? "")).toBe(true);
         expect(error.code).toBe(code);
         expect(error.message.trim()).not.toBe("");
@@ -109,7 +122,3 @@ for (const kind of kinds) {
     });
   }
 }
-
-const valid = kinds.reduce((count, kind) => count + kind.valid.length, 0);
-const invalid = kinds.reduce((count, kind) => count + kind.invalid.length, 0);
-console.log(`kinds=${kinds.length} fixtures=${valid + invalid} assertions=${valid * 5 + invalid * 8}`);

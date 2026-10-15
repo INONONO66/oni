@@ -19,9 +19,14 @@ const refuse = (message: string, code: string): never => {
 };
 
 const root = join(import.meta.dir, "../fixtures/packs");
-const cases = (path: string): readonly string[] =>
-  readdirSync(path, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-const refusals = (path: string): readonly { readonly name: string; readonly code: string }[] =>
+/** Fixture case directories under `path`, sorted so test order never depends on the filesystem. */
+export const cases = (path: string): readonly string[] =>
+  readdirSync(path, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+/** Invalid cases carry their expected refusal code as the `<code>--<case>` directory prefix. */
+export const refusals = (path: string): readonly { readonly name: string; readonly code: string }[] =>
   cases(path).map((name) => ({ name, code: name.split("--")[0] ?? "" }));
 
 export const packKinds: readonly PackKind[] = [
