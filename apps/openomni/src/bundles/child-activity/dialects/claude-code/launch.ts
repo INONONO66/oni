@@ -1,8 +1,13 @@
-import type { Launch } from "../pack.js";
+import type { Launch, LaunchInput } from "../pack.js";
 
-export function launch(sessionId: string, hooksConfigPath: string): Launch {
+export function launch(input: LaunchInput): Launch {
   return {
-    argv: ["claude", "--session-id", sessionId, "--settings", hooksConfigPath],
+    argv: [
+      "claude",
+      "--session-id",
+      input.sessionId,
+      ...(input.liveConfigPath === undefined ? [] : ["--settings", input.liveConfigPath]),
+    ],
     env: {},
   };
 }

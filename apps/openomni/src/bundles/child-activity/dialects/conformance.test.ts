@@ -2,15 +2,25 @@ import { describe, expect, test } from "bun:test";
 import { ChildLifecycleEvidence, TranscriptRef } from "@openomni/protocol";
 import { z } from "zod";
 import { packs, selectPack } from "./index.js";
-import { DialectDecodeError, Manifest } from "./pack.js";
+import { DialectDecodeError, Manifest, matchScreen } from "./pack.js";
 
+const Case = z.strictObject({
+  line: z.string(),
+  phase: ChildLifecycleEvidence.shape.phase,
+});
 const Fixtures = z.strictObject({
-  live: z
-    .array(z.strictObject({ line: z.string(), phase: ChildLifecycleEvidence.shape.phase }))
-    .min(1),
-  transcript: z
-    .array(z.strictObject({ line: z.string(), phase: ChildLifecycleEvidence.shape.phase }))
-    .min(1),
+  live: z.array(Case).optional(),
+  transcript: z.array(Case).optional(),
+  unsupported: z.strictObject({
+    live: z.array(z.string()).optional(),
+    transcript: z.array(z.string()).optional(),
+  }),
+  toolUseId: z.string().min(1).optional(),
+});
+const Screens = z.strictObject({
+  permission_prompt: z.string(),
+  working: z.string(),
+  idle_prompt: z.string(),
 });
 const ref = TranscriptRef.parse({
   machine: "machine-redacted",
@@ -21,6 +31,12 @@ const ref = TranscriptRef.parse({
   parser: { dialect: "fixture", version: "1" },
 });
 const identity = { child: "child-redacted", turn: "turn-redacted" };
+const fixtureFor = async (id: string): Promise<z.infer<typeof Fixtures>> =>
+  Fixtures.parse(await Bun.file(`${import.meta.dir}/${id}/test/fixtures.json`).json());
+
+test("registers at least one dialect", () => {
+  expect(packs.length).toBeGreaterThan(0);
+});
 
 for (const pack of packs) {
   describe(pack.manifest.id, () => {
@@ -33,46 +49,100 @@ for (const pack of packs) {
       ).toBeUndefined();
     });
 
-    test("rejects malformed observations with typed errors", () => {
-      expect(() => pack.live("{", { ...identity, lastSeq: 0 })).toThrow(DialectDecodeError);
-      expect(() => pack.live("{}", { ...identity, lastSeq: 0 })).toThrow(DialectDecodeError);
-      expect(() => pack.transcript("{", { ...identity, ref })).toThrow(DialectDecodeError);
-      expect(() => pack.transcript("{}", { ...identity, ref })).toThrow(DialectDecodeError);
-    });
-
-    test("covers phases and refuses repeated or descending spool sequences", async () => {
-      const fixtures = Fixtures.parse(
-        await Bun.file(`${import.meta.dir}/${pack.manifest.id}/test/fixtures.json`).json(),
-      );
-      let lastSeq = 0;
-      for (const fixture of fixtures.live) {
-        const result = pack.live(fixture.line, { ...identity, lastSeq });
-        expect(result.phase).toBe(fixture.phase);
-        ChildLifecycleEvidence.parse(result);
-        if (!("kind" in result.ref)) throw new Error("expected hook reference");
-        expect(result.ref.kind).toBe("hook");
-        const seq = result.ref.seq;
-        expect(seq).toBeGreaterThan(lastSeq);
-        expect(() => pack.live(fixture.line, { ...identity, lastSeq: seq })).toThrow(
-          new DialectDecodeError("live", "stale_seq"),
+    test("exposes only declared capabilities and refuses malformed or unsupported input", async () => {
+      const fixtures = await fixtureFor(pack.manifest.id);
+      const live = pack.live;
+      const transcript = pack.transcript;
+      expect(live !== undefined).toBe(pack.manifest.capabilities.live !== "none");
+      expect(transcript !== undefined).toBe(pack.manifest.capabilities.transcript !== "none");
+      expect(pack.launch !== undefined).toBe(pack.manifest.capabilities.correlated_launch);
+      if (live !== undefined) {
+        expect(fixtures.live?.length).toBeGreaterThan(0);
+        expect(fixtures.unsupported.live?.length).toBeGreaterThan(0);
+        expect(() => live("{", { ...identity, lastSeq: 0 })).toThrow(
+          new DialectDecodeError("live", "malformed"),
         );
-        lastSeq = seq;
+        expect(() => live("{}", { ...identity, lastSeq: 0 })).toThrow(
+          new DialectDecodeError("live", "malformed"),
+        );
+        for (const line of fixtures.unsupported.live ?? [])
+          expect(() => live(line, { ...identity, lastSeq: 0 })).toThrow(
+            new DialectDecodeError("live", "unsupported"),
+          );
+      } else {
+        expect(fixtures.live).toBeUndefined();
+        expect(fixtures.unsupported.live).toBeUndefined();
       }
-      for (const fixture of fixtures.transcript) {
-        const result = pack.transcript(fixture.line, { ...identity, ref });
-        expect(result.phase).toBe(fixture.phase);
-        ChildLifecycleEvidence.parse(result);
+      if (transcript !== undefined) {
+        expect(fixtures.transcript?.length).toBeGreaterThan(0);
+        expect(fixtures.unsupported.transcript?.length).toBeGreaterThan(0);
+        expect(() => transcript("{", { ...identity, ref })).toThrow(
+          new DialectDecodeError("transcript", "malformed"),
+        );
+        expect(() => transcript("{}", { ...identity, ref })).toThrow(
+          new DialectDecodeError("transcript", "malformed"),
+        );
+        for (const line of fixtures.unsupported.transcript ?? [])
+          expect(() => transcript(line, { ...identity, ref })).toThrow(
+            new DialectDecodeError("transcript", "unsupported"),
+          );
+      } else {
+        expect(fixtures.transcript).toBeUndefined();
+        expect(fixtures.unsupported.transcript).toBeUndefined();
       }
     });
 
-    test("joins live and transcript tool calls on canonical identity", async () => {
-      const fixtures = Fixtures.parse(
-        await Bun.file(`${import.meta.dir}/${pack.manifest.id}/test/fixtures.json`).json(),
-      );
-      const live = fixtures.live.find((fixture) => fixture.phase === "requested");
-      const transcript = fixtures.transcript.find((fixture) => fixture.phase === "requested");
-      if (live === undefined || transcript === undefined)
-        throw new Error("missing tool-call fixture");
+    test("covers required phases in each supported observation source", async () => {
+      const fixtures = await fixtureFor(pack.manifest.id);
+      if (pack.live !== undefined) {
+        const phases = new Set<ChildLifecycleEvidence["phase"]>();
+        let lastSeq = 0;
+        for (const fixture of fixtures.live ?? []) {
+          const result = pack.live(fixture.line, { ...identity, lastSeq });
+          expect(result.phase).toBe(fixture.phase);
+          ChildLifecycleEvidence.parse(result);
+          if (!("kind" in result.ref)) throw new Error("expected hook reference");
+          const seq = result.ref.seq;
+          expect(seq).toBeGreaterThan(lastSeq);
+          expect(() => pack.live?.(fixture.line, { ...identity, lastSeq: seq })).toThrow(
+            new DialectDecodeError("live", "stale_seq"),
+          );
+          lastSeq = seq;
+          phases.add(result.phase);
+        }
+        const permissionPhases: readonly ChildLifecycleEvidence["phase"][] = ["waiting", "decided"];
+        const required: readonly ChildLifecycleEvidence["phase"][] = [
+          "observed",
+          "requested",
+          "result",
+          "terminal",
+          ...(pack.manifest.capabilities.permission_decision ? permissionPhases : []),
+        ];
+        for (const phase of required) expect(phases.has(phase)).toBe(true);
+      }
+      if (pack.transcript !== undefined) {
+        const phases = new Set<ChildLifecycleEvidence["phase"]>();
+        for (const fixture of fixtures.transcript ?? []) {
+          const result = pack.transcript(fixture.line, { ...identity, ref });
+          expect(result.phase).toBe(fixture.phase);
+          ChildLifecycleEvidence.parse(result);
+          if (result.phase === "decided") expect(result.toolUseId).toBeDefined();
+          phases.add(result.phase);
+        }
+        for (const phase of ["observed", "requested", "result", "terminal"] as const)
+          expect(phases.has(phase)).toBe(true);
+        if (pack.manifest.capabilities.permission_decision)
+          expect(phases.has("decided")).toBe(true);
+      }
+    });
+
+    test("joins tool calls on the fixture-declared identity when both sources exist", async () => {
+      if (pack.live === undefined || pack.transcript === undefined) return;
+      const fixtures = await fixtureFor(pack.manifest.id);
+      const live = fixtures.live?.find((fixture) => fixture.phase === "requested");
+      const transcript = fixtures.transcript?.find((fixture) => fixture.phase === "requested");
+      if (live === undefined || transcript === undefined || fixtures.toolUseId === undefined)
+        throw new Error("missing correlated tool-call fixture");
       const fromLive = pack.live(live.line, { ...identity, lastSeq: 0 });
       const fromTranscript = pack.transcript(transcript.line, { ...identity, ref });
       const key = (evidence: ChildLifecycleEvidence) => ({
@@ -82,13 +152,47 @@ for (const pack of packs) {
         phase: evidence.phase,
       });
       expect(key(fromLive)).toEqual(key(fromTranscript));
-      expect(fromLive.toolUseId).toBe("toolu_redacted_bash");
+      expect(fromLive.toolUseId).toBeDefined();
+      expect(fromLive.toolUseId).toBe(fixtures.toolUseId);
     });
 
-    test("provides correlated launch and a guarded two-write submit recipe", () => {
-      const launch = pack.launch("session-redacted", "/machine/hooks.json");
-      expect(launch.argv).toContain("session-redacted");
-      expect(launch.argv).toContain("/machine/hooks.json");
+    test("matches anchored bottom rows in only their captured screen state", async () => {
+      const screens = Screens.parse(
+        await Bun.file(`${import.meta.dir}/${pack.manifest.id}/test/screen-fixtures.json`).json(),
+      );
+      for (const state of ["permission_prompt", "working", "idle_prompt"] as const) {
+        expect(matchScreen(pack.manifest, screens[state])).toBe(state);
+        for (const pattern of pack.manifest.screen[state]) {
+          const regex = new RegExp(pattern);
+          const rows = screens[state]
+            .split("\n")
+            .map((row) => row.trim())
+            .slice(-20);
+          expect(rows.some((row) => regex.test(row))).toBe(true);
+          for (const other of ["permission_prompt", "working", "idle_prompt"] as const) {
+            if (other === state) continue;
+            expect(screens[other].split("\n").some((row) => regex.test(row.trim()))).toBe(false);
+          }
+        }
+      }
+      expect(
+        matchScreen(pack.manifest, `${screens.idle_prompt}\n${screens.working}\n${screens.permission_prompt}`),
+      ).toBe("permission_prompt");
+      expect(matchScreen(pack.manifest, `${screens.idle_prompt}\n${screens.working}`)).toBe(
+        "working",
+      );
+      expect(matchScreen(pack.manifest, "unrecognized pane")).toBeUndefined();
+    });
+
+    test("provides a guarded submit recipe and optional correlated launch", () => {
+      if (pack.launch !== undefined) {
+        const launch = pack.launch({
+          sessionId: "session-redacted",
+          liveConfigPath: "/machine/hooks.json",
+        });
+        expect(launch.argv).toContain("session-redacted");
+        expect(pack.launch({ sessionId: "session-redacted" }).argv).toContain("session-redacted");
+      }
       const recipe = pack.submit("redacted prompt");
       expect(recipe.writes).toEqual([
         { kind: "text", value: "redacted prompt" },

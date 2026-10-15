@@ -1,54 +1,72 @@
 {
+  "toolUseId": "toolu_redacted",
   "live": [
     {
-      "line": "{\"seq\":1,\"receivedAt\":100,\"payload\":{\"hook_event_name\":\"SessionStart\"}}",
+      "line": "{\"seq\":1,\"event\":\"SessionStart\",\"receivedAt\":100,\"payload\":{\"session_id\":\"session-redacted\",\"transcript_path\":\"/redacted/session.jsonl\",\"cwd\":\"/redacted\",\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}}",
       "phase": "observed"
     },
     {
-      "line": "{\"seq\":2,\"receivedAt\":101,\"payload\":{\"hook_event_name\":\"UserPromptSubmit\"}}",
+      "line": "{\"seq\":2,\"event\":\"UserPromptSubmit\",\"receivedAt\":101,\"payload\":{\"session_id\":\"session-redacted\",\"prompt_id\":\"prompt-redacted\",\"permission_mode\":\"bypassPermissions\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"Run: echo hello\"}}",
       "phase": "observed"
     },
     {
-      "line": "{\"seq\":3,\"receivedAt\":102,\"payload\":{\"hook_event_name\":\"PreToolUse\",\"tool_use_id\":\"toolu_redacted_bash\"}}",
+      "line": "{\"seq\":3,\"event\":\"PreToolUse\",\"receivedAt\":102,\"payload\":{\"session_id\":\"session-redacted\",\"prompt_id\":\"prompt-redacted\",\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo hello\",\"description\":\"Print hello\"},\"tool_use_id\":\"toolu_redacted\"}}",
       "phase": "requested"
     },
     {
-      "line": "{\"seq\":4,\"receivedAt\":103,\"payload\":{\"hook_event_name\":\"PermissionRequest\",\"tool_use_id\":\"toolu_redacted_bash\"}}",
-      "phase": "waiting"
-    },
-    {
-      "line": "{\"seq\":5,\"receivedAt\":104,\"payload\":{\"hook_event_name\":\"PermissionRequest\",\"tool_use_id\":\"toolu_redacted_bash\",\"permission_decision\":\"allow\"}}",
-      "phase": "decided"
-    },
-    {
-      "line": "{\"seq\":6,\"receivedAt\":105,\"payload\":{\"hook_event_name\":\"PostToolUse\",\"tool_use_id\":\"toolu_redacted_bash\"}}",
+      "line": "{\"seq\":4,\"event\":\"PostToolUse\",\"receivedAt\":103,\"payload\":{\"session_id\":\"session-redacted\",\"prompt_id\":\"prompt-redacted\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo hello\"},\"tool_response\":{\"stdout\":\"hello\",\"stderr\":\"\",\"interrupted\":false},\"tool_use_id\":\"toolu_redacted\",\"duration_ms\":4070}}",
       "phase": "result"
     },
     {
-      "line": "{\"seq\":7,\"receivedAt\":106,\"payload\":{\"hook_event_name\":\"Stop\"}}",
+      "line": "{\"seq\":5,\"event\":\"Stop\",\"receivedAt\":104,\"payload\":{\"session_id\":\"session-redacted\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false,\"last_assistant_message\":\"The command ran and printed hello.\"}}",
       "phase": "observed"
     },
     {
-      "line": "{\"seq\":8,\"receivedAt\":107,\"payload\":{\"hook_event_name\":\"SessionEnd\"}}",
+      "line": "{\"seq\":6,\"event\":\"PermissionRequest\",\"receivedAt\":105,\"payload\":{\"session_id\":\"session-redacted\",\"prompt_id\":\"prompt-redacted\",\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"[redacted]\"},\"permission_suggestions\":[{\"type\":\"addRules\",\"rules\":[{\"toolName\":\"Bash\",\"ruleContent\":\"[redacted]\"}],\"behavior\":\"allow\",\"destination\":\"localSettings\"}]}}",
+      "phase": "waiting"
+    },
+    {
+      "line": "{\"seq\":7,\"event\":\"PermissionRequest\",\"receivedAt\":106,\"decision\":\"deny\",\"payload\":{\"session_id\":\"session-redacted\",\"prompt_id\":\"prompt-redacted\",\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"[redacted]\"}}}",
+      "phase": "decided"
+    },
+    {
+      "line": "{\"seq\":8,\"event\":\"SessionEnd\",\"receivedAt\":107,\"payload\":{\"session_id\":\"session-redacted\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"other\"}}",
       "phase": "terminal"
     }
   ],
   "transcript": [
     {
-      "line": "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"[redacted]\"}]}}",
+      "line": "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Request interrupted by user for tool use]\"}]},\"version\":\"2.1.282\"}",
       "phase": "observed"
     },
     {
-      "line": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_redacted_bash\",\"name\":\"Bash\",\"input\":{\"command\":\"[redacted]\"}}],\"stop_reason\":\"tool_use\"}}",
+      "line": "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_redacted\",\"name\":\"Bash\",\"input\":{\"command\":\"echo hello\",\"description\":\"Print hello\"}}],\"stop_reason\":\"tool_use\"},\"version\":\"2.1.282\"}",
       "phase": "requested"
     },
     {
-      "line": "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_redacted_bash\",\"content\":\"[redacted]\"}]}}",
+      "line": "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_redacted\",\"type\":\"tool_result\",\"content\":\"hello\",\"is_error\":false}]},\"toolUseResult\":{\"stdout\":\"hello\",\"stderr\":\"\",\"interrupted\":false}}",
       "phase": "result"
     },
     {
-      "line": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"[redacted]\"}],\"stop_reason\":\"end_turn\"}}",
+      "line": "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"The user doesn't want to proceed with this tool use.\",\"is_error\":true,\"tool_use_id\":\"toolu_denied_redacted\"}]},\"toolUseResult\":\"User rejected tool use\",\"toolDenialKind\":\"user-rejected\"}",
+      "phase": "decided"
+    },
+    {
+      "line": "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"The command ran and printed hello.\"}],\"stop_reason\":\"end_turn\"},\"version\":\"2.1.282\"}",
       "phase": "terminal"
     }
-  ]
+  ],
+  "unsupported": {
+    "live": [
+      "{\"seq\":9,\"event\":\"Notification\",\"receivedAt\":108,\"payload\":{\"hook_event_name\":\"Notification\",\"message\":\"redacted\"}}",
+      "{\"seq\":10,\"event\":\"SubagentStop\",\"receivedAt\":109,\"payload\":{\"hook_event_name\":\"SubagentStop\"}}",
+      "{\"seq\":11,\"event\":\"PreCompact\",\"receivedAt\":110,\"payload\":{\"hook_event_name\":\"PreCompact\"}}"
+    ],
+    "transcript": [
+      "{\"type\":\"system\",\"subtype\":\"informational\",\"content\":\"redacted\"}",
+      "{\"type\":\"summary\",\"summary\":\"redacted\"}",
+      "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"redacted\"}]}}",
+      "{\"type\":\"user\",\"message\":{\"content\":\"Run: echo hello\"}}"
+    ]
+  }
 }
