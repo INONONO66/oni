@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import net from "node:net";
 import { createIpcServer, typedCall } from "./ipc/helpers/native";
 import { Machine } from "@openomni/protocol";
 import { attachMachineDaemon, createMachineHost, MachineRefusalError } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
+import { startProxy } from "./helpers/proxy";
+import { eventCollector } from "./helpers/events";
 
 import {
   capabilities,
@@ -84,16 +87,48 @@ describe("real machine consumer surface", () => {
         expect(await host.get("m-1").fs.write(join(root, "bulk"), bytes)).toEqual({
           op: "write", bytesWritten: bytes.length,
         });
-        const read = await host.get("m-1").fs.read(join(root, "bulk"));
-        expect(read.bytesRead).toBe(bytes.length);
-        expect(read.truncated).toBe(false);
-        expect(createHash("sha256").update(read.data).digest("hex")).toBe(expected);
+        const first = await host.get("m-1").fs.read(join(root, "bulk"), { limit: bytes.length });
+        expect(first.bytesRead).toBe(8 * 1024 * 1024);
+        expect(first.truncated).toBe(true);
+        const second = await host.get("m-1").fs.read(join(root, "bulk"), { offset: first.bytesRead, limit: bytes.length });
+        expect(second.bytesRead).toBe(bytes.length - first.bytesRead);
+        expect(second.truncated).toBe(false);
+        expect(createHash("sha256").update(first.data).update(second.data).digest("hex")).toBe(expected);
+        const defaultRead = await host.get("m-1").fs.read(join(root, "bulk"));
+        expect(defaultRead.bytesRead).toBe(Machine.FS_READ_MAX_BYTES);
+        expect(defaultRead.truncated).toBe(true);
       } finally {
         await daemon.close();
         host.close();
       }
     });
   }, 30_000);
+
+  test("a write-only attachment can finish its own streamed write", async () => {
+    await fixture(async (root) => {
+      const path = socketPath();
+      const host = await createMachineHost({
+        listen: { unix: path },
+        enrollment: () => ({ ...enrollment(), allowedCapabilities: ["fs.write"] }),
+        events: silent,
+        now: () => 3,
+      });
+      const daemon = await attachMachineDaemon({
+        socketPath: path,
+        offer: offer(root, { offeredCapabilities: ["fs.write"] }),
+        fsExports: new Map([["docs", root]]),
+      });
+      try {
+        const bytes = Buffer.alloc(Machine.FS_WRITE_MAX_BYTES + 1, 42);
+        expect(await host.get("m-1").fs.write(join(root, "write-only"), bytes))
+          .toEqual({ op: "write", bytesWritten: bytes.length });
+        expect(await Bun.file(join(root, "write-only")).bytes()).toEqual(bytes);
+      } finally {
+        await daemon.close();
+        host.close();
+      }
+    });
+  });
 
   test("unattached handles throw typed refusal and a capability fold grants no extra authority", async () => {
     await fixture(async (root) => {
@@ -274,14 +309,62 @@ test("longest normalized root wins, and equal roots refuse rather than selecting
 });
 
 describe("daemon boundary cannot be bypassed by a rogue host", () => {
+  test("disconnect during a staged write fails typed and clears daemon transfer state", async () => {
+    await fixture(async (root) => {
+      writeFileSync(join(root, "target"), "original");
+      const path = socketPath();
+      const proxyPath = socketPath();
+      const events = eventCollector();
+      const host = await createMachineHost({ listen: { unix: path }, enrollment, events: events.sink, now: () => 3 });
+      const discarded = Promise.withResolvers<void>();
+      const scheduled = Promise.withResolvers<void>();
+      let proxy!: Awaited<ReturnType<typeof startProxy>>;
+      proxy = await startProxy(proxyPath, () => net.connect(path), (line) => {
+        const frame = JSON.parse(line);
+        if (frame.type !== "response" || frame.result?.status !== "written") return false;
+        discarded.resolve();
+        queueMicrotask(() => proxy.sever());
+        return true;
+      });
+      const daemon = await attachMachineDaemon({
+        socketPath: proxyPath, offer: offer(root), fsExports: new Map([["docs", root]]),
+        reconnect: { scheduler: { schedule: () => { scheduled.resolve(); return () => undefined; } }, random: () => 1 },
+      });
+      try {
+        const detached = events.next(Machine.Events.Detached.name);
+        const pending = host.get("m-1").fs.write(join(root, "target"), Buffer.alloc(Machine.FS_WRITE_MAX_BYTES + 1, 42));
+        await discarded.promise;
+        await expect(pending).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
+        await detached;
+        await scheduled.promise;
+        expect(readFileSync(join(root, "target"), "utf8")).toBe("original");
+        expect(readdirSync(root)).toEqual(["target"]);
+      } finally {
+        await daemon.close();
+        await proxy.stop();
+        host.close();
+      }
+    });
+  });
+
   test("a lost write acknowledgement resumes by transfer id and sequence", async () => {
     await fixture(async (root) => {
       const path = socketPath();
+      const proxyPath = socketPath();
       const host = await createIpcServer(path, (_method, _params, respond) =>
         respond({ status: "attached", effectiveCapabilities: capabilities, effectiveExports: ["docs"] }),
       );
+      const dropped = Promise.withResolvers<void>();
+      let discarded = false;
+      const proxy = await startProxy(proxyPath, () => net.connect(path), (line) => {
+        const frame = JSON.parse(line);
+        if (discarded || frame.type !== "response" || frame.result?.status !== "written") return false;
+        discarded = true;
+        dropped.resolve();
+        return true;
+      });
       const daemon = await attachMachineDaemon({
-        socketPath: path, offer: offer(root), fsExports: new Map([["docs", root]]),
+        socketPath: proxyPath, offer: offer(root), fsExports: new Map([["docs", root]]),
       });
       try {
         const transferId = "dropped-ack";
@@ -293,7 +376,9 @@ describe("daemon boundary cannot be bypassed by a rogue host", () => {
           op: "write", transferId, seq: 0, data: data.toString("base64"), last: true,
           digest: createHash("sha256").update(data).digest("hex"),
         } as const;
-        await typedCall(host, Machine.WireMethod.FsStream, chunk);
+        const unanswered = typedCall(host, Machine.WireMethod.FsStream, chunk, 200);
+        await dropped.promise;
+        await expect(unanswered).rejects.toMatchObject({ _tag: "IpcTimeoutError" });
         expect(await typedCall(host, Machine.WireMethod.FsStream, chunk)).toEqual({
           status: "written", seq: 0, bytesWritten: data.length, last: true,
         });
@@ -301,6 +386,7 @@ describe("daemon boundary cannot be bypassed by a rogue host", () => {
         expect((await Bun.file(join(root, "resumed")).bytes())).toEqual(data);
       } finally {
         await daemon.close();
+        await proxy.stop();
         host.close();
       }
     });

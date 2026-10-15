@@ -137,6 +137,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     /** Owns the CURRENT connection; each (re)connection gets a fresh scope. */
     let clientScope: Scope.Closeable | undefined;
     let attachment: Machine.AttachResult = { status: "refused", reason: "machine_not_enrolled" };
+    let attachmentReady = false;
     const attached = yield* Deferred.make<void>();
     const closed = yield* Deferred.make<void, MachineError>();
     let closing = false;
@@ -146,12 +147,13 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
       cancelReport?.();
       cancelReport = undefined;
     }
-    const releaseClient: Effect.Effect<void> = Effect.suspend(() => {
+    const releaseClient: Effect.Effect<void, MachineError> = Effect.suspend(() => {
       stopReporting();
       const scope = clientScope;
       clientScope = undefined;
       client = undefined;
-      return scope === undefined ? Effect.void : Scope.close(scope, Exit.void);
+      attachmentReady = false;
+      return filesystem.abortAll().pipe(Effect.andThen(scope === undefined ? Effect.void : Scope.close(scope, Exit.void)));
     });
     function runAttempt(): void {
       // A full dispatcher must not eat the reattach trigger: back off and retry.
@@ -183,12 +185,15 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
       return Effect.suspend(() => {
         if (closing || clientScope !== scope) return Effect.void;
         if (reconnector !== undefined && attachment.status === "attached")
-          return releaseClient.pipe(Effect.andThen(Effect.sync(() => reconnector.scheduleAttempt())));
+          return releaseClient.pipe(
+            Effect.mapError((error) => new MachinesFailure({ operation: "daemon.disconnect", cause: String(error) })),
+            Effect.andThen(Effect.sync(() => reconnector.scheduleAttempt())),
+          );
         return close.pipe(Effect.mapError((error) => new MachinesFailure({ operation: "daemon.disconnect", cause: String(error) })));
       });
     }
     function has(capability: string): boolean {
-      return attachment.status === "attached" && attachment.effectiveCapabilities.includes(capability) && offer.offeredCapabilities.includes(capability);
+      return attachmentReady && attachment.status === "attached" && attachment.effectiveCapabilities.includes(capability) && offer.offeredCapabilities.includes(capability);
     }
     function openCwd(cwd: string): { readonly cwd: string } | Machine.ExecResult {
       const absolute = posix.normalize(cwd);
@@ -221,17 +226,26 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
         return filesystem(request);
       });
     }
+    function streamExportAvailable(request: Extract<Machine.FsStreamRequest, { op: "begin" }>): boolean {
+      if (attachment.status !== "attached" || !attachment.effectiveExports.includes(request.export)) return false;
+      const offered = offer.exports?.find((entry) => entry.name === request.export);
+      return offered !== undefined && options.fsExports?.get(request.export) === offered.path;
+    }
+    function streamRefusal(request: Machine.FsStreamRequest): Extract<Machine.FsStreamResult, { status: "refused" }> | undefined {
+      if (!attachmentReady || attachment.status !== "attached")
+        return { status: "refused", reason: "machine_not_attached", message: "machine is not attached" };
+      const mode = request.op === "begin" ? request.mode : filesystem.modeOf(request.transferId);
+      if (mode === undefined) return undefined;
+      const capability = mode === "write" ? Machine.WellKnownCapability.fsWrite : Machine.WellKnownCapability.fsRead;
+      if (!has(capability)) return { status: "refused", reason: "fs_not_available", message: `${capability} is not available` };
+      if (request.op === "begin" && !streamExportAvailable(request))
+        return { status: "refused", reason: "export_not_available", message: `export is not available: ${request.export}` };
+      return undefined;
+    }
     function fsStream(request: Machine.FsStreamRequest): Effect.Effect<Machine.FsStreamResult, MachineError> {
       return Effect.suspend(() => {
-        const capability = request.op === "begin" && request.mode === "write" || request.op === "write" || request.op === "finish" && !has(Machine.WellKnownCapability.fsRead)
-          ? Machine.WellKnownCapability.fsWrite : Machine.WellKnownCapability.fsRead;
-        if (!has(capability)) return Effect.succeed({ status: "refused", reason: "fs_not_available", message: `${capability} is not available` } as const);
-        if (request.op === "begin") {
-          const offered = offer.exports?.find((entry) => entry.name === request.export);
-          if (attachment.status !== "attached" || !attachment.effectiveExports.includes(request.export) || offered === undefined || options.fsExports?.get(request.export) !== offered.path)
-            return Effect.succeed({ status: "refused", reason: "export_not_available", message: `export is not available: ${request.export}` } as const);
-        }
-        return filesystem.stream(request);
+        const refusal = streamRefusal(request);
+        return refusal === undefined ? filesystem.stream(request) : Effect.succeed(refusal);
       });
     }
     function exec(request: Machine.ExecRequest): Effect.Effect<Machine.ExecResult, MachineError> {
@@ -368,6 +382,8 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     }
     /** One connect-and-attach cycle; the connection lives in its own scope. */
     const establish: Effect.Effect<void, MachineError> = Effect.gen(function* () {
+      yield* filesystem.abortAll();
+      attachmentReady = false;
       const scope = yield* Scope.make();
       clientScope = scope;
       client = yield* dialWith(scope).pipe(Scope.provide(scope), Effect.mapError((error) =>
@@ -379,6 +395,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
           : transportFailure("daemon.connect")(error)));
       const raw = yield* typedCall(client, Machine.WireMethod.Attach, offer, options.attachTimeoutMs).pipe(Effect.mapError(transportFailure("daemon.attach")));
       attachment = yield* Effect.try({ try: () => Machine.AttachResult.parse(raw), catch: decodeMachineFailure("daemon.attach.response") });
+      attachmentReady = attachment.status === "attached";
       // The first heartbeat follows the attach at once (through the scheduler, never ambiently).
       if (attachment.status === "attached") scheduleReport(0);
     });
@@ -402,7 +419,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
             attachment = { status: "refused", reason: "peer_key_mismatch" };
             return Effect.orDie(close);
           }
-          return releaseClient.pipe(Effect.andThen(Effect.sync(() => { if (!closing) reconnector?.scheduleAttempt(); })));
+          return Effect.orDie(releaseClient).pipe(Effect.andThen(Effect.sync(() => { if (!closing) reconnector?.scheduleAttempt(); })));
         }),
       );
     });

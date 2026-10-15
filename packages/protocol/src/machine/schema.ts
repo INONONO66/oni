@@ -511,6 +511,7 @@ export const FsStreamRequest = z.discriminatedUnion("op", [
   z.object({ op: z.literal("read"), transferId: TransferId, seq: TransferSeq }).strict(),
   z.object({ op: z.literal("write"), transferId: TransferId, seq: TransferSeq, data: FsChunk, last: z.boolean(), digest: Digest.optional() }).strict(),
   z.object({ op: z.literal("finish"), transferId: TransferId }).strict(),
+  z.object({ op: z.literal("abort"), transferId: TransferId }).strict(),
 ]);
 export type FsStreamRequest = z.infer<typeof FsStreamRequest>;
 

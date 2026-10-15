@@ -22,7 +22,7 @@ Defines the locked-in wire contract between a machine host and an attached machi
 | `machine.report` | Machine daemon → Machine host | One load observation (`loadAvg1`, `memoryAvailableBytes`, `inFlight`) from an attached daemon; the host answers `accepted` or a typed refusal (`machine_not_attached`, `machine_mismatch`). Static capacity (`cpus`, `memoryBytes`) rides the attach offer as `resources`. (#1555) |
 | `machine.run_cell` | Machine host → Machine daemon | Run one code cell on the attachment's persistent interpreter under a required deadline. |
 | `machine.call_tool` | Machine daemon → Machine host | A `tool.<name>()` call made from inside a running cell, answered by the host's injected tool port. |
-| `machine.fs_stream` | Machine host → Machine daemon | Begin a retained confined transfer, read or write 256 KiB chunks by transfer id and sequence, then finish; the final chunk carries a SHA-256 digest. Repeating the latest sequence resumes a dropped reply. |
+| `machine.fs_stream` | Machine host → Machine daemon | Begin a bounded confined transfer, read or write 256 KiB chunks by transfer id and sequence, finish after the final SHA-256 digest, or abort to release resources. Repeating the latest chunk sequence is idempotent; the host does not transparently retry lost replies. |
 
 The former `coordinator.*`/`worker.*` method rows were removed with their runtime (coordinator/worker processes deleted in #792/#797; no live peer ever spoke them on the machine wire). The `machine.*` frames — the only frames any shipped peer sends — are byte-identical, so the version stays `2`; removing a never-spoken method row is not a wire change.
 

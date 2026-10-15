@@ -52,6 +52,8 @@ interface MachineHostOptions {
 }
 /** Default `staleAfterMs`: three missed default-cadence heartbeats. */
 const REPORT_STALE_AFTER_MS = 15_000;
+/** A bulk read still fits a single codemode tool reply after base64 encoding. */
+const BULK_READ_MAX_BYTES = 8 * 1024 * 1024;
 type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }>;
 type ReadValue = Omit<Value<"read">, "data"> & { readonly data: Uint8Array };
 type ExecValue = Omit<Extract<Machine.ExecResult, { status: "completed" }>, "stdout" | "stderr"> & { readonly stdout: Uint8Array; readonly stderr: Uint8Array };
@@ -300,6 +302,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return streamCall(peer, { op: "finish", transferId }).pipe(Effect.flatMap((result) => result.status === "finished"
         ? Effect.void : new MachineRefusalError({ reason: "invalid_response", message: "filesystem finish mismatch" })));
     }
+    function withTransfer<A>(peer: Attachment, transferId: string, body: Effect.Effect<A, MachineError>): Effect.Effect<A, MachineError> {
+      return body.pipe(Effect.ensuring(streamCall(peer, { op: "abort", transferId }).pipe(Effect.ignore)));
+    }
     function readPart(peer: Attachment, transferId: string, seq: number): Effect.Effect<{ part: Extract<Machine.FsStreamResult, { status: "chunk" }>; data: Buffer }, MachineError> {
       return Effect.gen(function* () {
         const part = yield* streamCall(peer, { op: "read", transferId, seq });
@@ -330,13 +335,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return Effect.gen(function* () {
         const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
         const transferId = options.id();
-        const request = yield* Effect.try({
-          try: () => Machine.FsStreamRequest.parse({ op: "begin", mode: "read", transferId, export: target.export, path: target.path, ...window }),
-          catch: decodeMachineFailure("fs.stream.request"),
-        });
-        const begin = yield* streamCall(target.peer, request);
-        if (begin.status !== "begun") return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
-        return yield* readBody(target.peer, transferId, begin, window.offset ?? 0);
+        return yield* withTransfer(target.peer, transferId, Effect.gen(function* () {
+          const request = yield* Effect.try({
+            try: (): Extract<Machine.FsStreamRequest, { op: "begin" }> => Machine.FsStreamRequest.parse({ op: "begin", mode: "read", transferId, export: target.export, path: target.path, ...window }) as Extract<Machine.FsStreamRequest, { op: "begin" }>,
+            catch: decodeMachineFailure("fs.stream.request"),
+          });
+          const begin = yield* streamCall(target.peer, { ...request, limit: Math.min(window.limit ?? Machine.FS_READ_MAX_BYTES, BULK_READ_MAX_BYTES) });
+          if (begin.status !== "begun") return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
+          return yield* readBody(target.peer, transferId, begin, window.offset ?? 0);
+        }));
       });
     }
     function writePart(peer: Attachment, request: Extract<Machine.FsStreamRequest, { op: "write" }>, expectedBytes: number): Effect.Effect<void, MachineError> {
@@ -347,22 +354,24 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return Effect.gen(function* () {
         const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
         const transferId = options.id();
-        const begin = yield* streamCall(target.peer, { op: "begin", mode: "write", transferId, export: target.export, path: target.path });
-        if (begin.status !== "begun" || begin.seq !== 0) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
-        const hash = createHash("sha256");
-        let written = 0;
-        for (let seq = 0; written < data.length || seq === 0; seq += 1) {
-          const chunk = data.subarray(written, written + Machine.FS_WRITE_MAX_BYTES);
-          hash.update(chunk);
-          const last = written + chunk.length === data.length;
-          yield* writePart(target.peer, {
-            op: "write", transferId, seq, data: Buffer.from(chunk).toString("base64"), last,
-            ...(last ? { digest: hash.digest("hex") } : {}),
-          }, written + chunk.length);
-          written += chunk.length;
-        }
-        yield* finishStream(target.peer, transferId);
-        return { op: "write", bytesWritten: written };
+        return yield* withTransfer(target.peer, transferId, Effect.gen(function* () {
+          const begin = yield* streamCall(target.peer, { op: "begin", mode: "write", transferId, export: target.export, path: target.path });
+          if (begin.status !== "begun" || begin.seq !== 0) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
+          const hash = createHash("sha256");
+          let written = 0;
+          for (let seq = 0; written < data.length || seq === 0; seq += 1) {
+            const chunk = data.subarray(written, written + Machine.FS_WRITE_MAX_BYTES);
+            hash.update(chunk);
+            const last = written + chunk.length === data.length;
+            yield* writePart(target.peer, {
+              op: "write", transferId, seq, data: Buffer.from(chunk).toString("base64"), last,
+              ...(last ? { digest: hash.digest("hex") } : {}),
+            }, written + chunk.length);
+            written += chunk.length;
+          }
+          yield* finishStream(target.peer, transferId);
+          return { op: "write" as const, bytesWritten: written };
+        }));
       });
     }
     function get(id: string): MachineHandle {
@@ -375,8 +384,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       }));
       const handle: MachineHandle = {
         fs: {
-          read: (path, window = {}) => streamRead(id, path, window),
-          write: (path, data) => streamWrite(id, path, data),
+          read: (path, window = {}) => window.limit === undefined || window.limit <= Machine.FS_READ_MAX_BYTES
+            ? filesystem(id, path, "read", window).pipe(Effect.map((value) => ({ ...value, data: Buffer.from(value.data, "base64") })))
+            : streamRead(id, path, window),
+          write: (path, data) => data.byteLength <= Machine.FS_WRITE_MAX_BYTES
+            ? filesystem(id, path, "write", { data: Buffer.from(data).toString("base64") })
+            : streamWrite(id, path, data),
           list: (path) => filesystem(id, path, "list"), stat: (path) => filesystem(id, path, "stat"),
         },
         exec: (cmd, cwd) => Effect.gen(function* () {

@@ -241,6 +241,9 @@ class _Machine:
     def job_read(self, name, cursor=None, wait_ms=None):
         view = self.pty(name).read(cursor=cursor, wait_ms=wait_ms)
         if view['status'] != 'ok':
+            if view['reason'] in ('pty_not_found', 'pty_not_available'):
+                return {'status': 'lost', 'name': name, 'machineId': self.machine_id,
+                        'reason': view['reason']}
             raise ToolError('job read refused: ' + view['reason'])
         match = re.search(
             rb'__job_done_' + name.encode('ascii') + rb':([0-9]+)__\r?\n',
@@ -258,25 +261,27 @@ class _Machine:
             raise ValueError('job_wait timeout must be nonnegative seconds')
         deadline = time.monotonic() + timeout
         cursor = None
-        output = bytearray()
+        marker = rb'__job_done_' + name.encode('ascii') + rb':([0-9]+)__\r?\n'
+        tail = b''
+        tail_limit = len(name) + 32
         while True:
             remaining = deadline - time.monotonic()
             view = self.job_read(
                 name, cursor=cursor,
                 wait_ms=min(30000, max(0, int(remaining * 1000))),
             )
-            output.extend(view['data'])
+            if view['status'] == 'lost':
+                return view
             cursor = view['cursor']
-            match = re.search(
-                rb'__job_done_' + name.encode('ascii') + rb':([0-9]+)__\r?\n',
-                output,
-            )
+            chunk = tail + view['data']
+            match = re.search(marker, chunk)
             if match:
                 return {'status': 'completed', 'name': name, 'machineId': self.machine_id,
-                        'exitCode': int(match.group(1)), 'data': bytes(output), 'cursor': cursor}
+                        'exitCode': int(match.group(1)), 'cursor': cursor}
+            tail = chunk[-tail_limit:]
             if time.monotonic() >= deadline:
                 return {'status': 'timed_out', 'name': name, 'machineId': self.machine_id,
-                        'data': bytes(output), 'cursor': cursor}
+                        'cursor': cursor}
 
 
 class _PtySession:

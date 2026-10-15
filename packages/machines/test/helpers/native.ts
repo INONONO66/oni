@@ -76,6 +76,7 @@ export function createFsDriver(...args: Parameters<typeof fsDriver>) {
   const native = sync(fsDriver(...args));
   const driver = (...params: Parameters<typeof native>) => run(native(...params));
   driver.stream = (...params: Parameters<typeof native.stream>) => run(native.stream(...params));
+  driver.abortAll = () => sync(native.abortAll());
   driver.close = () => sync(native.close());
   return driver;
 }
