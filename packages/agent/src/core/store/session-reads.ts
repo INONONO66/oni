@@ -227,10 +227,7 @@ export function pendingMessagesIn(context: SessionKernelContext, sessionId: stri
 }
 
 /** One exact pending set and the chain ordinal it was read through. */
-export interface PendingSnapshot {
-  readonly rows: readonly Delivery.Row[];
-  readonly ordinal: number;
-}
+export interface PendingSnapshot { readonly rows: readonly Delivery.Row[]; readonly ordinal: number }
 
 const INPUT_ROW_KINDS: ReadonlySet<string> = new Set(["prompt", "signal", "action"]);
 const TailFacts = z.looseObject({
@@ -238,14 +235,8 @@ const TailFacts = z.looseObject({
   deliveryId: z.string().optional().catch(undefined),
   consumedStale: z.array(z.string().nullable().catch(null)).optional().catch(undefined),
 });
-
-function tailFacts(value: PlainValue) {
-  const parsed = TailFacts.safeParse(value);
-  return parsed.success ? parsed.data : {};
-}
-
-const idsOf = (values: readonly (string | null | undefined)[]) =>
-  values.filter((id) => typeof id === "string");
+const tailFacts = (value: PlainValue) => TailFacts.safeParse(value).data ?? {};
+const idsOf = (values: readonly (string | null | undefined)[]) => values.filter((id) => typeof id === "string");
 
 function tailFact(action: LedgerAction.Node): { readonly arrival: boolean; readonly consumes: readonly string[] } {
   const intent = tailFacts(action.intent.value);
@@ -258,8 +249,7 @@ function tailFact(action: LedgerAction.Node): { readonly arrival: boolean; reado
 function tailSince(context: SessionKernelContext, sessionId: string, after: number) {
   const arrived: LedgerAction.Node[] = [];
   const consumed = new Set<string>();
-  let ordinal = after;
-  for (;;) {
+  for (let ordinal = after; ; ) {
     const page = requiredActionsIn(context).range(sessionId, ordinal, 256);
     for (const action of page) {
       const fact = tailFact(action);
@@ -271,29 +261,17 @@ function tailSince(context: SessionKernelContext, sessionId: string, after: numb
   }
 }
 
-/**
- * Append-only chain: pending(head) = pending(since) + arrivals - consumed over (since, head].
- * Without `since`, the one full read paired with its head ordinal.
- */
-export function pendingMessagesSinceIn(
-  context: SessionKernelContext,
-  sessionId: string,
-  since?: PendingSnapshot,
-): PendingSnapshot {
+/** pending(head) = pending(since) + arrivals - consumed over (since, head]; without `since`, the full read and its head. */
+export function pendingMessagesSinceIn(context: SessionKernelContext, sessionId: string, since?: PendingSnapshot): PendingSnapshot {
   return context.stores().transaction(() => {
-    if (since === undefined)
-      return {
-        rows: pendingMessagesIn(context, sessionId),
-        ordinal: requiredActionsIn(context).latestAction(sessionId, Number.MAX_SAFE_INTEGER)?.ordinal ?? 0,
-      };
+    const actions = requiredActionsIn(context);
+    if (since === undefined) return { rows: pendingMessagesIn(context, sessionId), ordinal: actions.latestAction(sessionId, Number.MAX_SAFE_INTEGER)?.ordinal ?? 0 };
     const { arrived, consumed, ordinal } = tailSince(context, sessionId, since.ordinal);
     const opened = arrived.map((action, index) => {
       const after = afterCursorOf(action.intent.value);
       return openDeliveryRow(action, index, { status: "pending", ...(after === undefined ? {} : { after }) });
     });
-    const rows = [...since.rows, ...opened]
-      .filter((row) => !consumed.has(row.id))
-      .map((row, index) => ({ ...row, ordinal: index + 1 }));
+    const rows = [...since.rows, ...opened].filter((row) => !consumed.has(row.id)).map((row, index) => ({ ...row, ordinal: index + 1 }));
     return { rows, ordinal };
   });
 }
