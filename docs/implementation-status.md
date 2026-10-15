@@ -54,9 +54,9 @@ template (`description`, optional `name`) as `<skills>` and
 `buildAgentPrompt(preset, { catalog })`. `loadConfig` loads the catalog into
 `config.prompts`, so an unset or absent directory lists nothing and a malformed
 file, bad YAML, an unknown role section or a duplicate name refuses boot with
-the typed `OpenOmniPromptDataError`. Not yet wired: passing `config.prompts`
-into the Resident/child `buildAgentPrompt` calls and forwarding the two
-directories to process children (#1563, composition-owned files). Receipts:
+the typed `OpenOmniPromptDataError`. Wired in #1563: `config.prompts` reaches
+the Resident/child `buildAgentPrompt` calls and both directories reach process
+children. Receipts:
 `apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
 
 ## #1545 inbound postback (L3)
