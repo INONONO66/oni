@@ -20,6 +20,11 @@ describe("Outbound (#1497)", () => {
     ];
     expect(Outbound.Message.parse({ kind: "message", parts })).toEqual({ kind: "message", parts });
     expect(Outbound.Message.safeParse({ kind: "message", parts: [] }).success).toBe(false);
+    const spec = { root: "a", elements: { a: { type: "Markdown", props: { text: "hi" }, children: [] } } };
+    const issue = { code: "custom", message: "a message carries exactly one of parts or spec", path: [] };
+    expect(Outbound.Message.safeParse({ kind: "message" }).error?.issues).toEqual([issue]);
+    expect(Outbound.Message.safeParse({ kind: "message", parts, spec }).error?.issues).toEqual([issue]);
+    expect(Outbound.Message.parse({ kind: "message", spec })).toEqual({ kind: "message", spec });
     expect(Outbound.Part.safeParse({ kind: "audio", ref: "x" }).success).toBe(false);
     expect(Outbound.Part.safeParse({ kind: "text", text: "a", thread: "t" }).success).toBe(false);
     expect(Outbound.Part.safeParse({ kind: "file", ref: "x" }).success).toBe(false);
