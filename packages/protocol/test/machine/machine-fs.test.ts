@@ -469,4 +469,16 @@ describe("machine fs limits", () => {
     expect(Machine.FS_READ_MAX_BYTES).toBe(262_144);
     expect(Machine.FS_LIST_MAX_ENTRIES).toBe(1000);
   });
+  test("stream frames carry a bounded sequence, terminal digest, and transfer id", () => {
+    const transferId = "transfer-1";
+    expect(Machine.FsStreamRequest.parse({
+      op: "begin", transferId, mode: "write", export: "data", path: "file",
+    })).toMatchObject({ op: "begin", transferId });
+    expect(Machine.FsStreamRequest.safeParse({
+      op: "write", transferId, seq: -1, data: "", last: true, digest: "0".repeat(64),
+    }).success).toBe(false);
+    expect(Machine.FsStreamResult.parse({
+      status: "chunk", seq: 0, data: "YQ==", last: true, digest: "a".repeat(64),
+    })).toMatchObject({ status: "chunk", seq: 0 });
+  });
 });

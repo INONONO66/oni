@@ -93,7 +93,7 @@ type MachineDaemonOptions = DaemonConnection & {
 };
 type WireParse = <T>(schema: z.ZodType<T>) => T;
 type WireResult =
-  | Machine.FsResult | Machine.ExecResult | Machine.CancelResult | Machine.PeekAnswer | Machine.CellResult | Machine.ScreenReadResult | Machine.InputWriteResult
+  | Machine.FsResult | Machine.FsStreamResult | Machine.ExecResult | Machine.CancelResult | Machine.PeekAnswer | Machine.CellResult | Machine.ScreenReadResult | Machine.InputWriteResult
   | Machine.PtyOpenResult | Machine.PtyWriteResult | Machine.PtyReadResult | Machine.PtyResizeResult | Machine.PtyCloseResult | Machine.PtyListResult;
 export interface MachineDaemon {
   /** The CURRENT attachment: reattach and refusal outcomes replace it. */
@@ -221,6 +221,19 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
         return filesystem(request);
       });
     }
+    function fsStream(request: Machine.FsStreamRequest): Effect.Effect<Machine.FsStreamResult, MachineError> {
+      return Effect.suspend(() => {
+        const capability = request.op === "begin" && request.mode === "write" || request.op === "write" || request.op === "finish" && !has(Machine.WellKnownCapability.fsRead)
+          ? Machine.WellKnownCapability.fsWrite : Machine.WellKnownCapability.fsRead;
+        if (!has(capability)) return Effect.succeed({ status: "refused", reason: "fs_not_available", message: `${capability} is not available` } as const);
+        if (request.op === "begin") {
+          const offered = offer.exports?.find((entry) => entry.name === request.export);
+          if (attachment.status !== "attached" || !attachment.effectiveExports.includes(request.export) || offered === undefined || options.fsExports?.get(request.export) !== offered.path)
+            return Effect.succeed({ status: "refused", reason: "export_not_available", message: `export is not available: ${request.export}` } as const);
+        }
+        return filesystem.stream(request);
+      });
+    }
     function exec(request: Machine.ExecRequest): Effect.Effect<Machine.ExecResult, MachineError> {
       return Effect.suspend(() => {
         if (!has(Machine.WellKnownCapability.shellExec)) return Effect.succeed({ status: "refused", reason: "exec_not_available" } as const);
@@ -326,6 +339,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     }
     const wire: Readonly<Record<string, ((parse: WireParse) => Effect.Effect<WireResult, MachineError>) | undefined>> = {
       [Machine.WireMethod.FsOp]: (parse) => fsOp(parse(Machine.FsRequest)),
+      [Machine.WireMethod.FsStream]: (parse) => fsStream(parse(Machine.FsStreamRequest)),
       [Machine.WireMethod.Exec]: (parse) => exec(parse(Machine.ExecRequest)),
       [Machine.WireMethod.CancelCode]: (parse) => Effect.sync(() => cancelCode(parse(Machine.CancelCode))),
       [Machine.WireMethod.PeekCode]: (parse) => Effect.sync(() => peekCode(parse(Machine.PeekCode))),

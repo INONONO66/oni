@@ -108,6 +108,7 @@ describe("Ipc.Methods param schemas", () => {
         Machine.WireMethod.PtyClose,
         Machine.WireMethod.PtyList,
         Machine.WireMethod.FsOp,
+         Machine.WireMethod.FsStream,
       ].sort(),
     );
   });
@@ -115,6 +116,10 @@ describe("Ipc.Methods param schemas", () => {
   test("machine.fs_op params/result are the Machine fs contracts", () => {
     expect(Ipc.Methods[Machine.WireMethod.FsOp].params).toBe(Machine.FsRequest);
     expect(Ipc.Methods[Machine.WireMethod.FsOp].result).toBe(Machine.FsResult);
+  });
+  test("machine.fs_stream params/result are the transfer contracts", () => {
+    expect(Ipc.Methods[Machine.WireMethod.FsStream].params).toBe(Machine.FsStreamRequest);
+    expect(Ipc.Methods[Machine.WireMethod.FsStream].result).toBe(Machine.FsStreamResult);
   });
 
   test("machine.attach params/result are the Machine offer contracts", () => {

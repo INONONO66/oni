@@ -3,7 +3,8 @@ import { type BusEvent, Machine } from "@openomni/protocol";
 type MachineEventPayload =
   | ReturnType<typeof Machine.Events.Attached.schema.parse>
   | ReturnType<typeof Machine.Events.Detached.schema.parse>
-  | ReturnType<typeof Machine.Events.Reported.schema.parse>;
+  | ReturnType<typeof Machine.Events.Reported.schema.parse>
+  | ReturnType<typeof Machine.Events.PtyOutput.schema.parse>;
 export type RecordedEvent = {
   readonly name: string;
   readonly payload: MachineEventPayload;
@@ -12,6 +13,7 @@ export type RecordedEvent = {
 function parseEvent<T>(name: string, payload: T): RecordedEvent {
   if (name === Machine.Events.Attached.name) return { name, payload: Machine.Events.Attached.schema.parse(payload) };
   if (name === Machine.Events.Reported.name) return { name, payload: Machine.Events.Reported.schema.parse(payload) };
+  if (name === Machine.Events.PtyOutput.name) return { name, payload: Machine.Events.PtyOutput.schema.parse(payload) };
   return { name, payload: Machine.Events.Detached.schema.parse(payload) };
 }
 

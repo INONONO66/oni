@@ -1,4 +1,5 @@
 import { chmodSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
@@ -286,13 +287,96 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         return result.value as Value<O>;
       });
     }
+    function streamCall(peer: Attachment, request: Machine.FsStreamRequest): Effect.Effect<Machine.FsStreamResult, MachineError> {
+      return Effect.gen(function* () {
+        peer.server.useConnection(peer.rawId);
+        const raw = yield* typedCall(peer.server, Machine.WireMethod.FsStream, request).pipe(Effect.mapError(transportFailure("fs.stream")));
+        const result = yield* Effect.try({ try: () => Machine.FsStreamResult.parse(raw), catch: decodeMachineFailure("fs.stream.response") });
+        if (result.status === "refused") return yield* new MachineRefusalError(result);
+        return result;
+      });
+    }
+    function finishStream(peer: Attachment, transferId: string): Effect.Effect<void, MachineError> {
+      return streamCall(peer, { op: "finish", transferId }).pipe(Effect.flatMap((result) => result.status === "finished"
+        ? Effect.void : new MachineRefusalError({ reason: "invalid_response", message: "filesystem finish mismatch" })));
+    }
+    function readPart(peer: Attachment, transferId: string, seq: number): Effect.Effect<{ part: Extract<Machine.FsStreamResult, { status: "chunk" }>; data: Buffer }, MachineError> {
+      return Effect.gen(function* () {
+        const part = yield* streamCall(peer, { op: "read", transferId, seq });
+        if (part.status !== "chunk" || part.seq !== seq) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem chunk mismatch" });
+        const data = Buffer.from(part.data, "base64");
+        if (data.length > Machine.FS_READ_MAX_BYTES) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem chunk exceeds cap" });
+        return { part, data };
+      });
+    }
+    function readBody(peer: Attachment, transferId: string, begin: Extract<Machine.FsStreamResult, { status: "begun" }>, offset: number): Effect.Effect<ReadValue, MachineError> {
+      return Effect.gen(function* () {
+        const chunks: Buffer[] = [];
+        const hash = createHash("sha256");
+        let bytesRead = 0;
+        for (let seq = begin.seq;; seq += 1) {
+          const { part, data } = yield* readPart(peer, transferId, seq);
+          hash.update(data);
+          chunks.push(data);
+          bytesRead += data.length;
+          if (!part.last) continue;
+          if (part.digest !== hash.digest("hex")) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem digest mismatch" });
+          yield* finishStream(peer, transferId);
+          return { op: "read", data: Buffer.concat(chunks, bytesRead), bytesRead, size: begin.size, truncated: offset + bytesRead < begin.size };
+        }
+      });
+    }
+    function streamRead(id: string, path: string, window: { offset?: number; limit?: number }): Effect.Effect<ReadValue, MachineError> {
+      return Effect.gen(function* () {
+        const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
+        const transferId = options.id();
+        const request = yield* Effect.try({
+          try: () => Machine.FsStreamRequest.parse({ op: "begin", mode: "read", transferId, export: target.export, path: target.path, ...window }),
+          catch: decodeMachineFailure("fs.stream.request"),
+        });
+        const begin = yield* streamCall(target.peer, request);
+        if (begin.status !== "begun") return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
+        return yield* readBody(target.peer, transferId, begin, window.offset ?? 0);
+      });
+    }
+    function writePart(peer: Attachment, request: Extract<Machine.FsStreamRequest, { op: "write" }>, expectedBytes: number): Effect.Effect<void, MachineError> {
+      return streamCall(peer, request).pipe(Effect.flatMap((part) => part.status === "written" && part.seq === request.seq && part.bytesWritten === expectedBytes && part.last === request.last
+        ? Effect.void : new MachineRefusalError({ reason: "invalid_response", message: "filesystem write acknowledgement mismatch" })));
+    }
+    function streamWrite(id: string, path: string, data: Uint8Array): Effect.Effect<Value<"write">, MachineError> {
+      return Effect.gen(function* () {
+        const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
+        const transferId = options.id();
+        const begin = yield* streamCall(target.peer, { op: "begin", mode: "write", transferId, export: target.export, path: target.path });
+        if (begin.status !== "begun" || begin.seq !== 0) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
+        const hash = createHash("sha256");
+        let written = 0;
+        for (let seq = 0; written < data.length || seq === 0; seq += 1) {
+          const chunk = data.subarray(written, written + Machine.FS_WRITE_MAX_BYTES);
+          hash.update(chunk);
+          const last = written + chunk.length === data.length;
+          yield* writePart(target.peer, {
+            op: "write", transferId, seq, data: Buffer.from(chunk).toString("base64"), last,
+            ...(last ? { digest: hash.digest("hex") } : {}),
+          }, written + chunk.length);
+          written += chunk.length;
+        }
+        yield* finishStream(target.peer, transferId);
+        return { op: "write", bytesWritten: written };
+      });
+    }
     function get(id: string): MachineHandle {
       const existing = handles.get(id);
       if (existing !== undefined) return existing;
+      const terminal = createPtyHandle((method, params, timeoutMs) => Effect.gen(function* () {
+        const peer = yield* Effect.try({ try: () => connection(id), catch: decodeMachineFailure("pty.connection") });
+        peer.server.useConnection(peer.rawId);
+        return yield* peer.server.call(method, params as Ipc.Request["params"], timeoutMs).pipe(Effect.mapError(transportFailure("pty.call")));
+      }));
       const handle: MachineHandle = {
         fs: {
-          read: (path, window = {}) => filesystem(id, path, "read", window).pipe(Effect.map((value) => ({ ...value, data: Buffer.from(value.data, "base64") }))),
-          write: (path, data) => filesystem(id, path, "write", { data: Buffer.from(data).toString("base64") }),
+          read: (path, window = {}) => streamRead(id, path, window),
+          write: (path, data) => streamWrite(id, path, data),
           list: (path) => filesystem(id, path, "list"), stat: (path) => filesystem(id, path, "stat"),
         },
         exec: (cmd, cwd) => Effect.gen(function* () {
@@ -318,13 +402,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           const raw = yield* typedCall(peer.server, Machine.WireMethod.InputWrite, parsed, Machine.EXEC_TIMEOUT_MS + 1000).pipe(Effect.mapError(transportFailure("input.call")));
           return yield* Effect.try({ try: () => Machine.InputWriteResult.parse(raw), catch: decodeMachineFailure("input.response") });
         }),
-        // Additive #1273 seam: pty-host owns schemas/codecs; only routing lives here.
-        pty: createPtyHandle((method, params, timeoutMs) => Effect.gen(function* () {
-          const peer = yield* Effect.try({ try: () => connection(id), catch: decodeMachineFailure("pty.connection") });
-          peer.server.useConnection(peer.rawId);
-          // Safe: pty-host validated params against this method's wire schema.
-          return yield* peer.server.call(method, params as Ipc.Request["params"], timeoutMs).pipe(Effect.mapError(transportFailure("pty.call")));
-        })),
+        pty: {
+          ...terminal,
+          read: (name, readOptions) => terminal.read(name, readOptions).pipe(Effect.tap((view) => Effect.sync(() => {
+            if (view.status === "ok" && view.data.length > 0)
+              options.events.publish(Machine.Events.PtyOutput, { machineId: id, time: options.now(), name, bytes: view.data.length, cursor: view.cursor });
+          }))),
+        },
         runCode: (cell, signal) => Effect.scoped(Effect.gen(function* () {
           const request = yield* Effect.try({ try: () => Machine.CellRequest.parse(cell), catch: decodeMachineFailure("cell.request") });
           if (signal?.aborted) return yield* Effect.interrupt;

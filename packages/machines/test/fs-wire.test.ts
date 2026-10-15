@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { createIpcServer, typedCall } from "./ipc/helpers/native";
 import { Machine } from "@openomni/protocol";
 import { attachMachineDaemon, createMachineHost, MachineRefusalError } from "./helpers/native";
@@ -64,15 +65,35 @@ describe("real machine consumer surface", () => {
           _tag: "MachineRefusalError",
           reason: "export_not_available",
         });
-        await expect(
-          target.fs.write(join(root, "large"), Buffer.alloc(Machine.FS_WRITE_MAX_BYTES + 1)),
-        ).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "too_large" });
       } finally {
         await daemon.close();
         host.close();
       }
     });
   });
+
+  test("streams 10 MiB through the host and daemon with matching SHA-256", async () => {
+    await fixture(async (root) => {
+      const path = socketPath();
+      const host = await wireHost(path);
+      const daemon = await wireDaemon(path, root);
+      try {
+        const bytes = Buffer.alloc(10 * 1024 * 1024);
+        for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251;
+        const expected = createHash("sha256").update(bytes).digest("hex");
+        expect(await host.get("m-1").fs.write(join(root, "bulk"), bytes)).toEqual({
+          op: "write", bytesWritten: bytes.length,
+        });
+        const read = await host.get("m-1").fs.read(join(root, "bulk"));
+        expect(read.bytesRead).toBe(bytes.length);
+        expect(read.truncated).toBe(false);
+        expect(createHash("sha256").update(read.data).digest("hex")).toBe(expected);
+      } finally {
+        await daemon.close();
+        host.close();
+      }
+    });
+  }, 30_000);
 
   test("unattached handles throw typed refusal and a capability fold grants no extra authority", async () => {
     await fixture(async (root) => {
@@ -253,6 +274,38 @@ test("longest normalized root wins, and equal roots refuse rather than selecting
 });
 
 describe("daemon boundary cannot be bypassed by a rogue host", () => {
+  test("a lost write acknowledgement resumes by transfer id and sequence", async () => {
+    await fixture(async (root) => {
+      const path = socketPath();
+      const host = await createIpcServer(path, (_method, _params, respond) =>
+        respond({ status: "attached", effectiveCapabilities: capabilities, effectiveExports: ["docs"] }),
+      );
+      const daemon = await attachMachineDaemon({
+        socketPath: path, offer: offer(root), fsExports: new Map([["docs", root]]),
+      });
+      try {
+        const transferId = "dropped-ack";
+        const data = Buffer.from("resume exact bytes");
+        expect(await typedCall(host, Machine.WireMethod.FsStream, {
+          op: "begin", mode: "write", transferId, export: "docs", path: "resumed",
+        })).toMatchObject({ status: "begun", seq: 0 });
+        const chunk = {
+          op: "write", transferId, seq: 0, data: data.toString("base64"), last: true,
+          digest: createHash("sha256").update(data).digest("hex"),
+        } as const;
+        await typedCall(host, Machine.WireMethod.FsStream, chunk);
+        expect(await typedCall(host, Machine.WireMethod.FsStream, chunk)).toEqual({
+          status: "written", seq: 0, bytesWritten: data.length, last: true,
+        });
+        expect(await typedCall(host, Machine.WireMethod.FsStream, { op: "finish", transferId })).toEqual({ status: "finished" });
+        expect((await Bun.file(join(root, "resumed")).bytes())).toEqual(data);
+      } finally {
+        await daemon.close();
+        host.close();
+      }
+    });
+  });
+
   test.each([
     "read",
     "write",
