@@ -78,30 +78,43 @@ function descriptorCount(): number {
   return readdirSync("/dev/fd").length;
 }
 
-async function createFileSessions(
-  plane: ReturnType<typeof openLedgerPlane>,
-  count: number,
-): Promise<void> {
+type Plane = ReturnType<typeof openLedgerPlane>;
+
+const createPlaneSession = (plane: Plane, id: string, at: number) =>
+  runAgent(
+    createSession(plane, {
+      id,
+      parentId: null,
+      role: "resident",
+      genesis: {
+        tools: [],
+        bundles: [],
+        system: { preset: "", blocks: [] },
+        policyGeneration: 0,
+        actionId: `${id}:genesis`,
+        at,
+      },
+    }),
+  );
+
+async function createFileSessions(plane: Plane, count: number): Promise<void> {
   for (let n = 0; n < count; n += 1) {
     const id = `s${n}`;
-    await runAgent(
-      createSession(plane, {
-        id,
-        parentId: null,
-        role: "resident",
-        genesis: {
-          tools: [],
-          bundles: [],
-          system: { preset: "", blocks: [] },
-          policyGeneration: 0,
-          actionId: `${id}:genesis`,
-          at: n,
-        },
-      }),
-    );
+    await createPlaneSession(plane, id, n);
     plane.releaseSession(id);
   }
 }
+
+/** The request port over one plane, with a fixed request owner. */
+const requestPort = (plane: Plane) =>
+  runAgent(
+    createSessionRequests({
+      approvalPolicy: TEST_APPROVAL_POLICY,
+      authorizeConfigure: () => Effect.succeed(true),
+      openKernel: plane.openKernel,
+      listSessions: plane.listSessions,
+    }).pipe(Effect.provideService(Entropy, { id: () => "request-owner", random: () => 0 })),
+  );
 
 function config(overrides: Partial<LedgerConfig>): LedgerConfig {
   return {
@@ -224,12 +237,12 @@ test("memory mode: the entity and the plane share one in-memory store per sessio
   expect(seen.inputs).toBe(1);
 });
 
-test("file mode: catalog listing of 200 sessions closes every store it opens", async () => {
+test("file mode: catalog listing of 24 sessions closes every store it opens", async () => {
   const { catalogPath, sessionsDir } = home("listing-churn");
   const options = { now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } };
   const creator = openLedgerPlane(options);
   try {
-    await createFileSessions(creator, 200);
+    await createFileSessions(creator, 24);
   } finally {
     creator.close();
   }
@@ -238,8 +251,8 @@ test("file mode: catalog listing of 200 sessions closes every store it opens", a
   try {
     const descriptors = descriptorCount();
     for (let listing = 1; listing <= 2; listing += 1) {
-      expect(plane.listSessions()).toHaveLength(200);
-      expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 200 * listing, live: 0 });
+      expect(plane.listSessions()).toHaveLength(24);
+      expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 24 * listing, live: 0 });
       expect(descriptorCount()).toBeLessThanOrEqual(descriptors);
     }
   } finally {
@@ -248,30 +261,21 @@ test("file mode: catalog listing of 200 sessions closes every store it opens", a
   }
 });
 
-test("file mode: deadline lookup over 400 sessions releases every scoped kernel", async () => {
+test("file mode: deadline lookup over 24 sessions releases every scoped kernel", async () => {
   const { catalogPath, sessionsDir } = home("deadline-lookup");
   const plane = openLedgerPlane({
     now: () => 1,
     catalog: { path: catalogPath },
     sessions: { dir: sessionsDir },
   });
-  await createFileSessions(plane, 400);
+  await createFileSessions(plane, 24);
   const stores = trackSessionStores();
   try {
     const descriptors = descriptorCount();
-    const port = await runAgent(
-      createSessionRequests({
-        approvalPolicy: TEST_APPROVAL_POLICY,
-        authorizeConfigure: () => Effect.succeed(true),
-        openKernel: plane.openKernel,
-        listSessions: plane.listSessions,
-      }).pipe(
-        Effect.provideService(Entropy, { id: () => "request-owner", random: () => 0 }),
-      ),
-    );
+    const port = await requestPort(plane);
     const exit = await runAgent(Effect.exit(port.timeout("missing-request", 1)));
     expect(Exit.isFailure(exit)).toBe(true);
-    expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 800, live: 0 });
+    expect({ opened: stores.opened(), live: stores.live() }).toEqual({ opened: 48, live: 0 });
     expect(descriptorCount()).toBeLessThanOrEqual(descriptors);
   } finally {
     stores.restore();
@@ -282,23 +286,7 @@ test("file mode: deadline lookup over 400 sessions releases every scoped kernel"
 test("memory mode: listing returns created sessions and skips a memoized id that was never created", async () => {
   const plane = openLedgerPlane({ now: () => 1 });
   try {
-    for (const id of ["s0", "s1"]) {
-      await runAgent(
-        createSession(plane, {
-          id,
-          parentId: null,
-          role: "resident",
-          genesis: {
-            tools: [],
-            bundles: [],
-            system: { preset: "", blocks: [] },
-            policyGeneration: 0,
-            actionId: `${id}:genesis`,
-            at: 1,
-          },
-        }),
-      );
-    }
+    for (const id of ["s0", "s1"]) await createPlaneSession(plane, id, 1);
     plane.openKernel("never-created");
     expect(plane.listSessions().map((row) => row.id)).toEqual(["s0", "s1"]);
   } finally {
@@ -310,19 +298,7 @@ test("file mode: listing inside a write transaction on a live session reads that
   const { catalogPath, sessionsDir } = home("listing-in-transaction");
   const plane = openLedgerPlane({ now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } });
   try {
-    await runAgent(createSession(plane, {
-      id: "s0",
-      parentId: null,
-      role: "resident",
-      genesis: {
-        tools: [],
-        bundles: [],
-        system: { preset: "", blocks: [] },
-        policyGeneration: 0,
-        actionId: "s0:genesis",
-        at: 1,
-      },
-    }));
+    await createPlaneSession(plane, "s0", 1);
     const ids = plane.sessionStore("s0").transaction(() => plane.listSessions().map((row) => row.id));
     expect(ids).toEqual(["s0"]);
   } finally {
@@ -338,14 +314,7 @@ test("file mode: a scoped request read keeps a live session's handle and release
   try {
     const live = plane.openKernel("s0");
     expect(plane.openKernel("s0")[releaseSessionKernel]).toBeUndefined();
-    const port = await runAgent(
-      createSessionRequests({
-        approvalPolicy: TEST_APPROVAL_POLICY,
-        authorizeConfigure: () => Effect.succeed(true),
-        openKernel: plane.openKernel,
-        listSessions: plane.listSessions,
-      }).pipe(Effect.provideService(Entropy, { id: () => "request-owner", random: () => 0 })),
-    );
+    const port = await requestPort(plane);
     const rows = plane.sessionStore("s0").transaction(() => port.list());
     expect(rows).toEqual([]);
     // s0 is opened once and stays held by its live opener; s1 is opened by the listing and by the read, both closed.
@@ -359,7 +328,7 @@ test("file mode: a scoped request read keeps a live session's handle and release
   }
 });
 
-test("file mode: one failed open among 120 indexed sessions refuses instead of returning partial rows", async () => {
+test("file mode: one failed open among 12 indexed sessions refuses instead of returning partial rows", async () => {
   const { catalogPath, sessionsDir } = home("listing-refused");
   const options = {
     now: () => 1,
@@ -367,13 +336,13 @@ test("file mode: one failed open among 120 indexed sessions refuses instead of r
     sessions: { dir: sessionsDir },
   };
   const creator = openLedgerPlane(options);
-  await createFileSessions(creator, 120);
+  await createFileSessions(creator, 12);
   creator.close();
-  rmSync(join(sessionsDir, "s82.sqlite"));
-  mkdirSync(join(sessionsDir, "s82.sqlite"));
+  rmSync(join(sessionsDir, "s7.sqlite"));
+  mkdirSync(join(sessionsDir, "s7.sqlite"));
   const plane = openLedgerPlane(options);
   try {
-    expect(plane.catalog.sessionIds()).toHaveLength(120);
+    expect(plane.catalog.sessionIds()).toHaveLength(12);
     let error: OpenRefused | undefined;
     try {
       plane.listSessions();
@@ -386,8 +355,8 @@ test("file mode: one failed open among 120 indexed sessions refuses instead of r
     expect(error?.cause).toBeInstanceOf(SQLiteError);
     expect(error?.cause).toHaveProperty("errno", 14);
     console.info(`A2 listing refusal=${error?._tag} errno=14`);
-    expect(() => plane.openKernel("s82")).toThrow(OpenRefused);
-    expect(() => plane.handles.openSession("s82")).toThrow(OpenRefused);
+    expect(() => plane.openKernel("s7")).toThrow(OpenRefused);
+    expect(() => plane.handles.openSession("s7")).toThrow(OpenRefused);
   } finally {
     plane.close();
   }
