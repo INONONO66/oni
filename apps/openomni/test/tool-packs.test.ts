@@ -8,8 +8,11 @@ import { z } from "zod";
 import { loadToolPacks } from "../src/bundles/tools/tool-packs/index";
 import { AppInvariantError } from "../src/invariant";
 import { appManifest } from "../src/manifest";
+import { startOpenOmni } from "../src/index";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import { loadConfig } from "../src/config";
+import { socketPath } from "./helpers/socket-path";
+import { testSelfMachine } from "./helpers/self-machine";
 
 const fixture = join(import.meta.dir, "fixtures/tool-packs");
 const file = join(fixture, "echo/manifest.json");
@@ -102,6 +105,24 @@ test("unset pack directory loads no packs", () => {
   expect(loadToolPacks(undefined, ids, absent, refuse)).toEqual([]);
 });
 
+test("an unreadable pack directory refuses with its typed code", () => {
+  expect(() => loadToolPacks(join(fixture, "missing"), ids, absent, refuse))
+    .toThrow(expect.objectContaining({ code: "invalid_tool_pack" }));
+});
+
+test.each(["missing manifest", "malformed JSON"])("refuses a %s before composition", (condition) => {
+  const dir = temporaryPack(() => undefined);
+  const manifest = join(dir, "echo/manifest.json");
+  if (condition === "missing manifest") rmSync(manifest);
+  else writeFileSync(manifest, "{");
+  try {
+    expect(() => loadToolPacks(dir, ids, absent, refuse))
+      .toThrow(expect.objectContaining({ code: "invalid_tool_pack" }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test.each([
   ["empty command", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).command = ""; }, "invalid_tool_pack"],
   ["unsupported schema", (pack: z.infer<typeof FixtureManifest>) => { firstTool(pack).inputSchema.properties.text = { type: "bogus" }; }, "invalid_tool_pack"],
@@ -159,4 +180,18 @@ test("loadConfig accepts an optional tool-pack directory", () => {
     OPENOMNI_TOOL_PACKS_DIR: fixture,
   };
   expect(loadConfig(tmpdir(), env).toolPacksDir).toBe(fixture);
+});
+
+test("production boot composes a configured pack before the machine port binds", async () => {
+  const app = await startOpenOmni({
+    config: {
+      host: "127.0.0.1",
+      wsPort: 0,
+      kek: { kind: "locked", reason: "test fixture" },
+      model: { provider: "fake", id: "fixture", apiKey: "fixture" },
+      machines: { self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] },
+      toolPacksDir: fixture,
+    },
+  });
+  await app.stop();
 });
