@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildAgentPrompt } from "../src/bundles/prompt/build";
 import { Outbound } from "@openomni/protocol";
 import { loadPromptCatalog, PromptDataError } from "../src/bundles/prompt/data";
+import { roleText } from "../src/bundles/prompt/embed";
 import { CHILD_PRESET, parseRolePreset, RESIDENT_PRESET, type RolePreset } from "../src/bundles/prompt/roles";
 
 const residentBase = [
@@ -118,6 +119,15 @@ describe("role files", () => {
 
   test("a role with an unknown section refuses typed", () => {
     const text = "---\nname: x\nrole: child\n---\n## Identity\nI\n## Mandate\nM\n## Mood\nZ\n";
+    expect(refusal(() => parseRolePreset(text, "x.md")).code).toBe("invalid_sections");
+  });
+
+  test("the inlined role text equals the shipped file", () => {
+    expect(parseRolePreset(roleText("resident"), "resident.md").identity).toBe(RESIDENT_PRESET.identity);
+  });
+
+  test("a role with text before its first section refuses typed", () => {
+    const text = "---\nname: x\nrole: child\n---\nstray\n## Identity\nI\n## Mandate\nM\n";
     expect(refusal(() => parseRolePreset(text, "x.md")).code).toBe("invalid_sections");
   });
 
