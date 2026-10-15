@@ -279,6 +279,33 @@ test("file mode: deadline lookup over 400 sessions releases every scoped kernel"
   }
 });
 
+test("memory mode: listing returns created sessions and skips a memoized id that was never created", async () => {
+  const plane = openLedgerPlane({ now: () => 1 });
+  try {
+    for (const id of ["s0", "s1"]) {
+      await runAgent(
+        createSession(plane, {
+          id,
+          parentId: null,
+          role: "resident",
+          genesis: {
+            tools: [],
+            bundles: [],
+            system: { preset: "", blocks: [] },
+            policyGeneration: 0,
+            actionId: `${id}:genesis`,
+            at: 1,
+          },
+        }),
+      );
+    }
+    plane.openKernel("never-created");
+    expect(plane.listSessions().map((row) => row.id)).toEqual(["s0", "s1"]);
+  } finally {
+    plane.close();
+  }
+});
+
 test("file mode: listing inside a write transaction on a live session reads that session's handle", async () => {
   const { catalogPath, sessionsDir } = home("listing-in-transaction");
   const plane = openLedgerPlane({ now: () => 1, catalog: { path: catalogPath }, sessions: { dir: sessionsDir } });
