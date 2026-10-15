@@ -95,6 +95,8 @@ const channels = {
   DeliveryNotSent: new Channels.DeliveryNotSent(diagnostic),
   CallbackDataTooLong: new Channels.CallbackDataTooLong({ id: "button", bytes: 65 }),
   RenderLimitExceeded: new Channels.RenderLimitExceeded({ kind: "buttons", count: 6, limit: 5 }),
+  EditNotSingleMessage: new Channels.EditNotSingleMessage({ count: 2 }),
+  EditUnsupported: new Channels.EditUnsupported({ provider: "telegram" }),
   AutomationEnableRefused: new Channels.AutomationEnableRefused({ reason: "not_found", id: "automation" }),
   AutomationConfigurationError: new Channels.AutomationConfigurationError({ reason: "store_unconfigured" }),
   InvalidInbound: new Channels.InvalidInbound({ operation: "frame", reason: "invalid_json" }),
