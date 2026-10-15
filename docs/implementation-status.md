@@ -33,15 +33,15 @@ markdown or a spec; the ordered-parts form left the tool (the catalog's Code,
 Image and File elements cover it). `Outbound.Message` is one object carrying
 exactly one of `parts` (the text doors) or `spec`, so the schema snapshot only
 grew; the reviewed `send_message` tool snapshot was regenerated for the new
-input. Channels fold a spec message to its digest until L2 renders it
-natively; desktop rendering belongs to L4 and postback delivery landed in L3.
+input. Channels render specs through the L2 provider policies below; desktop
+rendering belongs to L4 and postback delivery landed in L3.
 Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
 and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,
 and `apps/openomni/test/prompt.test.ts`.
 
 ## #1545 channel renderers (L2)
 
-On `feat/1545-channel-render` (2026-10-15, base `ba8382800`), catalog
+On `feat/1545-channel-render` (2026-10-15, base `d0ef13176`), catalog
 messages use one channel-side planning fold: consecutive text is rendered and
 chunked, native elements go through the provider's existing send client, and
 media bytes resolve with the established per-platform and letter limits before
@@ -51,6 +51,7 @@ unknown receipt rule. Providers declare every catalog element in their
 
 | Element | Slack | Discord | Telegram | GitHub | Webhook |
 | --- | --- | --- | --- | --- | --- |
+| Stack | native | native | native | text | text |
 | Markdown | native | text | text | text | text |
 | Code | native | text | text | text | text |
 | Table | native | downgrade:table-to-bullets | downgrade:table-to-code | text | text |
@@ -65,10 +66,12 @@ unknown receipt rule. Providers declare every catalog element in their
 | Divider | native | downgrade:divider-to-rule | downgrade:divider-to-rule | text | text |
 | Context | native | text | text | text | text |
 
+Stack walks its children vertically, retaining adjacent text as one send.
 Slack posts Block Kit with a text notification fallback; Discord uses embeds,
 Components V2 galleries, action rows and polls; Telegram sends HTML text,
 inline keyboards, photo albums and polls. HTTPS images can be embedded
-directly; local card images take the same resolved-media upload path as parts.
+directly; local card images send one resolved-media upload with the card digest
+as caption.
 The `table-to-image` and `card-to-image` downgrades rasterize through
 `@json-render/image` and `@resvg/resvg-js` with a bundled CC0 font; no provider
 selects them yet. The font's compact character set is suitable for Latin text,
