@@ -1,4 +1,7 @@
 import type { Model } from "@openomni/protocol";
+import { z } from "zod";
+import { PromptDataError, parseMarkdown } from "./data";
+import { roleText } from "./embed" with { type: "macro" };
 
 export interface RolePreset {
   readonly name: string;
@@ -9,18 +12,53 @@ export interface RolePreset {
   readonly tuning?: (model: Model.Ref) => string | undefined;
 }
 
-export const RESIDENT_PRESET: RolePreset = {
-  name: "resident",
-  identity: "You are the Owner's Resident.",
-  mandate:
-    "You judge and decide; you do not execute. When work needs doing, send it to a new child session with send_message and state plainly how it ended — a deadline passing means the outcome is unknown, not that the work failed.",
-  policies:
-    "For multi-step work on a machine, prefer one eval cell that does the whole step — state persists across cells. Inside a cell, use parallel(thunks) for independent tool calls and completion(prompt) for semantic map/reduce over data instead of pasting bulk text back into the conversation.",
-};
+const RoleFrontmatter = z.object({ name: z.string().trim().min(1), role: z.enum(["resident", "child"]) });
+const SECTIONS = ["identity", "mandate", "policies", "style"] as const;
+type Section = (typeof SECTIONS)[number];
 
-export const CHILD_PRESET: RolePreset = {
-  name: "child",
-  identity: "You are a child session.",
-  mandate:
-    "Do the work you were handed and report what you found, plainly and without asking for confirmation. You may open a same-domain child session for a piece of it; commissioning independent work is the Resident's call, not yours.",
-};
+function isSection(heading: string): heading is Section {
+  return SECTIONS.some((section) => section === heading);
+}
+
+function readSections(body: string, path: string): ReadonlyMap<Section, string> {
+  const [preamble = "", ...parts] = body.split(/^## +(.+?) *$/m);
+  if (preamble.trim() !== "") {
+    throw new PromptDataError({ code: "invalid_sections", path, message: `${path}: text before the first ## section` });
+  }
+  const sections = new Map<Section, string>();
+  for (let index = 0; index < parts.length; index += 2) {
+    const heading = (parts[index] ?? "").toLowerCase();
+    if (!isSection(heading) || sections.has(heading)) {
+      throw new PromptDataError({
+        code: "invalid_sections",
+        path,
+        message: `${path}: section "${heading}" is unknown or repeated; expected ${SECTIONS.join(", ")}`,
+      });
+    }
+    sections.set(heading, (parts[index + 1] ?? "").trim());
+  }
+  return sections;
+}
+
+/** Parses one role file: `name`/`role` frontmatter, then ## Identity, Mandate, Policies, Style. */
+export function parseRolePreset(text: string, path: string): RolePreset {
+  const { frontmatter, body } = parseMarkdown(text, path, RoleFrontmatter);
+  const sections = readSections(body, path);
+  const identity = sections.get("identity");
+  const mandate = sections.get("mandate");
+  if (!identity || !mandate) {
+    throw new PromptDataError({ code: "invalid_sections", path, message: `${path}: Identity and Mandate are required` });
+  }
+  const policies = sections.get("policies");
+  const style = sections.get("style");
+  return {
+    name: frontmatter.name,
+    identity,
+    mandate,
+    ...(policies ? { policies } : {}),
+    ...(style ? { style } : {}),
+  };
+}
+
+export const RESIDENT_PRESET: RolePreset = parseRolePreset(roleText("resident"), "prompts/roles/resident.md");
+export const CHILD_PRESET: RolePreset = parseRolePreset(roleText("child"), "prompts/roles/child.md");

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Actor, Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
+import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
 import { Result } from "effect";
 import { z } from "zod";
@@ -142,6 +143,23 @@ export interface OpenOmniConfig {
    * and validated at compose time; any refusal fails the boot fail-closed.
    */
   readonly hooksPath?: string;
+  /**
+   * Directory of the Owner's prompt templates (`OPENOMNI_PROMPTS_DIR`): every
+   * `<dir>/*.md` is listed in the system prompt. Unset or absent lists none.
+   */
+  readonly promptsDir?: string;
+  /**
+   * Directory of the Owner's skills (`OPENOMNI_SKILLS_DIR`): every
+   * `<dir>/<skill>/SKILL.md` is listed in the system prompt. Unset or absent
+   * lists none; a malformed file refuses boot.
+   */
+  readonly skillsDir?: string;
+  /**
+   * The skills and templates listed from `skillsDir`/`promptsDir`, loaded
+   * once here so a malformed file refuses boot with `OpenOmniPromptDataError`.
+   * Present only when either directory is configured.
+   */
+  readonly prompts?: PromptCatalog;
   /**
    * Per-surface sender allowlists for the trusted-channel grant (external
    * ids on that surface, e.g. Telegram user ids). A surface listed here
@@ -748,6 +766,20 @@ function machinesFromEnv(
   return machines;
 }
 
+/** The prompts/skills directories and their catalog, loaded once at boot; none when both are unset. */
+function promptsFromEnv(
+  env: Record<string, string | undefined>,
+): Pick<OpenOmniConfig, "promptsDir" | "skillsDir" | "prompts"> {
+  const promptsDir = env.OPENOMNI_PROMPTS_DIR?.trim() || undefined;
+  const skillsDir = env.OPENOMNI_SKILLS_DIR?.trim() || undefined;
+  if (promptsDir === undefined && skillsDir === undefined) return {};
+  return {
+    ...(promptsDir === undefined ? {} : { promptsDir }),
+    ...(skillsDir === undefined ? {} : { skillsDir }),
+    prompts: loadPromptCatalog({ promptsDir, skillsDir }),
+  };
+}
+
 export function loadConfig(
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
@@ -792,5 +824,6 @@ export function loadConfig(
     ...(ackReaction === undefined ? {} : { ackReaction }),
     ...(off === undefined ? {} : { off }),
     ...(hooksPath === undefined ? {} : { hooksPath }),
+    ...promptsFromEnv(env),
   };
 }
