@@ -110,7 +110,7 @@ import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
 import { appManifest } from "./manifest";
-import { loadToolPacks } from "./bundles/tool-packs/index";
+import { loadToolPacks } from "./bundles/tools/tool-packs/index";
 import {
   acquireAppResource,
   channelRequests,
@@ -341,21 +341,14 @@ export async function startOpenOmni(options: StartOptions = {}) {
   // here is the typed boot failure, thrown before any listener exists. An
   // injected runtime carries its own composed holder (tests).
   const composedRuntime = async (): Promise<AppRuntime> => {
-    // #1308: the wake bundle's ONE live tool executes against this slot;
-    // boot binds it after the runtime exists, unbound calls refuse typed.
     const alarmsSlot = alarmPortsSlot();
     const toolsSlot = toolPortsSlot();
-    const toolPacks = loadToolPacks(
-      config.toolPacksDir,
-      new Set([machinesConfig.self.id ?? "self", ...machinesConfig.enrolled.map((machine) => machine.machineId)]),
-      toolsSlot.current,
-    );
     const manifest = appManifest({
       alarm: watchPlane.contract,
       wake: watchPlane.wake,
       alarms: alarmsSlot.current,
       tools: toolsSlot.current,
-      toolPacks,
+      toolPacks: loadToolPacks(config.toolPacksDir, new Set([machinesConfig.self.id ?? "self", ...machinesConfig.enrolled.map((machine) => machine.machineId)]), toolsSlot.current, (message, code): never => { throw new AppInvariantError(message, code); }),
       ...(hooks === undefined ? {} : { hooks }),
       ...(config.off === undefined ? {} : { off: config.off }),
     });
