@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

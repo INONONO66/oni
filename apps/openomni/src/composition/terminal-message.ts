@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import { Core } from "@openomni/agent";
-import { APPROVAL_POLICY } from "../bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "./policy";
 const createExecutor = Core.createExecutor;
 const AgentFailure = Core.AgentFailure;
 type SessionRuntime = Core.SessionRuntime;

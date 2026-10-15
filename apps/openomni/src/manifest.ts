@@ -15,6 +15,7 @@ import { evalBundle } from "./bundles/tools/eval/index";
 import { fileBundle } from "./bundles/tools/file/index";
 import { AppInvariantError } from "./invariant";
 import type { ToolPorts } from "./composition/catalog";
+import { ACTIVE_OWNER_POLICY } from "./composition/policy";
 
 /**
  * The tool-capability contract (#1255 P3, #1316): the dispatcher lives in
@@ -72,7 +73,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     monitorBundle(input.wake, input.alarms),
     cronBundle(input.wake.prompt),
     hooksJsonBundle(input.hooks),
-    delegationPolicyBundle(),
+    delegationPolicyBundle(ACTIVE_OWNER_POLICY.delegationRows),
     approvalPolicyBundle(),
     sendMessageBundle(input.tools),
     provisionBundle(input.tools),

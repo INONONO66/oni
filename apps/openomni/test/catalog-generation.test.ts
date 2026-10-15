@@ -1,5 +1,5 @@
 import { composedHolder } from "./helpers/bundle-fixture";
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { expect, test } from "bun:test";
 import { Core, Testing } from "@openomni/agent";
 const GenerationLayers = Core.GenerationLayers;

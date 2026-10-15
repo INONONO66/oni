@@ -216,7 +216,7 @@ test("a finished child frees a spawn_children slot; a liveness read failure coun
 });
 
 test("the bundle contract carries the three tool.pre rows, their guards, and the deadline purpose", () => {
-  const bundle = delegationPolicyBundle();
+  const bundle = delegationPolicyBundle(SHIPPED_OWNER_POLICY.delegationRows);
   expect(bundle.requires.map((seam) => seam.key)).toEqual([
     "@openomni/action/Action",
     "@openomni/agent/capability/alarm",

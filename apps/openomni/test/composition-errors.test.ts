@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { testToolPorts } from "./helpers/tool-ports";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";

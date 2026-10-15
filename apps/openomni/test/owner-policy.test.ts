@@ -112,6 +112,118 @@ test("unknown points and handler names refuse with typed codes", () => {
   ]);
 });
 
+test("registered guards and transformers compile only their declared shapes", () => {
+  const compiled = compileOwnerPolicy(
+    {
+      approval,
+      rows: [
+        policyRow({
+          id: "probe/prompt.pre#1",
+          point: "prompt.pre",
+          verdict: undefined,
+          handler: "hooks-json/secrets-guard",
+          fields: ["body"],
+          params: { replacement: "[masked]" },
+        }),
+        policyRow({
+          id: "probe/tool.pre#2",
+          verdict: undefined,
+          handler: "delegation-policy/spend-cap",
+        }),
+      ],
+    },
+    "handlers.json",
+  );
+  expect(compiled.delegationRows).toEqual([
+    {
+      id: "probe/prompt.pre#1",
+      on: "prompt.pre",
+      when: {},
+      do: "rewrite",
+      how: {
+        ref: "hooks-json/secrets-guard",
+        fields: ["body"],
+        params: { replacement: "[masked]" },
+      },
+      order: 1,
+    },
+    {
+      id: "probe/tool.pre#2",
+      on: "tool.pre",
+      when: {},
+      do: "gate",
+      how: { ref: "delegation-policy/spend-cap" },
+      order: 1,
+    },
+  ]);
+
+  expect(
+    refusal(() =>
+      compileOwnerPolicy(
+        {
+          approval,
+          rows: [
+            policyRow({
+              verdict: undefined,
+              handler: "hooks-json/secrets-guard",
+            }),
+          ],
+        },
+        "missing-fields.json",
+      ),
+    ).code,
+  ).toBe("invalid_policy_file");
+  expect(
+    refusal(() =>
+      compileOwnerPolicy(
+        {
+          approval,
+          rows: [
+            policyRow({
+              verdict: undefined,
+              handler: "delegation-policy/spend-cap",
+              fields: ["body"],
+            }),
+          ],
+        },
+        "guard-fields.json",
+      ),
+    ).code,
+  ).toBe("invalid_policy_file");
+});
+
+test("invalid row semantics refuse rather than partially compiling", () => {
+  for (const rows of [
+    [
+      policyRow({
+        id: "probe/message.pre#1",
+        point: "message.pre",
+        when: {},
+      }),
+    ],
+    [
+      policyRow({
+        id: "probe/tool.pre#1",
+        verdict: undefined,
+        handler: "delegation-policy/spawn-depth",
+        params: { limit: 2 },
+      }),
+    ],
+    [
+      policyRow({ id: "duplicate/tool.pre#1" }),
+      policyRow({ id: "duplicate/tool.pre#1" }),
+    ],
+    [policyRow({ point: "action.pre" })],
+  ]) {
+    expect(
+      refusal(() => compileOwnerPolicy({ approval, rows }, "invalid-semantics.json")).code,
+    ).toBe(rows[0]?.point === "action.pre" ? "unknown_point" : "invalid_policy_file");
+  }
+  expect(
+    refusal(() => compileOwnerPolicy({ approval, rows: "not-an-array" }, "shape.json")).code,
+  ).toBe("invalid_policy_file");
+});
+
 test("unreadable and malformed policy files refuse before compilation", () => {
   const directory = mkdtempSync(join(tmpdir(), "owner-policy-"));
   try {
@@ -121,6 +233,9 @@ test("unreadable and malformed policy files refuse before compilation", () => {
     const malformed = join(directory, "malformed.json");
     writeFileSync(malformed, "{");
     expect(refusal(() => readOwnerPolicy(malformed)).code).toBe("invalid_policy_file");
+    const valid = join(directory, "valid.json");
+    writeFileSync(valid, JSON.stringify({ approval, rows: [policyRow({})] }));
+    expect(readOwnerPolicy(valid).rows).toHaveLength(1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

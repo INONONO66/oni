@@ -1,8 +1,4 @@
 import { Bundle, Core } from "@openomni/agent";
-import { ACTIVE_OWNER_POLICY } from "../../composition/policy";
-
-/** Approval limits are values in the active Owner policy file. */
-export const APPROVAL_POLICY: Core.ApprovalPolicy = ACTIVE_OWNER_POLICY.approval;
 
 /**
  * The `approval-policy` bundle (#1309): the provider of the core's

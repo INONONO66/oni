@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { Effect } from "effect";
 import { Bundle, Core } from "@openomni/agent";
 const createDispatcher = Bundle.createDispatcher;

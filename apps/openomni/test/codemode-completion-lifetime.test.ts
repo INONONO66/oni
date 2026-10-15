@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { executorLayer, catalogLayer } from "../../../packages/agent/test/helpers/service-layers";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";

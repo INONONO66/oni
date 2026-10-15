@@ -13,7 +13,7 @@ import { z } from "zod";
 import { legacyPolicyAddress } from "../bundles/core-policy/index";
 import { ADMISSION_DEPTH_MAX, DELEGATION_GUARD_REFS, SPAWN_DEPTH_REF } from "../bundles/delegation-policy/index";
 import { SECRETS_GUARD_REF } from "../bundles/hooks-json/index";
-import { policyPathFromEnv } from "../config";
+import { ACTIVE_POLICY_PATH } from "../config";
 import { AppInvariantError } from "../invariant";
 import { composedPointTable } from "./point-table";
 
@@ -43,8 +43,6 @@ const PolicyFileRow = z
     handler: z.string().min(1).optional(),
     params: PlainValueSchema.optional(),
     fields: z.array(z.string().min(1)).min(1).optional(),
-    metric: z.string().min(1).optional(),
-    limit: Positive.optional(),
   })
   .refine((row) => (row.verdict === undefined) !== (row.handler === undefined), {
     message: "a row carries exactly one of verdict or handler",
@@ -54,9 +52,6 @@ const PolicyFileRow = z
   })
   .refine((row) => row.handler !== undefined || row.fields === undefined, {
     message: "fields ride only handler rows",
-  })
-  .refine((row) => row.handler !== undefined || (row.metric === undefined && row.limit === undefined), {
-    message: "metric and limit ride only handler rows",
   });
 type PolicyFileRow = z.infer<typeof PolicyFileRow>;
 
@@ -77,7 +72,7 @@ const PolicyFile = z.strictObject({
 
 const MessageRule = z.union([Gateway.RuleTableA, Gateway.RuleTableB]);
 
-type HandlerKind = "guard" | "transformer" | "obligation";
+type HandlerKind = "guard" | "transformer";
 
 /**
  * Names are derived from the app bundles that implement them. A policy file
@@ -111,6 +106,46 @@ function depthCap(row: PolicyFileRow): number | undefined {
   return rule.success && rule.data.table === "B" && rule.data.check.kind === "depth" ? rule.data.check.max : undefined;
 }
 
+function compileHandlerRow(
+  row: PolicyFileRow & { readonly handler: string },
+  point: Bundle.BundleGateRow["on"],
+  source: string,
+): Bundle.BundleGateRow {
+  const kind = OWNER_POLICY_HANDLER_REGISTRY.get(row.handler);
+  if (kind === undefined)
+    refuse(
+      source,
+      "unknown_handler",
+      `row ${row.id} names unknown handler ${row.handler}; known: ${[...OWNER_POLICY_HANDLER_REGISTRY.keys()].join(", ")}`,
+    );
+  if (kind === "transformer") {
+    if (row.fields === undefined)
+      refuse(source, "invalid_policy_file", `transformer row ${row.id} must declare fields`);
+    return {
+      id: row.id,
+      on: point,
+      when: row.when,
+      do: "rewrite",
+      how: {
+        ref: row.handler,
+        fields: [...row.fields],
+        ...(row.params === undefined ? {} : { params: row.params }),
+      },
+      order: row.order,
+    };
+  }
+  if (row.fields !== undefined)
+    refuse(source, "invalid_policy_file", `guard row ${row.id} cannot declare fields`);
+  return {
+    id: row.id,
+    on: point,
+    when: row.when,
+    do: "gate",
+    how: { ref: row.handler, ...(row.params === undefined ? {} : { params: row.params }) },
+    order: row.order,
+  };
+}
+
 function compileRow(row: PolicyFileRow, source: string): SeedRow | Bundle.BundleGateRow {
   const point = PointId.safeParse(row.point);
   if (!point.success) refuse(source, "unknown_point", `row ${row.id} targets unknown point ${row.point}`);
@@ -122,57 +157,8 @@ function compileRow(row: PolicyFileRow, source: string): SeedRow | Bundle.Bundle
   const cap = depthCap(row);
   if (cap !== undefined && cap !== ADMISSION_DEPTH_MAX)
     refuse(source, "invalid_policy_file", `row ${row.id} caps depth at ${cap}; admission caps it at ${ADMISSION_DEPTH_MAX}`);
-  if (row.handler !== undefined) {
-    const kind = OWNER_POLICY_HANDLER_REGISTRY.get(row.handler);
-    if (kind === undefined)
-      refuse(
-        source,
-        "unknown_handler",
-        `row ${row.id} names unknown handler ${row.handler}; known: ${[...OWNER_POLICY_HANDLER_REGISTRY.keys()].join(", ")}`,
-      );
-    if (kind === "transformer") {
-      if (row.fields === undefined)
-        refuse(source, "invalid_policy_file", `transformer row ${row.id} must declare fields`);
-      if (row.metric !== undefined || row.limit !== undefined)
-        refuse(source, "invalid_policy_file", `transformer row ${row.id} cannot declare metric or limit`);
-      return {
-        id: row.id,
-        on: point.data,
-        when: row.when,
-        do: "rewrite",
-        how: {
-          ref: row.handler,
-          fields: [...row.fields],
-          ...(row.params === undefined ? {} : { params: row.params }),
-        },
-        order: row.order,
-      };
-    }
-    if (kind === "obligation") {
-      if (row.metric === undefined || row.limit === undefined)
-        refuse(source, "invalid_policy_file", `obligation row ${row.id} must declare metric and limit`);
-      if (row.fields !== undefined || row.params !== undefined)
-        refuse(source, "invalid_policy_file", `obligation row ${row.id} cannot declare fields or params`);
-      return {
-        id: row.id,
-        on: point.data,
-        when: row.when,
-        do: "gate",
-        how: { ref: row.handler, metric: row.metric, limit: row.limit },
-        order: row.order,
-      };
-    }
-    if (row.fields !== undefined || row.metric !== undefined || row.limit !== undefined)
-      refuse(source, "invalid_policy_file", `guard row ${row.id} cannot declare fields, metric, or limit`);
-    return {
-      id: row.id,
-      on: point.data,
-      when: row.when,
-      do: "gate",
-      how: { ref: row.handler, ...(row.params === undefined ? {} : { params: row.params }) },
-      order: row.order,
-    };
-  }
+  if (row.handler !== undefined)
+    return compileHandlerRow({ ...row, handler: row.handler }, point.data, source);
   return {
     name: row.id,
     kind: address.kind,
@@ -225,20 +211,21 @@ export function readOwnerPolicy(path: string): OwnerPolicy {
 }
 
 /** The shipped default (`policy/owner-policy.json`), compiled through the same gate. */
-export const SHIPPED_POLICY_PATH = fileURLToPath(
+const SHIPPED_POLICY_PATH = fileURLToPath(
   new URL("../../policy/owner-policy.json", import.meta.url),
 );
 export const SHIPPED_OWNER_POLICY: OwnerPolicy = readOwnerPolicy(SHIPPED_POLICY_PATH);
 
 /** The configured file when `OPENOMNI_POLICY_PATH` names one, else the shipped default. */
-export function ownerPolicy(path: string | undefined): OwnerPolicy {
+function ownerPolicy(path: string | undefined): OwnerPolicy {
   return path === undefined ? SHIPPED_OWNER_POLICY : readOwnerPolicy(path);
 }
 
 /** The process-wide Owner policy selected before composition or listeners exist. */
 export const ACTIVE_OWNER_POLICY: OwnerPolicy = ownerPolicy(
-  policyPathFromEnv(process.env),
+  ACTIVE_POLICY_PATH,
 );
+export const APPROVAL_POLICY: Core.ApprovalPolicy = ACTIVE_OWNER_POLICY.approval;
 
 /**
  * Seeds the kernel's mandatory generation into the catalog's policy plane and

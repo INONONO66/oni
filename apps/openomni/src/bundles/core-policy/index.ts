@@ -1,5 +1,5 @@
 import { Bundle, Core } from "@openomni/agent";
-import type { PlainValue, PolicyRow } from "@openomni/protocol";
+import { PointId, type PlainValue, type PolicyRow } from "@openomni/protocol";
 import { AppInvariantError } from "../../invariant";
 
 /** The live policy plane's legacy `kind`/`phase` address of each #1251 point. */
@@ -21,9 +21,8 @@ const LEGACY_ADDRESS_BY_POINT: Readonly<Record<string, { kind: string; phase: Po
 
 /** The legacy `kind`/`phase` address of a #1251 point; `undefined` names no point. */
 export function legacyPolicyAddress(point: string): { kind: string; phase: PolicyRow.Phase } | undefined {
-  return Object.prototype.hasOwnProperty.call(LEGACY_ADDRESS_BY_POINT, point)
-    ? LEGACY_ADDRESS_BY_POINT[point]
-    : undefined;
+  const parsed = PointId.safeParse(point);
+  return parsed.success ? LEGACY_ADDRESS_BY_POINT[parsed.data] : undefined;
 }
 
 /**

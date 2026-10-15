@@ -1,8 +1,6 @@
 {
   "approval": {
-    "responders": [
-      "owner"
-    ],
+    "responders": ["owner"],
     "recentOpen": {
       "limit": 8,
       "windowMs": 3600000

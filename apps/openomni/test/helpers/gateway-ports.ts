@@ -3,7 +3,7 @@ import { createChannelStores } from "@openomni/channels";
 import { Core } from "@openomni/agent";
 import { configureAuthority } from "../../src/composition/generation-layers";
 import { channelRequests, channelStoreSource } from "../../src/gateway";
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 
 type AppLedgerPlane = Parameters<typeof channelStoreSource>[0];
 

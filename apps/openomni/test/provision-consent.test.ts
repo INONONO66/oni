@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect, Fiber } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";

@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { bundleTools, testToolPorts } from "./tool-ports";
 import { Effect } from "effect";
 import { catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";

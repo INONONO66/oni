@@ -11,7 +11,6 @@ import {
 import { Effect } from "effect";
 import { z } from "zod";
 import { ToolCapabilityPort } from "../seams";
-import { ACTIVE_OWNER_POLICY } from "../../composition/policy";
 
 /**
  * The `delegation-policy` bundle (#1258): the caps on child-session creation
@@ -318,7 +317,7 @@ const UNBOUND_READS: DelegationReads = {
  * tool faces deferring to the ported catalog definitions.
  */
 export function delegationPolicyBundle(
-  rows: readonly Bundle.BundleGateRow[] = ACTIVE_OWNER_POLICY.delegationRows,
+  rows: readonly Bundle.BundleGateRow[],
 ): Bundle.BundleContract<
   "delegation-policy",
   object,

@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { expect, test } from "bun:test";
 import { Core, Bundle, Testing } from "@openomni/agent";
 const AgentFailure = Core.AgentFailure;

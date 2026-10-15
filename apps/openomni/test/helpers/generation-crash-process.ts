@@ -1,4 +1,4 @@
-import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
+import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { Core, Testing } from "@openomni/agent";
 const GenerationLayers = Core.GenerationLayers;
 const session = Testing.session;

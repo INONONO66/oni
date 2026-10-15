@@ -21,6 +21,7 @@ const staging = process.argv[2] ?? join(appDir, "dist-npm");
 
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(join(staging, "bin"), { recursive: true });
+mkdirSync(join(staging, "policy"), { recursive: true });
 
 for (const entrypoint of ["src/cli/main.ts", "src/process-entry.ts"]) {
   const result = await Bun.build({
@@ -36,6 +37,10 @@ for (const entrypoint of ["src/cli/main.ts", "src/process-entry.ts"]) {
 
 cpSync(join(appDir, "npm", "README.md"), join(staging, "README.md"));
 cpSync(join(appDir, "npm", "openomni-bin.js"), join(staging, "bin", "openomni.js"));
+cpSync(
+  join(appDir, "policy", "owner-policy.json"),
+  join(staging, "policy", "owner-policy.json"),
+);
 
 const appManifest = JSON.parse(readFileSync(join(appDir, "package.json"), "utf-8")) as {
   readonly version: string;
@@ -46,7 +51,7 @@ const manifest = {
   description: "Single-Owner Agent OS — one Resident, running 24/7 on your machine",
   type: "module",
   bin: { openomni: "bin/openomni.js" },
-  files: ["bin", "dist", "README.md"],
+  files: ["bin", "dist", "policy", "README.md"],
   repository: { type: "git", url: "git+https://github.com/INONONO66/openomni.git" },
   engines: { node: ">=20" },
   publishConfig: { access: "public" },
