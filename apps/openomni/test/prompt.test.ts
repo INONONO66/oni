@@ -99,7 +99,7 @@ function tree(files: Readonly<Record<string, string>>): string {
   return root;
 }
 
-function refusal(run: () => unknown): PromptDataError["data"] {
+function refusal(run: () => void): PromptDataError["data"] {
   try {
     run();
   } catch (error) {
