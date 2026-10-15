@@ -199,7 +199,7 @@ describe("Outbound (#1497)", () => {
     };
     expect(Outbound.Spec.safeParse(spec).success).toBe(true);
     expect(Outbound.text({ kind: "message", spec: Outbound.Spec.parse(spec) }))
-      .toBe("Report\n\nReady\n\n[Open] (https://example.test)");
+      .toBe("Report\n\nReady\n\n[Open](https://example.test)");
     const invalid = { ...spec, elements: { ...spec.elements,
       card: { ...spec.elements.card, children: ["actions", "open"] } } };
     expect(Outbound.Spec.safeParse(invalid).success).toBe(false);
