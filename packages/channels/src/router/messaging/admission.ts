@@ -150,7 +150,7 @@ export function admitSend(
   ports: Pick<NonNullable<GatewayRouterPorts["messaging"]>, "budgets">,
   deny: DenySend,
 ): SendAdmission | Gateway.SendReceipt {
-  const { input, target, grant } = authorization;
+  const { input, target } = authorization;
   const sendClass = input.class ?? (input.operation === "awaited" ? "converse" : "notify");
   let admission = existingAdmission(stores, input, target);
   if (admission instanceof SendAdmissionConflict) {
@@ -161,7 +161,9 @@ export function admitSend(
     repairBudgetDebit(stores, input, admission);
     return admission;
   }
-  const budgeted = ports.budgets !== undefined && grant.replyScope === undefined;
+  // Every actor send is outreach under the standing grant; the reply door
+  // (`admitReply`) is the one budget-free path, and it never comes through here.
+  const budgeted = ports.budgets !== undefined;
   if (budgeted) {
     const budget = ports
       .budgets?.()
@@ -182,4 +184,22 @@ export function admitSend(
   admission = recordAdmission(stores, input, target, budgeted, sendClass);
   repairBudgetDebit(stores, input, admission);
   return admission;
+}
+
+/**
+ * The reply door's admission (#1569): one fact per message id and never a
+ * budget debit — a reply to the conversation that prompted the turn is not
+ * outreach. A replay under the same id with the same content returns the
+ * recorded admission; different content is a typed conflict. Runs inside the
+ * caller's ledger transaction, before any physical delivery.
+ */
+export function admitReply(
+  stores: ChannelStores,
+  input: Gateway.SendInput,
+  target: Gateway.DeliveryTarget,
+): SendAdmission {
+  const existing = existingAdmission(stores, input, target);
+  if (existing instanceof SendAdmissionConflict) throw existing;
+  if (existing !== undefined) return existing;
+  return recordAdmission(stores, input, target, false, input.class ?? "notify");
 }

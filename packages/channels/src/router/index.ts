@@ -7,7 +7,7 @@ import { inboundIdOf } from "./inbound-id.js";
 import { automationReplay, recordAutomation } from "./automation/ledger.js";
 import { actorTarget, executeMessage } from "./message-execution";
 import { createExistingAgentMessaging } from "./messaging/send";
-import { createReplyGrantInstances } from "./messaging/reply-grant";
+import { createReplyMessaging } from "./messaging/reply";
 import { externalMessage, replayExternal } from "./external-message";
 import { filterAutomationRules } from "./automation-rules";
 import { mentionOnlyPosture } from "./automation/mention-only.js";
@@ -42,11 +42,19 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     ((_sender: Gateway.IngestSender, observation: Gateway.MessageObservation) =>
       ports.sink(Gateway.MessageObserved, observation));
   const messagingPorts = ports.messaging;
-  const replyGrants = createReplyGrantInstances({
-    stores,
-    rules: messagingPorts?.replyGrantRules ?? (() => []),
-    publish: ports.sink,
-  });
+  const deliver = (message: {
+    readonly target: Gateway.DeliveryTarget;
+    readonly payload: Outbound.Payload;
+    readonly idempotencyKey: string;
+  }) => {
+    const route = messagingPorts?.deliveryRoutes.get(message.target.channel);
+    if (route === undefined)
+      throw new DeliveryNotSent({
+        operation: "message.deliver",
+        cause: `no delivery route: ${message.target.channel}`,
+      });
+    return route(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
+  };
   const messaging =
     messagingPorts === undefined
       ? undefined
@@ -54,18 +62,21 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           stores,
           requests: ports.requests,
           transaction: ports.transaction,
-          grants: () => [...messagingPorts.grants(), ...replyGrants.list(clock())],
+          grants: () => messagingPorts.grants(),
           ...(messagingPorts.budgets === undefined ? {} : { budgets: messagingPorts.budgets }),
           publish: ports.sink,
-          deliver: (message) => {
-            const route = messagingPorts.deliveryRoutes.get(message.target.channel);
-            if (route === undefined)
-              throw new DeliveryNotSent({
-                operation: "message.deliver",
-                cause: `no delivery route: ${message.target.channel}`,
-              });
-            return route(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
-          },
+          deliver,
+        });
+  // The reply door (#1569): authorized by the conversation binding, never a grant.
+  const reply =
+    messagingPorts === undefined
+      ? undefined
+      : createReplyMessaging({
+          stores,
+          transaction: ports.transaction,
+          routes: () => new Set(messagingPorts.deliveryRoutes.keys()),
+          deliver,
+          publish: ports.sink,
         });
 
   function projectMessage(
@@ -76,14 +87,18 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     startedAt: number,
   ) {
     const actorSendAllowed =
-      send.to.kind !== "actor" ||
-      (messaging !== undefined &&
-        messaging.preflight({
-          senderId: sender.kind === "session" ? sender.id : sender.externalId,
-          target: actorTarget(send.to),
-          operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
-          at: startedAt,
-        }) === undefined);
+      send.to.kind === "origin"
+        ? reply !== undefined &&
+          sender.kind === "session" &&
+          reply.preflight(sender.id, prepared.binding, send.to.inReplyTo) === undefined
+        : send.to.kind !== "actor" ||
+          (messaging !== undefined &&
+            messaging.preflight({
+              senderId: sender.kind === "session" ? sender.id : sender.externalId,
+              target: actorTarget(send.to),
+              operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
+              at: startedAt,
+            }) === undefined);
     const message =
       external !== undefined
         ? {
@@ -101,22 +116,6 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     return message;
   }
 
-  function admitReplyGrant(external: External | undefined, at: number, sourceId: string) {
-    if (external === undefined) return;
-    const actor = external.event.meta?.actor;
-    if (actor?.actorId === undefined || actor.endpoint === undefined) return;
-    replyGrants.admit({
-      actorId: actor.actorId,
-      endpoint: actor.endpoint,
-      surface: external.event.surface,
-      traceId: external.event.traceId,
-      ...(external.event.workspace === undefined ? {} : { workspace: external.event.workspace }),
-      ...(external.event.channel === undefined ? {} : { channel: external.event.channel }),
-      at,
-      sourceId,
-    });
-  }
-
   function sendFromEnvelope(external: External | undefined,
     envelope: Parameters<GatewayRouter["ingest"]>[1]): Gateway.SendMessage {
     if (external === undefined) return Gateway.SendMessage.parse(envelope);
@@ -130,8 +129,10 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     } satisfies Gateway.SendMessage;
   }
 
-  function sendTarget(send: Gateway.SendMessage): string {
+  function sendTarget(sender: Gateway.IngestSender, send: Gateway.SendMessage): string {
     if (send.to.kind === "actor") return send.to.actorId;
+    // A reply answers on the sender's own behalf: its conversation, no new session.
+    if (send.to.kind === "origin") return sender.kind === "session" ? sender.id : ports.id();
     return send.to.kind === "session" ? send.to.id : ports.id();
   }
 
@@ -166,7 +167,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     envelope: Parameters<GatewayRouter["ingest"]>[1], external: External | undefined, startedAt: number) {
     return Effect.gen(function* () {
       const send = sendFromEnvelope(external, envelope);
-      const target = sendTarget(send);
+      const target = sendTarget(sender, send);
       const proposedId = external?.event.id ?? ports.id();
       const prepared = yield* ports.prepare(sender, send, target, proposedId);
       const messageId = prepared.messageId ?? proposedId;
@@ -180,8 +181,8 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
         if (external !== undefined && sender.kind === "external")
           yield* recordAutomation(stores, ports, external, sender);
         return yield* executeMessage({
-          stores, sender, send, prepared, external, ports, messaging, messageId, handle,
-          startedAt, clock, admitReplyGrant: () => admitReplyGrant(external, startedAt, messageId),
+          stores, sender, send, prepared, external, ports, messaging, reply, messageId, handle,
+          startedAt, clock,
         }, progress, intent);
       }));
       if (result.terminal === "blocked_pre" && external !== undefined && sender.kind === "external")

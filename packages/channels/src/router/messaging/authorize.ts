@@ -1,11 +1,6 @@
 import type { Actor, Gateway } from "@openomni/protocol";
 import type { ChannelStores } from "../stores.js";
-import {
-  deliverySurfaceKey,
-  hasScopedSenderTargetCandidate,
-  resolveScopedSenderTargetGrant,
-  resolveSenderTargetGrant,
-} from "./grant";
+import { resolveSenderTargetGrant } from "./grant";
 
 type TargetDenialCode = Extract<
   Gateway.MessageDenialCode,
@@ -105,14 +100,13 @@ export function authorizeSend(
       readonly grant: Gateway.SenderTargetGrant;
     }
   | { readonly ok: false; readonly code: Gateway.MessageDenialCode; readonly reason: string } {
-  const claim = {
+  const grant = resolveSenderTargetGrant(grants, {
     senderId: input.senderId,
     targetActorId: input.target.actorId,
     operation: input.operation,
     at: input.at,
-  };
-  const grant = resolveSenderTargetGrant(grants, claim);
-  if (grant === undefined && !hasScopedSenderTargetCandidate(grants, claim)) {
+  });
+  if (grant === undefined) {
     return {
       ok: false,
       code: "ungranted",
@@ -121,17 +115,5 @@ export function authorizeSend(
   }
   const resolution = resolveExistingTarget(stores, input.target);
   if (!resolution.ok) return resolution;
-  if (grant === undefined) {
-    const surfaceKey = deliverySurfaceKey(resolution.target);
-    const scopedGrant = resolveScopedSenderTargetGrant(grants, { ...claim, surfaceKey });
-    if (scopedGrant === undefined) {
-      return {
-        ok: false,
-        code: "ungranted",
-        reason: `reply-scoped grant does not cover surface ${surfaceKey} — replies stay inside the initiating container`,
-      };
-    }
-    return { ok: true, target: resolution.target, grant: scopedGrant };
-  }
   return { ok: true, target: resolution.target, grant };
 }

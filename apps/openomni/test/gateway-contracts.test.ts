@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { createChannelStores, createSurfaceKeyStore, decodeChannelFailure, resolveChannelGrant } from "@openomni/channels";
 import type { Core } from "@openomni/agent";
 type RunInput = Core.RunInput;
-import { Gateway, MessagingEvents, Outbound, type Tool } from "@openomni/protocol";
+import { Gateway, MessagingEvents, type Outbound, type Tool } from "@openomni/protocol";
 import {
   channelStoreSource,
   createMountedChannelGrantRegistrar,
@@ -277,8 +277,7 @@ describe("authenticated gateway ingress", () => {
   });
 });
 
-test("cold egress needs a budget but a reply-scoped send remains available", async () => {
-  let reply = false;
+test("cold egress needs a budget", async () => {
   const deliveries: Outbound.Payload[] = [];
   const denials: Gateway.MessageDenialCode[] = [];
   const unsubscribe = Bus.subscribe(MessagingEvents.Denied, (event) => denials.push(event.code));
@@ -298,9 +297,6 @@ test("cold egress needs a budget but a reply-scoped send remains available", asy
         senderId: "sender",
         targetActorId: "alice",
         operations: ["fire_and_forget"],
-        ...(reply
-          ? { ruleId: "reply-rule", replyScope: { surfaceKey: "ws:alice" }, expiresAt: 1000 }
-          : {}),
       },
     ],
   });
@@ -320,14 +316,6 @@ test("cold egress needs a budget but a reply-scoped send remains available", asy
     expect(cold.isError).toBe(true);
     expect(denials).toEqual(["budget_exhausted"]);
     expect(deliveries).toEqual([]);
-    reply = true;
-    const warm = await fixture.send({
-      to: { kind: "actor", actorId: "alice" },
-      type: "message",
-      content: "warm",
-    });
-    expect(warm.isError).not.toBe(true);
-    expect(deliveries).toEqual([Outbound.payload("warm")]);
   } finally {
     unsubscribe();
     rmSync(fixture.directory, { recursive: true, force: true });

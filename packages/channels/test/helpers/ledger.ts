@@ -54,7 +54,6 @@ function createTestLedger(paths?: TestLedgerPaths): TestLedger {
     automation: channel.automation,
     blacklist: channel.blacklist,
     channelGrant: channel.channelGrant,
-    replyGrant: channel.replyGrant,
     egressBudget: channel.egressBudget,
     surfaceKey: channel.surfaceKey,
     get decisionFacts() {

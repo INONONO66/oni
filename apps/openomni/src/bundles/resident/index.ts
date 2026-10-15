@@ -9,7 +9,9 @@ const createTurnDispatcher = Bundle.createTurnDispatcher;
 const failureFacts = Core.failureFacts;
 const projectTools = Core.projectTools;
 const ToolRefused = Core.ToolRefused;
+const withExecutor = Core.withExecutor;
 type ChatAgentConfig = Core.ChatAgentConfig;
+type Executor = Core.Executor;
 type SessionRunner = Core.SessionRunner;
 type SessionRuntime = Core.SessionRuntime;
 import {
@@ -28,8 +30,8 @@ import { messageMaterialization } from "../../composition/message-session";
 import { classifyTurnFailure } from "../../observation/llm-failure";
 import { observeComponent } from "../../observation/component";
 
-export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly errorKind: "precondition_failed" } {
-  const refusal = new ToolRefused(call.tool, "evidence-only message");
+function refused(call: Tool.Call, reason: string): Tool.Result & { readonly errorKind: "precondition_failed" } {
+  const refusal = new ToolRefused(call.tool, reason);
   return {
     id: call.id,
     toolCallId: call.id,
@@ -42,13 +44,20 @@ export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly er
   };
 }
 
+export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly errorKind: "precondition_failed" } {
+  return refused(call, "evidence-only message");
+}
+
 interface ReplyTarget {
   readonly actorId: string;
   readonly externalId: string;
   /** The channel the person wrote on: a person on several channels is answered where they asked (#1485). */
   readonly surface: string;
+  /** The delivered prompt the reply door answers (#1569): the gateway folds the conversation from its recorded origin. */
+  readonly messageId: string;
   /** The chat and thread they wrote in; a group message is answered there, not in a DM (#1490). */
   readonly conversation?: Gateway.Conversation;
+  /** The chat they wrote in as recorded, DM included: what a reaction names and what a same-conversation letter is matched against. */
   readonly reactionConversation?: Gateway.Conversation;
 }
 
@@ -63,8 +72,15 @@ function originConversation(recorded: PlainValue | undefined): Gateway.Conversat
   return { channelId, ...(threadId === undefined ? {} : { threadId }), replyToMessageId: messageId };
 }
 
+/** The origin conversation the perimeter records (`router/message-execution.ts`); the workspace is the gateway's key, not the reply's. */
 const OriginConversation = z
-  .object({ channelId: z.string().min(1), messageId: z.string().min(1), dm: z.boolean(), threadId: z.string().min(1).optional() })
+  .object({
+    channelId: z.string().min(1),
+    messageId: z.string().min(1),
+    dm: z.boolean(),
+    workspaceId: z.string().min(1).optional(),
+    threadId: z.string().min(1).optional(),
+  })
   .strict();
 
 /**
@@ -85,6 +101,7 @@ function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget |
       actorId: origin.actorId,
       externalId: origin.externalId,
       surface: origin.surface,
+      messageId: message.id,
       ...(conversation === undefined ? {} : { conversation }),
       ...(rawConversation.success
         ? {
@@ -106,13 +123,35 @@ interface AckReactionSettings {
   readonly failed: string;
 }
 
-/** The gateway's send door a reaction goes through; the composing app hands over its message port. */
-interface ReactionPort {
+/** The gateway's send door (#1569): the reply and the reactions go through it; the composing app hands over its message port. */
+interface GatewayDoor {
   ingest(sender: Gateway.IngestSender, message: Gateway.SendMessage): Promise<Gateway.IngestResult>;
 }
 
+/**
+ * One send through the gateway door under the turn's executor: the gateway's
+ * `run` port records the message action with the executor a tool body would
+ * carry (`currentExecutor()`), so a door send from the turn itself — the
+ * reply, a reaction — must enter the same invocation scope. A refusal or a
+ * failed send never fails the turn; the gateway's own observation names it.
+ */
+function throughDoor(
+  door: GatewayDoor,
+  executor: Executor,
+  sessionId: string,
+  message: Gateway.SendMessage,
+): Effect.Effect<void> {
+  return Effect.promise(() =>
+    withExecutor(executor, () => door.ingest({ kind: "session", id: sessionId }, message)).then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+}
+
 interface ReactionPlan {
-  readonly port: ReactionPort;
+  readonly door: GatewayDoor;
+  readonly executor: Executor;
   readonly sessionId: string;
   readonly actorId: string;
   readonly surface: string;
@@ -127,38 +166,28 @@ interface ReactionPlan {
  * are off, the turn only observes (evidence-only input is never answered,
  * not even with an emoji), or the origin names no message to react to.
  */
-function reactionPlan(options: ResidentOptions, input: Parameters<SessionRunner>[0]): ReactionPlan | undefined {
+function reactionPlan(
+  options: ResidentOptions,
+  input: Parameters<SessionRunner>[0],
+  target: ReplyTarget | undefined,
+  executor: Executor,
+): ReactionPlan | undefined {
   const ack = options.ackReaction;
-  const port = options.reactions;
-  if (ack === undefined || port === undefined || input.authority === "evidence_only") return undefined;
-  const target = externalReplyTarget(input);
+  const door = options.gateway;
+  if (ack === undefined || door === undefined || input.authority === "evidence_only") return undefined;
   const conversation = target?.reactionConversation;
   const messageId = conversation?.replyToMessageId;
   if (target === undefined || conversation === undefined || messageId === undefined) return undefined;
-  return { port, sessionId: input.sessionId, actorId: target.actorId, surface: target.surface, conversation, messageId, ack };
+  return { door, executor, sessionId: input.sessionId, actorId: target.actorId, surface: target.surface, conversation, messageId, ack };
 }
 
-/**
- * One reaction through the gateway's send door, so grants, budget and the
- * sent audit apply as to any letter. A refusal or a failed send never fails
- * the turn: the person still gets the report.
- */
+/** One reaction through the gateway's send door, so grants, budget and the sent audit apply as to any letter. */
 function react(plan: ReactionPlan, emoji: string, replaces?: string): Effect.Effect<void> {
-  return Effect.promise(() =>
-    plan.port
-      .ingest(
-        { kind: "session", id: plan.sessionId },
-        {
-          to: { kind: "actor", actorId: plan.actorId, surface: plan.surface, conversation: plan.conversation },
-          type: "message",
-          content: { kind: "react", messageId: plan.messageId, emoji, ...(replaces === undefined ? {} : { replaces }) },
-        },
-      )
-      .then(
-        () => undefined,
-        () => undefined,
-      ),
-  );
+  return throughDoor(plan.door, plan.executor, plan.sessionId, {
+    to: { kind: "actor", actorId: plan.actorId, surface: plan.surface, conversation: plan.conversation },
+    type: "message",
+    content: { kind: "react", messageId: plan.messageId, emoji, ...(replaces === undefined ? {} : { replaces }) },
+  });
 }
 
 /**
@@ -189,64 +218,94 @@ function acknowledged<A, E, R>(
   );
 }
 
-/** The `send_message` contact a report is addressed to. */
-function contactFor(target: ReplyTarget) {
-  return {
-    kind: "contact" as const,
-    id: target.actorId,
-    surface: target.surface,
-    ...(target.conversation === undefined ? {} : { conversation: target.conversation }),
-  };
-}
-
-function contactTarget(call: Tool.Call): string | undefined {
+/** The `send_message` contact target of a call, when it names one. */
+function contactOf(call: Tool.Call): { readonly id: string; readonly surface?: string; readonly conversation?: PlainValue } | undefined {
   // Membership test on purpose: lint:tools reads an equals sign before the
   // quoted tool name as a second definition site.
   if (!["send_message"].includes(call.tool)) return undefined;
   const to = call.input.to;
   if (to === null || typeof to !== "object" || Array.isArray(to)) return undefined;
-  return to.kind === "contact" && typeof to.id === "string" ? to.id : undefined;
-}
-
-/** The contacts a tool wave actually reached: a refused send reaches nobody. */
-function reachedContacts(
-  calls: readonly Tool.Call[],
-  results: readonly { readonly toolCallId: string; readonly isError?: boolean | undefined }[],
-): readonly string[] {
-  return calls.flatMap((call) => {
-    const target = contactTarget(call);
-    const result = results.find((item) => item.toolCallId === call.id);
-    return target !== undefined && result !== undefined && result.isError !== true ? [target] : [];
-  });
+  if (to.kind !== "contact" || typeof to.id !== "string") return undefined;
+  return {
+    id: to.id,
+    ...(typeof to.surface === "string" ? { surface: to.surface } : {}),
+    ...(to.conversation === undefined ? {} : { conversation: to.conversation }),
+  };
 }
 
 /**
- * The report an approved person is owed after a turn: its result text (or a
- * reported error) addressed to the external actor who wrote in, unless the
- * model already reached that contact itself or the turn could not act.
+ * The conversation that prompted the turn is answered by the plain reply,
+ * never by `send_message` (#1569): a letter to that same person, on that
+ * surface (or on none, which resolves to it), into that same chat and thread
+ * — a DM prompt matches a letter naming no conversation or the DM chat
+ * itself — is refused before the gateway. Reactions, and letters to another
+ * conversation, channel or person, pass.
  */
+function sameConversation(call: Tool.Call, target: ReplyTarget | undefined): boolean {
+  const contact = contactOf(call);
+  if (target === undefined || contact === undefined || call.input.react !== undefined) return false;
+  if (contact.id !== target.actorId) return false;
+  if (contact.surface !== undefined && contact.surface !== target.surface) return false;
+  const recorded = target.reactionConversation;
+  const conversation = contact.conversation;
+  if (conversation === undefined) return true;
+  if (recorded === undefined) return false;
+  if (conversation === null || typeof conversation !== "object" || Array.isArray(conversation)) return false;
+  const dm = target.conversation === undefined;
+  return (
+    conversation.channelId === recorded.channelId &&
+    (dm || (conversation.threadId ?? undefined) === recorded.threadId)
+  );
+}
+
+const SAME_CONVERSATION =
+  "same_conversation: the conversation that prompted this turn is answered by your plain reply, not by send_message";
+
+/**
+ * The reply door (#1569): the turn's result text (or a reported error) goes
+ * back to the conversation that prompted it, named by the delivered prompt's
+ * message id. The gateway folds the conversation from that prompt's recorded
+ * origin and verifies that this session is the one it routed the prompt to;
+ * no grant, budget or tool row applies.
+ */
+function reply(
+  door: GatewayDoor,
+  executor: Executor,
+  sessionId: string,
+  owed: { readonly target: ReplyTarget; readonly text: string },
+): Effect.Effect<void> {
+  return throughDoor(door, executor, sessionId, {
+    to: { kind: "origin", inReplyTo: owed.target.messageId },
+    type: "message",
+    content: owed.text,
+  });
+}
+
 /** The pulse a Resident turn with a channel origin keeps alive while its model runs; none otherwise. */
 function typingFor(
   role: LedgerSession.Role,
   input: Parameters<SessionRunner>[0],
+  target: ReplyTarget | undefined,
   typingRoute: ((surface: string) => ProviderTypingRoute | undefined) | undefined,
 ): Effect.Effect<void> | undefined {
   if (role !== "resident" || input.authority === "evidence_only") return undefined;
-  const target = externalReplyTarget(input);
   const route = target === undefined ? undefined : typingRoute?.(target.surface);
   return route === undefined || target === undefined ? undefined : typingPulse(route, target.externalId, target.conversation);
 }
 
-function pendingReport(
+/**
+ * The reply an approved person is owed after a turn: its result text (or a
+ * reported error) back into the conversation they wrote in, unless the turn
+ * only observed or produced nothing to say.
+ */
+function pendingReply(
   input: Parameters<SessionRunner>[0],
   result: Core.SessionRunnerResult,
-  repliedTo: ReadonlySet<string>,
+  target: ReplyTarget | undefined,
 ): { readonly target: ReplyTarget; readonly text: string } | undefined {
-  if (input.authority === "evidence_only") return undefined;
+  if (input.authority === "evidence_only" || target === undefined) return undefined;
   if (result.kind !== "result" && !(result.kind === "error" && result.reported === true)) return undefined;
   if (result.text.trim() === "") return undefined;
-  const target = externalReplyTarget(input);
-  if (target === undefined || repliedTo.has(target.actorId)) return undefined;
   return { target, text: result.text };
 }
 
@@ -283,8 +342,8 @@ export interface ResidentOptions {
   readonly toolOutputBudgetBytes?: number;
   /** Acknowledgement reactions on channel messages (#1506); absent means off. */
   readonly ackReaction?: AckReactionSettings;
-  /** Where those reactions are sent; absent means no surface can carry them. */
-  readonly reactions?: ReactionPort;
+  /** The gateway's send door the reply (#1569) and the reactions go through; absent means no surface can carry them. */
+  readonly gateway?: GatewayDoor;
 }
 
 /** Resident and child use the same session-owned runner and dispatcher. */
@@ -334,10 +393,9 @@ export function createResident(options: ResidentOptions) {
       const evidenceOnly = input.authority === "evidence_only";
       const offered = new Set(input.tools.map((tool) => tool.name));
       const tools = evidenceOnly ? [] : dispatcher.specs.filter((tool) => offered.has(tool.name));
-      // Contacts the model reached itself this turn; the post-turn report
-      // never duplicates an accepted send_message to the same person, and a
-      // refused one leaves the person still owed the report.
-      const repliedTo = new Set<string>();
+      // The conversation this turn answers through the reply door; a letter
+      // the model addresses to that same conversation is refused in the wave.
+      const replyTarget = externalReplyTarget(input);
       const runner = createSessionChatRunner({
         prepare: () => Effect.succeed({
           config: {
@@ -348,16 +406,15 @@ export function createResident(options: ResidentOptions) {
             systemPrompt: input.system,
             tools,
             toolChoice: tools.length === 0 ? "none" : "auto",
-            toolWave: (calls, signal) =>
-              evidenceOnly
-                ? Effect.succeed(calls.map(refuseEvidenceOnly))
-                : dispatcher.executeWave(calls, {
-                    sessionId: input.sessionId,
-                    turnId: input.turnId,
-                    signal,
-                  }).pipe(Effect.tap((results) => Effect.sync(() => {
-                    for (const target of reachedContacts(calls, results)) repliedTo.add(target);
-                  }))),
+            toolWave: (calls, signal) => {
+              if (evidenceOnly) return Effect.succeed(calls.map(refuseEvidenceOnly));
+              const refusals = calls.filter((call) => sameConversation(call, replyTarget));
+              const passed = calls.filter((call) => !refusals.includes(call));
+              const wave = passed.length === 0
+                ? Effect.succeed([])
+                : dispatcher.executeWave(passed, { sessionId: input.sessionId, turnId: input.turnId, signal });
+              return wave.pipe(Effect.map((results) => [...results, ...refusals.map((call) => refused(call, SAME_CONVERSATION))]));
+            },
             model: options.model,
             ...(options.modelFallbacks === undefined
               ? {}
@@ -382,32 +439,26 @@ export function createResident(options: ResidentOptions) {
         pinnedModel: pinnedModelSelection,
       });
       const turn = Effect.gen(function* () {
-        // The typing scope closes with the model run, before the report goes out,
+        // The typing scope closes with the model run, before the reply goes out,
         // so no pulse can land after the reply and show "composing" again.
         const result = yield* Effect.scoped(Effect.gen(function* () {
-          const pulse = typingFor(row.role, input, options.typingRoute);
+          const pulse = typingFor(row.role, input, replyTarget, options.typingRoute);
           if (pulse !== undefined) yield* pulse.pipe(Effect.forkScoped);
           return yield* runner(input).pipe(Effect.provideService(ObservationSink, { ...observations, publish: observation.events.publish }));
         }));
-        // An approved person who wrote in on a channel is reported to directly;
-        // sessions and other contacts are reached only by an explicit send_message.
-        const report = pendingReport(input, result, repliedTo);
-        if (report !== undefined) {
-          yield* dispatcher.execute(
-            {
-              id: options.id(),
-              tool: "send_message",
-              input: {
-                to: contactFor(report.target),
-                message: report.text,
-              },
-            },
-            { sessionId: input.sessionId, turnId: input.turnId, signal: input.signal },
-          );
-        }
+        // An approved person who wrote in on a channel is answered there through
+        // the reply door; sessions and other contacts are reached only by an
+        // explicit send_message.
+        const owed = pendingReply(input, result, replyTarget);
+        if (owed !== undefined && options.gateway !== undefined)
+          yield* reply(options.gateway, dispatcher.executor, input.sessionId, owed);
         return result;
       });
-      return yield* acknowledged(reactionPlan(options, input), turn, (result) => result.kind === "result");
+      return yield* acknowledged(
+        reactionPlan(options, input, replyTarget, dispatcher.executor),
+        turn,
+        (result) => result.kind === "result",
+      );
     });
   return {
     runnerFor,

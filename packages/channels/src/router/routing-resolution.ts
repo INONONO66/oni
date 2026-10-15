@@ -13,7 +13,7 @@ import { recordRouteDecided } from "./route-record";
 import { applyChannelGrantTreatment } from "./authority.js";
 import { matchBlacklist } from "./blacklist.js";
 import type { ChannelGrantResolution } from "./channel-grant.js";
-import { replyGrantEndpointFacts } from "./messaging/reply-grant.js";
+import { endpointFacts } from "./endpoint-facts.js";
 import { resolveRoute, type RouteState } from "./resolve-route.js";
 import { findRequestCandidates, type RequestResolution } from "./request/correlation.js";
 import type { GatewayRouterPorts } from "./message-ports.js";
@@ -256,10 +256,11 @@ export function resolveKernelRoute<Event extends Gateway.DeliveredEvent>(
 // route.decided fact shape. This recorder owns only the scoped append port.
 // A decision is durably appended before projection or execution. On a CAS
 // conflict, the fresh decision may proceed only when it is equivalent to the
-// recorded decision, including the pinned reply-grant endpoint. Divergence
-// and append/read failures fail closed with a typed error; no second fact or
-// projection is emitted.
-function pinReplyGrantEndpoint(
+// recorded decision, including the pinned initiator endpoint (its fact names
+// date from the retired reply-grant materialization, `endpoint-facts.ts`).
+// Divergence and append/read failures fail closed with a typed error; no
+// second fact or projection is emitted.
+function pinInitiatorEndpoint(
   decision: Ingress.RoutingDecisionPayload,
   event: Gateway.DeliveredEvent,
 ): Ingress.RoutingDecisionPayload {
@@ -277,7 +278,7 @@ function pinReplyGrantEndpoint(
     ...decision,
     factsUsed: [
       ...decision.factsUsed,
-      ...replyGrantEndpointFacts({ channel: endpoint.channel, externalId: endpoint.externalId }),
+      ...endpointFacts({ channel: endpoint.channel, externalId: endpoint.externalId }),
     ],
   };
 }
@@ -295,7 +296,7 @@ export function recordKernelRoute<Event extends Gateway.DeliveredEvent>(
 ): KernelRouteResolution<Event> {
   const event = resolution.event;
   const decision = Ingress.Events.RoutingDecision.schema.parse(
-    pinReplyGrantEndpoint(resolution.decision, event),
+    pinInitiatorEndpoint(resolution.decision, event),
   );
   // Redelivery passes the equivalence gate or fails closed — execution below
   // always uses the fresh decision with its own fresh resolution.

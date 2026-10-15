@@ -170,24 +170,52 @@ describe("Gateway.SenderTargetGrant", () => {
     targetActorId: "seller-1",
     operations: ["awaited"],
   };
-  const replyScope = { surfaceKey: "junggonara:chat:777" };
-  test("standing and complete rule instances parse", () => {
-    expect(Gateway.SenderTargetGrant.parse(standing).ruleId).toBeUndefined();
-    expect(
-      Gateway.SenderTargetGrant.parse({
-        ...standing,
-        ruleId: "r-1",
-        replyScope,
-        expiresAt: 2_000,
-      }),
-    ).toMatchObject({ replyScope });
+  test("a standing grant parses, with or without an expiry", () => {
+    expect(Gateway.SenderTargetGrant.parse(standing).expiresAt).toBeUndefined();
+    expect(Gateway.SenderTargetGrant.parse({ ...standing, expiresAt: 2_000 }).expiresAt).toBe(
+      2_000,
+    );
   });
+  // #1569: the reply to the conversation that prompted a turn is authorized by
+  // the router's conversation binding, never by a rule-materialized grant; the
+  // former `ruleId`/`replyScope` instance fields are gone.
   test.each([
-    ["rule without scope and expiry", { ...standing, ruleId: "r-1" }],
-    ["rule without expiry", { ...standing, ruleId: "r-1", replyScope }],
-    ["orphaned scope", { ...standing, replyScope }],
+    ["a rule id", { ...standing, ruleId: "r-1", expiresAt: 2_000 }],
+    ["a reply scope", { ...standing, replyScope: { surfaceKey: "junggonara:chat:777" } }],
+    ["no operations", { ...standing, operations: [] }],
   ])("rejects %s", (_name, input) => {
     expect(() => Gateway.SenderTargetGrant.parse(input)).toThrow(ZodError);
+  });
+});
+
+describe("Gateway.OriginTarget", () => {
+  test("names the delivered prompt and nothing else", () => {
+    expect(Gateway.OriginTarget.parse({ kind: "origin", inReplyTo: "m-1" })).toEqual({
+      kind: "origin",
+      inReplyTo: "m-1",
+    });
+    expect(
+      Gateway.SendMessage.parse({ to: { kind: "origin", inReplyTo: "m-1" }, type: "message", content: "pong" }).to,
+    ).toEqual({ kind: "origin", inReplyTo: "m-1" });
+  });
+  test.each([
+    ["an empty prompt id", { kind: "origin", inReplyTo: "" }],
+    ["an extra key", { kind: "origin", inReplyTo: "m-1", conversation: { channelId: "C1" } }],
+  ])("rejects %s", (_name, input) => {
+    expect(() => Gateway.OriginTarget.parse(input)).toThrow(ZodError);
+  });
+  test("a Table B row may target the origin kind", () => {
+    expect(
+      Gateway.RuleTableB.parse({
+        id: "message.resident.reply_unbound",
+        table: "B",
+        sender: "session",
+        senderRole: "resident",
+        targetKind: "origin",
+        check: { kind: "actor_send" },
+        effect: "deny",
+      }).targetKind,
+    ).toBe("origin");
   });
 });
 
@@ -204,26 +232,5 @@ describe("Gateway.RequestSpec", () => {
         deadline: 2_000,
       }).threshold,
     ).toBe(1);
-  });
-});
-
-describe("Gateway.ReplyGrantRule", () => {
-  const rule = {
-    id: "r-1",
-    senderId: "persona-1",
-    surface: "junggonara",
-    operations: ["awaited"],
-    instanceTtlMs: 86_400_000,
-    maxLiveInstances: 5,
-    createdBy: "owner",
-  };
-  test("parses an Owner-written rule row", () => {
-    expect(Gateway.ReplyGrantRule.parse(rule).maxLiveInstances).toBe(5);
-  });
-  test.each([
-    ["zero live cap", { ...rule, maxLiveInstances: 0 }],
-    ["negative instance TTL", { ...rule, instanceTtlMs: -1 }],
-  ])("rejects %s", (_name, input) => {
-    expect(() => Gateway.ReplyGrantRule.parse(input)).toThrow(ZodError);
   });
 });

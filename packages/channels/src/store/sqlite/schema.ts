@@ -65,17 +65,11 @@ const CHANNEL_STORE_DDL: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS idx_channel_grant_kind ON channel_grant(kind)",
   `CREATE INDEX IF NOT EXISTS idx_channel_grant_lookup
      ON channel_grant(surface, workspace, channel)`,
-  `CREATE TABLE IF NOT EXISTS reply_grant (
-    id TEXT PRIMARY KEY NOT NULL,
-    data TEXT NOT NULL,
-    rule_id TEXT NOT NULL,
-    target_actor_id TEXT NOT NULL,
-    surface_key TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,
-    UNIQUE (rule_id, target_actor_id, surface_key)
-  )`,
-  "CREATE INDEX IF NOT EXISTS idx_reply_grant_expiry ON reply_grant (expires_at)",
-  "CREATE INDEX IF NOT EXISTS idx_reply_grant_rule_expiry ON reply_grant (rule_id, expires_at)",
+  // #1569: the reply-grant projection is retired (the reply door is authorized by
+  // the conversation binding); an existing store drops the orphan table.
+  "DROP INDEX IF EXISTS idx_reply_grant_expiry",
+  "DROP INDEX IF EXISTS idx_reply_grant_rule_expiry",
+  "DROP TABLE IF EXISTS reply_grant",
   `CREATE TABLE IF NOT EXISTS egress_debit (
     id TEXT PRIMARY KEY,
     sender_id TEXT NOT NULL,

@@ -11,6 +11,7 @@ import {
   type PlainValue,
 } from "@openomni/protocol";
 import type { createExistingAgentMessaging } from "./messaging/send";
+import type { ReplyMessaging } from "./messaging/reply";
 import type { externalMessage } from "./external-message";
 import type { GatewayRouterPorts } from "./message-ports";
 import { answerNativeRequest, openNativeRequest } from "./request/native";
@@ -24,11 +25,11 @@ interface MessageContext {
   external: Effect.Success<ReturnType<typeof externalMessage>> | undefined;
   ports: GatewayRouterPorts;
   messaging: ReturnType<typeof createExistingAgentMessaging> | undefined;
+  reply: ReplyMessaging | undefined;
   messageId: string;
   handle: Gateway.SendMessageHandle;
   startedAt: number;
   clock: () => number;
-  admitReplyGrant: () => void;
 }
 
 interface MessageProgress {
@@ -87,6 +88,7 @@ function originConversation(
       channelId: facts.channelId,
       messageId: facts.eventId,
       dm: facts.dm,
+      ...(facts.workspaceId === undefined ? {} : { workspaceId: facts.workspaceId }),
       ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),
     },
   };
@@ -180,7 +182,28 @@ function admitExternal(context: MessageContext, content: string) {
   });
 }
 
-/** Executes an admitted message; progress survives a later grant/projection failure. */
+/**
+ * The reply door (#1569): the binding the app folded from the named prompt,
+ * already verified against the surface-key store at preflight; its absence
+ * here means admission changed under the send.
+ */
+function executeReply(
+  context: MessageContext,
+  intent: LedgerAction.Receipt,
+  payload: Outbound.Payload,
+): Effect.Effect<PlainValue, ChannelError> {
+  const { sender, prepared, messageId, handle, startedAt } = context;
+  const binding = prepared.binding;
+  if (context.reply === undefined || binding === undefined || sender.kind !== "session")
+    return Effect.fail(new SendAdmissionConflict({ message: "reply admission changed: not_bound" }));
+  return context.reply
+    .send({ messageId, traceId: intent.action.id, senderId: sender.id, binding, payload, at: startedAt })
+    .pipe(
+      Effect.map((value): PlainValue => ({ status: "executed", handle, delivery: { kind: "actor", value } })),
+    );
+}
+
+/** Executes an admitted message; commit progress survives a failure after the commit (the executor's receipt reads it). */
 export function executeMessage(
   context: MessageContext,
   progress: MessageProgress,
@@ -202,6 +225,7 @@ export function executeMessage(
   const payload = transformedContent(intent, sender, send, messageId);
   const content = Outbound.text(payload);
   if (yield* admitExternal(context, content)) return sessionResult;
+  if (send.to.kind === "origin") return yield* executeReply(context, intent, payload);
   if (send.to.kind === "actor") {
     if (messaging === undefined)
       return yield* Effect.die(
@@ -243,7 +267,6 @@ export function executeMessage(
   const row = yield* ports.delivery.commit(admission);
   progress.commitMs = clock() - commitAt;
   progress.committed = row;
-  context.admitReplyGrant();
   return sessionResult;
   });
 }

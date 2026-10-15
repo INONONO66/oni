@@ -10,6 +10,9 @@ export { createWebhookProvider } from "./provider/webhook/provider.js";
 export { createGatewayRouter } from "./router/index.js";
 export { resolveChannelGrant, webSocketSenderTier } from "./router/channel-grant.js";
 export type { ChannelDeliveryRoute, GatewayRouter } from "./router/index.js";
+// #1569: the reply door's binding is folded by the composing app from the
+// prompt's recorded origin and verified here; the shape is the contract.
+export type { ConversationBinding } from "./router/messaging/reply.js";
 export {
   createChannelStores,
   unconfiguredChannelStores,
@@ -23,7 +26,6 @@ export { createAutomationStore, AutomationEnableRefused } from "./store/automati
 export { scheduleTickChannel } from "./automation/matcher.js";
 export { createBlacklistStore } from "./store/blacklist/index.js";
 export { createChannelGrantStore, type ChannelGrantStore } from "./store/channel-grant/index.js";
-export { createReplyGrantStore } from "./store/reply-grant/index.js";
 export { createEgressBudgetStore } from "./store/egress/index.js";
 export {
   createChannelInstanceStore,

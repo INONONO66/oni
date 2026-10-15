@@ -390,19 +390,7 @@
   "Gateway.MessageTarget": ["actorId", "conversation", "endpointId", "surface"],
   "Gateway.NewSessionTarget": ["kind", "parent", "role", "runner"],
   "Gateway.Origin": ["externalId", "surface"],
-  "Gateway.ReplyGrantRule": [
-    "channel",
-    "createdAt",
-    "createdBy",
-    "id",
-    "instanceTtlMs",
-    "maxLiveInstances",
-    "operations",
-    "senderId",
-    "surface",
-    "updatedAt",
-    "workspace"
-  ],
+  "Gateway.OriginTarget": ["inReplyTo", "kind"],
   "Gateway.RequestAnswer": [
     "credential",
     "decision",
@@ -445,8 +433,6 @@
     "expiresAt",
     "id",
     "operations",
-    "replyScope",
-    "ruleId",
     "senderId",
     "targetActorId"
   ],

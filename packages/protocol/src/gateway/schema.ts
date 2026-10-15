@@ -156,62 +156,6 @@ const SenderTargetGrantSchema = z
     targetActorId: z.string().min(1),
     operations: z.array(MessageOperationSchema).min(1),
     expiresAt: EpochMs.optional(),
-    /** Present iff this grant was materialized from a ReplyGrantRule — the provenance link that makes `maxLiveInstances` countable. */
-    ruleId: z.string().min(1).optional(),
-    /** Perimeter-fact scope of a materialized instance: replies stay inside the initiating container. */
-    replyScope: z
-      .object({ surfaceKey: z.string().min(1) })
-      .strict()
-      .optional(),
-  })
-  .strict()
-  .superRefine((grant, ctx) => {
-    // A rule-materialized instance is always bounded: containment + expiry
-    // are what distinguish it from an Owner-written standing grant.
-    if (grant.ruleId !== undefined) {
-      if (grant.replyScope === undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "a rule-materialized grant requires replyScope (perimeter containment)",
-          path: ["replyScope"],
-        });
-      }
-      if (grant.expiresAt === undefined) {
-        ctx.addIssue({
-          code: "custom",
-          message: "a rule-materialized grant requires expiresAt (instanceTtlMs bound)",
-          path: ["expiresAt"],
-        });
-      }
-    } else if (grant.replyScope !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "replyScope without ruleId — reply containment has no owning rule",
-        path: ["ruleId"],
-      });
-    }
-  });
-
-/**
- * Owner-written rule row from which the gateway mechanically materializes
- * reply-scoped SenderTargetGrant instances for first-contact initiators on
- * the covered channel (§2b). Instances are scoped by perimeter facts only
- * (initiator actorId + originating thread/surfaceKey + `instanceTtlMs`);
- * `maxLiveInstances` bounds grant farming by mass first contact.
- */
-const ReplyGrantRuleSchema = z
-  .object({
-    id: z.string().min(1),
-    senderId: z.string().min(1),
-    surface: z.string().min(1),
-    workspace: z.string().min(1).optional(),
-    channel: z.string().min(1).optional(),
-    operations: z.array(MessageOperationSchema).min(1),
-    instanceTtlMs: z.number().int().positive(),
-    maxLiveInstances: z.number().int().positive(),
-    createdBy: z.string().min(1),
-    createdAt: EpochMs.optional(),
-    updatedAt: EpochMs.optional(),
   })
   .strict();
 
@@ -386,6 +330,9 @@ export namespace Gateway {
   /** The `to` variants a model may address by session; the actor variant stays gateway-only. */
   export const SessionTarget = MessageContract.SessionTarget;
   export const NewSessionTarget = MessageContract.NewSessionTarget;
+  /** The reply door's target (#1569): wire-only, never composed by the model-facing tool. */
+  export const OriginTarget = MessageContract.OriginTarget;
+  export type OriginTarget = z.infer<typeof OriginTarget>;
 
   export const RequestAnswer = MessageContract.RequestAnswer;
   export type RequestAnswer = z.infer<typeof RequestAnswer>;
@@ -448,9 +395,6 @@ export namespace Gateway {
 
   export const SenderTargetGrant = SenderTargetGrantSchema;
   export type SenderTargetGrant = z.infer<typeof SenderTargetGrantSchema>;
-
-  export const ReplyGrantRule = ReplyGrantRuleSchema;
-  export type ReplyGrantRule = z.infer<typeof ReplyGrantRuleSchema>;
 
   export const SocialBudget = SocialBudgetSchema;
   export type SocialBudget = z.infer<typeof SocialBudgetSchema>;

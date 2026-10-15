@@ -7,6 +7,7 @@ import { originalAction, requestPort } from "../helpers/requests";
 import { messageExecutionReceipt } from "../helpers/message-execution";
 import { Channel, Ingress, Gateway, type Delivery } from "@openomni/protocol";
 import { Core } from "@openomni/agent";
+import { z } from "zod";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 const compilePolicySnapshot = Core.compilePolicySnapshot;
 
@@ -17,6 +18,7 @@ import {
   type GatewayRouter,
   type GatewayRouterPorts,
 } from "../../src/router/index.js";
+import type { ConversationBinding } from "../../src/router/messaging/reply";
 
 export const ownerSender = {
   kind: "external",
@@ -35,7 +37,10 @@ export const ownerFacts: Gateway.IngressFacts = {
 };
 
 /** The prompt the owner's message becomes: the `[from …]` line a reply or reaction is addressed to, then the text (#1497). */
-export function ownerPrompt(facts: Gateway.IngressFacts = ownerFacts, actorId = "actor-owner"): string {
+export function ownerPrompt(
+  facts: Gateway.IngressFacts = ownerFacts,
+  actorId = "actor-owner",
+): string {
   const threadId = facts.reply?.threadId;
   return `[from ${actorId} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]\n\n${facts.render}`;
 }
@@ -98,37 +103,86 @@ function nextFixtureId(prefix: string): string {
   return `${prefix}-${fixtureIds.value}`;
 }
 
+/** The origin a channel prompt was committed with; the fixture's stand-in for the app's own fold. */
+const CommittedOrigin = z
+  .object({
+    kind: z.literal("external"),
+    surface: z.string().min(1),
+    externalId: z.string().min(1),
+    actorId: z.string(),
+    conversation: z
+      .object({
+        channelId: z.string().min(1),
+        messageId: z.string().min(1),
+        dm: z.boolean(),
+        workspaceId: z.string().min(1).optional(),
+        threadId: z.string().min(1).optional(),
+      })
+      .strict(),
+  })
+  .loose();
+
+/**
+ * The reply door's binding (#1569) as the composing app folds it: the
+ * conversation the named prompt was delivered from, read off the sender's own
+ * commits — a prompt another session received binds nothing.
+ */
+function originBinding(
+  sender: Gateway.IngestSender,
+  send: Gateway.SendMessage,
+): ConversationBinding | undefined {
+  if (sender.kind !== "session" || send.to.kind !== "origin") return undefined;
+  const inReplyTo = send.to.inReplyTo;
+  const prompt = commits.find(
+    (commit) => commit.id === inReplyTo && commit.sessionId === sender.id,
+  );
+  const origin = CommittedOrigin.safeParse(prompt?.origin.value);
+  if (!origin.success) return undefined;
+  const { surface, externalId, actorId, conversation } = origin.data;
+  return {
+    surface,
+    externalId,
+    actorId,
+    channelId: conversation.channelId,
+    messageId: conversation.messageId,
+    dm: conversation.dm,
+    ...(conversation.workspaceId === undefined ? {} : { workspaceId: conversation.workspaceId }),
+    ...(conversation.threadId === undefined ? {} : { threadId: conversation.threadId }),
+  };
+}
+
+const sessionDenial = (id: string, targetKind: "actor" | "origin") => ({
+  generation: 1,
+  name: id,
+  kind: "message" as const,
+  phase: "pre" as const,
+  priority: 1000,
+  match: {
+    encodingVersion: 1 as const,
+    value: {
+      message: Gateway.RuleTableB.parse({
+        id,
+        table: "B",
+        sender: "session",
+        senderRole: "resident",
+        targetKind,
+        check: { kind: "actor_send" },
+        effect: "deny",
+      }),
+    },
+  },
+  verdict: { encodingVersion: 1 as const, value: { type: "deny" as const, reason: id } },
+});
+
 export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): GatewayRouter {
   const now = overrides.now ?? (() => 1);
   const policy = compilePolicySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: [
-      {
-        generation: 1,
-        name: "message.resident.actor_grant",
-        kind: "message",
-        phase: "pre",
-        priority: 1000,
-        match: {
-          encodingVersion: 1,
-          value: {
-            message: Gateway.RuleTableB.parse({
-              id: "message.resident.actor_grant",
-              table: "B",
-              sender: "session",
-              senderRole: "resident",
-              targetKind: "actor",
-              check: { kind: "actor_send" },
-              effect: "deny",
-            }),
-          },
-        },
-        verdict: {
-          encodingVersion: 1,
-          value: { type: "deny", reason: "message.resident.actor_grant" },
-        },
-      },
+      sessionDenial("message.resident.actor_grant", "actor"),
+      // #1569: the reply door's preflight (binding owned, route mounted) rides the same check.
+      sessionDenial("message.resident.reply_unbound", "origin"),
       {
         generation: 1,
         name: "compaction",
@@ -138,29 +192,38 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
         match: { encodingVersion: 1, value: { op: "compaction" } },
         verdict: { encodingVersion: 1, value: { type: "allow" } },
       },
-      ...Gateway.RuleTableA.shape.check.options.map((check: "identity" | "grant_tier" | "egress_budget" | "event_id_dedupe" | "reply_correlation") => ({
-        generation: 1,
-        name: `message.external.${check}`,
-        kind: "message",
-        phase: "pre" as const,
-        priority: 1000,
-        match: {
-          encodingVersion: 1 as const,
-          value: {
-            message: Gateway.RuleTableA.parse({
-              id: `message.external.${check}`,
-              table: "A",
-              sender: "external",
-              check,
-              effect: "deny",
-            }),
+      ...Gateway.RuleTableA.shape.check.options.map(
+        (
+          check:
+            | "identity"
+            | "grant_tier"
+            | "egress_budget"
+            | "event_id_dedupe"
+            | "reply_correlation",
+        ) => ({
+          generation: 1,
+          name: `message.external.${check}`,
+          kind: "message",
+          phase: "pre" as const,
+          priority: 1000,
+          match: {
+            encodingVersion: 1 as const,
+            value: {
+              message: Gateway.RuleTableA.parse({
+                id: `message.external.${check}`,
+                table: "A",
+                sender: "external",
+                check,
+                effect: "deny",
+              }),
+            },
           },
-        },
-        verdict: {
-          encodingVersion: 1 as const,
-          value: { type: "deny", reason: `message.external.${check}` },
-        },
-      })),
+          verdict: {
+            encodingVersion: 1 as const,
+            value: { type: "deny", reason: `message.external.${check}` },
+          },
+        }),
+      ),
     ],
   });
   router = createGatewayRouter({
@@ -168,15 +231,17 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
     transaction: channelTransaction,
     now,
     id: () => nextFixtureId("fixture-id"),
-    requests: channelRequests(requestPort(now, (sessionIds: readonly string[]) => {
-      for (const sessionId of sessionIds) {
-        for (const row of ledger().kernel.pendingMessages(sessionId)) {
-          if (commits.some((existing: Delivery.Commit) => existing.id === row.id)) continue;
-          commits.push({ ...row, parentActionId: null });
-          overrides.committed?.(row);
+    requests: channelRequests(
+      requestPort(now, (sessionIds: readonly string[]) => {
+        for (const sessionId of sessionIds) {
+          for (const row of ledger().kernel.pendingMessages(sessionId)) {
+            if (commits.some((existing: Delivery.Commit) => existing.id === row.id)) continue;
+            commits.push({ ...row, parentActionId: null });
+            overrides.committed?.(row);
+          }
         }
-      }
-    })),
+      }),
+    ),
     sink: <T>(event: import("@openomni/protocol").BusEvent.Descriptor<T>, data: T) => {
       if (event.name === Ingress.Events.RoutingDecision.name) {
         decisions.push(Ingress.Events.RoutingDecision.schema.parse(data));
@@ -184,77 +249,87 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
       Bus.publish(event, data);
     },
     delivery: {
-      commit: (row: Delivery.Commit) => Effect.gen(function* () {
-        yield* ledger().kernel.materialize({
-          id: row.sessionId,
-          parentId: null,
-          role: "resident",
-          tools: [],
-          system: { preset: "", blocks: [] },
-          policyGeneration: 0,
-          actionId: `${row.sessionId}:configure`,
-          at: 0,
-        });
-        const existed = ledger().kernel.pendingMessages(row.sessionId).some(
-          (input: Delivery.Row) => input.id === row.id,
-        );
-        const received = yield* commitReceivedMessage(row);
-        if (!existed) commits.push(row);
-        return received.row;
-      }).pipe(Effect.mapError(decodeChannelFailure("fixture.delivery"))),
+      commit: (row: Delivery.Commit) =>
+        Effect.gen(function* () {
+          yield* ledger().kernel.materialize({
+            id: row.sessionId,
+            parentId: null,
+            role: "resident",
+            tools: [],
+            system: { preset: "", blocks: [] },
+            policyGeneration: 0,
+            actionId: `${row.sessionId}:configure`,
+            at: 0,
+          });
+          const existed = ledger()
+            .kernel.pendingMessages(row.sessionId)
+            .some((input: Delivery.Row) => input.id === row.id);
+          const received = yield* commitReceivedMessage(row);
+          if (!existed) commits.push(row);
+          return received.row;
+        }).pipe(Effect.mapError(decodeChannelFailure("fixture.delivery"))),
     },
-    prepare: (sender: Gateway.IngestSender, send: Gateway.SendMessage, target: string) => Effect.succeed({
-      target,
-      message:
-        sender.kind === "external"
-          ? {
-              sender: "external",
-              addressee: "bot",
-              identity: true,
-              grantTier: true,
-              egressBudget: true,
-              eventIdUnique: true,
-              replyCorrelation: true,
-            }
-          : {
-              sender: "session",
-              senderRole: "resident",
-              targetKind: send.to.kind,
-              type: send.type,
-              parentChild: true,
-              fanout: 0,
-              depth: 1,
-              withinParentDeadline: true,
-            },
-    }),
-    run: (sender: Gateway.IngestSender, request: Parameters<GatewayRouterPorts["run"]>[1], body: Parameters<GatewayRouterPorts["run"]>[2]) => Effect.gen(function* () {
-      const decision = policy.evaluate({
-        kind: "message",
-        phase: "pre",
-        op: request.op,
-        value: request.intent,
-        message: request.message,
+    prepare: (sender: Gateway.IngestSender, send: Gateway.SendMessage, target: string) => {
+      const binding = originBinding(sender, send);
+      return Effect.succeed({
+        target,
+        ...(binding === undefined ? {} : { binding }),
+        message:
+          sender.kind === "external"
+            ? {
+                sender: "external",
+                addressee: "bot",
+                identity: true,
+                grantTier: true,
+                egressBudget: true,
+                eventIdUnique: true,
+                replyCorrelation: true,
+              }
+            : {
+                sender: "session",
+                senderRole: "resident",
+                targetKind: send.to.kind,
+                type: send.type,
+                parentChild: true,
+                fanout: 0,
+                depth: 1,
+                withinParentDeadline: true,
+              },
       });
-      if (decision.verdict === "deny")
+    },
+    run: (
+      sender: Gateway.IngestSender,
+      request: Parameters<GatewayRouterPorts["run"]>[1],
+      body: Parameters<GatewayRouterPorts["run"]>[2],
+    ) =>
+      Effect.gen(function* () {
+        const decision = policy.evaluate({
+          kind: "message",
+          phase: "pre",
+          op: request.op,
+          value: request.intent,
+          message: request.message,
+        });
+        if (decision.verdict === "deny")
+          return {
+            terminal: "blocked_pre",
+            matchedRuleIds: decision.matchedRuleIds,
+            reason: decision.reason ?? "denied",
+          };
+        const actionId = nextFixtureId("action");
+        if (sender.kind === "session") originalAction(actionId, sender.id, request.intent);
         return {
-          terminal: "blocked_pre",
+          terminal: "executed",
           matchedRuleIds: decision.matchedRuleIds,
-          reason: decision.reason ?? "denied",
-        };
-      const actionId = nextFixtureId("action");
-      if (sender.kind === "session") originalAction(actionId, sender.id, request.intent);
-      return {
-        terminal: "executed",
-        matchedRuleIds: decision.matchedRuleIds,
-        value: yield* body(
-          messageExecutionReceipt(
-            actionId,
-            sender.kind === "session" ? sender.id : "ingress",
-            request.intent,
+          value: yield* body(
+            messageExecutionReceipt(
+              actionId,
+              sender.kind === "session" ? sender.id : "ingress",
+              request.intent,
+            ),
           ),
-        ),
-      };
-    }),
+        };
+      }),
     ...overrides,
   });
   return router;

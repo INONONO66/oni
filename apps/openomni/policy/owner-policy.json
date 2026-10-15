@@ -307,6 +307,50 @@
       }
     },
     {
+      "id": "message.resident.reply_unbound",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.reply_unbound",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "origin",
+          "check": {
+            "kind": "actor_send"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.reply_unbound"
+      }
+    },
+    {
+      "id": "message.child.reply",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.child.reply",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "child",
+          "targetKind": "origin",
+          "check": {
+            "kind": "type"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.child.reply"
+      }
+    },
+    {
       "id": "message.child.actor",
       "point": "message.pre",
       "order": 1000,

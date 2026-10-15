@@ -5,6 +5,7 @@ import type {
   BusEvent, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
 } from "@openomni/protocol";
 import type { KernelDeliveryReceipt } from "../support/deliver";
+import type { ConversationBinding } from "./messaging/reply";
 
 export type ChannelDeliveryRoute = (
   externalId: string,
@@ -38,6 +39,8 @@ interface PreparedMessage {
     | { readonly sender: "external"; readonly eventIdUnique: boolean };
   readonly sender?: Delivery.Commit["sender"];
   readonly createSession?: Delivery.Commit["createSession"];
+  /** The reply door's candidate (#1569): the conversation the named prompt came from, folded by the app; the router verifies it. */
+  readonly binding?: ConversationBinding;
 }
 
 type RequestOpenInput = Pick<
@@ -84,7 +87,6 @@ export interface GatewayRouterPorts {
   readonly id: () => string;
   readonly messaging?: MessagingGrantSources & {
     readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
-    readonly replyGrantRules?: () => readonly Gateway.ReplyGrantRule[];
   };
 }
 
