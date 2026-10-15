@@ -1,0 +1,1 @@
+#1573 on `feat/1573-tool-packs` (2026-10-15, base `3364537f6`, PR #1578): external JSON tool packs compile into removable tool bundles, validate typed manifest and machine boundaries, quote standalone arguments and execute only through attached machine exec; receipts: `apps/openomni/test/tool-packs.test.ts`, `/tmp/ulw-r4/c4-machine-exec.txt`, `docs/implementation-status.md`.
