@@ -9,7 +9,7 @@ export const DISCORD_RENDER = {
   renderMarkdown: renderDiscordMarkdown,
   messageLimit: 2000,
   capabilities: {
-    Stack: "native", Markdown: "text", Code: "text", Table: "downgrade:table-to-bullets",
+    Stack: "native", Markdown: "text", Code: "text", Table: "downgrade:table-to-image",
     Image: "native", File: "native", Buttons: "native", Button: "native",
     Card: "native", Carousel: "native", Poll: "native", Status: "native",
     Divider: "downgrade:divider-to-rule", Context: "text",
