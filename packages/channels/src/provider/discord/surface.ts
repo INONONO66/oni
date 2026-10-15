@@ -161,9 +161,12 @@ export class DiscordAdapter implements Channel.Surface {
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },
-            native: async (step) => {
-              const externalMessageId = await this.client.sendNative(channelId, renderDiscord(step), traceId, conversation);
-              return externalMessageId === undefined ? {} : { externalMessageId };
+            native: {
+              render: renderDiscord,
+              post: async (body) => {
+                const externalMessageId = await this.client.sendNative(channelId, body, traceId, conversation);
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
             },
             react: async (messageId, emoji, replaces) => {
               if (replaces !== undefined) await this.client.removeReaction(channelId, messageId, replaces, traceId);

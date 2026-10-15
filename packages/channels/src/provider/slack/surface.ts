@@ -18,7 +18,7 @@ import {
 } from "../../errors";
 import { SlackNormalizer } from "./normalizer";
 import { SlackSocket } from "./socket";
-import { renderSlack, splitSlackBlocks } from "./render.js";
+import { escapeSlackText, renderSlack, splitSlackBlocks } from "./render.js";
 import {
   SlackInteractionSchema,
   type SlackMessageEvent,
@@ -133,11 +133,14 @@ export class SlackAdapter implements Channel.Surface {
                 return {};
               },
             },
-            native: async (step) => {
-              let externalMessageId: string | undefined;
-              for (const blocks of splitSlackBlocks(renderSlack(step)))
-                externalMessageId = await this.client.sendBlocks(channelId, blocks, step.digest, traceId, threadTs);
-              return externalMessageId === undefined ? {} : { externalMessageId };
+            native: {
+              render: (step) => ({ blocks: splitSlackBlocks(renderSlack(step)), text: escapeSlackText(step.digest) }),
+              post: async ({ blocks: batches, text }) => {
+                let externalMessageId: string | undefined;
+                for (const blocks of batches)
+                  externalMessageId = await this.client.sendBlocks(channelId, blocks, text, traceId, threadTs);
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
             },
             react: async (messageId, emoji, replaces) => {
               const name = slackEmojiName(emoji);
