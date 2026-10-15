@@ -1,4 +1,5 @@
 import { z } from "zod";
+import * as catalogModule from "./catalog.js";
 
 /**
  * The one outbound value an agent produces for a person (#1497): a letter
@@ -30,9 +31,15 @@ const FilePart = z
   .strict();
 const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, FilePart]);
 
+/** A letter is ordered parts or one catalog spec (#1545), never both. */
 const MessageSchema = z
-  .object({ kind: z.literal("message"), parts: z.array(PartSchema).min(1) })
-  .strict();
+  .object({ kind: z.literal("message"), parts: z.array(PartSchema).min(1).optional(), spec: catalogModule.Spec.optional() })
+  .strict()
+  .superRefine((message, ctx) => {
+    if ((message.parts === undefined) === (message.spec === undefined)) {
+      ctx.addIssue({ code: "custom", message: "a message carries exactly one of parts or spec" });
+    }
+  });
 /** One emoji on the contact's message; `replaces` names the sender's earlier emoji the platform must take off first. */
 const ReactSchema = z
   .object({ kind: z.literal("react"), messageId: Id, emoji: z.string().min(1), replaces: z.string().min(1).optional() })
@@ -55,7 +62,9 @@ function captionLine(caption: string | undefined): string {
   return caption === undefined ? "" : `\n${caption}`;
 }
 
-function partText(part: z.infer<typeof PartSchema>): string {
+type MessagePart = z.infer<typeof PartSchema>;
+
+function partText(part: MessagePart): string {
   switch (part.kind) {
     case "text":
       return part.text;
@@ -68,9 +77,89 @@ function partText(part: z.infer<typeof PartSchema>): string {
   }
 }
 
+/** One element's reading: text lines, and the media parts a channel can upload. */
+type Chunk = string | MessagePart;
+
+function tableChunk(props: { columns: { header: string }[]; rows: string[][] }): string {
+  return [props.columns.map((column) => column.header).join(" | "), ...props.rows.map((row) => row.join(" | "))].join("\n");
+}
+
+function elementChunks(element: catalogModule.Element): Chunk[] {
+  switch (element.type) {
+    case "Markdown":
+    case "Context":
+      return [element.props.text];
+    case "Code": {
+      const { text, lang } = element.props;
+      return [lang === undefined ? { kind: "code", text } : { kind: "code", text, lang }];
+    }
+    case "Table":
+      return [tableChunk(element.props)];
+    case "Image": {
+      const { ref, caption } = element.props;
+      return [caption === undefined ? { kind: "image", ref } : { kind: "image", ref, caption }];
+    }
+    case "File": {
+      const { ref, name, mime } = element.props;
+      return [mime === undefined ? { kind: "file", ref, name } : { kind: "file", ref, name, mime }];
+    }
+    case "Button":
+      return ["url" in element.props ? `[${element.props.label}](${element.props.url})` : `[${element.props.label}]`];
+    case "Card": {
+      const { title, image, body } = element.props;
+      const picture: Chunk[] = image === undefined ? [] : [{ kind: "image", ref: image }];
+      return [title, ...picture, ...(body === undefined ? [] : [body])];
+    }
+    case "Poll": {
+      const options = element.props.options.map((option) => `- ${option}`).join("\n");
+      return [`${element.props.question}${element.props.multi === true ? " (choose any)" : ""}\n${options}`];
+    }
+    case "Status":
+      return [
+        `${element.props.kind.toUpperCase()}: ${element.props.title}`,
+        ...(element.props.body === undefined ? [] : [element.props.body]),
+      ];
+    case "Divider":
+      return ["---"];
+    default:
+      return [];
+  }
+}
+
+/** The spec read depth-first as parts: runs of text collapse into one text part, and media keeps its own part so a channel still uploads it. */
+function specParts(spec: catalogModule.Spec): MessagePart[] {
+  const parts: MessagePart[] = [];
+  const lines: string[] = [];
+  const flush = (): void => {
+    if (lines.length === 0) return;
+    parts.push({ kind: "text", text: lines.join("\n\n") });
+    lines.length = 0;
+  };
+  const pending: string[] = [spec.root];
+  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
+    const element = spec.elements[id];
+    if (element === undefined) continue;
+    for (const chunk of elementChunks(element)) {
+      if (typeof chunk === "string") {
+        lines.push(chunk);
+        continue;
+      }
+      flush();
+      parts.push(chunk);
+    }
+    for (const child of [...element.children].reverse()) pending.push(child);
+  }
+  flush();
+  return parts;
+}
+
 export namespace Outbound {
   export const Part = PartSchema;
   export type Part = z.infer<typeof PartSchema>;
+  export const catalog = catalogModule.Catalog;
+  export import Spec = catalogModule.Spec;
+  export import Element = catalogModule.Element;
+  export import ElementType = catalogModule.ElementType;
   export const Message = MessageSchema;
   export type Message = z.infer<typeof MessageSchema>;
   export const React = ReactSchema;
@@ -88,12 +177,25 @@ export namespace Outbound {
   }
 
   /**
+   * The parts a channel delivers: the letter's own parts, or the spec read
+   * depth-first so its code, images, and files stay uploadable parts rather
+   * than flattened text.
+   */
+  export function parts(message: Message): Part[] {
+    return message.spec === undefined ? (message.parts ?? []) : specParts(message.spec);
+  }
+
+  /**
    * The text-only reading of a payload: what a session prompt, a journal
    * digest, or a channel without media support carries. Media parts become
    * a bracketed line naming the reference, so nothing is dropped silently.
    */
   export function text(payload: Payload): string {
     if (payload.kind === "react") return `${payload.emoji} on ${payload.messageId}`;
-    return payload.parts.map(partText).join("\n\n");
+    return parts(payload).map(partText).join("\n\n");
+  }
+
+  export function prompt(): string {
+    return catalogModule.Catalog.prompt();
   }
 }

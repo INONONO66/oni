@@ -33,7 +33,7 @@ type DenySend = (
 function signedContent(
   payload: Outbound.Payload,
 ): { body: string } | { payload: Outbound.Payload } {
-  const [part, ...rest] = payload.kind === "message" ? payload.parts : [];
+  const [part, ...rest] = payload.kind === "message" ? (payload.parts ?? []) : [];
   return part?.kind === "text" && rest.length === 0 ? { body: part.text } : { payload };
 }
 

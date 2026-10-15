@@ -47,10 +47,10 @@ const SendMessageInput = z
   .object({
     to: Target,
     message: z
-      .union([z.string(), z.array(Outbound.Part).min(1)])
+      .union([z.string(), Outbound.Spec])
       .optional()
       .describe(
-        "The letter: plain markdown, or ordered parts — text, code {text, lang?}, image {ref, name?, caption?}, file {ref, name, mime?, caption?}. A ref is an /absolute path on the attached machine (machineId:/path) or an https URL; the channel uploads it where it can.",
+        "Plain markdown, or a structured message spec — see the Structured messages section of your instructions.",
       ),
     react: z
       .string()
@@ -91,7 +91,7 @@ function outboundPayload(input: SendMessageInput): Outbound.Payload {
       throw new ToolRefused("send_message", "exactly one of message or react");
     return typeof input.message === "string"
       ? Outbound.payload(input.message)
-      : { kind: "message", parts: input.message };
+      : { kind: "message", spec: input.message };
   }
   const messageId = input.to.kind === "contact" ? input.to.conversation?.replyToMessageId : undefined;
   if (messageId === undefined)

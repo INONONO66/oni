@@ -18,6 +18,32 @@ lane. Slack Interactivity and Discord developer-console setup belong to #1546.
 Receipts: protocol schema and driver normalizer tests, Slack Socket Mode,
 Discord interaction callback and Telegram poller ordering tests.
 
+## #1545 outbound catalog (L1)
+
+On `feat/1545-protocol-catalog` (2026-10-15, base `35d60a491`). The protocol
+ships a static `Outbound.catalog` (Stack, Markdown, Code, Table, Image, File,
+Buttons/Button, Card, Carousel, Poll, Status, Divider, Context) and a
+validated flat `Outbound.Spec`: one tree hung off `root` (no orphans, sharing
+or cycles), leaf elements carry no children, Button lives only under Buttons,
+Carousel holds 2–10 Cards, Buttons 1–5 Buttons, a Poll 2–10 options, a table
+row one value per column, and a Button URL an http(s) link. Fields the catalog
+does not define are refused rather than dropped, and a client-state field
+(`$`-prefixed, `visible`, `watch`) inside props is refused while element ids
+stay plain names. `Outbound.text` digests a spec to readable text and
+`Outbound.prompt()` is the model-facing catalog description the Resident
+preset carries. `send_message.message` is plain markdown or a spec; the
+ordered-parts form left the tool (the catalog's Code, Image and File elements
+cover it). `Outbound.Message` is one object carrying exactly one of `parts`
+(the text doors) or `spec`, so the schema snapshot only grew; the reviewed
+`send_message` tool snapshot was regenerated for the new input.
+`Outbound.parts` reads a spec depth-first into ordered parts — runs of text
+collapse into one text part while Code, Image, File and a Card's image keep
+their own part — so channels still upload a spec's media before L2 renders it
+natively; desktop rendering belongs to L4 and postback delivery landed in L3.
+Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
+and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,
+and `apps/openomni/test/prompt.test.ts`.
+
 ## #1506 auto-ack reaction
 
 On `feat/app-ack-reaction` (2026-10-14, base `72ce6b7be`). A Resident turn

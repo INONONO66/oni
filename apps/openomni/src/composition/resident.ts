@@ -1,4 +1,4 @@
-import type { LedgerSession } from "@openomni/protocol";
+import { Outbound, type LedgerSession } from "@openomni/protocol";
 import { buildAgentPrompt } from "../bundles/prompt/build";
 import { CHILD_PRESET, RESIDENT_PRESET } from "../bundles/prompt/roles";
 import { createResident as createResidentBundle, type ResidentOptions as ResidentBundleOptions } from "../bundles/resident/index";
@@ -23,7 +23,9 @@ export function createResident(options: ResidentOptions) {
       catalogLayer: (select) => toolCatalogLayer(ports, select),
     },
     presets: {
-      resident: buildAgentPrompt(RESIDENT_PRESET),
+      resident: buildAgentPrompt(RESIDENT_PRESET, {
+        structuredMessages: `Structured messages\n\n${Outbound.prompt()}`,
+      }),
       child: buildAgentPrompt(CHILD_PRESET),
     },
     id: ports.id,

@@ -11,7 +11,7 @@ const session = Testing.session;
 type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./bus";
 import { createAppLedger } from "./ledger";
-import { Gateway, type LedgerSession, type Tool } from "@openomni/protocol";
+import { Gateway, type LedgerSession, Outbound, type Tool } from "@openomni/protocol";
 import { channelRequests, channelStoreSource, createResidentGateway, type OutboundMessaging } from "../../src/gateway";
 import { createChannelStores, decodeChannelFailure } from "@openomni/channels";
 import {
@@ -128,11 +128,11 @@ export function messageFixture(
   };
 }
 
-/** The tool's letter face for a gateway content: the string sugar, the parts, or the one reaction. */
+/** The tool's letter face for a gateway content: the string sugar, the spec, or the one reaction. */
 function toolLetter(content: Gateway.SendMessage["content"]): Pick<SendMessageInput, "message" | "react"> {
   if (typeof content === "string") return { message: content };
   if (content.kind === "react") return { react: content.emoji };
-  return { message: content.parts };
+  return { message: content.spec ?? Outbound.text(content) };
 }
 
 /**
