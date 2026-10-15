@@ -1,0 +1,16 @@
+{
+  "id": "claude-code",
+  "versions": "^2\\.",
+  "commands": ["claude"],
+  "screen": {
+    "permission_prompt": ["Allow this tool", "Do you want to proceed?"],
+    "idle_prompt": ["❯", "What can I help you with?"],
+    "working": ["Esc to interrupt", "Thinking"]
+  },
+  "capabilities": {
+    "live": "hooks",
+    "transcript": "jsonl",
+    "permission_decision": true,
+    "correlated_launch": true
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "live": [
+    {
+      "line": "{\"seq\":1,\"receivedAt\":100,\"payload\":{\"hook_event_name\":\"SessionStart\"}}",
+      "phase": "observed"
+    },
+    {
+      "line": "{\"seq\":2,\"receivedAt\":101,\"payload\":{\"hook_event_name\":\"UserPromptSubmit\"}}",
+      "phase": "observed"
+    },
+    {
+      "line": "{\"seq\":3,\"receivedAt\":102,\"payload\":{\"hook_event_name\":\"PreToolUse\",\"tool_use_id\":\"toolu_redacted_bash\"}}",
+      "phase": "requested"
+    },
+    {
+      "line": "{\"seq\":4,\"receivedAt\":103,\"payload\":{\"hook_event_name\":\"PermissionRequest\",\"tool_use_id\":\"toolu_redacted_bash\"}}",
+      "phase": "waiting"
+    },
+    {
+      "line": "{\"seq\":5,\"receivedAt\":104,\"payload\":{\"hook_event_name\":\"PermissionRequest\",\"tool_use_id\":\"toolu_redacted_bash\",\"permission_decision\":\"allow\"}}",
+      "phase": "decided"
+    },
+    {
+      "line": "{\"seq\":6,\"receivedAt\":105,\"payload\":{\"hook_event_name\":\"PostToolUse\",\"tool_use_id\":\"toolu_redacted_bash\"}}",
+      "phase": "result"
+    },
+    {
+      "line": "{\"seq\":7,\"receivedAt\":106,\"payload\":{\"hook_event_name\":\"Stop\"}}",
+      "phase": "observed"
+    },
+    {
+      "line": "{\"seq\":8,\"receivedAt\":107,\"payload\":{\"hook_event_name\":\"SessionEnd\"}}",
+      "phase": "terminal"
+    }
+  ],
+  "transcript": [
+    {
+      "line": "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"[redacted]\"}]}}",
+      "phase": "observed"
+    },
+    {
+      "line": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_redacted_bash\",\"name\":\"Bash\",\"input\":{\"command\":\"[redacted]\"}}],\"stop_reason\":\"tool_use\"}}",
+      "phase": "requested"
+    },
+    {
+      "line": "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_redacted_bash\",\"content\":\"[redacted]\"}]}}",
+      "phase": "result"
+    },
+    {
+      "line": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"[redacted]\"}],\"stop_reason\":\"end_turn\"}}",
+      "phase": "terminal"
+    }
+  ]
+}

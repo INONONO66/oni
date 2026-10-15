@@ -1,5 +1,36 @@
 # Implementation Status
 
+## #1527 worker dialect packs (epic #1508)
+
+On `feat/1527-dialect-packs` (2026-10-17, base `8638019e8`, PR #1549).
+`apps/openomni/src/bundles/child-activity/dialects/pack.ts` is the pure
+dialect-pack contract: a strict `Manifest` (id, supported `versions`
+pattern, `commands`, screen markers for permission/idle/working, and the
+`capabilities` a pack declares — `live` hooks/extension/none, `transcript`
+jsonl/sqlite/none, `permission_decision`, `correlated_launch`), and a
+`DialectPack` of four pure functions — `launch` (argv and env for a
+correlated session), `live` (one hook spool line into one
+`ChildLifecycleEvidence` with a `hook` ref whose `seq` is the monotonic
+spool position; a `seq` at or below `lastSeq` refuses as `stale_seq`),
+`transcript` (one JSONL record into one `ChildLifecycleEvidence` carrying
+the caller's `TranscriptRef`; a tool call on the wrong voice refuses as
+`unsupported`), and `submit` (a two-write text-then-enter recipe with an
+enter delay, a stall window, and `refuseWhenWaiting`). Every refusal is the
+typed `DialectDecodeError` (`live`/`transcript` ×
+`malformed`/`stale_seq`/`unsupported`). `dialects/index.ts` holds the pack
+list and `selectPack`, which matches on the command basename and the
+manifest's version pattern; an unmatched command is observe-only. The
+first pack is `dialects/claude-code/` (manifest, launch via `--session-id`
+and `--settings`, hook events mapped onto the six phases, JSONL user and
+assistant records joined to hook evidence on `toolUseId`). No reconciler
+consumes the packs yet; integration follows #1511. Receipt:
+`apps/openomni/src/bundles/child-activity/dialects/conformance.test.ts`
+(runs every registered pack over its captured screen, hook and JSONL
+fixtures under `claude-code/test/`: selection by command and version,
+typed refusals, phase coverage with repeated and descending `seq`
+refused, live/transcript join on canonical identity, correlated launch and
+the guarded submit recipe).
+
 ## #1509 transcript references and child lifecycle evidence (epic #1508)
 
 On `feat/1509-transcript-ref` (2026-10-17, base `0600442cd`, PR #1548).
