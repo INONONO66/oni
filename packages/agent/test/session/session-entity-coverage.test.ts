@@ -35,6 +35,12 @@ async function materializeSession(
 test("an unindexed session file self-heals before mailbox admission", async () => {
   const sessionId = "self-heal";
   await materializeSession(sessionId);
+  const before = openCatalogStore(catalogFile, { now: () => 1 });
+  try {
+    expect(before.sessionIndex(sessionId)).toBeUndefined();
+  } finally {
+    before.close();
+  }
 
   const result = await runCluster(
     options,
@@ -69,6 +75,12 @@ test("an unindexed session file self-heals before mailbox admission", async () =
       (row) => row.id === "self-heal-interrupt:delivery",
     ),
   ).toBe(true);
+  const healed = openCatalogStore(catalogFile, { now: () => 1 });
+  try {
+    expect(healed.sessionIndex(sessionId)).toMatchObject({ id: sessionId, parentId: null, role: "resident", fence: 1 });
+  } finally {
+    healed.close();
+  }
 });
 
 test("a stale activation yields until a later fence can adopt the session", async () => {

@@ -465,7 +465,12 @@ describe("Session.fork generation pin", () => {
     const receipt = fixture.forked(parent.hashOf("turn-1:terminal"));
     const childGeneration = SessionHandleStore.createSessionKernel(child(), stores.catalog).latestGenerationFor(CHILD);
     console.info(`A6 fork pin rowToolsGeneration=${receipt.row.toolsGeneration} childGeneration=${childGeneration.generation} parentLatest=${late.generation}`);
+    expect([pinned.generation, late.generation]).toEqual([1, 2]);
+    expect(stores.kernel.latestGenerationFor(PARENT).tools.map((tool) => tool.name)).toEqual(["late_tool"]);
+    expect(receipt.row.toolsGeneration).toBe(childGeneration.generation);
     expect(receipt.row.toolsGeneration).toBe(pinned.generation);
+    expect(childGeneration.toolsHash).toBe(pinned.toolsHash);
+    expect(childGeneration.tools.map((tool) => tool.name)).not.toContain("late_tool");
     expect(receipt.row.systemHash).toBe(pinned.systemHash);
     expect(childGeneration.generation).toBe(pinned.generation);
     expect(childGeneration.tools.map((tool) => tool.name)).toEqual(pinned.tools.map((tool) => tool.name));
