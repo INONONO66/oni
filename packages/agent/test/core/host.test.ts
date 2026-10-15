@@ -208,6 +208,28 @@ test("file mode: closing the scope releases the catalog exactly once (#1345 M1)"
   expect(sessionFileClosed(catalogPath)).toBe(true);
 });
 
+test("file mode: scanning ignores a session file that cannot open", async () => {
+  const { catalogPath, sessionsDir } = home("scan-corrupt");
+  mkdirSync(sessionsDir, { recursive: true });
+  writeFileSync(join(sessionsDir, "corrupt.sqlite"), "not a database");
+  const layer = openLedger(
+    config({
+      catalog: { path: catalogPath },
+      sessions: { dir: sessionsDir },
+      cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
+    }),
+  ).pipe(Layer.provide(bunCrypto));
+  const listed = await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const ledger = yield* Ledger;
+        return ledger.listSessions().map((row) => row.id);
+      }).pipe(Effect.provide(layer)),
+    ),
+  );
+  expect(listed).toEqual([]);
+});
+
 test("memory mode: the entity and the plane share one in-memory store per session", async () => {
   const sessionId = "memory-session";
   const layer = openLedger(config({})).pipe(Layer.provide(bunCrypto));
@@ -413,14 +435,16 @@ test("file mode: a rebuilt host on the same paths lists the session, verifies it
       Effect.gen(function* () {
         const ledger = yield* Ledger;
         const listed = ledger.listSessions().map((row) => row.id);
+        const scannedClosed = sessionFileClosed(join(sessionsDir, `${sessionId}.sqlite`));
         const before = ledger.openKernel(sessionId).verifyChain(sessionId);
         const receipt = yield* deliverPrompt(sessionId, "m2");
         const after = ledger.openKernel(sessionId).verifyChain(sessionId);
-        return { listed, before, receipt, after };
+        return { listed, scannedClosed, before, receipt, after };
       }).pipe(Effect.provide(host())),
     ),
   );
   expect(second.listed).toEqual([sessionId]);
+  expect(second.scannedClosed).toBe(true);
   expect(second.before.kind).toBe("intact");
   expect(second.receipt.existed).toBe(false);
   expect(second.after.kind).toBe("intact");

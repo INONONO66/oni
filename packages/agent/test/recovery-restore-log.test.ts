@@ -49,3 +49,30 @@ test("#1347 a typed activation restore refusal logs its warning and measured wor
     },
   }]);
 }));
+
+test("an unexpected activation restore failure logs the affected session", () => isolatedRun((ledger) => {
+  const id = "restore-log-error";
+  const kernel = ledger.kernel;
+  runTestSync(kernel.materialize({
+    id, role: "resident", parentId: null, policyGeneration: 1, tools: [],
+    system: { preset: "", blocks: [] },
+    settings: { steering: "all", followUp: "all", checkpoint: { everyActions: 256, maxTailBytes: 10_000 } },
+    actionId: `${id}:configure`, at: 100,
+  }));
+  const failing = Object.create(kernel, {
+    latestFoldCheckpoint: {
+      value: () => {
+        throw new Error("history read failed");
+      },
+    },
+  });
+  const errors: string[] = [];
+  const collector = Logger.make((options) => {
+    if (options.logLevel !== "Error") return;
+    for (const message of Array.isArray(options.message) ? options.message : [options.message]) {
+      if (typeof message === "string") errors.push(message);
+    }
+  });
+  runTestSync(logRestoredHistory(failing, id, () => 5).pipe(Effect.provide(Logger.layer([collector]))));
+  expect(errors).toEqual([`session restore failed: ${id}`]);
+}));
