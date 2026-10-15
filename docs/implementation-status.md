@@ -7,6 +7,16 @@
 - `provision{op:"bundle_disable", name:"bash"}` drops `bash` from the next generation: `apps/openomni/test/tool-bundles.test.ts` asserts the next turn's offered tools, the generation bump and the journaled compose `disabled` entry. Turning the `tool` capability off now cascades every tool bundle.
 - Tool order on the model door is the composed bundle order (dependency-sorted, then manifest order).
 
+## #1563 prompt catalog session wiring
+
+On `feat/1563-prompt-wiring` (2026-10-15, base `3364537f6`), the booted
+Resident receives `config.prompts` and renders its skills and templates in
+both the Resident and child system presets. Process-session requests now carry
+the configured prompt and skill directory paths; child entries validate those
+paths and reload the same catalog before creating their Resident. The
+regression fixture proves one configured skill is present in both generated
+presets. Receipts: `apps/openomni/test/prompt-wiring.test.ts` and
+`/tmp/ulw-1563/evidence.txt`.
 
 ## #1562 provider rows
 
@@ -44,9 +54,9 @@ template (`description`, optional `name`) as `<skills>` and
 `buildAgentPrompt(preset, { catalog })`. `loadConfig` loads the catalog into
 `config.prompts`, so an unset or absent directory lists nothing and a malformed
 file, bad YAML, an unknown role section or a duplicate name refuses boot with
-the typed `OpenOmniPromptDataError`. Not yet wired: passing `config.prompts`
-into the Resident/child `buildAgentPrompt` calls and forwarding the two
-directories to process children (#1563, composition-owned files). Receipts:
+the typed `OpenOmniPromptDataError`. Wired in #1563: `config.prompts` reaches
+the Resident/child `buildAgentPrompt` calls and both directories reach process
+children. Receipts:
 `apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
 
 ## #1545 inbound postback (L3)

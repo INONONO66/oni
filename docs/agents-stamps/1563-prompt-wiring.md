@@ -1,0 +1,1 @@
+#1563 on `feat/1563-prompt-wiring` (2026-10-15, base `5b37e5c69`, PR pending): catalog reaches Resident and child session presets; receipts `apps/openomni/test/prompt-wiring.test.ts`, `/tmp/ulw-1563/evidence.txt`.
