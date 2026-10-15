@@ -20,7 +20,7 @@ const spec: Outbound.Spec = {
     yes: { type: "Button", props: { label: "Yes", id: "vote:yes", style: "primary" }, children: [] },
     docs: { type: "Button", props: { label: "Docs", url: "https://example.test" }, children: [] },
     poll: { type: "Poll", props: { question: "Ready?", options: ["Yes", "No"], multi: true }, children: [] },
-    card: { type: "Card", props: { title: "Report", body: "Finished", image: "https://example.test/report.png" }, children: [] },
+    card: { type: "Card", props: { title: "Report", body: "Finished", image: "https://example.test/report.png" }, children: ["choices"] },
     other: { type: "Card", props: { title: "Next", image: "https://example.test/next.png" }, children: [] },
     carousel: { type: "Carousel", props: {}, children: ["card", "other"] },
     table: { type: "Table", props: { columns: [{ header: "Name" }, { header: "Score" }], rows: [["A", "9"]] }, children: [] },
@@ -94,6 +94,13 @@ describe("catalog native renderers", () => {
     expect(renderTelegram(step("poll"))).toEqual({ method: "sendPoll", body: {
       question: "Ready?", options: ["Yes", "No"], allows_multiple_answers: true,
     } });
+    expect(renderTelegram(step("card"))).toEqual({ method: "sendPhoto", body: {
+      photo: "https://example.test/report.png", caption: "<b>Report</b>\nFinished",
+      parse_mode: "HTML", reply_markup: { inline_keyboard: [
+        [{ text: "Yes", callback_data: "vote:yes" }],
+        [{ text: "Docs", url: "https://example.test" }],
+      ] },
+    } });
   });
 
   test("Telegram refuses callbacks whose UTF-8 bytes exceed 64", () => {
@@ -102,6 +109,21 @@ describe("catalog native renderers", () => {
     const longStep: NativeStep = { ...step("yes"), element: longButton,
       spec: { ...spec, elements: { ...spec.elements, yes: longButton } } };
     expect(() => renderTelegram(longStep)).toThrow(CallbackDataTooLong);
+  });
+
+  test("Telegram escapes the HTML fallback carried with inline buttons", () => {
+    const unsafe: Outbound.Element = {
+      type: "Button", props: { id: "safe", label: "<Choose>" }, children: [],
+    };
+    expect(renderTelegram({
+      ...step("yes"),
+      element: unsafe,
+      digest: "[<Choose>]",
+      spec: { ...spec, elements: { ...spec.elements, yes: unsafe } },
+    })).toEqual({ method: "sendMessage", body: {
+      text: "[&lt;Choose&gt;]", parse_mode: "HTML",
+      reply_markup: { inline_keyboard: [[{ text: "<Choose>", callback_data: "safe" }]] },
+    } });
   });
 });
 
