@@ -85,6 +85,7 @@ describe("Outbound (#1497)", () => {
         },
       },
     };
+    wrapped.Buttons = wrapped.Button as Outbound.Spec;
     for (const [type, value] of Object.entries(props)) {
       const spec = wrapped[type] ?? { root: type, elements: { [type]: { type, props: value, children: [] } } };
       const parsed = Outbound.Spec.safeParse(spec);
@@ -215,13 +216,87 @@ describe("Outbound (#1497)", () => {
       ].join("\n\n"),
     );
     const prompt = Outbound.prompt();
-    expect(prompt).toContain("Markdown");
-    expect(prompt).toContain("Stack");
-    expect(prompt).not.toContain("$state");
-    expect(prompt).not.toContain("repeat");
-    expect(prompt).not.toContain("visible");
-    expect(prompt).not.toContain("JSONL");
-    expect(prompt).not.toContain("pushState");
+    for (const type of Object.keys(Outbound.catalog.data.components)) expect(prompt, type).toContain(type);
+    for (const refused of ["$state", "repeat", "visible", "watch", "pushState"]) expect(prompt, refused).not.toContain(refused);
+  });
+
+  test("a spec folds into parts so code, images and files stay uploadable", () => {
+    const spec = Outbound.Spec.parse({
+      root: "stack",
+      elements: {
+        stack: { type: "Stack", props: {}, children: ["intro", "sh", "card", "doc", "poll", "buttons"] },
+        intro: { type: "Markdown", props: { text: "Here" }, children: [] },
+        sh: { type: "Code", props: { text: "ls", lang: "sh" }, children: [] },
+        card: { type: "Card", props: { title: "Shot", image: "/tmp/a.png", body: "after" }, children: [] },
+        doc: { type: "File", props: { ref: "/tmp/r.pdf", name: "r.pdf", mime: "application/pdf" }, children: [] },
+        poll: { type: "Poll", props: { question: "Which?", options: ["A", "B"], multi: true }, children: [] },
+        buttons: { type: "Buttons", props: {}, children: ["link"] },
+        link: { type: "Button", props: { label: "Docs", url: "https://example.com/docs" }, children: [] },
+      },
+    });
+    expect(Outbound.parts({ kind: "message", spec })).toEqual([
+      { kind: "text", text: "Here" },
+      { kind: "code", text: "ls", lang: "sh" },
+      { kind: "text", text: "Shot" },
+      { kind: "image", ref: "/tmp/a.png" },
+      { kind: "text", text: "after" },
+      { kind: "file", ref: "/tmp/r.pdf", name: "r.pdf", mime: "application/pdf" },
+      { kind: "text", text: "Which? (choose any)\n- A\n- B\n\n[Docs](https://example.com/docs)" },
+    ]);
+    const parts: Outbound.Part[] = [{ kind: "text", text: "plain" }];
+    expect(Outbound.parts({ kind: "message", parts })).toEqual(parts);
+  });
+
+  test("a spec carries only the fields the catalog defines, and ids stay names", () => {
+    const markdown = { type: "Markdown", props: { text: "x" }, children: [] };
+    const issues = (spec: JsonValue) =>
+      Outbound.Spec.safeParse(spec).error?.issues.map((issue) => `${issue.path.join(".")}:${issue.message}`) ?? [];
+    expect(issues({ root: "a", elements: { a: markdown }, state: { open: true } })).toEqual(["state:unknown spec field"]);
+    expect(issues({ root: "a", elements: { a: { ...markdown, on: { press: "go" } } } })).toEqual([
+      "elements.a.on:unknown element field",
+    ]);
+    expect(issues({ root: "a", elements: { a: { ...markdown, props: { text: "x", repeat: 2 } } } })).toEqual([
+      "elements.a.props:invalid catalog props",
+    ]);
+    expect(issues({ root: "a", elements: { a: { ...markdown, props: { text: { $bind: "/x" } } } } })).toContain(
+      "elements.a.props:chat specs carry no client state",
+    );
+    expect(Outbound.Spec.safeParse("not a spec").success).toBe(false);
+    expect(Outbound.Spec.safeParse({ root: "a", elements: 7 }).success).toBe(false);
+    expect(Outbound.Spec.safeParse({ root: "a", elements: { a: 7 } }).success).toBe(false);
+    for (const id of ["$id", "watch", "visible"])
+      expect(Outbound.Spec.safeParse({ root: id, elements: { [id]: markdown } }).success, id).toBe(true);
+  });
+
+  test("element shapes every channel can render: filled buttons, two to ten poll options, square tables, http links", () => {
+    const issues = (spec: JsonValue) =>
+      Outbound.Spec.safeParse(spec).error?.issues.map((issue) => `${issue.path.join(".")}:${issue.message}`) ?? [];
+    expect(issues({ root: "b", elements: { b: { type: "Buttons", props: {}, children: [] } } })).toEqual([
+      "elements.b.children:Buttons must contain at least one child",
+    ]);
+    expect(
+      issues({
+        root: "t",
+        elements: {
+          t: { type: "Table", props: { columns: [{ header: "A" }, { header: "B" }], rows: [["1", "2"], ["3"]] }, children: [] },
+        },
+      }),
+    ).toEqual(["elements.t.props.rows.1:a table row carries one value per column"]);
+    for (const options of [["A"], Array.from({ length: 11 }, (_, index) => String(index))])
+      expect(
+        Outbound.Spec.safeParse({ root: "p", elements: { p: { type: "Poll", props: { question: "q", options }, children: [] } } })
+          .success,
+        String(options.length),
+      ).toBe(false);
+    expect(
+      Outbound.Spec.safeParse({
+        root: "b",
+        elements: {
+          b: { type: "Buttons", props: {}, children: ["x"] },
+          x: { type: "Button", props: { label: "x", url: "javascript:alert(1)" }, children: [] },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   test("a receipt names the outcome and at most one external message id", () => {

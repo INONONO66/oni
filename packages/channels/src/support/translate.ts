@@ -99,7 +99,7 @@ async function plan(
   const steps: Step[] = [];
   let pending: Outbound.Part[] = [];
   let totalBytes = 0;
-  const parts: Outbound.Part[] = message.parts ?? [{ kind: "text", text: Outbound.text(message) }];
+  const parts: Outbound.Part[] = Outbound.parts(message);
   for (const part of parts) {
     if (part.kind === "text" || part.kind === "code" || media === undefined) {
       pending.push(part);

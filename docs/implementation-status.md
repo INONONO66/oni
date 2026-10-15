@@ -25,15 +25,20 @@ ships a static `Outbound.catalog` (Stack, Markdown, Code, Table, Image, File,
 Buttons/Button, Card, Carousel, Poll, Status, Divider, Context) and a
 validated flat `Outbound.Spec`: one tree hung off `root` (no orphans, sharing
 or cycles), leaf elements carry no children, Button lives only under Buttons,
-Carousel holds 2–10 Cards, Buttons at most 5, and any client-state field
-(`$`-prefixed, `visible`, `watch`) is refused. `Outbound.text` digests a spec
-to readable text and `Outbound.prompt()` is the model-facing catalog
-description the Resident preset carries. `send_message.message` is plain
-markdown or a spec; the ordered-parts form left the tool (the catalog's Code,
-Image and File elements cover it). `Outbound.Message` is one object carrying
-exactly one of `parts` (the text doors) or `spec`, so the schema snapshot only
-grew; the reviewed `send_message` tool snapshot was regenerated for the new
-input. Channels fold a spec message to its digest until L2 renders it
+Carousel holds 2–10 Cards, Buttons 1–5 Buttons, a Poll 2–10 options, a table
+row one value per column, and a Button URL an http(s) link. Fields the catalog
+does not define are refused rather than dropped, and a client-state field
+(`$`-prefixed, `visible`, `watch`) inside props is refused while element ids
+stay plain names. `Outbound.text` digests a spec to readable text and
+`Outbound.prompt()` is the model-facing catalog description the Resident
+preset carries. `send_message.message` is plain markdown or a spec; the
+ordered-parts form left the tool (the catalog's Code, Image and File elements
+cover it). `Outbound.Message` is one object carrying exactly one of `parts`
+(the text doors) or `spec`, so the schema snapshot only grew; the reviewed
+`send_message` tool snapshot was regenerated for the new input.
+`Outbound.parts` reads a spec depth-first into ordered parts — runs of text
+collapse into one text part while Code, Image, File and a Card's image keep
+their own part — so channels still upload a spec's media before L2 renders it
 natively; desktop rendering belongs to L4 and postback delivery landed in L3.
 Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
 and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,

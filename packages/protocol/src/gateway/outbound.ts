@@ -62,7 +62,9 @@ function captionLine(caption: string | undefined): string {
   return caption === undefined ? "" : `\n${caption}`;
 }
 
-function partText(part: z.infer<typeof PartSchema>): string {
+type MessagePart = z.infer<typeof PartSchema>;
+
+function partText(part: MessagePart): string {
   switch (part.kind) {
     case "text":
       return part.text;
@@ -75,58 +77,80 @@ function partText(part: z.infer<typeof PartSchema>): string {
   }
 }
 
-function specText(spec: catalogModule.Spec): string {
-  const lines: string[] = [];
-  const visit = (id: string): void => {
-    const element = spec.elements[id];
-    if (element === undefined) return;
-    switch (element.type) {
-      case "Markdown":
-      case "Context":
-        lines.push(element.props.text);
-        break;
-      case "Code":
-        lines.push(`\`\`\`${element.props.lang ?? ""}\n${element.props.text}\n\`\`\``);
-        break;
-      case "Table":
-        lines.push([
-          element.props.columns.map((column) => column.header).join(" | "),
-          ...element.props.rows.map((row) => row.join(" | ")),
-        ].join("\n"));
-        break;
-      case "Buttons":
-        break;
-      case "Button":
-        lines.push(`[${element.props.label}]`);
-        break;
-      case "Status":
-        lines.push(`${element.props.kind.toUpperCase()}: ${element.props.title}`);
-        if (element.props.body !== undefined) lines.push(element.props.body);
-        break;
-      case "Image":
-        lines.push(`[image] ${element.props.ref}${element.props.caption === undefined ? "" : `\n${element.props.caption}`}`);
-        break;
-      case "File":
-        lines.push(`[file: ${element.props.name}] ${element.props.ref}`);
-        break;
-      case "Card":
-        lines.push(element.props.title);
-        if (element.props.body !== undefined) lines.push(element.props.body);
-        break;
-      case "Stack":
-      case "Carousel":
-        break;
-      case "Poll":
-        lines.push(`${element.props.question}\n${element.props.options.map((option) => `- ${option}`).join("\n")}`);
-        break;
-      case "Divider":
-        lines.push("---");
-        break;
+/** One element's reading: text lines, and the media parts a channel can upload. */
+type Chunk = string | MessagePart;
+
+function tableChunk(props: { columns: { header: string }[]; rows: string[][] }): string {
+  return [props.columns.map((column) => column.header).join(" | "), ...props.rows.map((row) => row.join(" | "))].join("\n");
+}
+
+function elementChunks(element: catalogModule.Element): Chunk[] {
+  switch (element.type) {
+    case "Markdown":
+    case "Context":
+      return [element.props.text];
+    case "Code": {
+      const { text, lang } = element.props;
+      return [lang === undefined ? { kind: "code", text } : { kind: "code", text, lang }];
     }
-    for (const child of element.children) visit(child);
+    case "Table":
+      return [tableChunk(element.props)];
+    case "Image": {
+      const { ref, caption } = element.props;
+      return [caption === undefined ? { kind: "image", ref } : { kind: "image", ref, caption }];
+    }
+    case "File": {
+      const { ref, name, mime } = element.props;
+      return [mime === undefined ? { kind: "file", ref, name } : { kind: "file", ref, name, mime }];
+    }
+    case "Button":
+      return ["url" in element.props ? `[${element.props.label}](${element.props.url})` : `[${element.props.label}]`];
+    case "Card": {
+      const { title, image, body } = element.props;
+      const picture: Chunk[] = image === undefined ? [] : [{ kind: "image", ref: image }];
+      return [title, ...picture, ...(body === undefined ? [] : [body])];
+    }
+    case "Poll": {
+      const options = element.props.options.map((option) => `- ${option}`).join("\n");
+      return [`${element.props.question}${element.props.multi === true ? " (choose any)" : ""}\n${options}`];
+    }
+    case "Status":
+      return [
+        `${element.props.kind.toUpperCase()}: ${element.props.title}`,
+        ...(element.props.body === undefined ? [] : [element.props.body]),
+      ];
+    case "Divider":
+      return ["---"];
+    default:
+      return [];
+  }
+}
+
+/** The spec read depth-first as parts: runs of text collapse into one text part, and media keeps its own part so a channel still uploads it. */
+function specParts(spec: catalogModule.Spec): MessagePart[] {
+  const parts: MessagePart[] = [];
+  const lines: string[] = [];
+  const flush = (): void => {
+    if (lines.length === 0) return;
+    parts.push({ kind: "text", text: lines.join("\n\n") });
+    lines.length = 0;
   };
-  visit(spec.root);
-  return lines.join("\n\n");
+  const pending: string[] = [spec.root];
+  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
+    const element = spec.elements[id];
+    if (element === undefined) continue;
+    for (const chunk of elementChunks(element)) {
+      if (typeof chunk === "string") {
+        lines.push(chunk);
+        continue;
+      }
+      flush();
+      parts.push(chunk);
+    }
+    for (const child of [...element.children].reverse()) pending.push(child);
+  }
+  flush();
+  return parts;
 }
 
 export namespace Outbound {
@@ -153,14 +177,22 @@ export namespace Outbound {
   }
 
   /**
+   * The parts a channel delivers: the letter's own parts, or the spec read
+   * depth-first so its code, images, and files stay uploadable parts rather
+   * than flattened text.
+   */
+  export function parts(message: Message): Part[] {
+    return message.spec === undefined ? (message.parts ?? []) : specParts(message.spec);
+  }
+
+  /**
    * The text-only reading of a payload: what a session prompt, a journal
    * digest, or a channel without media support carries. Media parts become
    * a bracketed line naming the reference, so nothing is dropped silently.
    */
   export function text(payload: Payload): string {
     if (payload.kind === "react") return `${payload.emoji} on ${payload.messageId}`;
-    if (payload.spec !== undefined) return specText(payload.spec);
-    return (payload.parts ?? []).map(partText).join("\n\n");
+    return parts(payload).map(partText).join("\n\n");
   }
 
   export function prompt(): string {

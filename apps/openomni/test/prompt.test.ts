@@ -74,8 +74,7 @@ describe("buildAgentPrompt", () => {
     const resident = buildAgentPrompt(RESIDENT_PRESET, {
       structuredMessages: `Structured messages\n\n${Outbound.prompt()}`,
     });
-    expect(resident).toContain("Structured messages");
-    expect(resident).toContain("Stack");
+    expect(resident).toContain(`Structured messages\n\n${Outbound.prompt()}`);
     expect(buildAgentPrompt(RESIDENT_PRESET)).not.toContain("Structured messages");
     expect(buildAgentPrompt(CHILD_PRESET)).not.toContain("Structured messages");
   });
