@@ -8,7 +8,7 @@ import { SlackProvider } from "../src/provider/slack/provider";
 import { renderTelegram } from "../src/provider/telegram/render";
 import { TelegramProvider } from "../src/provider/telegram/provider";
 import { downgrade } from "../src/support/downgrade";
-import { renderTelegramHtml } from "../src/support/format/telegram";
+import { escapeTelegramHtml, renderTelegramHtml } from "../src/support/format/telegram";
 import { renderElementImage } from "../src/support/render-image";
 import type { NativeStep } from "../src/support/translate";
 import { injectedOptions } from "./helpers/injected";
@@ -25,6 +25,14 @@ const spec: Outbound.Spec = {
     carousel: { type: "Carousel", props: {}, children: ["card", "other"] },
     table: { type: "Table", props: { columns: [{ header: "Name" }, { header: "Score" }], rows: [["A", "9"]] }, children: [] },
     markdown: { type: "Markdown", props: { text: "**ready**" }, children: [] },
+    code: { type: "Code", props: { text: "const ready = true;", lang: "ts" }, children: [] },
+    status: { type: "Status", props: { kind: "progress", title: "Working", body: "Soon" }, children: [] },
+    divider: { type: "Divider", props: {}, children: [] },
+    context: { type: "Context", props: { text: "Secondary" }, children: [] },
+    image: { type: "Image", props: { ref: "https://example.test/image.png", caption: "Image" }, children: [] },
+    file: { type: "File", props: { ref: "https://example.test/report.pdf", name: "report.pdf" }, children: [] },
+    plain: { type: "Card", props: { title: "Plain", body: "Body" }, children: [] },
+    sequence: { type: "Carousel", props: {}, children: ["card", "plain"] },
   },
 };
 
@@ -48,6 +56,27 @@ describe("catalog native renderers", () => {
       [{ type: "raw_text", text: "Name" }, { type: "raw_text", text: "Score" }],
       [{ type: "raw_text", text: "A" }, { type: "raw_text", text: "9" }],
     ] }]);
+  });
+
+  test("Slack renders the remaining native blocks and text fallbacks", () => {
+    expect(renderSlack(step("code"))).toEqual([{ type: "section",
+      text: { type: "mrkdwn", text: "```const ready = true;```" } }]);
+    expect(renderSlack(step("card"))).toEqual([
+      { type: "header", text: { type: "plain_text", text: "Report" } },
+      { type: "section", text: { type: "mrkdwn", text: "Finished" },
+        accessory: { type: "image", image_url: "https://example.test/report.png", alt_text: "Report" } },
+    ]);
+    expect(renderSlack(step("yes"))).toEqual([{ type: "actions", elements: [
+      { type: "button", text: { type: "plain_text", text: "Yes" }, action_id: "vote:yes" },
+    ] }]);
+    expect(renderSlack(step("status"))).toEqual([{ type: "section",
+      text: { type: "mrkdwn", text: "*:hourglass_flowing_sand: Working*\nSoon" } }]);
+    expect(renderSlack(step("divider"))).toEqual([{ type: "divider" }]);
+    expect(renderSlack(step("context"))).toEqual([{ type: "context",
+      elements: [{ type: "mrkdwn", text: "Secondary" }] }]);
+    for (const id of ["carousel", "poll", "image", "file"])
+      expect(renderSlack(step(id))).toEqual([{ type: "section",
+        text: { type: "mrkdwn", text: step(id).digest } }]);
   });
 
   test("Slack falls back to code when a table cell exceeds the block limit", () => {
@@ -75,6 +104,33 @@ describe("catalog native renderers", () => {
       answers: [{ poll_media: { text: "Yes" } }, { poll_media: { text: "No" } }],
       duration: 24, allow_multiselect: true,
     } });
+  });
+
+  test("Discord renders cards, status, single buttons, and text fallbacks", () => {
+    expect(renderDiscord(step("card"))).toEqual({ embeds: [{
+      title: "Report", description: "Finished", image: { url: "https://example.test/report.png" },
+    }] });
+    expect(renderDiscord(step("yes"))).toEqual({ components: [{ type: 1, components: [
+      { type: 2, label: "Yes", style: 1, custom_id: "vote:yes" },
+    ] }] });
+    expect(renderDiscord(step("status"))).toEqual({ content: "**⏳ Working**\nSoon" });
+    for (const id of ["markdown", "code", "table", "context", "divider", "image", "file"])
+      expect(renderDiscord(step(id))).toEqual({ content: step(id).digest });
+  });
+
+  test("Discord bounds component and embed collections", () => {
+    const buttons: Outbound.Element = {
+      type: "Buttons", props: {}, children: Array.from({ length: 26 }, (_, index) => `button-${index}`),
+    };
+    const cards: Outbound.Element = {
+      type: "Carousel", props: {}, children: Array.from({ length: 11 }, (_, index) => `card-${index}`),
+    };
+    expect(() => renderDiscord({ ...step("choices"), element: buttons })).toThrow(RenderLimitExceeded);
+    expect(() => renderDiscord({ ...step("carousel"), element: cards })).toThrow(RenderLimitExceeded);
+    expect(renderDiscord(step("sequence"))).toEqual({ embeds: [
+      { title: "Report", description: "Finished", image: { url: "https://example.test/report.png" } },
+      { title: "Plain", description: "Body" },
+    ] });
   });
 
   test("Telegram renders HTML keyboard, media album, and native poll", () => {
@@ -111,6 +167,23 @@ describe("catalog native renderers", () => {
     expect(() => renderTelegram(longStep)).toThrow(CallbackDataTooLong);
   });
 
+  test("Telegram renders plain cards, status, and text fallbacks", () => {
+    expect(renderTelegram(step("plain"))).toEqual({ method: "sendMessage", body: {
+      text: "<b>Plain</b>\nBody", parse_mode: "HTML",
+    } });
+    expect(renderTelegram(step("status"))).toEqual({ method: "sendMessage", body: {
+      text: "<b>⏳ Working</b>\nSoon", parse_mode: "HTML",
+    } });
+    for (const id of ["markdown", "code", "table", "context", "divider", "image", "file"])
+      expect(renderTelegram(step(id))).toEqual({ method: "sendMessage", body: {
+        text: escapeTelegramHtml(step(id).digest),
+        parse_mode: "HTML",
+      } });
+    expect(renderTelegram(step("sequence"))).toEqual({ method: "sendMessage", body: {
+      text: renderTelegramHtml(step("sequence").digest), parse_mode: "HTML",
+    } });
+  });
+
   test("Telegram escapes the HTML fallback carried with inline buttons", () => {
     const unsafe: Outbound.Element = {
       type: "Button", props: { id: "safe", label: "<Choose>" }, children: [],
@@ -138,6 +211,44 @@ describe("catalog downgrades", () => {
     expect(downgrade("table-to-bullets", "table", spec)).toEqual({
       kind: "text", text: "- Name: A\n- Score: 9",
     });
+  });
+
+  test("every named text and sequence downgrade preserves its intended reading", () => {
+    expect(downgrade("table-to-code", "table", spec)).toEqual({
+      kind: "text", text: "```\nName | Score\nA | 9\n```",
+    });
+    expect(downgrade("table-to-bullets", "plain", spec)).toEqual({
+      kind: "text", text: "Plain\n\nBody",
+    });
+    expect(downgrade("table-to-image", "table", spec)).toMatchObject({
+      kind: "image", caption: "Name | Score\nA | 9",
+    });
+    expect(downgrade("carousel-to-sequence", "carousel", spec)).toEqual({
+      kind: "sequence", ids: ["card", "other"],
+    });
+    expect(downgrade("carousel-to-album", "carousel", spec)).toEqual({
+      kind: "album", ids: ["card", "other"],
+    });
+    expect(downgrade("status-to-bold", "status", spec)).toEqual({
+      kind: "text", text: "**PROGRESS: Working\n\nSoon**",
+    });
+    expect(downgrade("buttons-to-numbered-list", "choices", spec)).toEqual({
+      kind: "text", text: "1. Yes\n2. Docs (https://example.test)",
+    });
+    expect(downgrade("buttons-to-numbered-list", "card", spec)).toEqual({
+      kind: "text", text: "1. [Yes]\n\n[Docs]",
+    });
+    expect(downgrade("divider-to-rule", "divider", spec)).toEqual({
+      kind: "text", text: "───",
+    });
+    expect(downgrade("card-to-caption-keyboard", "card", spec)).toEqual({
+      kind: "caption-keyboard", caption: "Report\n\nFinished",
+      image: "https://example.test/report.png", buttons: ["yes", "docs"],
+    });
+    expect(downgrade("card-to-caption-keyboard", "status", spec)).toEqual({
+      kind: "text", text: "PROGRESS: Working\n\nSoon",
+    });
+    expect(downgrade("table-to-code", "missing", spec)).toEqual({ kind: "text", text: "" });
   });
 
   test("poll-to-buttons produces actionable postback choices and question", () => {

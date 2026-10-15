@@ -383,6 +383,108 @@ describe("translate: catalog specs", () => {
     expect(calls).toEqual(["text:<Choose>", "native:Buttons:Button"]);
   });
 
+  test("caption-keyboard downgrade uploads the image before its native actions", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: ["buttons"] },
+        buttons: { type: "Buttons", props: {}, children: ["button"] },
+        button: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+      },
+    };
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "image" };
+      } },
+      native: async (step) => {
+        calls.push(`native:${step.id}`); return { externalMessageId: "keyboard" };
+      },
+    };
+    const cardPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
+    } };
+    expect(await translate({ kind: "message", spec: cardSpec }, cardPolicy, sends, resolve))
+      .toEqual({ accepted: true, externalMessageId: "keyboard" });
+    expect(calls).toEqual(["media:image.png", "native:card:keyboard"]);
+  });
+
+  test("caption-keyboard downgrade remains readable without media or native ports", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: ["button"] },
+        button: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+      },
+    };
+    const sent: string[] = [];
+    const cardPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
+    } };
+    await translate({ kind: "message", spec: cardSpec }, cardPolicy, {
+      text: async (chunk) => { sent.push(chunk); return "text"; },
+    });
+    expect(sent).toEqual(["<Card\n[image] /card.png>", "<[Open]>"]);
+  });
+
+  test("complete albums stay one native send while image elements use media", async () => {
+    const albumSpec: Outbound.Spec = {
+      root: "album",
+      elements: {
+        album: { type: "Carousel", props: {}, children: ["one", "two"] },
+        one: { type: "Card", props: { title: "One", image: "https://example.test/one.png" }, children: [] },
+        two: { type: "Card", props: { title: "Two", image: "https://example.test/two.png" }, children: [] },
+        image: { type: "Image", props: { ref: "/image.png", caption: "shot" }, children: [] },
+      },
+    };
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "image" };
+      } },
+      native: async (step) => {
+        calls.push(`native:${step.id}`); return { externalMessageId: "native" };
+      },
+    };
+    const albumPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Carousel: "downgrade:carousel-to-album", Image: "native",
+    } };
+    await translate({ kind: "message", spec: albumSpec }, albumPolicy, sends, resolve);
+    await translate({ kind: "message", spec: { ...albumSpec, root: "image" } }, albumPolicy, sends, resolve);
+    expect(calls).toEqual(["native:album", "media:image.png"]);
+  });
+
+  test("an image downgrade falls back to text when the surface has no media port", async () => {
+    const sent: string[] = [];
+    const imagePolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Table: "downgrade:table-to-image",
+    } };
+    await translate({ kind: "message", spec: { ...spec, root: "table" } }, imagePolicy, {
+      text: async (chunk) => { sent.push(chunk); return "text"; },
+    });
+    expect(sent).toEqual(["<Name\nA>"]);
+  });
+
+  test("an image downgrade refuses an oversized caption before rasterization", async () => {
+    const imagePolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Table: "downgrade:table-to-image",
+    } };
+    const sends: SurfaceSends = {
+      text: async () => "text",
+      media: { limits: { ...LIMITS, captionLength: 2 }, upload: async () => ({}) },
+    };
+    const error = await translate(
+      { kind: "message", spec: { ...spec, root: "table" } },
+      imagePolicy,
+      sends,
+      resolve,
+    ).catch((value) => value);
+    expect(error).toBeInstanceOf(DeliveryNotSent);
+    expect(error).toMatchObject({ operation: "media.caption" });
+  });
+
   test("a failed native step after text reports partial delivery", async () => {
     const sends: SurfaceSends = {
       text: async () => "m1",
