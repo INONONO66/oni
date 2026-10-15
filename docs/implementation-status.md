@@ -1,5 +1,31 @@
 # Implementation Status
 
+## #1556 pooled placement, pick-time leases and one `machine()` (epic #1554, rung B)
+
+On `feat/1556-machine-place` (2026-10-15, base `ae351e71a`, PR #1576).
+`packages/protocol` adds the pure fold `Machine.place(request, members)`:
+`PlacementRequest` is a tag, optional required capabilities and
+`prefer: spread | pack | exclusive | { sticky }`; the outcome is `placed`,
+`no_member`, `all_stale` or `machine_saturated`. Stale members are skipped,
+members with reported capacity rank before members without it, sticky keys
+hash over the known-capacity members first, and ties are deterministic.
+`packages/codemode` keeps one in-memory lease per tag pick: the injected
+scheduler expires it after the idle TTL (default 10 s), every handle call
+renews it, an expired retained handle fails with the typed `lease_expired`,
+and a pick without an injected scheduler fails with
+`lease_scheduler_missing` instead of a never-expiring lease. `cell.run`
+targets the configured `self` machine and refuses `kernel_not_available`
+when that machine lacks `kernel.py`; the first enrolled machine is no longer
+implied. The prelude has ONE `machine(id=None, *, tag=None, prefer="spread",
+requires=None)`: an exact id or a host-picked member by tag, the same handle
+type with `.id`; fan-out stays `parallel()`, and the earlier prelude names
+are gone. The app shares one Effect-clock scheduler between the `#1555`
+machine reports and the leases, passes its own machine id as `self`, and
+binds the composed runner into the self daemon so a loopback `cell.run`
+reaches the same per-tenant interpreter; the daemon's runner proxy never
+closes that interpreter — codemode's own `close()` remains the single owner.
+Receipts on the rebased head (base `ae351e71a`): lead gate chain 14/14 exit 0 (install, build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries); protocol 635 pass / 0 fail; codemode 44 pass / 1 fail where the one failure is the host-only `browser.test.ts` (no Playwright on the lead's machine; CI provides it); the eleven app machine/codemode suites 61 pass / 0 fail including `code-mode-e2e`; `check-patch-coverage --base origin/main` reports every changed executable line covered.
+
 ## #1559 managed machine enrollment and the Machines place (epic #1554, rung G)
 
 On `feat/1559-machine-provision` (2026-10-15, base `ae351e71a`, PR #1579).
@@ -26,6 +52,8 @@ callback, and `apps/desktop` renders a read-only Machines place (names,
 tags, capabilities, capacity, load, staleness, with unreported, loading,
 offline, error and empty states) over it.
 Receipts on `c89127356` (rebased onto `ae351e71a`): app policy/provision/machine suites 235 pass / 0 fail (`provision-machine-add-consent` now a row in `apps/openomni/policy/owner-policy.json`, pinned by `owner-policy.test.ts`); lane receipts before the rebase: protocol 629/0, machines 264/0 (1 skip), channels 879/0, desktop 517/0, scripts 74/0, patch coverage green; lead gate chain 14/14 exit 0 (install, build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries). Forbidden surfaces grep-zero: `provider: "machine"` and `channel:machine:`.
+
+||||||| parent of 3d86009ab (docs: stamp #1556 machine placement and sync implementation status)
 
 ## #1574 Pack conformance
 
