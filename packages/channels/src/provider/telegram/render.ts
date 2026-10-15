@@ -1,6 +1,7 @@
 import type { PlainValue } from "@openomni/protocol";
 import { CallbackDataTooLong, RenderLimitExceeded } from "../../errors.js";
 import { escapeTelegramHtml } from "../../support/format/telegram.js";
+import { bounded } from "../../support/render-limits.js";
 import type { NativeStep } from "../../support/translate.js";
 
 export type TelegramBody = Record<string, PlainValue>;
@@ -26,20 +27,28 @@ function inlineKeyboard(ids: readonly string[], step: NativeStep): PlainValue[] 
 function renderKeyboard(step: NativeStep): TelegramNative {
   const children = step.element.type === "Buttons" ? step.element.children : [step.id];
   const keyboard = inlineKeyboard(children, step);
-  return { method: "sendMessage", body: { text: escapeTelegramHtml(step.digest),
+  if (keyboard.length === 0)
+    throw new RenderLimitExceeded({ kind: "buttons", count: 0, limit: 100 });
+  return { method: "sendMessage", body: { text: bounded(escapeTelegramHtml(step.digest), "content", 4096),
     parse_mode: "HTML", reply_markup: { inline_keyboard: keyboard } } };
 }
 
 function renderAlbum(step: NativeStep): TelegramNative {
   const { element, spec } = step;
-  if (element.children.length < 2 || element.children.length > 10)
+  if (element.children.length < 1 || element.children.length > 10)
     throw new RenderLimitExceeded({ kind: "cards", count: element.children.length, limit: 10 });
   const cards = element.children.map((id) => spec.elements[id]);
-  if (!cards.every((card) => card?.type === "Card" && card.props.image !== undefined))
-    return { method: "sendMessage", body: { text: escapeTelegramHtml(step.digest), parse_mode: "HTML" } };
+  if (!cards.every((card) => card?.type === "Card" && card.props.image?.startsWith("https://")))
+    throw new RenderLimitExceeded({ kind: "cards", count: cards.length, limit: 10 });
+  if (cards.length === 1) {
+    const card = cards[0];
+    if (card?.type === "Card" && card.props.image !== undefined)
+      return { method: "sendPhoto", body: { photo: card.props.image,
+        caption: bounded(escapeTelegramHtml(step.digest), "caption", 1024), parse_mode: "HTML" } };
+  }
   return { method: "sendMediaGroup", body: { media: cards.map((card, index) =>
     card?.type === "Card" ? { type: "photo", media: card.props.image ?? "",
-      ...(index === 0 ? { caption: escapeTelegramHtml(step.digest), parse_mode: "HTML" } : {}) } : {}) } };
+      ...(index === 0 ? { caption: bounded(escapeTelegramHtml(step.digest), "caption", 1024), parse_mode: "HTML" } : {}) } : {}) } };
 }
 
 export function renderTelegram(step: NativeStep): TelegramNative {
@@ -51,9 +60,9 @@ export function renderTelegram(step: NativeStep): TelegramNative {
     case "Card": {
       const caption = `<b>${escapeTelegramHtml(element.props.title)}</b>${element.props.body === undefined ? "" : `\n${escapeTelegramHtml(element.props.body)}`}`;
       return element.props.image === undefined || !element.props.image.startsWith("https://")
-        ? { method: "sendMessage", body: { text: caption, parse_mode: "HTML" } }
+        ? { method: "sendMessage", body: { text: bounded(caption, "content", 4096), parse_mode: "HTML" } }
         : { method: "sendPhoto", body: { photo: element.props.image,
-          caption, parse_mode: "HTML" } };
+          caption: bounded(caption, "caption", 1024), parse_mode: "HTML" } };
     }
     case "Carousel":
       return renderAlbum(step);
@@ -64,7 +73,7 @@ export function renderTelegram(step: NativeStep): TelegramNative {
         options: element.props.options, allows_multiple_answers: element.props.multi ?? false } };
     case "Status": {
       const icon = { ok: "✅", warn: "⚠️", fail: "❌", progress: "⏳" }[element.props.kind];
-      return { method: "sendMessage", body: { text: `<b>${icon} ${escapeTelegramHtml(element.props.title)}</b>${element.props.body === undefined ? "" : `\n${escapeTelegramHtml(element.props.body)}`}`, parse_mode: "HTML" } };
+      return { method: "sendMessage", body: { text: bounded(`<b>${icon} ${escapeTelegramHtml(element.props.title)}</b>${element.props.body === undefined ? "" : `\n${escapeTelegramHtml(element.props.body)}`}`, "content", 4096), parse_mode: "HTML" } };
     }
     case "Stack":
     case "Markdown":
@@ -74,6 +83,6 @@ export function renderTelegram(step: NativeStep): TelegramNative {
     case "Divider":
     case "Image":
     case "File":
-      return { method: "sendMessage", body: { text: escapeTelegramHtml(step.digest), parse_mode: "HTML" } };
+      return { method: "sendMessage", body: { text: bounded(escapeTelegramHtml(step.digest), "content", 4096), parse_mode: "HTML" } };
   }
 }

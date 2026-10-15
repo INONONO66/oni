@@ -97,7 +97,9 @@ function specText(spec: catalogModule.Spec): string {
       case "Buttons":
         break;
       case "Button":
-        lines.push(`[${element.props.label}]`);
+        lines.push("url" in element.props
+          ? `[${element.props.label}] (${element.props.url})`
+          : `[${element.props.label}]`);
         break;
       case "Status":
         lines.push(`${element.props.kind.toUpperCase()}: ${element.props.title}`);

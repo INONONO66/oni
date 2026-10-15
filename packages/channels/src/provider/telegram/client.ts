@@ -1,5 +1,5 @@
 import { TelegramApiError } from "../../errors";
-import { type Gateway, Operational, type PlainValue } from "@openomni/protocol";
+import type { Gateway, PlainValue } from "@openomni/protocol";
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
@@ -45,7 +45,6 @@ export class TelegramClient implements ChannelClient {
   constructor(
     token: string,
     private readonly publish: PublishPort,
-    private readonly now: () => number,
     private readonly run: EffectRunner,
   ) {
     this.baseUrl = `https://api.telegram.org/bot${token}`;
@@ -53,39 +52,6 @@ export class TelegramClient implements ChannelClient {
 
   async send(channelId: string, text: string, traceId: string): Promise<string | undefined> {
     return await this.sendMessage(channelId, text, traceId);
-  }
-
-  /**
-   * MarkdownV2 send with a plain-text floor: rendering is a nice-to-have and
-   * a parse rejection must never lose the message, so Telegram's entity-parse
-   * refusal downgrades this one send to plain text (recorded as a warning).
-   */
-  async sendMarkdown(
-    channelId: string,
-    text: string,
-    traceId: string,
-    conversation?: Gateway.Conversation,
-  ): Promise<string | undefined> {
-    try {
-      return await this.sendMessage(channelId, text, traceId, "MarkdownV2", conversation);
-    } catch (error) {
-      if (
-        !(
-          error instanceof TelegramApiError &&
-          error.rejected &&
-          /can't parse entities/i.test(error.message)
-        )
-      )
-        throw error;
-      this.publish(Operational.Events.Warn, {
-        traceId,
-        time: this.now(),
-        component: "server",
-        msg: "telegram markdown rejected — delivered as plain text",
-        context: { err: String(error) },
-      });
-      return await this.sendMessage(channelId, text, traceId, undefined, conversation);
-    }
   }
 
   async sendHtml(

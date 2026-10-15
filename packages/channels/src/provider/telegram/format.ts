@@ -9,7 +9,7 @@ export const TELEGRAM_RENDER = {
   renderMarkdown: renderTelegramHtml,
   messageLimit: 4096,
   capabilities: {
-    Stack: "native", Markdown: "text", Code: "text", Table: "downgrade:table-to-code",
+    Stack: "native", Markdown: "text", Code: "text", Table: "downgrade:table-to-image",
     Image: "native", File: "native", Buttons: "native", Button: "native",
     Card: "native", Carousel: "native", Poll: "native", Status: "native",
     Divider: "downgrade:divider-to-rule", Context: "text",

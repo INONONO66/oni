@@ -45,7 +45,7 @@ const definitions = {
     props: Button,
     description: "Use inside Buttons. Provide exactly one of id (a postback the person can tap; you receive it back as their reply) or url (opens a link).",
   },
-  Card: { props: CardProps, description: "Use to group a title, optional image, and optional body as one compact item." },
+  Card: { props: CardProps, description: "Use to group a title, optional image, and optional body as one compact item; it may contain one Buttons child." },
   Carousel: { props: EmptyProps, description: "Use for 2–10 related Card elements; children are Card elements." },
   Poll: { props: PollProps, description: "Use when the person should choose from options; set multi for multiple selections." },
   Status: { props: StatusProps, description: "Use for progress or outcomes; kind progress means ongoing work, while ok, warn, and fail mean outcomes." },
@@ -115,12 +115,14 @@ type Issue = { path: (string | number)[]; message: string };
 function childCountIssue(type: ElementType, count: number): string | undefined {
   if (type === "Stack") return count === 0 ? "Stack must contain at least one child" : undefined;
   if (type === "Buttons") return count > 5 ? "Buttons may contain at most 5 children" : undefined;
+  if (type === "Card") return count > 1 ? "Card may contain at most one Buttons child" : undefined;
   if (type === "Carousel") return count < 2 || count > 10 ? "Carousel must contain 2 to 10 children" : undefined;
   return count > 0 ? "this element cannot have children" : undefined;
 }
 
 function nestingIssue(parent: ElementType, child: ElementType | undefined): string | undefined {
   if (parent === "Buttons" && child !== undefined && child !== "Button") return "Buttons children must be Button elements";
+  if (parent === "Card" && child !== undefined && child !== "Buttons") return "Card children must be Buttons elements";
   if (parent === "Carousel" && child !== undefined && child !== "Card") return "Carousel children must be Card elements";
   if (parent !== "Buttons" && child === "Button") return "Button must be a child of Buttons";
   return undefined;
