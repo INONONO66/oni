@@ -1367,8 +1367,8 @@ interface AppsSessionWriteSite {
  * Moving either line re-pins it here; any other write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1290, receiver: "kernel", member: "commit" },
-  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 59, receiver: "Core", member: "adoptedExecutor" },
+  { file: "apps/openomni/src/index.ts", line: 1296, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 62, receiver: "Core", member: "adoptedExecutor" },
 ];
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
