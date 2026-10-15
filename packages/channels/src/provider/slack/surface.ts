@@ -18,7 +18,12 @@ import {
 } from "../../errors";
 import { SlackNormalizer } from "./normalizer";
 import { SlackSocket } from "./socket";
-import { SlackInteractionSchema, type SlackMessageEvent, type SocketEnvelope } from "./types";
+import { renderSlack, splitSlackBlocks } from "./render.js";
+import {
+  SlackInteractionSchema,
+  type SlackMessageEvent,
+  type SocketEnvelope,
+} from "./types";
 
 export class SlackAdapter implements Channel.Surface {
   readonly id = "slack";
@@ -127,6 +132,12 @@ export class SlackAdapter implements Channel.Surface {
                 await this.client.sendMedia(channelId, threadTs, bytes, caption, traceId);
                 return {};
               },
+            },
+            native: async (step) => {
+              let externalMessageId: string | undefined;
+              for (const blocks of splitSlackBlocks(renderSlack(step)))
+                externalMessageId = await this.client.sendBlocks(channelId, blocks, step.digest, traceId, threadTs);
+              return externalMessageId === undefined ? {} : { externalMessageId };
             },
             react: async (messageId, emoji, replaces) => {
               const name = slackEmojiName(emoji);

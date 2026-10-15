@@ -1,0 +1,69 @@
+import type { PlainValue } from "@openomni/protocol";
+import { RenderLimitExceeded } from "../../errors.js";
+import type { NativeStep } from "../../support/translate.js";
+
+export type DiscordBody = Record<string, PlainValue>;
+
+function cardEmbed(title: string, body?: string, image?: string): PlainValue {
+  return { title, ...(body === undefined ? {} : { description: body }),
+    ...(image === undefined ? {} : { image: { url: image } }) };
+}
+
+export function renderDiscord(step: NativeStep): DiscordBody {
+  const { element, spec } = step;
+  switch (element.type) {
+    case "Card":
+      return { embeds: [cardEmbed(element.props.title, element.props.body, element.props.image)] };
+    case "Carousel": {
+      if (element.children.length > 10)
+        throw new RenderLimitExceeded({ kind: "cards", count: element.children.length, limit: 10 });
+      const cards = element.children.flatMap((id) => {
+        const child = spec.elements[id];
+        return child?.type === "Card" ? [child] : [];
+      });
+      if (cards.length === element.children.length && cards.every((card) => card.props.image?.startsWith("https://")))
+        return { flags: 1 << 15, components: [{ type: 12,
+          items: cards.map((card) => ({ media: { url: card.props.image ?? "" }, description: card.props.title })) }] };
+      return { embeds: cards.map((card) => cardEmbed(card.props.title, card.props.body, card.props.image)) };
+    }
+    case "Buttons": {
+      if (element.children.length > 25)
+        throw new RenderLimitExceeded({ kind: "buttons", count: element.children.length, limit: 25 });
+      const buttons = element.children.flatMap((id) => {
+        const child = spec.elements[id];
+        if (child?.type !== "Button") return [];
+        const p = child.props;
+        return [{ type: 2, label: p.label, style: "url" in p ? 5 : p.style === "primary" ? 1 : p.style === "danger" ? 4 : 2,
+          ...("url" in p ? { url: p.url } : { custom_id: p.id }) }];
+      });
+      const rows = [];
+      for (let index = 0; index < buttons.length; index += 5)
+        rows.push({ type: 1, components: buttons.slice(index, index + 5) });
+      return { components: rows };
+    }
+    case "Button": {
+      const p = element.props;
+      return { components: [{ type: 1, components: [{ type: 2, label: p.label,
+        style: "url" in p ? 5 : p.style === "primary" ? 1 : p.style === "danger" ? 4 : 2,
+        ...("url" in p ? { url: p.url } : { custom_id: p.id }) }] }] };
+    }
+    case "Poll":
+      if (element.props.options.length > 10)
+        throw new RenderLimitExceeded({ kind: "options", count: element.props.options.length, limit: 10 });
+      return { poll: { question: { text: element.props.question },
+        answers: element.props.options.map((text) => ({ poll_media: { text } })),
+        duration: 24, allow_multiselect: element.props.multi ?? false } };
+    case "Status": {
+      const icon = { ok: "✅", warn: "⚠️", fail: "❌", progress: "⏳" }[element.props.kind];
+      return { content: `**${icon} ${element.props.title}**${element.props.body === undefined ? "" : `\n${element.props.body}`}` };
+    }
+    case "Markdown":
+    case "Code":
+    case "Table":
+    case "Context":
+    case "Divider":
+    case "Image":
+    case "File":
+      return { content: step.digest };
+  }
+}

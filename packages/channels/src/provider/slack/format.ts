@@ -8,6 +8,12 @@ import type { MediaLimits, RenderPolicy } from "../contract.js";
 export const SLACK_RENDER = {
   renderMarkdown: (markdown: string) => markdown,
   messageLimit: 4000,
+  capabilities: {
+    Markdown: "native", Code: "native", Table: "native", Image: "native", File: "native",
+    Buttons: "native", Button: "native", Card: "native",
+    Carousel: "downgrade:carousel-to-sequence", Poll: "downgrade:poll-to-buttons",
+    Status: "native", Divider: "native", Context: "native",
+  },
 } as const satisfies RenderPolicy;
 
 export const SLACK_MEDIA_LIMITS = {

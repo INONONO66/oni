@@ -13,7 +13,13 @@ export function createWebhookProvider(
     capabilities: {
       deliver: false,
       webhook: true,
-      render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null },
+      render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null,
+        capabilities: {
+          Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",
+          Buttons: "text", Button: "text", Card: "text", Carousel: "text", Poll: "text",
+          Status: "text", Divider: "text", Context: "text",
+        },
+      },
       media: false,
       react: false,
       typing: false,

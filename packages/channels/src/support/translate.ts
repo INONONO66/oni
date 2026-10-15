@@ -3,6 +3,8 @@ import { DeliveryNotSent } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
+import { downgrade } from "./downgrade.js";
+import { renderElementImage } from "./render-image.js";
 
 /**
  * The translation layer (#1497): one `Outbound.Payload` becomes the ordered
@@ -45,6 +47,14 @@ interface SendAck {
   readonly externalMessageId?: string;
 }
 
+export interface NativeStep {
+  readonly id: string;
+  readonly element: Outbound.Element;
+  readonly spec: Outbound.Spec;
+  readonly digest: string;
+  readonly attachments: Readonly<Record<string, MediaBytes>>;
+}
+
 type MediaUpload = (
   kind: "image" | "file",
   bytes: MediaBytes,
@@ -59,6 +69,7 @@ export interface SurfaceSends {
   readonly text: (chunk: string) => Promise<string | undefined>;
   readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
   readonly react?: (messageId: string, emoji: string, replaces?: string) => Promise<void>;
+  readonly native?: (step: NativeStep) => Promise<SendAck>;
 }
 
 /** `accepted` only when every step was; `externalMessageId` is the last message posted. */
@@ -69,6 +80,7 @@ export interface DeliveryOutcome {
 
 type Step =
   | { readonly kind: "text"; readonly chunk: string }
+  | { readonly kind: "native"; readonly step: NativeStep; readonly send: (step: NativeStep) => Promise<SendAck> }
   | {
       readonly kind: "media";
       readonly part: Extract<Outbound.Part, { kind: "image" | "file" }>;
@@ -84,9 +96,149 @@ function textSteps(parts: Outbound.Part[], render: RenderPolicy): Step[] {
   return chunks.map((chunk) => ({ kind: "text", chunk }));
 }
 
+async function planSpec(
+  spec: Outbound.Spec,
+  render: RenderPolicy,
+  sends: SurfaceSends,
+  media: { readonly upload: MediaUpload; readonly limits: MediaLimits; readonly resolve: MediaResolver } | undefined,
+): Promise<Step[]> {
+  const steps: Step[] = [];
+  let pending: Outbound.Part[] = [];
+  let totalBytes = 0;
+  const flush = (): void => { steps.push(...textSteps(pending, render)); pending = []; };
+  const resolveImage = async (ref: string, caption?: string, kind: "image" | "file" = "image"): Promise<MediaBytes> => {
+    if (media === undefined) throw new DeliveryNotSent({ operation: "media", cause: "no resolver or uploader" });
+    const part: Outbound.Part & { kind: "image" | "file" } = kind === "image"
+      ? { kind, ref, caption }
+      : { kind, ref, name: ref };
+    const bytes = await media.resolve(part).catch((error) => {
+      throw new DeliveryNotSent({ operation: "media.resolve", cause: String(error) });
+    });
+    const limit = kind === "image" ? media.limits.imageBytes : media.limits.fileBytes;
+    if (bytes.bytes.byteLength > limit)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${bytes.bytes.byteLength} bytes exceeds the ${kind} limit ${limit}` });
+    if (caption !== undefined && caption.length > media.limits.captionLength)
+      throw new DeliveryNotSent({ operation: "media.caption", cause: `${caption.length} characters exceeds the caption limit ${media.limits.captionLength}` });
+    totalBytes += bytes.bytes.byteLength;
+    if (totalBytes > LETTER_MEDIA_BYTES)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}` });
+    return bytes;
+  };
+  const digest = (id: string, current: Outbound.Spec): string =>
+    Outbound.text({ kind: "message", spec: { root: id, elements: current.elements } });
+  const visit = async (id: string, current: Outbound.Spec): Promise<void> => {
+    const element = current.elements[id];
+    if (element === undefined) return;
+    const policy = render.capabilities[element.type];
+    if (element.type === "Image" || element.type === "File") {
+      if (media === undefined || policy === "text") pending.push({ kind: "text", text: digest(id, current) });
+      else {
+        flush();
+        const part = element.type === "Image"
+          ? { kind: "image" as const, ref: element.props.ref, caption: element.props.caption }
+          : { kind: "file" as const, ref: element.props.ref, name: element.props.name };
+        steps.push({ kind: "media", part, bytes: await resolveImage(part.ref, part.kind === "image" ? part.caption : undefined, part.kind), upload: media.upload });
+      }
+      return;
+    }
+    if (element.type === "Carousel" && element.children.some((child) => {
+      const card = current.elements[child];
+      return card?.type !== "Card" || card.props.image === undefined || !card.props.image.startsWith("https://");
+    })) {
+      for (const child of element.children) await visit(child, current);
+      return;
+    }
+    if (policy.startsWith("downgrade:")) {
+      const result = downgrade(policy.slice("downgrade:".length) as import("./downgrade.js").Downgrade, id, current);
+      switch (result.kind) {
+        case "text": pending.push({ kind: "text", text: result.text }); return;
+        case "sequence":
+          for (const child of result.ids) await visit(child, result.spec ?? current);
+          return;
+        case "album":
+          if (sends.native !== undefined && element.type === "Carousel" && result.ids.every((child) => {
+            const card = current.elements[child];
+            return card?.type === "Card" && card.props.image?.startsWith("https://");
+          })) {
+            flush();
+            steps.push({ kind: "native", step: {
+              id, element, spec: current, digest: digest(id, current), attachments: {},
+            }, send: sends.native });
+          } else for (const child of result.ids) await visit(child, current);
+          return;
+        case "caption-keyboard":
+          if (result.image === undefined || media === undefined)
+            pending.push({ kind: "text", text: `${result.caption}${result.image === undefined ? "" : `\n[image] ${result.image}`}` });
+          else {
+            flush();
+            const bytes = await resolveImage(result.image, result.caption);
+            steps.push({ kind: "media", part: { kind: "image", ref: result.image, caption: result.caption }, bytes, upload: media.upload });
+          }
+          if (result.buttons.length > 0) {
+            const buttons: Outbound.Element = { type: "Buttons", props: {}, children: [...result.buttons] };
+            const buttonSpec: Outbound.Spec = { root: `${id}:keyboard`, elements: {
+              ...current.elements, [`${id}:keyboard`]: buttons,
+            } };
+            flush();
+            if (sends.native === undefined)
+              pending.push({ kind: "text", text: result.buttons.map((child) => digest(child, current)).join("\n") });
+            else steps.push({ kind: "native", step: { id: buttonSpec.root, element: buttons,
+              spec: buttonSpec, digest: digest(buttonSpec.root, buttonSpec), attachments: {} }, send: sends.native });
+          }
+          return;
+        case "image":
+          if (media === undefined) {
+            pending.push({ kind: "text", text: result.caption });
+            return;
+          }
+          flush();
+          const bytes = await renderElementImage(result.element, result.caption);
+          if (bytes.bytes.byteLength > media.limits.imageBytes)
+            throw new DeliveryNotSent({ operation: "media.limit", cause: `${bytes.bytes.byteLength} bytes exceeds the image limit ${media.limits.imageBytes}` });
+          if (result.caption.length > media.limits.captionLength)
+            throw new DeliveryNotSent({ operation: "media.caption", cause: `${result.caption.length} characters exceeds the caption limit ${media.limits.captionLength}` });
+          totalBytes += bytes.bytes.byteLength;
+          if (totalBytes > LETTER_MEDIA_BYTES)
+            throw new DeliveryNotSent({ operation: "media.limit", cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}` });
+          steps.push({ kind: "media", part: { kind: "image", ref: bytes.name, caption: result.caption }, bytes, upload: media.upload });
+          return;
+      }
+    }
+    if (policy === "text" || sends.native === undefined) {
+      pending.push({ kind: "text", text: digest(id, current) + (element.type === "Card" && element.props.image !== undefined ? `\n[image] ${element.props.image}` : "") });
+      return;
+    }
+    flush();
+    const attachments: Record<string, MediaBytes> = {};
+    if (element.type === "Card" && element.props.image !== undefined && !element.props.image.startsWith("https://")) {
+      if (media === undefined) {
+        pending.push({ kind: "text", text: `${digest(id, current)}\n[image] ${element.props.image}` });
+        return;
+      }
+      attachments[element.props.image] = await resolveImage(element.props.image);
+    }
+    if (element.type === "Carousel" && media !== undefined) {
+      for (const child of element.children) {
+        const card = current.elements[child];
+        if (card?.type === "Card" && card.props.image !== undefined && !card.props.image.startsWith("https://") && attachments[card.props.image] === undefined)
+          attachments[card.props.image] = await resolveImage(card.props.image);
+      }
+    }
+    steps.push({ kind: "native", step: { id, element, spec: current, digest: digest(id, current), attachments }, send: sends.native });
+    if (element.type === "Card" && element.props.image !== undefined && media !== undefined) {
+      const bytes = attachments[element.props.image];
+      if (bytes !== undefined)
+        steps.push({ kind: "media", part: { kind: "image", ref: element.props.image }, bytes, upload: media.upload });
+    }
+  };
+  await visit(spec.root, spec);
+  flush();
+  return steps;
+}
+
 /** Every media reference resolves before the first send so a bad one refuses the letter whole. */
 async function plan(
-  message: Outbound.Message,
+  message: Extract<Outbound.Message, { parts: Outbound.Part[] }>,
   render: RenderPolicy,
   media:
     | {
@@ -135,6 +287,7 @@ async function plan(
 
 async function runStep(step: Step, text: SurfaceSends["text"]): Promise<SendAck> {
   if (step.kind === "media") return step.upload(step.part.kind, step.bytes, step.part.caption);
+  if (step.kind === "native") return step.send(step.step);
   const externalMessageId = await text(step.chunk);
   return externalMessageId === undefined ? {} : { externalMessageId };
 }
@@ -188,5 +341,7 @@ export async function translate(
   }
   const media =
     sends.media === undefined || resolve === undefined ? undefined : { ...sends.media, resolve };
-  return runSteps(await plan(payload, render, media), sends.text);
+  return runSteps(await ("spec" in payload
+    ? planSpec(payload.spec, render, sends, media)
+    : plan(payload, render, media)), sends.text);
 }
