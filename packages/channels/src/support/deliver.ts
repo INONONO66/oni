@@ -1,4 +1,4 @@
-import { DeliveryNotSent } from "../errors";
+import { CallbackDataTooLong, DeliveryNotSent, RenderLimitExceeded } from "../errors";
 import { Operational, type Outbound } from "@openomni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
@@ -19,7 +19,11 @@ const NotConnected = z.object({
 /** Physical evidence that the platform never received the message, so a resend is safe. */
 export function isNotSent(error: Error, isRejected: (error: Error) => boolean): boolean {
   return (
-    error instanceof DeliveryNotSent || isRejected(error) || NotConnected.safeParse(error).success
+    error instanceof DeliveryNotSent ||
+    error instanceof RenderLimitExceeded ||
+    error instanceof CallbackDataTooLong ||
+    isRejected(error) ||
+    NotConnected.safeParse(error).success
   );
 }
 

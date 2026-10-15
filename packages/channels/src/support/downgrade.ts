@@ -1,18 +1,12 @@
 import { Outbound } from "@openomni/protocol";
 import { RenderLimitExceeded } from "../errors.js";
 
-export type Downgrade =
-  | "table-to-code"
-  | "table-to-bullets"
-  | "table-to-image"
-  | "card-to-image"
-  | "card-to-caption-keyboard"
-  | "carousel-to-sequence"
-  | "carousel-to-album"
-  | "poll-to-buttons"
-  | "status-to-bold"
-  | "buttons-to-numbered-list"
-  | "divider-to-rule";
+export const DOWNGRADE_NAMES = [
+  "table-to-code", "table-to-bullets", "table-to-image", "card-to-image",
+  "card-to-caption-keyboard", "carousel-to-sequence", "carousel-to-album",
+  "poll-to-buttons", "status-to-bold", "buttons-to-numbered-list", "divider-to-rule",
+] as const;
+export type Downgrade = (typeof DOWNGRADE_NAMES)[number];
 
 export type Downgraded =
   | { readonly kind: "text"; readonly text: string }
@@ -81,7 +75,13 @@ export function downgrade(name: Downgrade, id: string, spec: Outbound.Spec): Dow
       return { kind: "text", text: "───" };
     case "card-to-caption-keyboard":
       return element.type === "Card"
-        ? { kind: "caption-keyboard", caption: digest, image: element.props.image, buttons: [] }
+        ? { kind: "caption-keyboard",
+          caption: [element.props.title, element.props.body].filter((part) => part !== undefined).join("\n\n"),
+          image: element.props.image,
+          buttons: element.children.flatMap((child) => {
+            const nested = spec.elements[child];
+            return nested?.type === "Buttons" ? nested.children : [];
+          }) }
         : { kind: "text", text: digest };
   }
 }

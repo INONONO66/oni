@@ -31,7 +31,7 @@ export class TelegramAdapter implements Channel.Surface {
     private readonly options: ProviderOptions,
   ) {
     this.dedupe = new Dedupe(options.now);
-    this.client = new TelegramClient(token, publish, options.now, options.run);
+    this.client = new TelegramClient(token, publish, options.run);
   }
 
   onMessage(handler: Channel.MessageHandler): void {
@@ -124,10 +124,12 @@ export class TelegramAdapter implements Channel.Surface {
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },
-            native: async (step) => {
-              const rendered = renderTelegram(step);
-              const externalMessageId = await this.client.sendNative(chatId, rendered.method, rendered.body, traceId, conversation);
-              return externalMessageId === undefined ? {} : { externalMessageId };
+            native: {
+              render: renderTelegram,
+              post: async (rendered) => {
+                const externalMessageId = await this.client.sendNative(chatId, rendered.method, rendered.body, traceId, conversation);
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
             },
             // setMessageReaction sets the bot's whole reaction list, so `replaces` needs no second call.
             react: (messageId, emoji) => this.client.react(chatId, messageId, emoji, traceId),

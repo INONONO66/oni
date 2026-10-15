@@ -20,7 +20,8 @@ export class CallbackDataTooLong extends Data.TaggedError("CallbackDataTooLong")
 }> {}
 
 export class RenderLimitExceeded extends Data.TaggedError("RenderLimitExceeded")<{
-  readonly kind: "buttons" | "cards" | "options" | "blocks";
+  readonly kind: "buttons" | "cards" | "options" | "blocks" | "content" | "caption"
+    | "title" | "description" | "label" | "action_id" | "custom_id" | "question" | "answer";
   readonly count: number;
   readonly limit: number;
 }> {}
