@@ -1,5 +1,6 @@
 import type { Channel } from "@openomni/protocol";
 import type { InboundNormalizer } from "../../types";
+import { URL_ACTION_PREFIX } from "./render.js";
 import type { SlackInteraction, SlackMessageEvent } from "./types";
 
 interface SlackNormalizerContext {
@@ -76,7 +77,9 @@ export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent | Sl
   constructor(private readonly ctx: SlackNormalizerContext) {}
 
   normalize(event: SlackMessageEvent | SlackInteraction): Channel.InboundMessage | null {
-    return "actions" in event ? slackPostback(event, this.ctx) : this.normalizeMessage(event);
+    return "actions" in event
+      ? event.actions[0].action_id.startsWith(URL_ACTION_PREFIX) ? null : slackPostback(event, this.ctx)
+      : this.normalizeMessage(event);
   }
 
   private normalizeMessage(event: SlackMessageEvent): Channel.InboundMessage | null {
