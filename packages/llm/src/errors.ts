@@ -97,4 +97,4 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<Bound
 export class InvalidProviderData extends Data.TaggedError("InvalidProviderData")<BoundaryFields> {}
 
 export type LlmError = LlmOperationFailure | APIError | LlmRunFailure | ModelResolutionError |
-  AuthInvalidFileError | AuthResolutionError | ModelCatalogError | ProxyModelsError | TransportFailure | InvalidProviderData;
+  AuthInvalidFileError | AuthResolutionError | ModelCatalogError | ProviderRowsError | ProxyModelsError | TransportFailure | InvalidProviderData;
