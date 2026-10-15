@@ -8,13 +8,19 @@ import { monitorBundle } from "./bundles/alarms/monitor/index";
 import { ToolCapabilityPort } from "./bundles/seams";
 import type { MonitorPorts } from "./bundles/alarms/monitor/ports";
 import { sendMessageBundle } from "./bundles/messaging/send-message/index";
+import { provisionBundle } from "./bundles/provision/provision";
+import { bashBundle } from "./bundles/tools/bash/index";
+import { completionBundle } from "./bundles/tools/completion/index";
+import { evalBundle } from "./bundles/tools/eval/index";
+import { fileBundle } from "./bundles/tools/file/index";
+import type { ToolPorts } from "./composition/catalog";
 
 /**
  * The tool-capability contract (#1255 P3, #1316): the dispatcher lives in
  * `plugins/tool` (surfaced through the `Bundle` barrel), and this declaration
  * OWNS the `tool.pre` / `tool.post` points plus the kernel budget-clamp
- * handler bundle rows may consult. `monitor` (wake-budget row on `tool.pre`)
- * and `send-message` require its seam, so `off: ["tool"]` cascades both off.
+ * handler bundle rows may consult. Every tool bundle requires its seam, so
+ * `off: ["tool"]` cascades all of them off.
  */
 export const toolCapability = Bundle.Capability.define({
   name: "tool",
@@ -47,6 +53,8 @@ export interface AppManifestInput {
   readonly wake: import("./bundles/alarms/monitor/index").MonitorWakeDeps;
   /** The live alarm ports the monitor tool executes against, late-bound (#1308). */
   readonly alarms: () => MonitorPorts | undefined;
+  /** The live ports every tool bundle executes against, late-bound like `alarms` (#1561). */
+  readonly tools: () => ToolPorts | undefined;
   /** The parsed hooks JSON config (#1256); absent composes zero hook rows. */
   readonly hooks?: HooksJsonInput;
   /** Owner-configured off names (capabilities and bundles); absent means everything declared is on. */
@@ -66,13 +74,20 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
       input.alarm,
     ],
     bundles: [
+      // #1561: every model tool is bundle-owned; `off` removes it from the
+      // next generation. Compose orders bundles by dependency, then by this list.
+      fileBundle(input.tools),
+      bashBundle(input.tools),
+      evalBundle(input.tools),
       monitorBundle(input.wake, input.alarms),
       cronBundle(input.wake.prompt),
       hooksJsonBundle(input.hooks),
-      sendMessageBundle(),
       delegationPolicyBundle(),
       // #1309: the approval/budget product values; `send-message` requires its seam.
       approvalPolicyBundle(),
+      sendMessageBundle(input.tools),
+      provisionBundle(input.tools),
+      completionBundle(input.tools),
       // The binding requires the summarizer; dropping the provider refuses `seam_missing`.
       compactionSummarizerBundle(),
       compactionBundle(),

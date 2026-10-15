@@ -1,7 +1,9 @@
 import { conform, systemText } from "../core/completion-format";
 import { Machine, type ToolExecutionContext } from "@openomni/protocol";
 import { z } from "zod";
-import { Core } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
+import { boundTool, ToolCapabilityPort } from "../../seams";
+import { ABSENT_MACHINE_PORTS, type MachineToolPortsSource } from "../core/ports";
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;
 
@@ -57,7 +59,7 @@ function executeCompletion(llm: LlmPort | undefined) {
 }
 
 /** Cell-only: batching is the cell's `parallel()`, so the input is one prompt. */
-export function createCompletionTool(llm: LlmPort | undefined) {
+function createCompletionTool(llm: LlmPort | undefined) {
   return defineTool({
     name: COMPLETION_TOOL_NAME,
     category: "execution",
@@ -68,5 +70,14 @@ export function createCompletionTool(llm: LlmPort | undefined) {
     visibility: { model: [], cell: ["resident", "child"] },
     execute: executeCompletion(llm),
     render: (_args, value) => value,
+  });
+}
+
+/** The `completion` bundle (#1561): the cell-only sub-model call. */
+export function completionBundle(ports: MachineToolPortsSource): Bundle.BundleContract<"completion"> {
+  return Bundle.define({
+    name: "completion",
+    requires: [ToolCapabilityPort],
+    tools: [boundTool(ports, ABSENT_MACHINE_PORTS, (live) => createCompletionTool(live.llm))],
   });
 }

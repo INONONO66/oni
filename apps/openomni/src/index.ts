@@ -108,7 +108,7 @@ import { createWatchSources, type PathWatchInstaller } from "./composition/watch
 import { createMediaResolver } from "./composition/media";
 import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
-import { ComposedGeneration, composedHolderOf, alarmPortsSlot } from "./composition/composed";
+import { ComposedGeneration, composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
 import { appManifest } from "./manifest";
 import {
   acquireAppResource,
@@ -343,15 +343,17 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // #1308: the wake bundle's ONE live tool executes against this slot;
     // boot binds it after the runtime exists, unbound calls refuse typed.
     const alarmsSlot = alarmPortsSlot();
+    const toolsSlot = toolPortsSlot();
     const manifest = appManifest({
       alarm: watchPlane.contract,
       wake: watchPlane.wake,
       alarms: alarmsSlot.current,
+      tools: toolsSlot.current,
       ...(hooks === undefined ? {} : { hooks }),
       ...(config.off === undefined ? {} : { off: config.off }),
     });
     const generation = Bundle.composeSync(manifest);
-    const holder = composedHolderOf({ manifest, generation }, alarmsSlot);
+    const holder = composedHolderOf({ manifest, generation }, alarmsSlot, toolsSlot);
     return gatewayRuntime({
       // Cluster storage rides only on configs that resolved it (loadConfig
       // always does); injected literal test configs stay on the in-memory
@@ -728,7 +730,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
       ackReaction: config.ackReaction,
       compaction: (session) => compactionOptions(config, { now: services.now, id: services.entropy.id, ...session }),
       composed: { current: services.composed.current },
-      tools: {
+      // #1561: every tool bundle executes against these bound ports.
+      tools: services.composed.tools.bind({
         ...tools,
         provisioning: provisioningPort,
         // #1258: a `to.new` send carrying `deadline_ms` arms the
@@ -751,7 +754,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
                 ),
           },
         },
-      },
+      }),
       sessionRuntime,
       policyGeneration: () => plane.openKernel(GATEWAY_INGRESS_SESSION).currentPolicyGeneration(),
     });
@@ -775,7 +778,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         }),
       ).catch((error) => incident(`late hook result for ${sessionId} dropped`, error));
     };
-    const generationDefinitions: GenerationDefinitions = { ...resident.definitions, deliverLate };
+    const generationDefinitions: GenerationDefinitions = { resident: [], child: [], deliverLate };
     await runAppBoot(runtime, services.generations.initialize(generationDefinitions));
 
     const routingHandler: Channel.MessageHandler = async ({ sender, facts }) => {

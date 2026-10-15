@@ -1,4 +1,6 @@
-import { Core } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
+import { boundTool, ToolCapabilityPort } from "../../seams";
+import { ABSENT_MACHINE_PORTS, type MachineToolPortsSource } from "../core/ports";
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;
 import { z } from "zod";
@@ -282,7 +284,7 @@ function routeBash(args: z.output<typeof Input>, ports: FilePorts, sessions: Map
   return machineBash(args, ports);
 }
 
-export function createBashTool(ports: FilePorts) {
+function createBashTool(ports: FilePorts) {
   /** Session read positions and unfinished sentinel; neither is model-managed. */
   const sessions = new Map<string, SessionState>();
   return defineTool({
@@ -300,5 +302,14 @@ export function createBashTool(ports: FilePorts) {
         return routeBash(args, ports, sessions);
       }),
     render: (_args, value) => JSON.stringify(value),
+  });
+}
+
+/** The `bash` bundle (#1561): shell commands on a machine daemon. */
+export function bashBundle(ports: MachineToolPortsSource): Bundle.BundleContract<"bash"> {
+  return Bundle.define({
+    name: "bash",
+    requires: [ToolCapabilityPort],
+    tools: [boundTool(ports, ABSENT_MACHINE_PORTS, createBashTool)],
   });
 }

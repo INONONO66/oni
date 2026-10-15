@@ -6,7 +6,7 @@ import { alarmDefinition } from "./helpers/alarm-definition";
 import { runEffect } from "./helpers/effect";
 
 async function productManifest() {
-  return appManifest({ alarm: await alarmDefinition(), wake: { close: () => undefined }, alarms: () => undefined });
+  return appManifest({ alarm: await alarmDefinition(), wake: { close: () => undefined }, alarms: () => undefined, tools: () => undefined });
 }
 
 test("the product manifest composes compaction with its summarizer provider on by default", async () => {

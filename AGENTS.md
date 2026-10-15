@@ -130,7 +130,7 @@ ui <- apps/desktop
 | Gateway and channel registration | `apps/openomni/src/gateway.ts`, `apps/openomni/src/channels.ts` |
 | Contacts and the one send_message tool (#1258) | `apps/openomni/src/bundles/messaging/send-message/` |
 | Delegation caps, deadline, and child replies (#1258) | `apps/openomni/src/bundles/delegation-policy/` |
-| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271) | `apps/openomni/src/bundles/tools/<tool>/index.ts`, `apps/openomni/src/bundles/provision/provision.ts` |
+| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271; every tool is a removable bundle listed in `apps/openomni/src/manifest.ts`, #1561) | `apps/openomni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/openomni/src/bundles/provision/provision.ts` |
 | Shipped-state truth | `docs/implementation-status.md` |
 | Conformance/ratchets | `script/`, `script/conformance/` |
 

@@ -2,7 +2,6 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { catalogDefinitions } from "../apps/openomni/src/composition/catalog";
 import { checkEffectBoundaries, checkEffectBoundaryFindings, effectServiceInventory, main, PREEXISTING_TOOL_EFFECT_PINS, TOOL_BODY_PATHS, type BoundaryFinding } from "./check-effect-boundaries";
 import { decodeJson } from "./quality-json";
 import { verifyPinnedFilesExist } from "./lint-side-effects";
@@ -160,16 +159,10 @@ test("rejects an Effect import in the provision tool body", (): void => {
 });
 
 test("maps every catalog tool name to an existing checked body", async (): Promise<void> => {
-  const ports = {
-    messages: undefined,
-    machines: undefined,
-    cells: undefined,
-    llm: undefined,
-    provisioning: undefined,
-    clock: () => 0,
-    id: () => "test",
-  } as never;
-  const expected = [...catalogDefinitions(ports).map(({ name }) => name), "monitor"];
+  const expected = [
+    "read", "write", "edit", "ls", "find", "grep", "bash", "eval",
+    "monitor", "send_message", "provision", "completion",
+  ];
   expect(new Set(TOOL_BODY_PATHS.keys())).toEqual(new Set(expected));
   for (const path of TOOL_BODY_PATHS.values()) expect(await Bun.file(join(import.meta.dir, "..", path)).exists()).toBe(true);
 });

@@ -461,10 +461,10 @@ test("the catalog remains available while machine execution refuses without atta
     "grep",
     "bash",
     "eval",
+    // #1561: every tool is bundle-owned; the order is the composed bundle order.
+    "monitor",
     "send_message",
     "provision",
-    // #1308: bundle-declared tools follow the catalog's own in projection order.
-    "monitor",
   ]);
   // The raw machine endpoint reports live attachment failure.
   expect(answer).toContain("kernel_not_available");

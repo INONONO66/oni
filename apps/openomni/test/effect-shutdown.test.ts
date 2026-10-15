@@ -1,5 +1,4 @@
 import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
-import { testToolPorts } from "./helpers/tool-ports";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { expect, spyOn, test } from "bun:test";
 import { Bundle, Core, Testing } from "@openomni/agent";
@@ -11,7 +10,6 @@ const projectTools = Core.projectTools;
 type SessionRuntime = Core.SessionRuntime;
 import { planeOf } from "./helpers/ledger";
 import { z } from "zod";
-import { createResident } from "../src/composition/resident";
 import { eventSignal } from "./helpers/event-signal";
 import { seedKernelPolicyRows } from "../src/composition/policy";
 import { shutdownSessions } from "../src/shutdown";
@@ -134,14 +132,7 @@ test(`zero-grace close retains a raw tool lease (settle after turn: ${settleAfte
     closeGraceMs: 0,
     onHibernate: () => Effect.sync(() => { order.push("lease.released"); released.resolve(); }),
   };
-  const resident = createResident({
-    model: { provider: "test", id: "test" },
-    apiKey: "test",
-    tools: { ...testToolPorts },
-    sessionRuntime,
-    policyGeneration: () => plane.openKernel("shutdown-raw").currentPolicyGeneration(),
-  });
-  await runAppEffect(runtime, Effect.flatMap(GenerationLayers, (generations) => generations.initialize(resident.definitions)));
+  await runAppEffect(runtime, Effect.flatMap(GenerationLayers, (generations) => generations.initialize({ resident: [], child: [] })));
   const handle = await acquireAppResource(runtime, session({
     id: "shutdown-raw", role: "resident", tools: projectTools([tool]).session,
     runner: (input) => Effect.flatMap(createTurnDispatcher(input, sessionRuntime), (dispatcher) => dispatcher.execute(

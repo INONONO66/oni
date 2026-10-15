@@ -31,8 +31,14 @@ import { join } from "node:path";
 import { runScriptMain } from "./main-runner";
 import { agentSourceFacts, checkCoreEndState } from "./check-core-end-state";
 import { projectTools } from "../packages/agent/src/core/loop/tool.js";
-import { catalogDefinitions, type ToolPorts } from "../apps/openomni/src/composition/catalog.js";
+import type { ToolPorts } from "../apps/openomni/src/composition/catalog.js";
 import { createMonitorTool } from "../apps/openomni/src/bundles/alarms/monitor/index.js";
+import { fileBundle } from "../apps/openomni/src/bundles/tools/file/index.js";
+import { bashBundle } from "../apps/openomni/src/bundles/tools/bash/index.js";
+import { evalBundle } from "../apps/openomni/src/bundles/tools/eval/index.js";
+import { completionBundle } from "../apps/openomni/src/bundles/tools/completion/index.js";
+import { provisionBundle } from "../apps/openomni/src/bundles/provision/provision.js";
+import { sendMessageBundle } from "../apps/openomni/src/bundles/messaging/send-message/index.js";
 import { eraseTool } from "../packages/agent/src/core/loop/tool.js";
 import type { Tool, AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool/index.js";
 import type { PlainObject, PlainValue } from "../packages/protocol/src/json.js";
@@ -45,8 +51,18 @@ const schemaPorts: ToolPorts = {
   messages: undefined, machines: undefined, cells: undefined,
   llm: undefined, provisioning: undefined, clock: () => 0, id: () => "schema",
 };
-// #1308: `monitor` is bundle-declared; the lint surface stays the full 12 tools.
-const definitions = [...catalogDefinitions(schemaPorts), eraseTool(createMonitorTool(() => undefined))];
+// #1561: every tool is bundle-declared; the lint surface is the full 12 tools
+// in the reviewed snapshot order.
+const schemaSource = () => schemaPorts;
+const definitions: readonly AnyToolDefinition[] = [
+  ...fileBundle(schemaSource).tools,
+  ...bashBundle(schemaSource).tools,
+  ...evalBundle(schemaSource).tools,
+  ...sendMessageBundle(schemaSource).tools,
+  ...provisionBundle(schemaSource).tools,
+  ...completionBundle(schemaSource).tools,
+  eraseTool(createMonitorTool(() => undefined)),
+];
 
 /**
  * The snapshot pins the FULL catalog surface, cell-only doors included:
@@ -458,7 +474,7 @@ export function definitionInvariantViolations(
       violations.push({
         check: "earned-check",
         subject: `${item.filePath}:${item.definition.name}`,
-        message: "exported tool definition is not wired into catalogDefinitions",
+        message: "exported tool definition is not wired into a tool bundle",
       });
     }
   }
@@ -656,7 +672,7 @@ export function diffToolSchemaSnapshots<T extends { readonly name?: string }>(
   return [
     {
       check: "tool-schema-snapshot",
-      subject: "catalogDefinitions",
+      subject: "tool bundles",
       message: `derived tool specs differ from the reviewed snapshot (before: ${previousNames.join(", ")}; now: ${currentNames.join(", ")}) — run --update only with review authorization`,
     },
   ];

@@ -1,9 +1,8 @@
-import { testToolPorts } from "./helpers/tool-ports";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
-import { catalogDefinitions } from "../src/composition/catalog";
 import { Core } from "@openomni/agent";
 import { Auth, makeLlmService, ModelsDev } from "@openomni/llm";
 /** The lint's full spec surface (#1255 S3): widen the cell-only door for projection alone. */
@@ -86,7 +85,7 @@ describe("the completion tool", () => {
   });
 
   it("forwards system and model to the port and validates a schema-shaped answer", async () => {
-    const seen: Array<Parameters<NonNullable<Parameters<typeof catalogDefinitions>[0]["llm"]>>[0]> = [];
+    const seen: Array<Parameters<NonNullable<Parameters<typeof bundleTools>[0]["llm"]>>[0]> = [];
     const answers = ['```json\n{"n": 7}\n```', '{"n": "seven"}', "not json at all"];
     const run = dispatchModelTool(
       COMPLETION_TOOL_NAME,
@@ -134,7 +133,7 @@ describe("the completion tool", () => {
     // drew from ONE process-wide budget. The cell door dispatches with
     // turnId = cellId; the budget must be keyed by that identity.
     let invoked = 0;
-    const entries = catalogDefinitions(
+    const entries = bundleTools(
       { ...testToolPorts,
         llm: async () => {
           invoked += 1;
@@ -180,7 +179,7 @@ describe("the completion tool", () => {
     // The defect this pins: a failing llm call returned as a completed string
     // lets cell code store failure text as if it were model output. The
     // dispatcher must mark it isError so the cell door raises ToolError.
-    const entries = catalogDefinitions(
+    const entries = bundleTools(
       { ...testToolPorts,
         llm: async () => {
           throw new Error("llm failed: provider on fire");
@@ -243,7 +242,7 @@ describe("the completion tool", () => {
   });
 
   it("dispatches the cell door without a target eligibility fold", async () => {
-    const entries = catalogDefinitions({ ...testToolPorts, llm: async () => "ok" });
+    const entries = bundleTools({ ...testToolPorts, llm: async () => "ok" });
     const dispatcher = dispatcherFixture(entries, { executor });
     const result = await runEffect(
       dispatcher.executeCell(
@@ -417,15 +416,15 @@ describe("the completion port", () => {
 
 describe("catalog gating for the rlm tools", () => {
   it("lists the completion spec in the shippable surface the lint reads", () => {
-    const names = catalogDefinitions(testToolPorts).map(toolSpec).map((spec) => spec.name);
+    const names = bundleTools(testToolPorts).map(toolSpec).map((spec) => spec.name);
     expect(names).toContain(COMPLETION_TOOL_NAME);
   });
 
   it("stays in the static catalog without a wired port and refuses at execution", async () => {
-    const names = catalogDefinitions(testToolPorts).map((entry) => entry.name);
+    const names = bundleTools(testToolPorts).map((entry) => entry.name);
     expect(names).toContain(COMPLETION_TOOL_NAME);
     const result = await runEffect(
-      dispatcherFixture(catalogDefinitions(testToolPorts), { executor }).executeCell(
+      dispatcherFixture(bundleTools(testToolPorts), { executor }).executeCell(
         { id: "unwired", tool: COMPLETION_TOOL_NAME, input: { prompt: "x" } },
         { sessionId: RESIDENT.sessionId, turnId: "turn" },
       ),
@@ -435,7 +434,7 @@ describe("catalog gating for the rlm tools", () => {
   });
 
   it("projects completion without target metadata", () => {
-    const specs = catalogDefinitions({ ...testToolPorts, llm: async () => "" }).map((entry) => toolSpec(entry));
+    const specs = bundleTools({ ...testToolPorts, llm: async () => "" }).map((entry) => toolSpec(entry));
     expect(specs.map((spec) => spec.name)).toContain(COMPLETION_TOOL_NAME);
   });
 });

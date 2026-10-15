@@ -1,27 +1,19 @@
-import { Outbound, type LedgerSession } from "@openomni/protocol";
+import { Outbound } from "@openomni/protocol";
 import { buildAgentPrompt } from "../bundles/prompt/build";
 import { CHILD_PRESET, RESIDENT_PRESET } from "../bundles/prompt/roles";
 import { createResident as createResidentBundle, type ResidentOptions as ResidentBundleOptions } from "../bundles/resident/index";
-import { catalogDefinitions, type ToolPorts } from "./catalog";
-import { toolCatalogLayer } from "./generation-layers";
+import type { ToolPorts } from "./catalog";
 
-export type ResidentOptions = Omit<ResidentBundleOptions, "tools" | "presets" | "id" | "clock" | "reactions"> & {
+export type ResidentOptions = Omit<ResidentBundleOptions, "presets" | "id" | "clock" | "reactions"> & {
+  /** Identity, clock and reaction door; tool bodies bind the same ports through the manifest (#1561). */
   readonly tools: ToolPorts;
 };
 
-/** The composing app supplies prompt data and freshly acquired catalog definitions. */
+/** The composing app supplies prompt data; tool faces come from the composed bundles. */
 export function createResident(options: ResidentOptions) {
   const { tools: ports, ...resident } = options;
-  const catalog = catalogDefinitions(ports);
-  const definitionsFor = (role: LedgerSession.Role) =>
-    catalog.filter((tool) => tool.visibility.model.includes(role) || tool.visibility.cell.includes(role));
   return createResidentBundle({
     ...resident,
-    tools: {
-      resident: definitionsFor("resident"),
-      child: definitionsFor("child"),
-      catalogLayer: (select) => toolCatalogLayer(ports, select),
-    },
     presets: {
       resident: buildAgentPrompt(RESIDENT_PRESET, {
         structuredMessages: `Structured messages\n\n${Outbound.prompt()}`,

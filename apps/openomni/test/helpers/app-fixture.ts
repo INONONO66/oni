@@ -3,6 +3,7 @@ const Llm = Core.Llm;
 import { type AppRuntimeOptions, LlmLive } from "../../src/runtime";
 import { type Clock, Context, Effect, Layer } from "effect";
 import { composedHolderOf, alarmPortsSlot, type ComposedHolder } from "../../src/composition/composed";
+import { toolPortsSlot } from "../../src/composition/composed";
 import { createWatchPlane } from "../../src/composition/watch-plane";
 import { gatewayRuntime } from "../../src/gateway";
 import { readHooksJson } from "../../src/bundles/hooks-json/index";
@@ -28,10 +29,13 @@ async function productComposedHolder(
   const plane = createWatchPlane();
   // #1308: the boot binds the live monitor ports into this slot.
   const alarms = alarmPortsSlot();
+  // #1561: the boot binds the live tool ports into this slot.
+  const tools = toolPortsSlot();
   const product = appManifest({
     alarm: plane.contract,
     wake: plane.wake,
     alarms: alarms.current,
+    tools: tools.current,
     ...(hooksPath === undefined ? {} : { hooks: readHooksJson(hooksPath) }),
     ...(off === undefined ? {} : { off }),
   });
@@ -46,7 +50,7 @@ async function productComposedHolder(
           off: [...product.off],
         });
   const generation = Bundle.composeSync(manifest);
-  return composedHolderOf({ manifest, generation }, alarms);
+  return composedHolderOf({ manifest, generation }, alarms, tools);
 }
 
 export type FixtureLlm = Context.Service.Shape<typeof Llm>;

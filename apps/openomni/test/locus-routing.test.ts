@@ -1,4 +1,4 @@
-import { testToolPorts } from "./helpers/tool-ports";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { runEffect } from "./helpers/effect";
 import { describe, expect, spyOn, test } from "bun:test";
@@ -11,7 +11,6 @@ import { Core } from "@openomni/agent";
 const ToolRefused = Core.ToolRefused;
 import { attachMachineDaemon, createMachineHost, type MachineHandle } from "@openomni/machines";
 import { Machine, type PlainValue } from "@openomni/protocol";
-import { catalogDefinitions } from "../src/composition/catalog";
 import { parseLocus } from "../src/bundles/tools/locus/index";
 import { socketPath } from "./helpers/socket-path";
 import { testMachinePorts } from "./helpers/native-tool-ports";
@@ -162,7 +161,7 @@ async function fixture(
   }
   try {
     // #1305: real catalog + in-memory output store, the app composition's shape.
-    const dispatcher = dispatcherFixture(catalogDefinitions({ ...testToolPorts, machines: testMachinePorts(host, "self") }), {
+    const dispatcher = dispatcherFixture(bundleTools({ ...testToolPorts, machines: testMachinePorts(host, "self") }), {
       executor,
       toolOutput: { budgetBytes: 32_768, put: (write) => { stored.set(write.outputId, write.bytes); } },
     });
@@ -475,7 +474,7 @@ test("daemon authority refuses writes and exec independently of the catalog", as
 });
 
 test("missing machine host and malformed machine ids yield typed refusals", async () => {
-  const dispatcher = dispatcherFixture(catalogDefinitions(testToolPorts), { executor });
+  const dispatcher = dispatcherFixture(bundleTools(testToolPorts), { executor });
   for (const [tool, input] of [
     ["read", { path: "c:/file" }],
     ["bash", { machine: "c", command: "true" }],

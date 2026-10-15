@@ -1,5 +1,13 @@
 # Implementation Status
 
+## #1561 every model tool is a removable bundle (base `35d60a491`)
+
+- Shipped: `apps/openomni/src/manifest.ts` lists the `file` (read, write, edit, ls, find, grep), `bash`, `eval`, `send-message`, `provision` and `completion` bundles beside `monitor`; each declares its tools through `Bundle.define({ tools })` over late-bound ports (`appManifest`'s `tools` input reads `composition/composed.ts` `ToolPortsSlot`, bound by boot like the monitor's alarm slot; `bundles/seams.ts` `boundTool` resolves the current ports per call). The hard-wired `catalogDefinitions` list is deleted (`composition/catalog.ts` keeps only the `ToolPorts` shape), and `send-message` is the sole owner of the `send_message` face.
+- A generation's tools are exactly the composed bundles' tools: `GenerationLayers.initialize` refuses a non-empty per-role definition list with `tools_are_bundle_owned`, and the old `send_message` duplicate exception in `composition/generation-layers.ts` is gone, so a second bundle declaring a shipped tool name is the typed `duplicate` compose refusal.
+- `provision{op:"bundle_disable", name:"bash"}` drops `bash` from the next generation: `apps/openomni/test/tool-bundles.test.ts` asserts the next turn's offered tools, the generation bump and the journaled compose `disabled` entry. Turning the `tool` capability off now cascades every tool bundle.
+- Tool order on the model door is the composed bundle order (dependency-sorted, then manifest order).
+
+
 ## #1562 provider rows
 
 On `feat/1562-provider-rows` (2026-10-15, base `35d60a491`). Providers are
@@ -41,7 +49,6 @@ into the Resident/child `buildAgentPrompt` calls and forwarding the two
 directories to process children (#1563, composition-owned files). Receipts:
 `apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
 
-||||||| parent of 3e0125689 (feat(llm): providers as Zod-validated rows data with OPENOMNI_PROVIDERS_PATH (#1562))
 ## #1545 inbound postback (L3)
 
 On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).
@@ -180,9 +187,9 @@ Paths below are relative to `apps/openomni/src/bundles/`.
 | `core-policy/index.ts` | `messaging/index`, `provision/provision` | 2 | 0 | `composition/policy.ts` composes and seeds the mandatory rows in their original order; core-policy retains gate-row projection. |
 | `alarms/index.ts` | `tools/core/watch` | 1 | 0 | The existing monitor port contract moves to `alarms/monitor/ports.ts`. |
 | `alarms/monitor/index.ts` | `tools/core/watch` | 1 | 0 | The tool adapter consumes its own alarm-local ports; its live capability remains composition-injected. |
-| `resident/index.ts` | `prompt/build`, `prompt/roles`, `tools/core/catalog` | 3 | 0 | `composition/resident.ts` injects role presets, catalog definitions and the generation acquisition recipe. |
+| `resident/index.ts` | `prompt/build`, `prompt/roles`, `tools/core/catalog` | 3 | 0 | `composition/resident.ts` injects role presets; since #1561 the tool faces come only from the composed generation. |
 | `tools/core/request-domain-revisions.ts` | `provision/automation-schema`, `provision/automation` | 2 | 0 | The request-precondition adapter moves to `composition/request-domain-revisions.ts`. |
-| `tools/core/catalog.ts` | `provision/provision`, `provision/channels`, `messaging/send-message/index` | 3 | 0 | `composition/catalog.ts` constructs the tool definitions from each owning bundle. |
+| `tools/core/catalog.ts` | `provision/provision`, `provision/channels`, `messaging/send-message/index` | 3 | 0 | Since #1561 there is no catalog module: each tool bundle declares its own definitions in `manifest.ts`. |
 | `provision/provision.ts` | `tools/core/contact-mutations` | 1 | 0 | Contact schemas move unchanged into `provision/contact-mutations.ts`. |
 | `provision/contacts.ts` | `tools/core/contact-mutations` | 1 | 0 | Uses the provision-local contact schema and digest reader. |
 | `provision/execution.ts` | `tools/core/contact-mutations` | 1 | 0 | Uses the same provision-local digest reader; both directions of the provision/tools cycle change together. |

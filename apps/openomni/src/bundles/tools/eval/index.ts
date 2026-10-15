@@ -1,6 +1,8 @@
 import { CELL_CEILING_MS, describe } from "../core/cell-output";
 import { CodemodeError, type RunOptions } from "@openomni/codemode";
-import { Core } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
+import { boundTool, ToolCapabilityPort } from "../../seams";
+import { ABSENT_MACHINE_PORTS, type MachineToolPortsSource } from "../core/ports";
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;
 import { Machine } from "@openomni/protocol";
@@ -80,5 +82,14 @@ export function createEvalTool(cell: Cell | undefined) {
       return executeOperation(cell, operation, ctx.sessionId, ctx.signal);
     },
     render: (_args, value) => describe(value),
+  });
+}
+
+/** The `eval` bundle (#1561): the session's persistent code cell. */
+export function evalBundle(ports: MachineToolPortsSource): Bundle.BundleContract<"eval"> {
+  return Bundle.define({
+    name: "eval",
+    requires: [ToolCapabilityPort],
+    tools: [boundTool(ports, ABSENT_MACHINE_PORTS, (live) => createEvalTool(live.cells?.cell))],
   });
 }

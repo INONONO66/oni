@@ -21,14 +21,14 @@ test("the approval-policy bundle ships the product literals the core no longer o
 });
 
 test("the product manifest composes with the approval-policy provider on by default", async () => {
-  const manifest = appManifest({ alarm: await alarmDefinition(), wake: { close: () => undefined }, alarms: () => undefined });
+  const manifest = appManifest({ alarm: await alarmDefinition(), wake: { close: () => undefined }, alarms: () => undefined, tools: () => undefined });
   const generation = Bundle.composeSync(manifest);
   expect(generation.bundles).toContain("approval-policy");
   expect(generation.disabled).toEqual([]);
 });
 
 test("composing WITHOUT the approval-policy bundle refuses typed seam_missing — no silent in-core fallback", async () => {
-  const manifest = appManifest({ alarm: await alarmDefinition(), wake: { close: () => undefined }, alarms: () => undefined });
+  const manifest = appManifest({ alarm: await alarmDefinition(), wake: { close: () => undefined }, alarms: () => undefined, tools: () => undefined });
   const stripped = Bundle.Manifest.define({
     capabilities: manifest.capabilities,
     bundles: manifest.bundles.filter((bundle) => bundle.name !== "approval-policy"),
