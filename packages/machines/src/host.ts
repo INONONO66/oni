@@ -10,6 +10,7 @@ import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailur
 import { decodeMachineFailure } from "./failure";
 import { onAbort } from "./interrupt-on";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
+import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 
 interface MachineHostOptions {
   /**
@@ -49,6 +50,9 @@ interface MachineHostOptions {
    * heartbeats at the daemon's default cadence.
    */
   readonly staleAfterMs?: number;
+  readonly capacity?: readonly Machine.CapacityRow[];
+  readonly scheduler?: LeaseScheduler;
+  readonly idleTtlMs?: number;
 }
 /** Default `staleAfterMs`: three missed default-cadence heartbeats. */
 const REPORT_STALE_AFTER_MS = 15_000;
@@ -78,6 +82,8 @@ export interface MachineHandle {
 export type MachineInfo = Machine.Info;
 export interface MachineHost {
   list(): MachineInfo[];
+  place(request: HostPlacementRequest, workClass?: LeaseClass): HostPlacement;
+  capacity(): ReturnType<ReturnType<typeof createCapacity>["capacity"]>;
   get(id: Machine.MachineId): MachineHandle;
   /** Enrollment persistence belongs to the caller; this revokes its live attachment. */
   unenroll(id: Machine.MachineId, reason?: "enrollment_removed" | "enrollment_replaced"): void;
@@ -109,6 +115,7 @@ interface RequestSource {
 
 export function createMachineHost(options: MachineHostOptions): Effect.Effect<MachineHost, MachineError, Scope.Scope> {
   return Effect.gen(function* () {
+    const rows = yield* Effect.try({ try: () => Machine.CapacityRows.parse(options.capacity ?? []), catch: decodeMachineFailure("capacity.decode") });
     const attachments = new Map<string, Attachment>();
     const connectionByMachine = new Map<string, string>();
     /** Machines that attached at least once: their detached window reads `disconnected`. */
@@ -118,12 +125,14 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
+    const capacity = createCapacity({ ...options, rows, list });
     function detach(key: string, reason: import("zod").infer<typeof Machine.Events.Detached.schema>["reason"]): void {
       const attachment = attachments.get(key);
       if (attachment === undefined) return;
       attachments.delete(key);
       inFlight.delete(key);
       reports.delete(key);
+      capacity.detach(attachment.offer.machineId);
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
       options.events.publish(Machine.Events.Detached, { machineId: attachment.offer.machineId, time: options.now(), reason });
     }
@@ -368,7 +377,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         const peer = yield* Effect.try({ try: () => connection(id), catch: decodeMachineFailure("pty.connection") });
         peer.server.useConnection(peer.rawId);
         return yield* peer.server.call(method, params as Ipc.Request["params"], timeoutMs).pipe(Effect.mapError(transportFailure("pty.call")));
-      }));
+      }), (name) => capacity.terminalClosed(id, name));
       const handle: MachineHandle = {
         fs: {
           read: (path, window = {}) => window.limit === undefined || window.limit <= Machine.FS_READ_MAX_BYTES
@@ -449,17 +458,8 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return Effect.forEach(servers, (server) => server.close(), { discard: true }).pipe(Effect.mapError(transportFailure("host.close")));
     });
     yield* Effect.addFinalizer(() => Effect.orDie(close));
-    return {
-      get,
-      unenroll(id, reason = "enrollment_removed") {
-        const key = connectionByMachine.get(id);
-        const attachment = key === undefined ? undefined : attachments.get(key);
-        if (attachment === undefined) return;
-        detach(attachment.key, reason);
-        attachment.server.disconnect(attachment.rawId);
-      },
-      endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },
-      list: () => [...attachments.values()].map(({ enrollment, offer, capabilities, key }): MachineInfo => {
+    function list(): MachineInfo[] {
+      return [...attachments.values()].map(({ enrollment, offer, capabilities, key }): MachineInfo => {
         const latest = reports.get(key);
         return {
           ...structuredClone(enrollment),
@@ -470,7 +470,18 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
           ...(latest === undefined ? {} : { live: { reportedAt: latest.report.reportedAt, load: { ...latest.report.load }, stale: options.now() - latest.receivedAt > staleAfterMs } }),
         };
-      }).sort((a, b) => a.machineId.localeCompare(b.machineId)),
+      }).sort((a, b) => a.machineId.localeCompare(b.machineId));
+    }
+    return {
+      get, list, place: capacity.place, capacity: capacity.capacity,
+      unenroll(id, reason = "enrollment_removed") {
+        const key = connectionByMachine.get(id);
+        const attachment = key === undefined ? undefined : attachments.get(key);
+        if (attachment === undefined) return;
+        detach(attachment.key, reason);
+        attachment.server.disconnect(attachment.rawId);
+      },
+      endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },
       close: () => close,
     };
   });

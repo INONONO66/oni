@@ -27,14 +27,12 @@ function sequentialCellIds(): () => string {
 
 export function createCodemode(options: {
   id?: () => string;
-  machines?: Pick<MachineHost, "list" | "get">;
+  machines?: Pick<MachineHost, "list" | "get" | "place">;
   completion?: (request: Machine.CompletionRequest) => Promise<string>;
   toolOutput?: (tenant: string, outputId: string) => Promise<{ text: string; bytes: number; mediaType?: string } | undefined>;
   tools?: (tenant: string) => Caller;
   boundary?: (tenant: string) => Boundary;
   self?: string;
-  scheduler?: { schedule(delayMs: number, task: () => void): () => void };
-  idleTtlMs?: number;
 } = {}) {
   const completion = options.completion;
   const toolOutput = options.toolOutput;
@@ -43,14 +41,12 @@ export function createCodemode(options: {
   const machines = options.machines;
   const { value: native, close } = acquireSync(create({
     id: options.id ?? sequentialCellIds(),
-    machines: machines ? { list: machines.list, get: (id) => machines.get(id).native } : undefined,
+    machines: machines ? { list: machines.list, place: machines.place, get: (id) => machines.get(id).native } : undefined,
     completion: completion ? (request) => code(() => completion(request)) : undefined,
     toolOutput: toolOutput ? (tenant, outputId) => code(() => toolOutput(tenant, outputId)) : undefined,
     tools: tools ? (tenant) => { const call = tools(tenant); return (request) => code(() => call(request)); } : undefined,
     boundary: boundary ? (tenant) => { const decide = boundary(tenant); return (call, body) => code(() => decide(call, () => run(body()))); } : undefined,
     self: options.self,
-    scheduler: options.scheduler,
-    idleTtlMs: options.idleTtlMs,
   }));
   const runner: CodeRunner = { native: native.runner,
     runCode: (request, call, signal) => run(native.runner.runCode(request, (request) => foreign(() => call(request)), signal)),

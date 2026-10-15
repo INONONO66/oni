@@ -1,4 +1,4 @@
-import { createCodemode, type LeaseScheduler, type RunOptions } from "@openomni/codemode";
+import { createCodemode, type RunOptions } from "@openomni/codemode";
 import { Inspect } from "@openomni/agent";
 import { MachinesFailure } from "@openomni/machines";
 import { Core } from "@openomni/agent";
@@ -8,7 +8,6 @@ type InvocationFrame = Core.InvocationFrame;
 import { Effect, Exit, type Scope } from "effect";
 import type { MachineHost } from "@openomni/machines";
 import { Machine, toolResultText } from "@openomni/protocol";
-import { effectScheduler } from "./platform";
 
 /** Bind product dispatch; interpreter state and cell provenance live in codemode. */
 export type ComposedCodemode = Effect.Success<ReturnType<typeof createCodemode>>;
@@ -101,20 +100,16 @@ export function composeCodemode(
   sources: {
     readonly id: () => string;
     readonly selfMachineId?: string;
-    readonly scheduler?: LeaseScheduler;
     /** #1305: resolve a tenant's stored tool output for the prelude's `tool_output`. */
     readonly outputs?: (sessionId: string, outputId: string) => { readonly text: string; readonly bytes: number; readonly mediaType?: string } | undefined;
   },
 ): Effect.Effect<ComposedCodemode, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const context = yield* Effect.context();
-    const scheduler = sources.scheduler ?? effectScheduler(context);
     const outputs = sources.outputs;
     const mode = yield* createCodemode({
       id: sources.id,
       machines,
       self: sources.selfMachineId ?? "self",
-      scheduler,
       ...(outputs === undefined
         ? {}
         : { toolOutput: (tenant: string, outputId: string) => Effect.sync(() => outputs(tenant, outputId)) }),

@@ -52,6 +52,11 @@ export namespace Machine {
   export type AttachResult = Schema.AttachResult;
   export const Resources = Schema.Resources;
   export type Resources = Schema.Resources;
+  export const CapacityRow = Schema.CapacityRow;
+  export type CapacityRow = Schema.CapacityRow;
+  export const CapacityRows = Schema.CapacityRows;
+  export const LeaseRefusal = Schema.LeaseRefusal;
+  export type LeaseRefusal = Schema.LeaseRefusal;
   export const Load = Schema.Load;
   export type Load = Schema.Load;
   export const Report = Schema.Report;

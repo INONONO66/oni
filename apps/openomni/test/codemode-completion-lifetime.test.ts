@@ -50,6 +50,7 @@ for (const stop of [false, true]) {
       dispatcherBound: 8,
       listen: { unix: path },
       id: testIds("lifetime-host"),
+      scheduler: { schedule: () => () => undefined },
       enrollment: (machineId: string) => ({
         machineId,
         name: "completion-test",

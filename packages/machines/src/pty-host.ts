@@ -38,7 +38,7 @@ export interface PtyHandle {
 /** Room on top of the daemon-side bound so the daemon times out first. */
 const PTY_CALL_MARGIN_MS = 10_000;
 
-export function createPtyHandle(call: PtyWireCall): PtyHandle {
+export function createPtyHandle(call: PtyWireCall, closed: (name: string) => void): PtyHandle {
   function wire<Request extends object, Result>(
     operation: string,
     method: PtyWireMethod,
@@ -74,7 +74,11 @@ export function createPtyHandle(call: PtyWireCall): PtyHandle {
     resize: (name, cols, rows) =>
       wire("pty.resize", Machine.WireMethod.PtyResize, { request: Machine.PtyResizeRequest, result: Machine.PtyResizeResult }, { name, cols, rows }, PTY_CALL_MARGIN_MS),
     close: (name) =>
-      wire("pty.close", Machine.WireMethod.PtyClose, { request: Machine.PtyCloseRequest, result: Machine.PtyCloseResult }, { name }, PTY_CALL_MARGIN_MS),
+      wire("pty.close", Machine.WireMethod.PtyClose, { request: Machine.PtyCloseRequest, result: Machine.PtyCloseResult }, { name }, PTY_CALL_MARGIN_MS).pipe(
+        Effect.tap((result) => Effect.sync(() => {
+          if (result.status === "ok" || result.reason === "pty_not_found") closed(name);
+        })),
+      ),
     list: () => wire("pty.list", Machine.WireMethod.PtyList, { request: Machine.PtyListRequest, result: Machine.PtyListResult }, {}, PTY_CALL_MARGIN_MS),
   };
 }

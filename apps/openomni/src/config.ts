@@ -122,6 +122,7 @@ export interface OpenOmniConfig {
     /** Host TLS identity (PEM contents, read at boot) — present iff tcp is. */
     readonly tls?: { readonly certificate: string; readonly privateKey: string };
     readonly enrolled: readonly Machine.Enrollment[];
+    readonly capacity?: readonly Machine.CapacityRow[];
   };
   /**
    * External actors the Owner has admitted as delegation targets. Absent
@@ -784,8 +785,9 @@ function machinesFromEnv(
 ): OpenOmniConfig["machines"] {
   const self = parseEnvJson("OPENOMNI_MACHINES_SELF", SelfMachine, env);
   const enrolled = parseEnvJson("OPENOMNI_MACHINES_ENROLLED", Enrollments, env);
+  const capacity = parseEnvJson("OPENOMNI_MACHINES_CAPACITY", Machine.CapacityRows, env);
   const defaultMachine = env.OPENOMNI_MACHINES_DEFAULT?.trim() || undefined;
-  if (self === undefined && enrolled === undefined && defaultMachine === undefined) return undefined;
+  if (self === undefined && enrolled === undefined && defaultMachine === undefined && capacity === undefined) return undefined;
   if (self === undefined) {
     throw new ConfigurationError({
       code: "invalid_machines_self",
@@ -800,6 +802,7 @@ function machinesFromEnv(
     listen: { unix, ...(network === undefined ? {} : { tcp: network.tcp }) },
     ...(network === undefined ? {} : { tls: network.tls }),
     enrolled: enrolled ?? [],
+    ...(capacity === undefined ? {} : { capacity }),
   };
   validateMachinePlane(machines);
   return machines;

@@ -39,7 +39,11 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
         return;
       },
     },
-    now: () => 2,
+    now: Date.now,
+    scheduler: { schedule(delayMs, task) {
+      const timer = setTimeout(task, delayMs);
+      return () => clearTimeout(timer);
+    } },
     callTool: (call) => cells.callTool(call),
   }));
   cells = await acquireEffect(composeCodemode(host, { id: testIds("cli-compose"), selfMachineId: "A" }));

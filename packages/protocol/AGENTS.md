@@ -41,6 +41,8 @@ Namespace additions are gated: `script/lint-tools.ts` (#467) enforces a grandfat
 
 ## KEY PATTERNS
 
+- `Machine.CapacityRow`/`CapacityRows` validate host capacity data: one machine or tag selector, positive slots, nonnegative memory reserve, unit exec/eval/pty costs and a positive job cost. Duplicate selectors refuse; future selectors remain valid. `Machine.LeaseRefusal` carries decision credit (`slots: null` for unknown), shared with `machine.lease_refused`; runtime admission and expiry belong to machines.
+
 - **NamedError factory**: `NamedError.create(name, zodSchema)` produces typed error classes with `.isInstance()` guard, `.toObject()` serialization, and `.Schema` for validation. `ProviderError` (in the agent model plane) uses this.
 - **Namespace + Zod duality**: Schemas and types share the same name (e.g., `Tool.State` is both a Zod schema and a TS type). Access schema for validation, type for TS.
 - **Discriminated unions**: `Tool.State` on `status`, `Message.Part` on `type`, `Message.Info` on `role`, `Policy.PolicyDecision` on `verdict`, and `Ingress.InboundEvent` on `mode`. `DirectEvent` (`mode: "direct"`) is external inbound; `InternalEvent` (`mode: "internal"`) is system-origin input such as cron. The external `ingest()` path rejects internal events for security. LLM `Run.Outcome` and its streaming `Sink` are owned by the agent model plane, not protocol.

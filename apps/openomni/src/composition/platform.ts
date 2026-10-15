@@ -8,7 +8,7 @@ export interface AppScheduler {
   close(): void;
 }
 
-/** One runtime scheduler seam shared by machine reports and codemode leases. */
+/** One runtime scheduler seam shared by machine reports and reconnects. */
 export function effectScheduler(context: Context.Context<never>): AppScheduler {
   const fibers = new Set<Fiber.Fiber<void, never>>();
   return {

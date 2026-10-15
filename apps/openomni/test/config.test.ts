@@ -46,6 +46,7 @@ const ENV_KEYS = [
   "OPENOMNI_SKILLS_DIR",
   "OPENOMNI_MACHINES_DEFAULT",
   "OPENOMNI_MACHINES_ENROLLED",
+  "OPENOMNI_MACHINES_CAPACITY",
   "OPENOMNI_MACHINES_SELF",
   "OPENOMNI_MACHINES_SOCKET",
   "OPENOMNI_MACHINES_TCP_HOST",
@@ -697,6 +698,16 @@ describe("ws exposure enforcement", () => {
 });
 
 describe("machines self enrollment config (#1271)", () => {
+  it("parses capacity rows and refuses invalid or duplicate selectors", () => {
+    process.env.OPENOMNI_MACHINES_SELF = selfEnv;
+    expect(loadConfig().machines?.capacity).toBeUndefined();
+    process.env.OPENOMNI_MACHINES_CAPACITY = JSON.stringify([{ tag: "future", slots: 3, memReserveBytes: 200 }]);
+    expect(loadConfig().machines?.capacity).toEqual([{ tag: "future", slots: 3, memReserveBytes: 200 }]);
+    process.env.OPENOMNI_MACHINES_CAPACITY = JSON.stringify([{ machineId: "w" }, { machineId: "w" }]);
+    expect(loadConfig).toThrow("OPENOMNI_MACHINES_CAPACITY is invalid");
+    process.env.OPENOMNI_MACHINES_CAPACITY = JSON.stringify([{ tag: "w", slots: 0 }]);
+    expect(loadConfig).toThrow(ConfigurationError);
+  });
   const selfExports = [{ name: "workspace", path: "/tmp/self-root" }];
   const enrolledAlpha = JSON.stringify([
     {

@@ -234,6 +234,12 @@ async function composeMachinePlane(
       // per listener; chosen here, the machines package carries no default.
       dispatcherBound: 256,
       now: deps.now,
+      capacity: machines.capacity,
+      scheduler: { schedule(delayMs, task) {
+        const timer = setTimeout(task, delayMs);
+        timer.unref();
+        return () => clearTimeout(timer);
+      } },
       callTool: deps.callTool,
       // r1 M3: the live self attachment is never superseded by a reattach.
       neverSupersede: [plane.self.id],

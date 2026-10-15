@@ -52,7 +52,7 @@ const suite = residentSuite(async () => {
 
 // Registration occurs before returning to any fallible test or harness work.
 async function createMachineHost(options: Omit<Parameters<typeof createHost>[0], "id">) {
-  const host = await acquireEffect(createHost({ id: testIds("e2e-host"), ...options }));
+  const host = await acquireEffect(createHost({ id: testIds("e2e-host"), scheduler: { schedule: () => () => undefined }, ...options }));
   suite.defer(async () => {
     await runEffect(host.close());
     const unixPath = options.listen.unix ?? "";
@@ -100,11 +100,14 @@ test("app root runs machine read write shell and code through one eval cell", as
   const root = join(directory, "data");
   mkdirSync(root);
   const socketPath = testSocketPath();
-  const appEnrollment = { ...fullEnrollment(), allowedExports: ["data"] };
+  const appEnrollment = { ...fullEnrollment(), tags: ["worker"], allowedExports: ["data"] };
   const config = suite.config("openomni-app-machine-", {
     wsToken: WS_TOKEN,
     model: { provider: "fake", id: "app-machine-test", apiKey: "test-key" },
-    machines: { self: testKernelSelfMachine(), listen: { unix: socketPath }, enrolled: [appEnrollment] },
+    machines: {
+      self: testKernelSelfMachine(), listen: { unix: socketPath }, enrolled: [appEnrollment],
+      capacity: [{ tag: "worker", slots: 1 }],
+    },
   });
   const app = await suite.boot({
     config,
@@ -118,7 +121,12 @@ test("app root runs machine read write shell and code through one eval cell", as
             operation: {
               op: "run",
               code: [
-                `m = machine('${MACHINE_ID}')`,
+                "m = machine(tag='worker')",
+                "try:",
+                "    machine(tag='worker')",
+                "except ToolError as error:",
+                "    saturated = 'machine_saturated' in str(error)",
+                "assert saturated",
                 `m.write(${JSON.stringify(join(root, "value"))}, bytes([0, 255, 128, 65]))`,
                 `readback = list(m.read(${JSON.stringify(join(root, "value"))})['data'])`,
                 `shell = m.bash('printf shell; exit 7', ${JSON.stringify(root)})`,
