@@ -19,6 +19,7 @@ Defines the locked-in wire contract between a machine host and an attached machi
 | Method | Direction | Description |
 |--------|-----------|-------------|
 | `machine.attach` | Machine daemon → Machine host | Offer a capability set; the host answers with the enrollment∩offer effective set or a typed refusal. |
+| `machine.report` | Machine daemon → Machine host | One load observation (`loadAvg1`, `memoryAvailableBytes`, `inFlight`) from an attached daemon; the host answers `accepted` or a typed refusal (`machine_not_attached`, `machine_mismatch`). Static capacity (`cpus`, `memoryBytes`) rides the attach offer as `resources`. (#1555) |
 | `machine.run_cell` | Machine host → Machine daemon | Run one code cell on the attachment's persistent interpreter under a required deadline. |
 | `machine.call_tool` | Machine daemon → Machine host | A `tool.<name>()` call made from inside a running cell, answered by the host's injected tool port. |
 

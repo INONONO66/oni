@@ -80,6 +80,8 @@ export function fingerprintOf(spkiDer: Uint8Array): KeyFingerprint {
 /** One owner for the frozen machine wire method names used by both peers. */
 export const WireMethod = {
   Attach: "machine.attach",
+  /** Daemon → host heartbeat (#1555); answered with `ReportResult`. */
+  Report: "machine.report",
   RunCode: "machine.run_code",
   CancelCode: "machine.cancel_code",
   PeekCode: "machine.peek_code",
@@ -136,6 +138,18 @@ export const Enrollment = z
 export type Enrollment = z.infer<typeof Enrollment>;
 
 /**
+ * Static capacity facts a daemon states at attach (#1555). Observations,
+ * never policy: absent means unknown and the host does not default them.
+ */
+export const Resources = z
+  .object({
+    cpus: z.number().int().positive(),
+    memoryBytes: z.number().int().positive(),
+  })
+  .strict();
+export type Resources = z.infer<typeof Resources>;
+
+/**
  * Daemon-side attach report: what this machine CAN do right now.
  * May be empty — a daemon is allowed to attach before any capability module
  * is ready; it simply yields an empty effective set until it re-offers.
@@ -144,6 +158,7 @@ export const Offer = z
   .object({
     machineId: MachineId,
     offeredCapabilities: z.array(CapabilityId).superRefine(uniqueCapabilities),
+    resources: Resources.optional(),
     /**
      * Real absolute roots used to translate consumer paths into confined wire
      * requests. Longest matching root wins; equal roots are ambiguous.
@@ -164,6 +179,48 @@ export const Offer = z
   })
   .strict();
 export type Offer = z.infer<typeof Offer>;
+
+/** Live load facts carried by one `machine.report` heartbeat (#1555). */
+export const Load = z
+  .object({
+    /** One-minute load average as the daemon's OS reports it. */
+    loadAvg1: z.number().nonnegative(),
+    memoryAvailableBytes: z.number().int().nonnegative(),
+    /** Cells the daemon is executing at report time. */
+    inFlight: z.number().int().nonnegative(),
+  })
+  .strict();
+export type Load = z.infer<typeof Load>;
+
+/**
+ * Daemon → host heartbeat (#1555): one per report interval after attach.
+ * The host stores only the latest report per attachment and derives
+ * staleness from its own clock; nothing here is extrapolated.
+ */
+export const Report = z
+  .object({
+    machineId: MachineId,
+    reportedAt: EpochMs,
+    load: Load,
+  })
+  .strict();
+export type Report = z.infer<typeof Report>;
+
+/**
+ * Host reply to `machine.report`. A refusal is a typed outcome: the report
+ * came over a connection with no attachment, or named another machine; the
+ * host keeps nothing from it.
+ */
+export const ReportResult = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("accepted") }).strict(),
+  z
+    .object({
+      status: z.literal("refused"),
+      reason: z.enum(["machine_not_attached", "machine_mismatch"]),
+    })
+    .strict(),
+]);
+export type ReportResult = z.infer<typeof ReportResult>;
 
 /**
  * Host reply to a daemon's `machine.attach` wire call. `refused` is a typed

@@ -12,22 +12,23 @@ import { testIds } from "./helpers/test-entropy";
 import { startProxy } from "../../../packages/machines/test/helpers/proxy";
 import { pinnedTcpHostOptions, qaOffer, tlsFixturesDir } from "./helpers/machine-cli";
 
-/** Event-driven attach signal: no sleeps, no polling. */
+/** Event-driven attach and report signals: no sleeps, no polling. */
 function attachSignal() {
-  const waiters: Array<() => void> = [];
+  const waiters = new Map<string, Array<() => void>>();
   const sink: BusEvent.Sink = {
     publish(descriptor) {
-      if (descriptor.name === Machine.Events.Attached.name) for (const waiter of waiters.splice(0)) waiter();
+      for (const waiter of waiters.get(descriptor.name)?.splice(0) ?? []) waiter();
     },
   };
+  const next = (name: string, label: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      waiters.set(name, [...(waiters.get(name) ?? []), resolve]);
+      AbortSignal.timeout(15_000).addEventListener("abort", () => reject(new Error(`timed out waiting for ${name}: ${label}`)));
+    });
   return {
     sink,
-    nextAttach(label: string): Promise<void> {
-      return new Promise((resolve, reject) => {
-        waiters.push(resolve);
-        AbortSignal.timeout(15_000).addEventListener("abort", () => reject(new Error(`timed out waiting for attach: ${label}`)));
-      });
-    },
+    nextAttach: (label: string) => next(Machine.Events.Attached.name, label),
+    nextReport: (label: string) => next(Machine.Events.Reported.name, label),
   };
 }
 
@@ -53,9 +54,13 @@ test("attachConfiguredMachine dials a pinned network host in-process and redials
   );
   try {
     const firstAttach = events.nextAttach("initial");
+    const firstReport = events.nextReport("initial");
     const daemon = await acquireEffect(attachConfiguredMachine(configPath, testIds("cfg-daemon")));
     await firstAttach;
     expect(daemon.attachment).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+    // The production daemon probes its box into the offer and beats right after attach (#1555).
+    await firstReport;
+    expect(host.list()[0]).toMatchObject({ machineId: "cfg-1", resources: { cpus: expect.any(Number), memoryBytes: expect.any(Number) }, live: { stale: false } });
     const read = await runEffect(host.get("cfg-1").fs.read(join(root, "note")));
     expect(Buffer.from(read.data).toString()).toBe("configured-over-tls");
     // The production reconnect (real timers, jittered <=250ms first delay)
