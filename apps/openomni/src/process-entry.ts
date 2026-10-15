@@ -45,7 +45,7 @@ import { APPROVAL_POLICY } from "./bundles/approval-policy/index";
 import { createProcessReplyChannel } from "./composition/process-replies";
 import { appManifest } from "./manifest";
 import { createWatchPlane } from "./composition/watch-plane";
-import { composedHolderOf, alarmPortsSlot } from "./composition/composed";
+import { composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
 import { readHooksJson } from "./bundles/hooks-json/index";
 
 export const ProcessSessionRequest = z
@@ -148,17 +148,19 @@ export function serveProcessSession(
     },
     { now, id: entropy.id },
   );
+  const tools = toolPorts(appRuntime, { messages, completion: llm, now, id: entropy.id });
+  composed.tools.bind(tools);
   const resident = createResident({
     composed: { current: composed.current },
     model: request.model,
     apiKey: request.apiKey,
     ...(request.transport === undefined ? {} : { transport: request.transport }),
     sessionRuntime: runtime,
-    tools: toolPorts(appRuntime, { messages, completion: llm, now, id: entropy.id }),
+    tools,
     policyGeneration: () =>
       plane.openKernel(GATEWAY_INGRESS_SESSION).currentPolicyGeneration(),
   });
-  yield* generations.initialize(resident.definitions);
+  yield* generations.initialize({ resident: [], child: [] });
   const requests = yield* createSessionRequests(runtime);
   const commitDelivery = forwardedDeliveryCommit(replies.deliver);
   const gateway = createGatewayRouter({
@@ -268,16 +270,18 @@ export async function runProcessEntry(io: {
     // manifest inputs, never a tool list. A bad hooks file or a compose
     // refusal is the typed child-boot failure, before any work.
     const alarmsSlot = alarmPortsSlot();
+    const toolsSlot = toolPortsSlot();
     const watchPlane = createWatchPlane();
     const hooks = request.hooksPath === undefined ? undefined : readHooksJson(request.hooksPath);
     const manifest = appManifest({
       alarm: watchPlane.contract,
       wake: watchPlane.wake,
       alarms: alarmsSlot.current,
+      tools: toolsSlot.current,
       ...(hooks === undefined ? {} : { hooks }),
       ...(request.off === undefined ? {} : { off: request.off }),
     });
-    const composed = composedHolderOf({ manifest, generation: Bundle.composeSync(manifest) }, alarmsSlot);
+    const composed = composedHolderOf({ manifest, generation: Bundle.composeSync(manifest) }, alarmsSlot, toolsSlot);
     runtime = (io.gatewayRuntime ?? gatewayRuntime)({
       catalogPath: request.catalogPath,
       sessionsDir: request.sessionsDir,

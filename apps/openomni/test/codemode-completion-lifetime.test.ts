@@ -1,5 +1,5 @@
 import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
-import { testToolPorts } from "./helpers/tool-ports";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { executorLayer, catalogLayer } from "../../../packages/agent/test/helpers/service-layers";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
 import { Effect, Layer } from "effect";
@@ -14,7 +14,6 @@ import { LedgerAction, type Machine, type PlainObject } from "@openomni/protocol
 import { z } from "zod";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
-import { catalogDefinitions } from "../src/composition/catalog";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
 import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { seededPolicy } from "./helpers/executor";
@@ -76,7 +75,7 @@ for (const stop of [false, true]) {
     cells = acquireSyncEffect(composeCodemode(host, { id: testIds("lifetime-compose") }));
     suite.defer(async () => { await runEffect(cells.close()); });
     let calls = 0;
-    const definitions = catalogDefinitions(
+    const definitions = bundleTools(
       { ...testToolPorts,
         cells: cellPorts(cells),
         llm: async () => {

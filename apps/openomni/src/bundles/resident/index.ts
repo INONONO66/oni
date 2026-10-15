@@ -27,7 +27,6 @@ import { pinnedModelSelection, restoreModelSelection } from "../../composition/m
 import { messageMaterialization } from "../../composition/message-session";
 import { classifyTurnFailure } from "../../observation/llm-failure";
 import { observeComponent } from "../../observation/component";
-import type { GenerationDefinitions } from "../../composition/generation-layers";
 
 export function refuseEvidenceOnly(call: Tool.Call): Tool.Result & { readonly errorKind: "precondition_failed" } {
   const refusal = new ToolRefused(call.tool, "evidence-only message");
@@ -258,13 +257,12 @@ export interface ResidentOptions {
   readonly modelFallbacks?: readonly Model.Ref[];
   readonly apiKey: string;
   readonly transport?: ChatAgentConfig["transport"];
-  /** The composed-generation holder (#1255 P3); absent = legacy static faces (tests). */
+  /** The composed-generation holder (#1255 P3); absent = no tool faces (tests). */
   readonly composed?: { readonly current: () => ComposedContext };
   readonly compaction?: (session: {
     readonly sessionId: string;
     readonly system: string;
   }) => Effect.Effect<NonNullable<ChatAgentConfig["compaction"]>, never, Core.Llm | ObservationSink>;
-  readonly tools: GenerationDefinitions;
   readonly presets: Readonly<Record<LedgerSession.Role, string>>;
   readonly id: () => string;
   readonly clock: () => number;
@@ -291,29 +289,21 @@ export interface ResidentOptions {
 
 /** Resident and child use the same session-owned runner and dispatcher. */
 export function createResident(options: ResidentOptions) {
-  const definitions = options.tools;
   /**
-   * The journaled tool faces of one role under the current composition
-   * (#1255 P3): bundle-owned names come ONLY from the composed generation —
-   * an off bundle's face disappears even though its ported catalog definition
-   * still exists — while everything else keeps its catalog face.
+   * The journaled tool faces of one role under the current composition: every
+   * tool is bundle-owned (#1561), so an off bundle's face is simply absent
+   * from the next generation.
    */
   const composedFaces = (role: LedgerSession.Role) => {
     const composed = options.composed?.current();
-    if (composed === undefined) return projectTools(definitions[role]).session;
+    if (composed === undefined) return [];
     // #1306: the tool capability owns the model's tool door. Composed off,
-    // no face reaches any role — the catalog definitions still exist, but a
-    // session under this generation journals zero tools and the model runs
-    // with `toolChoice: "none"`.
+    // no face reaches any role: a session under this generation journals
+    // zero tools and the model runs with `toolChoice: "none"`.
     if (composed.generation.disabled.some((entry) => entry.name === "tool")) return [];
-    const bundleOwned = new Set(
-      composed.manifest.bundles.flatMap((bundle) => bundle.tools.map((tool) => tool.name)),
-    );
-    const base = definitions[role].filter((tool) => !bundleOwned.has(tool.name));
-    const bundleTools = composed.generation.tools.filter(
+    return projectTools(composed.generation.tools.filter(
       (tool) => tool.visibility.model.includes(role) || tool.visibility.cell.includes(role),
-    );
-    return projectTools([...base, ...bundleTools]).session;
+    )).session;
   };
   const runnerFor =
     (row: LedgerSession.Row): SessionRunner =>
@@ -421,7 +411,6 @@ export function createResident(options: ResidentOptions) {
     });
   return {
     runnerFor,
-    definitions,
     /**
      * The genesis description one declared session is created from (#1346):
      * the composed generation, preset and runner the core's one creation

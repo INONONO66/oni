@@ -23,8 +23,7 @@ import { testPlane } from "./helpers/ledger";
 const eraseTool = Core.eraseTool;
 import type { PlainObject } from "@openomni/protocol";
 import { createProvisionTool, PROVISION_POLICY_ROWS } from "../src/bundles/provision/provision";
-import { catalogDefinitions } from "../src/composition/catalog";
-import { testToolPorts } from "./helpers/tool-ports";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { executor } from "./helpers/executor";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
 import { provisionPort } from "./helpers/provision-port";
@@ -108,7 +107,7 @@ it("the model cannot mint or decide Owner consent, and children cannot see provi
     ).toBe("invalid_input");
   }
   expect(
-    catalogDefinitions({ ...testToolPorts, provisioning: provisionPort() }).some(
+    bundleTools({ ...testToolPorts, provisioning: provisionPort() }).some(
       (tool: AnyToolDefinition) => tool.name === "provision" &&
         (tool.visibility.model.includes("child") || tool.visibility.cell.includes("child")),
     ),

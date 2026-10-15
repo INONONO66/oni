@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Core } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
 const toolInputSchema = Core.toolInputSchema;
 /**
  * The catalog's full spec surface (#1255 S3): `projectTools(...).specs` drops
@@ -15,18 +15,18 @@ const toolSpec = (tool: AnyToolDefinition) => {
   return spec;
 };
 import type { AnyToolDefinition, PlainValue } from "@openomni/protocol";
-import { catalogDefinitions, type ToolPorts } from "../src/composition/catalog";
-import { createMonitorTool } from "../src/bundles/alarms/monitor/index";
-import type { LlmCall } from "../src/bundles/tools/completion/index";
+import { appManifest } from "../src/manifest";
+import { alarmDefinition } from "./helpers/alarm-definition";
 
-const ports: ToolPorts = {
-  messages: undefined, machines: undefined, cells: undefined,
-  llm: undefined, provisioning: undefined, clock: () => 0, id: () => "tool-id",
-};
-const catalog = catalogDefinitions(ports);
-// #1308: `monitor` is the monitor bundle's ONE declaration; the sealed 12-tool
-// surface is the 11-factory catalog plus the bundle face, in catalog order.
-const definitions = [...catalog.slice(0, 8), Core.eraseTool(createMonitorTool(() => undefined)), ...catalog.slice(8)];
+// #1561: every tool is bundle-owned; the sealed 12-tool surface is the
+// composed product manifest's tools, in manifest order.
+const generation = Bundle.composeSync(appManifest({
+  alarm: await alarmDefinition(),
+  wake: { close: () => undefined },
+  alarms: () => undefined,
+  tools: () => undefined,
+}));
+const definitions: readonly AnyToolDefinition[] = generation.tools;
 
 /** KERNEL §3.4/§3.5: the sealed model door, in catalog order, then the one cell-only tool. */
 const MODEL_DOOR = [
@@ -109,14 +109,6 @@ function assertSealedNames(catalog: readonly AnyToolDefinition[]): void {
 }
 
 describe("tool catalog", () => {
-  it("constructs fresh definitions without sharing port closures", () => {
-    const first = catalogDefinitions({ ...ports, llm: async ({ prompt }: LlmCall) => `first:${prompt}` });
-    const replacement = catalogDefinitions({ ...ports, llm: async ({ prompt }: LlmCall) => `second:${prompt}` });
-    expect(replacement).not.toBe(first);
-    expect(replacement.find((tool: AnyToolDefinition) => tool.name === "completion")).not.toBe(
-      first.find((tool: AnyToolDefinition) => tool.name === "completion"),
-    );
-  });
   it("rejects a thirteenth catalog tool", () => {
     const exemplar = definitions[0];
     if (exemplar === undefined) throw new Error("empty catalog");
@@ -124,9 +116,6 @@ describe("tool catalog", () => {
   });
   it("is sealed at eleven model-door tools plus the cell-only completion", () => {
     assertSealedNames(definitions);
-    // #1308: the catalog itself builds 11 factories; the bundle declares `monitor`.
-    expect(catalog.map((tool: AnyToolDefinition) => tool.name)).not.toContain("monitor");
-    expect(catalog).toHaveLength(11);
     expect(definitions.map(toolSpec).map((tool: ReturnType<typeof toolSpec>) => tool.name)).toEqual([...MODEL_DOOR, ...CELL_ONLY]);
     for (const tool of definitions) {
       expect(tool.visibility.model.length > 0).toBe(MODEL_DOOR.includes(tool.name));

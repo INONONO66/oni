@@ -485,7 +485,7 @@ const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["apps/openomni/src/bundles/compaction/index.ts", new Set(["../../config"])],
   ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../invariant"])],
   ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
-  ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component", "../../composition/generation-layers"])],
+  ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component"])],
   ["apps/openomni/src/bundles/provision/status.ts", new Set(["../../channels"])],
   ["apps/openomni/src/bundles/provision/channels.ts", new Set(["../../channels"])],
   ["apps/openomni/src/bundles/provision/supervisor.ts", new Set(["../../thrown", "../../channels"])],
@@ -1367,7 +1367,7 @@ interface AppsSessionWriteSite {
  * Moving either line re-pins it here; any other write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1262, receiver: "kernel", member: "commit" },
+  { file: "apps/openomni/src/index.ts", line: 1265, receiver: "kernel", member: "commit" },
   { file: "apps/openomni/src/composition/ingress-executor.ts", line: 59, receiver: "Core", member: "adoptedExecutor" },
 ];
 

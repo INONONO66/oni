@@ -233,7 +233,7 @@ describe("lint-tools definition invariants", () => {
     const snapshot = [{ name: "read", safe: true }];
     expect(diffToolSchemaSnapshots(snapshot, snapshot)).toEqual([]);
     expect(diffToolSchemaSnapshots(snapshot, [{ name: "write", safe: false }])).toMatchObject([
-      { check: "tool-schema-snapshot", subject: "catalogDefinitions" },
+      { check: "tool-schema-snapshot", subject: "tool bundles" },
     ]);
   });
 
@@ -440,7 +440,7 @@ test("self-test detects mutant check implementations", () => {
     diffSnapshots: (_previous, current) => JSON.stringify(current).includes('"extra"')
       ? [{ check: "schema-snapshot", subject: "Tool.Call", message: "mutant" }] : [],
     diffToolSchemaSnapshots: (_previous, current) => current[0]?.name === "a"
-      ? [{ check: "tool-schema-snapshot", subject: "catalogDefinitions", message: "mutant" }] : [],
+      ? [{ check: "tool-schema-snapshot", subject: "tool bundles", message: "mutant" }] : [],
   });
   expect(failures).toHaveLength(18);
 });

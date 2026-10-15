@@ -10,14 +10,13 @@ import { catalogLayer, executorLayer } from "../../../packages/agent/test/helper
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
 import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { composeCodemode } from "../src/composition/codemode";
-import { catalogDefinitions } from "../src/composition/catalog";
 import { cellPorts } from "./helpers/cell-ports";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
 import { acquireEffect, acquireSyncEffect, runEffect } from "./helpers/scoped-effect";
 import { seededPolicy } from "./helpers/executor";
 import { residentSuite } from "./helpers/resident-suite";
 import { socketPath } from "./helpers/socket-path";
-import { testToolPorts } from "./helpers/tool-ports";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { testIds } from "./helpers/test-entropy";
 
 const suite = residentSuite();
@@ -47,7 +46,7 @@ test("two cells in one turn each own a full completion budget", async () => {
   cells = acquireSyncEffect(composeCodemode(host, { id: testIds("budget-compose") }));
   suite.defer(() => runEffect(cells.close()));
   let completions = 0;
-  const definitions = catalogDefinitions({ ...testToolPorts, cells: cellPorts(cells), llm: async () => {
+  const definitions = bundleTools({ ...testToolPorts, cells: cellPorts(cells), llm: async () => {
     completions += 1;
     return "answer";
   } });
@@ -123,7 +122,7 @@ test("a non-ToolRefused defect inside the cell door dies instead of folding to a
   cells = acquireSyncEffect(composeCodemode(host, { id: testIds("defect-compose") }));
   suite.defer(() => runEffect(cells.close()));
   let completions = 0;
-  const definitions = catalogDefinitions({ ...testToolPorts, cells: cellPorts(cells), llm: () => {
+  const definitions = bundleTools({ ...testToolPorts, cells: cellPorts(cells), llm: () => {
     completions += 1;
     // String("") renders an EMPTY failure text: the dispatch settles as a
     // failed result whose message is "", and the cell door's

@@ -48,7 +48,7 @@ test("the manifest is THE product list: tool/action/hook/compaction/alarm capabi
   const manifest = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
-    alarms: () => undefined,
+    alarms: () => undefined, tools: () => undefined,
   });
   expect(manifest.capabilities.map((capability) => capability.name)).toEqual([
     "tool",
@@ -58,12 +58,17 @@ test("the manifest is THE product list: tool/action/hook/compaction/alarm capabi
     "alarm",
   ]);
   expect(manifest.bundles.map((bundle) => bundle.name)).toEqual([
+    "file",
+    "bash",
+    "eval",
     "monitor",
     "cron",
     "hooks-json",
-    "send-message",
     "delegation-policy",
     "approval-policy",
+    "send-message",
+    "provision",
+    "completion",
     "compaction-summarizer",
     "compaction-strategy",
   ]);
@@ -74,7 +79,7 @@ test("the Owner's bundles-off tuple flows through as the manifest off list", asy
   const manifest = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
-    alarms: () => undefined,
+    alarms: () => undefined, tools: () => undefined,
     off: ["monitor"],
   });
   expect(manifest.off).toEqual(["monitor"]);
@@ -84,7 +89,7 @@ test("a duplicate off name is refused as typed manifest data, not silently dedup
   const alarm = await alarmDefinition();
   expect(() =>
     appManifest({ alarm, wake: { close: () => undefined },
-    alarms: () => undefined, off: ["cron", "cron"] }),
+    alarms: () => undefined, tools: () => undefined, off: ["cron", "cron"] }),
   ).toThrow(Bundle.DefineRefused);
 });
 
@@ -92,7 +97,7 @@ test('off: ["tool"] composes with a typed cascade: monitor, send-message and del
   const manifest = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
-    alarms: () => undefined,
+    alarms: () => undefined, tools: () => undefined,
     off: ["tool"],
   });
   const generation = Bundle.composeSync(manifest);
@@ -108,7 +113,7 @@ test("off: [\"compaction\"] composes with the typed disabled record, not a build
   const manifest = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
-    alarms: () => undefined,
+    alarms: () => undefined, tools: () => undefined,
     off: ["compaction"],
   });
   const generation = await runEffect(Bundle.compose(manifest));
@@ -120,7 +125,7 @@ test("a second bundle declaring the `monitor` tool is the typed duplicate compos
   const product = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
-    alarms: () => undefined,
+    alarms: () => undefined, tools: () => undefined,
   });
   const copy = Bundle.define({
     name: "monitor-copy",

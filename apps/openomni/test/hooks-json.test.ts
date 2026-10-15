@@ -155,7 +155,7 @@ function composed(input?: {
       appManifest({
         alarm,
         wake: { close: () => undefined },
-        alarms: () => undefined,
+        alarms: () => undefined, tools: () => undefined,
         ...(input?.hooks === undefined ? {} : { hooks: input.hooks }),
         ...(input?.off === undefined ? {} : { off: input.off }),
       }),
@@ -305,8 +305,8 @@ test("H-2: a command entry with do:rewrite compiles the consulted rewrite row an
 test("no hooks config composes the bundle with zero rows and the action input admitted", async () => {
   const generation = await composed();
   expect(generation.bundles).toEqual([
-    "monitor", "cron", "hooks-json", "delegation-policy", "approval-policy", "send-message",
-    "compaction-summarizer", "compaction-strategy",
+    "file", "bash", "eval", "monitor", "cron", "hooks-json", "delegation-policy", "approval-policy",
+    "send-message", "provision", "completion", "compaction-summarizer", "compaction-strategy",
   ]);
   expect(generation.rows.filter((row) => row.id.startsWith("hooks-json/"))).toEqual([]);
   expect(generation.inputs).toEqual(["action"]);
@@ -375,8 +375,8 @@ test("off cascades: action roots hook and hooks-json off; hook roots hooks-json 
     { name: "hooks-json", because: "hook" },
   ]);
   expect(offHook.bundles).toEqual([
-    "monitor", "cron", "delegation-policy", "approval-policy", "send-message",
-    "compaction-summarizer", "compaction-strategy",
+    "file", "bash", "eval", "monitor", "cron", "delegation-policy", "approval-policy",
+    "send-message", "provision", "completion", "compaction-summarizer", "compaction-strategy",
   ]);
 });
 
@@ -492,8 +492,8 @@ async function offCascadeConfigureRows(prefix: string) {
   let counter = 0;
   const config = suite.config(prefix);
   const watch = createWatchPlane();
-  const onManifest = appManifest({ alarm: watch.contract, wake: watch.wake, alarms: () => undefined });
-  const offManifest = appManifest({ alarm: watch.contract, wake: watch.wake, alarms: () => undefined, off: ["hook"] });
+  const onManifest = appManifest({ alarm: watch.contract, wake: watch.wake, alarms: () => undefined, tools: () => undefined });
+  const offManifest = appManifest({ alarm: watch.contract, wake: watch.wake, alarms: () => undefined, tools: () => undefined, off: ["hook"] });
   const holder = composedHolderOf({
     manifest: onManifest,
     generation: Bundle.composeSync(onManifest),
@@ -546,7 +546,8 @@ async function offCascadeConfigureRows(prefix: string) {
   // The adopted generation dropped the cascaded bundle.
   const adopted = plane.openKernel(sessionId).latestGenerationFor(sessionId);
   expect([...adopted.bundles].sort()).toEqual([
-    "approval-policy", "compaction-strategy", "compaction-summarizer", "cron", "delegation-policy", "monitor", "send-message",
+    "approval-policy", "bash", "compaction-strategy", "compaction-summarizer", "completion", "cron",
+    "delegation-policy", "eval", "file", "monitor", "provision", "send-message",
   ]);
   if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");
   const database = new Database(join(config.sessionsDir, `${sessionId}.sqlite`), {

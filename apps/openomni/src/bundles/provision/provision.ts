@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { Core } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
+import { boundTool, ToolCapabilityPort } from "../seams";
 const defineTool = Core.defineTool;
 import type { PolicyRow } from "@openomni/protocol";
 import { AutomationOperation, AutomationResult } from "./automation-schema";
@@ -71,3 +72,19 @@ export const PROVISION_POLICY_ROWS: readonly Omit<PolicyRow.Row, "generation">[]
     value: { type: "require_approval", reason: `provision.${operation} requires Owner consent` },
   },
 }));
+
+/** The `provision` bundle (#1561): Owner administration, bundle toggles included. */
+export interface ProvisionToolPorts {
+  readonly provisioning: ProvisionPort | undefined;
+  readonly clock: () => number;
+}
+
+const ABSENT_PROVISION_PORTS: ProvisionToolPorts = { provisioning: undefined, clock: () => 0 };
+
+export function provisionBundle(ports: () => ProvisionToolPorts | undefined): Bundle.BundleContract<"provision"> {
+  return Bundle.define({
+    name: "provision",
+    requires: [ToolCapabilityPort],
+    tools: [boundTool(ports, ABSENT_PROVISION_PORTS, (live) => createProvisionTool(live.provisioning, live.clock))],
+  });
+}

@@ -2,7 +2,7 @@ import { Bundle, Core } from "@openomni/agent";
 import { Gateway, Outbound } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
-import { ToolCapabilityPort } from "../../seams";
+import { boundTool, ToolCapabilityPort } from "../../seams";
 
 const defineTool = Core.defineTool;
 const ToolRefused = Core.ToolRefused;
@@ -326,19 +326,25 @@ export function createSendMessageTool(
 }
 
 /**
- * The `send-message` bundle contract (#1255 `Bundle.define`): the one tool
- * face over the tool capability. The declaration face; execution ports stay
- * composition-wired through the catalog (same pattern as `bundles/monitor`) —
- * the catalog stays sealed at twelve tools because this face shares the
- * catalog definition's name.
+ * The `send-message` bundle contract (#1255 `Bundle.define`): the one
+ * `send_message` tool over the tool capability, executing against the
+ * late-bound live gateway and contact ports (#1561).
  */
-export function sendMessageBundle(): Bundle.BundleContract<"send-message"> {
+export interface SendMessageToolPorts {
+  readonly messages: MessagePort | undefined;
+  readonly contacts?: ContactPorts;
+  readonly clock: () => number;
+}
+
+const ABSENT_SEND_PORTS: SendMessageToolPorts = { messages: undefined, clock: () => 0 };
+
+export function sendMessageBundle(ports: () => SendMessageToolPorts | undefined): Bundle.BundleContract<"send-message"> {
   return Bundle.define({
     name: "send-message",
     // #1309: approval answers ride the owner contact this tool reaches, so the
     // send door requires the approval policy's seam — a manifest without the
     // approval-policy provider refuses typed (`seam_missing`) at compose.
     requires: [ToolCapabilityPort, Core.ApprovalPolicyPort],
-    tools: [Core.eraseTool(createSendMessageTool(undefined, () => 0))],
+    tools: [boundTool(ports, ABSENT_SEND_PORTS, (live) => createSendMessageTool(live.messages, live.clock, live.contacts))],
   });
 }

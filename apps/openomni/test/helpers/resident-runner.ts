@@ -1,5 +1,6 @@
 import { APPROVAL_POLICY } from "../../src/bundles/approval-policy/index";
-import { testToolPorts } from "./tool-ports";
+import { testToolPorts, toolComposition } from "./tool-ports";
+import { alarmPortsSlot, composedHolderOf } from "../../src/composition/composed";
 import { Context, Effect, Layer, Scope } from "effect";
 import { Bundle, Core } from "@openomni/agent";
 const Llm = Core.Llm;
@@ -54,9 +55,13 @@ export function residentRunner(
   };
   const scope = effectScope();
   seedKernelPolicyRows(plane.catalog.policies);
+  const tools = { ...testToolPorts, ...options.tools };
+  // #1561: the session's tool faces and bodies come from the composed tool bundles.
+  const composed = composedHolderOf(toolComposition(tools), alarmPortsSlot());
   const resident = createResident({
     ...options,
-    tools: { ...testToolPorts, ...options.tools },
+    composed,
+    tools,
     sessionRuntime: runtime,
     policyGeneration: () => plane.openKernel("policy-probe").currentPolicyGeneration(),
   });
@@ -65,7 +70,7 @@ export function residentRunner(
   const context = runSyncEffect(Scope.provide(generationServices({
     clock: fixture?.clock, entropy: fixture?.entropy,
     observations: fixture?.observations === undefined ? Bus : observationService(fixture.observations),
-    definitions: resident.definitions, llm: { ...liveLlm, ...options.llm },
+    composed, llm: { ...liveLlm, ...options.llm },
     plane,
   }), scope.scope));
   cleanups.push(async () => {

@@ -1,4 +1,4 @@
-import { testToolPorts } from "./helpers/tool-ports";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { Effect } from "effect";
 import { runEffect } from "./helpers/effect";
@@ -8,7 +8,6 @@ import { testPlane } from "./helpers/ledger";
 import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
 import { type PlainObject, Provisioning } from "@openomni/protocol";
 import type { ChannelRuntimeStatus } from "../src/bundles/provision/supervisor";
-import { catalogDefinitions } from "../src/composition/catalog";
 import { Core } from "@openomni/agent";
 const eraseTool = Core.eraseTool;
 import { createProvisionTool } from "../src/bundles/provision/provision";
@@ -489,7 +488,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
   test("catalog gate: provisioning administration is the Resident's alone", () => {
     const { port } = portWith();
     const provisionTools = ["provision"];
-    const definitions = catalogDefinitions({ ...testToolPorts, provisioning: port });
+    const definitions = bundleTools({ ...testToolPorts, provisioning: port });
     const resident = definitions.filter((entry: import("@openomni/protocol").AnyToolDefinition) => entry.visibility.model.includes("resident")).map((entry: import("@openomni/protocol").AnyToolDefinition) => entry.name);
     const child = definitions.filter((entry: import("@openomni/protocol").AnyToolDefinition) => entry.visibility.model.includes("child")).map((entry: import("@openomni/protocol").AnyToolDefinition) => entry.name);
     for (const name of provisionTools) {

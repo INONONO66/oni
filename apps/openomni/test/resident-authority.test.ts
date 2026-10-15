@@ -12,6 +12,7 @@ import { refuseEvidenceOnly } from "../src/bundles/resident/index";
 import { prepareMessage } from "../src/composition/message-session";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { residentRunner } from "./helpers/resident-runner";
+import { bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { runEffect, runSyncEffect } from "./helpers/scoped-effect";
 import { effectScope } from "./helpers/effect-scope";
 import { drainSession, localDelivery, resolvedRuntimeFor } from "./helpers/ledger";
@@ -91,9 +92,9 @@ for (const scenario of [
       .map((action) => (action.effect.value as { content?: string }).content);
     expect(prompts[0]).toBe(scenario.content);
     expect(calls.length).toBeGreaterThan(0);
-    const offered = resident.definitions.resident
-      .filter((tool: (typeof resident.definitions.resident)[number]) => tool.visibility.model.includes("resident"))
-      .map((tool: (typeof resident.definitions.resident)[number]) => tool.name).sort();
+    const offered = bundleTools(testToolPorts)
+      .filter((tool) => tool.visibility.model.includes("resident"))
+      .map((tool) => tool.name).sort();
     for (const call of calls) {
       expect(call.tools.map((tool: Tool.Spec) => tool.name).sort())
         .toEqual(scenario.authority === "evidence_only" ? [] : offered);

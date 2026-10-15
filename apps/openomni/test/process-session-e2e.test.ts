@@ -1,5 +1,4 @@
-import { composedHolder } from "./helpers/bundle-fixture";
-import { testToolPorts } from "./helpers/tool-ports";
+import { boundToolHolder, bundleTools, testToolPorts } from "./helpers/tool-ports";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { expect, mock, spyOn, test } from "bun:test";
 import { PassThrough, Readable } from "node:stream";
@@ -10,7 +9,6 @@ import { Core } from "@openomni/agent";
 const projectTools = Core.projectTools;
 import { Bus } from "./helpers/bus";
 import { Database } from "bun:sqlite";
-import { catalogDefinitions } from "../src/composition/catalog";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { sessionFilePath } from "../src/composition/cluster-runtime";
@@ -57,7 +55,7 @@ function processPlane(fixture: { directory: string }): ProcessPlane {
   return {
     catalogPath,
     sessionsDir,
-    runtime: gatewayRuntime({ composed: composedHolder(), observations: Bus, catalogPath, sessionsDir, clusterStoragePath: ":memory:" }),
+    runtime: gatewayRuntime({ composed: boundToolHolder(), observations: Bus, catalogPath, sessionsDir, clusterStoragePath: ":memory:" }),
   };
 }
 
@@ -189,7 +187,7 @@ test("process entry logs committed sessions and disposes its runtime", async () 
   const fixture = messageFixture(
     "resident",
     undefined,
-    projectTools(catalogDefinitions(testToolPorts).filter((tool: import("@openomni/protocol").AnyToolDefinition) => tool.visibility.model.includes("child") || tool.visibility.cell.includes("child"))).session,
+    projectTools(bundleTools(testToolPorts).filter((tool: import("@openomni/protocol").AnyToolDefinition) => tool.visibility.model.includes("child") || tool.visibility.cell.includes("child"))).session,
   );
   const stdin = new PassThrough();
   let requests = 0;
@@ -210,12 +208,17 @@ test("process entry logs committed sessions and disposes its runtime", async () 
     // #1309: `send-message` requires the approval-policy seam, so compose orders
     // the provider ahead of it — the shipped list is dependency-sorted, not literal.
     expect(options.composed?.current().generation.bundles).toEqual([
+      "file",
+      "bash",
+      "eval",
       "monitor",
       "cron",
       "hooks-json",
       "delegation-policy",
       "approval-policy",
       "send-message",
+      "provision",
+      "completion",
       "compaction-summarizer",
       "compaction-strategy",
     ]);
@@ -464,7 +467,7 @@ test.each([
   const fixture = messageFixture(
     "resident",
     undefined,
-    toolSend ? projectTools(catalogDefinitions(testToolPorts).filter((tool: import("@openomni/protocol").AnyToolDefinition) => tool.visibility.model.includes("child") || tool.visibility.cell.includes("child"))).session : [],
+    toolSend ? projectTools(bundleTools(testToolPorts).filter((tool: import("@openomni/protocol").AnyToolDefinition) => tool.visibility.model.includes("child") || tool.visibility.cell.includes("child"))).session : [],
   );
   let requests = 0;
   const provider = Bun.serve({
@@ -562,7 +565,7 @@ test.each([
   requestCount,
 }) => {
   const tools = projectTools(
-    catalogDefinitions(testToolPorts).filter(
+    bundleTools(testToolPorts).filter(
       (tool: import("@openomni/protocol").AnyToolDefinition) =>
         tool.visibility.model.includes("child") || tool.visibility.cell.includes("child"),
     ),

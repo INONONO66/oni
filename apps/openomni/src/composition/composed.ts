@@ -1,6 +1,7 @@
 import type { Bundle } from "@openomni/agent";
 import { Context } from "effect";
 import type { MonitorPorts } from "../bundles/alarms/monitor/ports";
+import type { ToolPorts } from "./catalog";
 
 /**
  * The late-bound live alarm ports the monitor bundle's ONE tool declaration
@@ -19,6 +20,27 @@ export function alarmPortsSlot(): AlarmPortsSlot {
     current: () => ports,
     bind: (next) => {
       ports = next;
+    },
+  };
+}
+
+/**
+ * The late-bound live tool ports every tool bundle executes against (#1561),
+ * the same door as the alarm slot: boot binds once the runtime exists, and
+ * `bind` hands the ports back so the binding site can pass them on.
+ */
+export interface ToolPortsSlot {
+  readonly current: () => ToolPorts | undefined;
+  readonly bind: (ports: ToolPorts) => ToolPorts;
+}
+
+export function toolPortsSlot(): ToolPortsSlot {
+  let ports: ToolPorts | undefined;
+  return {
+    current: () => ports,
+    bind: (next) => {
+      ports = next;
+      return next;
     },
   };
 }
@@ -45,9 +67,15 @@ export interface ComposedHolder {
   readonly swap: (next: ComposedContext) => void;
   /** The monitor ports door (#1308): the slot the manifest's monitor bundle closed over. */
   readonly alarms: AlarmPortsSlot;
+  /** The tool ports door (#1561): the slot every tool bundle closed over. */
+  readonly tools: ToolPortsSlot;
 }
 
-export function composedHolderOf(initial: ComposedContext, alarms: AlarmPortsSlot): ComposedHolder {
+export function composedHolderOf(
+  initial: ComposedContext,
+  alarms: AlarmPortsSlot,
+  tools: ToolPortsSlot = toolPortsSlot(),
+): ComposedHolder {
   let current = initial;
   return {
     current: () => current,
@@ -55,6 +83,7 @@ export function composedHolderOf(initial: ComposedContext, alarms: AlarmPortsSlo
       current = next;
     },
     alarms,
+    tools,
   };
 }
 

@@ -214,7 +214,7 @@ test("composing the action capability off cascades delegation-policy off and dro
   const manifest = appManifest({
     alarm: await alarmDefinition(),
     wake: { close: () => undefined },
-    alarms: () => undefined,
+    alarms: () => undefined, tools: () => undefined,
     off: ["action"],
   });
   const generation = await runEffect(Bundle.compose(manifest));

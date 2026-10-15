@@ -9,7 +9,6 @@ const ObservationSink = Core.ObservationSink;
 type ObservationSink = Core.ObservationSink;
 const SessionLayer = Core.SessionLayer;
 const ToolCatalog = Core.ToolCatalog;
-type ToolCatalog = Core.ToolCatalog;
 const makeObservationBus = Core.makeObservationBus;
 const makeSessionGenerations = Core.makeSessionGenerations;
 const scopeObservation = Core.scopeObservation;
@@ -21,7 +20,6 @@ import { LedgerAction, type AnyToolDefinition, type LedgerSession, type PlainVal
 import { type Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "effect";
 
 import { catalogDelegationReads, delegationGuardHandlers } from "../bundles/delegation-policy/index";
-import { catalogDefinitions, type ToolPorts } from "./catalog";
 import { AppLedger, type SessionKernel } from "./cluster-runtime";
 import { ComposedGeneration, type ComposedContext } from "./composed";
 import { AppPointTable } from "./point-table";
@@ -106,22 +104,18 @@ function acquireConsultants(
   });
 }
 
-export type CatalogSelection = (definitions: readonly AnyToolDefinition[]) => readonly AnyToolDefinition[];
-
-/** App sessions carry a Layer recipe alongside the schema-only materialization surface. */
+/**
+ * The app's per-boot generation inputs. The core port still carries per-role
+ * tool arrays; every app tool is bundle-owned (#1561), so they must be empty
+ * and `initialize` refuses anything else.
+ */
 export interface GenerationDefinitions extends Readonly<Record<LedgerSession.Role, readonly AnyToolDefinition[]>> {
-  readonly catalogLayer?: (select: CatalogSelection) => Layer.Layer<ToolCatalog>;
   /**
    * #1256 H-3: the late-result door. A hook payload that settles AFTER its
    * call timed out re-enters THIS session through the entity `deliver` path
    * as an `action` row; absent means late results are dropped.
    */
   readonly deliverLate?: (sessionId: string, payload: PlainValue, after: number | undefined) => void;
-}
-
-/** The generation manager builds this Layer once per generation and retains its acquired service. */
-export function toolCatalogLayer(ports: ToolPorts, select: CatalogSelection = (definitions) => definitions) {
-  return Layer.sync(ToolCatalog, () => ({ definitions: Object.freeze([...select(catalogDefinitions(ports))]) }));
 }
 
 /**
@@ -155,7 +149,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
   const now = yield* captureNow;
   const lock = yield* Semaphore.make(1);
   const managers = new Map<string, Effect.Success<ReturnType<typeof makeSessionGenerations>>>();
-  let definitions: GenerationDefinitions | undefined;
+  let definitions: Pick<GenerationDefinitions, "deliverLate"> | undefined;
   let stopping = false;
 
   function bundle(sessionId: string, snapshot: SessionGeneration.Snapshot): Effect.Effect<GenerationBundle, SessionError> {
@@ -164,27 +158,15 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
       const generation = composed.current().generation;
       const role = plane.openKernel(sessionId).row(sessionId).role;
       const offered = new Set(snapshot.tools.map((tool) => tool.name));
-      // Bundle tools join the pool AFTER the composition-wired catalog. A
-      // bundle face sharing a catalog tool's name is the typed `duplicate`
-      // compose refusal (#1308) — never a silent merge. One documented
-      // exception: `send_message`, whose bundle face is still a declaration
-      // while the live port stays composition-wired through the catalog;
-      // folding it into the bundle is its own issue.
-      const select = (tools: readonly AnyToolDefinition[]) => {
-        const pool = [...tools];
-        for (const tool of generation.tools) {
-          if (!pool.some((existing) => existing.name === tool.name)) pool.push(tool);
-          else if (tool.name !== "send_message")
-            throw new Bundle.ComposeRefused({ code: "duplicate", name: tool.name, detail: "catalog tool" });
-        }
-        return pool.filter(
-          (tool) => offered.has(tool.name) && (tool.visibility.model.includes(role) || tool.visibility.cell.includes(role)),
-        );
-      };
+      // #1561: every tool is bundle-owned. Compose already refused two bundles
+      // declaring one name (typed `duplicate`), so the generation's tool table
+      // is the whole catalog; the snapshot's journaled faces pick this session's.
       const source = definitions;
-      const catalog = Layer.suspend(() => source.catalogLayer === undefined
-        ? Layer.sync(ToolCatalog, () => ({ definitions: Object.freeze(select(source[role])) }))
-        : source.catalogLayer(select));
+      const catalog = Layer.sync(ToolCatalog, () => ({
+        definitions: Object.freeze(generation.tools.filter(
+          (tool) => offered.has(tool.name) && (tool.visibility.model.includes(role) || tool.visibility.cell.includes(role)),
+        )),
+      }));
       let active = false;
       // One PubSub bus per generation (#1249): built in the generation Layer's
       // Scope, whose closure shuts the PubSub down and interrupts every
@@ -270,7 +252,9 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
   return {
     initialize: (input: GenerationDefinitions) => Effect.suspend(() => {
       if (definitions !== undefined) return Effect.fail(new AgentFailure({ operation: "generation.initialize", cause: "already_initialized" }));
-      definitions = Object.freeze({ resident: Object.freeze([...input.resident]), child: Object.freeze([...input.child]), catalogLayer: input.catalogLayer, deliverLate: input.deliverLate });
+      if (input.resident.length > 0 || input.child.length > 0)
+        return Effect.fail(new AgentFailure({ operation: "generation.initialize", cause: "tools_are_bundle_owned" }));
+      definitions = Object.freeze({ deliverLate: input.deliverLate });
       return Effect.void;
     }),
     capture: (id: SessionGeneration.Id) => Effect.gen(function* () {

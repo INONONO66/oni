@@ -2,6 +2,8 @@ import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { Effect } from "effect";
 import { allowConfigure, generationServices } from "./helpers/generation-services";
+import { composedHolder } from "./helpers/bundle-fixture";
+import { testToolsBundle } from "./helpers/app-fixture";
 import { observationService } from "../../../packages/agent/test/helpers/service-layers";
 import { expect, test } from "bun:test";
 import { acquireEffect, runEffect } from "./helpers/effect";
@@ -181,7 +183,7 @@ for (const mode of ["after-wave", "partial-wave", "crash-window", "error-window"
         });
       },
     });
-    const services = await acquireEffect(generationServices({ definitions: { resident: definitions, child: [] }, observations, plane }));
+    const services = await acquireEffect(generationServices({ composed: composedHolder({ bundles: [testToolsBundle(definitions)] }), observations, plane }));
     let unsubscribe: () => void = () => undefined;
     const drainScope = effectScope();
     try {
@@ -242,7 +244,7 @@ for (const mode of ["after-wave", "partial-wave", "crash-window", "error-window"
           listSessions: crashPlane.listSessions,
         };
         const recovered = await acquireEffect(
-          generationServices({ definitions: { resident: definitions, child: [] }, plane: crashPlane }),
+          generationServices({ composed: composedHolder({ bundles: [testToolsBundle(definitions)] }), plane: crashPlane }),
         );
         await bounded(
           drainScope.run(
