@@ -24,18 +24,20 @@ export function executeMachine(
   switch (operation.op) {
     case "machine_add": {
       if (caller !== "owner") return { op: operation.op, result: { type: "require_approval", id: machineId } };
+      const replacing = port.enrollments.get(machineId)?.removedAt === null;
       const time = port.now();
       const enrollment = { ...operation.args, enrolledAt: time };
       port.enrollments.put(enrollment);
       port.events.publish(Machine.Events.Enrolled, { machineId, time, enrollment });
+      if (replacing) port.host.unenroll(machineId, "enrollment_replaced");
       return { op: operation.op, result: { enrollment } };
     }
     case "machine_remove": {
       const time = port.now();
       if (!port.enrollments.remove(machineId, time))
         throw new Core.ToolRefused("provision", `machine is not enrolled: ${machineId}`);
-      port.host.unenroll(machineId);
       port.events.publish(Machine.Events.Unenrolled, { machineId, time });
+      port.host.unenroll(machineId);
       return { op: operation.op, result: { machineId } };
     }
   }

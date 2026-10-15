@@ -34,7 +34,8 @@ describe("managed machine enrollment", () => {
       .toEqual({ machineId: enrollment.machineId, time: 1, enrollment });
     expect(Machine.Events.Unenrolled.schema.parse({ machineId: enrollment.machineId, time: 2 }))
       .toEqual({ machineId: enrollment.machineId, time: 2 });
-    expect(Machine.Events.Detached.schema.parse({ machineId: enrollment.machineId, time: 2, reason: "enrollment_removed" }).reason).toBe("enrollment_removed");
+    for (const reason of ["enrollment_removed", "enrollment_replaced"] as const)
+      expect(Machine.Events.Detached.schema.parse({ machineId: enrollment.machineId, time: 2, reason }).reason).toBe(reason);
     expect(Machine.Events.Detached.schema.safeParse({ machineId: enrollment.machineId, time: 2, reason: "untyped" }).success).toBe(false);
   });
 });

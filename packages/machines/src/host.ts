@@ -80,7 +80,7 @@ export interface MachineHost {
   list(): MachineInfo[];
   get(id: Machine.MachineId): MachineHandle;
   /** Enrollment persistence belongs to the caller; this revokes its live attachment. */
-  unenroll(id: Machine.MachineId): void;
+  unenroll(id: Machine.MachineId, reason?: "enrollment_removed" | "enrollment_replaced"): void;
   /** The bound endpoints — tcp carries the REAL port when the spec asked for 0. */
   readonly endpoints: {
     readonly unix?: string;
@@ -451,11 +451,11 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     yield* Effect.addFinalizer(() => Effect.orDie(close));
     return {
       get,
-      unenroll(id) {
+      unenroll(id, reason = "enrollment_removed") {
         const key = connectionByMachine.get(id);
         const attachment = key === undefined ? undefined : attachments.get(key);
         if (attachment === undefined) return;
-        detach(attachment.key, "enrollment_removed");
+        detach(attachment.key, reason);
         attachment.server.disconnect(attachment.rawId);
       },
       endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },

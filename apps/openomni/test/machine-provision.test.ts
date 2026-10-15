@@ -9,8 +9,10 @@ import { machineWire } from "../src/composition/machine-wire";
 import { provisionPort } from "./helpers/provision-port";
 import { testPlane } from "./helpers/ledger";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
-import { attachMachineDaemon, createMachineHost } from "../../../packages/machines/test/helpers/native";
+import { attachMachineDaemon, createMachineHost, type CodeRunner } from "../../../packages/machines/test/helpers/native";
 import { eventCollector } from "../../../packages/machines/test/helpers/events";
+import { captureError } from "../../../packages/machines/test/ipc/helpers/signal";
+import { daemonIdentity, daemonFingerprint, hostIdentity, wrongIdentity, wrongFingerprint } from "../../../packages/machines/test/ipc/helpers/tls-fixtures";
 
 const enrollment: Machine.Enrollment = {
   machineId: "worker-1", name: "Worker", tags: ["pool"],
@@ -94,6 +96,94 @@ test("removed boot seeds remain removed after reopening the provisioning store",
     reopened.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("replacing an active TLS enrollment revokes its old peer and admits only the new key", async () => {
+  const plane = testPlane();
+  const enrollments = plane.stores.machineEnrollments;
+  const events = eventCollector();
+  const host = await createMachineHost({
+    listen: { tcp: { host: "127.0.0.1", port: 0 } }, tls: hostIdentity,
+    enrollment: (id) => {
+      const row = enrollments.get(id);
+      return row?.removedAt === null ? row.enrollment : undefined;
+    },
+    events: events.sink, now: () => 5,
+  });
+  const machines: MachinePort = { enrollments, host: host.native, selfId: "self", events: events.sink, now: () => 5 };
+  const original = { ...args, publicKey: daemonFingerprint, allowedCapabilities: ["kernel.py", "fs.read"] };
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const daemons: Awaited<ReturnType<typeof attachMachineDaemon>>[] = [];
+  const attach = async (machineId: string, identity: typeof daemonIdentity, runner?: CodeRunner) => {
+    const daemon = await attachMachineDaemon({
+      tcp: { host: "127.0.0.1", port: host.endpoints.tcp?.port ?? 0 },
+      hostCertificate: hostIdentity.certificate,
+      tlsCertificate: identity.certificate, tlsPrivateKey: identity.privateKey,
+      offer: { machineId, offeredCapabilities: original.allowedCapabilities, daemonVersion: "test", platform: "darwin-arm64", offeredAt: 2 },
+      ...(runner === undefined ? {} : { runner }),
+    });
+    daemons.push(daemon);
+    return daemon;
+  };
+  try {
+    executeMachine(machines, { op: "machine_add", args: original }, "owner");
+    executeMachine(machines, { op: "machine_add", args: { ...original, machineId: "other" } }, "owner");
+    await attach(args.machineId, daemonIdentity, {
+      runCode: async (request) => {
+        entered.resolve();
+        await release.promise;
+        return { status: "completed", cellId: request.cellId, output: { stdout: "", stderr: "" } };
+      },
+      peekCode: () => ({ stdout: "", stderr: "" }),
+      close: async () => undefined,
+    });
+    await attach("other", daemonIdentity);
+    let settlements = 0;
+    const pending = captureError(host.get(args.machineId).runCode({ cellId: "held", code: "x", timeoutMs: 60_000 }))
+      .then((error) => { settlements += 1; return error; });
+    await bounded(entered.promise);
+    const detached = events.next("machine.detached");
+    executeMachine(machines, {
+      op: "machine_add", args: { ...original, publicKey: wrongFingerprint, allowedCapabilities: ["fs.read"] },
+    }, "owner");
+    expect((await bounded(detached)).payload).toEqual({ machineId: args.machineId, time: 5, reason: "enrollment_replaced" });
+    expect(await bounded(pending)).toMatchObject({ _tag: "MachineRefusalError", reason: "disconnected" });
+    expect(host.list().map((row) => row.machineId)).toEqual(["other"]);
+    expect((await attach(args.machineId, daemonIdentity)).attachment).toEqual({ status: "refused", reason: "peer_key_mismatch" });
+    expect((await attach(args.machineId, wrongIdentity)).attachment).toMatchObject({ status: "attached", effectiveCapabilities: ["fs.read"] });
+    expect(host.list().find((row) => row.machineId === args.machineId)).toMatchObject({
+      publicKey: wrongFingerprint, allowedCapabilities: ["fs.read"], capabilities: ["fs.read"],
+    });
+    expect(events.events.filter((event) => event.name === "machine.detached")).toHaveLength(1);
+    expect(settlements).toBe(1);
+  } finally {
+    release.resolve();
+    for (const daemon of daemons) await daemon.close();
+    await host.close();
+    plane.close();
+  }
+});
+
+test("durable unenrollment publishes its fact even when live disconnection throws", async () => {
+  const plane = testPlane();
+  const enrollments = plane.stores.machineEnrollments;
+  const events = eventCollector();
+  const failure = new Error("disconnect failed");
+  const machines: MachinePort = {
+    enrollments, selfId: "self", events: events.sink, now: () => 5,
+    host: { list: () => [], unenroll: () => { throw failure; } },
+  };
+  enrollments.put(enrollment);
+  const unenrolled = events.next("machine.unenrolled");
+  try {
+    expect(() => executeMachine(machines, { op: "machine_remove", args: { machineId: args.machineId } }, "owner"))
+      .toThrow(failure);
+    expect((await bounded(unenrolled)).payload).toEqual({ machineId: args.machineId, time: 5 });
+    expect(enrollments.get(args.machineId)).toMatchObject({ removedAt: 5 });
+    expect(enrollments.list()).toEqual([]);
+    expect(events.events.filter((event) => event.name === "machine.unenrolled")).toHaveLength(1);
+  } finally { plane.close(); }
 });
 
 test.each(["approve", "refuse", "changed"] as const)("machine key consent is bound to the current revision: %s", async (decision) => {

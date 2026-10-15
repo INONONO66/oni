@@ -208,6 +208,16 @@ async function composeMachinePlane(
   // not re-stamped on every lookup.
   const selfRecord = selfEnrollment(plane, deps.now());
   deps.enrollments.seed(machines.enrolled);
+  for (const enrollment of machines.enrolled) {
+    const stored = deps.enrollments.get(enrollment.machineId);
+    if (stored?.removedAt === null && canonicalJson(stored.enrollment) !== canonicalJson(enrollment)) {
+      deps.events.publish(Operational.Events.Warn, {
+        traceId: traceIdFromUuid(deps.id()), time: deps.now(), component: "machines",
+        msg: "Environment enrollment seed differs from stored authority; use provision machine_add to update it",
+        context: { machineId: enrollment.machineId, reason: "enrollment_seed_ignored", op: "machine_add" },
+      });
+    }
+  }
   const host = await acquireAppResource(
     runtime,
     createMachineHost({

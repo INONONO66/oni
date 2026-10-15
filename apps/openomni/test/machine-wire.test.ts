@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { Machine, parseJson, type Tool } from "@openomni/protocol";
+import { expect, spyOn, test } from "bun:test";
+import { Machine, Operational, parseJson, type Tool } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
@@ -8,6 +8,8 @@ import { bounded } from "./helpers/protected-dispatch";
 import { attachMachineDaemon } from "../../../packages/machines/test/helpers/native";
 import { nextFrame } from "./helpers/ws";
 import { machineWire } from "../src/composition/machine-wire";
+import { planeOf, testPlane } from "./helpers/ledger";
+import { Bus } from "./helpers/bus";
 
 const suite = residentSuite();
 
@@ -60,4 +62,38 @@ test("machine wire refuses malformed and unavailable requests while leaving othe
   expect(machineWire('{"type":"machine_list","requestId":"absent"}', undefined))
     .toMatchObject({ type: "machine_list_refused", requestId: "absent", reason: "unavailable" });
   expect(machineWire('{"type":"automation_list","requestId":"other"}', undefined)).toBeUndefined();
+});
+
+test("boot warns once for a changed live enrollment seed without overwriting stored authority", async () => {
+  const config = suite.config("machine-seed-warning-", { compactionSummarizer: false });
+  if (config.machines === undefined) throw new Error("missing machine plane");
+  const original = Machine.Enrollment.parse({
+    machineId: "changed", name: "Worker", allowedCapabilities: ["kernel.py"], publicKey: "a".repeat(64), enrolledAt: 1,
+  });
+  const same = { ...original, machineId: "same" };
+  const removed = { ...original, machineId: "removed" };
+  const fresh = { ...original, machineId: "fresh" };
+  const persisted = testPlane({ catalogPath: config.catalogPath });
+  try {
+    persisted.stores.machineEnrollments.seed([original, same, removed]);
+    persisted.stores.machineEnrollments.remove(removed.machineId, 2);
+  } finally { persisted.close(); }
+  const published = spyOn(Bus, "publish");
+  try {
+    const app = await suite.boot({
+      config: {
+        ...config,
+        machines: { ...config.machines, enrolled: [{ ...original, publicKey: "b".repeat(64) }, same, removed, fresh] },
+      },
+    });
+    const warnings = published.mock.calls.flatMap(([descriptor, data]) =>
+      descriptor.name === Operational.Events.Warn.name ? [Operational.Events.Warn.schema.parse(data)] : [],
+    ).filter((event) => event.context?.reason === "enrollment_seed_ignored");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.context).toEqual({ machineId: "changed", reason: "enrollment_seed_ignored", op: "machine_add" });
+    const records = (await planeOf(app.runtime)).stores.machineEnrollments;
+    expect(records.get("changed")?.enrollment).toEqual(original);
+    expect(records.get("removed")?.removedAt).toBe(2);
+    expect(records.get("fresh")?.enrollment).toEqual(fresh);
+  } finally { published.mockRestore(); }
 });

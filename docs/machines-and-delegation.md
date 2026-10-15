@@ -160,6 +160,16 @@ for openssl one-liners, rotation, and addressing (Tailscale = tailnet IP in
 is REQUIRED — existing `OPENOMNI_MACHINES_ENROLLED` values without it fail
 closed at boot until each enrollment carries the daemon's key fingerprint.
 
+`OPENOMNI_MACHINES_ENROLLED` is a first-boot seed for each machine id, not
+ongoing authority. Once an id has a stored enrollment, later environment edits
+do not replace it. Removed ids retain tombstones and are not restored by a
+restart. Boot emits one operational warning per differing active seed, naming
+the machine id and directing the operator to `provision machine_add`.
+Use that Owner-approved operation to change a key or capability grant. Replacing
+an active enrollment detaches its existing peer with `enrollment_replaced`;
+in-flight calls fail as `disconnected`, and the next TCP attach must present
+the newly approved key.
+
 Disconnection is a first-class state: while a known machine's transport is
 down, its handle calls — including calls that were in flight when the
 transport dropped — fail once with typed `MachineRefusalError`
