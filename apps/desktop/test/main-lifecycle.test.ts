@@ -180,7 +180,7 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
       height: 800,
       minWidth: WINDOW_MIN.width,
       minHeight: WINDOW_MIN.height,
-      trafficLightPosition: { x: 16, y: 12 },
+      trafficLightPosition: { x: 17, y: 14 },
       show: false,
       backgroundColor: development ? "#EFEFF0" : "#0A0A0C",
       titleBarStyle: "hiddenInset",

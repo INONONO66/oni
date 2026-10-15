@@ -47,9 +47,9 @@ export interface Session extends LocalSession {
   readonly latestForkAnchor?: string;
 }
 
-export type Route = "sessions" | "automations" | "ingress";
+export type Route = "sessions" | "automations";
 
-export const ROUTES: readonly Route[] = ["sessions", "automations", "ingress"];
+export const ROUTES: readonly Route[] = ["sessions", "automations"];
 
 export type Place =
   | { readonly kind: "session"; readonly sessionId: SessionId }
@@ -147,11 +147,6 @@ export function newSessionTab(): SessionId {
   const id = createSession(storePlatform().now());
   openTab({ kind: "session", sessionId: id });
   return id;
-}
-
-export function ensureBootTab(): void {
-  if (consoleStore.state.tabs.length > 0) return;
-  newSessionTab();
 }
 
 export function openTab(place: Place): void {
@@ -319,7 +314,6 @@ function samePlace(a: Place, b: Place): boolean {
 export const ROUTE_LABEL: Record<Route, string> = {
   sessions: "Sessions",
   automations: "Automations",
-  ingress: "Ingress ledger",
 };
 
 export function toggleProject(id: ProjectId | null): void {

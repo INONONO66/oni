@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "../src/renderer/app";
 import { StateProvider } from "../src/renderer/state/provider";
-import type { GatewayEndpoint } from "../src/preload/api";
 import { queryKeys } from "../src/renderer/state/queries";
 import type { Session } from "../src/renderer/state/store";
 import type { RendererPlatform } from "../src/renderer/platform";
@@ -68,7 +67,7 @@ export function signal(): {
 
 /** The shell's static markup with the endpoint query already answered, or still in flight. */
 export function renderShell(
-  endpoint: "pending" | GatewayEndpoint | null = null,
+  endpoint: "pending" | null = null,
   sessions: readonly Session[] = [],
   host: RendererPlatform = testPlatform,
 ): string {

@@ -1,5 +1,5 @@
 import { isOriginSurface, OriginMark } from "@openomni/ui";
-import { hasActiveState, sessionReason } from "../attention/reason";
+import { formatRelative, hasActiveState, sessionReason } from "../attention/reason";
 import type { Session } from "../state/store";
 
 /**
@@ -16,10 +16,9 @@ function originMark(surfaceKey: string | undefined) {
 }
 
 /**
- * The row's second line: the project when given, then what the session is
- * doing — nothing when it is doing nothing the Owner needs to know about —
- * then the mark of the surface it came in from; a session started here
- * carries no mark. When it last moved is the row's trailing cell, not this line.
+ * The row's second line: what the session is doing, or — when it is doing
+ * nothing the Owner needs to know about — when it last moved. Then the mark
+ * of the surface it came in from; a session started here carries no mark.
  */
 export function SessionSecondary({
   session,
@@ -30,12 +29,17 @@ export function SessionSecondary({
   readonly now: number;
   readonly project?: string;
 }) {
+  const timestamp = session.lastActivityAt;
   const mark = originMark(session.surfaceKey);
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       {project !== undefined && <span className="max-w-24 truncate">{project}</span>}
-      {hasActiveState(session) && (
+      {hasActiveState(session) ? (
         <span className="truncate">{sessionReason(session, now)}</span>
+      ) : (
+        <time className="truncate" dateTime={new Date(timestamp).toISOString()}>
+          {formatRelative(now, timestamp)}
+        </time>
       )}
       {mark !== null && (
         <>

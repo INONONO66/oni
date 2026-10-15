@@ -38,7 +38,6 @@ const html = renderToStaticMarkup(
   <SessionTree
     collapsedProjectIds={new Set()}
     defaultSearching
-    onCreate={() => undefined}
     onNavigate={() => undefined}
     onSelect={() => undefined}
     onToggleProject={() => undefined}
@@ -61,7 +60,6 @@ describe("attention kind headers disambiguate repeated projects", () => {
     const mixedHtml = renderToStaticMarkup(
       <SessionTree
         collapsedProjectIds={new Set()}
-        onCreate={() => undefined}
         onNavigate={() => undefined}
         onSelect={() => undefined}
         onToggleProject={() => undefined}

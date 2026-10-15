@@ -1,7 +1,7 @@
 import { setSessionTitleIfPlaceholder } from "../state/session-actions";
 import { GatewayUnavailableError } from "../errors";
 import { Chat, useChat } from "@ai-sdk/react";
-import { ConsoleContent, StatusGlyph, UI_NAMES } from "@openomni/ui";
+import { ConsoleContent, StatusGlyph } from "@openomni/ui";
 import { useStore } from "@tanstack/react-store";
 import type { ChatTransport, UIMessage } from "ai";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
@@ -97,7 +97,7 @@ export function SessionContent({
             // Parent-child inspection (#1257): the parent edge and anchor as data.
             <p
               className="mt-1 text-xs opacity-60"
-              data-ui={UI_NAMES.SessionContentAncestry}
+              data-ui="SessionContent.Ancestry"
               data-parent={session.ancestry.forkedFrom?.session ?? session.ancestry.parentId ?? undefined}
               data-anchor={session.ancestry.forkedFrom?.anchor}
             >
@@ -109,14 +109,14 @@ export function SessionContent({
           {onOpenChild === undefined || session.forkChildren === undefined ? null : (
             // Parent->children inspection (#1257): the read page's fork
             // children, each opening the child as a bound local session.
-            <ul className="mt-1 text-xs opacity-60" data-ui={UI_NAMES.SessionContentForks}>
+            <ul className="mt-1 text-xs opacity-60" data-ui="SessionContent.Forks">
               {session.forkChildren.map((child) => (
                 <li key={child.sessionId}>
                   <button
                     className="underline hover:opacity-100"
                     data-anchor={child.anchor}
                     data-child={child.sessionId}
-                    data-ui={UI_NAMES.SessionContentForkChild}
+                    data-ui="SessionContent.ForkChild"
                     onClick={() => onOpenChild(child.sessionId, child.title)}
                     type="button"
                   >
@@ -132,7 +132,7 @@ export function SessionContent({
           session.latestForkAnchor === undefined ? null : (
             <button
               className="mt-1 text-xs underline opacity-60 hover:opacity-100"
-              data-ui={UI_NAMES.SessionContentFork}
+              data-ui="SessionContent.Fork"
               onClick={() => {
                 if (session.durableSessionId !== undefined && session.latestForkAnchor !== undefined)
                   onFork(session.durableSessionId, session.latestForkAnchor);

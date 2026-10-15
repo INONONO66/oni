@@ -186,7 +186,8 @@ describe("the transcript sets exactly three voices", () => {
 });
 
 describe("the sidebar row keeps its own rank", () => {
-  test("Given a session row, When rendered, Then the section title is medium label", () => {
+  test("Given a session row, When rendered, Then the row is label and the section title is semibold label", () => {
+    // The header shares the 13px row size and gains rank through weight.
     const nav = SHELL.slice(SHELL.indexOf('data-ui="Sidebar"'), SHELL.indexOf("<main"));
     expect(nav).toContain("text-label");
     const header = nav.slice(
@@ -194,7 +195,7 @@ describe("the sidebar row keeps its own rank", () => {
       nav.indexOf('data-ui="SectionHeader.Toggle"'),
     );
     expect(header).toContain("text-label");
-    expect(header).toContain("font-medium");
+    expect(header).toContain("font-semibold");
   });
 
   test("Given the navigator, When scanned, Then no element sets a raw font size", () => {

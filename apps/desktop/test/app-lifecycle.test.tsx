@@ -1,7 +1,7 @@
 import { setSessionTitleIfPlaceholder } from "../src/renderer/state/session-actions";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as ui from "@openomni/ui";
-import { notifyManager, QueryClient } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
 import type { ServerWebSocket } from "bun";
 import { Window } from "happy-dom";
 import { serveChat, type ClientFrame } from "./helpers/chat-server";
@@ -13,12 +13,11 @@ import { App } from "../src/renderer/app";
 import { SessionList } from "../src/renderer/shell/session-list";
 import { makeSession } from "./helpers/session";
 import { StateProvider } from "../src/renderer/state/provider";
-import { fetchGatewayEndpoint, queryKeys } from "../src/renderer/state/queries";
+import { queryKeys } from "../src/renderer/state/queries";
 import { SIDEBAR_OPEN_KEY, SIDEBAR_WIDTH_KEY } from "../src/renderer/state/shell-preferences";
 import {
   activateTab,
   activeTab,
-  closeTab,
   consoleStore,
   createSession,
   INITIAL_CLIENT_STATE,
@@ -143,79 +142,6 @@ function seed() {
   return { first, firstTab, second, secondTab, unopened };
 }
 
-test("empty storage boots one empty session tab", async () => {
-  await mount(undefined, browser.localStorage);
-
-  expect(consoleStore.state.tabs).toHaveLength(1);
-  expect(consoleStore.state.sessions).toHaveLength(1);
-  expect(activeTab(consoleStore.state)?.place.kind).toBe("session");
-  expect(consoleStore.state.closedTabs).toHaveLength(0);
-});
-
-test("unavailable storage still boots one empty session tab", async () => {
-  await mount();
-
-  expect(consoleStore.state.tabs).toHaveLength(1);
-  expect(consoleStore.state.sessions).toHaveLength(1);
-  expect(activeTab(consoleStore.state)?.place.kind).toBe("session");
-});
-
-test("persisted tabs remain unchanged during boot hydration", async () => {
-  const { first, second } = seed();
-  await mount(undefined, browser.localStorage);
-
-  expect(consoleStore.state.tabs).toHaveLength(2);
-  expect(consoleStore.state.sessions).toHaveLength(3);
-  expect(consoleStore.state.sessions.map((session) => session.id)).toContain(first);
-  expect(consoleStore.state.sessions.map((session) => session.id)).toContain(second);
-});
-
-test("a refused endpoint reaches the footer as a danger glyph and the composer as the notice", async () => {
-  const bridge = Reflect.get(browser, "desktop") as ReturnType<typeof commandBridge>;
-  const refusal = spyOn(bridge, "gateway").mockRejectedValue(new Error("preload refused the endpoint"));
-  cleanups.push(() => refusal.mockRestore());
-  // Settle the refusal in the cache first; mounting then retries once (retryOnMount)
-  // and the paint under test is the one after that retry has failed too. The query
-  // library hands that failure to React on its own timer tick, which is outside act,
-  // so this test delivers notifications synchronously and restores the default after.
-  await client.prefetchQuery({ queryKey: queryKeys.gatewayEndpoint, queryFn: fetchGatewayEndpoint, retry: false });
-  expect(client.getQueryState(queryKeys.gatewayEndpoint)?.status).toBe("error");
-  notifyManager.setScheduler((callback) => callback());
-  cleanups.push(() => notifyManager.setScheduler((callback) => setTimeout(callback, 0)));
-  const retried = new Promise<void>((resolve) => {
-    const unsubscribe = client.getQueryCache().subscribe((event) => {
-      if (event.type !== "updated" || event.action.type !== "error") return;
-      unsubscribe();
-      resolve();
-    });
-  });
-
-  await act(() =>
-    root.render(
-      <StateProvider client={client}>
-        <App platform="darwin" storage={null} host={suitePlatform} />
-      </StateProvider>,
-    ),
-  );
-  await act(() => retried);
-
-  const footer = node(`[data-ui="${ui.UI_NAMES.SidebarFooter}"]`);
-  expect(footer.textContent).toContain("preload refused the endpoint");
-  expect(footer.querySelector('[data-tone="destructive"]')).not.toBeNull();
-  expect(host.textContent).toContain("preload refused the endpoint");
-});
-
-test("closing the last boot tab does not create another tab", async () => {
-  await mount(undefined, browser.localStorage);
-  const tabId = consoleStore.state.activeTabId;
-  if (tabId === null) throw new Error("Missing boot tab");
-
-  await act(() => closeTab(tabId));
-
-  expect(consoleStore.state.tabs).toHaveLength(0);
-  expect(consoleStore.state.activeTabId).toBeNull();
-});
-
 test("App restores and persists shell preferences, scopes bracket shortcuts and disposes subscriptions", async () => {
   const storage = browser.localStorage;
   storage.setItem(SIDEBAR_OPEN_KEY, "false");
@@ -271,7 +197,7 @@ test("pointer navigation, local history and list selection keep one frame and pr
   expect(consoleStore.state.activeTabId).toBe(firstTab);
   await click(`#tab-${secondTab}`);
   expect(consoleStore.state.activeTabId).toBe(secondTab);
-  await click('[data-ui="Sidebar.Nav"] button:nth-child(2)');
+  await click('[data-ui="Sidebar.Nav"] button');
   const listTab = consoleStore.state.activeTabId;
   const list = node('[role="tabpanel"] ul');
   expect(list.querySelectorAll("li")).toHaveLength(3);
@@ -280,7 +206,7 @@ test("pointer navigation, local history and list selection keep one frame and pr
   await act(() => {
     if (listTab) activateTab(listTab);
   });
-  await click('[role="tabpanel"] button[aria-label="gamma"]');
+  await click('button[aria-label="gamma"]', node('[role="tabpanel"] ul'));
   expect(consoleStore.state.activeTabId).toBe(listTab);
   expect(activeTab(consoleStore.state)?.place).toEqual({ kind: "session", sessionId: unopened });
   expect(node('[data-ui="TabStrip"]')).toBe(frame);

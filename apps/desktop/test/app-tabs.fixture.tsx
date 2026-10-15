@@ -142,7 +142,7 @@ test("one frame survives session, route, empty and reopen; bridge subscribes onc
   expect(listeners.size).toBe(1);
   await command("select-tab-2");
   expect(consoleStore.state.activeTabId).toBe(bTab);
-  await click(node(host, '[data-ui="Sidebar.Nav"] button:nth-child(2)'));
+  await click(node(host, '[data-ui="Sidebar.Nav"] button'));
   expect(activeTab(consoleStore.state)?.place).toEqual({ kind: "route", route: "sessions" });
   expect(host.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
   expect(host.querySelector("textarea")).toBeNull();
@@ -231,7 +231,7 @@ test("list selection targets its own active tab even when sidebar search was inv
   await key(document, "k", true);
   // ⌘-click opens the Sessions list in its own tab; a plain click would move the invoking tab.
   await act(() =>
-    node(host, '[data-ui="Sidebar.Nav"] button:nth-child(2)').dispatchEvent(
+    node(host, '[data-ui="Sidebar.Nav"] button').dispatchEvent(
       new MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true }),
     ),
   );

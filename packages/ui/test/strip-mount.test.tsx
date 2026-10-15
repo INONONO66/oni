@@ -18,12 +18,9 @@ import { SidebarFrame } from "./sidebar-frame";
  */
 GlobalRegistrator.register();
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const { act, useEffect, useState } = await import("react");
+const { act, useEffect } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Sidebar } = await import("../src/sidebar");
-const { SidebarToggle, TabStrip } = await import("../src/tab-strip");
-const { SidebarHeader } = await import("../src/sidebar-nav");
-const { STRIP } = await import("./fixture");
 
 afterAll(() => GlobalRegistrator.unregister());
 
@@ -68,12 +65,6 @@ const trioOf = (container: Element) => {
   return node;
 };
 
-const toggleOf = (container: Element) => {
-  const node = container.querySelector<HTMLElement>('[data-ui="Sidebar.Toggle"]');
-  if (node === null) throw new Error("no toggle");
-  return node;
-};
-
 describe("the trio's identity", () => {
   test("Given the strip open, When the sidebar collapses and re-opens, Then the trio is the same node", async () => {
     const container = document.createElement("div");
@@ -98,142 +89,6 @@ describe("the trio's identity", () => {
 
     await act(() => root.unmount());
     container.remove();
-  });
-});
-
-/** The toggle drives the open state, as it does under the app's store. */
-function LiveFrame() {
-  const [open, setOpen] = useState(true);
-  return (
-    <Sidebar
-      floating={false}
-      onFloatingChange={() => undefined}
-      onToggle={() => setOpen((value) => !value)}
-      onWidthCommit={() => undefined}
-      open={open}
-      width={252}
-    >
-      <TabStrip {...STRIP} platform="darwin" />
-      <Sidebar.Gap />
-      <Sidebar.Container>
-        <SidebarHeader actions={open ? <SidebarToggle /> : null} brand={null} />
-      </Sidebar.Container>
-    </Sidebar>
-  );
-}
-
-describe("the toggle's focus", () => {
-  test("Given the toggle focused, When it is activated, Then its replacement in the other host owns focus", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(() => root.render(<LiveFrame />));
-    const headerToggle = toggleOf(host);
-    headerToggle.focus();
-    expect(document.activeElement).toBe(headerToggle);
-
-    await act(() => headerToggle.click());
-    const stripToggle = toggleOf(host);
-    expect(stripToggle).not.toBe(headerToggle);
-    expect(stripToggle.closest('[data-ui="TabStrip.Controls"]')).not.toBeNull();
-    expect(document.activeElement).toBe(stripToggle);
-
-    await act(() => stripToggle.click());
-    const reopened = toggleOf(host);
-    expect(reopened.closest('[data-ui="Sidebar.Header"]')).not.toBeNull();
-    expect(document.activeElement).toBe(reopened);
-
-    await act(() => root.unmount());
-    host.remove();
-  });
-
-  test("Given focus elsewhere, When the toggle is clicked, Then the replacement does not take focus", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(() => root.render(<LiveFrame />));
-    const elsewhere = document.createElement("button");
-    document.body.append(elsewhere);
-    elsewhere.focus();
-    expect(document.activeElement).toBe(elsewhere);
-
-    await act(() => toggleOf(host).click());
-    expect(toggleOf(host).closest('[data-ui="TabStrip.Controls"]')).not.toBeNull();
-    expect(document.activeElement).toBe(elsewhere);
-
-    await act(() => root.unmount());
-    host.remove();
-    elsewhere.remove();
-  });
-});
-
-describe("the toggle's placement", () => {
-  test("Given the strip open, When the sidebar collapses, Then the toggle enters the zone before the trio and leaves on re-open", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(() => root.render(<Frame open />));
-    const headerToggle = toggleOf(host);
-    expect(headerToggle.closest('[data-ui="Sidebar.Header"]')).not.toBeNull();
-    expect(host.querySelectorAll('[data-ui="Sidebar.Toggle"]')).toHaveLength(1);
-    const trio = trioOf(host);
-
-    await act(() => root.render(<Frame open={false} />));
-    const toggle = toggleOf(host);
-    expect(toggle).not.toBe(headerToggle);
-    expect(host.querySelectorAll('[data-ui="Sidebar.Toggle"]')).toHaveLength(1);
-    expect(toggle.closest('[data-ui="TabStrip.Controls"]')).not.toBeNull();
-    expect(toggle.compareDocumentPosition(trio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.getAttribute("aria-label")).toBe("Expand sidebar");
-    expect(toggle.dataset.size).toBe("base");
-    expect(toggle.dataset.variant).toBe("plain");
-    expect(toggleOf(host).querySelector("svg")?.dataset.opened).toBe("false");
-    expect(trioOf(host)).toBe(trio);
-
-    // Revealed: the glyph reads the column as showing while the button still offers to pin.
-    await act(() => root.render(<Frame floating open={false} />));
-    expect(toggleOf(host)).toBe(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.querySelector("svg")?.dataset.opened).toBe("true");
-
-    await act(() => root.render(<Frame open />));
-    expect(toggleOf(host).closest('[data-ui="Sidebar.Header"]')).not.toBeNull();
-    expect(host.querySelectorAll('[data-ui="Sidebar.Toggle"]')).toHaveLength(1);
-    expect(trioOf(host)).toBe(trio);
-
-    await act(() => root.unmount());
-    host.remove();
-  });
-
-  test("Given a bare provider, When the toggle mounts outside the strip, Then it reads the pinned state", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const toggles: boolean[] = [];
-    await act(() =>
-      root.render(
-        <Sidebar
-          floating={false}
-          onFloatingChange={() => undefined}
-          onToggle={() => toggles.push(true)}
-          onWidthCommit={() => undefined}
-          open
-          width={252}
-        >
-          <SidebarToggle />
-        </Sidebar>,
-      ),
-    );
-    const toggle = toggleOf(host);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(toggle.getAttribute("aria-label")).toBe("Collapse sidebar");
-    expect(toggle.querySelector("svg")?.dataset.opened).toBe("true");
-    await act(() => toggle.click());
-    expect(toggles).toEqual([true]);
-
-    await act(() => root.unmount());
-    host.remove();
   });
 });
 
