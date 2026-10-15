@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { type Bundle, Core } from "@openomni/agent";
 import {
   Gateway,
@@ -15,6 +14,7 @@ import { ADMISSION_DEPTH_MAX, DELEGATION_GUARD_REFS, SPAWN_DEPTH_REF } from "../
 import { SECRETS_GUARD_REF } from "../bundles/hooks-json/index";
 import { ACTIVE_POLICY_PATH } from "../config";
 import { AppInvariantError } from "../invariant";
+import shippedPolicy from "../../policy/owner-policy.json";
 import { composedPointTable } from "./point-table";
 
 const { SEEDED_POLICY_ROWS, assertPointGenerationRows, POINT_GENERATION_ROW, translateLegacyPolicyRow } = Core;
@@ -211,10 +211,10 @@ export function readOwnerPolicy(path: string): OwnerPolicy {
 }
 
 /** The shipped default (`policy/owner-policy.json`), compiled through the same gate. */
-const SHIPPED_POLICY_PATH = fileURLToPath(
-  new URL("../../policy/owner-policy.json", import.meta.url),
+export const SHIPPED_OWNER_POLICY: OwnerPolicy = compileOwnerPolicy(
+  PlainValueSchema.parse(shippedPolicy),
+  "shipped owner-policy.json",
 );
-export const SHIPPED_OWNER_POLICY: OwnerPolicy = readOwnerPolicy(SHIPPED_POLICY_PATH);
 
 /** The configured file when `OPENOMNI_POLICY_PATH` names one, else the shipped default. */
 function ownerPolicy(path: string | undefined): OwnerPolicy {

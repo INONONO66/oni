@@ -678,7 +678,7 @@ function offFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["of
 }
 
 /** The optional Owner policy path; blank selects the shipped policy. */
-export function policyPathFromEnv(
+function policyPathFromEnv(
   env: Record<string, string | undefined>,
 ): string | undefined {
   return env.OPENOMNI_POLICY_PATH?.trim() || undefined;
