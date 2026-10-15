@@ -25,6 +25,7 @@ import type { PublishPort } from "../../types";
 import type { ProviderOptions } from "../contract";
 import { translate } from "../../support/translate";
 import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
+import { renderDiscord } from "./render.js";
 
 export class DiscordAdapter implements Channel.Surface {
   readonly id = "discord";
@@ -157,6 +158,13 @@ export class DiscordAdapter implements Channel.Surface {
                   traceId,
                   conversation,
                 );
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
+            },
+            native: {
+              render: renderDiscord,
+              post: async (body) => {
+                const externalMessageId = await this.client.sendNative(channelId, body, traceId, conversation);
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },

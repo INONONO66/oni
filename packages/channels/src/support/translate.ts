@@ -3,6 +3,8 @@ import { DeliveryNotSent } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
+import { cardCaption, DOWNGRADE_NAMES, downgrade, type Downgrade, type Downgraded } from "./downgrade.js";
+import { renderElementImage } from "./render-image.js";
 
 /**
  * The translation layer (#1497): one `Outbound.Payload` becomes the ordered
@@ -45,6 +47,13 @@ interface SendAck {
   readonly externalMessageId?: string;
 }
 
+export interface NativeStep {
+  readonly id: string;
+  readonly element: Outbound.Element;
+  readonly spec: Outbound.Spec;
+  readonly digest: string;
+}
+
 type MediaUpload = (
   kind: "image" | "file",
   bytes: MediaBytes,
@@ -55,10 +64,14 @@ type MediaUpload = (
 const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
 
 /** The surface's physical primitives, already bound to the delivery's channel and thread. */
-export interface SurfaceSends {
+export interface SurfaceSends<TNative = NativeStep> {
   readonly text: (chunk: string) => Promise<string | undefined>;
   readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
   readonly react?: (messageId: string, emoji: string, replaces?: string) => Promise<void>;
+  readonly native?: {
+    readonly render: (step: NativeStep) => TNative;
+    readonly post: (body: TNative) => Promise<SendAck>;
+  };
 }
 
 /** `accepted` only when every step was; `externalMessageId` is the last message posted. */
@@ -67,7 +80,7 @@ export interface DeliveryOutcome {
   readonly externalMessageId?: string;
 }
 
-type Step =
+type TextOrMediaStep =
   | { readonly kind: "text"; readonly chunk: string }
   | {
       readonly kind: "media";
@@ -75,18 +88,223 @@ type Step =
       readonly bytes: MediaBytes;
       readonly upload: MediaUpload;
     };
+type Step<TNative> = TextOrMediaStep
+  | { readonly kind: "native"; readonly body: TNative; readonly post: (body: TNative) => Promise<SendAck> };
 
-function textSteps(parts: Outbound.Part[], render: RenderPolicy): Step[] {
+function textSteps(parts: Outbound.Part[], render: RenderPolicy): TextOrMediaStep[] {
   if (parts.length === 0) return [];
-  const rendered = render.renderMarkdown(Outbound.text({ kind: "message", parts }));
-  const chunks =
-    render.messageLimit === null ? [rendered] : chunkMarkdown(rendered, render.messageLimit);
-  return chunks.map((chunk) => ({ kind: "text", chunk }));
+  const markdown = Outbound.text({ kind: "message", parts });
+  if (render.messageLimit === null)
+    return [{ kind: "text", chunk: render.renderMarkdown(markdown) }];
+  const source = chunkMarkdown(markdown, render.messageLimit);
+  const chunks: TextOrMediaStep[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const original = source[index] ?? "";
+    const chunk = render.renderMarkdown(original);
+    if (chunk.length <= render.messageLimit) {
+      chunks.push({ kind: "text", chunk });
+      continue;
+    }
+    if (original.length <= 64)
+      throw new DeliveryNotSent({ operation: "text.limit", cause: "rendered markup exceeds message limit" });
+    source.splice(index, 1, ...chunkMarkdown(original, Math.max(64, Math.ceil(original.length / 2))));
+    index -= 1;
+  }
+  return chunks;
+}
+
+async function planSpec<TNative>(
+  spec: Outbound.Spec,
+  render: RenderPolicy,
+  sends: SurfaceSends<TNative>,
+  media: { readonly upload: MediaUpload; readonly limits: MediaLimits; readonly resolve: MediaResolver } | undefined,
+): Promise<Step<TNative>[]> {
+  const steps: Step<TNative>[] = [];
+  let pending: Outbound.Part[] = [];
+  let totalBytes = 0;
+  const flush = (): void => { steps.push(...textSteps(pending, render)); pending = []; };
+  const resolveImage = async (ref: string, caption?: string, kind: "image" | "file" = "image"): Promise<MediaBytes> => {
+    if (media === undefined) throw new DeliveryNotSent({ operation: "media", cause: "no resolver or uploader" });
+    const part: Outbound.Part & { kind: "image" | "file" } = kind === "image"
+      ? { kind, ref, caption }
+      : { kind, ref, name: ref };
+    const bytes = await media.resolve(part).catch((error) => {
+      throw new DeliveryNotSent({ operation: "media.resolve", cause: String(error) });
+    });
+    const limit = kind === "image" ? media.limits.imageBytes : media.limits.fileBytes;
+    if (bytes.bytes.byteLength > limit)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${bytes.bytes.byteLength} bytes exceeds the ${kind} limit ${limit}` });
+    if (caption !== undefined && caption.length > media.limits.captionLength)
+      throw new DeliveryNotSent({ operation: "media.caption", cause: `${caption.length} characters exceeds the caption limit ${media.limits.captionLength}` });
+    totalBytes += bytes.bytes.byteLength;
+    if (totalBytes > LETTER_MEDIA_BYTES)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}` });
+    return bytes;
+  };
+  const digest = (id: string, current: Outbound.Spec): string =>
+    Outbound.text({ kind: "message", spec: { root: id, elements: current.elements } });
+  function appendNativeBody(id: string, element: Outbound.Element, current: Outbound.Spec): void {
+    if (sends.native === undefined) return;
+    const step: NativeStep = { id, element, spec: current, digest: digest(id, current) };
+    steps.push({ kind: "native", body: sends.native.render(step), post: sends.native.post });
+  }
+  async function appendImage(result: Extract<Downgraded, { kind: "image" }>): Promise<void> {
+    if (media === undefined) {
+      pending.push({ kind: "text", text: result.caption });
+      return;
+    }
+    flush();
+    if (result.caption.length > media.limits.captionLength)
+      throw new DeliveryNotSent({ operation: "media.caption", cause: `${result.caption.length} characters exceeds the caption limit ${media.limits.captionLength}` });
+    const bytes = await renderElementImage(result.element, result.caption).catch((error) => {
+      throw new DeliveryNotSent({ operation: "image.render", cause: String(error) });
+    });
+    if (bytes.bytes.byteLength > media.limits.imageBytes)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${bytes.bytes.byteLength} bytes exceeds the image limit ${media.limits.imageBytes}` });
+    totalBytes += bytes.bytes.byteLength;
+    if (totalBytes > LETTER_MEDIA_BYTES)
+      throw new DeliveryNotSent({ operation: "media.limit", cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}` });
+    steps.push({ kind: "media", part: { kind: "image", ref: bytes.name, caption: result.caption }, bytes, upload: media.upload });
+  }
+
+  async function appendCaptionKeyboard(
+    result: Extract<Downgraded, { kind: "caption-keyboard" }>, id: string, current: Outbound.Spec,
+  ): Promise<void> {
+    if (result.image === undefined || media === undefined)
+      pending.push({ kind: "text", text: `${result.caption}${result.image === undefined ? "" : `\n[image] ${result.image}`}` });
+    else {
+      flush();
+      const bytes = await resolveImage(result.image, result.caption);
+      steps.push({ kind: "media", part: { kind: "image", ref: result.image, caption: result.caption }, bytes, upload: media.upload });
+    }
+    if (result.buttons.length === 0) return;
+    const buttons: Outbound.Element = { type: "Buttons", props: {}, children: [...result.buttons] };
+    const buttonSpec: Outbound.Spec = { root: `${id}:keyboard`, elements: {
+      ...current.elements, [`${id}:keyboard`]: buttons,
+    } };
+    flush();
+    if (sends.native === undefined)
+      pending.push({ kind: "text", text: result.buttons.map((child) => digest(child, current)).join("\n") });
+    else appendNativeBody(buttonSpec.root, buttons, buttonSpec);
+  }
+
+  async function appendDowngrade(name: Downgrade, id: string, current: Outbound.Spec): Promise<void> {
+    const result = downgrade(name, id, current);
+    switch (result.kind) {
+      case "text":
+        pending.push({ kind: "text", text: result.text });
+        return;
+      case "sequence":
+        for (const child of result.ids) await visit(child, result.spec ?? current);
+        return;
+      case "album": {
+        const element = current.elements[id];
+        if (sends.native !== undefined && element?.type === "Carousel" && result.ids.every((child) => {
+          const card = current.elements[child];
+          return card?.type === "Card" && card.props.image?.startsWith("https://");
+        })) {
+          flush();
+          appendNativeBody(id, element, current);
+        } else for (const child of result.ids) await visit(child, current);
+        return;
+      }
+      case "caption-keyboard":
+        await appendCaptionKeyboard(result, id, current);
+        return;
+      case "image":
+        await appendImage(result);
+        return;
+    }
+  }
+
+  async function appendNative(id: string, element: Outbound.Element, current: Outbound.Spec): Promise<void> {
+    if (sends.native === undefined) return;
+    flush();
+    if (element.type === "Card" && element.props.image !== undefined && !element.props.image.startsWith("https://")) {
+      if (media === undefined) {
+        pending.push({ kind: "text", text: digest(id, current) });
+        return;
+      }
+      const caption = cardCaption(element);
+      const bytes = await resolveImage(element.props.image, caption);
+      steps.push({ kind: "media", part: { kind: "image", ref: element.props.image, caption },
+        bytes, upload: media.upload });
+      return;
+    }
+    appendNativeBody(id, element, current);
+  }
+
+  async function appendMedia(id: string, element: Extract<Outbound.Element, { type: "Image" | "File" }>,
+    current: Outbound.Spec, policy: string): Promise<void> {
+    if (media === undefined || policy === "text") {
+      pending.push({ kind: "text", text: digest(id, current) });
+      return;
+    }
+    flush();
+    const part = element.type === "Image"
+      ? { kind: "image" as const, ref: element.props.ref, caption: element.props.caption }
+      : { kind: "file" as const, ref: element.props.ref, name: element.props.name };
+    steps.push({ kind: "media", part, bytes: await resolveImage(part.ref,
+      part.kind === "image" ? part.caption : undefined, part.kind), upload: media.upload });
+  }
+
+  function hasIncompleteAlbum(element: Outbound.Element, current: Outbound.Spec): boolean {
+    if (element.type !== "Carousel") return false;
+    return element.children.some((child) => {
+      const card = current.elements[child];
+      return card?.type !== "Card" || card.props.image === undefined || !card.props.image.startsWith("https://");
+    });
+  }
+
+  async function visitCardChildren(element: Outbound.Element, current: Outbound.Spec): Promise<void> {
+    if (element.type === "Card")
+      for (const child of element.children) await visit(child, current);
+    if (element.type === "Carousel")
+      for (const cardId of element.children) {
+        const card = current.elements[cardId];
+        if (card?.type === "Card")
+          for (const child of card.children) await visit(child, current);
+      }
+  }
+
+  async function visitElement(id: string, element: Outbound.Element, current: Outbound.Spec): Promise<void> {
+    const policy = render.capabilities[element.type];
+    if (element.type === "Image" || element.type === "File") {
+      await appendMedia(id, element, current, policy);
+      return;
+    }
+    const name = DOWNGRADE_NAMES.find((candidate) => policy === `downgrade:${candidate}`);
+    if (name !== undefined) {
+      await appendDowngrade(name, id, current);
+      if (name === "card-to-image") await visitCardChildren(element, current);
+      return;
+    }
+    if (policy === "text" || sends.native === undefined) {
+      const image = element.type === "Card" ? element.props.image : undefined;
+      pending.push({ kind: "text", text: digest(id, current) + (image === undefined ? "" : `\n[image] ${image}`) });
+      return;
+    }
+    await appendNative(id, element, current);
+    await visitCardChildren(element, current);
+  }
+
+  async function visit(id: string, current: Outbound.Spec): Promise<void> {
+    const element = current.elements[id];
+    if (element === undefined) return;
+    if (element.type === "Stack" || hasIncompleteAlbum(element, current)) {
+      for (const child of element.children) await visit(child, current);
+      return;
+    }
+    await visitElement(id, element, current);
+  }
+  await visit(spec.root, spec);
+  flush();
+  return steps;
 }
 
 /** Every media reference resolves before the first send so a bad one refuses the letter whole. */
 async function plan(
-  message: Outbound.Message,
+  parts: Outbound.Part[],
   render: RenderPolicy,
   media:
     | {
@@ -95,11 +313,10 @@ async function plan(
         readonly resolve: MediaResolver;
       }
     | undefined,
-): Promise<Step[]> {
-  const steps: Step[] = [];
+): Promise<TextOrMediaStep[]> {
+  const steps: TextOrMediaStep[] = [];
   let pending: Outbound.Part[] = [];
   let totalBytes = 0;
-  const parts: Outbound.Part[] = Outbound.parts(message);
   for (const part of parts) {
     if (part.kind === "text" || part.kind === "code" || media === undefined) {
       pending.push(part);
@@ -133,8 +350,9 @@ async function plan(
   return steps;
 }
 
-async function runStep(step: Step, text: SurfaceSends["text"]): Promise<SendAck> {
+async function runStep<TNative>(step: Step<TNative>, text: SurfaceSends["text"]): Promise<SendAck> {
   if (step.kind === "media") return step.upload(step.part.kind, step.bytes, step.part.caption);
+  if (step.kind === "native") return step.post(step.body);
   const externalMessageId = await text(step.chunk);
   return externalMessageId === undefined ? {} : { externalMessageId };
 }
@@ -144,7 +362,7 @@ async function runStep(step: Step, text: SurfaceSends["text"]): Promise<SendAck>
  * accepted, a later failure or a missing receipt is reported as partial so
  * the reconciliation never resends what the person already has.
  */
-async function runSteps(steps: Step[], text: SurfaceSends["text"]): Promise<DeliveryOutcome> {
+async function runSteps<TNative>(steps: Step<TNative>[], text: SurfaceSends["text"]): Promise<DeliveryOutcome> {
   const acceptedChunks: { index: number; externalMessageId: string }[] = [];
   let acknowledged = 0;
   let attempted = 0;
@@ -174,10 +392,10 @@ async function runSteps(steps: Step[], text: SurfaceSends["text"]): Promise<Deli
     : { accepted: true, externalMessageId: lastMessageId };
 }
 
-export async function translate(
+export async function translate<TNative>(
   payload: Outbound.Payload,
   render: RenderPolicy,
-  sends: SurfaceSends,
+  sends: SurfaceSends<TNative>,
   resolve?: MediaResolver,
 ): Promise<DeliveryOutcome> {
   if (payload.kind === "react") {
@@ -188,5 +406,7 @@ export async function translate(
   }
   const media =
     sends.media === undefined || resolve === undefined ? undefined : { ...sends.media, resolve };
-  return runSteps(await plan(payload, render, media), sends.text);
+  return runSteps(await (payload.spec !== undefined
+    ? planSpec(payload.spec, render, sends, media)
+    : plan(payload.parts ?? [], render, media)), sends.text);
 }

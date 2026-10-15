@@ -1,16 +1,23 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 import { Outbound } from "@openomni/protocol";
 import { DeliveryNotSent } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
 import { slackEmojiName } from "../src/provider/slack/emoji";
-import { PartialDeliveryError, type SurfaceSends, translate } from "../src/support/translate";
+import { TELEGRAM_RENDER } from "../src/provider/telegram/format";
+import { PartialDeliveryError, type NativeStep, type SurfaceSends, translate } from "../src/support/translate";
 import type { MediaBytes } from "../src/types";
 
 /** Identity dialect with a small limit so chunking is observable. */
-const RENDER: RenderPolicy = { renderMarkdown: (markdown) => markdown, messageLimit: 64 };
+const CAPABILITIES = {
+  Stack: "native", Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",
+  Buttons: "text", Button: "text", Card: "text", Carousel: "text", Poll: "text",
+  Status: "text", Divider: "text", Context: "text",
+} as const;
+const RENDER: RenderPolicy = { renderMarkdown: (markdown) => markdown, messageLimit: 64, capabilities: CAPABILITIES };
 const UNBOUNDED: RenderPolicy = {
   renderMarkdown: (markdown) => `<${markdown}>`,
   messageLimit: null,
+  capabilities: CAPABILITIES,
 };
 
 type Sent =
@@ -81,6 +88,17 @@ describe("translate: text folding", () => {
     expect(r.sent).toEqual([{ kind: "text", chunk: "<structured>" }]);
   });
 
+  test("Telegram chunks before HTML rendering so escaped entities stay whole", async () => {
+    const chunks: string[] = [];
+    const sends: SurfaceSends = { text: async (chunk) => {
+      chunks.push(chunk);
+      return String(chunks.length);
+    } };
+    await translate(Outbound.payload("<".repeat(1200)), TELEGRAM_RENDER, sends);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe("&lt;".repeat(1200));
+    expect(chunks.every((chunk) => chunk.length <= 4096 && !chunk.endsWith("&lt"))).toBe(true);
+  });
   test("adjacent text and code parts fold into one rendered message", async () => {
     const r = recorder();
     const outcome = await translate(
@@ -314,6 +332,306 @@ describe("translate: partial delivery", () => {
     const partial = error as PartialDeliveryError;
     expect(partial.reason).toBe("missing_receipt");
     expect(partial.acceptedChunks).toEqual([{ index: 1, externalMessageId: "m1" }]);
+  });
+});
+
+describe("translate: catalog specs", () => {
+  const spec: Outbound.Spec = {
+    root: "cards",
+    elements: {
+      cards: { type: "Carousel", props: {}, children: ["first", "second"] },
+      first: { type: "Card", props: { title: "First", image: "/first.png" }, children: [] },
+      second: { type: "Card", props: { title: "Second" }, children: [] },
+      poll: { type: "Poll", props: { question: "Choose", options: ["One", "Two"] }, children: [] },
+      image: { type: "Image", props: { ref: "/image.png" }, children: [] },
+      table: { type: "Table", props: { columns: [{ header: "Name" }], rows: [["A"]] }, children: [] },
+    },
+  };
+  const policy: RenderPolicy = {
+    ...UNBOUNDED,
+    capabilities: { ...CAPABILITIES, Card: "native", Carousel: "native", Image: "native",
+      Poll: "downgrade:poll-to-buttons", Buttons: "native" },
+  };
+
+  test("Stack walks children vertically and folds adjacent text before native and media sends", async () => {
+    const stack: Outbound.Spec = {
+      root: "stack",
+      elements: {
+        stack: { type: "Stack", props: {}, children: ["markdown", "context", "buttons", "image"] },
+        markdown: { type: "Markdown", props: { text: "**ready**" }, children: [] },
+        context: { type: "Context", props: { text: "secondary" }, children: [] },
+        buttons: { type: "Buttons", props: {}, children: ["button"] },
+        button: { type: "Button", props: { id: "open", label: "Open" }, children: [] },
+        image: { type: "Image", props: { ref: "/image.png", caption: "shot" }, children: [] },
+      },
+    };
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
+      native: {
+        render: (step) => step,
+        post: async (step) => {
+          calls.push(`native:${step.element.type}`); return { externalMessageId: "native" };
+        },
+      },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "media" };
+      } },
+    };
+    await translate({ kind: "message", spec: stack }, policy, sends, resolve);
+    expect(calls).toEqual(["text:<**ready**\n\nsecondary>", "native:Buttons", "media:image.png"]);
+  });
+
+  test("catalog carousel falls back to ordered card sends and resolves media before posting", async () => {
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "m1"; },
+      native: { render: (step) => step,
+        post: async (step) => { calls.push(`native:${step.id}`); return { externalMessageId: "m2" }; } },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "m3" };
+      } },
+    };
+    const outcome = await translate({ kind: "message", spec }, policy, sends, async (part) => {
+      calls.push(`resolve:${part.ref}`);
+      return resolve(part);
+    });
+    expect(calls).toEqual(["resolve:/first.png", "media:image.png", "native:second"]);
+    expect(outcome).toEqual({ accepted: true, externalMessageId: "m2" });
+  });
+
+  test("poll downgrade creates actionable button steps after the question", async () => {
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "m1"; },
+      native: {
+        render: (step: NativeStep) => step,
+        post: async (step) => {
+          calls.push(`native:${step.element.type}:${step.spec.elements["poll:option:0"]?.type}`);
+          return { externalMessageId: "m2" };
+        },
+      },
+    };
+    await translate({ kind: "message", spec: { ...spec, root: "poll" } }, policy, sends);
+    expect(calls).toEqual(["text:<Choose>", "native:Buttons:Button"]);
+  });
+
+  test("caption-keyboard downgrade uploads the image when a card has no actions", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: [] },
+      },
+    };
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "image" };
+      } },
+    };
+    const cardPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
+    } };
+    expect(await translate({ kind: "message", spec: cardSpec }, cardPolicy, sends, resolve))
+      .toEqual({ accepted: true, externalMessageId: "image" });
+    expect(calls).toEqual(["media:image.png"]);
+  });
+
+  test("card caption keyboard keeps nested actions after the image", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Report", image: "/card.png" }, children: ["actions"] },
+        actions: { type: "Buttons", props: {}, children: ["open"] },
+        open: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+      },
+    };
+    expect(Outbound.Spec.safeParse(cardSpec).success).toBe(true);
+    const posted: string[] = [];
+    const cardPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
+    } };
+    const sends: SurfaceSends = {
+      text: async (text) => { posted.push(`text:${text}`); return "text"; },
+      media: { limits: LIMITS, upload: async (_kind, bytes, caption) => {
+        posted.push(`media:${bytes.name}:${caption}`); return { externalMessageId: "photo" };
+      } },
+      native: { render: (step) => step,
+        post: async (step) => {
+          posted.push(`native:${step.element.type}:${step.spec.elements.open?.type}`);
+          return { externalMessageId: "buttons" };
+        } },
+    };
+    expect(await translate({ kind: "message", spec: cardSpec }, cardPolicy, sends, resolve))
+      .toEqual({ accepted: true, externalMessageId: "buttons" });
+    expect(posted).toEqual(["media:image.png:Report", "native:Buttons:Button"]);
+  });
+
+  test("a native card visits its nested Buttons after posting the card", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Report" }, children: ["actions"] },
+        actions: { type: "Buttons", props: {}, children: ["open"] },
+        open: { type: "Button", props: { label: "Open", id: "open" }, children: [] },
+      },
+    };
+    const posted: string[] = [];
+    await translate({ kind: "message", spec: cardSpec }, policy, {
+      text: async (text) => { posted.push(`text:${text}`); return "text"; },
+      native: { render: (step) => step,
+        post: async (step) => {
+          posted.push(`native:${step.element.type}`); return { externalMessageId: step.id };
+        } },
+    });
+    expect(posted).toEqual(["native:Card", "native:Buttons"]);
+  });
+
+  test("caption-keyboard downgrade remains readable without a media port", async () => {
+    const cardSpec: Outbound.Spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Card", image: "/card.png" }, children: [] },
+      },
+    };
+    const sent: string[] = [];
+    const cardPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Card: "downgrade:card-to-caption-keyboard",
+    } };
+    await translate({ kind: "message", spec: cardSpec }, cardPolicy, {
+      text: async (chunk) => { sent.push(chunk); return "text"; },
+    });
+    expect(sent).toEqual(["<Card\n[image] /card.png>"]);
+  });
+
+  test("complete albums stay one native send while image elements use media", async () => {
+    const albumSpec: Outbound.Spec = {
+      root: "album",
+      elements: {
+        album: { type: "Carousel", props: {}, children: ["one", "two"] },
+        one: { type: "Card", props: { title: "One", image: "https://example.test/one.png" }, children: [] },
+        two: { type: "Card", props: { title: "Two", image: "https://example.test/two.png" }, children: [] },
+        image: { type: "Image", props: { ref: "/image.png", caption: "shot" }, children: [] },
+      },
+    };
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async (chunk) => { calls.push(`text:${chunk}`); return "text"; },
+      media: { limits: LIMITS, upload: async (_kind, bytes) => {
+        calls.push(`media:${bytes.name}`); return { externalMessageId: "image" };
+      } },
+      native: {
+        render: (step) => step,
+        post: async (step) => {
+          calls.push(`native:${step.id}`); return { externalMessageId: "native" };
+        },
+      },
+    };
+    const albumPolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Carousel: "downgrade:carousel-to-album", Image: "native",
+    } };
+    await translate({ kind: "message", spec: albumSpec }, albumPolicy, sends, resolve);
+    await translate({ kind: "message", spec: { ...albumSpec, root: "image" } }, albumPolicy, sends, resolve);
+    expect(calls).toEqual(["native:album", "media:image.png"]);
+  });
+
+  test("an image downgrade falls back to text when the surface has no media port", async () => {
+    const sent: string[] = [];
+    const imagePolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Table: "downgrade:table-to-image",
+    } };
+    await translate({ kind: "message", spec: { ...spec, root: "table" } }, imagePolicy, {
+      text: async (chunk) => { sent.push(chunk); return "text"; },
+    });
+    expect(sent).toEqual(["<Name\nA>"]);
+  });
+
+  test("an image downgrade refuses an oversized caption before rasterization", async () => {
+    const imagePolicy: RenderPolicy = { ...policy, capabilities: {
+      ...policy.capabilities, Table: "downgrade:table-to-image",
+    } };
+    const sends: SurfaceSends = {
+      text: async () => "text",
+      media: { limits: { ...LIMITS, captionLength: 2 }, upload: async () => ({}) },
+    };
+    const error = await translate(
+      { kind: "message", spec: { ...spec, root: "table" } },
+      imagePolicy,
+      sends,
+      resolve,
+    ).catch((value) => value);
+    expect(error).toBeInstanceOf(DeliveryNotSent);
+    expect(error).toMatchObject({ operation: "media.caption" });
+  });
+
+  test("a failed native step after text reports partial delivery", async () => {
+    const sends: SurfaceSends = {
+      text: async () => "m1",
+      native: { render: (step) => step, post: async () => { throw new Error("upstream reset"); } },
+    };
+    const error = await translate({ kind: "message", spec: { ...spec, root: "poll" } }, policy, sends).catch((value) => value);
+    expect(error).toBeInstanceOf(PartialDeliveryError);
+    expect(error).toMatchObject({ reason: "send_failed", attemptedChunks: 2,
+      acceptedChunks: [{ index: 1, externalMessageId: "m1" }] });
+  });
+
+  test("media reference failure rejects all planned sends", async () => {
+    const calls: string[] = [];
+    const sends: SurfaceSends = {
+      text: async () => { calls.push("text"); return "m1"; },
+      native: { render: (step) => step,
+        post: async () => { calls.push("native"); return { externalMessageId: "m2" }; } },
+      media: { limits: LIMITS, upload: async () => { calls.push("media"); return {}; } },
+    };
+    await expect(translate({ kind: "message", spec }, policy, sends,
+      async () => { throw new Error("missing image"); })).rejects.toBeInstanceOf(DeliveryNotSent);
+    expect(calls).toEqual([]);
+  });
+
+  test("table-to-image uses the same upload and limit path", async () => {
+    const uploads: { mime: string; caption: string | undefined; bytes: Uint8Array }[] = [];
+    const sends: SurfaceSends = {
+      text: async () => "text",
+      media: { limits: { imageBytes: 1_000_000, fileBytes: 1_000_000, captionLength: 128 },
+        upload: async (_kind, bytes, caption) => {
+          uploads.push({ mime: bytes.mime, caption, bytes: bytes.bytes });
+          return { externalMessageId: "png-1" };
+        } },
+    };
+    const imagePolicy = { ...policy, capabilities: { ...policy.capabilities,
+      Table: "downgrade:table-to-image" as const } };
+    expect(await translate({ kind: "message", spec: { ...spec, root: "table" } },
+      imagePolicy, sends, resolve)).toEqual({ accepted: true, externalMessageId: "png-1" });
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]?.mime).toBe("image/png");
+    expect([...uploads[0]?.bytes.slice(0, 8) ?? []]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  test("an image rasterization failure becomes a typed delivery refusal", async () => {
+    mock.module("../src/support/render-image", () => ({
+      renderElementImage: () => Promise.reject(new Error("raster failed")),
+    }));
+    try {
+      const imagePolicy: RenderPolicy = { ...policy, capabilities: {
+        ...policy.capabilities, Table: "downgrade:table-to-image",
+      } };
+      const sends: SurfaceSends = {
+        text: async () => "text",
+        media: { limits: { imageBytes: 1_000_000, fileBytes: 1_000_000, captionLength: 128 },
+          upload: async () => ({}) },
+      };
+      const error = await translate(
+        { kind: "message", spec: { ...spec, root: "table" } },
+        imagePolicy,
+        sends,
+        resolve,
+      ).catch((value) => value);
+      expect(error).toBeInstanceOf(DeliveryNotSent);
+      expect(error).toMatchObject({ operation: "image.render", cause: "Error: raster failed" });
+    } finally {
+      mock.restore();
+    }
   });
 });
 

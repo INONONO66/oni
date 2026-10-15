@@ -14,6 +14,18 @@ export class DeliveryNotSent extends Data.TaggedError("DeliveryNotSent")<
   z.infer<typeof ChannelsFailureFields>
 > {}
 
+export class CallbackDataTooLong extends Data.TaggedError("CallbackDataTooLong")<{
+  readonly id: string;
+  readonly bytes: number;
+}> {}
+
+export class RenderLimitExceeded extends Data.TaggedError("RenderLimitExceeded")<{
+  readonly kind: "buttons" | "cards" | "options" | "blocks" | "content" | "caption"
+    | "title" | "description" | "label" | "action_id" | "custom_id" | "question" | "answer";
+  readonly count: number;
+  readonly limit: number;
+}> {}
+
 export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
   readonly reason: "approval_required" | "not_found";
   readonly id: string;
@@ -101,6 +113,8 @@ export type ChannelError =
   | AutomationConfigurationError
   | AutomationEnableRefused
   | DeliveryNotSent
+  | CallbackDataTooLong
+  | RenderLimitExceeded
   | InvalidInbound
   | DiscordGatewayFetchError
   | DiscordApiError

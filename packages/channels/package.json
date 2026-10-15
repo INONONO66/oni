@@ -11,8 +11,10 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@json-render/image": "0.21.1",
     "@openomni/agent": "workspace:*",
     "@openomni/protocol": "workspace:*",
+    "@resvg/resvg-js": "^2.6.2",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"
   },

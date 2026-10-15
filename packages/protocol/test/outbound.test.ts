@@ -31,6 +31,18 @@ describe("Outbound (#1497)", () => {
     expect(Outbound.Part.safeParse({ kind: "file", ref: "x" }).success).toBe(false);
   });
 
+  test("a message accepts exactly one of parts or a catalog spec", () => {
+    const parts = [{ kind: "text", text: "hello" }];
+    const spec = {
+      root: "message",
+      elements: { message: { type: "Markdown", props: { text: "hello" }, children: [] } },
+    };
+    expect(Outbound.Message.safeParse({ kind: "message", parts }).success).toBe(true);
+    expect(Outbound.Message.safeParse({ kind: "message", spec }).success).toBe(true);
+    expect(Outbound.Message.safeParse({ kind: "message" }).success).toBe(false);
+    expect(Outbound.Message.safeParse({ kind: "message", parts, spec }).success).toBe(false);
+  });
+
   test("the text reading keeps every part visible: code fenced, media named by reference", () => {
     const text = Outbound.text({
       kind: "message",
@@ -174,6 +186,23 @@ describe("Outbound (#1497)", () => {
       const cards = Object.fromEntries(Array.from({ length: count }, (_, index) => [`card-${index}`, { type: "Card", props: { title: String(index) }, children: [] }]));
       expect(Outbound.Spec.safeParse({ root: "carousel", elements: { carousel: { type: "Carousel", props: {}, children: Object.keys(cards) }, ...cards } }).success).toBe(false);
     }
+  });
+
+  test("Card may contain one Buttons group and preserves link URLs in its digest", () => {
+    const spec = {
+      root: "card",
+      elements: {
+        card: { type: "Card", props: { title: "Report", body: "Ready" }, children: ["actions"] },
+        actions: { type: "Buttons", props: {}, children: ["open"] },
+        open: { type: "Button", props: { label: "Open", url: "https://example.test" }, children: [] },
+      },
+    };
+    expect(Outbound.Spec.safeParse(spec).success).toBe(true);
+    expect(Outbound.text({ kind: "message", spec: Outbound.Spec.parse(spec) }))
+      .toBe("Report\n\nReady\n\n[Open](https://example.test)");
+    const invalid = { ...spec, elements: { ...spec.elements,
+      card: { ...spec.elements.card, children: ["actions", "open"] } } };
+    expect(Outbound.Spec.safeParse(invalid).success).toBe(false);
   });
 
   test("catalog digest walks depth-first and keeps every element readable as text", () => {

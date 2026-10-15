@@ -7,6 +7,8 @@ const failures = {
   AutomationEnableRefused: new Errors.AutomationEnableRefused({ id: "fixture", reason: "approval_required" }),
   AutomationConfigurationError: new Errors.AutomationConfigurationError({ reason: "store_unconfigured" }),
   DeliveryNotSent: new Errors.DeliveryNotSent({ operation: "fixture.preflight", cause: "refused" }),
+  CallbackDataTooLong: new Errors.CallbackDataTooLong({ id: "long", bytes: 65 }),
+  RenderLimitExceeded: new Errors.RenderLimitExceeded({ kind: "cards", count: 11, limit: 10 }),
   ChannelsFailure: Errors.decodeChannelFailure("fixture")(new Error("foreign")),
   InvalidInbound: new Errors.InvalidInbound({ operation: "websocket.frame", reason: "invalid_json" }),
   DiscordGatewayFetchError: new Errors.DiscordGatewayFetchError({ message: "fixture" }),

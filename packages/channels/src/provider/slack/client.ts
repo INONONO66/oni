@@ -3,6 +3,7 @@ import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
 import { SlackApiError } from "../../errors";
 import type { PlainValue } from "@openomni/protocol";
+import type { SlackBlock } from "./render.js";
 
 const BASE_URL = "https://slack.com/api";
 
@@ -67,6 +68,17 @@ export class SlackClient implements ChannelClient {
     const data = await this.api(
       "chat.postMessage",
       { channel: channelId, text },
+      traceId,
+      this.botToken,
+      { schema: PostedTsSchema, malformed: "chat.postMessage returned a malformed ts" },
+    );
+    return data.ts;
+  }
+
+  async sendBlocks(channelId: string, blocks: readonly SlackBlock[], text: string, traceId: string, threadTs?: string): Promise<string | undefined> {
+    const data = await this.api(
+      "chat.postMessage",
+      { channel: channelId, text, blocks: [...blocks], ...(threadTs === undefined ? {} : { thread_ts: threadTs }) },
       traceId,
       this.botToken,
       { schema: PostedTsSchema, malformed: "chat.postMessage returned a malformed ts" },

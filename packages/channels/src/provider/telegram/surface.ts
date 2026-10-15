@@ -8,6 +8,7 @@ import { translate } from "../../support/translate";
 import { RateLimited, TelegramApiError } from "../../errors";
 import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format";
 import { TelegramClient } from "./client";
+import { renderTelegram } from "./render.js";
 import { TelegramNormalizer } from "./normalizer";
 import { TelegramPoller } from "./poller";
 import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
@@ -30,7 +31,7 @@ export class TelegramAdapter implements Channel.Surface {
     private readonly options: ProviderOptions,
   ) {
     this.dedupe = new Dedupe(options.now);
-    this.client = new TelegramClient(token, publish, options.now, options.run);
+    this.client = new TelegramClient(token, publish, options.run);
   }
 
   onMessage(handler: Channel.MessageHandler): void {
@@ -108,7 +109,7 @@ export class TelegramAdapter implements Channel.Surface {
           payload,
           TELEGRAM_RENDER,
           {
-            text: (chunk) => this.client.sendMarkdown(chatId, chunk, traceId, conversation),
+            text: (chunk) => this.client.sendHtml(chatId, chunk, traceId, conversation),
             media: {
               limits: TELEGRAM_MEDIA_LIMITS,
               upload: async (kind, bytes, caption) => {
@@ -120,6 +121,13 @@ export class TelegramAdapter implements Channel.Surface {
                   traceId,
                   conversation,
                 );
+                return externalMessageId === undefined ? {} : { externalMessageId };
+              },
+            },
+            native: {
+              render: renderTelegram,
+              post: async (rendered) => {
+                const externalMessageId = await this.client.sendNative(chatId, rendered.method, rendered.body, traceId, conversation);
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },

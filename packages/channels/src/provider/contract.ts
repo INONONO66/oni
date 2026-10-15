@@ -1,6 +1,7 @@
 import type { Channel, Gateway, Outbound } from "@openomni/protocol";
 import type { EffectRunner, MediaResolver, PublishPort } from "../types.js";
 import type { z } from "zod";
+import type { Downgrade } from "../support/downgrade.js";
 
 /**
  * Existing-agent delivery through this provider, keyed by ActorEndpoint
@@ -53,6 +54,7 @@ type IngestMode = "poll" | "socket" | "webhook";
  * policy instead of reverse-engineering the send path.
  */
 export interface RenderPolicy {
+  readonly capabilities: Readonly<Record<Outbound.ElementType, "native" | `downgrade:${Downgrade}` | "text">>;
   /**
    * Maps Resident markdown to the platform dialect; identity where the
    * platform accepts the text as-is (slack mrkdwn, github comments).
