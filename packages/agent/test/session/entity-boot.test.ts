@@ -41,11 +41,13 @@ test("prompts reply with chain receipts; the chain links from genesis and the en
   const [first, second] = await runCluster(
     options,
     Effect.gen(function* () {
-      const a = yield* sendPrompt("s1", "boot-m1", "hello");
-      const b = yield* sendPrompt("s1", "boot-m2", "hello again");
       // Ack evidence: sql storage sets the processed flag in the transaction
       // that saves the reply, before the reply reaches this caller.
-      expect(clusterMessages(catalogFile, "Session").map((row) => row.processed)).toContain(1);
+      const processed = () => clusterMessages(catalogFile, "Session").map((row) => row.processed);
+      const a = yield* sendPrompt("s1", "boot-m1", "hello");
+      expect(processed()).toEqual([1]);
+      const b = yield* sendPrompt("s1", "boot-m2", "hello again");
+      expect(processed()).toEqual([1, 1]);
       return [a, b] as const;
     }),
   );
