@@ -32,6 +32,9 @@ export function createCodemode(options: {
   toolOutput?: (tenant: string, outputId: string) => Promise<{ text: string; bytes: number; mediaType?: string } | undefined>;
   tools?: (tenant: string) => Caller;
   boundary?: (tenant: string) => Boundary;
+  self?: string;
+  scheduler?: { schedule(delayMs: number, task: () => void): () => void };
+  idleTtlMs?: number;
 } = {}) {
   const completion = options.completion;
   const toolOutput = options.toolOutput;
@@ -45,6 +48,9 @@ export function createCodemode(options: {
     toolOutput: toolOutput ? (tenant, outputId) => code(() => toolOutput(tenant, outputId)) : undefined,
     tools: tools ? (tenant) => { const call = tools(tenant); return (request) => code(() => call(request)); } : undefined,
     boundary: boundary ? (tenant) => { const decide = boundary(tenant); return (call, body) => code(() => decide(call, () => run(body()))); } : undefined,
+    self: options.self,
+    scheduler: options.scheduler,
+    idleTtlMs: options.idleTtlMs,
   }));
   const runner: CodeRunner = { native: native.runner,
     runCode: (request, call, signal) => run(native.runner.runCode(request, (request) => foreign(() => call(request)), signal)),
@@ -53,7 +59,7 @@ export function createCodemode(options: {
   };
   type Handle = ReturnType<typeof native.getMachine>;
   function wrapHandle(handle: Handle) {
-    return { read: (...args: Parameters<Handle["read"]>) => run(handle.read(...args)),
+    return { id: handle.id, read: (...args: Parameters<Handle["read"]>) => run(handle.read(...args)),
       write: (...args: Parameters<Handle["write"]>) => run(handle.write(...args)),
       ls: (...args: Parameters<Handle["ls"]>) => run(handle.ls(...args)),
       bash: (...args: Parameters<Handle["bash"]>) => run(handle.bash(...args)),
@@ -70,7 +76,7 @@ export function createCodemode(options: {
   }
   return { native, runner, close: runner.close, listMachines: native.listMachines,
     getMachine: (id: string) => handle(native.getMachine(id)),
-    findMachine: (query: { tag: string }) => handle(native.findMachine(query)),
+    findMachine: (query: Parameters<typeof native.findMachine>[0]) => handle(native.findMachine(query)),
     callTool: (...args: Parameters<typeof native.callTool>) => run(native.callTool(...args)),
     cell: {
       run: (...args: Parameters<typeof native.cell.run>) => run(native.cell.run(...args)),

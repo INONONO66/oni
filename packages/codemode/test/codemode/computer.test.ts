@@ -32,7 +32,7 @@ async function fixture(
     now: () => 2,
     callTool: (call) => mode.callTool(call),
   });
-  mode = createCodemode({ machines: host });
+  mode = createCodemode({ machines: host, self: "A" });
   const daemon = await attachMachineDaemon({
     socketPath,
     offer: {
@@ -71,7 +71,7 @@ test("Python cells drive m.screen() and m.input() with an implicit capture ancho
   await fixture(async ({ mode, fake }) => {
     const result = await mode.cell.run(
       [
-        "m = codemode.getMachine('A')",
+        "m = machine('A')",
         "shot = m.screen()",
         "ok = shot['status'] == 'ok' and shot['png'][:4] == b'\\x89PNG'",
         "pressed = m.input([{'click': {'x': 10, 'y': 20}}, {'type': {'text': 'nonce-7'}}])",
@@ -89,7 +89,7 @@ test("Python input without a prior capture raises a ToolError", async () => {
     const result = await mode.cell.run(
       [
         "try:",
-        "    codemode.getMachine('A').input([{'click': {'x': 1, 'y': 1}}])",
+        "    machine('A').input([{'click': {'x': 1, 'y': 1}}])",
         "    message = 'no error'",
         "except ToolError as error:",
         "    message = str(error)",

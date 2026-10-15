@@ -43,7 +43,7 @@ test("two cells in one turn each own a full completion budget", async () => {
   }));
   suite.defer(() => runEffect(daemon.close()));
   expect(daemon.attachment.status).toBe("attached");
-  cells = acquireSyncEffect(composeCodemode(host, { id: testIds("budget-compose") }));
+  cells = acquireSyncEffect(composeCodemode(host, { id: testIds("budget-compose"), selfMachineId: "budget" }));
   suite.defer(() => runEffect(cells.close()));
   let completions = 0;
   const definitions = bundleTools({ ...testToolPorts, cells: cellPorts(cells), llm: async () => {
@@ -119,7 +119,7 @@ test("a non-ToolRefused defect inside the cell door dies instead of folding to a
   }));
   suite.defer(() => runEffect(daemon.close()));
   expect(daemon.attachment.status).toBe("attached");
-  cells = acquireSyncEffect(composeCodemode(host, { id: testIds("defect-compose") }));
+  cells = acquireSyncEffect(composeCodemode(host, { id: testIds("defect-compose"), selfMachineId: "defect" }));
   suite.defer(() => runEffect(cells.close()));
   let completions = 0;
   const definitions = bundleTools({ ...testToolPorts, cells: cellPorts(cells), llm: () => {

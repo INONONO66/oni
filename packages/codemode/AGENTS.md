@@ -2,7 +2,7 @@
 
 Created 2026-10-03 (#1272, branch `machines/1272-codemode-package`).
 
-Code-mode package (`@openomni/codemode`): the reusable Python-backed cell runtime shared by the application host and the machine daemon. Owns the code facade (`createCodemode`), machine object handles (`read/write/ls/bash/eval`), one lazy `PythonKernel` per tenant, the cell registry and `cell.run/peek/stop` lifecycle, the Python prelude (machine handles, `parallel`, `completion`, `tool.<name>()` proxies, `browser()`/`BrowserClient` Chromium-over-CDP automation in a `pty.session`, #1275), `listMachines`/`getMachine`/`findMachine`, codemode errors, callback routing, cancellation, and interpreter cleanup. Extracted from `packages/machines/src/codemode/` (#1246 fold reversed by #1272). It must NOT own kernel policy, ledger state, or model-facing rendering — those stay in `packages/agent` and `apps/openomni`.
+Code-mode package (`@openomni/codemode`): the reusable Python-backed cell runtime shared by the application host and the machine daemon. Owns the code facade (`createCodemode`), machine object handles (`read/write/ls/bash/eval`), one lazy `PythonKernel` per tenant, the cell registry and `cell.run/peek/stop` lifecycle, the Python prelude (machine handles, `parallel`, `completion`, `tool.<name>()` proxies, `browser()`/`BrowserClient` Chromium-over-CDP automation in a `pty.session`, #1275), `listMachines`/`machine`, codemode errors, callback routing, cancellation, and interpreter cleanup. Extracted from `packages/machines/src/codemode/` (#1246 fold reversed by #1272). It must NOT own kernel policy, ledger state, or model-facing rendering — those stay in `packages/agent` and `apps/openomni`.
 
 ## STRUCTURE
 
@@ -21,7 +21,7 @@ src/
 ## KEY PATTERNS
 
 - `createCodemode` consumes only the structural machines port (`Pick<MachineHost, "list" | "get">`) and protocol; it owns machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the facade never spawns Python outside `src/kernel.ts`.
-- Typed refusals are `CodemodeError` (`closed`, `machines_not_bound`, `machine_not_found`, `ambiguous_machine`, `unknown_cell_id`); driver boundary faults are `DriverFailure`; everything untyped decodes to `MachinesFailure` via `decodeCodeFailure`.
+- Typed refusals are `CodemodeError` (`closed`, `machines_not_bound`, `machine_not_found`, `all_stale`, `machine_saturated`, `unknown_cell_id`); driver boundary faults are `DriverFailure`; everything untyped decodes to `MachinesFailure` via `decodeCodeFailure`.
 - Injected entropy (#1245): cell ids come from the injected `id` source; no ambient crypto fallback.
 - Prelude `m.job(command, cwd)` starts a named terminal job derived from its generated cell id; `m.job_wait(name, timeout)` long-polls the terminal cursor with a bounded sentinel tail (timeout in seconds, no accumulated output), and `m.job_read(name)` replays retained terminal bytes by name. Gone sessions return `status: lost`.
 

@@ -265,9 +265,9 @@ enrollment/offer intersection.
 `createCodemode({machines,completion,tools})` is a reusable facade over a
 structural machines port. It supplies
 `cell.run(code,tenant,{timeoutMs,waitMs,signal})`, `cell.peek(cellId,tenant)`,
-`cell.stop(cellId,tenant)` and `listMachines/getMachine/findMachine({tag})`.
-Tag lookup requires exactly one match: zero or multiple matches are typed
-errors, never arbitrary selection. Handle methods are the tool names —
+`cell.stop(cellId,tenant)`, `listMachines`, and `machine(id | tag=, prefer=)`.
+Tag lookup selects one eligible member with a pick-time lease; stale,
+unsupported, or saturated pools are typed errors. Handle methods are the tool names —
 `read/write/ls/bash/eval` — forwarding raw structures and bytes. The same
 names are installed under the Python `codemode` global; Python reads and bash
 outputs contain bytes, and writes accept bytes.
@@ -369,7 +369,7 @@ helper may address the browser process directly during cleanup.
   display failures.
 - Session lifetime: the launch line ends the tmux session on a clean exit or
   a signal-range status, and keeps it alive on a real error status so the
-  failure output stays readable (`codemode.getMachine(id).pty(session)` or
+  failure output stays readable (`machine(id).pty(session)` or
   `tmux attach -t <session>` inspects it; the session name is
   `openomni-browser-<sha256(profile_dir)[:12]>`). `client.close()` ends
   Chromium and the session but keeps the profile. Interpreter close stops

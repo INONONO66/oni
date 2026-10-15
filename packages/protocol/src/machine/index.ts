@@ -139,6 +139,12 @@ export namespace Machine {
 
   export const effectiveCapabilities = Fold.effectiveCapabilities;
   export const effectiveExports = Fold.effectiveExports;
+  export const PlacementRequest = Fold.PlacementRequest;
+  export type PlacementRequest = Fold.PlacementRequest;
+  export const PlacementOutcome = Fold.PlacementOutcome;
+  export type PlacementOutcome = Fold.PlacementOutcome;
+  export type PlacementMachine = Fold.PlacementMachine;
+  export const place = Fold.place;
 
   export const Events = MachineEvents;
 }

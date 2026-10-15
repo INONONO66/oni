@@ -1,7 +1,34 @@
 import { randomUUID } from "node:crypto";
-import { Clock, Effect, Layer } from "effect";
+import { Clock, Effect, Fiber, Layer, type Context } from "effect";
 import type { Core } from "@openomni/agent";
 type EntropySource = Core.EntropySource;
+
+export interface AppScheduler {
+  schedule(delayMs: number, task: () => void): () => void;
+  close(): void;
+}
+
+/** One runtime scheduler seam shared by machine reports and codemode leases. */
+export function effectScheduler(context: Context.Context<never>): AppScheduler {
+  const fibers = new Set<Fiber.Fiber<void, never>>();
+  return {
+    schedule(delayMs, task) {
+      let fiber: Fiber.Fiber<void, never> | undefined;
+      fiber = Effect.runForkWith(context)(
+        Effect.sleep(delayMs).pipe(
+          Effect.tap(() => Effect.sync(task)),
+          Effect.ensuring(Effect.sync(() => { if (fiber !== undefined) fibers.delete(fiber); })),
+        ),
+      );
+      fibers.add(fiber);
+      return () => { void Effect.runPromiseWith(context)(Fiber.interrupt(fiber)); };
+    },
+    close() {
+      for (const fiber of fibers) void Effect.runPromiseWith(context)(Fiber.interrupt(fiber));
+      fibers.clear();
+    },
+  };
+}
 
 /**
  * The composition root's only ambient entropy (#1245): node's CSPRNG for ids,

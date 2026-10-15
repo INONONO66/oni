@@ -230,3 +230,53 @@ describe("Machine.AttachResult", () => {
     }
   });
 });
+
+describe("Machine.place", () => {
+  const member = (machineId: string, leases = 0, resources: Machine.Resources | undefined = { cpus: 4, memoryBytes: 100 }) => ({
+    machineId,
+    tags: ["worker"],
+    capabilities: ["kernel.py"],
+    resources,
+    leases,
+  });
+
+  test.each([
+    ["spread", { kind: "placed", machineId: "a" }],
+    ["pack", { kind: "placed", machineId: "b" }],
+    ["exclusive", { kind: "placed", machineId: "a" }],
+  ] as const)("%s chooses by its policy", (prefer: "spread" | "pack" | "exclusive", expected: { kind: "placed"; machineId: string }) => {
+    expect(Machine.place({ tag: "worker", prefer }, [member("a", 0), member("b", 2)])).toEqual(expected);
+  });
+
+  test("sticky placement is stable and losing one member only remaps its keys", () => {
+    const members = [member("a"), member("b"), member("c")];
+    const first = Machine.place({ tag: "worker", prefer: { sticky: "key-1" } }, members);
+    expect(first).toEqual(Machine.place({ tag: "worker", prefer: { sticky: "key-1" } }, members));
+    if (first.kind !== "placed") throw new Error("expected a placement");
+    const withoutWinner = members.filter((entry) => entry.machineId !== first.machineId);
+    expect(Machine.place({ tag: "worker", prefer: { sticky: "key-1" } }, withoutWinner).kind).toBe("placed");
+  });
+
+  test("sticky placement excludes unknown-capacity members when known credit exists", () => {
+    expect(Machine.place({ tag: "worker", prefer: { sticky: "key-1" } }, [
+      { ...member("unknown"), resources: undefined },
+      member("known"),
+    ])).toEqual({ kind: "placed", machineId: "known" });
+  });
+
+  test("skips stale members and reports all stale", () => {
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [{ ...member("a"), live: { stale: true } }, member("b")])).toEqual({ kind: "placed", machineId: "b" });
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [{ ...member("a"), live: { stale: true } }, { ...member("b"), live: { stale: true } }])).toEqual({ kind: "all_stale" });
+  });
+
+  test("reports saturation and ranks unknown resources last", () => {
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [member("a", 4), member("b", 0)])).toEqual({ kind: "placed", machineId: "b" });
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [member("a", 4), member("b", 4)])).toEqual({ kind: "machine_saturated" });
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [{ ...member("a"), resources: undefined }, member("b", 0)])).toEqual({ kind: "placed", machineId: "b" });
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [{ ...member("a"), slots: 2 }, member("b", 0)])).toEqual({ kind: "placed", machineId: "a" });
+  });
+
+  test("breaks equal scores by machine id", () => {
+    expect(Machine.place({ tag: "worker", prefer: "spread" }, [member("z"), member("a")])).toEqual({ kind: "placed", machineId: "a" });
+  });
+});

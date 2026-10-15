@@ -678,10 +678,10 @@ export async function startOpenOmni(options: StartOptions = {}) {
       runtime,
       // #1305: the prelude's tool_output resolves against the tenant session's own file.
       composeCodemode(host, {
-        id: services.entropy.id,
+        id: services.entropy.id, selfMachineId: machinery.self.machineId,
         outputs: sessionOutputsSource(plane.openKernel),
       }),
-    );
+    ); machinery.self.bindRunner(cells.runner);
 
     // Boot order (#1271): the self machine must answer over its loopback
     // attachment BEFORE any tool port exists; a dead attachment fails boot.

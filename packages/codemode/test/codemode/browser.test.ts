@@ -84,7 +84,7 @@ beforeAll(async () => {
     now: () => 2,
     callTool: (call) => harness().mode.callTool(call),
   });
-  mode = createCodemode({ machines: host });
+  mode = createCodemode({ machines: host, self: "M" });
   kernelSide = createCodemode();
   daemon = await attachMachineDaemon({
     socketPath,
