@@ -7,7 +7,7 @@ import { z } from "zod";
 export const PromptDataError = NamedError.create(
   "OpenOmniPromptDataError",
   z.object({
-    code: z.enum(["invalid_frontmatter", "invalid_sections", "duplicate_name"]),
+    code: z.enum(["invalid_frontmatter", "invalid_sections", "duplicate_name", "not_a_directory"]),
     path: z.string(),
     message: z.string(),
   }),
@@ -58,7 +58,9 @@ export function parseMarkdown<Schema extends z.ZodType>(
 }
 
 function sortedNames(dir: string): readonly string[] {
-  return existsSync(dir) ? readdirSync(dir).sort() : [];
+  if (!existsSync(dir)) return [];
+  if (!statSync(dir).isDirectory()) throw refuse("not_a_directory", dir, "configured path is not a directory");
+  return readdirSync(dir).sort();
 }
 
 function unique(entries: readonly PromptEntry[]): readonly PromptEntry[] {

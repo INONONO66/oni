@@ -179,6 +179,11 @@ describe("loadPromptCatalog", () => {
     expect(refusal(() => loadPromptCatalog({ promptsDir: bare })).code).toBe("invalid_frontmatter");
   });
 
+  test("a configured path that is a file refuses typed", () => {
+    const file = join(tree({ "SKILL.md": "x" }), "SKILL.md");
+    expect(refusal(() => loadPromptCatalog({ skillsDir: file }))).toMatchObject({ code: "not_a_directory", path: file });
+  });
+
   test("two skills with one name refuse typed", () => {
     const skills = tree({
       "a/SKILL.md": "---\nname: same\ndescription: d\n---\n",
