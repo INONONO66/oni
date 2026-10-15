@@ -1,1 +1,1 @@
-#1527 (epic #1508) on `feat/1527-dialect-packs` (2026-10-15, base `c02a9fa6f`, PR pending): pure dialect-pack contract and claude-code pack with conformance receipts in `apps/openomni/src/bundles/child-activity/dialects/conformance.test.ts`; reconciler integration follows #1511.
+#1527 (epic #1508) on `feat/1527-dialect-packs` (2026-10-15, base `c02a9fa6f`, PR #1549): pure dialect-pack contract and claude-code pack with conformance receipts in `apps/openomni/src/bundles/child-activity/dialects/conformance.test.ts`; reconciler integration follows #1511.
