@@ -466,7 +466,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, automations, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|status. Authority changes require Owner consent. Session-created automations remain disabled until the Owner enables them.",
+    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes and machine public keys require Owner consent. Session-created automations remain disabled until the Owner enables them.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1144,6 +1144,100 @@
                 "op": {
                   "type": "string",
                   "const": "automation_list"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "machine_add"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "allowedCapabilities": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+                      }
+                    },
+                    "allowedExports": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^[a-z][a-z0-9_-]*$"
+                      }
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "machineId",
+                    "name",
+                    "allowedCapabilities",
+                    "publicKey"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "machine_remove"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": { "type": "string", "minLength": 1 }
+                  },
+                  "required": ["machineId"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["op", "args"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "const": "machine_list"
                 },
                 "args": {
                   "type": "object",

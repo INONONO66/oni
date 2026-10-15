@@ -5,6 +5,8 @@ import { retryableOnce } from "./retryable-once";
 import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
 import { automationWire } from "./composition/automation-wire";
+import { machineEnrollments } from "./bundles/provision/machine-enrollment";
+import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
 import { createAutomationDelivery } from "./composition/automation-delivery";
 import { automationAlarm, type AlarmIngress } from "./composition/automation-alarm";
@@ -183,6 +185,7 @@ async function composeMachinePlane(
   runtime: AppRuntime,
   machines: NonNullable<OpenOmniConfig["machines"]>,
   deps: {
+    readonly enrollments: ReturnType<typeof machineEnrollments>;
     readonly events: BusEvent.Sink;
     readonly id: () => string;
     readonly now: () => number;
@@ -205,6 +208,7 @@ async function composeMachinePlane(
   // r1 L1: the self enrollment is one record stamped at composition time,
   // not re-stamped on every lookup.
   const selfRecord = selfEnrollment(plane, deps.now());
+  deps.enrollments.seed(machines.enrolled);
   const host = await acquireAppResource(
     runtime,
     createMachineHost({
@@ -213,7 +217,7 @@ async function composeMachinePlane(
       enrollment: (machineId) =>
         machineId === plane.self.id
           ? selfRecord
-          : machines.enrolled.find((e) => e.machineId === machineId),
+          : deps.enrollments.get(machineId),
       events: deps.events,
       id: deps.id,
       // #1312: injected IPC callback bound — queue depth and callback fan-out
@@ -390,6 +394,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const plane = services.plane;
     const channelStores = createChannelStores(channelStoreSource(plane, services.now));
     const automations = { store: channelStores.automations, id: services.entropy.id };
+    const enrollments = machineEnrollments(plane.stores.instances);
     const incident = (msg: string, error: Error | Cause.Cause<Error>): void =>
       services.observations.publish(Operational.Events.Error, {
         traceId: traceIdFromUuid(services.entropy.id()),
@@ -424,6 +429,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         );
 
     const domainRevisions = createRequestDomainRevisions({
+      machineEnrollments: enrollments,
       automations,
       actors: plane.stores.actors,
       persons: plane.stores.persons,
@@ -573,6 +579,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     };
     const alarmPlane = alarmCapabilityView(liveAlarm);
     const provisioningPort: ProvisionPort = {
+      get machines() { return machineProvision; },
       automations,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
@@ -627,6 +634,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // exactly the tools its own dispatcher holds.
     let cells: ComposedCodemode | undefined;
     const machinery = await composeMachinePlane(runtime, machinesConfig, {
+      enrollments,
       events: services.observations,
       id: services.entropy.id,
       now: services.now,
@@ -643,6 +651,13 @@ export async function startOpenOmni(options: StartOptions = {}) {
               ),
     });
     const host: MachineHost = machinery.host;
+    const machineProvision: MachinePort = {
+      enrollments,
+      host,
+      selfId: machinery.self.machineId,
+      events: services.observations,
+      now: services.now,
+    };
 
     // A cell's catalog shares the dispatcher's tool.pre policy boundary.
     const llmPort = createCompletionPort(
@@ -1125,7 +1140,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         sessionsDir: config.sessionsDir,
         now: services.now,
         id: services.entropy.id,
-      }), { respond: automationWire(provisioningPort.automations), stores: channelStores });
+      }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host);
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,

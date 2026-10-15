@@ -23,8 +23,21 @@ export const queryKeys = {
   gatewayEndpoint: ["gateway", "endpoint"] as const,
   session: (sessionId: string) => ["gateway", "session", sessionId] as const,
   automations: ["gateway", "automations"] as const,
+  machines: ["gateway", "machines"] as const,
   automationLedger: (filter: Partial<Ingress.AutomationLedgerFilter>) => ["gateway", "automation-ledger", filter] as const,
 };
+
+export function machineListOptions(transport: Pick<GatewayChatTransport, "machineList"> | null) {
+  return queryOptions({
+    queryKey: queryKeys.machines,
+    enabled: transport !== null,
+    retry: false,
+    queryFn: async () => {
+      if (transport === null) throw new GatewayUnavailableError("gateway not configured");
+      return (await transport.machineList()).rows;
+    },
+  });
+}
 
 export function automationListOptions(transport: GatewayChatTransport | null) {
   return queryOptions({

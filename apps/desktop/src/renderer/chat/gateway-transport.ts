@@ -1,5 +1,5 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
-import { Ingress, listenForAbort, parseJson, SessionFork, SessionRead } from "@openomni/protocol";
+import { Ingress, Machine, listenForAbort, parseJson, SessionFork, SessionRead } from "@openomni/protocol";
 import { AutomationRefusedError, GatewayUnavailableError, TransportCapabilityError } from "../errors";
 import { z } from "zod";
 
@@ -35,6 +35,7 @@ interface GatewayChatTransportOptions {
 }
 
 const serverFrameSchema = z.union([
+  Machine.Response,
   Ingress.AutomationResponse,
   // A correlated but malformed reply must reject its waiter, not disappear or reach chat.
   z.object({ requestId: z.string() }).transform(({ requestId }) => ({
@@ -113,6 +114,7 @@ export class SessionReadSupersessionError extends Error {
 }
 
 export interface GatewayChatTransport extends ChatTransport<UIMessage> {
+  machineList(): Promise<Extract<Machine.Response, { type: "machine_listed" }>>;
   automationList(): Promise<AutomationReply<"automation_listed">>;
   automationAdd(record: Extract<z.input<typeof Ingress.AutomationRequest>, { type: "automation_add" }>["record"]): Promise<AutomationReply<"automation_added">>;
   automationRemove(id: string): Promise<AutomationReply<"automation_removed">>;
@@ -129,14 +131,15 @@ export interface GatewayChatTransport extends ChatTransport<UIMessage> {
   forkSession(request: Omit<SessionFork.Request, "type">): Promise<SessionFork.Response>;
 }
 
-type AutomationReply<Type extends Ingress.AutomationResponse["type"]> =
-  Extract<Ingress.AutomationResponse, { type: Type }>;
+type ManagedResponse = Ingress.AutomationResponse | Machine.Response;
+type AutomationReply<Type extends ManagedResponse["type"]> =
+  Extract<ManagedResponse, { type: Type }>;
 type AutomationInput = {
   [Type in Ingress.AutomationRequest["type"]]: Omit<Extract<z.input<typeof Ingress.AutomationRequest>, { type: Type }>, "requestId">;
 }[Ingress.AutomationRequest["type"]];
 
-function isAutomationReply<Type extends Ingress.AutomationResponse["type"]>(
-  frame: Ingress.AutomationResponse,
+function isAutomationReply<Type extends ManagedResponse["type"]>(
+  frame: ManagedResponse,
   type: Type,
 ): frame is AutomationReply<Type> {
   return frame.type === type;
@@ -172,7 +175,7 @@ export function createGatewayChatTransport(
   const automations = new Map<string, {
     readonly socket: SocketLike;
     readonly waiters: {
-      readonly resolve: (frame: Ingress.AutomationResponse) => void;
+      readonly resolve: (frame: ManagedResponse) => void;
       readonly reject: (error: Error) => void;
     }[];
   }>();
@@ -342,11 +345,12 @@ export function createGatewayChatTransport(
 
   const { closeSocket, connectUntilAborted } = createConnection(options, settle, drain);
 
-  async function automation<Type extends Ingress.AutomationResponse["type"]>(
-    input: AutomationInput,
+  async function automation<Type extends ManagedResponse["type"]>(
+    input: AutomationInput | Omit<Machine.Request, "requestId">,
     responseType: Type,
   ): Promise<AutomationReply<Type>> {
-    const request = Ingress.AutomationRequest.parse({ ...input, requestId: options.id() });
+    const request = (input.type === "machine_list" ? Machine.Request : Ingress.AutomationRequest)
+      .parse({ ...input, requestId: options.id() });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new GatewayUnavailableError("Automation request timed out")), options.automationTimeoutMs ?? 15_000);
@@ -354,11 +358,12 @@ export function createGatewayChatTransport(
     try {
       const live = await Promise.race([connectUntilAborted(undefined), deadline]);
       if (live === undefined) throw new GatewayUnavailableError("gateway socket unavailable");
-      const reply = new Promise<Ingress.AutomationResponse>((resolve, reject) => {
+      const reply = new Promise<ManagedResponse>((resolve, reject) => {
         automations.set(request.requestId, { socket: live, waiters: [{ resolve, reject }] });
         live.send(JSON.stringify(request));
       });
       const response = await Promise.race([reply, deadline]);
+      if (response.type === "machine_list_refused") throw new GatewayUnavailableError(response.detail);
       if ("reason" in response) throw new AutomationRefusedError(response);
       if (!isAutomationReply(response, responseType)) {
         throw new GatewayUnavailableError(`Unexpected automation response: ${response.type}`);
@@ -373,6 +378,7 @@ export function createGatewayChatTransport(
   }
 
   return {
+    machineList: () => automation({ type: "machine_list" }, "machine_listed"),
     automationList: () => automation({ type: "automation_list" }, "automation_listed"),
     automationAdd: (record) => automation({ type: "automation_add", record }, "automation_added"),
     automationRemove: (id) => automation({ type: "automation_remove", id }, "automation_removed"),

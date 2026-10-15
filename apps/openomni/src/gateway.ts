@@ -1,4 +1,5 @@
 import type { MachineHost } from "@openomni/machines";
+import { machineWire } from "./composition/machine-wire";
 import type { ComposedCodemode } from "./composition/codemode";
 import type { ToolPorts } from "./composition/catalog";
 import type { createCompletionPort } from "./composition/completion";
@@ -364,6 +365,7 @@ export function webSocketCallbacks(
       Effect.Effect<Ingress.AutomationResponse>;
     readonly stores: ChannelStores;
   },
+  machines?: Pick<MachineHost, "list">,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -418,6 +420,11 @@ export function webSocketCallbacks(
         handler.ws.close(ws);
       },
       message(ws: WsConnection, data: string | Buffer): Promise<void> {
+        const machine = machineWire(data, machines);
+        if (machine !== undefined) {
+          ws.send(JSON.stringify(machine));
+          return Promise.resolve();
+        }
         const settled = runtime.runPromise(
           handler.handleFrame(ws.data, data).pipe(
             Effect.matchEffect({
