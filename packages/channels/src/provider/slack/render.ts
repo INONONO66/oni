@@ -17,7 +17,7 @@ export function renderSlack(step: NativeStep): readonly SlackBlock[] {
       return [{ type: "section", text: { type: "mrkdwn", text: `\`\`\`${element.props.text}\`\`\`` } }];
     case "Table": {
       const rows = [element.props.columns.map((column) => column.header), ...element.props.rows];
-      if (rows.length > 100 || rows.some((row) => row.length > 20))
+      if (rows.length > 100 || rows.some((row) => row.length > 20 || row.some((cell) => cell.length > 2000)))
         return [{ type: "section", text: { type: "mrkdwn", text: `\`\`\`${step.digest}\`\`\`` } }];
       return [{ type: "table", rows: rows.map((row) => row.map((text) => ({ type: "raw_text", text }))) }];
     }

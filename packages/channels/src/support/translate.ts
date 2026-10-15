@@ -90,10 +90,24 @@ type Step =
 
 function textSteps(parts: Outbound.Part[], render: RenderPolicy): Step[] {
   if (parts.length === 0) return [];
-  const rendered = render.renderMarkdown(Outbound.text({ kind: "message", parts }));
-  const chunks =
-    render.messageLimit === null ? [rendered] : chunkMarkdown(rendered, render.messageLimit);
-  return chunks.map((chunk) => ({ kind: "text", chunk }));
+  const markdown = Outbound.text({ kind: "message", parts });
+  if (render.messageLimit === null)
+    return [{ kind: "text", chunk: render.renderMarkdown(markdown) }];
+  const source = chunkMarkdown(markdown, render.messageLimit);
+  const chunks: Step[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const original = source[index] ?? "";
+    const chunk = render.renderMarkdown(original);
+    if (chunk.length <= render.messageLimit) {
+      chunks.push({ kind: "text", chunk });
+      continue;
+    }
+    if (original.length <= 64)
+      throw new DeliveryNotSent({ operation: "text.limit", cause: "rendered markup exceeds message limit" });
+    source.splice(index, 1, ...chunkMarkdown(original, Math.max(64, Math.ceil(original.length / 2))));
+    index -= 1;
+  }
+  return chunks;
 }
 
 async function planSpec(

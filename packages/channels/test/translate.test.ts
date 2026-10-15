@@ -3,6 +3,7 @@ import { Outbound } from "@openomni/protocol";
 import { DeliveryNotSent } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
 import { slackEmojiName } from "../src/provider/slack/emoji";
+import { TELEGRAM_RENDER } from "../src/provider/telegram/format";
 import { PartialDeliveryError, type NativeStep, type SurfaceSends, translate } from "../src/support/translate";
 import type { MediaBytes } from "../src/types";
 
@@ -87,6 +88,17 @@ describe("translate: text folding", () => {
     expect(r.sent).toEqual([{ kind: "text", chunk: "<structured>" }]);
   });
 
+  test("Telegram chunks before HTML rendering so escaped entities stay whole", async () => {
+    const chunks: string[] = [];
+    const sends: SurfaceSends = { text: async (chunk) => {
+      chunks.push(chunk);
+      return String(chunks.length);
+    } };
+    await translate(Outbound.payload("<".repeat(1200)), TELEGRAM_RENDER, sends);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe("&lt;".repeat(1200));
+    expect(chunks.every((chunk) => chunk.length <= 4096 && !chunk.endsWith("&lt"))).toBe(true);
+  });
   test("adjacent text and code parts fold into one rendered message", async () => {
     const r = recorder();
     const outcome = await translate(
