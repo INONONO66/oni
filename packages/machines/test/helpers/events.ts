@@ -9,7 +9,7 @@ export type RecordedEvent = {
   readonly payload: MachineEventPayload;
 };
 
-function parseEvent(name: string, payload: unknown): RecordedEvent {
+function parseEvent<T>(name: string, payload: T): RecordedEvent {
   if (name === Machine.Events.Attached.name) return { name, payload: Machine.Events.Attached.schema.parse(payload) };
   if (name === Machine.Events.Reported.name) return { name, payload: Machine.Events.Reported.schema.parse(payload) };
   return { name, payload: Machine.Events.Detached.schema.parse(payload) };
