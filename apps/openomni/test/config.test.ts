@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Crypto, Effect } from "effect";
@@ -40,6 +40,8 @@ const ENV_KEYS = [
   "OPENOMNI_COMPACTION_SUMMARIZER",
   "OPENOMNI_SOCIAL_BUDGETS",
   "OPENOMNI_HOOKS_PATH",
+  "OPENOMNI_PROMPTS_DIR",
+  "OPENOMNI_SKILLS_DIR",
   "OPENOMNI_MACHINES_DEFAULT",
   "OPENOMNI_MACHINES_ENROLLED",
   "OPENOMNI_MACHINES_SELF",
@@ -192,6 +194,33 @@ describe("declared channel cutover", () => {
     expect(loadConfig().hooksPath).toBe("/etc/openomni/hooks.json");
     process.env.OPENOMNI_HOOKS_PATH = "  ";
     expect(loadConfig().hooksPath).toBeUndefined();
+  });
+
+  it("reads the prompts and skills directories and treats blank as absent", () => {
+    process.env.OPENOMNI_PROMPTS_DIR = " /srv/prompts ";
+    process.env.OPENOMNI_SKILLS_DIR = "/srv/skills";
+    expect(loadConfig()).toMatchObject({ promptsDir: "/srv/prompts", skillsDir: "/srv/skills" });
+    process.env.OPENOMNI_PROMPTS_DIR = " ";
+    delete process.env.OPENOMNI_SKILLS_DIR;
+    expect([loadConfig().promptsDir, loadConfig().skillsDir]).toEqual([undefined, undefined]);
+  });
+
+  it("loads the skills catalog at boot and refuses a malformed skill typed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openomni-skills-"));
+    mkdirSync(join(dir, "ok"));
+    writeFileSync(join(dir, "ok", "SKILL.md"), "---\nname: ok\ndescription: Fine\n---\n");
+    process.env.OPENOMNI_SKILLS_DIR = dir;
+    expect(loadConfig().prompts).toEqual({
+      skills: [{ name: "ok", description: "Fine", path: join(dir, "ok", "SKILL.md") }],
+      templates: [],
+    });
+    writeFileSync(join(dir, "ok", "SKILL.md"), "---\nname: ok\n---\n");
+    expect(() => loadConfig()).toThrow(
+      expect.objectContaining({ name: "OpenOmniPromptDataError", data: containing({ code: "invalid_frontmatter" }) }),
+    );
+    delete process.env.OPENOMNI_SKILLS_DIR;
+    expect(loadConfig().prompts).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

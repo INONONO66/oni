@@ -1,5 +1,24 @@
 # Implementation Status
 
+## #1560 prompts and skills as data
+
+On `feat/1560-prompts-skills-data` (2026-10-15, base `b74f3c652`). The
+Resident and child role presets are markdown files with `name`/`role`
+frontmatter and `## Identity`, `Mandate`, `Policies`, `Style` sections under
+`apps/openomni/prompts/roles/`; `bundles/prompt/roles.ts` parses them into the
+same `RolePreset` shape (imported as text, so the bundled CLI carries them).
+`OPENOMNI_SKILLS_DIR` lists every `<dir>/<skill>/SKILL.md` (frontmatter
+`name` + `description`) and `OPENOMNI_PROMPTS_DIR` every `<dir>/*.md`
+template (`description`, optional `name`) as `<skills>` and
+`<prompt_templates>` blocks with absolute paths, rendered by
+`buildAgentPrompt(preset, { catalog })`. `loadConfig` loads the catalog into
+`config.prompts`, so an unset or absent directory lists nothing and a malformed
+file, bad YAML, an unknown role section or a duplicate name refuses boot with
+the typed `OpenOmniPromptDataError`. Not yet wired: passing `config.prompts`
+into the Resident/child `buildAgentPrompt` calls and forwarding the two
+directories to process children (#1563, composition-owned files). Receipts:
+`apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
+
 ## #1545 inbound postback (L3)
 
 On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).
