@@ -15,6 +15,7 @@ export function createWebhookProvider(
       webhook: true,
       render: { renderMarkdown: (markdown: string) => markdown, messageLimit: null,
         capabilities: {
+          Stack: "text",
           Markdown: "text", Code: "text", Table: "text", Image: "text", File: "text",
           Buttons: "text", Button: "text", Card: "text", Carousel: "text", Poll: "text",
           Status: "text", Divider: "text", Context: "text",

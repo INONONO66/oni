@@ -45,19 +45,17 @@ function renderAlbum(step: NativeStep): TelegramNative {
 export function renderTelegram(step: NativeStep): TelegramNative {
   const { element } = step;
   switch (element.type) {
+    case "Stack":
+      return { method: "sendMessage", body: { text: escapeTelegramHtml(step.digest), parse_mode: "HTML" } };
     case "Buttons":
     case "Button":
       return renderKeyboard(step);
     case "Card": {
       const caption = `<b>${escapeTelegramHtml(element.props.title)}</b>${element.props.body === undefined ? "" : `\n${escapeTelegramHtml(element.props.body)}`}`;
-      const keyboard = inlineKeyboard(element.children, step);
-      const replyMarkup: TelegramBody = keyboard.length === 0
-        ? {}
-        : { reply_markup: { inline_keyboard: keyboard } };
       return element.props.image === undefined || !element.props.image.startsWith("https://")
-        ? { method: "sendMessage", body: { text: caption, parse_mode: "HTML", ...replyMarkup } }
+        ? { method: "sendMessage", body: { text: caption, parse_mode: "HTML" } }
         : { method: "sendPhoto", body: { photo: element.props.image,
-          caption, parse_mode: "HTML", ...replyMarkup } };
+          caption, parse_mode: "HTML" } };
     }
     case "Carousel":
       return renderAlbum(step);

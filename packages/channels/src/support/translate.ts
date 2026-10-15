@@ -221,14 +221,13 @@ async function planSpec(
         pending.push({ kind: "text", text: `${digest(id, current)}\n[image] ${element.props.image}` });
         return;
       }
-      attachments[element.props.image] = await resolveImage(element.props.image);
+      const caption = digest(id, current);
+      const bytes = await resolveImage(element.props.image, caption);
+      steps.push({ kind: "media", part: { kind: "image", ref: element.props.image, caption },
+        bytes, upload: media.upload });
+      return;
     }
     steps.push({ kind: "native", step: { id, element, spec: current, digest: digest(id, current), attachments }, send: sends.native });
-    if (element.type === "Card" && element.props.image !== undefined && media !== undefined) {
-      const bytes = attachments[element.props.image];
-      if (bytes !== undefined)
-        steps.push({ kind: "media", part: { kind: "image", ref: element.props.image }, bytes, upload: media.upload });
-    }
   }
 
   async function appendMedia(id: string, element: Extract<Outbound.Element, { type: "Image" | "File" }>,
@@ -254,16 +253,27 @@ async function planSpec(
     });
   }
 
+  function visitsChildren(element: Outbound.Element, current: Outbound.Spec):
+    element is Extract<Outbound.Element, { type: "Stack" | "Carousel" }> {
+    return element.type === "Stack" || hasIncompleteAlbum(element, current);
+  }
+
+  async function appendChildren(
+    element: Extract<Outbound.Element, { type: "Stack" | "Carousel" }>, current: Outbound.Spec,
+  ): Promise<void> {
+    for (const child of element.children) await visit(child, current);
+  }
+
   async function visit(id: string, current: Outbound.Spec): Promise<void> {
     const element = current.elements[id];
     if (element === undefined) return;
+    if (visitsChildren(element, current)) {
+      await appendChildren(element, current);
+      return;
+    }
     const policy = render.capabilities[element.type];
     if (element.type === "Image" || element.type === "File") {
       await appendMedia(id, element, current, policy);
-      return;
-    }
-    if (hasIncompleteAlbum(element, current)) {
-      for (const child of element.children) await visit(child, current);
       return;
     }
     if (policy.startsWith("downgrade:")) {
@@ -284,7 +294,7 @@ async function planSpec(
 
 /** Every media reference resolves before the first send so a bad one refuses the letter whole. */
 async function plan(
-  message: Extract<Outbound.Message, { parts: Outbound.Part[] }>,
+  parts: Outbound.Part[],
   render: RenderPolicy,
   media:
     | {
@@ -297,7 +307,6 @@ async function plan(
   const steps: Step[] = [];
   let pending: Outbound.Part[] = [];
   let totalBytes = 0;
-  const parts: Outbound.Part[] = Outbound.parts(message);
   for (const part of parts) {
     if (part.kind === "text" || part.kind === "code" || media === undefined) {
       pending.push(part);
@@ -387,7 +396,7 @@ export async function translate(
   }
   const media =
     sends.media === undefined || resolve === undefined ? undefined : { ...sends.media, resolve };
-  return runSteps(await ("spec" in payload
+  return runSteps(await (payload.spec !== undefined
     ? planSpec(payload.spec, render, sends, media)
-    : plan(payload, render, media)), sends.text);
+    : plan(payload.parts ?? [], render, media)), sends.text);
 }

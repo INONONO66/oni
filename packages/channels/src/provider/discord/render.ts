@@ -45,6 +45,8 @@ function renderButtons(element: Extract<Outbound.Element, { type: "Buttons" }>, 
 export function renderDiscord(step: NativeStep): DiscordBody {
   const { element, spec } = step;
   switch (element.type) {
+    case "Stack":
+      return { content: step.digest };
     case "Card":
       return { embeds: [cardEmbed(element.props.title, element.props.body, element.props.image)] };
     case "Carousel": {

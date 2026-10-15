@@ -54,7 +54,7 @@ type IngestMode = "poll" | "socket" | "webhook";
  * policy instead of reverse-engineering the send path.
  */
 export interface RenderPolicy {
-  readonly capabilities: Readonly<Record<Outbound.Element["type"], "native" | `downgrade:${Downgrade}` | "text">>;
+  readonly capabilities: Readonly<Record<Outbound.ElementType, "native" | `downgrade:${Downgrade}` | "text">>;
   /**
    * Maps Resident markdown to the platform dialect; identity where the
    * platform accepts the text as-is (slack mrkdwn, github comments).
