@@ -16,11 +16,6 @@ export function sequentialIds(): () => string {
   };
 }
 
-/** The trace id `newTraceId` derives from the nth sequential UUID. */
-export function nthTraceId(n: number): string {
-  return `00000000000040008000${String(n).padStart(12, "0")}`;
-}
-
 export function injectedOptions(run: EffectRunner = testRun): {
   readonly now: () => number;
   readonly id: () => string;

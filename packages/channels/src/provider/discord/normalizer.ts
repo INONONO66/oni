@@ -2,13 +2,17 @@ import type { Channel } from "@openomni/protocol";
 import type { InboundNormalizer } from "../../types";
 import type { DiscordInteraction, DiscordMessage, DiscordReaction } from "./types";
 
-function discordPostback(message: DiscordInteraction, selfId: string): Channel.InboundMessage | null {
+function discordPostback(
+  message: DiscordInteraction,
+  selfId: string,
+): Channel.InboundMessage | null {
   const author = message.member?.user ?? message.user;
   if (author === undefined) return null;
   const authorId = author.id;
   const id = message.data.custom_id;
-  const button = message.message?.components?.flatMap((component) =>
-    component.components ?? [component]).find((component) => component.custom_id === id);
+  const button = message.message?.components
+    ?.flatMap((component) => component.components ?? [component])
+    .find((component) => component.custom_id === id);
   const label = button?.label || id;
   return {
     sender: { kind: "external", surface: "discord", externalId: authorId },
@@ -24,36 +28,51 @@ function discordPostback(message: DiscordInteraction, selfId: string): Channel.I
       payload: message,
       render: label,
       postback: {
-        id, label,
+        id,
+        label,
         ...(message.message === undefined ? {} : { messageRef: message.message.id }),
       },
     },
   };
 }
 
-export class DiscordNormalizer implements InboundNormalizer<DiscordMessage | DiscordReaction | DiscordInteraction> {
+export class DiscordNormalizer
+  implements InboundNormalizer<DiscordMessage | DiscordReaction | DiscordInteraction>
+{
   constructor(private readonly selfId?: string) {}
 
-  normalize(message: DiscordMessage | DiscordReaction | DiscordInteraction): Channel.InboundMessage | null {
-    return "type" in message
-      ? this.selfId === undefined ? null : discordPostback(message, this.selfId)
+  normalize(
+    message: DiscordMessage | DiscordReaction | DiscordInteraction,
+  ): Channel.InboundMessage | null {
+    // An interaction carries the callback token no message or reaction has.
+    return "token" in message
+      ? this.selfId === undefined
+        ? null
+        : discordPostback(message, this.selfId)
       : this.normalizeMessage(message);
   }
 
-  private normalizeMessage(message: DiscordMessage | DiscordReaction): Channel.InboundMessage | null {
+  private normalizeMessage(
+    message: DiscordMessage | DiscordReaction,
+  ): Channel.InboundMessage | null {
     const reaction = "message_id" in message;
     const authorId = reaction ? message.user_id : message.author.id;
     // The bot's own gateway echo is not an outside event.
     if (authorId === this.selfId) return null;
     const text = reaction ? message.emoji.name : message.content;
-    const attachments = reaction ? [] : (message.attachments ?? []).map((attachment) => ({
-      kind: attachment.content_type?.startsWith("image/") ? "image" as const
-        : attachment.content_type?.startsWith("audio/") ? "audio" as const : "file" as const,
-      ref: attachment.url,
-      name: attachment.filename,
-      ...(attachment.content_type === undefined ? {} : { mime: attachment.content_type }),
-      bytes: attachment.size,
-    }));
+    const attachments = reaction
+      ? []
+      : (message.attachments ?? []).map((attachment) => ({
+          kind: attachment.content_type?.startsWith("image/")
+            ? ("image" as const)
+            : attachment.content_type?.startsWith("audio/")
+              ? ("audio" as const)
+              : ("file" as const),
+          ref: attachment.url,
+          name: attachment.filename,
+          ...(attachment.content_type === undefined ? {} : { mime: attachment.content_type }),
+          bytes: attachment.size,
+        }));
     // A frame with no renderable text or emoji is not an outside message.
     if (!text && attachments.length === 0) return null;
     const isDM = !message.guild_id;

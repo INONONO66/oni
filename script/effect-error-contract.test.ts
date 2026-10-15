@@ -97,7 +97,6 @@ const channels = {
   AutomationEnableRefused: new Channels.AutomationEnableRefused({ reason: "not_found", id: "automation" }),
   AutomationConfigurationError: new Channels.AutomationConfigurationError({ reason: "store_unconfigured" }),
   InvalidInbound: new Channels.InvalidInbound({ operation: "frame", reason: "invalid_json" }),
-  DiscordGatewayFetchError: new Channels.DiscordGatewayFetchError(message),
   DiscordApiError: new Channels.DiscordApiError(message),
   DiscordHandlerMissingError: new Channels.DiscordHandlerMissingError(message),
   SlackApiError: new Channels.SlackApiError(message),

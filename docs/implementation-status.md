@@ -1,5 +1,66 @@
 # Implementation Status
 
+## #1569 messaging on the agent-messenger SDK — Discord bot gateway (PR 2 of the epic)
+
+On `feat/1569-sdk-discord-bot` (2026-10-16, stacked on PR 1). The Discord
+gateway is the SDK's `DiscordBotListener` (`agent-messenger/discordbot`, imported
+only by `packages/channels/src/provider/discord/sdk.ts`): identify with the
+consumed intents (`DISCORD_INTENTS`, MESSAGE CONTENT included), resume,
+heartbeats and reconnects are the SDK's; READY binds the bot identity the
+normalizer filters and keys on, on the first connect and on every resume.
+REST stays on the package's own `DiscordClient` over `fetch-retry` because
+the SDK client re-sends on network errors and 5xx up to three times with no
+option to disable it, and custody allows one physical attempt per key:
+text, media, reactions, typing, DM-channel creation and the interaction ack
+(`type 6` before handoff) are unchanged. The SDK dispatch overwrites `type`
+with the dispatch name, so `DiscordInteractionSchema` no longer keys on the
+numeric interaction type: a component tap is recognized by `data.custom_id`
+and the normalizer tells an interaction by its callback `token`. New
+`packages/channels/src/support/sdk-listener.ts` (`listenerCustody`) is the
+one lifecycle wrapper for SDK listeners, back-applied to Slack: `error` is
+subscribed before `start()`; start settles on the first `connected` and
+fails (stopping the listener) on an error before it or on the SDK's own
+`start()` rejection, and on a close before it only where the SDK would not
+notice one (`failOnCloseBeforeConnected`: Slack's `start()` resolves before
+hello, Discord's stays pending across a recoverable pre-READY close and
+rejects on its connect timeout); a close or a refused reopen after that is
+an Info with the streak count, a reconnect resets it, and
+`RECONNECT_ATTEMPT_BOUND` consecutive failures without a reconnect publish
+one Operational Error per streak (`unreachable`) while the SDK's bounded
+backoff keeps trying — custody does not stop a listener that may still
+recover, because nothing in the app remounts a stopped surface. A
+`terminal` predicate names the errors after which the SDK listener has
+stopped itself (Slack: `disconnect_terminal` and its fatal auth codes,
+`isSlackTerminal`; Discord: a non-recoverable close code), turning them
+into a typed dead surface (listener stopped, Operational Error) instead of
+a Warn — this closes the limitation recorded under PR 1. The Slack seam's
+`appsConnectionsOpen`/`openDm` fold the `@slack/web-api` throw (a plain
+Error with `code: slack_webapi_platform_error` and `data.error`) into
+`SlackBotError`: the socket-url refusal carries the Slack error string as
+its code, which is what the SDK listener's fatal set and `isSlackTerminal`
+read, so a token revoked after hello is dead rather than an endless reopen
+streak. Deleted:
+`provider/discord/{gateway,heartbeat}.ts`, `support/socket-shell.ts`,
+`DiscordClient.fetchGatewayUrl` and `DiscordGatewayFetchError`, the gateway
+schemas in `discord/types.ts`, and the tests `discord-gateway`,
+`discord-facts-startup`, `heartbeat-watchdog`, `socket-shell-interrupt`,
+`supervisor-bounce` plus the Discord arm of `native-reconnect`.
+`support/schedule.ts` stays for the Telegram poller. Receipts:
+`test/sdk-listener.test.ts` (both close-before-connected policies, SDK
+start rejection, close and reopen-error streaks reported once without a
+stop, terminal errors), `test/discord-surface.test.ts` (READY binding,
+intents, self-echo, reaction, ack-before-handoff ordering and warn-drop,
+non-component interactions ignored, malformed dispatch, error before READY,
+pre-READY close left to the SDK, SDK start rejection, resume rebinding with
+the old id delivered and the new id filtered), `discord-audit`,
+`discord-media` (raw REST pins unchanged), `provider-contract`,
+`channel-band-boundary` (`agent-messenger/discordbot` → `discord/sdk.ts`),
+`discord-sdk` (real seam, intents pinned onto the real listener, start
+rejects on a refused connect), `slack-sdk` (web-api throw folded into the
+Slack error code, `isSlackTerminal` table), `slack-surface` (revoked token
+on reopen = dead, refused-reopen streak = one unreachable Error); channels
+suite 885 pass.
+
 ## #1569 messaging on the agent-messenger SDK — Slack bot (PR 1 of the epic)
 
 On `feat/1569-sdk-slack-bot` (2026-10-15, base `b74f3c652`). The Slack

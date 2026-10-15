@@ -87,7 +87,7 @@ describe("SlackAdapter over the agent-messenger bot SDK", () => {
     const fake = fakeSlackSdk({}, listener);
     const adapter = new SlackAdapter(CREDENTIALS, {}, noopPublish, injectedOptions(), fake.sdk);
     adapter.onMessage(async () => undefined);
-    await expect(adapter.start("boot")).rejects.toMatchObject({ _tag: "SlackApiError" });
+    await expect(adapter.start("boot")).rejects.toMatchObject({ _tag: "ChannelsFailure" });
     expect(listener.stopped).toBe(1);
 
     const closes: string[] = [];
@@ -98,6 +98,59 @@ describe("SlackAdapter over the agent-messenger bot SDK", () => {
     live.listener.emit("disconnected");
     expect(closes).toContain("slack socket closed, sdk reconnecting");
     expect(live.listener.stopped).toBe(0);
+  });
+
+  it("a terminal disconnect or revoked token after hello is a typed dead surface", async () => {
+    const errors: string[] = [];
+    const live = await started({}, (event, data) => {
+      if (event.name === Operational.Events.Error.name)
+        errors.push(Operational.Events.Error.schema.parse(data).msg);
+    });
+    live.listener.emit("error", new SlackBotError("transient", "slack_webapi_request_error"));
+    expect(live.listener.stopped).toBe(0);
+    live.listener.emit(
+      "error",
+      new SlackBotError(
+        "Slack closed the Socket Mode session: link_disabled",
+        "disconnect_terminal",
+      ),
+    );
+    expect(live.listener.stopped).toBe(1);
+    expect(errors).toEqual([
+      "slack socket dead: Slack closed the Socket Mode session: link_disabled",
+    ]);
+  });
+
+  it("a revoked token on a reopen after hello is a typed dead surface, as the web-api forwards it", async () => {
+    const errors: string[] = [];
+    const live = await started({}, (event, data) => {
+      if (event.name === Operational.Events.Error.name)
+        errors.push(Operational.Events.Error.schema.parse(data).msg);
+    });
+    live.listener.emit("disconnected");
+    // The seam maps the refused apps.connections.open onto its Slack error code (see slack-sdk.test).
+    live.listener.emit(
+      "error",
+      new SlackBotError("An API error occurred: invalid_auth", "invalid_auth"),
+    );
+    expect(live.listener.stopped).toBe(1);
+    expect(errors).toEqual(["slack socket dead: An API error occurred: invalid_auth"]);
+  });
+
+  it("a streak of refused reopens after hello is reported unreachable once while the SDK keeps trying", async () => {
+    const errors: string[] = [];
+    const live = await started({}, (event, data) => {
+      if (event.name === Operational.Events.Error.name)
+        errors.push(Operational.Events.Error.schema.parse(data).msg);
+    });
+    live.listener.emit("disconnected");
+    for (let attempt = 0; attempt < 12; attempt += 1)
+      live.listener.emit(
+        "error",
+        new SlackBotError("A request error occurred: ENOTFOUND", "slack_webapi_request_error"),
+      );
+    expect(live.listener.stopped).toBe(0);
+    expect(errors).toEqual(["slack socket unreachable: 10 failures without a reconnect"]);
   });
 
   /**

@@ -7,7 +7,9 @@ const ChannelsFailureFields = z.object({ operation: z.string(), cause: z.string(
 export class ChannelsFailure extends Data.TaggedError("ChannelsFailure")<
   z.infer<typeof ChannelsFailureFields>
 > {
-  override get message(): string { return `${this.operation}: ${this.cause}`; }
+  override get message(): string {
+    return `${this.operation}: ${this.cause}`;
+  }
 }
 
 export class DeliveryNotSent extends Data.TaggedError("DeliveryNotSent")<
@@ -40,9 +42,6 @@ export class InvalidInbound extends Data.TaggedError("InvalidInbound")<
 
 const MessageFields = z.object({ message: z.string() });
 const ApiFields = MessageFields.extend({ rejected: z.boolean().optional() });
-export class DiscordGatewayFetchError extends Data.TaggedError("DiscordGatewayFetchError")<
-  z.infer<typeof MessageFields>
-> {}
 export class DiscordApiError extends Data.TaggedError("DiscordApiError")<
   z.infer<typeof ApiFields>
 > {}
@@ -92,9 +91,7 @@ const RateLimitFields = MessageFields.extend({
   responseHeaders: z.record(z.string(), z.string()),
   responseBody: z.string(),
 });
-export class RateLimited extends Data.TaggedError("RateLimited")<
-  z.infer<typeof RateLimitFields>
-> {}
+export class RateLimited extends Data.TaggedError("RateLimited")<z.infer<typeof RateLimitFields>> {}
 
 export type ChannelError =
   | ChannelsFailure
@@ -102,7 +99,6 @@ export type ChannelError =
   | AutomationEnableRefused
   | DeliveryNotSent
   | InvalidInbound
-  | DiscordGatewayFetchError
   | DiscordApiError
   | DiscordHandlerMissingError
   | SlackApiError
@@ -117,6 +113,5 @@ export type ChannelError =
 export function decodeChannelFailure(operation: string) {
   return z
     .preprocess(String, z.string())
-    .transform((cause) => new ChannelsFailure({ operation, cause }))
-    .parse;
+    .transform((cause) => new ChannelsFailure({ operation, cause })).parse;
 }

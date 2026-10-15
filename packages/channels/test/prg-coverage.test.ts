@@ -2,11 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
 import { Operational, Outbound } from "@openomni/protocol";
 import { DiscordClient } from "../src/provider/discord/client";
-import { DiscordAdapter } from "../src/provider/discord/surface";
-import type { DiscordGateway } from "../src/provider/discord/gateway";
-
-type GatewayCallbacks = ConstructorParameters<typeof DiscordGateway>[2];
-import { DiscordProvider } from "../src/provider/discord/provider";
+import { createDiscordProvider, DiscordProvider } from "../src/provider/discord/provider";
+import { fakeDiscordSdk } from "./helpers/discord-sdk";
 import { GitHubProvider } from "../src/provider/github/provider";
 import { createSlackProvider } from "../src/provider/slack/provider";
 import { fakeSlackSdk } from "./helpers/slack-sdk";
@@ -117,12 +114,19 @@ describe("provider retry and receipt paths", () => {
 });
 
 describe("Discord gateway surface", () => {
-  it("drops malformed message payloads with an operational warning", () => {
+  it("drops malformed message payloads with an operational warning", async () => {
     const { published, publish } = collector();
-    const adapter = new DiscordAdapter("token", {}, publish, injectedOptions());
-    const harness = adapter as object as { gateway: { callbacks: GatewayCallbacks } };
-    harness.gateway.callbacks.onDispatch("MESSAGE_CREATE", { nope: true }, "trace-1");
-    harness.gateway.callbacks.onDispatch("TYPING_START", {}, "trace-2");
+    const fake = fakeDiscordSdk();
+    const runtime = createDiscordProvider(fake.sdk).create(
+      { token: "token" },
+      {},
+      publish,
+      injectedOptions(),
+    );
+    runtime.surface.onMessage(async () => undefined);
+    await runtime.surface.start("boot");
+    fake.listener.dispatch("MESSAGE_CREATE", { nope: true });
     expect(published.filter((name) => name === Operational.Events.Warn.name)).toHaveLength(1);
+    expect(runtime.typingRoute).toBeDefined();
   });
 });
