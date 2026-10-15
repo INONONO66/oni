@@ -36,7 +36,8 @@ export function renderSlack(step: NativeStep): readonly SlackBlock[] {
         const props = button.props;
         return [{
           type: "button", text: { type: "plain_text", text: props.label },
-          ...("url" in props ? { url: props.url } : { action_id: props.id }),
+          action_id: "url" in props ? child : props.id,
+          ...("url" in props ? { url: props.url } : {}),
           ...(props.style === "primary" || props.style === "danger" ? { style: props.style } : {}),
         }];
       });
@@ -45,7 +46,8 @@ export function renderSlack(step: NativeStep): readonly SlackBlock[] {
     case "Button": {
       const props = element.props;
       return [{ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: props.label },
-        ...("url" in props ? { url: props.url } : { action_id: props.id }) }] }];
+        action_id: "url" in props ? step.id : props.id,
+        ...("url" in props ? { url: props.url } : {}) }] }];
     }
     case "Status":
       return [{ type: "section", text: { type: "mrkdwn", text: `*${STATUS[element.props.kind]} ${element.props.title}*${element.props.body === undefined ? "" : `\n${element.props.body}`}` } }];
