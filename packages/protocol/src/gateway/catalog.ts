@@ -25,6 +25,7 @@ const PollProps = z.object({ question: z.string(), options: z.array(z.string()),
 const StatusProps = z.object({ kind: z.enum(["ok", "warn", "fail", "progress"]), title: z.string(), body: z.string().optional() }).strict();
 const ContextProps = z.object({ text: z.string() }).strict();
 const StackProps = z.object({}).strict();
+type JsonValue = z.infer<ReturnType<typeof z.json>>;
 
 const definitions = {
   Stack: { props: StackProps, description: "The message body: an ordered sequence of sections. Use as root whenever the message has more than one element." },
@@ -101,13 +102,13 @@ export type Element = {
 }[keyof typeof definitions];
 export type SpecValue = { root: string; elements: Record<string, Element> };
 
-function hasExpression(value: unknown): boolean {
+function hasExpression(value: JsonValue): boolean {
   if (Array.isArray(value)) return value.some(hasExpression);
   if (value === null || typeof value !== "object") return false;
   return Object.entries(value).some(([key, nested]) => key.startsWith("$") || hasExpression(nested));
 }
 
-function hasClientStateField(value: unknown): boolean {
+function hasClientStateField(value: JsonValue): boolean {
   if (Array.isArray(value)) return value.some(hasClientStateField);
   if (value === null || typeof value !== "object") return false;
   return Object.entries(value).some(
@@ -168,7 +169,7 @@ const SpecBody = (Catalog.zodSchema() as z.ZodType<SpecValue>).superRefine((spec
     }
   }
 });
-export const Spec = z.preprocess((input, ctx) => {
+export const Spec = z.preprocess((input: JsonValue, ctx) => {
   if (hasClientStateField(input)) {
     ctx.addIssue({ code: "custom", message: "chat specs carry no client state" });
   }

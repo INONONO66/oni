@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Outbound } from "../src/index.js";
+import { z } from "zod";
+type JsonValue = z.infer<ReturnType<typeof z.json>>;
 
 describe("Outbound (#1497)", () => {
   test("a string is sugar for one text part; a payload passes through unchanged", () => {
@@ -51,7 +53,7 @@ describe("Outbound (#1497)", () => {
   });
 
   test("catalog validates every element and rejects state, bad references, and invalid buttons", () => {
-    const props: Record<string, Record<string, unknown>> = {
+    const props: Record<string, Record<string, JsonValue>> = {
       Markdown: { text: "hello" },
       Code: { text: "echo hi", lang: "sh" },
       Table: { columns: [{ header: "Name" }], rows: [["Ada"]] },
