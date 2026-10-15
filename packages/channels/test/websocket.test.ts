@@ -102,6 +102,15 @@ describe("WebSocketHandler ingress and receipts", () => {
     };
   }
 
+  it("delivers an edit frame using the existing message id", () => {
+    const handler = createHandler();
+    const { ws, sent } = connection({ surfaceKey: "ws::dm:c1", authenticated: true, externalId: "alice" });
+    handler.ws.open(ws);
+    expect(handler.push("alice", "Done", "edit-operation", "original-message"))
+      .toEqual({ value: "accepted", externalMessageId: "original-message" });
+    expect(sent).toEqual([JSON.stringify({ type: "edit", messageId: "original-message", text: "Done" })]);
+  });
+
   it("passes a declared frame identifier through as the deduplication key", async () => {
     let inbound: Channel.InboundMessage | undefined;
     const handler = new WebSocketHandler((message) => Effect.sync(() => {

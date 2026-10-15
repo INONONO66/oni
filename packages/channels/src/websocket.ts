@@ -111,6 +111,7 @@ export class WebSocketHandler {
     externalId: string,
     body: string,
     idempotencyKey: string,
+    editMessageId?: string,
   ): {
     value: "accepted";
     externalMessageId: string;
@@ -122,8 +123,8 @@ export class WebSocketHandler {
         cause: `no live websocket connection for actor ${externalId}`,
       });
     }
-    const messageId = idempotencyKey;
-    connection.send(JSON.stringify({ type: "message", messageId, text: body }));
+    const messageId = editMessageId ?? idempotencyKey;
+    connection.send(JSON.stringify({ type: editMessageId === undefined ? "message" : "edit", messageId, text: body }));
     return { value: "accepted", externalMessageId: messageId };
   }
 

@@ -437,6 +437,11 @@
           "type": "string",
           "minLength": 1
         },
+        "edit": {
+          "description": "Replace a previously sent channel message by its returned message id.",
+          "type": "string",
+          "minLength": 1
+        },
         "kind": {
           "default": "prompt",
           "description": "prompt is the default letter; interrupt and resume steer a running session.",

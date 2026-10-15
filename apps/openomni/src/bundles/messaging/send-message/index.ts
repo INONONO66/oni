@@ -59,6 +59,7 @@ const SendMessageInput = z
       .describe(
         "Instead of a letter, put this emoji on the message the contact wrote (to.conversation.replyToMessageId names it). Channel contacts only.",
       ),
+    edit: z.string().min(1).optional().describe("Replace a previously sent channel message by its returned message id."),
     kind: z
       .enum(["prompt", "interrupt", "resume"])
       .default("prompt")
@@ -89,10 +90,21 @@ function outboundPayload(input: SendMessageInput): Outbound.Payload {
   if (input.react === undefined) {
     if (input.message === undefined)
       throw new ToolRefused("send_message", "exactly one of message or react");
+    if (input.edit !== undefined) return {
+      kind: "edit",
+      messageId: input.edit,
+      spec: typeof input.message === "string"
+        ? { root: "message", elements: {
+          message: { type: "Markdown", props: { text: input.message }, children: [] },
+        } }
+        : input.message,
+    };
     return typeof input.message === "string"
       ? Outbound.payload(input.message)
       : { kind: "message", spec: input.message };
   }
+  if (input.edit !== undefined)
+    throw new ToolRefused("send_message", "edit cannot be combined with react");
   const messageId = input.to.kind === "contact" ? input.to.conversation?.replyToMessageId : undefined;
   if (messageId === undefined)
     throw new ToolRefused("send_message", "react needs a channel contact with conversation.replyToMessageId");
@@ -264,6 +276,8 @@ function routeContact(
     throw new ToolRefused("send_message", "contact effect runner is not composed");
   if (input.react !== undefined)
     throw new ToolRefused("send_message", "a CLI agent takes a letter, not a reaction");
+  if (input.edit !== undefined)
+    throw new ToolRefused("send_message", "a CLI agent cannot edit a channel message");
   return contacts.run(
     connector({
       sender: context.sessionId,
@@ -306,8 +320,12 @@ export function createSendMessageTool(
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },
     async execute(input, context) {
+      if (input.edit === "")
+        throw new ToolRefused("send_message", "edit needs a nonempty message id");
       const address = input.to.kind === "contact" ? parseContactAddress(input.to.id) : undefined;
       if (address !== undefined) return routeContact(registry, contacts, address, input, context);
+      if (input.edit !== undefined && input.to.kind !== "contact")
+        throw new ToolRefused("send_message", "edit needs a channel contact");
       if (port === undefined)
         throw new ToolRefused("send_message", "message gateway is not composed");
       const result = await port.ingest(
@@ -319,7 +337,9 @@ export function createSendMessageTool(
       // purpose; its handler cancels the child and prompts the parent.
       if (input.to.kind === "new_session" && input.deadline_ms !== undefined)
         await armChildDeadline(contacts, context, result.handle.target, now() + input.deadline_ms);
-      return result.handle;
+      return result.delivery.kind === "actor" && result.delivery.externalMessageId !== undefined
+        ? { ...result.handle, messageId: result.delivery.externalMessageId }
+        : result.handle;
     },
     render: (_input, result) => JSON.stringify(result),
   });

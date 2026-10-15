@@ -138,12 +138,31 @@ test("the tool routes CLI contacts through connectors and everything else throug
       content: { kind: "react", messageId: "1700000000.000100", emoji: "\u{1F44D}" },
     },
   ]);
+  const editResult = await tool.execute(
+    { to: { kind: "contact", id: "known-owner", surface: "slack", conversation },
+      message: spec, edit: "1700000000.000200", kind: "prompt" }, context,
+  );
+  expect(ingested.at(-1)?.content).toEqual({ kind: "edit", messageId: "1700000000.000200", spec });
+  expect(editResult).toEqual({ messageId: "m-1", target: "child-1" });
+  await tool.execute(
+    { to: { kind: "contact", id: "known-owner" }, message: "Updated", edit: "12", kind: "prompt" }, context,
+  );
+  expect(ingested.at(-1)?.content).toEqual({ kind: "edit", messageId: "12",
+    spec: { root: "message", elements: {
+      message: { type: "Markdown", props: { text: "Updated" }, children: [] },
+    } } });
   // A reaction without the message it sits on is refused before any send; the
   // input schema the loop parses with admits exactly one of letter or reaction.
   await expect(
     tool.execute({ to: { kind: "contact", id: "known-owner" }, react: "\u{1F44D}", kind: "prompt" }, context),
   ).rejects.toThrow("react needs a channel contact with conversation.replyToMessageId");
-  expect(ingested).toHaveLength(3);
+  expect(ingested).toHaveLength(5);
+  await expect(tool.execute({ to: { kind: "contact", id: "known-owner" },
+    react: "\u{1F44D}", edit: "12", kind: "prompt" }, context)).rejects.toThrow("edit cannot be combined with react");
+  expect(tool.input.safeParse({ to: { kind: "contact", id: "known-owner" },
+    message: "Update", edit: "" }).success).toBe(false);
+  await expect(tool.execute({ to: { kind: "contact", id: "known-owner" },
+    message: "Update", edit: "", kind: "prompt" }, context)).rejects.toThrow("edit needs a nonempty message id");
   // A CLI agent reads a letter from stdin: a reaction has nowhere to land, and a
   // parts letter folds to the text the connector pipes through.
   const piped: string[] = [];
@@ -161,6 +180,8 @@ test("the tool routes CLI contacts through connectors and everything else throug
   await expect(
     cli.execute({ to: { kind: "contact", id: "cli:claude-code" }, react: "\u{1F44D}", kind: "prompt" }, context),
   ).rejects.toThrow("a CLI agent takes a letter, not a reaction");
+  await expect(cli.execute({ to: { kind: "contact", id: "cli:claude-code" },
+    message: "Update", edit: "12", kind: "prompt" }, context)).rejects.toThrow("a CLI agent cannot edit");
   expect(
     await cli.execute(
       {
@@ -187,6 +208,16 @@ test("the tool routes CLI contacts through connectors and everything else throug
   await expect(
     sealed.execute({ to: { kind: "session", id: "s-2" }, message: "hi", kind: "prompt" }, context),
   ).rejects.toThrow("message gateway is not composed");
+});
+
+test("an accepted actor send returns the external message id rather than its gateway id", async () => {
+  const port: MessagePort = { ingest: async () => ({
+    status: "executed", handle: { messageId: "internal", target: "owner" },
+    delivery: { kind: "actor", value: "accepted", externalMessageId: "platform-42" },
+  }) };
+  const tool = createSendMessageTool(port, () => 0);
+  expect(await tool.execute({ to: { kind: "contact", id: "owner" },
+    message: "Hi", kind: "prompt" }, context)).toEqual({ messageId: "platform-42", target: "owner" });
 });
 
 test("a new child with a deadline arms delegation.deadline for the created child", async () => {
