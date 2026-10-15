@@ -42,7 +42,15 @@ interface MachineHostOptions {
    * own fs/shell plane through the reattach-supersede path.
    */
   readonly neverSupersede?: readonly Machine.MachineId[];
+  /**
+   * Age (host clock, since receipt) past which the latest `machine.report`
+   * reads `live.stale: true` (#1555). Default 15 000 ms = three missed
+   * heartbeats at the daemon's default cadence.
+   */
+  readonly staleAfterMs?: number;
 }
+/** Default `staleAfterMs`: three missed default-cadence heartbeats. */
+const REPORT_STALE_AFTER_MS = 15_000;
 type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }>;
 type ReadValue = Omit<Value<"read">, "data"> & { readonly data: Uint8Array };
 type ExecValue = Omit<Extract<Machine.ExecResult, { status: "completed" }>, "stdout" | "stderr"> & { readonly stdout: Uint8Array; readonly stderr: Uint8Array };
@@ -63,11 +71,22 @@ export interface MachineHandle {
   runCode(cell: Machine.CellRequest, signal?: AbortSignal): Effect.Effect<Machine.CellResult, MachineError>;
   peekCode(cellId: string): Effect.Effect<Machine.PeekAnswer, MachineError>;
 }
+/** The latest accepted heartbeat of one attachment, as `list()` projects it (#1555). */
+interface MachineLive {
+  /** The daemon's own `reportedAt`; staleness is judged by the host clock. */
+  readonly reportedAt: number;
+  readonly load: Machine.Load;
+  readonly stale: boolean;
+}
 export interface MachineInfo extends Machine.Enrollment {
   readonly tags: string[];
   readonly capabilities: string[];
   readonly os: string;
   readonly arch: string;
+  /** Static capacity the daemon offered at attach; absent when it offered none. */
+  readonly resources?: Machine.Resources;
+  /** Absent until the first accepted heartbeat of the current attachment. */
+  readonly live?: MachineLive;
 }
 export interface MachineHost {
   list(): MachineInfo[];
@@ -106,11 +125,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     const known = new Set<string>();
     const inFlight = new Map<string, Set<string>>();
     const handles = new Map<string, MachineHandle>();
+    /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
+    const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
+    const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     function detach(key: string, reason: string): void {
       const attachment = attachments.get(key);
       if (attachment === undefined) return;
       attachments.delete(key);
       inFlight.delete(key);
+      reports.delete(key);
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
       options.events.publish(Machine.Events.Detached, { machineId: attachment.offer.machineId, time: options.now(), reason });
     }
@@ -151,17 +174,36 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         }
         detach(source.key, "superseded_by_reattach");
         attachments.set(source.key, { enrollment, offer, capabilities: outcome.capabilities, ...source });
+        reports.delete(source.key);
         connectionByMachine.set(offer.machineId, source.key);
         known.add(offer.machineId);
         options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...outcome.capabilities] });
         respond({ status: "attached", effectiveCapabilities: [...outcome.capabilities], effectiveExports: [...exports.exports] } satisfies Machine.AttachResult);
       });
     }
+    /**
+     * One heartbeat (#1555). Only the connection that attached may report,
+     * and only for the machine it attached as; anything else is a typed
+     * refusal and the host keeps nothing from it.
+     */
+    function report(incoming: Machine.Report, source: RequestSource): Machine.ReportResult {
+      const attachment = attachments.get(source.key);
+      if (attachment === undefined) return { status: "refused", reason: "machine_not_attached" };
+      if (attachment.offer.machineId !== incoming.machineId) return { status: "refused", reason: "machine_mismatch" };
+      reports.set(source.key, { report: incoming, receivedAt: options.now() });
+      options.events.publish(Machine.Events.Reported, { machineId: incoming.machineId, time: incoming.reportedAt, load: incoming.load });
+      return { status: "accepted" };
+    }
     function dispatchRequest(method: string, params: Ipc.Request["params"], respond: (result: Ipc.Response["result"]) => void, source: RequestSource): Effect.Effect<void, MachinesFailure> {
       return Effect.gen(function* () {
         if (method === Machine.WireMethod.CallTool) {
           const call = yield* Effect.try({ try: () => Machine.ToolCall.parse(params), catch: decodeMachineFailure("tool.decode") });
           respond(yield* callTool(call, source.key));
+          return;
+        }
+        if (method === Machine.WireMethod.Report) {
+          const incoming = yield* Effect.try({ try: () => Machine.Report.parse(params), catch: decodeMachineFailure("report.decode") });
+          respond(report(incoming, source));
           return;
         }
         if (method !== Machine.WireMethod.Attach) return yield* new MachineRefusalError({ reason: "invalid_method", message: `invalid method: ${method}` });
@@ -326,7 +368,18 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     return {
       get,
       endpoints: { ...(unixPath === undefined ? {} : { unix: unixPath }), ...(tcpBound === undefined ? {} : { tcp: tcpBound }) },
-      list: () => [...attachments.values()].map(({ enrollment, offer, capabilities }) => ({ ...structuredClone(enrollment), tags: [...(enrollment.tags ?? [])], capabilities: [...capabilities], os: offer.platform.split("-")[0] ?? offer.platform, arch: offer.platform.split("-").slice(1).join("-") })).sort((a, b) => a.machineId.localeCompare(b.machineId)),
+      list: () => [...attachments.values()].map(({ enrollment, offer, capabilities, key }): MachineInfo => {
+        const latest = reports.get(key);
+        return {
+          ...structuredClone(enrollment),
+          tags: [...(enrollment.tags ?? [])],
+          capabilities: [...capabilities],
+          os: offer.platform.split("-")[0] ?? offer.platform,
+          arch: offer.platform.split("-").slice(1).join("-"),
+          ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
+          ...(latest === undefined ? {} : { live: { reportedAt: latest.report.reportedAt, load: { ...latest.report.load }, stale: options.now() - latest.receivedAt > staleAfterMs } }),
+        };
+      }).sort((a, b) => a.machineId.localeCompare(b.machineId)),
       close: () => close,
     };
   });

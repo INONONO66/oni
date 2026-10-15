@@ -59,6 +59,38 @@ the Resident/child `buildAgentPrompt` calls and both directories reach process
 children. Receipts:
 `apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
 
+## #1555 machine capacity facts and the `machine.report` heartbeat (epic #1554, rung A)
+
+On `feat/1555-machine-report` (2026-10-15, base `35d60a491`).
+`Machine.Offer` carries an optional `resources: { cpus, memoryBytes }`; a
+daemon wired with `report` fills it from its OS when the configured offer
+leaves it absent, otherwise the configured block stands. After `attached` the
+daemon sends one `machine.report` at once and then one per `intervalMs`
+(default 5000, floor 1000) carrying `loadAvg1`, `memoryAvailableBytes` and its
+in-flight cell count; every delay runs through the injected scheduler and
+clock (the #1270 reconnect shape). The next beat is scheduled only after the
+host accepted the previous one: a refusal (`machine_not_attached` |
+`machine_mismatch`) means the host no longer holds this attachment while the
+transport stands, and the daemon closes as it does after a refused reattach;
+a failed call is logged and the cadence continues. The host accepts a report
+only from the attaching connection for the machine it attached as, keeps the
+latest per attachment, drops it on detach or re-attach, and publishes
+`machine.reported`. `MachineHost.list()` projects `resources?` and
+`live?: { reportedAt, load, stale }` with `stale` judged by the host clock
+against `staleAfterMs` (default 15 000 = three missed default beats);
+`codemode.listMachines` exposes both for free. Without `report` wiring a daemon
+offers no probed resources and never beats. `openomni machine attach`
+(`cli/machine.ts`) wires `report` on the same Effect-clock scheduler its TCP
+reconnect uses, with `now` from `captureNow`; the brain's `self` daemon
+(`composition/self-machine.ts`) does not report yet — it is the only machine
+that cannot go stale, and rung B treats unknown resources as last choice.
+Receipts: `packages/protocol/test/machine/machine.test.ts` (schema, wire
+registration, event), `packages/machines/test/report.test.ts` (fake
+scheduler/probe/host clock: cadence, floor, staleness flip, typed refusals,
+cadence end after supersede) and `apps/openomni/test/machine-config.test.ts`
+(the configured TCP daemon's first beat lands and `list()` shows probed
+`resources` with non-stale `live`).
+
 ## #1545 inbound postback (L3)
 
 On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).

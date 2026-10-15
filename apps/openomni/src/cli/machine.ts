@@ -9,6 +9,7 @@ import { createCodemode } from "@openomni/codemode";
 import { Machine } from "@openomni/protocol";
 import { z } from "zod";
 import { foreignFailure } from "../composition/failure";
+import { captureNow } from "../composition/platform";
 
 /**
  * Two ways to reach a host, named explicitly: same-box over the unix socket,
@@ -35,22 +36,22 @@ const Configuration = z.union([UnixConfiguration, TcpConfiguration]);
  * Real time and real entropy; tests inject their own through the daemon API.
  * Only TCP attachments reconnect: a network between daemon and host blips, a
  * same-box unix host that went away is a shutdown and the daemon exits with it.
+ * Every attachment reports its load on the same Effect-clock scheduler (#1555).
  */
 /** Production composition of the existing daemon wire, not a second daemon implementation. */
 export function attachConfiguredMachine(configPath: string, id: () => string) {
   return Effect.gen(function* () {
     const context = yield* Effect.context();
-    const reconnect: ReconnectOptions = {
-      scheduler: {
-        schedule(delayMs, task) {
-          const fiber = Effect.runForkWith(context)(
-            Effect.sleep(delayMs).pipe(Effect.tap(() => Effect.sync(task))),
-          );
-          return () => { void Effect.runPromiseWith(context)(Fiber.interrupt(fiber)); };
-        },
+    const scheduler: ReconnectOptions["scheduler"] = {
+      schedule(delayMs, task) {
+        const fiber = Effect.runForkWith(context)(
+          Effect.sleep(delayMs).pipe(Effect.tap(() => Effect.sync(task))),
+        );
+        return () => { void Effect.runPromiseWith(context)(Fiber.interrupt(fiber)); };
       },
-      random: Math.random,
     };
+    const reconnect: ReconnectOptions = { scheduler, random: Math.random };
+    const report = { scheduler, now: yield* captureNow };
     const contents = yield* Effect.tryPromise({ try: () => Bun.file(configPath).text(), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.read") });
     const config = yield* Effect.try({ try: () => Configuration.parse(JSON.parse(contents)), catch: foreignFailure((fields) => new MachinesFailure(fields), "configuration.decode") });
     const mode = yield* createCodemode({ id });
@@ -61,6 +62,7 @@ export function attachConfiguredMachine(configPath: string, id: () => string) {
       offer: config.offer,
       fsExports: new Map((config.offer.exports ?? []).map((entry) => [entry.name, entry.path])),
       runner: mode.runner,
+      report,
     };
     if ("socketPath" in config) {
       return yield* attachMachineDaemon({ ...common, socketPath: config.socketPath });

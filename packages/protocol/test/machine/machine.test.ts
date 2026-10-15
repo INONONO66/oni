@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Machine } from "../../src/machine/index.js";
+import { Ipc } from "../../src/ipc/index.js";
 import { expectIssue } from "../helpers/schema.js";
 
 const enrollment = {
@@ -91,6 +92,36 @@ describe("Machine.Offer", () => {
       offeredCapabilities: ["fs.read", "fs.read"],
     });
     expectIssue(result, { message: "capabilities must be unique", path: "offeredCapabilities" });
+  });
+
+  test("carries optional whole-number capacity facts and refuses a zero cpu count", () => {
+    const resources = { cpus: 4, memoryBytes: 8 * 1024 ** 3 };
+    expect(Machine.Offer.parse({ ...offer, resources })).toEqual({ ...offer, resources });
+    expect(Machine.Offer.safeParse({ ...offer, resources: { ...resources, cpus: 0 } }).success).toBe(false);
+  });
+});
+
+describe("machine.report heartbeat (#1555)", () => {
+  const load = { loadAvg1: 0.5, memoryAvailableBytes: 1024, inFlight: 2 };
+
+  test("the wire method is registered with the report and result schemas", () => {
+    expect(Machine.WireMethod.Report).toBe("machine.report");
+    expect(Ipc.Methods["machine.report"].params).toBe(Machine.Report);
+    expect(Ipc.Methods["machine.report"].result).toBe(Machine.ReportResult);
+  });
+
+  test("a report round-trips, refuses a negative load average, and the event carries the same load", () => {
+    const report = { machineId: "mac-0", reportedAt: 3, load };
+    expect(Machine.Report.parse(report)).toEqual(report);
+    expect(Machine.Report.safeParse({ ...report, load: { ...load, loadAvg1: -1 } }).success).toBe(false);
+    expect(Machine.Events.Reported.name).toBe("machine.reported");
+    expect(Machine.Events.Reported.schema.parse({ machineId: "mac-0", time: 3, load })).toEqual({ machineId: "mac-0", time: 3, load });
+  });
+
+  test("a refusal names one of the two host reasons and nothing else", () => {
+    expect(Machine.ReportResult.parse({ status: "refused", reason: "machine_mismatch" })).toEqual({ status: "refused", reason: "machine_mismatch" });
+    expect(Machine.ReportResult.safeParse({ status: "refused", reason: "unknown" }).success).toBe(false);
+    expect(Machine.ReportResult.safeParse({ status: "accepted", extra: true }).success).toBe(false);
   });
 });
 

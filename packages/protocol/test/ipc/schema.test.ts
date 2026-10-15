@@ -93,6 +93,7 @@ describe("Ipc.Methods param schemas", () => {
     expect(Object.keys(Ipc.Methods).sort()).toEqual(
       [
         Machine.WireMethod.Attach,
+        Machine.WireMethod.Report,
         Machine.WireMethod.RunCode,
         Machine.WireMethod.CancelCode,
         Machine.WireMethod.PeekCode,

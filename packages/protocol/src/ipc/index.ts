@@ -52,6 +52,16 @@ const methods = {
     params: Machine.Offer,
     result: Machine.AttachResult,
   },
+  /**
+   * Machine daemon → machine host (#1555): one load heartbeat per report
+   * interval on the attached connection. The host answers `accepted` or a
+   * typed refusal (`machine_not_attached` | `machine_mismatch`) and keeps
+   * only the latest accepted report; staleness is the host clock's call.
+   */
+  [Machine.WireMethod.Report]: {
+    params: Machine.Report,
+    result: Machine.ReportResult,
+  },
   [Machine.WireMethod.Exec]: { params: Machine.ExecRequest, result: Machine.ExecResult },
   [Machine.WireMethod.CancelCode]: { params: Machine.CancelCode, result: Machine.CancelResult },
   /** Machine host → machine daemon: a live cell's output so far, for `eval peek`. */

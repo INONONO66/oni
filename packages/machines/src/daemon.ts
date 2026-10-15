@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import os from "node:os";
 import { posix } from "node:path";
 import { isContained, normalizeExportRoot } from "./contained";
 import { type IpcClient, connectIpcClient, connectIpcTcpClient } from "./ipc";
@@ -43,6 +44,32 @@ type DaemonConnection =
       readonly tlsCertificate: string;
       readonly tlsPrivateKey: string;
     };
+/** What one heartbeat observes on the daemon's box (#1555): the app reads the OS, tests fake it. */
+interface LoadProbe {
+  resources(): Machine.Resources;
+  load(): Omit<Machine.Load, "inFlight">;
+}
+function systemLoadProbe(): LoadProbe {
+  return {
+    resources: () => ({ cpus: os.cpus().length, memoryBytes: os.totalmem() }),
+    load: () => ({ loadAvg1: os.loadavg()[0] ?? 0, memoryAvailableBytes: os.freemem() }),
+  };
+}
+/** Default heartbeat cadence (#1555); the host's default staleness is three of these. */
+const REPORT_INTERVAL_MS = 5000;
+/** Cadence floor: a configured interval below this is raised to it, never honored. */
+const REPORT_INTERVAL_FLOOR_MS = 1000;
+/**
+ * Heartbeat wiring (#1555). Time comes ONLY from the injected scheduler and
+ * clock (the reconnect scheduler shape, #1270); absent means the daemon
+ * never sends `machine.report` and offers no probed resources.
+ */
+interface ReportOptions {
+  readonly scheduler: ReconnectOptions["scheduler"];
+  readonly now: () => number;
+  readonly intervalMs?: number;
+  readonly probe?: LoadProbe;
+}
 type MachineDaemonOptions = DaemonConnection & {
   /** Injected request-id entropy (#1245): required, no ambient crypto fallback. */
   readonly id: () => string;
@@ -60,6 +87,7 @@ type MachineDaemonOptions = DaemonConnection & {
    * full-jitter backoff. Absent keeps close-on-disconnect behavior.
    */
   readonly reconnect?: ReconnectOptions;
+  readonly report?: ReportOptions;
   /** Persistent terminals (#1273): tmux binary/socket overrides and test ports. */
   readonly pty?: Omit<import("./pty").PtyAdapterOptions, "id" | "runner">;
 };
@@ -92,7 +120,14 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     const pty = createPtyAdapter({ runner: commands, id: options.id, ...options.pty });
     // Attach-time probes: computer-use needs complete prerequisites (#1274),
     // pty.session needs tmux resolving on PATH (#1273).
-    const offer: Machine.Offer = { ...configured, offeredCapabilities: yield* pty.offeredCapabilities(yield* computer.offeredCapabilities(configured.offeredCapabilities)) };
+    const report = options.report === undefined ? undefined : { ...options.report, intervalMs: Math.max(REPORT_INTERVAL_FLOOR_MS, options.report.intervalMs ?? REPORT_INTERVAL_MS), probe: options.report.probe ?? systemLoadProbe() };
+    // A configured `resources` stands; a reporting daemon probes its box for the rest.
+    const resources = configured.resources ?? report?.probe.resources();
+    const offer: Machine.Offer = {
+      ...configured,
+      ...(resources === undefined ? {} : { resources }),
+      offeredCapabilities: yield* pty.offeredCapabilities(yield* computer.offeredCapabilities(configured.offeredCapabilities)),
+    };
     const filesystem = yield* createFsDriver(options.fsExports ?? new Map());
     const dispatch = yield* makeDispatcher({ bound: options.dispatcherBound });
     const lifetime = new AbortController();
@@ -106,7 +141,13 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     const closed = yield* Deferred.make<void, MachineError>();
     let closing = false;
     const transportFailure = (operation: string) => (error: import("./ipc").IpcError) => new TransportFailure({ operation, message: error.message || String(error), cause: String(error) });
+    let cancelReport: (() => void) | undefined;
+    function stopReporting(): void {
+      cancelReport?.();
+      cancelReport = undefined;
+    }
     const releaseClient: Effect.Effect<void> = Effect.suspend(() => {
+      stopReporting();
       const scope = clientScope;
       clientScope = undefined;
       client = undefined;
@@ -225,6 +266,33 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
       if (options.runner === undefined) return { status: "refused", reason: "kernel_not_available" };
       return { running: cells.has(request.cellId), output: options.runner.peekCode(request.cellId) };
     }
+    /**
+     * One heartbeat (#1555); the next is scheduled only after the host
+     * ACCEPTED it. A refusal means the host dropped this attachment while the
+     * transport stood (superseded, or never held): terminal like a refused
+     * reattach, so the daemon closes rather than beat into a void. A failed
+     * call is logged and the cadence continues while the connection stands;
+     * transport loss releases the client, which cancels the pending beat.
+     */
+    const sendReport: Effect.Effect<void> = Effect.suspend(() => {
+      if (report === undefined || client === undefined || attachment.status !== "attached") return Effect.void;
+      const heartbeat: Machine.Report = { machineId: offer.machineId, reportedAt: report.now(), load: { ...report.probe.load(), inFlight: cells.size } };
+      return typedCall(client, Machine.WireMethod.Report, heartbeat, report.intervalMs).pipe(
+        Effect.mapError(transportFailure("daemon.report")),
+        Effect.flatMap((raw) => Effect.try({ try: () => Machine.ReportResult.parse(raw), catch: decodeMachineFailure("daemon.report.response") })),
+        Effect.flatMap((result) => result.status === "accepted" ? Effect.sync(() => scheduleReport(report.intervalMs)) : Effect.orDie(close)),
+        Effect.catch((error) => Effect.logWarning(`machine.report failed: ${error.message}`).pipe(Effect.andThen(Effect.sync(() => { if (client !== undefined) scheduleReport(report.intervalMs); })))),
+      );
+    });
+    function scheduleReport(delayMs: number): void {
+      if (report === undefined || closing) return;
+      stopReporting();
+      cancelReport = report.scheduler.schedule(delayMs, () => {
+        cancelReport = undefined;
+        // A full dispatcher drops this beat, not the cadence.
+        if (dispatch(sendReport) !== undefined) scheduleReport(report.intervalMs);
+      });
+    }
     function callTool(call: Machine.ToolCall, timeoutMs: number): Effect.Effect<Machine.ToolCallResult, MachineError> {
       return Effect.suspend(() => {
         if (client === undefined) return new MachineRefusalError({ reason: "closed", message: "daemon connection is closed" });
@@ -287,6 +355,8 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
           : transportFailure("daemon.connect")(error)));
       const raw = yield* typedCall(client, Machine.WireMethod.Attach, offer, options.attachTimeoutMs).pipe(Effect.mapError(transportFailure("daemon.attach")));
       attachment = yield* Effect.try({ try: () => Machine.AttachResult.parse(raw), catch: decodeMachineFailure("daemon.attach.response") });
+      // The first heartbeat follows the attach at once (through the scheduler, never ambiently).
+      if (attachment.status === "attached") scheduleReport(0);
     });
     /**
      * A scheduled reconnect attempt. Success resets the backoff counter; a

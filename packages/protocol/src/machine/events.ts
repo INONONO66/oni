@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BusEvent } from "../bus/index.js";
-import { CapabilityId, MachineId, uniqueCapabilities } from "./schema.js";
+import { CapabilityId, Load, MachineId, uniqueCapabilities } from "./schema.js";
 import { EpochMs } from "../time.js";
 
 const EventBase = z.object({
@@ -18,6 +18,10 @@ export const Events = {
     { visibility: "llm_reason" },
   ),
   Detached: BusEvent.define("machine.detached", EventBase.extend({ reason: z.string().min(1) }), {
+    visibility: "llm_reason",
+  }),
+  /** The host accepted one `machine.report` heartbeat (#1555); `time` is the daemon's `reportedAt`. */
+  Reported: BusEvent.define("machine.reported", EventBase.extend({ load: Load }), {
     visibility: "llm_reason",
   }),
 } as const;
