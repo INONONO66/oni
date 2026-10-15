@@ -1,5 +1,19 @@
 # Implementation Status
 
+## #1573 external tool packs
+
+`OPENOMNI_TOOL_PACKS_DIR` optionally names a directory of JSON manifests, one
+bundle per pack. Boot validates each tool's JSON Schema, required command
+placeholders, enrolled machine and name before composition; malformed packs,
+unknown machines and built-in tool collisions fail closed with
+`AppInvariantError` codes `invalid_tool_pack`, `unknown_machine` and
+`tool_name_collision`. Pack tools use the same removable `Bundle.define({ tools })`
+generation as built-in tools, so `provision{op:"bundle_disable"}` removes the
+pack's tools from the next generation. Rendered arguments are standalone,
+shell-quoted values; execution resolves the attached machine's `exec` port,
+never a local process. Unset means no external packs. Receipts:
+`apps/openomni/test/tool-packs.test.ts`, `/tmp/ulw-r4/c4-machine-exec.txt`.
+
 ## #1561 every model tool is a removable bundle (base `35d60a491`)
 
 - Shipped: `apps/openomni/src/manifest.ts` lists the `file` (read, write, edit, ls, find, grep), `bash`, `eval`, `send-message`, `provision` and `completion` bundles beside `monitor`; each declares its tools through `Bundle.define({ tools })` over late-bound ports (`appManifest`'s `tools` input reads `composition/composed.ts` `ToolPortsSlot`, bound by boot like the monitor's alarm slot; `bundles/seams.ts` `boundTool` resolves the current ports per call). The hard-wired `catalogDefinitions` list is deleted (`composition/catalog.ts` keeps only the `ToolPorts` shape), and `send-message` is the sole owner of the `send_message` face.
