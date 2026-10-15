@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { SessionGeneration, type LedgerSession } from "@openomni/protocol";
-import { APPROVAL_POLICY } from "../src/bundles/approval-policy/index";
 import type { PromptCatalog } from "../src/bundles/prompt/data";
+import { APPROVAL_POLICY } from "../src/composition/policy";
 import { createResident } from "../src/composition/resident";
 import { allowConfigure } from "./helpers/generation-services";
 import { testPlane } from "./helpers/ledger";
