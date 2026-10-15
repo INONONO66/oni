@@ -23,6 +23,7 @@ src/
 - `createCodemode` consumes only the structural machines port (`Pick<MachineHost, "list" | "get">`) and protocol; it owns machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the facade never spawns Python outside `src/kernel.ts`.
 - Typed refusals are `CodemodeError` (`closed`, `machines_not_bound`, `machine_not_found`, `ambiguous_machine`, `unknown_cell_id`); driver boundary faults are `DriverFailure`; everything untyped decodes to `MachinesFailure` via `decodeCodeFailure`.
 - Injected entropy (#1245): cell ids come from the injected `id` source; no ambient crypto fallback.
+- Prelude `m.job(command, cwd)` starts a named terminal job derived from its generated cell id; `m.job_wait(name, timeout)` long-polls the terminal cursor with a bounded sentinel tail (timeout in seconds, no accumulated output), and `m.job_read(name)` replays retained terminal bytes by name. Gone sessions return `status: lost`.
 
 ## TESTS
 

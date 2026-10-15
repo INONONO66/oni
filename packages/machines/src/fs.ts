@@ -6,6 +6,7 @@ import {
   closeSync,
   constants,
   fstatSync,
+  fsyncSync,
   ftruncateSync,
   openSync,
   readSync,
@@ -13,6 +14,7 @@ import {
 } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Machine } from "@openomni/protocol";
+import { createHash, type Hash } from "node:crypto";
 
 type EntryKind = "file" | "dir" | "symlink" | "other";
 type Refusal = Extract<Machine.FsResult, { status: "refused" }>;
@@ -20,6 +22,9 @@ type OpenedTarget = { readonly fd: number; readonly symlinkStat?: ReturnType<typ
 type WalkResult = OpenedTarget | Refusal;
 
 type FsDriver = ((request: Machine.FsRequest) => Effect.Effect<Machine.FsResult, MachineError>) & {
+  stream(request: Machine.FsStreamRequest): Effect.Effect<Machine.FsStreamResult, MachineError>;
+  modeOf(transferId: string): "read" | "write" | undefined;
+  abortAll(): Effect.Effect<void, MachineError>;
   close(): Effect.Effect<void, MachineError>;
 };
 
@@ -62,6 +67,8 @@ const libc = dlopen(libcPath, {
   fdopendir: { args: [FFIType.i32], returns: FFIType.ptr },
   readdir: { args: [FFIType.ptr], returns: FFIType.ptr },
   closedir: { args: [FFIType.ptr], returns: FFIType.i32 },
+  renameat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32, FFIType.cstring], returns: FFIType.i32 },
+  unlinkat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
   ...(process.platform === "darwin"
     ? { __error: { args: [], returns: FFIType.ptr } }
     : { __errno_location: { args: [], returns: FFIType.ptr } }),
@@ -554,6 +561,191 @@ export function createFsDriver(
   }
 
   let closed = false;
+  type Transfer = {
+    fd: number;
+    mode: "read" | "write";
+    destination?: { dirfd: number; targetName: string; tempName: string };
+    begin: string;
+    size: number;
+    offset: number;
+    remaining: number;
+    seq: number;
+    hash: Hash;
+    last?: { request: string; result: Machine.FsStreamResult };
+  };
+  const transfers = new Map<string, Transfer>();
+  const MAX_OPEN_TRANSFERS = 32;
+  type StreamRefusal = Extract<Machine.FsStreamResult, { status: "refused" }>;
+  function streamRefused(reason: StreamRefusal["reason"]): StreamRefusal {
+    return { status: "refused", reason, message: `filesystem transfer refused: ${reason}` };
+  }
+  function openTransfer(request: Extract<Machine.FsStreamRequest, { op: "begin" }>): (OpenedTarget & { destination?: Transfer["destination"] }) | StreamRefusal {
+    const root = roots.get(request.export);
+    if (root === undefined) return streamRefused("export_not_available");
+    const segments = requestSegments(request.path);
+    if (segments === undefined) return streamRefused("path_escapes_export");
+    if (request.mode === "write") return openWriteTemp(root, segments, request.transferId);
+    const target = walk(root, segments, false, false, displayPath(request.path), openFlags(request.mode), testHooks);
+    if (isRefusal(target)) return { status: "refused", reason: target.reason, message: target.message };
+    let retained = false;
+    try {
+      if (fstatSync(target.fd).isFile()) {
+        retained = true;
+        return target;
+      }
+      return streamRefused("wrong_kind");
+    } finally {
+      if (!retained) closeSync(target.fd);
+    }
+  }
+  function checkWriteTarget(dirfd: number, targetName: string): StreamRefusal | undefined {
+    const existing = openAt(dirfd, targetName, O_TARGET | O_NOFOLLOW | O_CLOEXEC);
+    if ("fd" in existing) {
+      try {
+        return fstatSync(existing.fd).isFile() ? undefined : streamRefused("wrong_kind");
+      } finally {
+        closeSync(existing.fd);
+      }
+    }
+    if ("target" in readLinkAt(dirfd, targetName)) return streamRefused("path_escapes_export");
+    return existing.errno === 2 ? undefined : streamRefused("io_error");
+  }
+  function openWriteTemp(root: Root, segments: readonly string[], transferId: string): (OpenedTarget & { destination: NonNullable<Transfer["destination"]> }) | StreamRefusal {
+    if (segments.length === 0) return streamRefused("wrong_kind");
+    const parent = walk(root, segments.slice(0, -1), true, false, segments.join("/"), O_TARGET, testHooks);
+    if (isRefusal(parent)) return { status: "refused", reason: parent.reason, message: parent.message };
+    let retained = false;
+    try {
+      const targetName = segments.at(-1) as string;
+      const refusal = checkWriteTarget(parent.fd, targetName);
+      if (refusal !== undefined) return refusal;
+      const tempName = `.openomni-transfer-${createHash("sha256").update(transferId).digest("hex").slice(0, 32)}`;
+      const staged = openAt(parent.fd, tempName, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_CLOEXEC | constants.O_NONBLOCK);
+      if (!("fd" in staged)) return streamRefused("io_error");
+      retained = true;
+      return { fd: staged.fd, destination: { dirfd: parent.fd, targetName, tempName } };
+    } finally {
+      if (!retained) closeSync(parent.fd);
+    }
+  }
+  function releaseTransfer(transfer: Transfer, published = false): void {
+    closeSync(transfer.fd);
+    const destination = transfer.destination;
+    if (destination === undefined) return;
+    const removed = published || libc.symbols.unlinkat(destination.dirfd, cString(destination.tempName), 0) === 0;
+    const unlinkError = removed ? undefined : new Error(`failed to remove staged filesystem transfer: ${errno()}`);
+    closeSync(destination.dirfd);
+    if (unlinkError !== undefined) throw unlinkError;
+  }
+  function clearTransfers(): void {
+    const active = [...transfers.values()];
+    transfers.clear();
+    let failure: Error | undefined;
+    for (const transfer of active) {
+      try {
+        releaseTransfer(transfer);
+      } catch (error) {
+        failure ??= error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (failure !== undefined) throw failure;
+  }
+  function startTransfer(request: Extract<Machine.FsStreamRequest, { op: "begin" }>, begin: string, target: OpenedTarget & { destination?: Transfer["destination"] }): Machine.FsStreamResult {
+    let retained = false;
+    try {
+      const size = request.mode === "write" ? 0 : fstatSync(target.fd).size;
+      const offset = request.mode === "read" ? (request.offset ?? 0) : 0;
+      transfers.set(request.transferId, {
+        fd: target.fd, mode: request.mode, destination: target.destination, begin, size, offset,
+        remaining: request.mode === "read" ? Math.min(request.limit ?? Math.max(0, size - offset), Math.max(0, size - offset)) : 0,
+        seq: 0, hash: createHash("sha256"),
+      });
+      retained = true;
+      return { status: "begun", seq: 0, size };
+    } finally {
+      if (!retained) releaseTransfer({ fd: target.fd, mode: request.mode, destination: target.destination, begin, size: 0, offset: 0, remaining: 0, seq: 0, hash: createHash("sha256") });
+    }
+  }
+  function streamBegin(request: Extract<Machine.FsStreamRequest, { op: "begin" }>): Machine.FsStreamResult {
+    const begin = JSON.stringify(request);
+    const previous = transfers.get(request.transferId);
+    if (previous !== undefined) return previous.begin === begin && previous.seq === 0
+      ? { status: "begun", seq: 0, size: previous.size }
+      : streamRefused("invalid_sequence");
+    if (transfers.size >= MAX_OPEN_TRANSFERS) return streamRefused("too_large");
+    const target = openTransfer(request);
+    if ("status" in target) return target;
+    return startTransfer(request, begin, target);
+  }
+  function readTransfer(transfer: Transfer, seq: number): Machine.FsStreamResult {
+    const buffer = Buffer.alloc(Math.min(transfer.remaining, Machine.FS_READ_MAX_BYTES));
+    const count = readSync(transfer.fd, buffer, 0, buffer.length, transfer.offset);
+    const data = buffer.subarray(0, count);
+    transfer.hash.update(data);
+    transfer.remaining -= count;
+    transfer.offset += count;
+    const last = transfer.remaining === 0 || count === 0;
+    return { status: "chunk", seq, data: data.toString("base64"), last, ...(last ? { digest: transfer.hash.digest("hex") } : {}) };
+  }
+  function writeTransfer(transfer: Transfer, request: Extract<Machine.FsStreamRequest, { op: "write" }>): Machine.FsStreamResult {
+    const data = Buffer.from(request.data, "base64");
+    if (data.length > Machine.FS_WRITE_MAX_BYTES) return streamRefused("too_large");
+    if (request.last !== (request.digest !== undefined)) return streamRefused("digest_mismatch");
+    const digest = transfer.hash.copy().update(data).digest("hex");
+    if (request.last && digest !== request.digest) return streamRefused("digest_mismatch");
+    let written = 0;
+    while (written < data.length) written += writeSync(transfer.fd, data, written, data.length - written, transfer.offset + written);
+    transfer.offset += written;
+    transfer.hash.update(data);
+    return { status: "written", seq: request.seq, bytesWritten: transfer.offset, last: request.last };
+  }
+  function streamChunk(request: Extract<Machine.FsStreamRequest, { op: "read" | "write" }>): Machine.FsStreamResult {
+    const transfer = transfers.get(request.transferId);
+    if (transfer === undefined) return streamRefused("transfer_not_found");
+    const key = JSON.stringify(request);
+    if (request.seq === transfer.seq - 1 && transfer.last?.request === key) return transfer.last.result;
+    if (request.seq !== transfer.seq || transfer.mode !== request.op || transfer.last?.result.status === "chunk" && transfer.last.result.last || transfer.last?.result.status === "written" && transfer.last.result.last) return streamRefused("invalid_sequence");
+    const result = request.op === "read" ? readTransfer(transfer, request.seq) : writeTransfer(transfer, request);
+    if (result.status === "refused") return result;
+    transfer.last = { request: key, result };
+    transfer.seq += 1;
+    return result;
+  }
+  function abortTransfer(transferId: string): Machine.FsStreamResult {
+    const transfer = transfers.get(transferId);
+    if (transfer !== undefined) {
+      transfers.delete(transferId);
+      releaseTransfer(transfer);
+    }
+    return { status: "finished" };
+  }
+  function finishTransfer(transferId: string): Machine.FsStreamResult {
+    const transfer = transfers.get(transferId);
+    if (transfer === undefined) return streamRefused("transfer_not_found");
+    const terminal = transfer.last?.result;
+    if (terminal?.status !== "chunk" && terminal?.status !== "written" || !terminal.last)
+      return streamRefused("invalid_sequence");
+    transfers.delete(transferId);
+    let published = false;
+    try {
+      const destination = transfer.destination;
+      if (destination !== undefined) {
+        fsyncSync(transfer.fd);
+        if (libc.symbols.renameat(destination.dirfd, cString(destination.tempName), destination.dirfd, cString(destination.targetName)) !== 0)
+          return streamRefused("io_error");
+        published = true;
+      }
+      return { status: "finished" };
+    } finally {
+      releaseTransfer(transfer, published);
+    }
+  }
+  function executeStream(request: Machine.FsStreamRequest): Machine.FsStreamResult {
+    if (request.op === "begin") return streamBegin(request);
+    if (request.op === "abort") return abortTransfer(request.transferId);
+    if (request.op === "finish") return finishTransfer(request.transferId);
+    return streamChunk(request);
+  }
   function performTarget(request: Machine.FsRequest, target: OpenedTarget, data: Buffer | undefined, shown: string): Machine.FsResult {
     try {
       if (data !== undefined) return executeWrite(target, data, shown);
@@ -597,9 +789,13 @@ export function createFsDriver(
   }
   const driver = (request: Machine.FsRequest): Effect.Effect<Machine.FsResult, MachineError> => Effect.try({ try: () => executeRequest(request), catch: decodeMachineFailure("fs.operation") }).pipe(Effect.mapError((error) => new FilesystemFailure({ operation: "fs.operation", message: `filesystem operation failed for: ${displayPath(request.path)}`, cause: String(error) })));
 
+  driver.stream = (request: Machine.FsStreamRequest) => Effect.try({ try: () => executeStream(request), catch: decodeMachineFailure("fs.stream") });
+  driver.modeOf = (transferId: string) => transfers.get(transferId)?.mode;
+  driver.abortAll = () => Effect.try({ try: clearTransfers, catch: decodeMachineFailure("fs.abortAll") });
   driver.close = () => Effect.try({ try: () => {
     if (closed) return;
     closed = true;
+    clearTransfers();
     for (const root of roots.values()) closeRootDescriptor(testHooks, root.fd);
     roots.clear();
   }, catch: decodeMachineFailure("fs.close") });

@@ -89,6 +89,10 @@ const methods = {
     params: Machine.FsRequest,
     result: Machine.FsResult,
   },
+  [Machine.WireMethod.FsStream]: {
+    params: Machine.FsStreamRequest,
+    result: Machine.FsStreamResult,
+  },
   /**
    * Machine host → machine daemon (#1274): one bounded screen capture, and
    * guarded input actions tied to the latest successful capture id.

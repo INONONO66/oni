@@ -69,6 +69,10 @@ export namespace Machine {
   export type FsValue = Schema.FsValue;
   export const FsResult = Schema.FsResult;
   export type FsResult = Schema.FsResult;
+  export const FsStreamRequest = Schema.FsStreamRequest;
+  export type FsStreamRequest = Schema.FsStreamRequest;
+  export const FsStreamResult = Schema.FsStreamResult;
+  export type FsStreamResult = Schema.FsStreamResult;
   export const ScreenRegion = Schema.ScreenRegion;
   export type ScreenRegion = Schema.ScreenRegion;
   export const ScreenReadRequest = Schema.ScreenReadRequest;

@@ -23,6 +23,7 @@ import queue
 import re
 import sys
 import threading
+import time
 import traceback
 
 _emit_lock = threading.Lock()
@@ -215,6 +216,72 @@ class _Machine:
 
     def ptyList(self):
         return tool['codemode.ptyList'](machineId=self.machine_id)
+
+    def job(self, command, cwd):
+        cell_id = getattr(_cell_context, 'cell_id', None)
+        if cell_id is None:
+            raise ToolError('job requires a running cell')
+        name = 'job-' + hashlib.sha256(
+            (cell_id + ':' + str(next(_call_ids))).encode('utf-8')
+        ).hexdigest()[:24]
+        terminal = self.pty(name)
+        opened = terminal.open(cwd)
+        if opened['status'] != 'ok':
+            raise ToolError('job open refused: ' + opened['reason'])
+        launch = (
+            '( eval ' + _shell_quote(command) + ' ); _job_code=$?; '
+            + "printf '\\n__job_done_%s:%s__\\n' " + _shell_quote(name)
+            + ' "$_job_code"\r'
+        )
+        written = terminal.write(launch)
+        if written['status'] != 'ok':
+            raise ToolError('job write refused: ' + written['reason'])
+        return {'name': name, 'machineId': self.machine_id}
+
+    def job_read(self, name, cursor=None, wait_ms=None):
+        view = self.pty(name).read(cursor=cursor, wait_ms=wait_ms)
+        if view['status'] != 'ok':
+            if view['reason'] in ('pty_not_found', 'pty_not_available'):
+                return {'status': 'lost', 'name': name, 'machineId': self.machine_id,
+                        'reason': view['reason']}
+            raise ToolError('job read refused: ' + view['reason'])
+        match = re.search(
+            rb'__job_done_' + name.encode('ascii') + rb':([0-9]+)__\r?\n',
+            view['data'],
+        )
+        return {
+            **view,
+            'name': name,
+            'machineId': self.machine_id,
+            'exitCode': int(match.group(1)) if match else None,
+        }
+
+    def job_wait(self, name, timeout):
+        if timeout < 0:
+            raise ValueError('job_wait timeout must be nonnegative seconds')
+        deadline = time.monotonic() + timeout
+        cursor = None
+        marker = rb'__job_done_' + name.encode('ascii') + rb':([0-9]+)__\r?\n'
+        tail = b''
+        tail_limit = len(name) + 32
+        while True:
+            remaining = deadline - time.monotonic()
+            view = self.job_read(
+                name, cursor=cursor,
+                wait_ms=min(30000, max(0, int(remaining * 1000))),
+            )
+            if view['status'] == 'lost':
+                return view
+            cursor = view['cursor']
+            chunk = tail + view['data']
+            match = re.search(marker, chunk)
+            if match:
+                return {'status': 'completed', 'name': name, 'machineId': self.machine_id,
+                        'exitCode': int(match.group(1)), 'cursor': cursor}
+            tail = chunk[-tail_limit:]
+            if time.monotonic() >= deadline:
+                return {'status': 'timed_out', 'name': name, 'machineId': self.machine_id,
+                        'cursor': cursor}
 
 
 class _PtySession:

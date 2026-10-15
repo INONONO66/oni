@@ -14,6 +14,30 @@ shell-quoted values; execution resolves the attached machine's `exec` port,
 never a local process. Unset means no external packs. Receipts:
 `apps/openomni/test/tool-packs.test.ts`, `/tmp/ulw-r4/c4-machine-exec.txt`.
 
+## #1558 streamed bulk fs, terminal output facts and named jobs (epic #1554, rung F)
+
+On `feat/1558-machine-bulk-job` (2026-10-15, base `d1049470a`, PR #1571).
+`machine.fs_stream` (begin / bounded chunk / finish / abort) joins
+`machine.fs_op` in `packages/protocol`; `machine.pty_output` records machine
+id, terminal name, byte count and cursor, never bytes. In `packages/machines`
+a read without a larger explicit limit and a write of at most 256 KiB stay on
+the one-frame `machine.fs_op` path; an explicit bulk read stops at 8 MiB per
+call; a larger write streams into a sibling temp file, is digest-verified,
+fsynced and renamed, so the original is untouched until finish and a
+final-component symlink is refused. A daemon holds at most 32 transfers;
+abort and the host finalizer release them on every settlement path, detach
+and reattach clear them, and a replayed begin after the first chunk is
+refused as `invalid_sequence` (the latest chunk sequence replays its
+acknowledgement; the host does not retry dropped replies). `packages/codemode`
+adds `m.job(name, command)`, `job_wait(name, timeout)` and `job_read(name)`
+over named persistent terminals that survive Python handle loss: `job_wait`
+scans only the newest bytes plus a bounded sentinel tail and returns
+status/cursor without retaining output, and a gone terminal answers
+`status: lost` from both. Receipts on main `d1049470a`: protocol 627/0,
+machines 263/0, codemode 40/0 (the one remaining codemode failure is the
+host-only Playwright recipe test, identical on main), gate chain and
+written-types exit 0, patch coverage all changed lines covered.
+
 ## #1561 every model tool is a removable bundle (base `35d60a491`)
 
 - Shipped: `apps/openomni/src/manifest.ts` lists the `file` (read, write, edit, ls, find, grep), `bash`, `eval`, `send-message`, `provision` and `completion` bundles beside `monitor`; each declares its tools through `Bundle.define({ tools })` over late-bound ports (`appManifest`'s `tools` input reads `composition/composed.ts` `ToolPortsSlot`, bound by boot like the monitor's alarm slot; `bundles/seams.ts` `boundTool` resolves the current ports per call). The hard-wired `catalogDefinitions` list is deleted (`composition/catalog.ts` keeps only the `ToolPorts` shape), and `send-message` is the sole owner of the `send_message` face.
