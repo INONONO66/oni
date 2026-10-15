@@ -104,7 +104,7 @@ import {
   sessionFilePath,
 } from "./composition/cluster-runtime";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
-import { captureNow } from "./composition/platform";
+import { captureNow, effectScheduler } from "./composition/platform";
 import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
 import { createSessionForkExecutor } from "./composition/session-fork";
@@ -220,29 +220,31 @@ async function composeMachinePlane(
   }
   const host = await acquireAppResource(
     runtime,
-    createMachineHost({
-      listen: machines.listen,
-      ...(machines.tls === undefined ? {} : { tls: machines.tls }),
-      enrollment: (machineId) => {
-        if (machineId === plane.self.id) return selfRecord;
-        const row = deps.enrollments.get(machineId);
-        return row?.removedAt === null ? row.enrollment : undefined;
-      },
-      events: deps.events,
-      id: deps.id,
-      // #1312: injected IPC callback bound — queue depth and callback fan-out
-      // per listener; chosen here, the machines package carries no default.
-      dispatcherBound: 256,
-      now: deps.now,
-      capacity: machines.capacity,
-      scheduler: { schedule(delayMs, task) {
-        const timer = setTimeout(task, delayMs);
-        timer.unref();
-        return () => clearTimeout(timer);
-      } },
-      callTool: deps.callTool,
-      // r1 M3: the live self attachment is never superseded by a reattach.
-      neverSupersede: [plane.self.id],
+    Effect.gen(function* () {
+      // Lease idle expiry sleeps on the app Clock; the scope finalizer
+      // interrupts pending timers at shutdown.
+      const scheduler = effectScheduler(yield* Effect.context());
+      yield* Effect.addFinalizer(() => Effect.sync(() => scheduler.close()));
+      return yield* createMachineHost({
+        listen: machines.listen,
+        ...(machines.tls === undefined ? {} : { tls: machines.tls }),
+        enrollment: (machineId) => {
+          if (machineId === plane.self.id) return selfRecord;
+          const row = deps.enrollments.get(machineId);
+          return row?.removedAt === null ? row.enrollment : undefined;
+        },
+        events: deps.events,
+        id: deps.id,
+        // #1312: injected IPC callback bound — queue depth and callback fan-out
+        // per listener; chosen here, the machines package carries no default.
+        dispatcherBound: 256,
+        now: deps.now,
+        capacity: machines.capacity,
+        scheduler,
+        callTool: deps.callTool,
+        // r1 M3: the live self attachment is never superseded by a reattach.
+        neverSupersede: [plane.self.id],
+      });
     }).pipe(
       Effect.mapError((error) => selfAttachFailure(`host listener failed: ${String(error)}`)),
     ),
