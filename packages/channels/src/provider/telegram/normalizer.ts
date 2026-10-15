@@ -67,7 +67,7 @@ function telegramPostback(message: TelegramCallback, botId: string): Channel.Inb
     facts: {
       eventId: message.id,
       event: "postback",
-      author: { externalId: userId, isBot: false },
+      author: { externalId: userId, isBot: message.from.is_bot },
       surface: "telegram",
       channelId: String(target.chat.id),
       addressees: [{ externalId: botId }],

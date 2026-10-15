@@ -26,6 +26,12 @@ describe("Telegram ingress facts", () => {
     });
     expect(normalizer.normalize({ ...payload, message: message })?.facts.render).toBe("approve");
   });
+  it("reports the callback sender's platform bot flag", () => {
+    expect(normalizer.normalize({
+      id: "callback-bot", data: "approve",
+      from: { ...message.from, is_bot: true }, message,
+    })?.facts.author).toEqual({ externalId: "3", isBot: true });
+  });
   it("carries bot authors", () => {
     expect(
       normalizer.normalize({ ...message, from: { ...message.from, is_bot: true } })?.facts,

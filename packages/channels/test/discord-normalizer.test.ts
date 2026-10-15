@@ -24,6 +24,18 @@ describe("Discord ingress facts", () => {
     });
     expect(normalizer.normalize({ ...payload, message: { id: "m" } })?.facts.render).toBe("approve");
   });
+  it("reports bot authors from the interaction member or user", () => {
+    const tap = {
+      id: "tap", token: "token", type: 3 as const, channel_id: "c",
+      data: { custom_id: "approve" },
+    };
+    expect(normalizer.normalize({
+      ...tap, member: { user: { id: "member", username: "bot", bot: true } },
+    })?.facts.author).toEqual({ externalId: "member", isBot: true });
+    expect(normalizer.normalize({
+      ...tap, user: { id: "user", username: "bot", bot: true },
+    })?.facts.author).toEqual({ externalId: "user", isBot: true });
+  });
   it("carries bot authors", () => {
     expect(
       normalizer.normalize({ ...message, author: { ...message.author, bot: true } })?.facts,

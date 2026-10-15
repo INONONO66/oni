@@ -80,6 +80,7 @@ test("Discord component interactions acknowledge through the API before handoff 
   const received = Promise.withResolvers<Channel.InboundMessage>();
   const warned = Promise.withResolvers<string>();
   const calls: string[] = [];
+  const callbacks: { path: string; method: string | undefined; body: unknown }[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     fetch(request, self) {
@@ -106,8 +107,7 @@ test("Discord component interactions acknowledge through the API before handoff 
   globalThis.fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/gateway/bot")) return Response.json({ url: `ws://127.0.0.1:${server.port}` });
-    const body = z.object({ type: z.literal(6) }).parse(JSON.parse(String(init?.body)));
-    expect(body.type).toBe(6);
+    callbacks.push({ path, method: init?.method, body: JSON.parse(String(init?.body)) });
     calls.push(`ack:${path.includes("/refused/") ? "refused" : "accepted"}`);
     return new Response(null, { status: path.includes("/refused/") ? 403 : 204 });
   }, { preconnect: realFetch.preconnect });
@@ -141,6 +141,16 @@ test("Discord component interactions acknowledge through the API before handoff 
     socket.send(JSON.stringify(interaction("refused")));
     expect(await bounded(warned.promise)).not.toContain("/refused/token/");
     expect(calls).toEqual(["ack:accepted", "handoff", "ack:refused"]);
+    expect(callbacks).toEqual([
+      {
+        path: "https://discord.com/api/v10/interactions/accepted/token/callback",
+        method: "POST", body: { type: 6 },
+      },
+      {
+        path: "https://discord.com/api/v10/interactions/refused/token/callback",
+        method: "POST", body: { type: 6 },
+      },
+    ]);
   } finally {
     adapter.stop("stop");
     await server.stop(true);

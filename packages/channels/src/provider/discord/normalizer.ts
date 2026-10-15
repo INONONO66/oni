@@ -3,8 +3,9 @@ import type { InboundNormalizer } from "../../types";
 import type { DiscordInteraction, DiscordMessage, DiscordReaction } from "./types";
 
 function discordPostback(message: DiscordInteraction, selfId: string): Channel.InboundMessage | null {
-  const authorId = message.member?.user?.id ?? message.user?.id;
-  if (authorId === undefined) return null;
+  const author = message.member?.user ?? message.user;
+  if (author === undefined) return null;
+  const authorId = author.id;
   const id = message.data.custom_id;
   const button = message.message?.components?.flatMap((component) =>
     component.components ?? [component]).find((component) => component.custom_id === id);
@@ -14,7 +15,7 @@ function discordPostback(message: DiscordInteraction, selfId: string): Channel.I
     facts: {
       eventId: message.id,
       event: "postback",
-      author: { externalId: authorId, isBot: false },
+      author: { externalId: authorId, isBot: author.bot === true },
       surface: "discord",
       channelId: message.channel_id,
       ...(message.guild_id === undefined ? {} : { workspaceId: message.guild_id }),
