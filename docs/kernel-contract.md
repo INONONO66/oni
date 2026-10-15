@@ -9,7 +9,7 @@ Deletion reconciliation: verified against merged `c4fb7748` on 2026-09-06; polic
 Every behavioral claim in this project is classified as exactly one of:
 
 - **Kernel (structural guarantee)** — enforced by code; cannot be bypassed by any prompt. Violations are impossible, not discouraged.
-- **Userland (convention)** — guided by prompts, skills, and actor profiles. May be violated; violations are observable in the ledger and become Governor evidence.
+- **Userland (convention)** — guided by prompts, skills, and actor profiles. May be violated; violations are observable in the ledger and become Governor evidence. Prompts and skills are data files, not code: role presets ship as markdown under `apps/openomni/prompts/roles/`, and the Owner's skills and prompt templates are read from configured directories at boot.
 
 These are target guarantees. [Implementation Status](implementation-status.md) alone records which mechanisms are currently wired.
 
