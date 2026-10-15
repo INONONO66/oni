@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { UI_NAMES } from "../names";
 import { omitPresentationProps } from "./props";
 
-type PanelTone = "bg" | "sunken" | "raised" | "panel";
+type PanelTone = "bg" | "sunken" | "raised";
 
 type PanelEdge = "none" | "right" | "left" | "box";
 
@@ -10,7 +10,6 @@ const TONE: Record<PanelTone, string> = {
   bg: "bg-bg",
   sunken: "bg-sunken",
   raised: "bg-raised",
-  panel: "bg-panel",
 };
 
 const EDGE: Record<PanelEdge, string> = {

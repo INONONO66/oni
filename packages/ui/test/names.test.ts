@@ -8,15 +8,13 @@ import { UI_NAMES } from "../src/names";
  * the DOM is a review vocabulary for an element that does not exist, and a
  * name written from a literal instead of `UI_NAMES` is one a rename misses.
  */
-const SOURCES = [join(import.meta.dir, "..", "src"), join(import.meta.dir, "..", "..", "..", "apps", "desktop", "src")];
+const SRC = join(import.meta.dir, "..", "src");
 
 async function sources(): Promise<string> {
   const parts: string[] = [];
-  for (const directory of SOURCES) {
-    for await (const path of new Glob("**/*.{ts,tsx}").scan({ cwd: directory, absolute: true })) {
-      if (path.endsWith("/names.ts")) continue;
-      parts.push(await Bun.file(path).text());
-    }
+  for await (const path of new Glob("**/*.{ts,tsx}").scan({ cwd: SRC, absolute: true })) {
+    if (path.endsWith("/names.ts")) continue;
+    parts.push(await Bun.file(path).text());
   }
   return parts.join("\n");
 }

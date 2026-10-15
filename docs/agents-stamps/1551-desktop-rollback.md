@@ -1,0 +1,1 @@
+#1551 on `revert/1551-desktop-pre-automation` (2026-10-15, base `35d60a491`): `apps/desktop`, `packages/ui` and `docs/desktop-shell.md` restored to `c3850ac09` (pre-#1447/#1460/#1480/#1484); receipts in the desktop and ui test runs and the #1551 section of `docs/implementation-status.md`.

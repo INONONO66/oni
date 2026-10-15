@@ -6,7 +6,6 @@
    fails on any name here that the app does not import. */
 
 export { Console, ConsoleContent } from "./console";
-export { ActionButton, Field, Input, Select, Textarea } from "./form";
 export type ConsoleShell = import("./console").ConsoleShell;
 export type ConsoleStrip = import("./console").ConsoleStrip;
 export { relativeTime } from "./history-menu";
@@ -19,11 +18,9 @@ export {
   SectionList,
   SectionSearchInput,
   SidebarFooter,
-  SidebarHeader,
   SidebarNav,
   SidebarSection,
 } from "./sidebar-nav";
-export { SidebarToggle } from "./tab-strip";
 export type { WindowPlatform } from "./tab-strip";
 export type { PendingApproval, TranscriptNode, TurnCost } from "./timeline/model";
 export { Timeline } from "./timeline/timeline";
@@ -31,4 +28,3 @@ export { segmentTurns } from "./timeline/turns";
 export { TreeRow } from "./tree-row";
 export { StatusGlyph } from "./status-glyph";
 export { isOriginSurface, OriginMark } from "./origin-mark";
-export { UI_NAMES } from "./names";

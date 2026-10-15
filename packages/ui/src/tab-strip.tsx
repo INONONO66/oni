@@ -8,22 +8,26 @@ import { IconButton } from "./primitives/button";
 import { useSidebar } from "./sidebar";
 
 /**
- * The window's top row: a 40px drag surface whose left zone tracks the
- * sidebar, so the tabs start where the main column starts.
+ * The window's top row, as the reference console builds it: a 42px strip that is the drag
+ * surface, with a CONTROLS ZONE on the left whose width tracks the sidebar.
  *
- * Open: the zone is `--sidebar-width` wide, inset 76 on darwin
- * (`--spacing-strip-inset-darwin`) and 8 on the right; the history trio sits
- * against its right edge (`ml-auto`). The toggle is not here: it lives in the
- * sidebar's header.
+ * The zone is the trick: it is ALWAYS exactly as wide as the sidebar. While
+ * the sidebar is pinned it is `--sidebar-width` wide, so the tab starts where
+ * the main column starts. When the sidebar collapses the zone shrinks to
+ * `--spacing-sidebar-overlay`, the width the hover-reveal panel will have —
+ * the same token the panel reads — so the trio's place marks where the panel's
+ * right edge lands when it appears. Because the zone animates `width` on the
+ * same duration and curve as the sidebar gap, the tab slides left in lockstep
+ * with the column beneath it. The zone is `[toggle] [spacer] [trio]`, the
+ * spacer being the trio's `ml-auto`: the trio is pinned to the zone's right
+ * edge 12px in, in both states. The toggle itself never moves, so it is
+ * always in the same place under the pointer. Every number is measured
+ * (docs/desktop-shell.md).
  *
- * Collapsed: the zone is `--spacing-strip-zone-collapsed` (222) wide and holds
- * [toggle][history][back][forward] at 4px gaps: the toggle's box at x=86
- * (76 + 10), the trio following it, 12 on the right. Width and padding
- * transition together, so the trio slides as ONE node.
- *
- * `platform` is where the OS draws its window controls: on darwin they own the
- * strip's first 68px; elsewhere they sit on the far right and the zone starts
- * at the window's edge.
+ * `platform` is a fact about where the OS draws its window controls, not about
+ * the data: on darwin the traffic lights own the first 81px and the zone's
+ * content starts at 89 (`--spacing-strip-inset-darwin`); elsewhere the OS
+ * draws them on the far right and the zone starts at the window's edge.
  */
 export function TabStrip({
   tabs,
@@ -43,7 +47,7 @@ export function TabStrip({
   readonly platform: WindowPlatform;
   readonly history: HistoryControls;
 }) {
-  const { open } = useSidebar();
+  const { open, mode, onToggle, reveal } = useSidebar();
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next: number;
     switch (event.key) {
@@ -71,18 +75,34 @@ export function TabStrip({
   };
   return (
     <header
-      className="drag-region fixed inset-x-0 top-0 z-(--z-top-bar) flex h-shell-strip w-full shrink-0 items-center bg-bg"
+      className="drag-region fixed inset-x-0 top-0 z-(--z-top-bar) flex h-shell-strip w-full shrink-0 items-center bg-sunken"
       data-ui={UI_NAMES.TabStrip}
     >
       <div
-        className={`flex h-full shrink-0 items-center gap-1 overflow-hidden transition-[width,padding] duration-base ease-frame group-data-[resizing]/sidebar:duration-0 motion-reduce:transition-none ${
-          ZONE[platform][open ? "open" : "collapsed"]
-        }`}
+        className={`flex h-full shrink-0 items-center gap-1 overflow-hidden transition-[width] duration-base ease-frame group-data-[resizing]/sidebar:duration-0 motion-reduce:transition-none ${
+          open ? "w-(--sidebar-width)" : "w-sidebar-overlay"
+        } ${ZONE_INSET[platform]}`}
         data-ui={UI_NAMES.TabStripControls}
       >
-        {!open && <SidebarToggle />}
-        {/* `ml-auto` is the spacer. ONE node in both states: never re-keyed, no
-            motion of its own. It slides because the zone's width transitions. */}
+        {/* The toggle leads. While collapsed it is also a hot zone: resting on
+            it reveals the column as an overlay, and clicking it while revealed
+            pins the column open. `plain`: the glyph's bar widening on reveal is
+            the hover answer, so no fill. */}
+        <IconButton
+          aria-expanded={open}
+          data-ui={UI_NAMES.SidebarToggle}
+          label={open ? "Collapse sidebar" : "Expand sidebar"}
+          onClick={onToggle}
+          onPointerEnter={open ? undefined : reveal.enter}
+          onPointerLeave={open ? undefined : reveal.leave}
+          size="base"
+          variant="plain"
+        >
+          <SidebarToggleIcon opened={mode !== "hidden"} />
+        </IconButton>
+        {/* `ml-auto` is the spacer. ONE node in both states — never re-keyed,
+            no motion of its own: it slides because the zone's width transitions,
+            and it never fades. */}
         <div className="ml-auto flex items-center gap-1" data-ui={UI_NAMES.TabStripTrio}>
           <HistoryMenu
             currentId={history.currentId}
@@ -103,10 +123,10 @@ export function TabStrip({
           </IconButton>
         </div>
       </div>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+      <div className="flex min-w-0 flex-1 items-center gap-1 pr-1 pl-1">
         <div
           aria-label="Tabs"
-          className="flex min-w-0 shrink items-center gap-1.5 overflow-x-auto pr-2"
+          className="flex min-w-0 shrink items-center gap-1 overflow-x-auto"
           data-ui={UI_NAMES.TabStripList}
           role="tablist"
         >
@@ -124,7 +144,7 @@ export function TabStrip({
           data-ui={UI_NAMES.TabStripCreate}
           label={createLabel}
           onClick={onCreate}
-          size="base"
+          size="sm"
         >
           <Plus />
         </IconButton>
@@ -133,56 +153,13 @@ export function TabStrip({
   );
 }
 
-/**
- * Mounted by the strip while the column is collapsed and by the sidebar's
- * header while it is open. Collapsed, it is also a hot zone: resting on it
- * reveals the column. `plain` because the glyph's widening bar is the hover answer.
- *
- * Toggling moves the control between those two hosts, so the activated node
- * unmounts. When it owned focus, the replacement takes focus on mount; a
- * pointer click elsewhere leaves focus where it was.
- */
-export function SidebarToggle() {
-  const { open, mode, onToggle, reveal, toggleHandoff } = useSidebar();
-  const button = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!toggleHandoff.current) return;
-    toggleHandoff.current = false;
-    button.current?.focus();
-  }, [toggleHandoff]);
-  return (
-    <IconButton
-      aria-expanded={open}
-      data-ui={UI_NAMES.SidebarToggle}
-      label={open ? "Collapse sidebar" : "Expand sidebar"}
-      onClick={() => {
-        toggleHandoff.current = button.current !== null && document.activeElement === button.current;
-        onToggle();
-      }}
-      ref={button}
-      onPointerEnter={open ? undefined : reveal.enter}
-      onPointerLeave={open ? undefined : reveal.leave}
-      size="base"
-      variant="plain"
-    >
-      <SidebarToggleIcon opened={mode !== "hidden"} />
-    </IconButton>
-  );
-}
-
 /** Where the OS draws its window controls; decides the zone's inset. */
 export type WindowPlatform = "darwin" | "other";
 
-/** Collapsed on darwin: toggle at inset + 10, 12 on the right, so the token sums to 222. */
-const ZONE: Record<WindowPlatform, Record<"open" | "collapsed", string>> = {
-  darwin: {
-    open: "w-(--sidebar-width) pl-strip-inset-darwin pr-2",
-    collapsed: "w-strip-zone-collapsed pl-[calc(var(--spacing-strip-inset-darwin)+10px)] pr-3",
-  },
-  other: {
-    open: "w-(--sidebar-width) px-2",
-    collapsed: "w-auto pl-2.5 pr-3",
-  },
+/** The zone's padding is the same in both states: only its width moves. */
+const ZONE_INSET: Record<WindowPlatform, string> = {
+  darwin: "pr-3 pl-strip-inset-darwin",
+  other: "px-2",
 };
 
 /** The main column's navigation history, as the strip's trio reads it. */
@@ -228,7 +205,7 @@ function Tab({
   };
   return (
     <div
-      className={`group/tab no-drag flex h-tab-height w-56 min-w-24 max-w-56 shrink select-none items-center gap-1.5 rounded-card border-[0.5px] px-2.5 font-medium text-label ${tab.active ? "border-line bg-raised text-fg" : "border-transparent text-fg-muted hover:bg-hover"}`}
+      className={`group/tab no-drag flex h-tab-height w-56 min-w-24 max-w-56 shrink select-none items-center rounded-card border-[0.5px] pr-0.5 font-medium text-label ${tab.active ? "border-line-surface bg-raised text-fg" : "border-line-surface bg-hover text-fg-muted"}`}
       data-ui={UI_NAMES.Tab}
       onAuxClick={onAuxClick}
       onPointerDown={(event) => {
@@ -240,7 +217,7 @@ function Tab({
         aria-controls={tab.active ? `tab-panel-${tab.id}` : undefined}
         aria-label={tab.title}
         aria-selected={tab.active}
-        className="focus-ring flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-card"
+        className="focus-ring flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-card pr-1 pl-2.5"
         id={`tab-${tab.id}`}
         onClick={() => onActivate(tab.id)}
         onFocus={(event) =>

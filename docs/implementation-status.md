@@ -1,5 +1,21 @@
 # Implementation Status
 
+## #1551 desktop rollback to the pre-automation shell
+
+On `revert/1551-desktop-pre-automation` (2026-10-15, base `35d60a491`).
+`apps/desktop`, `packages/ui` and `docs/desktop-shell.md` are restored to
+their content at `c3850ac09` (#1444), the last commit before the automation
+editor and ingress ledger views (#1342, PR #1447), the ingress-ledger link
+(#1458, PR #1460), the shell baseline (#1479, PR #1480) and its follow-ups
+(PR #1484) entered the console. The sections below that describe those four
+landings are history: none of that desktop or ui code is on main after this
+PR. The kernel keeps every wire those PRs added (automation RPCs, ingress
+ledger reads, superseded-decision links); the console simply no longer calls
+them. Verified on the restored tree against the current kernel: desktop
+check-types, build, 459 desktop tests and 225 ui tests pass, and a production
+Electron build connected to `ws://127.0.0.1:3100/ws`, created a session and
+delivered one prompt with no renderer errors.
+
 ## #1545 inbound postback (L3)
 
 On `feat/1545-inbound-postback` (2026-10-15, base `7eb1a02e4`).

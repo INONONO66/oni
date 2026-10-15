@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { attributes, classes, textContent } from "./markup";
+import { attributes, classes } from "./markup";
 import { SidebarContextError, useSidebar } from "../src/sidebar";
 import { EpochRule } from "../src/primitives/epoch-rule";
 import { GutterLine } from "../src/primitives/gutter";
@@ -11,78 +11,54 @@ import {
   SectionHeader,
   SectionSearchInput,
   SidebarFooter,
-  SidebarHeader,
   SidebarNav,
   SidebarSection,
 } from "../src/sidebar-nav";
-import { TreeRow } from "../src/tree-row";
-
-const header = (searching: boolean) => (
-  <SectionHeader
-    label="Projects"
-    searching={searching}
-    onSearchingChange={() => undefined}
-    searchLabel="Search projects"
-    resultLabel="2 results"
-  >
-    <SectionSearchInput
-      label="Projects"
-      placeholder="Filter"
-      value="x"
-      onValueChange={() => undefined}
-      onKeyDown={() => undefined}
-      inputRef={() => undefined}
-      controlsId="results"
-      activeDescendantId="row-1"
-    />
-  </SectionHeader>
-);
 
 describe("sidebar navigation controls", () => {
   test("renders active and inactive destinations with accessible state", () => {
-    const node = (
+    const html = attributes(
       <SidebarNav>
         <NavItem active icon={<svg aria-hidden="true" />}>
           One
         </NavItem>
         <NavItem icon={<svg aria-hidden="true" />}>Two</NavItem>
-      </SidebarNav>
+      </SidebarNav>,
     );
-    const html = attributes(node);
     const items = html.filter((element) => element["data-ui"] === "NavItem");
     expect(items).toHaveLength(2);
-    expect(items[0]?.["aria-current"]).toBe("page");
-    expect(items[1]?.["aria-current"]).toBeUndefined();
-    expect(items[0]?.class?.split(" ")).toEqual(
-      expect.arrayContaining(["h-7", "gap-2", "rounded-md", "px-2", "bg-active", "text-fg"]),
-    );
-    expect(items[1]?.class?.split(" ")).toEqual(
-      expect.arrayContaining(["text-fg-muted", "hover:bg-hover"]),
-    );
-    expect(items[1]?.class?.split(" ")).not.toContain("bg-active");
-    expect(textContent(node, '[data-ui="NavItem"]')).toBe("OneTwo");
-  });
-  test("header is a 44px row with the brand at the left and the actions at the right", () => {
-    const node = (
-      <SidebarHeader
-        actions={
-          <>
-            <button type="button">new</button>
-            <button type="button">collapse</button>
-          </>
-        }
-        brand={<span data-brand="" />}
-      />
-    );
-    const frame = attributes(node, '[data-ui="Sidebar.Header"]');
-    expect(frame).toHaveLength(1);
-    expect(frame[0]?.class?.split(" ")).toEqual(expect.arrayContaining(["h-11", "pr-2", "pl-4"]));
-    expect(attributes(node, '[data-ui="Sidebar.Header"] > .-ml-1 > [data-brand]')).toHaveLength(1);
-    expect(attributes(node, '[data-ui="Sidebar.Header"] > .ml-auto > button')).toHaveLength(2);
+    expect(items.map((item) => item["aria-current"])).toEqual(["page", undefined]);
+    expect(items[1]?.class?.split(" ")).toContain("text-fg-muted");
   });
   test("header toggles search semantics and result announcement", () => {
-    const closed = attributes(header(false));
-    const open = attributes(header(true));
+    const closed = attributes(
+      <SectionHeader
+        label="Projects"
+        searching={false}
+        onSearchingChange={() => undefined}
+        searchLabel="Search projects"
+        resultLabel="2 results"
+      />,
+    );
+    const open = attributes(
+      <SectionHeader
+        label="Projects"
+        searching
+        onSearchingChange={() => undefined}
+        searchLabel="Search projects"
+      >
+        <SectionSearchInput
+          label="Projects"
+          placeholder="Filter"
+          value="x"
+          onValueChange={() => undefined}
+          onKeyDown={() => undefined}
+          inputRef={() => undefined}
+          controlsId="results"
+          activeDescendantId="row-1"
+        />
+      </SectionHeader>,
+    );
     expect(closed.some((element) => "data-searching" in element)).toBe(false);
     expect(closed.some((element) => element["aria-live"] === "polite")).toBe(true);
     expect(open.find((element) => element.role === "combobox")).toMatchObject({
@@ -91,106 +67,14 @@ describe("sidebar navigation controls", () => {
       "aria-activedescendant": "row-1",
     });
   });
-  test("header keeps one 28px row and one 28px control in both states", () => {
-    for (const searching of [false, true]) {
-      const row = attributes(header(searching), '[data-ui="SectionHeader"] > div');
-      expect(row).toHaveLength(1);
-      expect(row[0]?.class?.split(" ")).toEqual(expect.arrayContaining(["h-7", "pl-2"]));
-      expect(row[0]?.class?.split(" ")).not.toContain("pl-4");
-      expect("data-searching" in (row[0] ?? {})).toBe(searching);
-      const [toggle] = attributes(header(searching), '[data-ui="SectionHeader.Toggle"]');
-      expect(toggle?.["data-size"]).toBe("base");
-      expect(toggle?.class?.split(" ")).toContain("ml-auto");
-    }
-    expect(textContent(header(false), '[data-ui="SectionHeader"] > div > span')).toBe("Projects");
-    expect(classes(header(false), '[data-ui="SectionHeader"] > div > span')).toEqual(
-      expect.arrayContaining(["text-label", "text-fg-subtle", "font-medium", "truncate"]),
-    );
-    expect(attributes(header(true), '[data-ui="SectionHeader"] input')[0]?.value).toBe("x");
-    expect(classes(header(true), "input")).not.toContain("px-2");
-  });
   test("section and footer preserve their structural slots", () => {
-    const node = (
+    const html = attributes(
       <SidebarSection>
         <SidebarFooter>footer</SidebarFooter>
-      </SidebarSection>
+      </SidebarSection>,
     );
-    expect(classes(node, '[data-ui="Sidebar.Footer"]')).toEqual(
-      expect.arrayContaining(["border-line", "border-t-[0.5px]", "p-2"]),
-    );
-    expect(textContent(node, '[data-ui="Sidebar.Footer"]')).toBe("footer");
-  });
-});
-
-describe("tree rows", () => {
-  test("a group row is a 28px heading with the chevron in the glyph slot and the count beside the label", () => {
-    const node = (
-      <TreeRow expanded trailing="3">
-        Work
-      </TreeRow>
-    );
-    const [row] = attributes(node, '[data-ui="TreeRow"]');
-    expect(row?.["aria-expanded"]).toBe("true");
-    expect(row?.class?.split(" ")).toEqual(
-      expect.arrayContaining(["h-7", "gap-2", "rounded-md", "px-2", "font-medium", "text-label", "text-fg-subtle"]),
-    );
-    expect(row?.class?.split(" ")).not.toContain("bg-active");
-    expect(classes(node, '[data-ui="TreeRow"] > .size-4 > svg')).toEqual(
-      expect.arrayContaining(["size-3.5", "rotate-90"]),
-    );
-    expect(textContent(node, '[data-ui="TreeRow"]')).toBe("Work3");
-    expect(classes(node, '[data-ui="TreeRow"] > .font-normal')).toEqual(
-      expect.arrayContaining(["shrink-0", "text-fg-faint"]),
-    );
-    expect(attributes(<TreeRow expanded={false}>Work</TreeRow>, "svg")[0]?.class).not.toContain(
-      "rotate-90",
-    );
-  });
-  test("a session row is a two-line grid with the glyph slot in its own column", () => {
-    const node = (
-      <TreeRow current leading={<i data-glyph="" />} secondary="2m" trailing="12">
-        Title
-      </TreeRow>
-    );
-    const [row] = attributes(node, '[data-ui="TreeRow"]');
-    expect(row).toMatchObject({ "aria-current": "true", "data-density": "double" });
-    expect(row?.class?.split(" ")).toEqual(
-      expect.arrayContaining([
-        "grid",
-        "min-h-11",
-        "grid-cols-[1rem_1fr]",
-        "gap-x-2",
-        "gap-y-0.5",
-        "rounded-md",
-        "px-2",
-        "py-1.5",
-        "bg-active",
-        "text-fg",
-      ]),
-    );
-    expect(attributes(node, '[data-ui="TreeRow"] > .row-span-2 > [data-glyph]')).toHaveLength(1);
-    expect(classes(node, '[data-ui="TreeRow"] > .row-span-2')).toEqual(
-      expect.arrayContaining(["size-4", "items-start", "pt-1"]),
-    );
-    expect(textContent(node, '[data-ui="TreeRow"]')).toBe("Title122m");
-    expect(classes(node, '[data-ui="TreeRow"] > span > .ml-auto')).toEqual(
-      expect.arrayContaining(["text-meta", "text-fg-subtle", "tabular-nums"]),
-    );
-    expect(textContent(node, "[data-secondary]")).toBe("2m");
-    expect(classes(node, "[data-secondary]")).toEqual(
-      expect.arrayContaining(["truncate", "text-meta", "text-fg-subtle"]),
-    );
-    const [rest] = attributes(<TreeRow secondary="2m">Title</TreeRow>, '[data-ui="TreeRow"]');
-    expect(rest?.["aria-current"]).toBeUndefined();
-    expect(rest?.class?.split(" ")).toEqual(expect.arrayContaining(["text-fg-muted", "hover:bg-hover"]));
-    expect(rest?.class?.split(" ")).not.toContain("bg-active");
-  });
-  test("a leaf row keeps the 28px line and its level step", () => {
-    const [row] = attributes(<TreeRow level={1}>Leaf</TreeRow>, '[data-ui="TreeRow"]');
-    expect(row).toMatchObject({ "data-density": "single", "data-level": "1" });
-    expect(row?.class?.split(" ")).toEqual(
-      expect.arrayContaining(["h-7", "pr-2", "pl-[calc(var(--spacing-inset)+var(--spacing-indent))]"]),
-    );
+    const footer = html.find((element) => element["data-ui"] === "Sidebar.Footer");
+    expect(footer?.class?.split(" ")).toContain("border-line");
   });
 });
 
@@ -226,6 +110,7 @@ describe("drawn primitive behavior", () => {
       "ring",
       "slashed",
     ]);
+    expect(classes(<StatusDot shape="pulse" tier="live" />)).toContain("text-accent");
     expect(attributes(<StatusDot shape="slashed" tier="settled" />, "mask")).toHaveLength(1);
   });
   test("epoch rule is inert without destination and a button with one", () => {
@@ -234,7 +119,7 @@ describe("drawn primitive behavior", () => {
     expect(inert.some((element) => "data-epoch-rule" in element)).toBe(true);
     expect(inert.some((element) => element.type === "button")).toBe(false);
     expect(jump.filter((element) => element.type === "button")).toHaveLength(1);
-    expect(textContent(<EpochRule label="resumed" meta="3h" onJump={() => undefined} />, "button")).toBe("resumed3h");
+    expect(jump.some((element) => element.class?.split(" ").includes("tabular-nums"))).toBe(true);
   });
 });
 

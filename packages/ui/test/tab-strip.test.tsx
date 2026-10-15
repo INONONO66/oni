@@ -69,13 +69,13 @@ test("tab keyboard navigation wraps, updates panel ownership and scrolls selecti
     expect(tabClasses("a")).not.toContain("text-fg-muted");
     expect(tabClasses("b")).toContain("text-fg-muted");
     for (const id of ["a", "b"]) expect(tabClasses(id)).not.toMatch(/\bopacity-\d+/);
-    // The selected tab is the one drawn box: edge and fill. An unselected tab is
-    // flat until the pointer rests on it.
-    expect(tabClasses("a")).toContain("border-line bg-raised");
-    expect(tabClasses("a")).not.toContain("border-transparent");
-    expect(tabClasses("b")).toContain("border-transparent");
-    expect(tabClasses("b")).toContain("hover:bg-hover");
-    expect(tabClasses("b")).not.toContain("bg-raised");
+    // ...but an unselected tab still reads as a box: its edge and fill stay drawn.
+    const boxed = (id: string) => {
+      const cls = node(`#tab-${id}`).closest('[data-ui="Tab"]')?.className ?? "";
+      return cls.includes("border-line-surface") && !cls.includes("border-transparent");
+    };
+    expect(boxed("a")).toBe(true);
+    expect(boxed("b")).toBe(true);
     expect(document.activeElement === node('[data-ui="Tab.Close"]')).toBe(true);
   } finally {
     scroll.mockRestore();
