@@ -44,6 +44,7 @@ import {
   createChannelStores,
   decodeChannelFailure,
   ChannelsFailure,
+  inboundOnce,
   WebSocketHandler,
 } from "@openomni/channels";
 import type { ActorRegistry } from "@openomni/channels";
@@ -822,12 +823,15 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const generationDefinitions: GenerationDefinitions = { resident: [], child: [], deliverLate };
     await runAppBoot(runtime, services.generations.initialize(generationDefinitions));
 
-    const routingHandler: Channel.MessageHandler = async ({ sender, facts }) => {
+    // One physical platform message reaches routing once (#1569 lane 6): a
+    // mention of the Owner in a channel the bot is in is observed by both
+    // instances, and the first observer's copy is the one admitted.
+    const routingHandler: Channel.MessageHandler = inboundOnce(async ({ sender, facts }) => {
       const admission = await runAppEffect(runtime, messages.ingest(sender, facts));
       if (admission.status === "blocked_pre") {
         throw new MessageAdmissionRefused(admission.reasonCode);
       }
-    };
+    });
     let wsHandler: WebSocketHandler | undefined;
     const wsRoute = async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
       if (wsHandler === undefined)

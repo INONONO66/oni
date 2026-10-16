@@ -1,6 +1,79 @@
 import type { PlainValue } from "@openomni/protocol";
-import type { SlackOwnerApi, SlackOwnerSdk } from "../../src/provider/slack/owner-sdk";
+import type {
+  SlackOwnerApi,
+  SlackOwnerEventMap,
+  SlackOwnerEvents,
+  SlackOwnerSdk,
+} from "../../src/provider/slack/owner-sdk";
 import type { SlackCall } from "./slack-sdk";
+
+type Handler = (...args: never[]) => void;
+
+/** The RTM hello the account's listener reports: the Owner's own user and workspace. */
+const OWNER_HELLO = { self: { id: "U-owner" }, team: { id: "T1" } };
+
+/**
+ * A scripted stand-in for the SDK's RTM listener (#1569 lane 6): the test
+ * emits the frames the account would have seen. `start()` runs the scripted
+ * opening — hello by default — like the real one resolving before hello.
+ */
+export class FakeSlackOwnerListener implements SlackOwnerEvents {
+  readonly handlers = new Map<string, Handler[]>();
+  started = 0;
+  stopped = 0;
+
+  constructor(
+    private readonly onStart: (self: FakeSlackOwnerListener) => void = (self) =>
+      self.emit("connected", OWNER_HELLO),
+  ) {}
+
+  on<K extends keyof SlackOwnerEventMap>(
+    event: K,
+    listener: (...args: SlackOwnerEventMap[K]) => void,
+  ): this {
+    const list = this.handlers.get(event) ?? [];
+    list.push(listener as Handler);
+    this.handlers.set(event, list);
+    return this;
+  }
+
+  async start(): Promise<void> {
+    this.started += 1;
+    this.onStart(this);
+  }
+
+  stop(): void {
+    this.stopped += 1;
+  }
+
+  emit<K extends keyof SlackOwnerEventMap>(event: K, ...args: SlackOwnerEventMap[K]): void {
+    for (const handler of this.handlers.get(event) ?? [])
+      (handler as (...a: SlackOwnerEventMap[K]) => void)(...args);
+  }
+
+  /** One RTM message frame as the account sees it (no `channel_type`; a DM is a `D…` channel). */
+  message(frame: {
+    channel: string;
+    user?: string;
+    text?: string;
+    ts: string;
+    thread_ts?: string;
+    subtype?: string;
+  }): void {
+    this.emit("message", { type: "message", ...frame });
+  }
+
+  reaction(frame: { user: string; reaction: string; channel: string; ts: string; itemUser?: string }): void {
+    this.emit("reaction_added", {
+      type: "reaction_added",
+      user: frame.user,
+      reaction: frame.reaction,
+      item: { type: "message", channel: frame.channel, ts: frame.ts },
+      ...(frame.itemUser === undefined ? {} : { item_user: frame.itemUser }),
+      event_ts: `${frame.ts}1`,
+    });
+  }
+}
 
 /** A scripted refusal for one SDK method: thrown on every call of it. */
 export type OwnerScript = Partial<Record<keyof SlackOwnerApi, Error>>;
@@ -59,10 +132,29 @@ export class FakeSlackOwnerClient implements SlackOwnerApi {
   }
 }
 
-export function fakeSlackOwnerSdk(script: OwnerScript = {}): {
+export function fakeSlackOwnerSdk(
+  script: OwnerScript = {},
+  listener?: FakeSlackOwnerListener,
+): {
   readonly sdk: SlackOwnerSdk;
   readonly client: FakeSlackOwnerClient;
+  readonly listener: FakeSlackOwnerListener;
+  /** What the surface built the listener with; `undefined` until it did. */
+  readonly listenerClient: () => SlackOwnerApi | undefined;
 } {
   const client = new FakeSlackOwnerClient(script);
-  return { client, sdk: { client: () => client } };
+  const events = listener ?? new FakeSlackOwnerListener();
+  let built: SlackOwnerApi | undefined;
+  return {
+    client,
+    listener: events,
+    listenerClient: () => built,
+    sdk: {
+      client: () => client,
+      listener: (owner) => {
+        built = owner;
+        return events;
+      },
+    },
+  };
 }

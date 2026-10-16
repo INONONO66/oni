@@ -4,15 +4,11 @@ import type { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { requireHandler } from "../../support/handler-frame";
-import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
+import { type DeliveryReceipt, DeliveryReconciliation } from "../../support/deliver";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { DiscordClient } from "./client";
-import {
-  DeliveryNotSent,
-  DiscordApiError,
-  DiscordHandlerMissingError,
-  RateLimited,
-} from "../../errors";
+import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
+import { DiscordHandlerMissingError } from "../../errors";
 import { DiscordNormalizer } from "./normalizer";
 import {
   DISCORD_INTENTS,
@@ -31,8 +27,6 @@ import {
 } from "./types";
 import type { PublishPort } from "../../types";
 import type { ProviderOptions } from "../contract";
-import { translate } from "../../support/translate";
-import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
 
 /**
  * Discord over the agent-messenger bot SDK's gateway listener (#1569): the
@@ -175,56 +169,14 @@ export class DiscordAdapter implements Channel.Surface {
     });
   }
 
-  /**
-   * Existing-agent delivery: a registered ActorEndpoint's externalId is a
-   * Discord user id — deliver by DM, or into the conversation's channel when
-   * the person wrote in one — and report the platform message id of the
-   * final chunk (the message a reply would reference).
-   */
+  /** Existing-agent delivery through the shared Discord path (`delivery.ts`). */
   deliver(
     externalId: string,
     payload: Outbound.Payload,
     idempotencyKey: string,
     conversation?: Gateway.Conversation,
   ): Promise<DeliveryReceipt> {
-    return deliverKeyed(
-      this.outbound,
-      idempotencyKey,
-      async (traceId) => {
-        const channelId = conversation?.channelId ?? (await this.dmChannel(externalId, traceId));
-        return await translate(
-          payload,
-          DISCORD_RENDER,
-          {
-            text: (chunk) => this.client.send(channelId, chunk, traceId, conversation),
-            media: {
-              limits: DISCORD_MEDIA_LIMITS,
-              upload: async (_kind, bytes, caption) => {
-                const externalMessageId = await this.client.sendMedia(
-                  channelId,
-                  bytes,
-                  caption,
-                  traceId,
-                  conversation,
-                );
-                return externalMessageId === undefined ? {} : { externalMessageId };
-              },
-            },
-            react: async (messageId, emoji, replaces) => {
-              if (replaces !== undefined)
-                await this.client.removeReaction(channelId, messageId, replaces, traceId);
-              await this.client.react(channelId, messageId, emoji, traceId);
-            },
-          },
-          this.options.media,
-        );
-      },
-      (error) =>
-        (error instanceof DiscordApiError && error.rejected === true) ||
-        (error instanceof RateLimited && error.status === 429),
-      this.publish,
-      this.options,
-    );
+    return deliverThroughDiscord(this.delivery(), externalId, payload, idempotencyKey, conversation);
   }
 
   /** A DM channel is created once per turn, not once per pulse. */
@@ -233,17 +185,15 @@ export class DiscordAdapter implements Channel.Surface {
     conversation?: Gateway.Conversation,
   ): Promise<Gateway.Conversation> {
     if (conversation !== undefined) return conversation;
-    return { channelId: await this.dmChannel(externalId, newTraceId(this.options.id)) };
+    return { channelId: await discordDmChannel(this.client, externalId, newTraceId(this.options.id)) };
   }
 
   typing(conversation: Gateway.Conversation): Promise<void> {
     return this.client.typing(conversation.channelId, newTraceId(this.options.id));
   }
 
-  private dmChannel(externalId: string, traceId: string): Promise<string> {
-    return this.client.createDmChannel(externalId, traceId).catch((error) => {
-      throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: String(error) });
-    });
+  private delivery(): DiscordDelivery {
+    return { client: this.client, outbound: this.outbound, publish: this.publish, options: this.options };
   }
 
   private handleMessageCreate(

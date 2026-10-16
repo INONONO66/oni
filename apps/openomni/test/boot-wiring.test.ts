@@ -115,6 +115,7 @@ describe("channel supervisor", () => {
       component: {
         id,
         identity: "bot",
+        listens: true,
         build: (): BuiltChannel => {
           const surface: Channel.Surface = {
             id,

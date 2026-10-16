@@ -25,11 +25,18 @@ function replyReference(
       };
 }
 
+/** How the token is presented: a bot token carries the `Bot` scheme, a user account's token is bare. */
+export type DiscordAuth = "bot" | "user";
+
+/** `GET /users/@me`: the account a token speaks as. */
+const MeSchema = z.object({ id: z.string(), username: z.string() });
+
 export class DiscordClient implements ChannelClient {
   constructor(
     private readonly token: string,
     private readonly publish: PublishPort,
     private readonly run: EffectRunner,
+    private readonly auth: DiscordAuth = "bot",
   ) {}
 
   async send(
@@ -100,6 +107,11 @@ export class DiscordClient implements ChannelClient {
     );
   }
 
+  /** The account this token speaks as. */
+  me(traceId: string): Promise<{ id: string; username: string }> {
+    return this.request("/users/@me", { method: "GET" }, traceId, MeSchema);
+  }
+
   /** `POST /channels/{id}/typing` shows the indicator for about ten seconds. */
   async typing(channelId: string, traceId: string): Promise<void> {
     await this.request(`/channels/${channelId}/typing`, { method: "POST" }, traceId, z.undefined());
@@ -164,7 +176,13 @@ export class DiscordClient implements ChannelClient {
   ): Promise<T> {
     const res = await fetchWithRetry(
       `${BASE_URL}${path}`,
-      { ...init, headers: { Authorization: `Bot ${this.token}`, ...init.headers } },
+      {
+        ...init,
+        headers: {
+          Authorization: this.auth === "bot" ? `Bot ${this.token}` : this.token,
+          ...init.headers,
+        },
+      },
       {
         traceId,
         run: this.run,

@@ -660,7 +660,7 @@
                       "type": "boolean"
                     },
                     "settings": {
-                      "default": {},
+                      "description": "Non-secret knobs; an Owner instance's intake posture. A re-declaration keeps the stored settings.",
                       "type": "object",
                       "propertyNames": {
                         "type": "string"

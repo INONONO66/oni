@@ -1,5 +1,88 @@
 # Implementation Status
 
+## #1569 Owner intake: the Owner instance reads what the account sees (lane 6)
+
+On `feat/1569-owner-intake` (2026-10-17, base `db4ac75bd`). An `identity:
+owner` instance now listens as well as sends. The provider contract's
+`OwnerArm` declares `listen` and takes an `OwnerPosture` instead of the empty
+config: the declaration's `settings.intake` is `mentions_and_dms` (default:
+a DM to the Owner, a mention of the Owner, or a reaction to the Owner's own
+message), `all` (everything the account can see, the bot posture) or `none`
+(send-only, no listener). Slack's Owner surface (`provider/slack/owner.ts`)
+opens the user SDK's RTM listener through `owner-sdk.ts` under
+`listenerCustody` (settles on hello, fails start on an error before it; a
+revoked session after hello is a typed dead surface — `isSlackTerminal`
+reads the error shape so the user SDK's `SlackError` counts and custody
+stops the SDK's otherwise endless reopen); RTM frames (no `channel_type`; a
+`D…` channel is a DM) go through `SlackNormalizer` with the Owner's own user
+id as self, so the account's own messages are never an outside event and a
+mention of the Owner is `event: mention`; what the posture admits is handed
+off with `receivedBy: owner`. Discord gains its Owner arm
+(`provider/discord/{owner-sdk,owner}.ts`; `agent-messenger/discord` has its
+one home in `owner-sdk.ts`): the account logs in, `/users/@me` verifies it,
+the user gateway listener runs under the same custody as the bot's
+(`failOnCloseBeforeConnected: false`, non-recoverable close codes terminal),
+`DiscordNormalizer` with the Owner's id as self; delivery, reactions and
+typing ride the package's REST client under the bare account token
+(`DiscordClient` `auth: "user"`, one physical attempt per idempotency key;
+`discord/delivery.ts` is the one delivery path both instances share). Reactions
+are not intake on either platform: the router routes a reaction only as the
+answer to a request (`reaction_unrouted` is the one layer), and nothing the
+Owner's account receives is one. `Gateway.IngressFacts.receivedBy`
+(optional; absent is the bot) records the instance that observed a message
+and gives the Owner's copy its own inbound id (`…:owner`), so the bot's
+recorded refusal of the same message is never replayed against it.
+Addressing is a fact of the message, not of the observer: the platform's
+channel grant carries `ownerIntake` while an Owner instance reads it, and
+`ingressInput` treats a mention of the registered Owner (the Owner Person's
+endpoint on that platform) as addressed to the Resident under such a grant,
+whichever instance observed it — a mention-only grant admits both copies,
+and the Slack Owner surface opens no thread root for a top-level Owner
+mention so both copies bind to the same conversation. The app:
+`ChannelComponent.listens` (every bot row; an Owner row only when its arm
+listens under a posture other than `none`); the platform's one ingress
+grant is held by every reading instance and revoked with the last
+(`provision/supervisor.ts`), re-registered whenever the readers change at
+the least tier any current reader declares (fail-closed) and naming the
+Owner reader; `channel_add` validates an Owner row's settings as its
+posture (a bot row still refuses any knob) and a re-declaration that omits
+`settings` keeps the stored ones; an Owner row without `grant.outbound`
+mounts neither a delivery nor a typing route; and `inboundOnce`
+(`packages/channels` `support/inbound-once.ts`, wrapped around the app's
+routing handler) hands one physical platform message to routing once when
+both the bot and the Owner instance observe it — a copy arriving while the
+other copy is in flight waits for that outcome and carries the message
+only if the first copy was refused. Upgrade note: an Owner row declared
+before this lane (empty `settings`) now reads under the default posture;
+declare `settings.intake: none` to keep it send-only — every Owner-row
+declaration passes Owner consent. The reply door answers an Owner-received
+DM as the bot in the bot's own DM with that person, and an Owner-received
+channel mention in the channel when the bot is a member (else `not_sent`;
+the Resident may send `as: owner` on explicit instruction). Not in this
+lane: Instagram and KakaoTalk (lane 7), the login helper (lane 5b); the
+Telegram Owner instance stays blocked on the SDK (no `./telegram` export).
+Receipts:
+`packages/channels/test/slack-owner.test.ts` (listener under the default
+posture, DM/mention intake with `receivedBy` through a sentinel ordering,
+own echo never intake, no thread root for a top-level Owner mention,
+reactions not intake, `all`, repeated frame once, refused connect fails
+start, revoked session dead, no handler no listener),
+`packages/channels/test/discord-owner.test.ts` (login, `/users/@me` through
+the package's client, DM and mention intake, `all`/`none`, error before
+READY and non-recoverable close, REST and typing under the bare token with
+one attempt per key), `test/provider-owner-arm.test.ts` (both arms listen;
+the posture schema), `test/inbound-once.test.ts` (admitted copy dropped,
+refused copy carried, in-flight copy waits), `test/router/mention-only.test.ts`
+(an Owner mention is addressed under an `ownerIntake` grant whichever copy
+arrives, filtered without one; the Owner's copy has its own inbound id),
+`test/channel-band-boundary.test.ts` (`agent-messenger/discord` home),
+`apps/openomni/test/identity-instances.test.ts` (posture → `listens`, the
+one grant row re-registered at the least reader tier naming the Owner
+reader, an Owner-only reader registers the grant),
+`apps/openomni/test/provision-tools.test.ts` (posture knobs under the
+resolved identity, sticky settings on re-declaration); suites:
+`packages/channels` 922 pass, `apps/openomni` 996 pass, 0 fail.
+
 ## #1569 the identity axis and the Slack Owner instance (PR 5 of the epic)
 
 On `feat/1569-identity-axis` (2026-10-16, stacked on PR 4). A mounted

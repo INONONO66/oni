@@ -552,6 +552,8 @@ export interface TrustedChannelGrant {
   readonly allowedSenders?: readonly string[];
   /** Channel messages route only when they address the Resident; DMs always do. */
   readonly mentionOnly?: boolean;
+  /** An Owner instance reads this platform (#1569 lane 6): a mention of the Owner addresses the Resident. */
+  readonly ownerIntake?: boolean;
 }
 
 /**
@@ -576,6 +578,7 @@ export function registerTrustedChannelGrant(
     // alone — everyone else on the surface finds no grant and is blocked.
     ...(grant.allowedSenders === undefined ? {} : { allowedSenders: [...grant.allowedSenders] }),
     ...(grant.mentionOnly === undefined ? {} : { mentionOnly: grant.mentionOnly }),
+    ...(grant.ownerIntake === undefined ? {} : { ownerIntake: grant.ownerIntake }),
     createdBy: "local-owner",
   });
   return () => {
@@ -596,14 +599,15 @@ export function createMountedChannelGrantRegistrar(
   grants: ChannelGrantStore,
   allowedSendersBySurface: Readonly<Record<string, readonly string[]>> | undefined,
   mentionOnlySurfaces: readonly string[] | undefined = undefined,
-): (surfaceId: string, defaultTier: Actor.TrustTier) => () => void {
-  return (surfaceId, defaultTier) => {
+): (surfaceId: string, defaultTier: Actor.TrustTier, ownerIntake?: boolean) => () => void {
+  return (surfaceId, defaultTier, ownerIntake) => {
     const allowedSenders = allowedSendersBySurface?.[surfaceId];
     return registerTrustedChannelGrant(grants, {
       surface: surfaceId,
       defaultTier,
       ...(allowedSenders === undefined ? {} : { allowedSenders }),
       ...(mentionOnlySurfaces?.includes(surfaceId) === true ? { mentionOnly: true } : {}),
+      ...(ownerIntake === true ? { ownerIntake: true } : {}),
     });
   };
 }

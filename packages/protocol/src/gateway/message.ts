@@ -102,6 +102,12 @@ const IngressFacts = z
     channelId: Id,
     addressees: z.array(z.object({ externalId: Id }).strict()),
     dm: z.boolean(),
+    /**
+     * #1569: the instance of the platform that observed this message —
+     * `Channel.Identity`; absent means the bot. Through the Owner's own
+     * account a mention of the Owner addresses the Resident.
+     */
+    receivedBy: z.enum(["bot", "owner"]).optional(),
     reply: SessionTransition.Correlation.omit({ endpointId: true, channelId: true })
       .extend({ chain: z.array(Id) })
       .strict()

@@ -1,6 +1,6 @@
 import type { ChannelDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { ThrownError } from "../../thrown";
-import type { Actor } from "@openomni/protocol";
+import { Actor } from "@openomni/protocol";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
 
 /**
@@ -55,8 +55,11 @@ export interface ChannelRuntimeStatus {
 export interface SupervisorDeps {
   readonly desired: () => DesiredChannels;
   readonly build: (component: ChannelComponent) => BuiltChannel;
-  /** Registers the surface's trusted grant at the row's declared tier; returns its revoker. */
-  readonly grant: (surfaceId: string, defaultTier: Actor.TrustTier) => () => void;
+  /**
+   * Registers the platform's trusted grant at a tier, naming whether an
+   * Owner instance reads under it (#1569 lane 6); returns its revoker.
+   */
+  readonly grant: (surfaceId: string, defaultTier: Actor.TrustTier, ownerIntake?: boolean) => () => void;
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
   readonly typingRoutes: Map<string, ProviderTypingRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
@@ -69,6 +72,19 @@ interface MountedRow {
   readonly key: string;
   readonly surfaceId: string;
   readonly stop: () => Promise<void>;
+}
+
+/** The one grant row of a platform and the reading instances holding it. */
+interface PlatformGrant {
+  readonly readers: Map<string, { readonly tier: Actor.TrustTier; readonly owner: boolean }>;
+  /** `<tier>:<ownerIntake>` the row is registered at; re-registered when it changes. */
+  registered: string | undefined;
+  revoke: () => void;
+}
+
+/** The tier enum runs from the most trusted down; a larger rank is a lesser tier. */
+function tierRank(tier: Actor.TrustTier): number {
+  return Actor.TrustTier.options.indexOf(tier);
 }
 
 export interface ChannelSupervisor {
@@ -90,6 +106,43 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
   const threshold = deps.breakerThreshold ?? DEFAULT_BREAKER_THRESHOLD;
   const mounted = new Map<string, MountedRow>();
   const failures = new Map<string, number>();
+  // The platform's ingress grant is one row (#1569 lane 6): the bot and the
+  // Owner instance of one platform both read under it. The row is held while
+  // any reading instance is mounted and revoked with the last; it is
+  // re-registered whenever the readers change, at the least tier any current
+  // reader declares (fail-closed, the grant store's own order) and naming
+  // whether an Owner instance is among them.
+  const grants = new Map<string, PlatformGrant>();
+  const holdGrant = (platform: string, row: DesiredChannelRow): (() => void) => {
+    const held = grants.get(platform) ?? { readers: new Map(), registered: undefined, revoke: () => undefined };
+    held.readers.set(row.instanceId, { tier: row.defaultTier, owner: row.component.identity === "owner" });
+    grants.set(platform, held);
+    settleGrant(platform, held);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      held.readers.delete(row.instanceId);
+      if (held.readers.size > 0) {
+        settleGrant(platform, held);
+        return;
+      }
+      grants.delete(platform);
+      held.revoke();
+    };
+  };
+  function settleGrant(platform: string, held: PlatformGrant): void {
+    const readers = [...held.readers.values()];
+    // Fail closed: the least trusted tier any reader declares is the platform's.
+    const tier = readers.map((reader) => reader.tier).sort((a, b) => tierRank(b) - tierRank(a))[0];
+    if (tier === undefined) return;
+    const ownerIntake = readers.some((reader) => reader.owner);
+    const wanted = `${tier}:${ownerIntake}`;
+    if (held.registered === wanted) return;
+    held.revoke();
+    held.registered = wanted;
+    held.revoke = deps.grant(platform, tier, ownerIntake);
+  }
   let lastStatuses: ChannelRuntimeStatus[] = [];
   let lastSource: DesiredChannels["source"] = "declared";
 
@@ -101,8 +154,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     // Owner listener under its own posture).
     const surfaceId = built.surface.id;
     const platform = row.component.id;
-    const revokeGrant =
-      row.component.identity === "owner" ? () => undefined : deps.grant(platform, row.defaultTier);
+    const revokeGrant = row.component.listens ? holdGrant(platform, row) : () => undefined;
     if (built.deliveryRoute !== undefined) {
       deps.deliveryRoutes.set(surfaceId, built.deliveryRoute);
     }

@@ -269,6 +269,8 @@ const LISTENER_TERMINAL = new Set([
   "disconnect_terminal",
   "not_authed",
   "invalid_auth",
+  "token_revoked",
+  "token_expired",
   "account_inactive",
   "user_removed_from_team",
   "team_disabled",
@@ -278,7 +280,10 @@ const LISTENER_TERMINAL = new Set([
 ]);
 
 export function isSlackTerminal(error: Error): boolean {
-  if (!(error instanceof SlackBotError)) return false;
+  // Both SDK listeners (Socket Mode bot, RTM Owner account) raise their own
+  // error class with the Slack code; the RTM one keeps reopening on a revoked
+  // session, so custody reads the code and stops it.
+  if (!isSlackSdkError(error)) return false;
   if (LISTENER_TERMINAL.has(error.code)) return true;
   // A platform refusal forwarded under the web-api code still names the Slack error at the end of its message.
   return (
