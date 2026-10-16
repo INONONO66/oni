@@ -8,7 +8,8 @@ import type { DiscordGateway } from "../src/provider/discord/gateway";
 type GatewayCallbacks = ConstructorParameters<typeof DiscordGateway>[2];
 import { DiscordProvider } from "../src/provider/discord/provider";
 import { GitHubProvider } from "../src/provider/github/provider";
-import { SlackProvider } from "../src/provider/slack/provider";
+import { createSlackProvider } from "../src/provider/slack/provider";
+import { fakeSlackSdk } from "./helpers/slack-sdk";
 import { TelegramClient } from "../src/provider/telegram/client";
 import { TelegramProvider } from "../src/provider/telegram/provider";
 import type { PublishPort } from "../src/types";
@@ -48,7 +49,8 @@ describe("provider retry and receipt paths", () => {
       success: { ok: true, result: { message_id: 7 } },
       address: "chat-1",
       id: "7",
-      client: (publish: PublishPort) => new TelegramClient("token", publish, () => FIXED_NOW, testRun),
+      client: (publish: PublishPort) =>
+        new TelegramClient("token", publish, () => FIXED_NOW, testRun),
     },
   ])("retries $name rate limits and returns the platform id", async (scenario) => {
     const { published, publish } = collector();
@@ -96,12 +98,10 @@ describe("provider retry and receipt paths", () => {
       () => undefined,
       injectedOptions(),
     ).deliveryRoute?.("user-1", Outbound.payload("hello"), "key-2");
-    const slack = await SlackProvider.create(
-      { botToken: "xoxb-1", appToken: "xapp-1" },
-      {},
-      () => undefined,
-      injectedOptions(),
-    ).deliveryRoute?.("T1:U1", Outbound.payload("hello"), "key-3");
+    // #1569: Slack posts through the agent-messenger SDK, not fetch; the scripted client answers ts 1.2.
+    const slack = await createSlackProvider(fakeSlackSdk({ postedTs: "1.2" }).sdk)
+      .create({ botToken: "xoxb-1", appToken: "xapp-1" }, {}, () => undefined, injectedOptions())
+      .deliveryRoute?.("T1:U1", Outbound.payload("hello"), "key-3");
     const github = await GitHubProvider.create(
       { secret: "s", token: "t" },
       {},

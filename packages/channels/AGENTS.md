@@ -1,5 +1,7 @@
 # packages/channels
 
+2026-10-15, #1569 SDK transport: platform I/O moves to the agent-messenger SDK (`agent-messenger@2.39.0`, exact pin), one provider at a time — Slack first. A provider's `sdk.ts` names the SDK slice it speaks (client + listener interfaces and a construction seam tests fake), `create()` logs in with the vault-opened credential through `login({...})` and never touches the SDK's on-disk credential store, the SDK's inner `@slack/web-api` client is pinned to one physical attempt per idempotency key (`singleAttempt`), and SDK error codes fold into the `sent | not_sent | unknown` evidence (`classifySlackFailure`). Each SDK subpath has exactly one home, the provider's `sdk.ts` (`agent-messenger/slackbot` → `src/provider/slack/sdk.ts`, `test/channel-band-boundary.test.ts`); normalizers, dedupe, custody, translate and the router are unchanged. This scopes the #1248 paragraph below: for an SDK-transported provider the reconnect backoff, pings and hello timeout are the SDK's own ambient timers, bounded by its code rather than the injected clock, and the typed dead-shell guarantee returns with the SDK listener custody wrapper of the Discord PR; until then a fatal post-hello stop on Slack (`disconnect_terminal`, a revoked token on re-open) is a Warn and the row stays mounted until the next reconcile. Discord and Telegram still ride the hand-rolled gateway/poller until their PRs.
+
 2026-10-02, #1248 Effect timing: drivers own no timers and no runner — every delay, retry, reconnect, heartbeat, and poll loop is an Effect program executed through the injected `run: EffectRunner` option (the app binds `runAppEffect`). `src/support/schedule.ts` is the single reconnect policy (exponential 1s→60s via `Schedule.min`, ±20% jitter, `RECONNECT_ATTEMPT_BOUND` 10); `src/support/socket-shell.ts` runs one interruptible retry streak per close (halt `Deferred` + `Effect.raceFirst`; exhaustion = typed dead shell publishing `reconnectFailed`); `src/support/fetch-retry.ts` is `Effect.retry` (≤3 attempts, 429 retry-after respected); uncertain deliveries record `unknown`, never resend, and publish one Owner-visible Warn (`src/support/deliver.ts`). Tests drive `ManagedRuntime(TestClock.layer())` from the package's runner owner (`test/helpers/effect.ts`).
 
 2026-10-01, #1244 typed failures: `ChannelsFailure` is the package-owned carrier for untyped causes (`decodeChannelFailure`); driver and router errors stay `Data.TaggedError` classes in `src/errors.ts`, bare `throw new Error` is zero in `src/`, and handler/websocket frames report failures through typed ports rather than console logging.
@@ -37,15 +39,16 @@ src/
 │   ├── discord/      # Discord gateway client + surface (mention-trigger by default)
 │   ├── telegram/     # Ordered long-poll surface; offset advances only after successful handoff
 │   ├── github/       # Webhooks with retryable 5xx failures and delivery-marker comment read-back
-│   └── slack/        # Socket Mode surface (two tokens: xoxb- bot + xapp- app-level; ack-before-dispatch,
-│                     #   fresh-URL reconnect) with workspace-mandatory TEAM:USER endpoint keys
+│   └── slack/        # Socket Mode through the agent-messenger bot SDK (#1569): sdk.ts names the SDK slice
+│                     #   and pins one attempt per key; surface.ts acks every envelope before dispatch,
+│                     #   workspace-mandatory TEAM:USER endpoint keys (two tokens: xoxb- bot + xapp- app-level)
 └── support/          # Band-local helpers: format renderers/chunking, bounded dedupe, Effect fetch retry,
                       #   shared reconnect schedule + socket reconnect shell (#1248), trigger evaluation
 ```
 
 ## DEPENDENCIES (the band import contract)
 
-Whitelist at stage 2 (2026-10-02 #1246: policy and ledger folded into agent): **{`@openomni/protocol`, `@openomni/agent`}** for `src/` (ipc left the whitelist once no channels source imported it; re-admit only with a real driver consumer). `zod` is additionally admitted package-wide: pure schema validation with no I/O and no authority, required because providers declare their credential/settings schemas in-band (§4). Enforced twice:
+Whitelist at stage 2 (2026-10-02 #1246: policy and ledger folded into agent): **{`@openomni/protocol`, `@openomni/agent`}** for `src/` (ipc left the whitelist once no channels source imported it; re-admit only with a real driver consumer). `zod` is additionally admitted package-wide: pure schema validation with no I/O and no authority, required because providers declare their credential/settings schemas in-band (§4). `agent-messenger` (#1569) is admitted per subpath in exactly one file, the provider's `sdk.ts` seam (`agent-messenger/slackbot` → `src/provider/slack/sdk.ts`), so SDK types never reach a surface, the router, authn or the stores except through that seam. Enforced twice:
 
 - `script/check-deps.ts` checks manifest and source imports plus S8 banding. Only `src/router/`, `src/authn/`, and `src/store/` may import `@openomni/agent`; driver files cannot reach router internals. No standalone lifecycle store or master Storage entry is allowed.
 - `test/channel-band-boundary.test.ts` — the AST-level scan: every import in `src/**` must be a whitelisted package, a node builtin, or relative; `@openomni/agent` only under the judgment band (`src/router/`, `src/authn/`, `src/store/`). Telemetry is NOT allowed anywhere in `src/**` — observation goes through the injected sink (`PublishPort` for drivers, the router's `sink` port).
@@ -68,7 +71,7 @@ No app import from this package: both sides meet in protocol contracts (`Gateway
 
 ## TESTS
 
-`bun test` in this package. `test/channel-band-boundary.test.ts` is the import-contract gate; `test/router/` carries the promoted kernel-routing, request correlation, authority, and messaging suites (including real request-kernel/SQLite acceptance; ordinary routing fixtures use injected ports). Driver tests include GitHub retry/read-back dedupe, Telegram offset-after-handoff behavior, and Slack Socket Mode protocol pins (ack-before-dispatch, fresh-URL reconnect, dedupe/forget, workspace-mandatory delivery keys) alongside authn, normalizers, Discord gateway, triggers, and WebSocket coverage. Standalone proof: `cd packages/channels && bun install && bun test && bun run build`.
+`bun test` in this package. `test/channel-band-boundary.test.ts` is the import-contract gate; `test/router/` carries the promoted kernel-routing, request correlation, authority, and messaging suites (including real request-kernel/SQLite acceptance; ordinary routing fixtures use injected ports). Driver tests include GitHub retry/read-back dedupe, Telegram offset-after-handoff behavior, and Slack surface pins over a scripted SDK (ack-before-handoff observed through the dedupe clock, start-on-hello and fail-before-hello, dedupe/forget, DM open before a conversation-less send, workspace-mandatory delivery keys, custody over the SDK's error shapes; Socket Mode reconnect/ping/generation pins are the SDK's own `listener.test.ts`) alongside authn, normalizers, Discord gateway, triggers, and WebSocket coverage. Standalone proof: `cd packages/channels && bun install && bun test && bun run build`.
 
 ## Channel stores (formerly packages/ledger channel facts, 2026-10-02 #1246)
 

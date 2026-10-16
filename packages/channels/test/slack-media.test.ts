@@ -1,106 +1,45 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { Outbound } from "@openomni/protocol";
-import { SlackProvider } from "../src/provider/slack/provider";
+import { createSlackProvider } from "../src/provider/slack/provider";
 import { injectedOptions } from "./helpers/injected";
+import { SlackBotError } from "../src/provider/slack/sdk";
+import { DM_CHANNEL, fakeSlackSdk, platformError } from "./helpers/slack-sdk";
 
-const originalFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
+const CREDENTIALS = { botToken: "xoxb-test", appToken: "xapp-test" };
 
-describe("Slack outbound calls", () => {
-  test("uploads bytes through the three-step external upload handshake", async () => {
-    const calls: Array<{
-      url: string;
-      method: string;
-      authorization: string | null;
-      contentType: string | null;
-      body: string | Uint8Array;
-    }> = [];
-    globalThis.fetch = Object.assign(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const headers = new Headers(init?.headers);
-        calls.push({
-          url: String(input),
-          method: init?.method ?? "GET",
-          authorization: headers.get("Authorization"),
-          contentType: headers.get("Content-Type"),
-          body: init?.body instanceof Uint8Array ? init.body : String(init?.body),
-        });
-        if (String(input).endsWith("/files.getUploadURLExternal"))
-          return Response.json({
-            ok: true,
-            upload_url: "https://upload.slack.example/one",
-            file_id: "F1",
-          });
-        return Response.json({ ok: true });
-      },
-      { preconnect: originalFetch.preconnect },
-    );
+describe("Slack outbound calls through the SDK", () => {
+  test("uploads bytes into the thread with the caption as the share comment", async () => {
+    const fake = fakeSlackSdk();
+    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
+      ...injectedOptions(),
+      media: async () => ({
+        bytes: new Uint8Array([1, 2, 3]),
+        name: "report.pdf",
+        mime: "application/pdf",
+      }),
+    });
     const media: Outbound.Payload = {
       kind: "message",
       parts: [{ kind: "file", ref: "/report", name: "report.pdf", caption: "read this" }],
     };
-    const runtime = SlackProvider.create(
-      { botToken: "xoxb-test", appToken: "xapp-test" },
-      {},
-      () => undefined,
-      {
-        ...injectedOptions(),
-        media: async () => ({
-          bytes: new Uint8Array([1, 2, 3]),
-          name: "report.pdf",
-          mime: "application/pdf",
-        }),
-      },
-    );
     expect(
       await runtime.deliveryRoute?.("T1:U1", media, "upload-1", {
         channelId: "C1",
         threadId: "42.0",
       }),
     ).toEqual({ value: "accepted" });
-    expect(calls).toEqual([
+    expect(fake.client.calls).toEqual([
       {
-        url: "https://slack.com/api/files.getUploadURLExternal",
-        method: "POST",
-        authorization: "Bearer xoxb-test",
-        contentType: "application/json; charset=utf-8",
-        body: '{"filename":"report.pdf","length":3}',
-      },
-      {
-        url: "https://upload.slack.example/one",
-        method: "POST",
-        authorization: null,
-        contentType: "application/pdf",
-        body: new Uint8Array([1, 2, 3]),
-      },
-      {
-        url: "https://slack.com/api/files.completeUploadExternal",
-        method: "POST",
-        authorization: "Bearer xoxb-test",
-        contentType: "application/json; charset=utf-8",
-        body: '{"files":[{"id":"F1","title":"report.pdf"}],"channel_id":"C1","thread_ts":"42.0","initial_comment":"read this"}',
+        method: "uploadFile",
+        args: ["C1", [1, 2, 3], "report.pdf", { thread_ts: "42.0", initial_comment: "read this" }],
       },
     ]);
   });
 
-  test("uses the short emoji name in reactions.add", async () => {
-    const calls: Array<{ url: string; method: string; headers: Headers; body: string }> = [];
-    globalThis.fetch = Object.assign(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        calls.push({
-          url: String(input),
-          method: init?.method ?? "GET",
-          headers: new Headers(init?.headers),
-          body: String(init?.body),
-        });
-        return Response.json({ ok: true });
-      },
-      { preconnect: originalFetch.preconnect },
-    );
-    const runtime = SlackProvider.create(
-      { botToken: "xoxb-test", appToken: "xapp-test" },
+  test("uses the short emoji name in addReaction", async () => {
+    const fake = fakeSlackSdk();
+    const runtime = createSlackProvider(fake.sdk).create(
+      CREDENTIALS,
       {},
       () => undefined,
       injectedOptions(),
@@ -110,36 +49,23 @@ describe("Slack outbound calls", () => {
         "T1:U1",
         { kind: "react", messageId: "42.1", emoji: "👍" },
         "react-1",
-        { channelId: "C1" },
+        {
+          channelId: "C1",
+        },
       ),
     ).toEqual({ value: "accepted", externalMessageId: "42.1" });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://slack.com/api/reactions.add");
-    expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.headers.get("Authorization")).toBe("Bearer xoxb-test");
-    expect(calls[0]?.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
-    expect(JSON.parse(calls[0]?.body ?? "")).toEqual({
-      channel: "C1",
-      timestamp: "42.1",
-      name: "+1",
-    });
+    expect(fake.client.calls).toEqual([{ method: "addReaction", args: ["C1", "42.1", "+1"] }]);
   });
 
   test("a replacing reaction removes the earlier name first; already settled states are accepted", async () => {
-    const calls: Array<{ url: string; body: string }> = [];
-    globalThis.fetch = Object.assign(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        calls.push({ url: String(input), body: String(init?.body) });
-        return Response.json(
-          String(input).endsWith("reactions.remove")
-            ? { ok: false, error: "no_reaction" }
-            : { ok: false, error: "already_reacted" },
-        );
+    const fake = fakeSlackSdk({
+      fail: {
+        removeReaction: () => platformError("no_reaction"),
+        addReaction: () => platformError("already_reacted"),
       },
-      { preconnect: originalFetch.preconnect },
-    );
-    const runtime = SlackProvider.create(
-      { botToken: "xoxb-test", appToken: "xapp-test" },
+    });
+    const runtime = createSlackProvider(fake.sdk).create(
+      CREDENTIALS,
       {},
       () => undefined,
       injectedOptions(),
@@ -152,23 +78,92 @@ describe("Slack outbound calls", () => {
         { channelId: "C1" },
       ),
     ).toEqual({ value: "accepted", externalMessageId: "42.1" });
-    expect(calls.map((call) => [call.url.slice("https://slack.com/api/".length), JSON.parse(call.body)])).toEqual([
-      ["reactions.remove", { channel: "C1", timestamp: "42.1", name: "eyes" }],
-      ["reactions.add", { channel: "C1", timestamp: "42.1", name: "white_check_mark" }],
+    expect(fake.client.calls).toEqual([
+      { method: "removeReaction", args: ["C1", "42.1", "eyes"] },
+      { method: "addReaction", args: ["C1", "42.1", "white_check_mark"] },
     ]);
   });
 
-  test("refuses an unmapped emoji before any platform call", async () => {
-    const calls: string[] = [];
-    globalThis.fetch = Object.assign(
-      async (input: string | URL | Request) => {
-        calls.push(String(input));
-        return Response.json({ ok: true });
-      },
-      { preconnect: originalFetch.preconnect },
+  test("a platform refusal of the reaction is rejected, never accepted", async () => {
+    const fake = fakeSlackSdk({ fail: { addReaction: () => platformError("invalid_name") } });
+    const runtime = createSlackProvider(fake.sdk).create(
+      CREDENTIALS,
+      {},
+      () => undefined,
+      injectedOptions(),
     );
-    const runtime = SlackProvider.create(
-      { botToken: "xoxb-test", appToken: "xapp-test" },
+    expect(
+      await runtime.deliveryRoute?.(
+        "T1:U1",
+        { kind: "react", messageId: "42.1", emoji: "👍" },
+        "react-3",
+        {
+          channelId: "C1",
+        },
+      ),
+    ).toEqual({ value: "rejected" });
+  });
+
+  test("a conversation-less upload goes into the opened direct channel, never to a bare user id", async () => {
+    const fake = fakeSlackSdk();
+    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
+      ...injectedOptions(),
+      media: async () => ({ bytes: new Uint8Array([7]), name: "pic.png", mime: "image/png" }),
+    });
+    const media: Outbound.Payload = { kind: "message", parts: [{ kind: "image", ref: "/pic" }] };
+    expect(await runtime.deliveryRoute?.("T1:U1", media, "upload-dm")).toEqual({
+      value: "accepted",
+    });
+    expect(fake.client.calls).toEqual([
+      { method: "openDm", args: ["U1"] },
+      { method: "uploadFile", args: [DM_CHANNEL, [7], "pic.png", {}] },
+    ]);
+  });
+
+  test.each([
+    {
+      name: "a platform refusal of the upload is rejected and a second attempt is permitted",
+      error: () => platformError("not_in_channel"),
+      value: "rejected",
+      uploads: 2,
+    },
+    {
+      name: "a reset during the upload is unknown and never re-uploaded under the same key",
+      error: () =>
+        new SlackBotError(
+          "A request error occurred: read ECONNRESET",
+          "slack_webapi_request_error",
+        ),
+      value: "unknown",
+      uploads: 1,
+    },
+    {
+      name: "a missing file in the completed upload response is unknown: the share may already be visible",
+      error: () => new SlackBotError("No file returned in upload response", "file_not_found"),
+      value: "unknown",
+      uploads: 1,
+    },
+  ])("$name", async ({ error, value, uploads }) => {
+    const fake = fakeSlackSdk({ fail: { uploadFile: error } });
+    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
+      ...injectedOptions(),
+      media: async () => ({ bytes: new Uint8Array([1]), name: "a.pdf", mime: "application/pdf" }),
+    });
+    const media: Outbound.Payload = {
+      kind: "message",
+      parts: [{ kind: "file", ref: "/a", name: "a.pdf" }],
+    };
+    expect(await runtime.deliveryRoute?.("T1:U1", media, "upload-x", { channelId: "C1" })).toEqual({
+      value,
+    });
+    await runtime.deliveryRoute?.("T1:U1", media, "upload-x", { channelId: "C1" });
+    expect(fake.client.of("uploadFile")).toHaveLength(uploads);
+  });
+
+  test("refuses an unmapped emoji before any platform call", async () => {
+    const fake = fakeSlackSdk();
+    const runtime = createSlackProvider(fake.sdk).create(
+      CREDENTIALS,
       {},
       () => undefined,
       injectedOptions(),
@@ -177,10 +172,12 @@ describe("Slack outbound calls", () => {
       await runtime.deliveryRoute?.(
         "T1:U1",
         { kind: "react", messageId: "42.1", emoji: "🦄" },
-        "react-2",
-        { channelId: "C1" },
+        "react-4",
+        {
+          channelId: "C1",
+        },
       ),
     ).toEqual({ value: "rejected" });
-    expect(calls).toEqual([]);
+    expect(fake.client.calls).toEqual([]);
   });
 });

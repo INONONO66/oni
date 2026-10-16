@@ -4,13 +4,31 @@ Messages cross one boundary: `send_message({to, message, kind?, reply_to?, deadl
 
 The former Conversation, Lease and engagement lifecycles were removed without replacement. Their design history remains in git, not as an alternate message path.
 
+## Identity (#1569)
+
+Every mounted channel is one `(platform, identity)` instance, `identity` being `bot` or `owner`. The bot identity is the default for reading and answering on every platform. The Owner's own account is a second instance of the same platform: it reads what the Owner can see, so a mention of the Owner or a message to the Owner reaches the Resident even where no bot is present, and it sends only on the Owner's explicit instruction. That instruction is an authenticated fact (the sending turn originates from an Owner-tier prompt and the instance's declared grant allows outbound), never prose: text cannot select the Owner's account. Every send journals the identity it went out under.
+
+Contact identity is identity-independent: actor endpoints are keyed by platform and external id, and the same person is the same actor whether the bot or the Owner instance saw them. A message both instances see is one event. A message this process posted through the Owner instance is not an inbound Owner prompt.
+
+This withdraws the W2 #1110 identity amendment (only the Owner is public, the agent has no persona, replies go out as the Owner, draft by default). Where a platform forbids automation under a user account, the Owner instance stays read-only and egress degrades to the draft-then-Owner-taps-send path of the Kernel Contract.
+
+## Platform transport
+
+Platform I/O is the agent-messenger SDK: one SDK listener and client per instance, logged in with credentials the vault opened (`login({...})`; the SDK's own credential store is never used). The SDK owns sockets, reconnects, acks and the Web API. The channels package keeps what the SDK does not do: facts-only normalization, inbound dedupe, delivery custody under one physical attempt per idempotency key, rendering and chunking, and the typed `sent | not_sent | unknown` evidence folded from the SDK's error codes. GitHub and signed-webhook ingress are not messengers and stay hand-rolled. Shipped coverage per platform is recorded in Implementation Status.
+
 ## Inbound facts and contact identity
 
-A driver authenticates platform origin and submits facts: event id, physical channel/workspace, external addressees, DM status, reply/thread/ancestor metadata, structured payload and rendered text. Only the gateway resolves `(surface, externalId, workspace)` to an actor, derives standing and classifies the addressee. Self-reported roles are not authority.
+A driver authenticates platform origin and submits facts: event id, physical channel/workspace, external addressees, DM status, reply/thread/ancestor metadata, structured payload, rendered text, and the identity that received it. Only the gateway resolves `(surface, externalId, workspace)` to an actor, derives standing and classifies the addressee as bot, Owner or ambient. Self-reported roles are not authority.
 
 Owner-declared channel grants remain a ceiling. A personal tier takes precedence over a channel default, never over a blocked channel. Broadcast input remains evidence-only. Default observer standing does not authorize instructions. Blacklist refusal precedes Wait correlation and ordinary surface routing.
 
 Opted-in provisional contact minting is bounded by the existing channel policy and rolling window. It records observed identity, not promoted authority, and stays evidence-only. Durable Person declarations and credentials are owned by [Provisioning and Providers](provisioning-and-providers.md).
+
+## Two doors out
+
+A turn that came from a conversation answers in that conversation through the reply door: the result text goes back to the channel and thread the person wrote in, as the bot, with no model tool call. If only the Owner instance can reach that conversation, the reply is delivered to the Owner as a draft rather than sent as the Owner.
+
+`send_message` is for every other party: an existing session, a new child session, a CLI agent, or a contact on another channel, person or conversation than the one the work came from. Its `contact` target carries the surface, the conversation and, by explicit instruction, the identity. A driver never turns a returned handler value into a platform response: a final assistant answer is a separate actor send through the gateway. Until the reply-door split ships, that send is the app-synthesized post-turn report of #1482 (see Implementation Status).
 
 ## Delivery
 
@@ -18,7 +36,7 @@ Session mail becomes a prompt at atomic inbox commit and passes the receiving se
 
 Actor sends use existing grants, exact endpoint resolution, egress budget and stable platform idempotency keys. Their executed values distinguish accepted, rejected and unknown. A committed first contact can create a bounded, endpoint-scoped reply grant. The indexed durable projection survives restart without replaying routing history; endpoint rebinding cannot expand its scope.
 
-A final assistant answer is a separate actor send. A driver never turns a returned handler value into a platform response. WebSocket admission receipts and later message frames are distinct. Rendering and chunking remain provider-owned, after admission.
+WebSocket admission receipts and later message frames are distinct. Rendering and chunking remain provider-owned, after admission.
 
 ## Correlation and terminal mail
 

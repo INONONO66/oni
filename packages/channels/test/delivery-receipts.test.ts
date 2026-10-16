@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
 import { Outbound } from "@openomni/protocol";
-import { injectedOptions } from "./helpers/injected";
-import { SlackAdapter } from "../src/provider/slack/surface";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 
-for (const provider of ["discord", "slack", "telegram"] as const) {
+// #1569: Slack rides the agent-messenger SDK; its physical evidence is pinned over the SDK error shapes in slack-surface.test.ts.
+for (const provider of ["discord", "telegram"] as const) {
   for (const failure of [
     "forbidden",
     "partial",
@@ -57,24 +56,3 @@ for (const provider of ["discord", "slack", "telegram"] as const) {
     });
   }
 }
-
-test("invalid Slack destination throws before any HTTP request or external receipt", async () => {
-  const originalFetch = globalThis.fetch;
-  let requests = 0;
-  globalThis.fetch = Object.assign(
-    async () => {
-      requests += 1;
-      return Response.json({});
-    },
-    { preconnect: originalFetch.preconnect },
-  );
-  try {
-    const adapter = new SlackAdapter({ botToken: "token", appToken: "app" }, {}, () => undefined, injectedOptions());
-    await expect(adapter.deliver("USER", Outbound.payload("message"), "invalid")).rejects.toMatchObject({
-      _tag: "SlackEndpointKeyError",
-    });
-    expect(requests).toBe(0);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});

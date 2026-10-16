@@ -8,6 +8,12 @@ const CHANNEL_ROOT = fileURLToPath(new URL("../src", import.meta.url));
 // zod is pure schema validation — no I/O, no authority — and providers declare
 // their credential/settings schemas in-band (docs/provisioning-and-providers.md §4).
 const DRIVER_ALLOWED_PACKAGES = new Set(["@openomni/protocol", "zod", "effect"]);
+// #1569: platform transport is the agent-messenger SDK. Each SDK subpath has
+// exactly one home — the provider's `sdk.ts` seam — so SDK types never reach
+// a surface, the router or the stores except through that file.
+const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
+  ["agent-messenger/slackbot", "src/provider/slack/sdk.ts"],
+]);
 const JUDGMENT_ALLOWED_PACKAGES = new Set(["@openomni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;
 // #1317: the channel-facing persistence band owns its SQLite adapters, so the
@@ -67,6 +73,7 @@ function isAllowed(specifier: string, path: string): boolean {
   if (specifier === "bun:sqlite" && path.startsWith(SQLITE_BAND_DIR)) return true;
   const dependency = packageName(specifier);
   if (DRIVER_ALLOWED_PACKAGES.has(dependency)) return true;
+  if (SDK_SUBPATH_HOMES.get(specifier) === path) return true;
   return (
     JUDGMENT_DIRS.some((directory) => path.startsWith(directory)) &&
     JUDGMENT_ALLOWED_PACKAGES.has(dependency)
@@ -93,6 +100,33 @@ describe("channels band import boundary", () => {
     expect(
       detectBandViolations([{ path: "src/websocket.ts", text: 'import ky from "ky";' }]),
     ).toEqual(["src/websocket.ts: imports ky"]);
+  });
+
+  test("admits each SDK subpath in its one sdk.ts home only (#1569)", () => {
+    expect(
+      detectBandViolations([
+        {
+          path: "src/provider/slack/sdk.ts",
+          text: 'import { SlackBotClient } from "agent-messenger/slackbot";',
+        },
+        {
+          path: "src/provider/slack/surface.ts",
+          text: 'import { SlackBotClient } from "agent-messenger/slackbot";',
+        },
+        {
+          path: "src/provider/slack/sdk.ts",
+          text: 'import { DiscordBotClient } from "agent-messenger/discordbot";',
+        },
+        {
+          path: "src/router/index.ts",
+          text: 'import { SlackBotClient } from "agent-messenger/slackbot";',
+        },
+      ]),
+    ).toEqual([
+      "src/provider/slack/surface.ts: imports agent-messenger/slackbot",
+      "src/provider/slack/sdk.ts: imports agent-messenger/discordbot",
+      "src/router/index.ts: imports agent-messenger/slackbot",
+    ]);
   });
 
   test("rejects non-literal dynamic imports", () => {

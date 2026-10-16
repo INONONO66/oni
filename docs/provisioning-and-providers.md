@@ -178,6 +178,14 @@ Secret {
 `packages/channels` grows one registry interface; the four existing drivers
 implement it without behavior change.
 
+> #1569: the transport beneath a provider is the agent-messenger SDK — a
+> provider's `create()` builds the SDK client and listener and logs in with
+> the vault-opened credential through `login({...})`; the SDK's own credential
+> store (`~/.config/agent-messenger`, `AGENT_MESSENGER_CONFIG_DIR`) is never
+> used, so the vault stays the single secret owner. The contract below is
+> unchanged by that; which providers have crossed over is recorded in
+> [Implementation Status](implementation-status.md).
+
 ```
 ChannelProvider {
   id                  "telegram" | "discord" | "github" | "ws" | "slack" | ...
