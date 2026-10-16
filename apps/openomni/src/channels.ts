@@ -13,7 +13,7 @@
  */
 
 import type { ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
-import { ChannelProviders, createWebhookProvider, OwnerPosture } from "@openomni/channels";
+import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
 
@@ -192,6 +192,63 @@ function ownerRow(
   );
 }
 
+/** What the A2A door says about this agent; the url is the door a request came through. */
+const A2A_CARD = {
+  name: "OpenOmni Resident",
+  description: "One Resident, delegating through durable contracts and evidence.",
+  // The app's own version (apps/openomni/package.json); the card is the one place it is published.
+  version: "0.1.0",
+};
+
+/** The one A2A door's row id (#1569 lane 9c): mounted while any a2a peer is declared; never a declaration itself. */
+export const A2A_DOOR_ID = "channel:a2a";
+
+/** A declared peer's bearer as the door's roster holds it. */
+export type A2ARoster = () => Promise<readonly { readonly id: string; readonly token: string }[]>;
+
+/**
+ * The declared A2A roster (#1569 lane 9c): every enabled a2a declaration's
+ * bearer, the declarations listed and each credential read from the vault
+ * at request time, so a peer declared, disabled or rotated mid-run is
+ * admitted — or not — by the one door without a remount.
+ */
+export function a2aRoster(
+  list: () => readonly Provisioning.ChannelInstance[],
+  readCredential: CredentialReader,
+): A2ARoster {
+  return async () =>
+    list().flatMap((row) => {
+      if (row.provider !== "a2a" || row.identity !== "bot" || !row.enabled || row.credentialRef === undefined) return [];
+      const opened = readCredential(row.credentialRef);
+      if (opened.kind !== "ok") return [];
+      const decoded = Result.try({
+        try: (): PlainValue => JSON.parse(new TextDecoder().decode(opened.plaintext)),
+        catch: String,
+      });
+      if (Result.isFailure(decoded)) return [];
+      const parsed = A2ACredentials.safeParse(decoded.success);
+      return parsed.success ? [{ id: row.id.replace(/^channel:a2a:/, ""), token: parsed.data.token }] : [];
+    });
+}
+
+/**
+ * The one A2A door (#1569 lane 9c): every a2a declaration is a peer the
+ * door admits from its roster, so the door is one row for all of them —
+ * keyed by nothing a peer's revision or rotation changes, since the roster
+ * is read at request time — and goes only when no peer is declared.
+ */
+function a2aDoor(roster: A2ARoster, deps: ChannelRuntimeDeps): ChannelComponent {
+  const provider = createA2AProvider(roster, A2A_CARD);
+  return providerRow(
+    provider.id,
+    "bot",
+    true,
+    // The provider contract hands a credential in; the door reads the roster, never this one.
+    (options) => provider.create({ token: "roster" }, {}, deps.publish, options),
+    deps,
+  );
+}
+
 function declaredRow(
   instance: Provisioning.ChannelInstance & { readonly provider: keyof typeof ChannelProviders },
   plaintext: Uint8Array,
@@ -226,6 +283,10 @@ function declaredRow(
       return secret.kind === "ok" ? new TextDecoder().decode(secret.plaintext) : undefined;
     };
     return credentialRow(createWebhookProvider(resolveSecret), plaintext, deps);
+  }
+  if (key === "a2a") {
+    // A peer declaration is admitted under the door's schema; the row it yields is discarded for the one door.
+    return credentialRow(providers.a2a, plaintext, deps);
   }
   return credentialRow(providers.github, plaintext, deps);
 }
@@ -294,9 +355,12 @@ export function declaredChannelProfile(
   readCredential: CredentialReader,
   deps: ChannelRuntimeDeps,
   providers: typeof ChannelProviders = ChannelProviders,
+  // The door's roster reads the live declarations when the caller has them; the profile's own otherwise.
+  roster: A2ARoster = a2aRoster(() => instances, readCredential),
 ): { rows: DeclaredChannelRow[]; statuses: DeclaredChannelStatus[] } {
   const rows: DeclaredChannelRow[] = [];
   const statuses: DeclaredChannelStatus[] = [];
+  let peers = 0;
   const record = (
     instance: Provisioning.ChannelInstance,
     state: DeclaredChannelState,
@@ -344,8 +408,14 @@ export function declaredChannelProfile(
       continue;
     }
     record(instance, "ready");
+    // An a2a peer is a roster entry of the one door, not a row of its own.
+    if (instance.provider === "a2a") {
+      peers += 1;
+      continue;
+    }
     rows.push({ instanceId: instance.id, component: row });
   }
+  if (peers > 0) rows.push({ instanceId: A2A_DOOR_ID, component: a2aDoor(roster, deps) });
 
   return { rows, statuses };
 }

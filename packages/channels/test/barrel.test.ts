@@ -3,6 +3,8 @@ import * as barrel from "../src";
 
 test("channels barrel exposes only its runtime public surface", () => {
   expect(Object.keys(barrel).sort()).toEqual([
+    "A2AClient",
+    "A2ACredentials",
     "AutomationConfigurationError",
     "AutomationEnableRefused",
     "ChannelProviders",
@@ -15,6 +17,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "Vault",
     "WebSocketHandler",
     "WebhookCredentials",
+    "createA2AProvider",
     "createActorRegistry",
     "createAutomationStore",
     "createBlacklistStore",
@@ -35,6 +38,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "resolveChannelGrant",
     "scheduleTickChannel",
     "signWebhookBody",
+    "textOfA2A",
     "typingPulse",
     "unconfiguredChannelStores",
     "webSocketSenderTier",

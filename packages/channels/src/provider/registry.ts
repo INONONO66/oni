@@ -1,3 +1,4 @@
+import { createA2AProvider } from "./a2a/provider.js";
 import { DiscordProvider } from "./discord/provider.js";
 import { GitHubProvider } from "./github/provider.js";
 import { InstagramProvider } from "./instagram/provider.js";
@@ -27,6 +28,8 @@ export const ChannelProviders: Readonly<{
   kakaotalk: typeof KakaoTalkProvider;
   /** #1569 lane 9b: Linear, hand-rolled — signed webhook ingress, comments out through the GraphQL API. */
   linear: typeof LinearProvider;
+  /** #1569 lane 9c: the A2A door; the shipped entry admits no peer — composition binds the declared roster. */
+  a2a: ReturnType<typeof createA2AProvider>;
 }> = {
   telegram: TelegramProvider,
   discord: DiscordProvider,
@@ -36,4 +39,5 @@ export const ChannelProviders: Readonly<{
   instagram: InstagramProvider,
   kakaotalk: KakaoTalkProvider,
   linear: LinearProvider,
+  a2a: createA2AProvider(async () => [], { name: "OpenOmni Resident", description: "unbound", version: "0" }),
 } as const;

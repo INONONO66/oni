@@ -29,7 +29,7 @@ interface ConformanceCase {
 /** Surfaces whose deliver posts into a conversation (covered by their surface tests). */
 const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
 /** Providers whose conversation is the only place a letter can land (a task, an issue): the hint is honored by construction. */
-const CONVERSATION_TARGETS = new Set<string>([]);
+const CONVERSATION_TARGETS = new Set<string>(["a2a"]);
 
 /**
  * #1569 lane 7: an Owner-only platform has no bot account — its bot arm
@@ -145,6 +145,14 @@ const cases: readonly ConformanceCase[] = [
         publish,
         injectedOptions(),
       ),
+  },
+  {
+    provider: ChannelProviders.a2a,
+    rendered: "**hi** `code`",
+    limit: null,
+    credential: { token: "peer-token", url: "https://peer.example" },
+    build: (publish) =>
+      ChannelProviders.a2a.create({ token: "peer-token", url: "https://peer.example" }, {}, publish, injectedOptions()),
   },
   {
     provider: ChannelProviders.slack,

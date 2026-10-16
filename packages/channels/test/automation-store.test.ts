@@ -58,6 +58,10 @@ describe("automation store", () => {
     expect(first.conditions?.users).toBeUndefined();
     expect(store.migrateGrantedDirect(grant)).toEqual(first);
     expect(store.list()).toHaveLength(1);
+    // A bot-authored surface's granted-direct automation admits its authors (#1569 lane 9c: an A2A peer is an agent).
+    expect(store.migrateGrantedDirect({ surfaceKey: "a2a:a2a:dm:ctx-1", surface: "a2a", channelId: "ctx-1", sessionId: "resident" }))
+      .toMatchObject({ conditions: { channels: ["ctx-1"], includeBots: true } });
+    expect(store.list()).toHaveLength(2);
     db.close();
   });
 });

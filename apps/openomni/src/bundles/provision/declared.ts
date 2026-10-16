@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { Vault, type ActorRegistry, type ChannelInstanceStore, type PersonStore, type SecretStore } from "@openomni/channels";
-import { type ChannelRuntimeDeps, type CredentialReader, declaredChannelProfile } from "../../channels";
+import { a2aRoster, type ChannelRuntimeDeps, type CredentialReader, declaredChannelProfile } from "../../channels";
 import { MOUNTED_CHANNEL_DEFAULT_TIER } from "../../gateway";
 import type { DesiredChannels } from "./supervisor";
 import type { KekResolution } from "./vault-key";
@@ -54,7 +54,9 @@ export function desiredChannels(
     return secrets.get(ref);
   };
   const reader = vaultCredentialReader(kek, readSecret);
-  const { rows, statuses } = declaredChannelProfile(instances, reader, deps);
+  // The A2A door's roster reads the store and the vault as they are at request time, never this reconcile's snapshot.
+  const roster = a2aRoster(() => stores.instances.list(), vaultCredentialReader(kek, (ref) => stores.secrets.get(ref)));
+  const { rows, statuses } = declaredChannelProfile(instances, reader, deps, undefined, roster);
   const byId = new Map(instances.map((instance) => [instance.id, instance]));
   return {
     source: "declared",

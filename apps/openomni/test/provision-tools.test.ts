@@ -479,7 +479,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     ).toMatchObject({ required: false });
     // The direct path (no consent on the invocation) refuses before anything lands or reconciles.
     await expect(tool.execute({ operation: { op: "channel_add", args } }, context)).rejects.toThrow(
-      "channel:slack:owner: an Owner instance, its outbound grant and a webhook target's url require Owner consent",
+      "channel:slack:owner: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent",
     );
     // A webhook declaration naming a url is an outbound destination: the Owner's call, never the Resident's own.
     const target = {
@@ -500,7 +500,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       ),
     ).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: target } }, context)).rejects.toThrow(
-      "channel:webhook:out: an Owner instance, its outbound grant and a webhook target's url require Owner consent",
+      "channel:webhook:out: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent",
     );
     expect(plane().stores.instances.get("channel:webhook:out")).toBeUndefined();
     expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
@@ -552,7 +552,33 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
         },
         context,
       ),
-    ).rejects.toThrow("channel:webhook:out: a webhook target url is declared through channel_add under Owner consent");
+    ).rejects.toThrow("channel:webhook:out: a url is declared through channel_add under Owner consent, never by rotation");
+    // An a2a peer's url is where the Resident's letters (and the shared bearer) go: the same consent, the same rotation rule (lane 9c).
+    const peer = {
+      id: "channel:a2a:scout",
+      provider: "a2a",
+      enabled: true,
+      settings: {},
+      credential: { token: "scout-token", url: "https://scout.example" },
+    };
+    expect(approval({ operation: { op: "channel_add", args: peer } }, context)).toEqual({
+      required: true,
+      domainRevisions: { "channel:a2a:scout": -1 },
+    });
+    expect(approval({ operation: { op: "channel_add", args: { ...peer, credential: { token: "scout-token" } } } }, context)).toMatchObject({ required: false });
+    await expect(tool.execute({ operation: { op: "channel_add", args: peer } }, context)).rejects.toThrow(
+      "channel:a2a:scout: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent",
+    );
+    expect(plane().stores.instances.get("channel:a2a:scout")).toBeUndefined();
+    expect(
+      await tool.execute({ operation: { op: "channel_add", args: { ...peer, credential: { token: "scout-token" } } } }, context),
+    ).toMatchObject({ action: "declared" });
+    await expect(
+      tool.execute(
+        { operation: { op: "secret_rotate", args: { secretId: "secret:channel-a2a-scout", credential: { token: "rotated", url: "https://scout.example" } } } },
+        context,
+      ),
+    ).rejects.toThrow("channel:a2a:scout: a url is declared through channel_add under Owner consent, never by rotation");
   });
 
   test("#1569 an Owner instance's knobs are its intake posture, validated under the resolved identity", async () => {

@@ -66,7 +66,9 @@ const SendMessageInput = z
       .enum(["prompt", "interrupt", "resume"])
       .default("prompt")
       .describe("prompt is the default letter; interrupt and resume steer a running session."),
-    reply_to: Id.optional(),
+    reply_to: Id.optional().describe(
+      "The message this answers; for a webhook or a2a contact, the thread a previous result named, to continue that exchange.",
+    ),
     deadline_ms: z
       .number()
       .int()
@@ -125,7 +127,7 @@ function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessag
 // ─── contact registry ───
 
 /** The connector-routed contact kinds; sessions and channel contacts stay on the gateway ingest door. */
-const CONTACT_KINDS = ["cli", "webhook"] as const;
+const CONTACT_KINDS = ["cli", "webhook", "a2a"] as const;
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
 /** The external CLI agents (#1180 absorbed): contacts, not a separate integration. */
@@ -136,7 +138,7 @@ export interface ContactAddress {
   readonly id: string;
 }
 
-/** `cli:claude-code|codex|omp` and `webhook:<declared target>`; any other id is a registered contact reached through the gateway. */
+/** `cli:claude-code|codex|omp`, `webhook:<declared target>` and `a2a:<declared peer>`; any other id is a registered contact reached through the gateway. */
 export function parseContactAddress(contact: string): ContactAddress | undefined {
   const split = contact.indexOf(":");
   if (split <= 0 || split === contact.length - 1) return undefined;
@@ -161,8 +163,9 @@ interface OutboundSend {
 /**
  * The tool result for a connector-routed send: the issue's `{contact,
  * delivered|not_sent}` fact, plus `unknown` for a letter that may have
- * landed and is never re-sent, and the contact's own textual answer when
- * the exchange is one request and one response (a webhook target).
+ * landed and is never re-sent, the contact's own textual answer when the
+ * exchange is one request and one response (a webhook target, an A2A
+ * peer), and the thread a later `reply_to` continues.
  */
 const ContactOutcome = z
   .object({
@@ -170,6 +173,7 @@ const ContactOutcome = z
     status: z.enum(["delivered", "not_sent", "unknown"]),
     reason: z.string().optional(),
     response: z.string().optional(),
+    thread: z.string().optional().describe("Pass as reply_to to continue this exchange with the contact."),
   })
   .strict();
 type ContactOutcome = z.infer<typeof ContactOutcome>;
@@ -211,6 +215,7 @@ export interface ContactPorts {
   readonly run?: RunContactEffect;
   readonly cli?: CliRunnerPort;
   readonly webhook?: WebhookContactPort;
+  readonly a2a?: A2AContactPort;
   readonly reply?: ContactReplyPort;
   readonly deadline?: DelegationDeadlinePort;
 }
@@ -309,11 +314,83 @@ export function webhookConnector(port: WebhookContactPort | undefined): Connecto
           .pipe(Effect.map((posted) => webhookOutcome(send, posted)));
 }
 
+/** What one letter to a declared A2A peer came to, as the port reports it. */
+export interface A2APostOutcome {
+  readonly status: "sent" | "not_sent" | "unknown";
+  readonly reason?: string;
+  /** The peer's answer: its message, or its task's status and artifacts. */
+  readonly response?: string;
+  /** The peer's task when it did not complete within the wait: still open, waiting on the sender, or ended otherwise. */
+  readonly taskId?: string;
+  readonly taskState?: string;
+  /** What a later `reply_to` continues: `task:<id>` while the task is open, `context:<id>` once it is not. */
+  readonly thread?: string;
+}
+
+/** A declared A2A peer (#1569 lane 9c): the letter sent as `message/send` with the peer's bearer; composed over the vault and the client. */
+export interface A2AContactPort {
+  post(input: {
+    readonly id: string;
+    readonly idempotencyKey: string;
+    readonly sender: string;
+    readonly message: string;
+    /** The thread a previous result named: the task to continue, or the context to open a new task in. */
+    readonly replyTo?: string;
+    readonly deadlineMs?: number;
+  }): Effect.Effect<A2APostOutcome>;
+}
+
+/** The sender's word for a task that did not complete within the wait, by where the peer left it. */
+function a2aTaskWord(taskId: string, state: string): string {
+  if (state === "input-required" || state === "auth-required")
+    return `the peer is waiting on the sender for task ${taskId} (${state}); reply_to task:${taskId} answers it`;
+  if (state === "failed" || state === "rejected" || state === "canceled") return `the peer's task ${taskId} ended ${state}`;
+  return `the peer is still working on task ${taskId} (${state})`;
+}
+
+/** The connector's fact from the port's outcome: the peer's refusal, its answer, or where its task stands. */
+function a2aOutcome(send: OutboundSend, posted: A2APostOutcome): ContactOutcome {
+  if (posted.status === "not_sent") return notSent(send.address, posted.reason ?? "the peer refused the letter");
+  if (posted.status === "unknown")
+    return unknownOutcome(send.address, posted.reason ?? "the outcome is unknown; the letter is not re-sent");
+  return {
+    ...delivered(send.address),
+    ...(posted.taskId === undefined ? {} : { reason: a2aTaskWord(posted.taskId, posted.taskState ?? "working") }),
+    ...(posted.response === undefined || posted.response === "" ? {} : { response: posted.response }),
+    ...(posted.thread === undefined ? {} : { thread: posted.thread }),
+  };
+}
+
+/**
+ * A2A peer connector (#1569 lane 9c): sends the letter to the declared peer
+ * through the composed port — its card read once, one `message/send` per
+ * tool call under custody, the peer's answer read back until its task
+ * settles or the send's deadline passes — and returns that answer on the
+ * result itself. An undeclared or unreachable peer is `not_sent` with its
+ * reason; a send that may have landed is `unknown` and never re-sent.
+ */
+export function a2aConnector(port: A2AContactPort | undefined): Connector {
+  return (send) =>
+    port === undefined
+      ? Effect.succeed(notSent(send.address, "a2a port is not composed"))
+      : port
+          .post({
+            id: send.address.id,
+            idempotencyKey: send.idempotencyKey,
+            sender: send.sender,
+            message: send.message,
+            ...(send.replyTo === undefined ? {} : { replyTo: send.replyTo }),
+            ...(send.deadlineMs === undefined ? {} : { deadlineMs: send.deadlineMs }),
+          })
+          .pipe(Effect.map((posted) => a2aOutcome(send, posted)));
+}
+
 /** kind → connector; composition builds it once from the injected ports. */
 function createContactRegistry(ports: ContactPorts): ReadonlyMap<ContactKind, Connector> {
   return new Map<ContactKind, Connector>([
     ["cli", cliConnector(ports.cli, ports.reply)],
     ["webhook", webhookConnector(ports.webhook)],
+    ["a2a", a2aConnector(ports.a2a)],
   ]);
 }
 
@@ -374,7 +451,7 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), or a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },

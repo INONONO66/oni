@@ -135,6 +135,17 @@ ChannelInstance {
   Naming a url is an outbound destination, so the declaration takes Owner
   consent like an Owner instance or an outbound grant, and a rotation never
   introduces one.
+- An A2A peer (#1569 lane 9c) is a `channel:a2a:<id>` declaration whose
+  credential carries the shared bearer `token` and, for a peer the Resident
+  may write to, its `url` — an outbound destination, so the declaration
+  takes Owner consent like a webhook target's, and a rotation never
+  introduces one. Every peer is a roster entry of the one door (`POST
+  /a2a`, the card at `/.well-known/agent-card.json`), mounted once while
+  any peer is declared and reading the roster from the store and the vault
+  at request time; the peer's tier is its `contact_add` as an actor with
+  endpoint `a2a:<id>`, never the door's. `send_message` reaches a peer with
+  a url as the `a2a:<id>` contact, honouring its card only within the
+  declared url's origin.
 - The Owner's own sign-in (#1569 lane 5b): `openomni login <platform>` runs
   the platform's flow through the agent-messenger SDK (Slack QR, Discord
   remote-auth QR, Instagram password with two-factor or challenge code,
