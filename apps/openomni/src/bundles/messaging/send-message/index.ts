@@ -125,7 +125,7 @@ function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessag
 // ─── contact registry ───
 
 /** The connector-routed contact kinds; sessions and channel contacts stay on the gateway ingest door. */
-const CONTACT_KINDS = ["cli"] as const;
+const CONTACT_KINDS = ["cli", "webhook"] as const;
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
 /** The external CLI agents (#1180 absorbed): contacts, not a separate integration. */
@@ -136,7 +136,7 @@ export interface ContactAddress {
   readonly id: string;
 }
 
-/** `cli:claude-code|codex|omp`; any other id is a registered contact reached through the gateway. */
+/** `cli:claude-code|codex|omp` and `webhook:<declared target>`; any other id is a registered contact reached through the gateway. */
 export function parseContactAddress(contact: string): ContactAddress | undefined {
   const split = contact.indexOf(":");
   if (split <= 0 || split === contact.length - 1) return undefined;
@@ -151,17 +151,25 @@ export function parseContactAddress(contact: string): ContactAddress | undefined
 interface OutboundSend {
   readonly sender: string;
   readonly address: ContactAddress;
+  /** The tool call's own id: one physical attempt per call, however the call is replayed. */
+  readonly idempotencyKey: string;
   readonly message: string;
   readonly replyTo?: string;
   readonly deadlineMs?: number;
 }
 
-/** The tool result for a connector-routed send: the issue's `{contact, delivered|not_sent}` fact. */
+/**
+ * The tool result for a connector-routed send: the issue's `{contact,
+ * delivered|not_sent}` fact, plus `unknown` for a letter that may have
+ * landed and is never re-sent, and the contact's own textual answer when
+ * the exchange is one request and one response (a webhook target).
+ */
 const ContactOutcome = z
   .object({
     contact: Id,
-    status: z.enum(["delivered", "not_sent"]),
+    status: z.enum(["delivered", "not_sent", "unknown"]),
     reason: z.string().optional(),
+    response: z.string().optional(),
   })
   .strict();
 type ContactOutcome = z.infer<typeof ContactOutcome>;
@@ -202,6 +210,7 @@ type RunContactEffect = <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 export interface ContactPorts {
   readonly run?: RunContactEffect;
   readonly cli?: CliRunnerPort;
+  readonly webhook?: WebhookContactPort;
   readonly reply?: ContactReplyPort;
   readonly deadline?: DelegationDeadlinePort;
 }
@@ -244,9 +253,68 @@ export function cliConnector(runner: CliRunnerPort | undefined, reply: ContactRe
         );
 }
 
+/** What one POST to a declared webhook target came to, as the port reports it. */
+export interface WebhookPostOutcome {
+  readonly status: "sent" | "not_sent" | "unknown";
+  readonly reason?: string;
+  /** The target's answer body, when the POST was accepted and it said anything. */
+  readonly response?: string;
+}
+
+/** A declared webhook target (#1569 lane 9): the letter POSTed to its URL, signed; composed over the vault and the sender. */
+export interface WebhookContactPort {
+  post(input: {
+    readonly id: string;
+    readonly idempotencyKey: string;
+    readonly sender: string;
+    readonly message: string;
+    readonly replyTo?: string;
+  }): Effect.Effect<WebhookPostOutcome>;
+}
+
+function unknownOutcome(address: ContactAddress, reason: string): ContactOutcome {
+  return { contact: contactName(address), status: "unknown", reason };
+}
+
+/** The connector's fact from the port's outcome: the target's own word on a refusal, its textual answer on a delivery. */
+function webhookOutcome(send: OutboundSend, posted: WebhookPostOutcome): ContactOutcome {
+  if (posted.status === "not_sent") return notSent(send.address, posted.reason ?? "the target refused the letter");
+  if (posted.status === "unknown")
+    return unknownOutcome(send.address, posted.reason ?? "the outcome is unknown; the letter is not re-sent");
+  const outcome = delivered(send.address);
+  return posted.response === undefined || posted.response === "" ? outcome : { ...outcome, response: posted.response };
+}
+
+/**
+ * Webhook target connector (#1569 lane 9): posts the letter to the declared
+ * target through the composed port — signed, one physical attempt per tool
+ * call — and returns the target's textual answer on the result itself: a
+ * webhook is one request and one response, so the sender reads the answer
+ * where it reads the receipt. An undeclared or unreachable target is
+ * `not_sent` with its reason; a POST that may have landed is `unknown` and
+ * never re-sent.
+ */
+export function webhookConnector(port: WebhookContactPort | undefined): Connector {
+  return (send) =>
+    port === undefined
+      ? Effect.succeed(notSent(send.address, "webhook port is not composed"))
+      : port
+          .post({
+            id: send.address.id,
+            idempotencyKey: send.idempotencyKey,
+            sender: send.sender,
+            message: send.message,
+            ...(send.replyTo === undefined ? {} : { replyTo: send.replyTo }),
+          })
+          .pipe(Effect.map((posted) => webhookOutcome(send, posted)));
+}
+
 /** kind → connector; composition builds it once from the injected ports. */
 function createContactRegistry(ports: ContactPorts): ReadonlyMap<ContactKind, Connector> {
-  return new Map<ContactKind, Connector>([["cli", cliConnector(ports.cli, ports.reply)]]);
+  return new Map<ContactKind, Connector>([
+    ["cli", cliConnector(ports.cli, ports.reply)],
+    ["webhook", webhookConnector(ports.webhook)],
+  ]);
 }
 
 // ─── the tool face ───
@@ -259,7 +327,7 @@ function routeContact(
   contacts: ContactPorts,
   address: ContactAddress,
   input: SendMessageInput,
-  context: { readonly sessionId: string },
+  context: { readonly sessionId: string; readonly callId: string },
 ): Promise<ContactOutcome> {
   const connector = registry.get(address.kind);
   if (connector === undefined)
@@ -267,11 +335,12 @@ function routeContact(
   if (contacts.run === undefined)
     throw new ToolRefused("send_message", "contact effect runner is not composed");
   if (input.react !== undefined)
-    throw new ToolRefused("send_message", "a CLI agent takes a letter, not a reaction");
+    throw new ToolRefused("send_message", `a ${address.kind} contact takes a letter, not a reaction`);
   return contacts.run(
     connector({
       sender: context.sessionId,
       address,
+      idempotencyKey: `${context.sessionId}:${context.callId}`,
       message: Outbound.text(outboundPayload(input)),
       ...(input.reply_to === undefined ? {} : { replyTo: input.reply_to }),
       ...(input.deadline_ms === undefined ? {} : { deadlineMs: input.deadline_ms }),
@@ -305,7 +374,7 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), or an external CLI agent (cli:claude-code|codex|omp). Returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), or a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },

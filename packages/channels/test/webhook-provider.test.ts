@@ -52,7 +52,7 @@ test("tampered bytes refuse as a typed value and return 401", async () => {
     await verifyWebhook(
       new TextEncoder().encode("changed"),
       signature,
-      credentials.secretRef,
+      credentials,
       resolver,
     ),
   ).toEqual({ refused: { reason: "signature_mismatch" } });
@@ -77,9 +77,9 @@ test("tampered bytes refuse as a typed value and return 401", async () => {
 
 test("missing header and unknown secret produce distinct refusal values", async () => {
   expect(
-    await verifyWebhook(new TextEncoder().encode(body), null, credentials.secretRef, resolver),
+    await verifyWebhook(new TextEncoder().encode(body), null, credentials, resolver),
   ).toEqual({ refused: { reason: "missing_signature" } });
-  expect(await verifyWebhook(new TextEncoder().encode(body), signature, "other", resolver)).toEqual(
+  expect(await verifyWebhook(new TextEncoder().encode(body), signature, { secretRef: "other" }, resolver)).toEqual(
     { refused: { reason: "unknown_secret" } },
   );
   const runtime = createWebhookProvider(resolver).create(
@@ -98,4 +98,26 @@ test("missing header and unknown secret produce distinct refusal values", async 
   expect(await (await unknown.webhookHandler?.(request(body, signature)))?.json()).toEqual({
     refused: { reason: "unknown_secret" },
   });
+});
+
+test("a declaration carrying its secret inline verifies with it and speaks as itself; neither secret nor secretRef is refused by the schema", async () => {
+  const received: Channel.InboundMessage[] = [];
+  const inline = createWebhookProvider(async () => undefined).create(
+    { id: "hook-2", secret: "inline-secret" },
+    {},
+    () => undefined,
+    injectedOptions(),
+  );
+  inline.surface.onMessage(async (message) => {
+    received.push(message);
+  });
+  await inline.surface.start("trace");
+  const ownSignature = `sha256=${createHmac("sha256", "inline-secret").update(body).digest("hex")}`;
+  expect((await inline.webhookHandler?.(request(body, signature)))?.status).toBe(401);
+  expect((await inline.webhookHandler?.(request(body, ownSignature)))?.status).toBe(200);
+  expect(received[0]?.sender).toEqual({ kind: "external", surface: "webhook", externalId: "webhook:hook-2" });
+  expect(received[0]?.facts).toMatchObject({ author: { externalId: "webhook:hook-2", isBot: true }, channelId: "hook-2" });
+  expect("secretRef" in (received[0]?.facts ?? {})).toBe(false);
+  expect(createWebhookProvider(async () => undefined).credentials.safeParse({ id: "hook-3" }).success).toBe(false);
+  expect(createWebhookProvider(async () => undefined).credentials.safeParse({ id: "hook-3", secret: "s", url: "ftp://x" }).success).toBe(false);
 });

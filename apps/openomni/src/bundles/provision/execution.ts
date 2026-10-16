@@ -109,7 +109,7 @@ export function provisionApproval(port: ProvisionPort | undefined) {
       // #1569: the Owner's account and its outbound grant are never the Resident's own call.
       const identity = declaredIdentity(operation.args, port?.instances.get(operation.args.id));
       return {
-        required: channelConsentRequired(identity, operation.args.outbound),
+        required: channelConsentRequired(identity, operation.args.outbound, operation.args),
         domainRevisions: channelDomainRevisions(port?.instances, operation.args.id),
       };
     }

@@ -125,6 +125,16 @@ ChannelInstance {
 
 - One provider may have multiple instances (two Telegram bots, N Slack
   workspaces) — today's "one channel per kind" assumption dissolves.
+- A webhook declaration's credential may name a `url` (#1569 lane 9a): the
+  instance is then also a target for `send_message`'s `webhook:<id>`
+  contact — the letter POSTed there as a signed JSON body (the shared
+  secret `secret` sealed with the declaration, or the vault row behind
+  `secretRef`; the inbound side verifies with the same), read from the
+  vault at send time, one physical attempt per tool call and never a
+  redirect followed; a textual answer is returned on the tool result.
+  Naming a url is an outbound destination, so the declaration takes Owner
+  consent like an Owner instance or an outbound grant, and a rotation never
+  introduces one.
 - The Owner's own sign-in (#1569 lane 5b): `openomni login <platform>` runs
   the platform's flow through the agent-messenger SDK (Slack QR, Discord
   remote-auth QR, Instagram password with two-factor or challenge code,

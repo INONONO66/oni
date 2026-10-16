@@ -28,12 +28,7 @@ export class WebhookAdapter implements Channel.Surface {
 
   async handleWebhook(request: Request): Promise<Response> {
     const body = new Uint8Array(await request.arrayBuffer());
-    const verdict = await verifyWebhook(
-      body,
-      request.headers.get("x-signature"),
-      this.credentials.secretRef,
-      this.resolveSecret,
-    );
+    const verdict = await verifyWebhook(body, request.headers.get("x-signature"), this.credentials, this.resolveSecret);
     if ("refused" in verdict) {
       this.publishRefusal(verdict);
       return Response.json(verdict, { status: 401 });
@@ -50,14 +45,16 @@ export class WebhookAdapter implements Channel.Surface {
         return new Response("Invalid JSON", { status: 400 });
       }
     }
+    // The principal a delivery speaks as: the vault row that verified it, else the declaration itself.
+    const principal = this.credentials.secretRef ?? `webhook:${this.credentials.id}`;
     const inbound: Channel.InboundMessage = {
-      sender: { kind: "external", surface: "webhook", externalId: this.credentials.secretRef },
+      sender: { kind: "external", surface: "webhook", externalId: principal },
       facts: {
         eventId: createHash("sha256").update(body).digest("hex"),
         surface: "webhook",
         event: "webhook",
-        secretRef: this.credentials.secretRef,
-        author: { externalId: this.credentials.secretRef, isBot: true },
+        ...(this.credentials.secretRef === undefined ? {} : { secretRef: this.credentials.secretRef }),
+        author: { externalId: principal, isBot: true },
         channelId: this.credentials.id,
         addressees: [],
         dm: false,

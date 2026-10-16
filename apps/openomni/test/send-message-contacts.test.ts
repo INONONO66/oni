@@ -18,6 +18,8 @@ import {
   createSendMessageTool,
   parseContactAddress,
   type MessagePort,
+  type WebhookContactPort,
+  webhookConnector,
 } from "../src/bundles/messaging/send-message/index";
 import { assistantMessage } from "./helpers/assistant-message";
 import { runEffect } from "./helpers/effect";
@@ -39,6 +41,8 @@ const context = {
 
 test("contact addresses parse per kind; channel ids, unknown kinds and unknown CLI agents are no connector address", () => {
   expect(parseContactAddress("cli:claude-code")).toEqual({ kind: "cli", id: "claude-code" });
+  expect(parseContactAddress("webhook:hook-1")).toEqual({ kind: "webhook", id: "hook-1" });
+  expect(parseContactAddress("webhook:")).toBeUndefined();
   expect(parseContactAddress("cli:vim")).toBeUndefined();
   expect(parseContactAddress("telegram:12345")).toBeUndefined();
   expect(parseContactAddress("human:owner")).toBeUndefined();
@@ -59,6 +63,7 @@ test("the scripted CLI connector forwards captured stdout to the sender as its p
   const send = {
     sender: "parent-session",
     address: { kind: "cli", id: "claude-code" } as const,
+    idempotencyKey: "parent-session:call-1",
     message: "review this diff",
   };
   expect(await runEffect(cliConnector(runner, reply)(send))).toEqual({
@@ -82,6 +87,54 @@ test("the scripted CLI connector forwards captured stdout to the sender as its p
     contact: "cli:claude-code",
     status: "not_sent",
     reason: "cli runner is not composed",
+  });
+});
+
+test("the webhook connector posts the letter through the port under the tool call's key and returns the target's answer on the result", async () => {
+  const posted: object[] = [];
+  const port = (outcome: { status: "sent" | "not_sent" | "unknown"; reason?: string; response?: string }): WebhookContactPort => ({
+    post: (input) => Effect.sync(() => {
+      posted.push(input);
+      return outcome;
+    }),
+  });
+  const send = {
+    sender: "parent-session",
+    address: { kind: "webhook", id: "hook-1" } as const,
+    idempotencyKey: "parent-session:call-1",
+    message: "build is green",
+    replyTo: "m-0",
+  };
+  expect(await runEffect(webhookConnector(port({ status: "sent", response: "ack" }))(send))).toEqual({
+    contact: "webhook:hook-1",
+    status: "delivered",
+    response: "ack",
+  });
+  expect(posted).toEqual([
+    { id: "hook-1", idempotencyKey: "parent-session:call-1", sender: "parent-session", message: "build is green", replyTo: "m-0" },
+  ]);
+  // A silent target: delivered, nothing to return.
+  expect(await runEffect(webhookConnector(port({ status: "sent" }))(send))).toEqual({ contact: "webhook:hook-1", status: "delivered" });
+  // The target's refusal with its own word, an unknown outcome, no port.
+  expect(await runEffect(webhookConnector(port({ status: "not_sent", reason: "HTTP 404" }))(send))).toEqual({
+    contact: "webhook:hook-1",
+    status: "not_sent",
+    reason: "HTTP 404",
+  });
+  expect(await runEffect(webhookConnector(port({ status: "not_sent" }))(send))).toEqual({
+    contact: "webhook:hook-1",
+    status: "not_sent",
+    reason: "the target refused the letter",
+  });
+  expect(await runEffect(webhookConnector(port({ status: "unknown" }))(send))).toEqual({
+    contact: "webhook:hook-1",
+    status: "unknown",
+    reason: "the outcome is unknown; the letter is not re-sent",
+  });
+  expect(await runEffect(webhookConnector(undefined)(send))).toEqual({
+    contact: "webhook:hook-1",
+    status: "not_sent",
+    reason: "webhook port is not composed",
   });
 });
 
@@ -160,7 +213,7 @@ test("the tool routes CLI contacts through connectors and everything else throug
   });
   await expect(
     cli.execute({ to: { kind: "contact", id: "cli:claude-code" }, react: "\u{1F44D}", kind: "prompt" }, context),
-  ).rejects.toThrow("a CLI agent takes a letter, not a reaction");
+  ).rejects.toThrow("a cli contact takes a letter, not a reaction");
   expect(
     await cli.execute(
       {

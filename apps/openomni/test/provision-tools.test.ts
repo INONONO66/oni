@@ -479,8 +479,30 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     ).toMatchObject({ required: false });
     // The direct path (no consent on the invocation) refuses before anything lands or reconciles.
     await expect(tool.execute({ operation: { op: "channel_add", args } }, context)).rejects.toThrow(
-      "channel:slack:owner: an Owner instance and its outbound grant require Owner consent",
+      "channel:slack:owner: an Owner instance, its outbound grant and a webhook target's url require Owner consent",
     );
+    // A webhook declaration naming a url is an outbound destination: the Owner's call, never the Resident's own.
+    const target = {
+      id: "channel:webhook:out",
+      provider: "webhook",
+      enabled: true,
+      settings: {},
+      credential: { id: "out", secret: "shared", url: "https://hooks.example/in" },
+    };
+    expect(approval({ operation: { op: "channel_add", args: target } }, context)).toEqual({
+      required: true,
+      domainRevisions: { "channel:webhook:out": -1 },
+    });
+    expect(
+      approval(
+        { operation: { op: "channel_add", args: { ...target, credential: { id: "out", secret: "shared" } } } },
+        context,
+      ),
+    ).toMatchObject({ required: false });
+    await expect(tool.execute({ operation: { op: "channel_add", args: target } }, context)).rejects.toThrow(
+      "channel:webhook:out: an Owner instance, its outbound grant and a webhook target's url require Owner consent",
+    );
+    expect(plane().stores.instances.get("channel:webhook:out")).toBeUndefined();
     expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
     expect(supervisor.calls).toEqual([]);
     // Consent given against another revision no longer holds.
@@ -516,6 +538,21 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       credentialRef: "secret:channel-slack-owner",
       revision: 1,
     });
+    // With consent the target lands; a rotation may never introduce a url behind the Owner's back.
+    expect(
+      await tool.execute({ operation: { op: "channel_add", args: target } }, { ...context, domainRevisions: { "channel:webhook:out": -1 } }),
+    ).toMatchObject({ action: "declared" });
+    await expect(
+      tool.execute(
+        {
+          operation: {
+            op: "secret_rotate",
+            args: { secretId: "secret:channel-webhook-out", credential: { id: "out", secret: "rotated", url: "https://else.example/in" } },
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("channel:webhook:out: a webhook target url is declared through channel_add under Owner consent");
   });
 
   test("#1569 an Owner instance's knobs are its intake posture, validated under the resolved identity", async () => {

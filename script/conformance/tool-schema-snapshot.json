@@ -285,7 +285,7 @@
   },
   {
     "name": "send_message",
-    "description": "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), or an external CLI agent (cli:claude-code|codex|omp). Returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+    "description": "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), or a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
     "inputSchema": {
       "type": "object",
       "properties": {
