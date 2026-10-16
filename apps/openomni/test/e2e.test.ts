@@ -354,6 +354,21 @@ describe("OpenOmni Resident WebSocket", () => {
     expect(await response.text()).toBe("Missing signature");
   });
 
+  it("mounts a declared Linear Owner instance on the same HTTP server", async () => {
+    const declared = suite.config("declared-linear-", { wsToken: WS_TOKEN });
+    const kek = declareChannel(statePath(declared.catalogPath), "linear", { secret: "linear-signing-secret", ownerUserId: "user-owner" }, { settings: { intake: "all" } });
+    const app = await bootWithConfig({ ...declared, kek });
+
+    const response = await fetch(`http://127.0.0.1:${app.port}/linear/webhook`, {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Missing signature");
+    expect((await fetch(`http://127.0.0.1:${app.port}/github/webhook`, { method: "POST", body: "{}" })).status).toBe(404);
+  });
+
   it("rejects an upgrade carrying the wrong subprotocol token", async () => {
     const app = await bootApp();
     const plane = await planeOf(app.runtime);

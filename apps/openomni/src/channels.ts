@@ -203,8 +203,8 @@ function declaredRow(
   if (instance.identity === "owner") {
     return ownerRow(providers[key], plaintext, instance.settings, deps, instance.grant?.outbound === true);
   }
-  // #1569 lane 7: an Owner-only platform has no bot account to declare.
-  if (key === "instagram" || key === "kakaotalk") {
+  // #1569 lane 7 (and 9b for Linear, whose key is a person's): an Owner-only platform has no bot account to declare.
+  if (key === "instagram" || key === "kakaotalk" || key === "linear") {
     return { unsupported: `${key} has no bot account; declare the instance with identity: owner` };
   }
   if (key === "telegram") {

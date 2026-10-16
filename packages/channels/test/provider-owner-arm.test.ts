@@ -28,11 +28,12 @@ describe("provider owner arms", () => {
       ["slack", true],
       ["instagram", true],
       ["kakaotalk", true],
+      ["linear", true],
     ]);
   });
 
   test("an Owner-only platform's bot arm refuses every declaration and names the owner arm instead", () => {
-    for (const key of ["instagram", "kakaotalk"] as const) {
+    for (const key of ["instagram", "kakaotalk", "linear"] as const) {
       const provider = ChannelProviders[key];
       expect(provider.credentials.safeParse({ token: "x" }).success).toBe(false);
       expect(provider.credentials.safeParse({}).success).toBe(false);

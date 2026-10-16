@@ -28,6 +28,8 @@ interface ConformanceCase {
 }
 /** Surfaces whose deliver posts into a conversation (covered by their surface tests). */
 const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
+/** Providers whose conversation is the only place a letter can land (a task, an issue): the hint is honored by construction. */
+const CONVERSATION_TARGETS = new Set<string>([]);
 
 /**
  * #1569 lane 7: an Owner-only platform has no bot account — its bot arm
@@ -35,11 +37,16 @@ const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
  * reached through its `owner` arm alone. These cases conform the arm.
  */
 interface OwnerOnlyCase {
-  readonly provider: (typeof ChannelProviders)["instagram"] | (typeof ChannelProviders)["kakaotalk"];
+  readonly provider:
+    | (typeof ChannelProviders)["instagram"]
+    | (typeof ChannelProviders)["kakaotalk"]
+    | (typeof ChannelProviders)["linear"];
   readonly credential: Record<string, string>;
   readonly build: (publish: PublishPort) => ProviderRuntime;
   readonly rendered: string;
   readonly limit: number | null;
+  /** The platform reaches the Owner's account over a webhook rather than a socket (#1569 lane 9b, Linear). */
+  readonly webhook?: boolean;
 }
 /** What the conformance reads off an Owner arm, whatever credential type it carries. */
 type ArmFacts = Pick<OwnerArm<never>, "listen" | "capabilities" | "preconditions"> & {
@@ -59,6 +66,11 @@ const instagramArm = () => {
 const kakaoArm = () => {
   const arm = ChannelProviders.kakaotalk.owner;
   if (arm === undefined) throw new Error("kakaotalk has no owner arm");
+  return arm;
+};
+const linearArm = () => {
+  const arm = ChannelProviders.linear.owner;
+  if (arm === undefined) throw new Error("linear has no owner arm");
   return arm;
 };
 const ownerOnlyCases: readonly OwnerOnlyCase[] = [
@@ -83,6 +95,20 @@ const ownerOnlyCases: readonly OwnerOnlyCase[] = [
     build: (publish) =>
       kakaoArm().create(
         { oauthToken: "oauth", userId: "1001" },
+        { intake: "none", autoReply: false },
+        publish,
+        injectedOptions(),
+      ),
+  },
+  {
+    provider: ChannelProviders.linear,
+    rendered: "**hi** `code`",
+    limit: null,
+    credential: { secret: "hook-secret", token: "lin_api", ownerUserId: "user-owner" },
+    webhook: true,
+    build: (publish) =>
+      linearArm().create(
+        { secret: "hook-secret", token: "lin_api", ownerUserId: "user-owner" },
         { intake: "none", autoReply: false },
         publish,
         injectedOptions(),
@@ -163,7 +189,7 @@ describe("provider conformance", () => {
         expect(kase.provider.credentials.safeParse(kase.credential).success).toBe(false);
         expect(kase.provider.credentials.safeParse({}).success).toBe(false);
         expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("identity: owner");
-        expect(kase.provider.capabilities.webhook).toBe(false);
+        expect(kase.provider.capabilities.webhook).toBe(kase.webhook ?? false);
         expect(kase.provider.settings.safeParse({ knob: "x" }).success).toBe(false);
       });
       test("the owner arm's seams match its declared capabilities and mount as <platform>:owner", () => {
@@ -172,7 +198,7 @@ describe("provider conformance", () => {
         expect(runtime.surface.id).toBe(`${kase.provider.id}:owner`);
         expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
         expect(runtime.typingRoute !== undefined).toBe(arm.capabilities.typing);
-        expect(runtime.webhookHandler).toBeUndefined();
+        expect(runtime.webhookHandler !== undefined).toBe(kase.webhook ?? false);
         expect(arm.listen).toBe(true);
       });
       test("the owner arm's credential schema admits the account session and refuses junk, strictly", () => {
@@ -214,7 +240,11 @@ describe("provider conformance", () => {
       });
       test("a conversation hint is honored or refused, never silently delivered as a DM (#1490)", async () => {
         const runtime = kase.build(noopPublish);
-        if (runtime.deliveryRoute === undefined || CONVERSATION_SURFACES.has(kase.provider.id))
+        if (
+          runtime.deliveryRoute === undefined ||
+          CONVERSATION_SURFACES.has(kase.provider.id) ||
+          CONVERSATION_TARGETS.has(kase.provider.id)
+        )
           return;
         await expect(
           runtime.deliveryRoute("ext-1", Outbound.payload("hi"), "key-1", { channelId: "chan-1" }),

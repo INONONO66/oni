@@ -2,6 +2,7 @@ import { DiscordProvider } from "./discord/provider.js";
 import { GitHubProvider } from "./github/provider.js";
 import { InstagramProvider } from "./instagram/provider.js";
 import { KakaoTalkProvider } from "./kakaotalk/provider.js";
+import { LinearProvider } from "./linear/provider.js";
 import { SlackProvider } from "./slack/provider.js";
 import { TelegramProvider } from "./telegram/provider.js";
 import { WebhookProvider } from "./webhook/provider.js";
@@ -24,6 +25,8 @@ export const ChannelProviders: Readonly<{
   /** #1569 lane 7: Owner-only platforms — no bot account; reached through the `owner` arm alone. */
   instagram: typeof InstagramProvider;
   kakaotalk: typeof KakaoTalkProvider;
+  /** #1569 lane 9b: Linear, hand-rolled — signed webhook ingress, comments out through the GraphQL API. */
+  linear: typeof LinearProvider;
 }> = {
   telegram: TelegramProvider,
   discord: DiscordProvider,
@@ -32,4 +35,5 @@ export const ChannelProviders: Readonly<{
   webhook: WebhookProvider,
   instagram: InstagramProvider,
   kakaotalk: KakaoTalkProvider,
+  linear: LinearProvider,
 } as const;

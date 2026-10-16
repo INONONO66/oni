@@ -1,5 +1,76 @@
 # Implementation Status
 
+## #1569 Linear provider (lane 9b)
+
+On `feat/1569-linear-provider` (2026-10-17, stacked on lane 9a). Linear
+joins the registry as a hand-rolled, Owner-only provider, not an
+agent-messenger module: a personal API key is a person's — the Owner's —
+so there is no bot account; the bot arm refuses every declaration
+(`identity_unsupported`) and the platform is reached through its `owner`
+arm alone, mounted as `linear:owner` under the identity axis
+(`packages/channels/src/provider/linear/{types,client,surface,provider}.ts`).
+The Owner arm's credential is `{ secret, token?, ownerUserId? }` — the
+webhook's signing secret, the Owner's personal API key for commenting back
+as the Owner (absent leaves the instance ingress-only, loudly: a reply
+without a key is a Warn and `not_sent`), and the Owner's user id for when
+the key cannot say; with a key the start reads `viewer` and fails closed
+when it cannot name its user. Ingress is the workspace webhook at
+`/linear/webhook` (`WEBHOOK_ROUTES` in `apps/openomni/src/index.ts` maps
+`/github/webhook` and `/linear/webhook` to their provider's handler, read
+live from the supervisor's table) under the declared posture: `all` reads
+every new issue and comment; `mentions_and_dms` reads the comments that
+mention the Owner (by user id, or by `@` and either name the key reports —
+the platform has no DMs, and a new issue is intake only under `all`);
+`none` answers without reading. `Linear-Signature` is checked as the hex
+HMAC-SHA256 of the raw body (compared by bytes, in constant time), the
+envelope's `webhookTimestamp` must be within a minute of the injected
+clock either way (`LINEAR_REPLAY_WINDOW_MS`, the window Linear's own
+reference handler allows; a later retry is admitted with the stamp Linear
+gives it and refused as stale past the minute), `Linear-Delivery`
+deduplicates a redelivery, a new `Issue` (`create`)
+reads its title and description, a new `Comment` its body, anything else
+is answered 200 with a typed `unsupported_event` observation and a Warn,
+and Linear's explicit nulls on absent relations parse. The facts carry
+`surface: linear`, `receivedBy: owner`, the new ingress `event: linear`
+(`mention` when the Owner is named, with the Owner as the addressee), the
+issue's id as both the channel and the thread, the organization as the
+workspace, and the actor (else the creator or the commenter) as the
+author; the Owner's own actions are never an outside event. The router's
+refusal of a message is answered 200 so Linear does not redeliver what the
+perimeter refused; a handler failure releases the delivery claim and
+answers 500 so Linear redelivers. Out, as the Owner: a comment on the
+issue the conversation names through `commentCreate` at
+`https://api.linear.app/graphql` (the key rides `Authorization` bare, as
+Linear documents), under the reply door's Owner path (`autoReply` and the
+outbound grant, else a draft); the comment's own id is derived from the
+idempotency key in UUID v4 shape and looked up (`comment(id)`) before
+posting, so a re-run after a crash finds the comment it already posted and
+reports `sent`, and the retrying `fetchWithRetry` underneath can never
+double-post; receipts: `success` → `sent` with the comment id, a GraphQL
+refusal whose every `extensions.code` is the platform's own refusal
+(`RATELIMITED`, `INVALID_INPUT`, `ENTITY_NOT_FOUND`, `FORBIDDEN`, …) or a
+4xx → `not_sent`, any other error, a 5xx or an unreadable answer →
+`unknown` with a Warn; a reaction has no comment to land in and is
+`not_sent`; a cold send to a person (no conversation) is `rejected` —
+Linear comments land on an issue. Not in this lane: issue state changes
+out (no tool surface names them), Linear's own mention markup (names are
+matched as `@name`), attachments, a bot identity through an OAuth
+application (`actor=app`). These corrections — Owner-only, the router's
+refusal answered 200, the comment looked up before posting, the
+platform's refusal codes and `userError`, nulls and bot actors, the byte
+compare, the issue id as the thread, the failed-closed start — came out of
+the PR's adversarial review. Receipts:
+`packages/channels/test/linear-provider.test.ts` (mentions and `all`
+under the posture, the Owner's own actions, nulls, the window, the byte
+compare, duplicates and unsupported events, the
+router's refusal and a failure, comments out with every receipt and the
+re-run's lookup, the keyless instance, the failed-closed start, the
+Owner-only arms), `test/provider-contract.test.ts` (the Owner-only
+conformance case, webhook-fed), `apps/openomni/test/e2e.test.ts` (the
+`/linear/webhook` route beside GitHub's); suites: `packages/channels`
+982 pass, `apps/openomni` 1013 pass, `packages/protocol`
+656 pass, 0 fail.
+
 ## #1569 Outbound `webhook:` contact (lane 9a)
 
 On `feat/1569-webhook-contact` (2026-10-17, stacked on lane 5b).
