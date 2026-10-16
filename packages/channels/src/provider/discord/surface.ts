@@ -1,9 +1,11 @@
 import { newTraceId } from "../../support/trace";
 import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
+import type { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { requireHandler } from "../../support/handler-frame";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
+import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { DiscordClient } from "./client";
 import {
   DeliveryNotSent,
@@ -11,8 +13,14 @@ import {
   DiscordHandlerMissingError,
   RateLimited,
 } from "../../errors";
-import { DiscordGateway } from "./gateway";
 import { DiscordNormalizer } from "./normalizer";
+import {
+  DISCORD_INTENTS,
+  type DiscordBotApi,
+  type DiscordBotEventMap,
+  type DiscordSdk,
+  discordSdk,
+} from "./sdk";
 import {
   type DiscordMessage,
   type DiscordReaction,
@@ -26,102 +34,144 @@ import type { ProviderOptions } from "../contract";
 import { translate } from "../../support/translate";
 import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
 
+/**
+ * Discord over the agent-messenger bot SDK's gateway listener (#1569): the
+ * SDK owns identify/resume, heartbeats and reconnects; this surface owns the
+ * bot identity (from READY), facts-only normalization, inbound dedupe,
+ * interaction acks, delivery custody and rendering. REST stays on the
+ * package's own client over `fetch-retry` (one physical attempt per key).
+ */
 export class DiscordAdapter implements Channel.Surface {
   readonly id = "discord";
   private readonly client: DiscordClient;
-  private readonly gateway: DiscordGateway;
+  private readonly bot: DiscordBotApi;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
+  private custody: ListenerCustody | null = null;
   private normalizer: DiscordNormalizer | null = null;
   private handler: Channel.MessageHandler | null = null;
 
   constructor(
-    token: string,
+    private readonly token: string,
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
+    private readonly sdk: DiscordSdk = discordSdk(),
   ) {
     this.dedupe = new Dedupe(options.now);
     this.client = new DiscordClient(token, publish, options.run);
-    this.gateway = new DiscordGateway(
-      token,
-      () => this.client.fetchGatewayUrl(),
-      {
-        onReady: ({ botId, botUsername }) => {
-          this.normalizer = new DiscordNormalizer(botId);
-          this.publish(Operational.Events.Info, {
-            // Origin: a gateway READY is a distinct occurrence (initial connect
-            // AND every re-identify) — deliberately its own trace, not the boot's.
-            traceId: newTraceId(this.options.id),
-            time: this.options.now(),
-            component: "server",
-            msg: "discord bot started",
-            context: { username: botUsername, botId },
-          });
-        },
-        onDispatch: (event, data, traceId) => {
-          if (event === "INTERACTION_CREATE" && "type" in data && data.type === 3) {
-            const interaction = DiscordInteractionSchema.safeParse(data);
-            if (!interaction.success) {
-              this.publish(Operational.Events.Warn, {
-                traceId, time: this.options.now(), component: "server",
-                msg: "discord INTERACTION_CREATE payload malformed; dropped",
-              });
-              return;
-            }
-            void this.client.ackInteraction(interaction.data.id, interaction.data.token, traceId)
-              .then(() => this.handleMessageCreate(interaction.data, traceId))
-              .catch((error) => {
-                this.publish(Operational.Events.Warn, {
-                  traceId, time: this.options.now(), component: "server",
-                  msg: "discord interaction acknowledgment failed; dropped",
-                  context: { err: String(error) },
-                });
-              });
-            return;
-          }
-          if (event !== "MESSAGE_CREATE" && event !== "MESSAGE_REACTION_ADD") return;
-          const message =
-            event === "MESSAGE_CREATE"
-              ? DiscordMessageSchema.safeParse(data)
-              : DiscordReactionSchema.safeParse(data);
-          if (!message.success) {
-            this.publish(Operational.Events.Warn, {
-              traceId,
-              time: this.options.now(),
-              component: "server",
-              msg: `discord ${event} payload malformed; dropped`,
-            });
-            return;
-          }
-          this.handleMessageCreate(message.data, traceId);
-        },
-      },
-      publish,
-      options,
-    );
+    this.bot = sdk.client();
   }
 
   onMessage(handler: Channel.MessageHandler): void {
     this.handler = handler;
   }
 
+  /** Settles on READY; an error or close before it fails this start and leaves no listener. */
   async start(_traceId: string): Promise<void> {
     if (!this.handler) {
       throw new DiscordHandlerMissingError({
         message: "[discord] No message handler registered. Call onMessage() before start().",
       });
     }
-    await this.gateway.start();
+    await this.bot.login({ token: this.token });
+    const listener = this.sdk.listener(this.bot, { intents: DISCORD_INTENTS });
+    const custody = listenerCustody<DiscordBotEventMap>(listener, {
+      label: "discord gateway",
+      publish: this.publish,
+      now: this.options.now,
+      id: this.options.id,
+      // The SDK's own start() stays pending across a recoverable pre-READY close
+      // and rejects on its connect timeout, so a close before READY is its call.
+      failOnCloseBeforeConnected: false,
+      // The SDK stops itself on 4004/4010-4014 and reports only this error.
+      terminal: (error) => /non-recoverable code/.test(error.message),
+      // READY (initial connect AND every re-identify) binds the bot identity
+      // the normalizer filters and keys on — deliberately its own trace.
+      onConnected: ({ user }) => {
+        this.normalizer = new DiscordNormalizer(user.id);
+        this.publish(Operational.Events.Info, {
+          traceId: newTraceId(this.options.id),
+          time: this.options.now(),
+          component: "server",
+          msg: "discord bot started",
+          context: { username: user.username, botId: user.id },
+        });
+      },
+    });
+    listener.on("message_create", (event) => {
+      this.dispatch(
+        "MESSAGE_CREATE",
+        DiscordMessageSchema.safeParse(event),
+        newTraceId(this.options.id),
+      );
+    });
+    listener.on("message_reaction_add", (event) => {
+      this.dispatch(
+        "MESSAGE_REACTION_ADD",
+        DiscordReactionSchema.safeParse(event),
+        newTraceId(this.options.id),
+      );
+    });
+    listener.on("interaction_create", (event) => {
+      // Only component taps carry a custom_id; slash commands and the rest are not consumed.
+      if (event.data === undefined || typeof event.data.custom_id !== "string") return;
+      const traceId = newTraceId(this.options.id);
+      const interaction = DiscordInteractionSchema.safeParse(event);
+      if (!interaction.success) {
+        this.warn(traceId, "discord INTERACTION_CREATE payload malformed; dropped");
+        return;
+      }
+      // Defer the interaction before any potentially slow inbound handoff;
+      // a refused ack drops the tap rather than answering a dead token later.
+      void this.client
+        .ackInteraction(interaction.data.id, interaction.data.token, traceId)
+        .then(() => this.handleMessageCreate(interaction.data, traceId))
+        .catch((error) => {
+          this.warn(traceId, "discord interaction acknowledgment failed; dropped", {
+            err: String(error),
+          });
+        });
+    });
+    this.custody = custody;
+    try {
+      await custody.start();
+    } catch (error) {
+      this.custody = null;
+      throw error;
+    }
   }
 
   stop(traceId: string): void {
-    this.gateway.stop();
+    this.custody?.stop();
+    this.custody = null;
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),
       component: "server",
       msg: "discord bot stopped",
+    });
+  }
+
+  private dispatch<T extends DiscordMessage | DiscordReaction>(
+    event: "MESSAGE_CREATE" | "MESSAGE_REACTION_ADD",
+    parsed: z.ZodSafeParseResult<T>,
+    traceId: string,
+  ): void {
+    if (!parsed.success) {
+      this.warn(traceId, `discord ${event} payload malformed; dropped`);
+      return;
+    }
+    this.handleMessageCreate(parsed.data, traceId);
+  }
+
+  private warn(traceId: string, msg: string, context?: Record<string, string>): void {
+    this.publish(Operational.Events.Warn, {
+      traceId,
+      time: this.options.now(),
+      component: "server",
+      msg,
+      ...(context === undefined ? {} : { context }),
     });
   }
 
@@ -161,7 +211,8 @@ export class DiscordAdapter implements Channel.Surface {
               },
             },
             react: async (messageId, emoji, replaces) => {
-              if (replaces !== undefined) await this.client.removeReaction(channelId, messageId, replaces, traceId);
+              if (replaces !== undefined)
+                await this.client.removeReaction(channelId, messageId, replaces, traceId);
               await this.client.react(channelId, messageId, emoji, traceId);
             },
           },
@@ -177,7 +228,10 @@ export class DiscordAdapter implements Channel.Surface {
   }
 
   /** A DM channel is created once per turn, not once per pulse. */
-  async openTyping(externalId: string, conversation?: Gateway.Conversation): Promise<Gateway.Conversation> {
+  async openTyping(
+    externalId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<Gateway.Conversation> {
     if (conversation !== undefined) return conversation;
     return { channelId: await this.dmChannel(externalId, newTraceId(this.options.id)) };
   }
@@ -192,17 +246,20 @@ export class DiscordAdapter implements Channel.Surface {
     });
   }
 
-  private handleMessageCreate(message: DiscordMessage | DiscordReaction | DiscordInteraction, traceId: string): void {
+  private handleMessageCreate(
+    message: DiscordMessage | DiscordReaction | DiscordInteraction,
+    traceId: string,
+  ): void {
     const normalizer = this.normalizer;
     if (!normalizer) return;
     void handoffInbound({
       dedupe: this.dedupe,
       key:
-        "type" in message
+        "token" in message
           ? message.id
           : "message_id" in message
-          ? `${message.message_id}:${message.emoji.name}:${message.user_id}`
-          : message.id,
+            ? `${message.message_id}:${message.emoji.name}:${message.user_id}`
+            : message.id,
       traceId,
       now: this.options.now,
       publish: this.publish,

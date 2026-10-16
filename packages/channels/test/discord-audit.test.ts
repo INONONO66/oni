@@ -2,22 +2,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { injectedOptions, testRun } from "./helpers/injected";
 import { Operational } from "@openomni/protocol";
 import { DiscordClient } from "../src/provider/discord/client";
-import {
-  DiscordApiError,
-  DiscordGatewayFetchError,
-  DiscordHandlerMissingError,
-} from "../src/errors";
-import { DiscordNormalizer } from "../src/provider/discord/normalizer";
+import { DiscordApiError, DiscordHandlerMissingError } from "../src/errors";
 import { DiscordAdapter } from "../src/provider/discord/surface";
-import type { DiscordMessage } from "../src/provider/discord/types";
 import { bounded } from "./helpers/bounded";
+import { fakeDiscordSdk } from "./helpers/discord-sdk";
 
-interface DiscordAdapterHarness {
-  botId: string | null;
-  normalizer: DiscordNormalizer | null;
-  handleMessageCreate(message: DiscordMessage, traceId: string): void;
-}
-const message: DiscordMessage = {
+const message = {
   id: "message-1",
   channel_id: "channel-1",
   author: { id: "user-1", username: "user" },
@@ -33,6 +23,7 @@ describe("Discord audit regressions", () => {
     const failed = Promise.withResolvers<void>();
     const retried = Promise.withResolvers<void>();
     let handlerAttempts = 0;
+    const fake = fakeDiscordSdk();
     const adapter = new DiscordAdapter(
       "token",
       {},
@@ -40,28 +31,19 @@ describe("Discord audit regressions", () => {
         if (event.name === Operational.Events.Error.name) failed.resolve();
       },
       injectedOptions(),
+      fake.sdk,
     );
     adapter.onMessage(async () => {
       handlerAttempts += 1;
       if (handlerAttempts === 1) throw new Error("delivery refused");
       retried.resolve();
     });
-    const harness = adapter as object as DiscordAdapterHarness;
-    harness.botId = "bot-1";
-    harness.normalizer = new DiscordNormalizer();
-    harness.handleMessageCreate(message, "trace-first");
+    await adapter.start("boot");
+    fake.listener.dispatch("MESSAGE_CREATE", message);
     await bounded(failed.promise);
-    harness.handleMessageCreate(message, "trace-retry");
+    fake.listener.dispatch("MESSAGE_CREATE", message);
     await bounded(retried.promise);
     expect(handlerAttempts).toBe(2);
-  });
-
-  it("throws a typed error when the gateway URL request fails", async () => {
-    globalThis.fetch = Object.assign(async () => new Response("outage", { status: 503 }), {
-      preconnect: realFetch.preconnect,
-    });
-    const client = new DiscordClient("token", () => undefined, testRun);
-    await expect(client.fetchGatewayUrl()).rejects.toBeInstanceOf(DiscordGatewayFetchError);
   });
 
   it("throws a typed error when a Discord API request fails", async () => {
@@ -75,7 +57,13 @@ describe("Discord audit regressions", () => {
   });
 
   it("throws a typed error when start has no message handler", async () => {
-    const adapter = new DiscordAdapter("token", {}, () => undefined, injectedOptions());
+    const adapter = new DiscordAdapter(
+      "token",
+      {},
+      () => undefined,
+      injectedOptions(),
+      fakeDiscordSdk().sdk,
+    );
     await expect(adapter.start("trace-1")).rejects.toBeInstanceOf(DiscordHandlerMissingError);
   });
 });

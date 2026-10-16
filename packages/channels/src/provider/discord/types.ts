@@ -1,44 +1,32 @@
 import { z } from "zod";
 
-export const GatewayOp = {
-  DISPATCH: 0,
-  HEARTBEAT: 1,
-  IDENTIFY: 2,
-  RESUME: 6,
-  RECONNECT: 7,
-  INVALID_SESSION: 9,
-  HELLO: 10,
-  HEARTBEAT_ACK: 11,
-} as const;
-
-export const Intents = {
-  GUILDS: 1 << 0,
-  GUILD_MESSAGES: 1 << 9,
-  GUILD_MESSAGE_REACTIONS: 1 << 10,
-  DIRECT_MESSAGES: 1 << 12,
-  DIRECT_MESSAGE_REACTIONS: 1 << 13,
-  MESSAGE_CONTENT: 1 << 15,
-} as const;
-
 const DiscordUserSchema = z.object({
   id: z.string(),
   username: z.string(),
   bot: z.boolean().optional(),
 });
 
-/** MESSAGE_CREATE dispatch body — THE typed boundary where a gateway frame becomes a message. */
+/**
+ * MESSAGE_CREATE dispatch body — THE typed boundary where a gateway event
+ * the SDK listener hands over becomes a message. The SDK spreads the event
+ * and overwrites `type` with the dispatch name, so nothing here reads it.
+ */
 export const DiscordMessageSchema = z.object({
   id: z.string(),
   channel_id: z.string(),
   guild_id: z.string().optional(),
   author: DiscordUserSchema,
   content: z.string(),
-  attachments: z.array(z.object({
-    url: z.string(),
-    content_type: z.string().optional(),
-    filename: z.string(),
-    size: z.number(),
-  })).optional(),
+  attachments: z
+    .array(
+      z.object({
+        url: z.string(),
+        content_type: z.string().optional(),
+        filename: z.string(),
+        size: z.number(),
+      }),
+    )
+    .optional(),
   mentions: z.array(DiscordUserSchema).optional(),
   message_reference: z
     .object({
@@ -61,40 +49,40 @@ export const DiscordReactionSchema = z.object({
 });
 export type DiscordReaction = z.infer<typeof DiscordReactionSchema>;
 
+/**
+ * A component interaction (a button tap). The numeric interaction `type`
+ * is overwritten by the SDK's dispatch name, so a component is recognized by
+ * its `data.custom_id`; slash commands carry `data.name` instead and never
+ * parse here.
+ */
 export const DiscordInteractionSchema = z.object({
   id: z.string(),
   token: z.string(),
-  type: z.literal(3),
   channel_id: z.string(),
   guild_id: z.string().optional(),
   member: z.object({ user: DiscordUserSchema.optional() }).optional(),
   user: DiscordUserSchema.optional(),
   data: z.object({ custom_id: z.string() }),
-  message: z.object({
-    id: z.string(),
-    components: z.array(z.object({
-      custom_id: z.string().optional(),
-      label: z.string().optional(),
-      components: z.array(z.object({
-        custom_id: z.string().optional(),
-        label: z.string().optional(),
-      })).optional(),
-    })).optional(),
-  }).optional(),
+  message: z
+    .object({
+      id: z.string(),
+      components: z
+        .array(
+          z.object({
+            custom_id: z.string().optional(),
+            label: z.string().optional(),
+            components: z
+              .array(
+                z.object({
+                  custom_id: z.string().optional(),
+                  label: z.string().optional(),
+                }),
+              )
+              .optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
 });
 export type DiscordInteraction = z.infer<typeof DiscordInteractionSchema>;
-
-/** Outer gateway frame; `d` stays op-specific and is parsed at each op's arm. */
-export const GatewayFrameSchema = z.object({
-  op: z.number(),
-  d: z.json().optional(),
-  s: z.number().nullish(),
-  t: z.string().nullish(),
-});
-export type GatewayFrame = z.infer<typeof GatewayFrameSchema>;
-export const HelloDataSchema = z.object({ heartbeat_interval: z.number() });
-export const ReadyDataSchema = z.object({
-  session_id: z.string(),
-  resume_gateway_url: z.string(),
-  user: DiscordUserSchema,
-});

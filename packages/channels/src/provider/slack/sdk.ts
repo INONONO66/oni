@@ -109,14 +109,45 @@ export function singleAttempt(client: object): void {
 }
 
 /**
+ * `@slack/web-api` throws a platform refusal as a plain Error carrying
+ * `code: slack_webapi_platform_error` and the Slack error string under
+ * `data.error`; a network failure carries `slack_webapi_request_error`. The
+ * two custody calls below fold either into the SDK's own error class so the
+ * surface, the listener's fatal-code check and `isSlackTerminal` all read one
+ * shape.
+ */
+function asSlackBotError(
+  error: Error,
+  code: (platformError: string | undefined) => string,
+): SlackBotError {
+  if (error instanceof SlackBotError) return error;
+  const raw = error as Error & { readonly code?: string; readonly data?: { readonly error?: string } };
+  const platformError = typeof raw.data?.error === "string" ? raw.data.error : undefined;
+  if (raw.code === "slack_webapi_platform_error")
+    return new SlackBotError(raw.message, code(platformError));
+  return new SlackBotError(raw.message, typeof raw.code === "string" ? raw.code : "unknown_error");
+}
+
+/** What a rejected inner call threw, as an Error: `@slack/web-api` throws Errors, a stubbed client may not. */
+function thrown<T>(error: T): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+/**
  * The SDK client plus the two calls the surface needs that the SDK does not
  * offer. Both ride the one pinned inner client: `appsConnectionsOpen` in the
  * SDK builds a fresh web client per attempt under the default retry policy,
  * which would hold `start()` for up to half an hour on a network failure.
  */
 class CustodySlackBotClient extends SlackBotClient implements SlackBotApi {
+  /** A refused open keeps the platform code: custody classifies it and the surface proves `not_sent`. */
   async openDm(userId: string): Promise<string> {
-    const response = await innerWebClient(this).conversations.open({ users: userId });
+    let response: { ok?: boolean; error?: string; channel?: { id?: string } };
+    try {
+      response = await innerWebClient(this).conversations.open({ users: userId });
+    } catch (error) {
+      throw asSlackBotError(thrown(error), () => "slack_webapi_platform_error");
+    }
     if (!response.ok || response.channel?.id === undefined)
       throw new SlackBotError(
         `An API error occurred: ${response.error ?? "conversations.open returned no channel"}`,
@@ -125,8 +156,17 @@ class CustodySlackBotClient extends SlackBotClient implements SlackBotApi {
     return response.channel.id;
   }
 
+  /** A refused socket-url fetch carries the Slack error string as its code: what the listener's fatal set reads. */
   override async appsConnectionsOpen(appToken: string): Promise<{ url: string }> {
-    const response = await innerWebClient(this).apps.connections.open({ token: appToken });
+    let response: { ok?: boolean; error?: string; url?: string };
+    try {
+      response = await innerWebClient(this).apps.connections.open({ token: appToken });
+    } catch (error) {
+      throw asSlackBotError(
+        thrown(error),
+        (platformError) => platformError ?? "slack_webapi_platform_error",
+      );
+    }
     if (!response.ok || response.url === undefined)
       throw new SlackBotError(
         `An API error occurred: ${response.error ?? "apps.connections.open returned no url"}`,
@@ -200,6 +240,33 @@ export function isSettledState(error: Error, states: readonly string[]): boolean
     error instanceof SlackBotError &&
     error.code === PLATFORM_REFUSED &&
     states.some((state) => error.message.endsWith(`: ${state}`))
+  );
+}
+
+/**
+ * Codes after which the SDK listener has stopped itself for good: a terminal
+ * `disconnect` envelope (`link_disabled`) and the auth codes it treats as
+ * fatal when reopening the socket. The SDK emits only `error` for these.
+ */
+const LISTENER_TERMINAL = new Set([
+  "disconnect_terminal",
+  "not_authed",
+  "invalid_auth",
+  "account_inactive",
+  "user_removed_from_team",
+  "team_disabled",
+  "not_allowed_token_type",
+  "missing_app_token",
+  "invalid_app_token_type",
+]);
+
+export function isSlackTerminal(error: Error): boolean {
+  if (!(error instanceof SlackBotError)) return false;
+  if (LISTENER_TERMINAL.has(error.code)) return true;
+  // A platform refusal forwarded under the web-api code still names the Slack error at the end of its message.
+  return (
+    error.code === PLATFORM_REFUSED &&
+    [...LISTENER_TERMINAL].some((code) => error.message.endsWith(`: ${code}`))
   );
 }
 

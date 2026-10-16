@@ -3,6 +3,7 @@ import { SlackBotClient, SlackBotListener } from "agent-messenger/slackbot";
 import {
   classifySlackFailure,
   isSettledState,
+  isSlackTerminal,
   singleAttempt,
   SlackBotError,
   slackSdk,
@@ -30,7 +31,7 @@ function sdkClientOf(client: SlackBotApi): SlackBotApi & SlackBotClient {
 }
 
 /** The rejection of a call the test expects to fail. */
-async function rejection(call: Promise<object>): Promise<Error> {
+async function rejection<T>(call: Promise<T>): Promise<Error> {
   try {
     await call;
   } catch (error) {
@@ -88,6 +89,31 @@ describe("agent-messenger slack bot SDK seam", () => {
       url: "wss://socket.example/one",
     });
     expect(opens).toEqual([{ token: "xapp-offline" }]);
+    // `@slack/web-api` throws a platform refusal (it never resolves `ok: false`);
+    // the seam forwards the Slack error string as the code the SDK's fatal set reads.
+    inner.apps.connections.open = async () => {
+      throw Object.assign(new Error("An API error occurred: invalid_auth"), {
+        code: "slack_webapi_platform_error",
+        data: { ok: false, error: "invalid_auth" },
+      });
+    };
+    const refused = await rejection(sdkClient.appsConnectionsOpen("xapp-offline"));
+    expect(refused).toBeInstanceOf(SlackBotError);
+    expect(refused).toMatchObject({
+      code: "invalid_auth",
+      message: "An API error occurred: invalid_auth",
+    });
+    expect(isSlackTerminal(refused)).toBe(true);
+    // A network failure keeps its web-api code: not fatal, the SDK reopens.
+    inner.apps.connections.open = async () => {
+      throw Object.assign(new Error("A request error occurred: getaddrinfo ENOTFOUND"), {
+        code: "slack_webapi_request_error",
+      });
+    };
+    const offline = await rejection(sdkClient.appsConnectionsOpen("xapp-offline"));
+    expect(offline).toMatchObject({ code: "slack_webapi_request_error" });
+    expect(isSlackTerminal(offline)).toBe(false);
+    // The defensive arm for a resolved refusal.
     inner.apps.connections.open = async () => ({ ok: false, error: "invalid_auth" });
     await expect(sdkClient.appsConnectionsOpen("xapp-offline")).rejects.toMatchObject({
       code: "invalid_auth",
@@ -105,11 +131,56 @@ describe("agent-messenger slack bot SDK seam", () => {
     };
     expect(await client.openDm("U5")).toBe("D-real");
     expect(opens).toEqual([{ users: "U5" }]);
+    inner.conversations.open = async () => {
+      throw Object.assign(new Error("An API error occurred: user_not_found"), {
+        code: "slack_webapi_platform_error",
+        data: { ok: false, error: "user_not_found" },
+      });
+    };
+    const refused = await rejection(client.openDm("U5"));
+    expect(refused).toBeInstanceOf(SlackBotError);
+    expect(refused).toMatchObject({
+      code: "slack_webapi_platform_error",
+      message: "An API error occurred: user_not_found",
+    });
+    expect(classifySlackFailure(refused)).toBe("rejected");
+    inner.conversations.open = async () => {
+      throw Object.assign(new Error("A request error occurred: read ECONNRESET"), {
+        code: "slack_webapi_request_error",
+      });
+    };
+    expect(classifySlackFailure(await rejection(client.openDm("U5")))).toBe("uncertain");
+    // Whatever `@slack/web-api` could throw lands as the SDK's own error class.
+    inner.conversations.open = () => Promise.reject("not even an Error");
+    await expect(client.openDm("U5")).rejects.toMatchObject({
+      code: "unknown_error",
+      message: "not even an Error",
+    });
     inner.conversations.open = async () => ({ ok: false, error: "user_not_found" });
     await expect(client.openDm("U5")).rejects.toMatchObject({
       code: "slack_webapi_platform_error",
       message: "An API error occurred: user_not_found",
     });
+  });
+
+  test.each([
+    [
+      new SlackBotError(
+        "Slack closed the Socket Mode session: link_disabled",
+        "disconnect_terminal",
+      ),
+      true,
+    ],
+    [new SlackBotError("An API error occurred: invalid_auth", "invalid_auth"), true],
+    [new SlackBotError("An API error occurred: invalid_auth", "slack_webapi_platform_error"), true],
+    [new SlackBotError("An API error occurred: ratelimited", "slack_webapi_platform_error"), false],
+    [
+      new SlackBotError("A request error occurred: ECONNRESET", "slack_webapi_request_error"),
+      false,
+    ],
+    [new Error("invalid_auth"), false],
+  ])("isSlackTerminal reads the SDK code or the platform error name: %p → %p", (error, expected) => {
+    expect(isSlackTerminal(error)).toBe(expected);
   });
 
   test("a rate-limited post is retried by the SDK three times, then forwarded as a typed refusal", async () => {

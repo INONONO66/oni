@@ -1,33 +1,11 @@
 import { expect, test } from "bun:test";
-import type { ServerWebSocket, WebSocketOptions } from "bun";
 import { Operational } from "@openomni/protocol";
 import { Schedule } from "effect";
 import { z } from "zod";
-import { DiscordGateway } from "../src/provider/discord/gateway";
 import { TelegramPoller } from "../src/provider/telegram/poller";
 import { TelegramUpdateSchema } from "../src/provider/telegram/types";
 import { bounded } from "./helpers/bounded";
 import { injectedOptions } from "./helpers/injected";
-
-function websocketServer(
-  onOpen: (peer: ServerWebSocket<undefined>, server: Bun.Server<undefined>) => void,
-) {
-  const server = Bun.serve<undefined>({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch(request, instance) {
-      if (instance.upgrade(request)) return;
-      return new Response(null, { status: 400 });
-    },
-    websocket: {
-      open(peer) {
-        onOpen(peer, server);
-      },
-      message: () => undefined,
-    },
-  });
-  return server;
-}
 
 function telegramUpdates(server: Bun.Server<undefined>) {
   return {
@@ -48,80 +26,6 @@ function collectTelegramMessages(delivered: number[], onDelivery: () => void = (
       onDelivery();
     },
   };
-}
-
-// #1569: the Slack transport is the agent-messenger SDK listener; only the discord gateway rides the socket shell.
-for (const provider of ["discord"] as const) {
-  test(`${provider}: callbacks on a retired real socket cannot dispatch or schedule reconnect`, async () => {
-    const NativeWebSocket = globalThis.WebSocket;
-    const clients: WebSocket[] = [];
-    globalThis.WebSocket = class extends NativeWebSocket {
-      constructor(url: string | URL, options?: WebSocketOptions);
-      constructor(url: string | URL, protocols?: string | string[]);
-      constructor(url: string | URL, protocols?: string | string[] | WebSocketOptions) {
-        if (typeof protocols === "object" && !Array.isArray(protocols)) super(url, protocols);
-        else super(url, protocols);
-        clients.push(this);
-      }
-    };
-    const peers: ServerWebSocket<undefined>[] = [];
-    const received = Promise.withResolvers<void>();
-    const events: string[] = [];
-    const logs: string[] = [];
-    const server = websocketServer((ws, server) => {
-      peers.push(ws);
-      ws.send(
-        JSON.stringify({
-          op: 0,
-          t: "READY",
-          s: 1,
-          d: {
-            session_id: "session",
-            resume_gateway_url: `ws://127.0.0.1:${server.port}`,
-            user: { id: "bot", username: "bot" },
-          },
-        }),
-      );
-    });
-    const url = `ws://127.0.0.1:${server.port}`;
-    const publish = (event: { name: string }) => {
-      logs.push(event.name);
-    };
-    const socket = new DiscordGateway(
-      "token",
-      async () => url,
-      {
-        onReady: () => undefined,
-        onDispatch(event) {
-          events.push(event);
-          received.resolve();
-        },
-      },
-      publish,
-      injectedOptions(),
-    );
-    const frame = (id: string) => ({ op: 0, t: id, s: 2, d: {} });
-    try {
-      await bounded(socket.start());
-      const retired = clients[0];
-      if (!retired) throw new Error("missing initial socket");
-      await bounded(socket.start());
-      const logsBefore = logs.length;
-      // Deliver callbacks already queued by the retired transport deterministically.
-      retired.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(frame("stale")) }));
-      retired.dispatchEvent(new CloseEvent("close", { code: 4000 }));
-      retired.dispatchEvent(new Event("error"));
-      expect(events).toEqual([]);
-      expect(logs).toHaveLength(logsBefore);
-      peers[1]?.send(JSON.stringify(frame("current")));
-      await bounded(received.promise);
-      expect(events).toEqual(["current"]);
-    } finally {
-      socket.stop();
-      globalThis.WebSocket = NativeWebSocket;
-      await server.stop(true);
-    }
-  });
 }
 
 const update = (id: number) => ({

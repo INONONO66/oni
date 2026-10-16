@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
-import { DiscordApiError, DiscordGatewayFetchError } from "../../errors";
+import { DiscordApiError } from "../../errors";
 import type { Gateway, PlainValue } from "@openomni/protocol";
 
 const BASE_URL = "https://discord.com/api/v10";
@@ -14,13 +14,15 @@ const CreatedMessageSchema = z.object({ id: z.string().optional() });
 
 const DmChannelSchema = z.object({ id: z.string().optional() });
 
-const GatewayUrlSchema = z.object({ url: z.string() });
-
 /** A reply quotes a message in the same channel; `fail_if_not_exists` keeps a deleted original from refusing the send. */
-function replyReference(conversation: Gateway.Conversation | undefined): Record<string, PlainValue> {
+function replyReference(
+  conversation: Gateway.Conversation | undefined,
+): Record<string, PlainValue> {
   return conversation?.replyToMessageId === undefined
     ? {}
-    : { message_reference: { message_id: conversation.replyToMessageId, fail_if_not_exists: false } };
+    : {
+        message_reference: { message_id: conversation.replyToMessageId, fail_if_not_exists: false },
+      };
 }
 
 export class DiscordClient implements ChannelClient {
@@ -63,7 +65,12 @@ export class DiscordClient implements ChannelClient {
       }),
     );
     form.set("files[0]", new Blob([media.bytes], { type: media.mime }), media.name);
-    const message = await this.request(`/channels/${channelId}/messages`, { method: "POST", body: form }, traceId, CreatedMessageSchema);
+    const message = await this.request(
+      `/channels/${channelId}/messages`,
+      { method: "POST", body: form },
+      traceId,
+      CreatedMessageSchema,
+    );
     return message.id;
   }
 
@@ -78,7 +85,12 @@ export class DiscordClient implements ChannelClient {
   }
 
   /** A reaction the bot never added is already removed: 404 settles the call. */
-  async removeReaction(channelId: string, messageId: string, emoji: string, traceId: string): Promise<void> {
+  async removeReaction(
+    channelId: string,
+    messageId: string,
+    emoji: string,
+    traceId: string,
+  ): Promise<void> {
     await this.request(
       `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
       { method: "DELETE" },
@@ -97,7 +109,11 @@ export class DiscordClient implements ChannelClient {
   async ackInteraction(id: string, token: string, traceId: string): Promise<void> {
     await this.request(
       `/interactions/${id}/${token}/callback`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: 6 }) },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: 6 }),
+      },
       traceId,
       z.undefined(),
       [],
@@ -120,27 +136,6 @@ export class DiscordClient implements ChannelClient {
     return channel.id;
   }
 
-  async fetchGatewayUrl(): Promise<string> {
-    const res = await fetch(`${BASE_URL}/gateway/bot`, {
-      headers: { Authorization: `Bot ${this.token}` },
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new DiscordGatewayFetchError({
-        message: `Discord gateway fetch failed (${res.status}): ${body}`,
-      });
-    }
-
-    const gateway = GatewayUrlSchema.safeParse(await res.json());
-    if (!gateway.success) {
-      throw new DiscordGatewayFetchError({
-        message: "Discord gateway response carried no url",
-      });
-    }
-    return `${gateway.data.url}?v=10&encoding=json`;
-  }
-
   private api<T>(
     path: string,
     body: Record<string, PlainValue>,
@@ -149,7 +144,11 @@ export class DiscordClient implements ChannelClient {
   ): Promise<T> {
     return this.request(
       path,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
       traceId,
       schema,
     );

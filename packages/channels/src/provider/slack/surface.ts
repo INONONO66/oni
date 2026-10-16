@@ -3,6 +3,7 @@ import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
+import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import { SLACK_MEDIA_LIMITS, SLACK_RENDER } from "./format";
@@ -12,6 +13,7 @@ import type { ProviderOptions } from "../contract";
 import {
   classifySlackFailure,
   isSettledState,
+  isSlackTerminal,
   singleAttempt,
   type SlackBotApi,
   type SlackBotEvents,
@@ -20,12 +22,7 @@ import {
   type SlackSdk,
   slackSdk,
 } from "./sdk";
-import {
-  DeliveryNotSent,
-  SlackApiError,
-  SlackEndpointKeyError,
-  SlackHandlerMissingError,
-} from "../../errors";
+import { DeliveryNotSent, SlackEndpointKeyError, SlackHandlerMissingError } from "../../errors";
 import { SlackNormalizer } from "./normalizer";
 import {
   type SlackInteraction,
@@ -52,7 +49,7 @@ export class SlackAdapter implements Channel.Surface {
   private readonly client: SlackBotApi;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
-  private listener: SlackBotEvents | null = null;
+  private custody: ListenerCustody | null = null;
   private normalizer: SlackNormalizer | null = null;
   private botUserId: string | null = null;
   private handler: Channel.MessageHandler | null = null;
@@ -90,14 +87,19 @@ export class SlackAdapter implements Channel.Surface {
     this.botUserId = identity.user_id;
     this.normalizer = new SlackNormalizer({ botUserId: identity.user_id, team: identity.team_id });
     const listener = this.sdk.listener(this.client, { appToken: this.credentials.appToken });
-    this.listener = listener;
-    const connected = this.wire(listener);
-    await listener.start();
+    const custody = listenerCustody(listener, {
+      label: "slack socket",
+      publish: this.publish,
+      now: this.options.now,
+      id: this.options.id,
+      terminal: isSlackTerminal,
+    });
+    this.wire(listener);
+    this.custody = custody;
     try {
-      await connected;
+      await custody.start();
     } catch (error) {
-      listener.stop();
-      this.listener = null;
+      this.custody = null;
       throw error;
     }
     this.publish(Operational.Events.Info, {
@@ -110,8 +112,8 @@ export class SlackAdapter implements Channel.Surface {
   }
 
   stop(traceId: string): void {
-    this.listener?.stop();
-    this.listener = null;
+    this.custody?.stop();
+    this.custody = null;
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),
@@ -120,68 +122,34 @@ export class SlackAdapter implements Channel.Surface {
     });
   }
 
-  /** Binds the SDK events; resolves on the first hello, rejects on an error before it. */
-  private wire(listener: SlackBotEvents): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      let settled = false;
-      listener.on("connected", () => {
-        if (settled) return;
-        settled = true;
-        resolve();
+  /** Binds the consumed Socket Mode events; hello, errors and closes are the custody wrapper's. */
+  private wire(listener: SlackBotEvents): void {
+    // Every Events API envelope arrives here (after its typed event); the
+    // ack goes out first, then the two consumed event types are handed off.
+    listener.on("slack_event", (args) => {
+      if (!isEventsApi(args)) return;
+      args.ack();
+      const event = SlackMessageEventSchema.safeParse(args.event);
+      if (!event.success) return;
+      if (event.data.type !== "message" && event.data.type !== "reaction_added") return;
+      this.handleMessageEvent(event.data, newTraceId(this.options.id));
+    });
+    listener.on("interactive", (args) => {
+      args.ack();
+      const interaction = SlackInteractionSchema.safeParse(args.body);
+      if (interaction.success) {
+        this.handleMessageEvent(interaction.data, newTraceId(this.options.id));
+        return;
+      }
+      this.publish(Operational.Events.Warn, {
+        traceId: newTraceId(this.options.id),
+        time: this.options.now(),
+        component: "server",
+        msg: "slack interactive payload not a block action; dropped",
       });
-      listener.on("error", (error) => {
-        this.publish(Operational.Events.Warn, {
-          traceId: newTraceId(this.options.id),
-          time: this.options.now(),
-          component: "server",
-          msg: "slack socket error",
-          context: { err: error.message, ...codeOf(error) },
-        });
-        if (settled) return;
-        settled = true;
-        reject(error);
-      });
-      listener.on("disconnected", () => {
-        this.publish(Operational.Events.Info, {
-          traceId: newTraceId(this.options.id),
-          time: this.options.now(),
-          component: "server",
-          msg: "slack socket closed, sdk reconnecting",
-        });
-        // A close before hello (the SDK's own hello timeout included) fails
-        // THIS start: the caller owns boot retry, and a rejected start must
-        // not leave a zombie reconnect loop behind.
-        if (settled) return;
-        settled = true;
-        reject(new SlackApiError({ message: "slack socket closed before hello" }));
-      });
-      // Every Events API envelope arrives here (after its typed event); the
-      // ack goes out first, then the two consumed event types are handed off.
-      listener.on("slack_event", (args) => {
-        if (!isEventsApi(args)) return;
-        args.ack();
-        const event = SlackMessageEventSchema.safeParse(args.event);
-        if (!event.success) return;
-        if (event.data.type !== "message" && event.data.type !== "reaction_added") return;
-        this.handleMessageEvent(event.data, newTraceId(this.options.id));
-      });
-      listener.on("interactive", (args) => {
-        args.ack();
-        const interaction = SlackInteractionSchema.safeParse(args.body);
-        if (interaction.success) {
-          this.handleMessageEvent(interaction.data, newTraceId(this.options.id));
-          return;
-        }
-        this.publish(Operational.Events.Warn, {
-          traceId: newTraceId(this.options.id),
-          time: this.options.now(),
-          component: "server",
-          msg: "slack interactive payload not a block action; dropped",
-        });
-      });
-      listener.on("slash_commands", (args) => {
-        args.ack();
-      });
+    });
+    listener.on("slash_commands", (args) => {
+      args.ack();
     });
   }
 
@@ -366,10 +334,6 @@ export class SlackAdapter implements Channel.Surface {
   private async handleIncoming(inbound: Channel.InboundMessage): Promise<void> {
     await requireHandler(this.handler, "slack")(inbound);
   }
-}
-
-function codeOf(error: Error): { code?: string } {
-  return "code" in error && typeof error.code === "string" ? { code: error.code } : {};
 }
 
 /** The SDK's `slack_event` carries Events API args (with an ack) or a bare envelope the SDK did not type. */
