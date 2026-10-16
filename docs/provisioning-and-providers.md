@@ -240,7 +240,7 @@ ChannelProvider {
   id                  "telegram" | "discord" | "github" | "ws" | "slack" | ...
   credentials         zod schema for the secret payload
   settings            zod schema for non-secret instance settings
-  ingest              "poll" | "socket" | "webhook"
+  ingest              "poll" | "socket" | "webhook"   // webhook: github, linear (#1569 lane 9b, Owner-only), webhook
   capabilities        { deliver: boolean, webhook: boolean, render: Format.Surface,
                         outboundRate?: TokenBucketPolicy }
   preconditions?      operator checklist items provision_status can only report,

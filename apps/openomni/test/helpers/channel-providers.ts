@@ -56,6 +56,8 @@ export function fakeProviders() {
     // #1569 lane 7: Owner-only platforms have no bot arm to fake; the shipped entries serve as they are.
     instagram: ChannelProviders.instagram,
     kakaotalk: ChannelProviders.kakaotalk,
+    // #1569 lane 9b: Linear is webhook-fed and reaches no network at construction; the shipped entry serves.
+    linear: ChannelProviders.linear,
     telegram: {
       ...ChannelProviders.telegram,
       create: (credentials, config) => delivery("telegram", credentials, config, "tg-1"),

@@ -270,16 +270,22 @@ async function composeMachinePlane(
   return { host, self, defaultMachine: plane.defaultMachine };
 }
 
+/** The public webhook paths and the provider whose handler answers each (#1569 lane 9b adds Linear). */
+const WEBHOOK_ROUTES: ReadonlyMap<string, string> = new Map([
+  ["/github/webhook", "github"],
+  ["/linear/webhook", "linear"],
+]);
+
 /**
  * The app's HTTP surface: the ws upgrade seam, unauthenticated liveness (no
- * clock, no version, no state), and — only when a GitHub channel is composed —
- * its webhook ingress. Everything else is 404. The webhook handler is read
- * live from the supervisor's table so a channel_add landing a GitHub
- * instance mid-run is reachable without rebinding the server.
+ * clock, no version, no state), and — only when a GitHub or Linear channel
+ * is composed — its webhook ingress. Everything else is 404. The webhook
+ * handler is read live from the supervisor's table so a channel_add landing
+ * an instance mid-run is reachable without rebinding the server.
  */
 function createHttpRoutes(
   wsHandler: WebSocketHandler,
-  githubWebhookHandler: () => ((request: Request) => Promise<Response>) | undefined,
+  webhookHandler: (provider: string) => ((request: Request) => Promise<Response>) | undefined,
 ) {
   return (
     request: Request,
@@ -293,8 +299,9 @@ function createHttpRoutes(
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ ok: true });
     }
-    if (request.method === "POST" && url.pathname === "/github/webhook") {
-      const handler = githubWebhookHandler();
+    const provider = WEBHOOK_ROUTES.get(url.pathname);
+    if (request.method === "POST" && provider !== undefined) {
+      const handler = webhookHandler(provider);
       if (handler !== undefined) return handler(request);
     }
     return new Response("Not found", { status: 404 });
@@ -1186,7 +1193,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       hostname: config.host,
       port: config.wsPort,
       websocket: wsCallbacks.callbacks,
-      fetch: createHttpRoutes(wsHandler, () => webhookHandlers.get("github")),
+      fetch: createHttpRoutes(wsHandler, (provider) => webhookHandlers.get(provider)),
     });
 
     if (server.port === undefined)

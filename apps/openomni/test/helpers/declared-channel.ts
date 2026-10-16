@@ -12,8 +12,10 @@ import { testClock } from "./test-entropy";
  */
 export function declareChannel(
   catalogPath: string,
-  provider: "telegram" | "github",
+  provider: "telegram" | "github" | "linear",
   credentials: Record<string, string>,
+  /** #1569: an Owner-identity row with its posture; the default is the bot row every earlier test declares. */
+  owner?: { readonly settings: Record<string, string | number | boolean>; readonly outbound?: boolean },
 ): KekResolution {
   const key = new Uint8Array(32).fill(7);
   const plane = createAppLedger({ now: testClock(), catalogPath });
@@ -21,8 +23,16 @@ export function declareChannel(
     const credentialRef = `secret:${provider}`;
     putChannelCredential(plane.stores.secrets, credentialRef, JSON.stringify(credentials), key, 1);
     plane.stores.instances.put({
-      id: `channel:${provider}:main`, provider, identity: "bot", enabled: true, settings: {}, credentialRef,
-      revision: 0, createdBy: "owner", updatedAt: 1,
+      id: `channel:${provider}:${owner === undefined ? "main" : "owner"}`,
+      provider,
+      identity: owner === undefined ? "bot" : "owner",
+      enabled: true,
+      settings: owner?.settings ?? {},
+      credentialRef,
+      ...(owner?.outbound === undefined ? {} : { grant: { outbound: owner.outbound } }),
+      revision: 0,
+      createdBy: "owner",
+      updatedAt: 1,
     });
   } finally {
     plane.close();
