@@ -6,6 +6,7 @@ import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
 import { automationWire } from "./composition/automation-wire";
 import { channelWire } from "./composition/channel-wire";
+import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
 import { createAutomationDelivery } from "./composition/automation-delivery";
@@ -47,6 +48,7 @@ import {
   ChannelsFailure,
   inboundOnce,
   WebSocketHandler,
+  createWebhookSender,
 } from "@openomni/channels";
 import type { ActorRegistry } from "@openomni/channels";
 
@@ -71,7 +73,7 @@ import {
   selfEnrollment,
   type SelfMachine,
 } from "./composition/self-machine";
-import { desiredChannels, materializePersons } from "./bundles/provision/declared";
+import { desiredChannels, materializePersons, vaultCredentialReader } from "./bundles/provision/declared";
 import { type ChannelSupervisor, createChannelSupervisor } from "./bundles/provision/supervisor";
 import type { ProvisionPort } from "./bundles/provision/channels";
 import {
@@ -782,6 +784,21 @@ export async function startOpenOmni(options: StartOptions = {}) {
         contacts: {
           // The one Effect boundary the bundle gets (#1248): the app runtime.
           run: (effect) => runAppEffect(runtime, effect),
+          // #1569 lane 9: a declared webhook target, read from the vault at send time;
+          // its textual answer rides the tool result.
+          webhook: webhookContacts({
+            instances: plane.stores.instances,
+            readCredential: vaultCredentialReader(config.kek, (ref) => plane.stores.secrets.get(ref)),
+            sender: createWebhookSender({
+              fetch: (url, init) => fetch(url, init),
+              publish: services.observations.publish,
+              now: services.now,
+              id: services.entropy.id,
+            }),
+            publish: services.observations.publish,
+            now: services.now,
+            id: services.entropy.id,
+          }),
           deadline: {
             arm: ({ sessionId, turnId, child, at }) =>
               watchPlane.arms

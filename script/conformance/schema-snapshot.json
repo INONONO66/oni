@@ -1136,6 +1136,35 @@
     "priority",
     "verdict"
   ],
+  "Provisioning.ChannelDeclareRefused": [
+    "detail",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "Provisioning.ChannelDeclareRequest": [
+    "credential",
+    "enabled",
+    "id",
+    "identity",
+    "outbound",
+    "provider",
+    "requestId",
+    "settings",
+    "type"
+  ],
+  "Provisioning.ChannelDeclareResponse#channel_add_refused": [
+    "detail",
+    "reason",
+    "requestId",
+    "type"
+  ],
+  "Provisioning.ChannelDeclareResponse#channel_declared": [
+    "id",
+    "requestId",
+    "statuses",
+    "type"
+  ],
   "Provisioning.ChannelInstance": [
     "createdBy",
     "credentialRef",

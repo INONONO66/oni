@@ -133,8 +133,17 @@ function sealCredential(
  * row lands only on the consented path, bound to the instance revision the
  * consent was given against.
  */
-export function channelConsentRequired(identity: Channel.Identity, outbound: boolean | undefined): boolean {
-  return identity === "owner" || outbound !== undefined;
+export function channelConsentRequired(
+  identity: Channel.Identity,
+  outbound: boolean | undefined,
+  /** #1569 lane 9: a webhook declaration naming a `url` is an outbound destination — never the Resident's own choice. */
+  declaration?: { readonly provider: string; readonly credential?: Readonly<Record<string, string>> },
+): boolean {
+  return (
+    identity === "owner" ||
+    outbound !== undefined ||
+    (declaration?.provider === "webhook" && declaration.credential?.url !== undefined)
+  );
 }
 
 /** The domain-revision CAS an Owner's channel consent is bound to: the declared row's revision, `-1` when none. */
@@ -169,9 +178,12 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
     // the row lands — an Owner instance's are its intake posture (#1569).
     const badSettings = validateProviderSettings(input.provider, settings, identity);
     if (badSettings !== undefined) return refusal("channel_add", badSettings);
-    if (channelConsentRequired(identity, input.outbound)) {
+    if (channelConsentRequired(identity, input.outbound, input)) {
       if (domainRevisions === undefined)
-        return refusal("channel_add", `${input.id}: an Owner instance and its outbound grant require Owner consent`);
+        return refusal(
+          "channel_add",
+          `${input.id}: an Owner instance, its outbound grant and a webhook target's url require Owner consent`,
+        );
       if (canonicalDigest({ ...domainRevisions }) !== canonicalDigest(channelDomainRevisions(port.instances, input.id)))
         return refusal("channel_add", "domain revision changed");
     }
@@ -257,6 +269,9 @@ export function executeSecretRotate(port: ProvisionPort, now: () => number) {
       if (invalid !== undefined) {
         return refusal("secret_rotate", `${instance.id}: ${invalid}`);
       }
+      // A webhook target's url is declared through channel_add under Owner consent; a rotation never introduces one (#1569 lane 9).
+      if (instance.provider === "webhook" && input.credential.url !== undefined)
+        return refusal("secret_rotate", `${instance.id}: a webhook target url is declared through channel_add under Owner consent`);
     }
     const sealed = sealCredential(port, existing.id, input.credential, existing, now());
     if (typeof sealed === "string") return refusal("secret_rotate", sealed);

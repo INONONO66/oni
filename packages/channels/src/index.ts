@@ -10,6 +10,8 @@ export { typingPulse } from "./support/typing-pulse.js";
 export type { EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";
 export { createWebhookProvider } from "./provider/webhook/provider.js";
+export { createWebhookSender, signWebhookBody, type WebhookFetch, type WebhookSender } from "./provider/webhook/outbound.js";
+export { WebhookCredentials } from "./provider/webhook/types.js";
 export { createGatewayRouter } from "./router/index.js";
 export { resolveChannelGrant, webSocketSenderTier } from "./router/channel-grant.js";
 export type { ChannelDeliveryRoute, GatewayRouter } from "./router/index.js";

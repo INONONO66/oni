@@ -1,5 +1,82 @@
 # Implementation Status
 
+## #1569 Outbound `webhook:` contact (lane 9a)
+
+On `feat/1569-webhook-contact` (2026-10-17, stacked on lane 5b).
+`send_message` reaches a declared webhook target as a contact kind,
+`webhook:<id>`: the letter is POSTed to the target's URL as one JSON body
+(`{ id, contact, from, message, replyTo?, sentAt }`) signed with the
+target's shared secret in `X-Signature` (`sha256=<hex HMAC-SHA256 of the
+raw body>`, the signature the inbound `webhook` provider verifies) and
+carrying the idempotency key in `X-OpenOmni-Delivery`. A target is a
+`channel:webhook:<id>` instance whose sealed credential names a `url`
+(`WebhookCredentials.url`, http or https; absent leaves the declaration
+ingress-only as before) beside `id` and its shared secret — `secret`
+inline, sealed with the declaration, or `secretRef` to a separately sealed
+vault row (the inbound side verifies with the same field, and a
+declaration naming neither is refused by the schema). Declaring a url is
+an outbound destination, so it takes Owner consent like an Owner instance
+or an outbound grant (`channelConsentRequired`): the Resident cannot
+declare a target of its own. The target and its secret are read from the
+vault at send time (`apps/openomni/src/composition/webhook-contacts.ts`,
+`webhookContacts` over the instance store, `vaultCredentialReader` and the
+sender), so nothing about a target lives outside its declaration; an
+undeclared target (or another provider's row), a disabled one, one
+without a credential or a url, an unreadable credential or a locked vault
+is the sender's `not_sent` reason with nothing posted — a plain word for
+the model, the vault's detail as a Warn for the Owner. The sender
+(`packages/channels/src/provider/webhook/outbound.ts`,
+`createWebhookSender`, exported from the channels index with
+`signWebhookBody` and `WebhookCredentials`) runs under the same custody as
+every platform send — one physical attempt per idempotency key through
+`deliverKeyed`, and that attempt never follows a redirect (`redirect:
+manual`; the signed body goes nowhere the Owner did not declare): a 2xx is
+`sent` with a textual answer (`text/*`, JSON) carried back, cut at 64 KiB
+of bytes; a 5xx came back after the target had the request and may have
+acted before failing, so it is `unknown`; any other status, a redirect
+included, is the target's refusal, `not_sent`, with its HTTP status as the
+reason; a request that never left this host (connection refused, no such
+host, a failed TLS handshake) is `not_sent`; a request that may have
+landed (the 15 s timeout, a reset after it left) is `unknown`, surfaced to
+the Owner once and never re-sent. Custody is the process's own, as for
+every driver: a daemon that crashes between the POST and the journaled
+receipt holds no memory of the attempt. The connector
+(`webhookConnector` in
+`apps/openomni/src/bundles/messaging/send-message/index.ts`, registered
+beside `cli`) keys the attempt by the tool call (`<sessionId>:<callId>`,
+so a replayed call is the same attempt) and returns the target's textual
+answer on the tool result itself (`ContactOutcome.response`): a webhook is
+one request and one response, so the Resident reads the answer where it
+reads the receipt, and no reply port is involved — the `ContactReplyPort`
+the CLI connector was designed around is still composed nowhere in
+production, and this lane stops promising it; `ContactOutcome.status`
+gains `unknown`; a reaction to a connector contact is refused. Not in this lane: a delivery route for
+Person contacts on the webhook surface (the provider's `deliver`
+capability stays false), an HTTP route for the inbound generic `webhook`
+provider (it has none today: a declared row mounts a handler nothing
+serves, as before this lane), more than one webhook instance mounted per
+daemon (surface ids are still per platform), durable custody across a
+restart, retries (none, by custody), a contact answer delivered later as a
+prompt (that is lane 9c's, with A2A). These corrections — the answer on
+the result instead of an uncomposed reply port, 5xx as `unknown`, no
+redirects, consent for a url (and none introduced by `secret_rotate`), the
+inline secret, the TLS never-left codes, the byte bound and the textual
+gate on the answer, the plain reasons — came out of the PR's adversarial
+review.
+Receipts: `packages/channels/test/webhook-outbound.test.ts` (the signature
+the inbound side verifies, one POST per key never followed anywhere with
+the textual answer cut at the byte bound, the refusal / redirect /
+never-left / 5xx / lost-answer receipts with their Warns, the bounded
+request), `packages/channels/test/webhook-provider.test.ts` (the inline
+secret on the inbound side), `apps/openomni/test/webhook-contacts.test.ts`
+(the body and the vault-read target, the inline secret, every `not_sent`
+reason with nothing posted and the Owner's detail),
+`apps/openomni/test/provision-tools.test.ts` (consent for a url, none
+introduced by a rotation), `apps/openomni/test/send-message-contacts.test.ts`
+(the address, the connector's outcomes, the answer on the result),
+`packages/channels/test/barrel.test.ts`; suites: `packages/channels`
+969 pass, `apps/openomni` 1012 pass, 0 fail.
+
 ## #1569 Login helpers and the channel wire: the Owner's own sign-in (lane 5b)
 
 On `feat/1569-login-helpers` (2026-10-17, stacked on lane 7). The Owner's
