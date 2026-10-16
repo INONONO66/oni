@@ -293,7 +293,7 @@ describe("real CLI entry", () => {
       const command = /^\s+openomni (\w+)/.exec(line)?.[1];
       return command === undefined ? [] : [command];
     });
-    expect(commands).toEqual(["start", "onboard", "daemon", "machine", "doctor", "logs", "help"]);
+    expect(commands).toEqual(["start", "onboard", "daemon", "machine", "doctor", "logs", "login", "help"]);
   });
 
   test.each(

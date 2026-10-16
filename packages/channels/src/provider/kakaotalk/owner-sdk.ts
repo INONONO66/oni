@@ -1,4 +1,10 @@
-import { classifyKakaoChat, KakaoTalkClient, KakaoTalkError, KakaoTalkListener } from "agent-messenger/kakaotalk";
+import {
+  classifyKakaoChat,
+  KakaoTalkClient,
+  KakaoTalkError,
+  KakaoTalkListener,
+  loginFlow,
+} from "agent-messenger/kakaotalk";
 import type { KakaoTalkListenerEventMap, KakaoTalkPushMessageEvent } from "agent-messenger/kakaotalk";
 
 /**
@@ -65,3 +71,41 @@ export function kakaoChatKind(chat: { type: number | string; active_members: num
 
 /** The SDK's error class: `code` names the refusal (`missing_token`, `not_authenticated`, `send_message_failed`, …). */
 export { KakaoTalkError as KakaoTalkOwnerError };
+
+/**
+ * The Owner's own sign-in (#1569 lane 5b): email and password, then the
+ * passcode the SDK shows through `onPasscode` and the Owner enters in the
+ * KakaoTalk app registers this device; the OAuth token, user id and device
+ * uuid the flow returns are the account session. Nothing is stored here.
+ */
+export interface KakaoTalkOwnerLoginInput {
+  readonly email: string;
+  readonly password: string;
+  readonly deviceType?: KakaoTalkDeviceType;
+  readonly onPasscode: (code: string) => void;
+}
+
+export async function kakaoTalkOwnerLogin(
+  input: KakaoTalkOwnerLoginInput,
+  flow: typeof loginFlow = loginFlow,
+): Promise<{ oauthToken: string; userId: string; deviceUuid: string; deviceType: KakaoTalkDeviceType }> {
+  const result = await flow({
+    email: input.email,
+    password: input.password,
+    deviceType: input.deviceType ?? "tablet",
+    onPasscodeDisplay: input.onPasscode,
+  });
+  const credentials = result.credentials;
+  // The SDK's own verdict: a failed passcode request still carries empty credentials.
+  if (!result.authenticated || credentials === undefined)
+    throw new KakaoTalkError(
+      result.message ?? "Login did not register this device",
+      result.error ?? result.next_action ?? "login_incomplete",
+    );
+  return {
+    oauthToken: credentials.access_token,
+    userId: credentials.user_id,
+    deviceUuid: credentials.device_uuid,
+    deviceType: credentials.device_type,
+  };
+}

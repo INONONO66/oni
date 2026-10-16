@@ -147,6 +147,9 @@ export function fakeInstagramOwnerSdk(
         events.pollInterval = options.pollInterval;
         return events;
       },
+      loginClient: () => {
+        throw new Error("the fake seam signs nothing in");
+      },
     },
   };
 }

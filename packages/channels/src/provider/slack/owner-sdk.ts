@@ -1,4 +1,4 @@
-import { SlackClient, SlackError, SlackListener } from "agent-messenger/slack";
+import { loginWithQr, SlackClient, SlackError, SlackListener } from "agent-messenger/slack";
 import type { SlackListenerEventMap } from "agent-messenger/slack";
 
 /**
@@ -57,3 +57,27 @@ export function slackOwnerSdk(): SlackOwnerSdk {
  * itself. `classifySlackFailure` reads either shape by name.
  */
 export { SlackError as SlackOwnerError };
+
+/**
+ * The Owner's own sign-in (#1569 lane 5b): the QR image Slack shows under
+ * "Sign in on mobile" (copied as a PNG data URL) names the workspace; the
+ * SDK walks the magic-login flow and returns the client token and the `d`
+ * cookie the account session is. A confirmation code the platform mails
+ * is asked for through `confirm`. Nothing is stored here.
+ */
+export interface SlackOwnerLoginInput {
+  readonly qrImage: string;
+  readonly confirm?: (challenge: { readonly email: string; readonly type: string | null }) => Promise<string>;
+}
+
+export async function slackOwnerLogin(
+  input: SlackOwnerLoginInput,
+  login: typeof loginWithQr = loginWithQr,
+): Promise<{ token: string; cookie: string; workspace: string }> {
+  const confirm = input.confirm;
+  const session = await login(
+    input.qrImage,
+    confirm === undefined ? {} : { requestConfirmationCode: (challenge) => confirm(challenge) },
+  );
+  return { token: session.token, cookie: session.cookie, workspace: session.workspace };
+}

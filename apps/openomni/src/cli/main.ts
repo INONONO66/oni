@@ -7,7 +7,8 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { listenForAbort, type Machine } from "@openomni/protocol";
+import { OwnerLogins } from "@openomni/channels";
+import { listenForAbort, type Machine, Provisioning } from "@openomni/protocol";
 import { loadConfig } from "../config";
 import { installShutdownHandlers, startOpenOmni } from "..";
 import { type CliDeps, runCli } from "./commands";
@@ -55,6 +56,85 @@ async function ask(question: string, options?: AskOptions): Promise<string> {
   } finally {
     rl.close();
   }
+}
+
+/** The hosts a login may declare over: the credential and the ws token cross the socket in clear. */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+/** How long the daemon has to answer a declaration (it mounts the instance before answering). */
+const DECLARE_DEADLINE_MS = 60_000;
+
+type DeclareAnswer =
+  | { readonly kind: "response"; readonly response: Provisioning.ChannelDeclareResponse }
+  | { readonly kind: "refused"; readonly error: CliError }
+  | { readonly kind: "other" };
+
+function readFrame(data: string): { readonly requestId?: string; readonly type?: string; readonly reason?: string } | undefined {
+  try {
+    const parsed: { requestId?: string; type?: string; reason?: string } = JSON.parse(data);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What one frame from the daemon means to the declaration waiting for it; the gateway's id-less `error` frame is its refusal. */
+function declareAnswer(data: string, requestId: string): DeclareAnswer {
+  const frame = readFrame(data);
+  if (frame === undefined)
+    return { kind: "refused", error: new CliError("the daemon answered with a frame this CLI cannot read") };
+  if (frame.requestId === undefined && frame.type === "error")
+    return { kind: "refused", error: new CliError(`the daemon refused the frame: ${frame.reason ?? "unknown"}`) };
+  if (frame.requestId !== requestId) return { kind: "other" };
+  const response = Provisioning.ChannelDeclareResponse.safeParse(frame);
+  return response.success
+    ? { kind: "response", response: response.data }
+    : { kind: "refused", error: new CliError("the daemon answered with a frame this CLI does not know") };
+}
+
+/**
+ * One frame out, the matching frame back. Every other end of the socket —
+ * refused upgrade, closed before the answer, silent past the deadline — is
+ * a typed error, never a hang with the Owner's session in memory.
+ */
+function declareOver(
+  socket: WebSocket,
+  url: string,
+  request: Provisioning.ChannelDeclareRequest,
+): Promise<Provisioning.ChannelDeclareResponse> {
+  return new Promise((resolve, reject) => {
+    let pending = true;
+    const timer = setTimeout(
+      () => fail(new CliError(`the daemon at ${url} did not answer within ${DECLARE_DEADLINE_MS / 1000}s`)),
+      DECLARE_DEADLINE_MS,
+    );
+    function settle(outcome: () => void): void {
+      if (!pending) return;
+      pending = false;
+      clearTimeout(timer);
+      socket.close();
+      outcome();
+    }
+    function fail(error: Error): void {
+      settle(() => reject(error));
+    }
+    socket.addEventListener("error", (event) => {
+      const detail = event instanceof ErrorEvent ? event.message : "";
+      fail(
+        new CliError(
+          `could not connect to ${url}${detail === "" ? "" : ` (${detail})`}: no daemon there, or OPENOMNI_WS_TOKEN refused`,
+        ),
+      );
+    });
+    socket.addEventListener("close", (event) =>
+      fail(new CliError(`the daemon closed the socket before answering (code ${event.code})`)),
+    );
+    socket.addEventListener("open", () => socket.send(JSON.stringify(request)));
+    socket.addEventListener("message", (event) => {
+      const answer = declareAnswer(String(event.data), request.requestId);
+      if (answer.kind === "other") return;
+      settle(() => (answer.kind === "response" ? resolve(answer.response) : reject(answer.error)));
+    });
+  });
 }
 
 export interface CliRuntimeOptions {
@@ -173,6 +253,26 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     });
   }
 
+  /**
+   * The Owner's socket to the running daemon (#1569 lane 5b): the env file's
+   * host, port and token, the `auth` subprotocol the gateway reads, one
+   * frame out and the matching frame back. The credential and the ws token
+   * cross this socket in clear, so only the loopback daemon is reachable
+   * this way.
+   */
+  async function declareChannel(
+    request: Provisioning.ChannelDeclareRequest,
+  ): Promise<Provisioning.ChannelDeclareResponse> {
+    const env = mergeEnvFile(existsSync(envPath) ? await Bun.file(envPath).text() : "");
+    const host = env.get("OPENOMNI_WS_HOST") ?? "127.0.0.1";
+    const port = env.get("OPENOMNI_WS_PORT") ?? "3000";
+    const token = env.get("OPENOMNI_WS_TOKEN");
+    const url = `ws://${host}:${port}/ws`;
+    if (!LOOPBACK_HOSTS.has(host))
+      throw new CliError(`login declares over the loopback socket only; OPENOMNI_WS_HOST names ${host}`);
+    return declareOver(new WebSocket(url, token === undefined ? [] : ["auth", token]), url, request);
+  }
+
   return {
     stdout: (line) => console.log(line),
     stderr: (line) => console.error(line),
@@ -211,6 +311,11 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     writeEnv: (entries) => writeEnvFile(envPath, entries),
     doctorPorts,
     follow,
+    login: {
+      logins: OwnerLogins,
+      declare: declareChannel,
+      id: () => platformEntropy().id(),
+    },
   };
 }
 

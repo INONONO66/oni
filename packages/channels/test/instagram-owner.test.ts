@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type Channel, Operational, Outbound } from "@openomni/protocol";
 import { z } from "zod";
 import type { OwnerPosture } from "../src/provider/contract";
@@ -224,5 +226,8 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     const client = seam.client();
     expect(client.getUserId()).toBeNull();
     expect(seam.listener(client, { pollInterval: 5_000 })).toBeDefined();
+    const scratch = join(tmpdir(), "openomni-instagram-login-seam-never-created");
+    expect(seam.loginClient(scratch)).toBeDefined();
+    expect(existsSync(scratch)).toBe(false);
   });
 });

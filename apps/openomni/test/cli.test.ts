@@ -695,6 +695,16 @@ describe("cli dispatch", () => {
         attachMachine: async () => 0,
         ask: () => Promise.resolve(""),
         writeEnv: () => undefined,
+        login: {
+          logins: {
+            slack: () => Promise.reject(new Error("no slack login in this test")),
+            discord: () => Promise.reject(new Error("no discord login in this test")),
+            instagram: () => Promise.reject(new Error("no instagram login in this test")),
+            kakaotalk: () => Promise.reject(new Error("no kakaotalk login in this test")),
+          },
+          declare: () => Promise.reject(new Error("no daemon in this test")),
+          id: () => "request-1",
+        },
         doctorPorts: () =>
           Promise.resolve({
             bunVersion: "1.3.0",
@@ -724,6 +734,28 @@ describe("cli dispatch", () => {
     expect(await runCli(["machine", "attach", "config.json", "extra"], cli)).toBe(1);
     expect(await runCli(["machine", "attach", "config.json"], cli)).toBe(7);
     expect(seen).toEqual(["config.json"]);
+  });
+
+  test("login dispatches to the sign-in with the login deps; --print declares nothing", async () => {
+    const { deps: cli, out, err } = deps();
+    const discord = {
+      ...cli.login,
+      logins: {
+        ...cli.login.logins,
+        discord: async ({ showQr }: { showQr: (url: string) => void }) => {
+          showQr("https://discord.com/ra/qr");
+          return { token: "user-token" };
+        },
+      },
+    };
+    expect(await runCli(["login", "discord", "--print"], { ...cli, login: discord })).toBe(0);
+    expect(out).toEqual([
+      "Open Discord on your phone and scan: https://discord.com/ra/qr",
+      "Signed in to Discord",
+      JSON.stringify({ provider: "discord", identity: "owner", credential: { token: "user-token" } }),
+    ]);
+    expect(await runCli(["login", "telegram"], cli)).toBe(1);
+    expect(err.at(-1)).toContain("usage: openomni login");
   });
 
   test("unknown command prints usage and exits 1", async () => {

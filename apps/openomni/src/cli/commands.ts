@@ -16,6 +16,7 @@ import type { DoctorCheck, DoctorPorts } from "./doctor";
 import { runDoctor } from "./doctor";
 import type { Ask } from "./onboard";
 import { gatherOnboarding } from "./onboard";
+import { login, type LoginDeps } from "./login";
 
 /**
  * Command dispatch with every side effect injected. `main.ts` is the only
@@ -34,6 +35,8 @@ export interface CliDeps {
   readonly doctorPorts: () => Promise<DoctorPorts>;
   /** Runs a follow-style child (tail/journalctl) to completion; returns its exit code. */
   readonly follow: (argv: readonly string[]) => Promise<number>;
+  /** #1569 lane 5b: the Owner's platform sign-ins and the socket that declares the instance. */
+  readonly login: LoginDeps;
 }
 
 const USAGE = `openomni — Single-Owner Agent OS
@@ -45,6 +48,7 @@ Usage:
   openomni machine attach <json> attach a machine daemon using a JSON config
   openomni doctor                read-only diagnostics
   openomni logs                  follow the daemon logs
+  openomni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk)
   openomni help                  show this message`;
 
 const DAEMON_VERBS: Record<string, (target: DaemonTarget, io: DaemonIo) => string> = {
@@ -76,6 +80,8 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
       return await doctor(deps);
     case "logs":
       return await deps.follow(logsArgv(deps.target));
+    case "login":
+      return await login(args.slice(1), deps.login, deps);
     case "help":
     case "--help":
     case "-h":
