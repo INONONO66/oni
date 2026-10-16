@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { type ChannelDeliveryRoute, type ProviderTypingRoute, resolveChannelGrant } from "@openomni/channels";
 import type { Provisioning } from "@openomni/protocol";
 import { MOUNTED_CHANNEL_DEFAULT_TIER, registerTrustedChannelGrant } from "../src/gateway";
-import { type ChannelComponent, declaredChannelProfile, validateProviderCredential } from "../src/channels";
+import {
+  type ChannelComponent,
+  declaredChannelProfile,
+  validateProviderCredential,
+  validateProviderSettings,
+} from "../src/channels";
 import { type DesiredChannels, createChannelSupervisor } from "../src/bundles/provision/supervisor";
 import { planeFixture } from "./helpers/plane-fixture";
 import { testChannelDeps } from "./helpers/test-entropy";
@@ -82,6 +87,19 @@ describe("declared Owner instances", () => {
     });
   });
 
+  test("an Owner declaration's settings are its intake posture: the default reads mentions and DMs, `none` only sends, a bot knob is refused", () => {
+    const reading = declaredChannelProfile([instance({})], reader(OWNER_SESSION), testChannelDeps());
+    expect(reading.rows[0]?.component).toMatchObject({ identity: "owner", listens: true });
+    const sendOnly = declaredChannelProfile([instance({ settings: { intake: "none" } })], reader(OWNER_SESSION), testChannelDeps());
+    expect(sendOnly.rows[0]?.component).toMatchObject({ identity: "owner", listens: false });
+    const bad = declaredChannelProfile([instance({ settings: { intake: "loud" } })], reader(OWNER_SESSION), testChannelDeps());
+    expect(bad.rows).toEqual([]);
+    expect(bad.statuses[0]).toMatchObject({ state: "credential_invalid", detail: expect.stringContaining("settings:") });
+    expect(validateProviderSettings("slack", { intake: "all" }, "owner")).toBeUndefined();
+    expect(validateProviderSettings("slack", { intake: "all" })).toBeDefined();
+    expect(validateProviderSettings("slack", { botUsername: "x" }, "owner")).toBeDefined();
+  });
+
   test("a platform without an owner arm reports identity_unsupported and mounts nothing", () => {
     const { rows, statuses } = declaredChannelProfile(
       [instance({ id: "channel:telegram:owner", provider: "telegram", credentialRef: "secret:tg" })],
@@ -107,10 +125,16 @@ describe("the supervisor with an Owner instance", () => {
   const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
   const calls: string[] = [];
 
-  function component(id: "slack", identity: "bot" | "owner", deliver: boolean): ChannelComponent {
+  function component(
+    id: "slack",
+    identity: "bot" | "owner",
+    deliver: boolean,
+    listens = identity === "bot",
+  ): ChannelComponent {
     return {
       id,
       identity,
+      listens,
       build: () => ({
         surface: {
           id: `${id}:${identity}`,
@@ -168,7 +192,7 @@ describe("the supervisor with an Owner instance", () => {
       ["channel:slack:owner", "slack:owner", "mounted"],
     ]);
     expect([...deliveryRoutes.keys()].sort()).toEqual(["slack:bot", "slack:owner"]);
-    // One ingress grant, for the platform, from the bot instance alone.
+    // One ingress grant, for the platform, from the bot instance alone: this Owner row does not read.
     expect(grants).toEqual(["slack"]);
     expect(resolveChannelGrant(channelStores(),{ surface: "slack" })?.grant.kind).toBe("trusted_channel");
     expect(resolveChannelGrant(channelStores(),{ surface: "slack:owner" })).toBeUndefined();
@@ -176,5 +200,108 @@ describe("the supervisor with an Owner instance", () => {
     expect(deliveryRoutes.size).toBe(0);
     expect(resolveChannelGrant(channelStores(),{ surface: "slack" })).toBeUndefined();
     expect(calls).toEqual(["start:slack:bot", "start:slack:owner", "stop:slack:owner", "stop:slack:bot"]);
+  });
+
+  test("the platform's ingress grant is held by every reading instance and revoked with the last (#1569 lane 6)", async () => {
+    const bot = { instanceId: "channel:slack:main", key: "0:0", component: component("slack", "bot", true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER };
+    const owner = { instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", true, true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER };
+    let rows = [bot, owner];
+    const grants: string[] = [];
+    const supervisor = createChannelSupervisor({
+      desired: () => ({ source: "declared", rows, statuses: [] }),
+      build: (row) => row.build(async () => undefined),
+      grant: (surface, defaultTier, ownerIntake) => {
+        grants.push(`grant:${surface}`);
+        const revoke = registerTrustedChannelGrant(plane().stores.channelGrants, {
+          surface,
+          defaultTier,
+          ...(ownerIntake === true ? { ownerIntake } : {}),
+        });
+        return () => {
+          grants.push(`revoke:${surface}`);
+          revoke();
+        };
+      },
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await supervisor.reconcile();
+    // Both read: the one row is re-registered once the Owner reader joins it (it now names the Owner reader).
+    expect(grants).toEqual(["grant:slack", "revoke:slack", "grant:slack"]);
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant).toMatchObject({ kind: "trusted_channel", ownerIntake: true });
+    // The bot leaves; the Owner instance still reads at the same tier, so the row stays as it is.
+    rows = [owner];
+    await supervisor.reconcile();
+    expect(grants).toEqual(["grant:slack", "revoke:slack", "grant:slack"]);
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant.kind).toBe("trusted_channel");
+    // The last reader leaves; the grant goes with it.
+    rows = [];
+    await supervisor.reconcile();
+    expect(grants).toEqual(["grant:slack", "revoke:slack", "grant:slack", "revoke:slack"]);
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
+  });
+
+  test("the one grant row follows its readers: the least declared tier wins and a bounced reader's new tier lands while the other reader holds it", async () => {
+    const bot = (tier: "manager" | "observer", key: string) => ({
+      instanceId: "channel:slack:main", key, component: component("slack", "bot", true), defaultTier: tier,
+    });
+    const owner = { instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", true, true), defaultTier: "collaborator" as const };
+    let rows = [bot("manager", "0:0"), owner];
+    const registered: string[] = [];
+    const supervisor = createChannelSupervisor({
+      desired: () => ({ source: "declared", rows, statuses: [] }),
+      build: (row) => row.build(async () => undefined),
+      grant: (surface, defaultTier, ownerIntake) => {
+        registered.push(`${surface}:${defaultTier}:${ownerIntake === true}`);
+        return registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier, ...(ownerIntake === true ? { ownerIntake } : {}) });
+      },
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await supervisor.reconcile();
+    // The bot mounted first at manager; the Owner reader joined at collaborator: the row is the lesser tier and names the Owner reader.
+    expect(registered).toEqual(["slack:manager:false", "slack:collaborator:true"]);
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant).toMatchObject({ defaultTier: "collaborator", ownerIntake: true });
+    // The bot row's tier changes to observer: its bounce lands the new least tier on the row.
+    rows = [bot("observer", "1:0"), owner];
+    await supervisor.reconcile();
+    expect(registered.at(-1)).toBe("slack:observer:true");
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant).toMatchObject({ defaultTier: "observer", ownerIntake: true });
+    // The Owner reader leaves: the row no longer names it and keeps the bot's tier.
+    rows = [bot("observer", "1:0")];
+    await supervisor.reconcile();
+    expect(registered.at(-1)).toBe("slack:observer:false");
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant.ownerIntake).toBeUndefined();
+    await supervisor.stopAll();
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
+  });
+
+  test("an Owner instance that reads alone registers the platform's grant itself", async () => {
+    const grants: string[] = [];
+    const supervisor = createChannelSupervisor({
+      desired: () => ({
+        source: "declared",
+        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("slack", "owner", false, true), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }],
+        statuses: [],
+      }),
+      build: (row) => row.build(async () => undefined),
+      grant: (surface, defaultTier) => {
+        grants.push(surface);
+        return registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier });
+      },
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await supervisor.reconcile();
+    expect(grants).toEqual(["slack"]);
+    expect(deliveryRoutes.size).toBe(0);
+    await supervisor.stopAll();
+    expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
   });
 });

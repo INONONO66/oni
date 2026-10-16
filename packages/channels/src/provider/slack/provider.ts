@@ -21,9 +21,10 @@ interface SlackOwnerCredentials {
 }
 
 /**
- * The Owner-identity arm (#1569 lane 5): delivery as the Owner's account
- * through the user SDK, mounted as `slack:owner` when the declaration grants
- * outbound. No media upload through the account; no listener until lane 6.
+ * The Owner-identity arm (#1569 lanes 5 and 6): delivery as the Owner's
+ * account through the user SDK, mounted as `slack:owner` (a delivery route
+ * only when the declaration grants outbound), and the account's RTM listener
+ * under the declared intake posture. No media upload through the account.
  */
 function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<SlackOwnerCredentials> {
   return {
@@ -38,8 +39,9 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
       "the Owner accepts automation under their own account (declared outbound grant)",
     ],
     capabilities: { deliver: true, react: true, media: false, typing: false },
-    create(credentials, config, publish, options) {
-      const surface = new SlackOwnerAdapter(credentials, config, publish, options, sdk);
+    listen: true,
+    create(credentials, posture, publish, options) {
+      const surface = new SlackOwnerAdapter(credentials, posture, publish, options, sdk);
       return {
         surface,
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>

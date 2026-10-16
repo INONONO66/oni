@@ -140,6 +140,10 @@ export namespace Actor {
     // mention, a reply to its own message, or a thread it already answers
     // in. DMs always route. Absent = every admitted message routes.
     mentionOnly: z.boolean().optional(),
+    // #1569 lane 6: an Owner instance of this platform reads under this
+    // grant, so a mention of the Owner addresses the Resident whichever
+    // instance observed it — a fact of the message, not of the observer.
+    ownerIntake: z.boolean().optional(),
     provisionalMint: ProvisionalMintPolicy.optional(),
     createdBy: z.string().min(1),
     createdAt: EpochMs.optional(),

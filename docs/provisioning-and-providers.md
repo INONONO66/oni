@@ -135,7 +135,19 @@ ChannelInstance {
   the Resident may send from that account on an explicit, authenticated
   instruction (`send_message … as: owner` from an Owner-origin turn); without
   it the owner instance mounts no delivery route and such a send is refused
-  as `identity_not_granted`.
+  as `identity_not_granted`. An owner instance's `settings` are its intake
+  posture (lane 6, `OwnerPosture`): `intake: mentions_and_dms` (default —
+  a DM to the Owner or a mention of the Owner reaches the Resident,
+  `receivedBy: owner`; reactions are not intake), `all` (everything the
+  account sees), or `none` (send-only). A re-declaration that omits
+  `settings` keeps the stored posture. A reading owner instance holds the
+  platform's one ingress grant together with the bot instance: the row is
+  re-registered at the least tier any current reader declares, carries
+  `ownerIntake` while an Owner instance reads (a mention of the registered
+  Owner is then addressed to the Resident whichever instance observed it),
+  and is revoked with the last reader. Both instances seeing one message
+  hand it to routing once (`inboundOnce`). Without `grant.outbound` an owner
+  instance mounts neither a delivery nor a typing route.
 - The `grant` block is the Owner's per-instance perimeter policy: boot threads
   `grant.defaultTier` into the surface's ChannelGrant row through the channel
   supervisor (`DesiredChannelRow.defaultTier` → `registerTrustedChannelGrant`).

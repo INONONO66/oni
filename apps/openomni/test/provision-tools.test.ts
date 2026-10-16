@@ -518,6 +518,51 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     });
   });
 
+  test("#1569 an Owner instance's knobs are its intake posture, validated under the resolved identity", async () => {
+    const { port } = portWith();
+    const tool = createProvisionTool(port, () => NOW);
+    const context = {
+      sessionId: "provision-session",
+      turnId: "provision-turn",
+      callId: "owner-posture",
+      signal: new AbortController().signal,
+      domainRevisions: { "channel:slack:owner": -1 },
+    };
+    const declare = (settings: Record<string, string>) =>
+      tool.execute(
+        {
+          operation: {
+            op: "channel_add",
+            args: {
+              id: "channel:slack:owner",
+              provider: "slack",
+              identity: "owner",
+              enabled: true,
+              settings,
+              credential: { token: "xoxc-1", cookie: "d" },
+            },
+          },
+        },
+        context,
+      );
+    await expect(declare({ intake: "loud" })).rejects.toThrow("channel_add refused:");
+    expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
+    expect(await declare({ intake: "all" })).toMatchObject({ action: "declared" });
+    expect(plane().stores.instances.get("channel:slack:owner")?.settings).toEqual({ intake: "all" });
+    // A re-declaration that says nothing about settings keeps the posture.
+    expect(
+      await tool.execute(
+        { operation: { op: "channel_add", args: { id: "channel:slack:owner", provider: "slack", enabled: true, outbound: true } } },
+        { ...context, domainRevisions: { "channel:slack:owner": 0 } },
+      ),
+    ).toMatchObject({ action: "declared" });
+    expect(plane().stores.instances.get("channel:slack:owner")).toMatchObject({ settings: { intake: "all" }, grant: { outbound: true } });
+    // A bot declaration never carries the posture knob.
+    expect(await channelDeclare(port, () => NOW)({ id: "channel:slack:hq", provider: "slack", settings: { intake: "all" }, credential: { botToken: "xoxb-1", appToken: "xapp-1" } })).toContain(
+      "channel_add refused:",
+    );
+  });
+
   test("#1569 secret_rotate validates an Owner instance's replacement under the Owner arm's schema", async () => {
     const { port } = portWith();
     const tool = createProvisionTool(port, () => NOW);

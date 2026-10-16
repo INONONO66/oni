@@ -85,6 +85,58 @@ for (const [label, facts] of addressedCases) {
   });
 }
 
+test("a mention of the Owner is addressed where an Owner instance reads the platform, whichever instance observed it; elsewhere a mention-only grant filters it (#1569 lane 6)", async () => {
+  const friend = { kind: "external", surface: "slack", externalId: "T1:U-friend" } as const;
+  // A registered manager: admitted at top level by tier, so only the posture decides.
+  const mountWithFriend = (ownerIntake: boolean) => {
+    mount(true);
+    ledger().stores.channelGrants.put({
+      id: "grant-slack", surface: "slack", kind: "trusted_channel", defaultTier: "manager",
+      createdBy: "local-owner", mentionOnly: true, ...(ownerIntake ? { ownerIntake } : {}),
+    });
+    ledger().stores.actors.registerIdentity({ id: "actor-friend", kind: "human", trustTier: "manager" });
+    ledger().stores.actors.registerEndpoint({
+      id: "endpoint-friend", actorId: "actor-friend", channel: "slack", externalId: friend.externalId, workspace: "T1",
+    });
+  };
+  const ownerMention: Gateway.IngressFacts = {
+    ...channelFacts, eventId: "owner-mention-1", render: "<@U-owner> can you look?",
+    payload: "<@U-owner> can you look?", addressees: [{ externalId: sender.externalId }],
+  };
+  // No Owner instance reads slack: the Owner is not the Resident, so the channel posture filters it.
+  mountWithFriend(false);
+  expect(await runEffect(makeRouter().ingest(friend, ownerMention))).toEqual({
+    status: "blocked_pre", reasonCode: "mention_only",
+  });
+  // An Owner instance reads slack: both copies of the one message are addressed and route.
+  for (const copy of [ownerMention, { ...ownerMention, receivedBy: "owner" as const }]) {
+    resetRouterState();
+    mountWithFriend(true);
+    expect(await runEffect(makeRouter().ingest(friend, copy))).toMatchObject({ status: "executed" });
+    expect(routingDecisions().some((decision) => decision.reason === "mention_only")).toBe(false);
+  }
+});
+
+test("the Owner instance's copy of a message is its own inbound id: the bot's recorded refusal is not replayed against it", async () => {
+  const friend = { kind: "external", surface: "slack", externalId: "T1:U-friend" } as const;
+  mount(true);
+  ledger().stores.channelGrants.put({
+    id: "grant-slack", surface: "slack", kind: "trusted_channel", defaultTier: "manager",
+    createdBy: "local-owner", mentionOnly: true, ownerIntake: true,
+  });
+  ledger().stores.actors.registerIdentity({ id: "actor-friend", kind: "human", trustTier: "manager" });
+  ledger().stores.actors.registerEndpoint({
+    id: "endpoint-friend", actorId: "actor-friend", channel: "slack", externalId: friend.externalId, workspace: "T1",
+  });
+  const unaddressed: Gateway.IngressFacts = { ...channelFacts, eventId: "chatter-1" };
+  // The bot's copy is filtered and recorded under the bot's inbound id.
+  expect((await runEffect(makeRouter().ingest(friend, unaddressed))).status).toBe("blocked_pre");
+  expect(ledger().stores.automations.decisions("slack:T1:C-general:chatter-1")).toHaveLength(1);
+  // The Owner's copy carries its own id, so the router decides it afresh (here: the same posture filters it too).
+  expect((await runEffect(makeRouter().ingest(friend, { ...unaddressed, receivedBy: "owner" }))).status).toBe("blocked_pre");
+  expect(ledger().stores.automations.decisions("slack:T1:C-general:chatter-1:owner")).toHaveLength(1);
+});
+
 test("a follow-up in a thread the Resident already answers in routes; a fresh thread does not", async () => {
   mount(true);
   const answered = Channel.SurfaceKey.fromChannel({

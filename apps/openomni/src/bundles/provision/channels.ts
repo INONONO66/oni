@@ -26,7 +26,10 @@ export const CHANNEL_DECLARE_INPUT = z
       .optional()
       .describe("Owner instances only: whether the Resident may send from the Owner's account on explicit instruction."),
     enabled: z.boolean().default(true),
-    settings: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+    settings: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .optional()
+      .describe("Non-secret knobs; an Owner instance's intake posture. A re-declaration keeps the stored settings."),
     credential: z
       .record(z.string(), z.string())
       .optional()
@@ -155,11 +158,15 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
     input: z.output<typeof CHANNEL_DECLARE_INPUT>,
     domainRevisions?: Readonly<Record<string, number>>,
   ) => {
-    // §4: knobs must parse under the provider's settings declaration before the row lands.
-    const badSettings = validateProviderSettings(input.provider, input.settings);
-    if (badSettings !== undefined) return refusal("channel_add", badSettings);
     const existing = port.instances.get(input.id);
     const identity = declaredIdentity(input, existing);
+    // A re-declaration keeps the stored knobs (an Owner row's posture is not
+    // dropped by an unrelated edit); a fresh declaration carries none.
+    const settings = input.settings ?? existing?.settings ?? {};
+    // §4: knobs must parse under the provider's settings declaration before
+    // the row lands — an Owner instance's are its intake posture (#1569).
+    const badSettings = validateProviderSettings(input.provider, settings, identity);
+    if (badSettings !== undefined) return refusal("channel_add", badSettings);
     if (channelConsentRequired(identity, input.outbound)) {
       if (domainRevisions === undefined)
         return refusal("channel_add", `${input.id}: an Owner instance and its outbound grant require Owner consent`);
@@ -190,7 +197,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
           provider: input.provider,
           identity,
           enabled: input.enabled,
-          settings: input.settings,
+          settings,
           ...(credentialRef === undefined ? {} : { credentialRef }),
           // The declared perimeter block survives a re-declaration; `outbound` is the Owner's call (#1569).
           ...(existing?.grant === undefined && input.outbound === undefined

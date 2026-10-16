@@ -13,7 +13,7 @@
  */
 
 import type { ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
-import { ChannelProviders, createWebhookProvider } from "@openomni/channels";
+import { ChannelProviders, createWebhookProvider, OwnerPosture } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
 
@@ -46,29 +46,39 @@ export interface ChannelComponent {
   readonly id: keyof typeof ChannelProviders;
   /** The account this instance speaks as (#1569); the surface mounts under `<id>:<identity>`. */
   readonly identity: Channel.Identity;
+  /**
+   * Whether this instance reads inbound (#1569 lane 6): every bot instance
+   * does; an Owner instance only under an intake posture on an arm that
+   * listens. A reading instance needs the platform's ingress grant.
+   */
+  readonly listens: boolean;
   /** Constructs the surface and binds the Resident handler. Called once per boot. */
   build(handler: Channel.MessageHandler): BuiltChannel;
 }
+
+type RuntimeFactory = (options: Parameters<ChannelProvider<never>["create"]>[3]) => ProviderRuntime;
+type ProviderRuntime = ReturnType<ChannelProvider<never>["create"]>;
 
 /**
  * One row: construct the provider runtime with the installation's typed
  * credential and bind the Resident handler. Credential admission happens
  * through the provider schema when the declared vault payload is opened.
  */
-function providerRow<TCredentials, TId extends keyof typeof ChannelProviders>(
-  provider: Pick<ChannelProvider<TCredentials, TId>, "id" | "create">,
+function providerRow(
+  id: keyof typeof ChannelProviders,
   identity: Channel.Identity,
-  credentials: TCredentials,
-  config: Channel.Config,
+  listens: boolean,
+  create: RuntimeFactory,
   deps: ChannelRuntimeDeps,
   /** #1569: an Owner instance without a declared outbound grant mounts no delivery route. */
   outbound = true,
 ): ChannelComponent {
   return {
-    id: provider.id,
+    id,
     identity,
+    listens,
     build(handler) {
-      const runtime = provider.create(credentials, config, deps.publish, {
+      const runtime = create({
         now: deps.now,
         id: deps.id,
         random: deps.random,
@@ -79,7 +89,7 @@ function providerRow<TCredentials, TId extends keyof typeof ChannelProviders>(
       return {
         surface: runtime.surface,
         ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
-        ...(runtime.typingRoute === undefined ? {} : { typingRoute: runtime.typingRoute }),
+        ...(runtime.typingRoute === undefined || !outbound ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
       };
     },
@@ -128,17 +138,26 @@ function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
   }
   const parsed = provider.credentials.safeParse(decoded.success);
   if (!parsed.success) return { invalid: parsed.error.message };
-  return providerRow(provider, "bot", parsed.data, {}, deps);
+  return providerRow(
+    provider.id,
+    "bot",
+    true,
+    (options) => provider.create(parsed.data, {}, deps.publish, options),
+    deps,
+  );
 }
 
 /**
  * The Owner-identity row (#1569): the provider's `owner` arm validates the
- * account session and builds the `<platform>:owner` surface; the delivery
- * route mounts only when the declaration's `grant.outbound` says so.
+ * account session and builds the `<platform>:owner` surface under the
+ * declaration's intake posture (`settings.intake`, lane 6); the delivery
+ * route mounts only when the declaration's `grant.outbound` says so, and
+ * the instance reads inbound only when the arm listens under a posture.
  */
 function ownerRow<TOwner>(
   provider: { readonly id: keyof typeof ChannelProviders; readonly owner?: OwnerArm<TOwner> },
   plaintext: Uint8Array,
+  settings: Provisioning.ChannelInstance["settings"],
   deps: ChannelRuntimeDeps,
   outbound: boolean,
 ): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
@@ -153,7 +172,16 @@ function ownerRow<TOwner>(
   }
   const parsed = arm.credentials.safeParse(decoded.success);
   if (!parsed.success) return { invalid: parsed.error.message };
-  return providerRow({ id: provider.id, create: arm.create }, "owner", parsed.data, {}, deps, outbound);
+  const posture = OwnerPosture.safeParse(settings);
+  if (!posture.success) return { invalid: `settings: ${posture.error.message}` };
+  return providerRow(
+    provider.id,
+    "owner",
+    arm.listen && posture.data.intake !== "none",
+    (options) => arm.create(parsed.data, posture.data, deps.publish, options),
+    deps,
+    outbound,
+  );
 }
 
 function declaredRow(
@@ -165,7 +193,7 @@ function declaredRow(
 ): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
   const key = instance.provider;
   if (instance.identity === "owner") {
-    return ownerRow(providers[key], plaintext, deps, instance.grant?.outbound === true);
+    return ownerRow(providers[key], plaintext, instance.settings, deps, instance.grant?.outbound === true);
   }
   if (key === "telegram") {
     return credentialRow(providers.telegram, plaintext, deps);
@@ -224,12 +252,15 @@ export function validateProviderCredential(
  */
 export function validateProviderSettings(
   provider: string,
-  settings: Record<string, string | number | boolean>,
+  settings: Provisioning.ChannelInstance["settings"],
+  identity: Channel.Identity = "bot",
 ): string | undefined {
   if (!isRegisteredProvider(provider)) {
     return `unknown provider ${provider}`;
   }
-  const parsed = ChannelProviders[provider].settings.safeParse(settings);
+  // #1569 lane 6: an Owner instance's knobs are its intake posture.
+  const schema = identity === "owner" ? OwnerPosture : ChannelProviders[provider].settings;
+  const parsed = schema.safeParse(settings);
   return parsed.success ? undefined : parsed.error.message;
 }
 

@@ -16,6 +16,7 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/discordbot", "src/provider/discord/sdk.ts"],
   ["agent-messenger/telegrambot", "src/provider/telegram/sdk.ts"],
   ["agent-messenger/slack", "src/provider/slack/owner-sdk.ts"],
+  ["agent-messenger/discord", "src/provider/discord/owner-sdk.ts"],
 ]);
 const JUDGMENT_ALLOWED_PACKAGES = new Set(["@openomni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;
@@ -133,12 +134,22 @@ describe("channels band import boundary", () => {
           path: "src/provider/slack/sdk.ts",
           text: 'import { SlackClient } from "agent-messenger/slack";',
         },
+        // #1569 lane 6: the Discord account SDK has its own one home too.
+        {
+          path: "src/provider/discord/owner-sdk.ts",
+          text: 'import { DiscordClient } from "agent-messenger/discord";',
+        },
+        {
+          path: "src/provider/discord/owner.ts",
+          text: 'import { DiscordClient } from "agent-messenger/discord";',
+        },
       ]),
     ).toEqual([
       "src/provider/slack/surface.ts: imports agent-messenger/slackbot",
       "src/provider/slack/sdk.ts: imports agent-messenger/discordbot",
       "src/router/index.ts: imports agent-messenger/slackbot",
       "src/provider/slack/sdk.ts: imports agent-messenger/slack",
+      "src/provider/discord/owner.ts: imports agent-messenger/discord",
     ]);
   });
 

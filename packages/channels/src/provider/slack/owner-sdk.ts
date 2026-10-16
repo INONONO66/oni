@@ -1,12 +1,14 @@
-import { SlackClient, SlackError } from "agent-messenger/slack";
+import { SlackClient, SlackError, SlackListener } from "agent-messenger/slack";
+import type { SlackListenerEventMap } from "agent-messenger/slack";
 
 /**
  * The slice of the agent-messenger Slack USER SDK the Owner instance speaks
- * (#1569 lane 5): the Web API as the Owner's own account, logged in with the
- * vault-opened `{token xoxc, cookie d}` the QR login produced. No listener
- * yet (lane 6). The SDK class satisfies this shape structurally; tests pass
- * scripted fakes. The inner `@slack/web-api` client is pinned to one physical
- * attempt by the surface (`singleAttempt`, shared with the bot seam).
+ * (#1569 lanes 5 and 6): the Web API as the Owner's own account, logged in
+ * with the vault-opened `{token xoxc, cookie d}` the QR login produced, and
+ * the RTM listener that sees what the account sees. The SDK classes satisfy
+ * these shapes structurally; tests pass scripted fakes. The inner
+ * `@slack/web-api` client is pinned to one physical attempt by the surface
+ * (`singleAttempt`, shared with the bot seam).
  */
 export interface SlackOwnerApi {
   login(credentials: { token: string; cookie: string }): Promise<object>;
@@ -18,13 +20,35 @@ export interface SlackOwnerApi {
   openConversation(users: string): Promise<{ channel_id: string }>;
 }
 
-/** Construction seam: the real SDK in production, scripted fakes in tests. */
+/** The SDK's RTM event map, re-exported so the surface never imports the SDK itself. */
+export type SlackOwnerEventMap = SlackListenerEventMap;
+
+/**
+ * The RTM listener over the account's session: `rtm.connect`, a websocket
+ * the SDK pings and reopens with its own unbounded backoff, every frame the
+ * account can see. Lifecycle is the custody wrapper's (`support/sdk-listener`).
+ */
+export interface SlackOwnerEvents {
+  on<K extends keyof SlackListenerEventMap>(
+    event: K,
+    listener: (...args: SlackListenerEventMap[K]) => void,
+  ): this;
+  start(): Promise<void>;
+  stop(): void;
+}
+
+/** Construction seams: the real SDK in production, scripted fakes in tests. */
 export interface SlackOwnerSdk {
   client(): SlackOwnerApi;
+  listener(client: SlackOwnerApi): SlackOwnerEvents;
 }
 
 export function slackOwnerSdk(): SlackOwnerSdk {
-  return { client: () => new SlackClient() };
+  return {
+    client: () => new SlackClient(),
+    // The listener only ever receives the client this same factory built.
+    listener: (client) => new SlackListener(client as SlackClient),
+  };
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { Channel, Gateway, Outbound } from "@openomni/protocol";
 import type { EffectRunner, MediaResolver, PublishPort } from "../types.js";
-import type { z } from "zod";
+import { z } from "zod";
 
 /**
  * Existing-agent delivery through this provider, keyed by ActorEndpoint
@@ -134,13 +134,28 @@ export interface OwnerArm<TCredentials> {
   readonly credentials: z.ZodType<TCredentials, TCredentials>;
   readonly preconditions: readonly string[];
   readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing">;
+  /** Whether the account's own listener exists (#1569 lane 6); where false the instance only sends. */
+  readonly listen: boolean;
   create(
     credentials: TCredentials,
-    config: Channel.Config,
+    posture: OwnerPosture,
     publish: PublishPort,
     options: ProviderOptions,
   ): ProviderRuntime;
 }
+
+/**
+ * The Owner instance's declared intake (#1569 lane 6, `ChannelInstance.settings`
+ * of an `identity: owner` row): what the account's listener hands to the
+ * Resident. `mentions_and_dms` (the default) is a DM to the Owner or a
+ * mention of the Owner; `all` is everything the account can see, the bot
+ * posture; `none` mounts no listener at all. The account's own messages are
+ * never an outside event; reactions are not intake.
+ */
+export const OwnerPosture = z
+  .object({ intake: z.enum(["mentions_and_dms", "all", "none"]).default("mentions_and_dms") })
+  .strict();
+export type OwnerPosture = z.infer<typeof OwnerPosture>;
 
 export interface ChannelProvider<TCredentials, TId extends string = string, TOwner = never> {
   readonly id: TId;
