@@ -5,8 +5,8 @@ import { CHILD_PRESET, RESIDENT_PRESET } from "../bundles/prompt/roles";
 import { createResident as createResidentBundle, type ResidentOptions as ResidentBundleOptions } from "../bundles/resident/index";
 import type { ToolPorts } from "./catalog";
 
-export type ResidentOptions = Omit<ResidentBundleOptions, "presets" | "id" | "clock" | "reactions"> & {
-  /** Identity, clock and reaction door; tool bodies bind the same ports through the manifest (#1561). */
+export type ResidentOptions = Omit<ResidentBundleOptions, "presets" | "id" | "clock" | "gateway"> & {
+  /** Identity, clock and the gateway door (reply + reactions, #1569); tool bodies bind the same ports through the manifest (#1561). */
   readonly tools: ToolPorts;
   readonly prompts?: PromptCatalog;
 };
@@ -25,6 +25,6 @@ export function createResident(options: ResidentOptions) {
     },
     id: ports.id,
     clock: ports.clock,
-    reactions: ports.messages,
+    gateway: ports.messages,
   });
 }

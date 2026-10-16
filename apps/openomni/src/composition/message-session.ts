@@ -4,11 +4,57 @@ const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
 const SessionEntity = Core.SessionEntity;
 import { Delivery, Gateway, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@openomni/protocol";
-import { SendAdmissionConflict, type createGatewayRouter } from "@openomni/channels";
+import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@openomni/channels";
+import { z } from "zod";
 import type { AppLedgerPlane } from "./cluster-runtime";
 import { outboundMessage } from "./terminal-message";
 
 type Ports = Parameters<typeof createGatewayRouter>[0];
+
+/** The origin a channel prompt was recorded with (`message-execution.ts`); other origins bind no conversation. */
+const ExternalOrigin = z
+  .object({
+    kind: z.literal("external"),
+    surface: z.string().min(1),
+    externalId: z.string().min(1),
+    actorId: z.string(),
+    conversation: z
+      .object({
+        channelId: z.string().min(1),
+        messageId: z.string().min(1),
+        dm: z.boolean(),
+        workspaceId: z.string().min(1).optional(),
+        threadId: z.string().min(1).optional(),
+      })
+      .strict(),
+  })
+  .loose();
+
+/**
+ * The reply door's binding (#1569): the conversation the named prompt came
+ * from, read off this session's own ledger — a message id another session
+ * received, or one that never was a channel prompt, binds nothing and the
+ * gateway refuses the send as unbound. WebSocket owners read the turn stream.
+ */
+function originBinding(
+  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  send: Parameters<Ports["prepare"]>[1],
+): ConversationBinding | undefined {
+  if (send.to.kind !== "origin") return undefined;
+  const origin = ExternalOrigin.safeParse(kernel.actionById(send.to.inReplyTo)?.intent.value);
+  if (!origin.success || origin.data.surface === "ws") return undefined;
+  const { surface, externalId, actorId, conversation } = origin.data;
+  return {
+    surface,
+    externalId,
+    actorId,
+    channelId: conversation.channelId,
+    messageId: conversation.messageId,
+    dm: conversation.dm,
+    ...(conversation.workspaceId === undefined ? {} : { workspaceId: conversation.workspaceId }),
+    ...(conversation.threadId === undefined ? {} : { threadId: conversation.threadId }),
+  };
+}
 
 /** The Session entity client resolved once at boot (host-scoped). */
 type SessionEntityClient = Effect.Success<typeof SessionEntity.client>;
@@ -332,6 +378,34 @@ function withinDeadline(
   );
 }
 
+/** A new child's genesis and the fanout/depth limits the pinned policy declares for it; nothing for other targets. */
+function childCreation(
+  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  source: LedgerSession.Row,
+  send: Parameters<Ports["prepare"]>[1],
+  genesis: (
+    id: string,
+    parentId: string | null,
+    role: LedgerSession.Role,
+    runner: string,
+  ) => LedgerSession.Materialize,
+  target: string,
+): Effect.Effect<
+  { readonly createSession?: LedgerSession.Materialize; readonly limits?: { readonly fanout: number; readonly depth: number } },
+  SendAdmissionConflict
+> {
+  if (send.to.kind !== "new_session") return Effect.succeed({});
+  const bounds = admissionBounds(kernel, source, send);
+  const fanout = bounds.flatMap((check) => (check.kind === "fanout" ? [check.max] : []));
+  const depths = bounds.flatMap((check) => (check.kind === "depth" ? [check.max] : []));
+  if (fanout.length === 0 || depths.length === 0)
+    return Effect.fail(new SendAdmissionConflict({ message: "child admission bounds missing from pinned policy" }));
+  return Effect.succeed({
+    createSession: genesis(target, source.id, send.to.role, send.to.runner),
+    limits: { fanout: Math.min(...fanout), depth: Math.min(...depths) },
+  });
+}
+
 export function prepareMessage(
   plane: AppLedgerPlane,
   genesis: (
@@ -359,15 +433,13 @@ export function prepareMessage(
       });
       const parentDeadline = origins.at(-1)?.deadline;
       const outbound = yield* outboundMessage;
-      const bounds = admissionBounds(kernel, source, send);
-      const fanout = bounds.flatMap((check) => (check.kind === "fanout" ? [check.max] : []));
-      const depths = bounds.flatMap((check) => (check.kind === "depth" ? [check.max] : []));
-      if (send.to.kind === "new_session" && (fanout.length === 0 || depths.length === 0))
-        return yield* new SendAdmissionConflict({ message: "child admission bounds missing from pinned policy" });
+      const child = yield* childCreation(kernel, source, send, genesis, target);
       const depth = sessionDepth(source.parentId, rows);
       const openChildren = rows.filter((row) => row.parentId === sender.id).length;
+      const binding = originBinding(kernel, send);
       return {
         target,
+        ...(binding === undefined ? {} : { binding }),
         ...(outbound === undefined
           ? {}
           : {
@@ -375,12 +447,7 @@ export function prepareMessage(
               origin: outbound.input.message,
             }),
         sender: { sessionId: sender.id, owner: source.fenceOwner, fence: source.fence },
-        ...(send.to.kind === "new_session"
-          ? {
-              createSession: genesis(target, sender.id, send.to.role, send.to.runner),
-              limits: { fanout: Math.min(...fanout), depth: Math.min(...depths) },
-            }
-          : {}),
+        ...child,
         message: {
           sender: "session",
           senderRole: source.role,

@@ -251,23 +251,4 @@ describe("send kernel active-egress gate (#219 seam)", () => {
     expectDenied(receipt, "dnc_denied");
     expect(deliveries).toHaveLength(0);
   });
-
-  test("reply-not-throttled: a reply-scoped grant bypasses the gate even under do-not-contact", async () => {
-    // A reply into the initiating container (surface key qa:target-1), while
-    // the target carries a DNC budget: the reply still delivers and records NO
-    // debit — the gate only governs cold proactive outreach.
-    grants = [
-      {
-        id: "instance-1",
-        senderId: "actor:sender",
-        targetActorId: "actor:target",
-        operations: ["fire_and_forget", "awaited"],
-        expiresAt: messagingNow + 60_000,
-        ruleId: "rule-1",
-        replyScope: { surfaceKey: "qa:target-1" },
-      },
-    ];
-    budgets = [budget({ doNotContact: true })];
-    expectWithoutDebit(await runEffect(messaging().send(buildSendInput())));
-  });
 });

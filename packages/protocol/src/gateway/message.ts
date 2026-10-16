@@ -10,7 +10,7 @@ import { Outbound } from "./outbound.js";
 const Id = z.string().min(1);
 const DurationMs = z.number().nonnegative();
 const MessageType = z.enum(["message", "interrupt", "resume"]);
-const TargetKind = z.enum(["session", "new_session", "actor"]);
+const TargetKind = z.enum(["session", "new_session", "actor", "origin"]);
 const Addressee = z.enum(["bot", "owner", "ambient"]);
 const Verdict = z.enum(["allow", "deny"]);
 
@@ -26,9 +26,14 @@ const NewSessionTarget = z
     parent: z.literal("me"),
   })
   .strict();
+// The reply door (#1569): the conversation that prompted the turn, named by
+// the delivered prompt message id. Wire-only: the model-facing tool never
+// composes this kind; the app folds the binding and the router verifies it.
+const OriginTarget = z.object({ kind: z.literal("origin"), inReplyTo: Id }).strict();
 const Target = z.discriminatedUnion("kind", [
   SessionTarget,
   NewSessionTarget,
+  OriginTarget,
   // `surface` narrows delivery to one channel when the actor is reachable on
   // several (#1485); the send kernel's endpointId pin is not a model-facing fact.
   z
@@ -234,6 +239,7 @@ const DelegationCaps = Object.freeze({ maxDepth: 3, maxActiveChildren: 4 });
 export const MessageContract = {
   SessionTarget,
   NewSessionTarget,
+  OriginTarget,
   Send,
   RequestAnswer,
   Handle,

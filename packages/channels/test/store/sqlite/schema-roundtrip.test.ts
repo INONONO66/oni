@@ -136,7 +136,7 @@ function schemaBytes(db: Database): Map<string, string> {
   );
 }
 
-/** One deterministic row in every one of the ten channel-facing tables. */
+/** One deterministic row in every one of the nine channel-facing tables. */
 function seed(store: ChannelStore): void {
   store.actorRegistry.setIdentity({ id: "act_a", kind: "human", trustTier: "owner" });
   store.actorRegistry.setEndpoint({
@@ -163,16 +163,6 @@ function seed(store: ChannelStore): void {
     createdBy: "act_a", createdAt: 100, updatedAt: 200,
   });
   expect(
-    store.replyGrant.claim(
-      {
-        id: "rg-1", ruleId: "rule-1", senderId: "persona", targetActorId: "guest",
-        operations: ["fire_and_forget"], replyScope: { surfaceKey: "telegram:chat-1" },
-        expiresAt: TEST_NOW + 60_000,
-      },
-      { at: TEST_NOW, maxLiveInstances: 1 },
-    ),
-  ).toBe("claimed");
-  expect(
     store.egressBudget.claim(
       { id: "debit-1", senderId: "s", targetActorId: "t", class: "notify", at: TEST_NOW },
       TEST_NOW - 60_000,
@@ -188,7 +178,7 @@ function seed(store: ChannelStore): void {
 
 const TABLES = [
   "actor_identity", "actor_endpoint", "person", "secret", "channel_instance",
-  "channel_grant", "reply_grant", "egress_debit", "blacklist", "surface_key",
+  "channel_grant", "egress_debit", "blacklist", "surface_key",
 ] as const;
 
 /** What the replacer sees: a row column, a row, or the row array. */
@@ -216,6 +206,11 @@ describe("#1317 schema round-trip: the moved store is byte-identical to the cata
 
     const legacyBytes = schemaBytes(legacy);
     expect(legacyBytes.size).toBe(23);
+    // #1569 retired the reply_grant projection (one table, two indexes); every
+    // other object is still the catalog's exact bytes.
+    for (const name of [...legacyBytes.keys()])
+      if (name.includes("reply_grant")) legacyBytes.delete(name);
+    expect(legacyBytes.size).toBe(20);
     expect(schemaBytes(moved)).toEqual(legacyBytes);
   });
 
@@ -245,7 +240,8 @@ describe("#1317 schema round-trip: the moved store is byte-identical to the cata
         expect(rowBytes(reopened.db)).toEqual(rowBytes(freshDb));
         expect(reopened.store.actorRegistry.getIdentity("act_a")?.trustTier).toBe("owner");
         expect(reopened.store.surfaceKey.lookup("telegram:bot:chat:1")).toBe("ses-1");
-        expect(reopened.store.replyGrant.listLive(TEST_NOW)).toHaveLength(1);
+        // #1569: the retired reply_grant table is dropped on reopen.
+        expect(reopened.db.query("SELECT name FROM sqlite_master WHERE name = 'reply_grant'").all()).toEqual([]);
       } finally {
         reopened.close();
       }

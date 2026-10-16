@@ -25,6 +25,7 @@ import { seedKernelPolicyRows } from "../../src/composition/policy";
 import { createSendMessageTool } from "../../src/bundles/messaging/send-message/index";
 import { dispatchOutboundMessage } from "../../src/composition/terminal-message";
 import type { z } from "zod";
+const withExecutor = Core.withExecutor;
 import { Effect } from "effect";
 import { acquireSyncEffect, runEffect, runSyncEffect } from "./effect";
 import { testIds } from "./test-entropy";
@@ -87,9 +88,7 @@ export function messageFixture(
           beforeDispatch = undefined;
           yield* hook;
         }
-        const payload = toolInput(
-          Gateway.SendMessage.parse(JSON.parse(input.messages.at(-1)?.text ?? "null")),
-        );
+        const send = Gateway.SendMessage.parse(JSON.parse(input.messages.at(-1)?.text ?? "null"));
         const executor = yield* createExecutor({
           approvalPolicy: APPROVAL_POLICY,
           identity: {
@@ -102,9 +101,30 @@ export function messageFixture(
           },
           ledger: input.ledger,
         });
-        const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provideService(ToolCatalog, { definitions: [eraseTool(createSendMessageTool({ ingest: (...args) => runEffect(gateway.ingest(...args)) }, () => 100))] }));
+        const port = { ingest: (...args: Parameters<typeof gateway.ingest>) => runEffect(gateway.ingest(...args)) };
+        if (send.to.kind === "origin") {
+          // The reply door (#1569) is the app's own door, never a model tool:
+          // the fixture ingests it from the runner body under the turn's
+          // executor (`withExecutor`), the same way the resident's reply does.
+          result = yield* Effect.promise(() =>
+            withExecutor(executor, () => port.ingest({ kind: "session", id: sessionId }, send)).then(
+              (admitted): Tool.Result => ({
+                id: "reply",
+                toolCallId: "reply",
+                toolName: "reply",
+                content: JSON.stringify(admitted),
+                isError: admitted.status !== "executed",
+                settlement: "settled",
+              }),
+            ),
+          );
+          return { kind: "result" as const, text: result.content ?? "" };
+        }
+        const dispatcher = yield* createDispatcher({ executor }).pipe(Effect.provideService(ToolCatalog, {
+          definitions: [eraseTool(createSendMessageTool(port, () => 100))],
+        }));
         result = yield* dispatcher.execute(
-          { id: crypto.randomUUID(), tool: "send_message", input: payload },
+          { id: crypto.randomUUID(), tool: "send_message", input: toolInput(send) },
           { sessionId, turnId: input.turnId },
         );
         return { kind: "result" as const, text: result.content ?? "" };
@@ -140,6 +160,8 @@ function toolLetter(content: Gateway.SendMessage["content"]): Pick<SendMessageIn
  * (§3.5). Deadlines are absolute against the fixture clock of 100.
  */
 function toolInput(send: Gateway.SendMessage): SendMessageInput {
+  // The reply door is the app's own door (#1569); the runner routes it to its test face above.
+  if (send.to.kind === "origin") throw new Error("an origin send is not a tool face");
   return {
     to: send.to.kind === "actor" ? { kind: "contact", id: send.to.actorId } : send.to,
     ...toolLetter(send.content),

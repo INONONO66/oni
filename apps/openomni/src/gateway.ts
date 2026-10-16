@@ -612,7 +612,6 @@ export interface OutboundMessaging {
   readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
   readonly grants: () => readonly Gateway.SenderTargetGrant[];
   readonly budgets?: () => readonly Gateway.SocialBudget[];
-  readonly replyGrantRules?: () => readonly Gateway.ReplyGrantRule[];
 }
 
 /** One synchronous ledger unit on the ingress session file (decision facts live there). */
@@ -638,7 +637,6 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
     automation: plane.channel.automation,
     blacklist: plane.channel.blacklist,
     channelGrant: plane.channel.channelGrant,
-    replyGrant: plane.channel.replyGrant,
     egressBudget: plane.channel.egressBudget,
     surfaceKey: plane.channel.surfaceKey,
     decisionFacts: ingress.decisionFacts,

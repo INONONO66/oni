@@ -1,5 +1,86 @@
 # Implementation Status
 
+## #1569 the reply door (PR 4 of the epic)
+
+On `feat/1569-reply-door` (2026-10-16, stacked on PR 3). The ordinary answer
+to the conversation that prompted a Resident turn is no longer a synthesized
+`send_message` dispatch (#1482) but the gateway's own reply door. The wire
+carries one new target kind, `Gateway.OriginTarget` `{kind: "origin",
+inReplyTo}` on `Gateway.Send` only — the model-facing tool never composes
+it. The app (`composition/message-session.ts` `prepareMessage`) folds a
+`ConversationBinding` (surface, external id, actor id, workspace, channel,
+message, DM flag, thread) from the named prompt's recorded external origin,
+read off the sender's own ledger: a prompt another session received, or an
+id that never was a channel prompt, binds nothing. The router
+(`packages/channels/src/router/messaging/reply.ts`) verifies before policy
+that the sender is the session it routed the prompt to — it owns the
+ingress surface key the inbound claimed (`stores.surfaceKeys.lookup(key)
+=== sender.id`), or the automation ledger recorded it as that inbound's
+routed target (`stores.automations.decisions(inboundId)[0].target`, since
+an Owner automation's target never claims the key) — and that the surface
+has a delivery route; the binding verdict rides the existing `actor_send` check
+under the new compiled row `message.resident.reply_unbound` (targetKind
+`origin`), while `message.child.reply` is an unconditional `type` denial (a
+child has no reply door). Execution records one
+budget-free admission fact per message id (`admitReply`: a replay with the
+same content matches, different content is a typed `SendAdmissionConflict`)
+inside the ledger transaction, then delivers through the surface's route
+into the channel or thread the person wrote in (a DM directly) with the
+message id as idempotency key, and publishes `messaging.sent` with
+`grantId: binding:<surface key>`. The resident bundle
+(`bundles/resident/index.ts`) sends the turn's result (or reported error)
+through its `gateway` door as that origin send, under the turn's executor
+(`Core.withExecutor`, the invocation scope a tool body carries — the
+gateway's session `run` port reads `currentExecutor()`; the #1506 ack
+reactions, which had been calling the door outside any invocation and
+silently failing, ride the same scope now); a refusal or a failed send
+never fails the turn. A `send_message` letter the model addresses to the
+prompting conversation itself (same contact, same or unspecified surface,
+same chat and thread, or a DM when the prompt was one) is refused in the
+tool wave as `same_conversation` before it reaches the gateway; reactions
+and letters to another conversation, channel or person pass, and the reply
+still goes — the #1482 "suppressed when the model already reached that
+contact" rule is gone with the tool row. Deleted: the reply-grant
+materialization and its authority (`router/messaging/reply-grant.ts`,
+scoped-grant arms of `grant.ts`/`authorize.ts`, the `replyGrantRules`
+port, `Gateway.ReplyGrantRule`, `ruleId`/`replyScope` on
+`Gateway.SenderTargetGrant`, `Storage.ReplyGrantSubAdapter`), the
+`reply-grant` store and its SQLite adapter, the `reply_grant` table and two
+indexes (dropped on reopen; `schema-roundtrip` keeps the legacy DDL bytes
+for every other table), `createReplyGrantStore` from the barrel, and the
+tests `reply-grant`, `reply-grant-durable`, `reply-scope-guard`,
+`scoped-grant`, `store/reply-grant/persistence` and the reply arm of
+`social-budget`. Kept byte-frozen: the `reply_grant.endpoint.*` fact
+prefixes on `route.decided` (`router/endpoint-facts.ts`), now the
+initiator-endpoint pin. The schema snapshot (`script/conformance/
+schema-snapshot.json`) was regenerated for the removed contracts — that
+diff is the Owner's sign-off surface. Not in this PR: the Owner-draft arm
+for conversations only the Owner instance can reach (lane 5+). Receipts:
+`packages/channels/test/router/messaging/composition.test.ts` (routed
+session answers in-channel with the binding grant id and no debit; another
+session, an unknown prompt and a route-less surface refused before
+transport; receipt values; admission replay/conflict),
+`apps/openomni/test/reply-door.test.ts` (real gateway: binding fold, key
+ownership, `reply_unbound`, `child.reply`),
+`apps/openomni/test/resident-reply-to-origin.test.ts` (origin send naming
+the prompt, refusal/throw never fails the turn, `same_conversation` refusal
+with the reply still sent, other-conversation and reaction sends pass),
+`packages/protocol/test/gateway.test.ts` (grant shape),
+`packages/channels/test/router/endpoint-facts.test.ts` (frozen prefixes,
+malformed facts read as none). Adversarial review of the first cut
+(3 lenses × 2 refuters, 16 confirmed) added: the reply and the #1506
+reactions under `Core.withExecutor` with an end-to-end receipt driving the
+resident's own runner against the real gateway (`reply-door.test.ts`), the
+automation-ledger arm of the binding check with its composition pin, the
+`workspaceId` the resident's origin parser now accepts (a Slack/Discord
+prompt had lost its reactions, threaded typing and the `same_conversation`
+refusal), the DM arm of `same_conversation` (a letter naming the DM chat
+itself), DM/thread arms pinned on both routers, the budget exemption, the
+router-side ownership refusal, post-commit progress retention
+(`message-ingest`), and `Gateway.OriginTarget` exported and pinned in the
+schema snapshot and `gateway.test.ts`. Channels suite 866 pass, protocol
+622 pass, app suite 907 pass.
+
 ## #1569 messaging on the agent-messenger SDK — Telegram bot long-poll (PR 3 of the epic)
 
 On `feat/1569-sdk-telegram-bot` (2026-10-16, stacked on PR 2). Telegram
@@ -753,8 +834,9 @@ capabilities; platform vocabulary stays inside the provider band.
   (`.refine`, applied on the model path by the dispatcher's input parse). A
   channel contact rides the gateway ingest door; `CONTACT_KINDS` is `cli`
   only and the `ChannelEgressPort`/`HumanNotifyPort` connectors are deleted.
-  The turn-end report (#1482/#1485/#1490) still sends the result text through
-  the string sugar. `apps/openomni/src/composition/media.ts` is the app's
+  The turn-end report (#1482/#1485/#1490) sent the result text through the
+  string sugar until #1569 PR 4 moved it onto the reply door (an
+  origin-targeted gateway send, no tool row). `apps/openomni/src/composition/media.ts` is the app's
   `MediaResolver`: a ref with an authority is an `https` URL fetched with
   manual redirects (at most three hops, every hop re-admitted: https only,
   no loopback/link-local/private host), a 30 s timeout, and the body read in
@@ -3106,7 +3188,7 @@ WebSocket/path wake still commits one fired pair and reaches revision 59.
 | Perimeter gateway | Blacklist, physical request correlation, channel ceiling, actor identity, surface sessions, durable route decisions, and grant/egress/idempotency-controlled sends survive. Removed dialogue stores confer no routing rights. WebSocket credentials use the canonical auth subprotocol; query-only authentication is rejected (#974). | `packages/channels/src/router/`, `packages/channels/src/authn/websocket.ts`, `apps/openomni/src/gateway.ts` |
 | Provisioning | Durable persons, channel instances, and encrypted secrets; declared instances are the only channel provisioning owner, and nonblank legacy channel env credentials are refused at config load with `legacy_channel_credentials` (W2 #1110). The vault key and channel supervisor are composed at boot. The one-shot environment import command is deleted. | `packages/channels/src/store/provisioning/`, `apps/openomni/src/bundles/provision/` |
 | Runtime administration | The `provision` op union uses the live supervisor for channel/secret changes and status. Person mutations suspend their original invocation for authenticated approval when `approvalRequirement` demands one (editing the existing owner Person, or raising a tier above collaborator); other declarations and non-sole-owner `person_remove` apply directly. `contact_promote` and `contact_merge` suspend under the `require_approval` policy row until the Owner's answer re-admits the original invocation; the separate `approval` tool was deleted in `239b4273` (2026-09-08). | `apps/openomni/src/tools/provision.ts`, `apps/openomni/src/provisioning/supervisor.ts` |
-| Resident and native workers | Shared durable session handles and one app runner. A turn opened by an approved person on a channel surface (external origin with an `actorId`, not `ws`) reports its result to that person through the same `send_message` door after the turn, pinned to the surface they wrote on (a person on several channels is answered where they asked, #1485) and into the conversation they wrote in (a channel or thread message is answered in that thread, a DM directly, #1490), unless the model already reached that contact in the turn; every other external reply, and every session-to-session message, is an explicit `send_message` call (W2 #1110 removed the unconditional post-turn reply; the owner-only report returned with #1482). Native and real process child-to-parent delivery pass targeted tests; the old app delegation subtree and tools are removed. | `apps/openomni/src/bundles/resident/index.ts`, `apps/openomni/src/process-entry.ts`, `apps/openomni/src/composition/process-session.ts` |
+| Resident and native workers | Shared durable session handles and one app runner. A turn opened by an approved person on a channel surface (external origin with an `actorId`, not `ws`) answers that person through the reply door (#1569 PR 4): the result text enters the gateway as an origin-targeted send naming the delivered prompt, the app folds the conversation from that prompt's recorded origin (the surface they wrote on, #1485; the channel or thread they wrote in, a DM directly, #1490) and the router admits it on the surface-key binding the inbound claimed — no grant, budget or tool row. A `send_message` letter to that same conversation is refused in the tool wave as `same_conversation`; every other external letter, and every session-to-session message, is an explicit `send_message` call (W2 #1110 removed the unconditional post-turn reply; the owner-only report returned with #1482 as a synthesized tool dispatch, replaced by the door). Native and real process child-to-parent delivery pass targeted tests; the old app delegation subtree and tools are removed. | `apps/openomni/src/bundles/resident/index.ts`, `apps/openomni/src/process-entry.ts`, `apps/openomni/src/composition/process-session.ts` |
 | Session durability | Fenced single-flight execution, durable inbox/alarms, parent-linked rows, action history, generation snapshots, boot recovery, idle release, authoritative reads, revision-gap observation, bounded revision history pages (`history()`) and redacted causal inspection (`inspect()`) derived from committed actions (#972). Legacy public CRUD/message/TTL ownership is removed, not aliased. | `packages/agent/src/core/store/fence.ts`, `packages/agent/src/core/session/run.ts`, `packages/agent/src/inspect/index.ts`, `packages/agent/src/core/store/session-file/index.ts`, `packages/agent/src/core/store/storage/` |
 | Action executor and policy | Session-pinned compiled policy rows govern prompt/turn/model/tool/message pre/post decisions; message post is obligation-only. The executor owns model/tool intents and linked terminals; prompt/turn records remain session-owned. Old policy callback registries are deleted (#965); configure-authority and approval-binding seams remain tracked by B6/H6. Unconsumed general effect composition is deleted without replacement (#1030). | `packages/agent/src/core/loop/executor.ts`, `packages/agent/src/core/gate/compile.ts`, `apps/openomni/src/bundles/core-policy/index.ts` |
 | LLM | Canonical model/auth resolution, provider classification, retry-after/backoff, and corrected additive token accounting. The processor performs one attempt; session execution owns retry and re-admission. The unused public fact tap is removed (#976); ephemeral transcript folding and message/tool callbacks remain. | `packages/agent/src/model/`, `packages/agent/src/core/loop/executor.ts` |

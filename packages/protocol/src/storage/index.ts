@@ -131,21 +131,6 @@ export namespace Storage {
     remove(id: string): boolean;
   }
 
-  /** Current projection of committed admissions, not another admission ledger. */
-  export interface ReplyGrantSubAdapter {
-    /** Expiry, first-contact deduplication and the rule cap share one write lock. */
-    claim(
-      grant: Gateway.SenderTargetGrant & {
-        readonly ruleId: string;
-        readonly expiresAt: number;
-        readonly replyScope: NonNullable<Gateway.SenderTargetGrant["replyScope"]>;
-      },
-      bound: { readonly at: number; readonly maxLiveInstances: number },
-    ): "claimed" | "existing" | "capacity";
-    /** Indexed current view; no history reads or boot replay. Expiry is inclusive. */
-    listLive(at: number): Gateway.SenderTargetGrant[];
-  }
-
   /**
    * Provisioning declarations (docs/provisioning-and-providers.md §3):
    * Person manifests, ChannelInstance declarations, and vault Secret rows.

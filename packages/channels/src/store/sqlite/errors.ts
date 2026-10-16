@@ -9,13 +9,3 @@ export class ChannelStoreInvariant extends Data.TaggedError("ChannelStoreInvaria
   readonly operation: string;
   readonly message: string;
 }> {}
-
-/** An incoherent reply-grant projection row observed by the SQLite adapter. */
-export class ReplyGrantProjectionError extends Error {
-  readonly code = "incoherent_reply_grant";
-
-  constructor(readonly grantId: string) {
-    super(`Incoherent reply-grant projection: ${grantId}`);
-    this.name = "ReplyGrantProjectionError";
-  }
-}

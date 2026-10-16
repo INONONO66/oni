@@ -1000,21 +1000,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
                 })),
               ),
           budgets: () => config.socialBudgets ?? [],
-          replyGrantRules: () =>
-            plane
-              .listSessions()
-              .filter((row) => row.role === "resident")
-              .flatMap((row) =>
-                [...deliveryRoutes.keys()].map((surface) => ({
-                  id: `reply:${row.id}:${surface}`,
-                  senderId: row.id,
-                  surface,
-                  operations: ["fire_and_forget" as const, "awaited" as const],
-                  instanceTtlMs: 86_400_000,
-                  maxLiveInstances: 64,
-                  createdBy: "resident",
-                })),
-              ),
+          // #1569: the reply to the conversation that prompted a turn needs no
+          // grant — the router's own conversation binding authorizes it.
         },
         policy.approval,
       ),

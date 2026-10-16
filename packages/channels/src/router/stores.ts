@@ -5,7 +5,6 @@ import { createAutomationStore, type AutomationAdapter } from "../store/automati
 import { createBlacklistStore } from "../store/blacklist/index.js";
 import { createChannelGrantStore } from "../store/channel-grant/index.js";
 import { createEgressBudgetStore } from "../store/egress/index.js";
-import { createReplyGrantStore } from "../store/reply-grant/index.js";
 import type { Storage as ProtocolStorage } from "@openomni/protocol";
 
 export interface ChannelStoreSource {
@@ -13,7 +12,6 @@ export interface ChannelStoreSource {
   readonly automation?: AutomationAdapter;
   readonly blacklist?: ProtocolStorage.BlacklistSubAdapter;
   readonly channelGrant?: ProtocolStorage.ChannelGrantSubAdapter;
-  readonly replyGrant?: ProtocolStorage.ReplyGrantSubAdapter;
   readonly egressBudget?: ProtocolStorage.EgressBudgetSubAdapter;
   readonly surfaceKey?: ProtocolStorage.SurfaceKeySubAdapter;
   readonly decisionFacts?: ProtocolStorage.DecisionFactSubAdapter;
@@ -27,7 +25,6 @@ export function createChannelStores(source: ChannelStoreSource) {
     automations: createAutomationStore(source),
     blacklist: createBlacklistStore(source),
     channelGrants: createChannelGrantStore(source),
-    replyGrants: createReplyGrantStore(source),
     egressBudgets: createEgressBudgetStore(source),
     surfaceKeys: createSurfaceKeyStore(source),
     decisionFacts: createDecisionFactPort(source),

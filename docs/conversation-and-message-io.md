@@ -28,13 +28,13 @@ Opted-in provisional contact minting is bounded by the existing channel policy a
 
 A turn that came from a conversation answers in that conversation through the reply door: the result text goes back to the channel and thread the person wrote in, as the bot, with no model tool call. If only the Owner instance can reach that conversation, the reply is delivered to the Owner as a draft rather than sent as the Owner.
 
-`send_message` is for every other party: an existing session, a new child session, a CLI agent, or a contact on another channel, person or conversation than the one the work came from. Its `contact` target carries the surface, the conversation and, by explicit instruction, the identity. A driver never turns a returned handler value into a platform response: a final assistant answer is a separate actor send through the gateway. Until the reply-door split ships, that send is the app-synthesized post-turn report of #1482 (see Implementation Status).
+`send_message` is for every other party: an existing session, a new child session, a CLI agent, or a contact on another channel, person or conversation than the one the work came from. Its `contact` target carries the surface, the conversation and, by explicit instruction, the identity. A letter addressed to the very conversation that prompted the turn is refused before the gateway (`same_conversation`): that conversation is answered by the plain reply. A driver never turns a returned handler value into a platform response: the final assistant answer enters the gateway as an origin-targeted send whose authority is the router's conversation binding, not a grant (shipped by #1569 PR 4; see Implementation Status).
 
 ## Delivery
 
 Session mail becomes a prompt at atomic inbox commit and passes the receiving session's prompt pre-policy. New child configuration and first mail share that commit. Session delivery has no external receipt classification.
 
-Actor sends use existing grants, exact endpoint resolution, egress budget and stable platform idempotency keys. Their executed values distinguish accepted, rejected and unknown. A committed first contact can create a bounded, endpoint-scoped reply grant. The indexed durable projection survives restart without replaying routing history; endpoint rebinding cannot expand its scope.
+Actor sends use existing grants, exact endpoint resolution, egress budget and stable platform idempotency keys. Their executed values distinguish accepted, rejected and unknown. The reply door shares the delivery custody (one admission fact per message id, one physical attempt per key) but neither a grant nor a budget: a reply is never outreach.
 
 WebSocket admission receipts and later message frames are distinct. Rendering and chunking remain provider-owned, after admission.
 

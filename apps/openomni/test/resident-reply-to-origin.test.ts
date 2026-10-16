@@ -35,18 +35,32 @@ function capturingPort(
   };
 }
 
-function replyingLlm(reply: string, toolCall?: { readonly contact: string; readonly message: string }) {
+interface ModelSend {
+  readonly contact: string;
+  readonly message?: string;
+  readonly react?: string;
+  readonly surface?: string;
+  readonly conversation?: Gateway.Conversation;
+}
+
+function replyingLlm(reply: string, toolCall?: ModelSend, onToolResult?: (result: { readonly isError?: boolean | undefined; readonly content?: string | undefined }) => void) {
   return {
     resolveModel: (model: { readonly id: string; readonly provider: string }) =>
       Effect.succeed({ id: model.id, name: model.id, providerID: model.provider }),
     run: (input: RunInput, sink: Sink) => Effect.sync(() => {
       if (toolCall !== undefined) {
+        const { contact, surface, conversation, ...letter } = toolCall;
         const result = requestToolStep(input, sink, {
           id: "call-1",
           tool: "send_message",
-          input: { to: { kind: "contact", id: toolCall.contact }, message: toolCall.message, kind: "prompt" },
+          input: {
+            to: { kind: "contact", id: contact, ...(surface === undefined ? {} : { surface }), ...(conversation === undefined ? {} : { conversation }) },
+            ...letter,
+            kind: "prompt",
+          },
         });
         if (result === undefined) return { type: "stop" as const };
+        onToolResult?.(result);
       }
       sink.onMessage(assistantMessage(input, { text: reply }));
       return { type: "stop" as const };
@@ -86,6 +100,9 @@ async function deliverExternal(
 }
 
 const telegramOwner = { surface: "telegram", externalId: "7", actorId: "person:owner", messageId: "telegram::7:1" };
+/** The delivered prompt's id: what the reply door names (#1569). */
+const PROMPT_ID = "telegram::7:1";
+const REPLY_TO_ORIGIN: Gateway.SendMessage["to"] = { kind: "origin", inReplyTo: PROMPT_ID };
 
 const ACK = { pending: "👀", ok: "✅", failed: "❌" };
 const ackOrigin = { ...telegramOwner, conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: false } };
@@ -94,7 +111,7 @@ const ackOrigin = { ...telegramOwner, conversation: { channelId: "7", messageId:
 const reactionsOf = (ingested: readonly Ingested[]) =>
   ingested.flatMap((entry) => (entry.content.kind === "react" ? [entry.content] : []));
 
-test("a configured channel turn acknowledges through the gateway door, reports, then swaps in the terminal emoji", async () => {
+test("a configured channel turn acknowledges through the gateway door, replies, then swaps in the terminal emoji", async () => {
   const ingested: Ingested[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
@@ -113,6 +130,11 @@ test("a configured channel turn acknowledges through the gateway door, reports, 
   expect(ingested[0]).toMatchObject({
     sender: { kind: "session", id: "reply-origin-ack" },
     to: { kind: "actor", actorId: "person:owner", surface: "telegram", conversation: { channelId: "7", replyToMessageId: telegramOwner.messageId } },
+  });
+  expect(ingested[1]).toEqual({
+    sender: { kind: "session", id: "reply-origin-ack" },
+    to: REPLY_TO_ORIGIN,
+    content: Outbound.payload("pong"),
   });
 });
 
@@ -147,7 +169,7 @@ test("a failed turn settles the reaction as failed", async () => {
   expect(reactionsOf(ingested).map((reaction) => reaction.emoji)).toEqual(["👀", "❌"]);
 });
 
-test("an evidence-only message is never reacted to", async () => {
+test("an evidence-only message is never reacted to nor answered", async () => {
   const ingested: Ingested[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
@@ -171,7 +193,7 @@ test("a port that throws on reactions does not fail the turn", async () => {
       messages: {
         ingest: async (_sender, message) => {
           if (Outbound.payload((message as Gateway.SendMessage).content).kind !== "react")
-            return { status: "blocked_pre", reasonCode: "message.resident.actor_grant" };
+            return { status: "blocked_pre", reasonCode: "message.resident.reply_unbound" };
           attempts += 1;
           throw new Error("gateway unreachable");
         },
@@ -203,7 +225,7 @@ test("a refused pending reaction does not fail the turn and still ends with the 
   expect(reactionsOf(ingested).map((reaction) => reaction.emoji)).toEqual(["👀", "✅"]);
 });
 
-test("a turn answering an approved person on a channel reports its result to that person", async () => {
+test("a turn answering an approved person on a channel replies through the reply door, naming the delivered prompt (#1569)", async () => {
   const ingested: Ingested[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
@@ -214,19 +236,42 @@ test("a turn answering an approved person on a channel reports its result to tha
   });
   const result = await deliverExternal(resident, "reply-origin-telegram", telegramOwner, "ping");
   expect(result.kind).toBe("result");
+  // The gateway folds the channel, conversation and thread from the prompt's
+  // recorded origin (#1485/#1490); the turn names only the prompt it answers.
   expect(ingested).toEqual([
     {
       sender: { kind: "session", id: "reply-origin-telegram" },
-      to: { kind: "actor", actorId: "person:owner", surface: "telegram" },
+      to: REPLY_TO_ORIGIN,
       content: Outbound.payload("pong"),
     },
   ]);
 });
 
+test("a refused or failed reply never fails the turn: the result is recorded either way", async () => {
+  const ingested: Ingested[] = [];
+  const refusing = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(ingested, () => false) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  expect((await deliverExternal(refusing, "reply-origin-refused-reply", telegramOwner, "ping")).kind).toBe("result");
+  expect(ingested.map((entry) => entry.to)).toEqual([REPLY_TO_ORIGIN]);
+  const throwing = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: { ingest: async () => { throw new Error("gateway unreachable"); } } },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  expect((await deliverExternal(throwing, "reply-origin-thrown-reply", telegramOwner, "ping")).kind).toBe("result");
+});
+
 test.each([
   { outcome: "result", stop: "stop" as const },
   { outcome: "error", stop: "error" as const },
-])("an external turn pulses its recorded conversation until the model run ends ($outcome), before any report", async ({ outcome, stop }) => {
+])("an external turn pulses its recorded conversation until the model run ends ($outcome), before any reply", async ({ outcome, stop }) => {
   const ingested: Ingested[] = [];
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -234,7 +279,7 @@ test.each([
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
-    tools: { messages: capturingPort(ingested, () => { events.push("report"); return true; }) },
+    tools: { messages: capturingPort(ingested, () => { events.push("reply"); return true; }) },
     typingRoute: (surface) => surface === "telegram"
       ? {
           everyMs: 4_000,
@@ -268,32 +313,15 @@ test.each([
   expect(events).toEqual(['open 7 {"channelId":"C1","replyToMessageId":"m-1"}', "pulse"]);
   release.resolve();
   expect((await turn).kind).toBe(outcome);
-  // The pulse scope closed with the model run; the report (the answer, or the
+  // The pulse scope closed with the model run; the reply (the answer, or the
   // failure text) always comes after the last pulse.
-  expect(events.slice(2)).toEqual(["report"]);
+  expect(events.slice(2)).toEqual(["reply"]);
   expect(ingested).toHaveLength(1);
+  expect(ingested[0]?.to).toEqual(REPLY_TO_ORIGIN);
   if (outcome === "result") expect(ingested[0]?.content).toEqual(Outbound.payload("pong"));
 });
 
-test("the report goes back on the channel the person wrote on, not another of their endpoints (#1485)", async () => {
-  const ingested: Ingested[] = [];
-  const resident = residentRunner({
-    model: { provider: "fake", id: "resident-test" },
-    apiKey: "test-key",
-    tools: { messages: capturingPort(ingested) },
-    sessionRuntime: { clock: () => 10 },
-    llm: replyingLlm("pong"),
-  });
-  await deliverExternal(
-    resident,
-    "reply-origin-slack",
-    { surface: "slack", externalId: "T1:U1", actorId: "person:owner", messageId: "slack::T1:U1:1" },
-    "ping",
-  );
-  expect(ingested.map((item) => item.to)).toEqual([{ kind: "actor", actorId: "person:owner", surface: "slack" }]);
-});
-
-test("a message written in a channel thread is answered in that thread, a DM directly (#1490)", async () => {
+test("the reply names the latest channel prompt the turn answers, whatever surface or thread it came from", async () => {
   const ingested: Ingested[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
@@ -307,49 +335,132 @@ test("a message written in a channel thread is answered in that thread, a DM dir
     ...slackOwner,
     conversation: { channelId: "C1", threadId: "1710.0001", messageId: "1710.0002", dm: false },
   }, "ping");
-  await deliverExternal(resident, "reply-origin-dm", {
-    ...slackOwner,
-    conversation: { channelId: "D1", messageId: "1710.0003", dm: true },
-  }, "ping");
-  expect(ingested.map((item) => item.to)).toEqual([
-    {
-      kind: "actor",
-      actorId: "person:owner",
-      surface: "slack",
-      conversation: { channelId: "C1", threadId: "1710.0001", replyToMessageId: "1710.0002" },
-    },
-    { kind: "actor", actorId: "person:owner", surface: "slack" },
-  ]);
+  expect(ingested.map((item) => item.to)).toEqual([{ kind: "origin", inReplyTo: "slack::T1:U1:1" }]);
 });
 
-test("an explicit send_message to the same person in the turn is not duplicated by the report", async () => {
+test("a send_message letter to the conversation that prompted the turn is refused as same_conversation; the reply still goes", async () => {
   const ingested: Ingested[] = [];
+  const results: { readonly isError?: boolean | undefined; readonly content?: string | undefined }[] = [];
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
     tools: { messages: capturingPort(ingested) },
     sessionRuntime: { clock: () => 10 },
-    llm: replyingLlm("sent it", { contact: "person:owner", message: "테스트 OK" }),
+    llm: replyingLlm("sent it", { contact: "person:owner", message: "테스트 OK" }, (result) => results.push(result)),
   });
-  await deliverExternal(resident, "reply-origin-explicit", telegramOwner, "send a test");
-  expect(ingested.map((item) => item.content)).toEqual([Outbound.payload("테스트 OK")]);
+  // A DM prompt: a letter to that person with no surface or conversation is the same conversation.
+  await deliverExternal(resident, "reply-origin-same", telegramOwner, "send a test");
+  expect(results).toHaveLength(1);
+  expect(results[0]?.isError).toBe(true);
+  expect(results[0]?.content).toContain("same_conversation");
+  expect(ingested.map((item) => [item.to, item.content])).toEqual([[REPLY_TO_ORIGIN, Outbound.payload("sent it")]]);
 });
 
-test("a refused explicit send leaves the person still owed the report (#1485)", async () => {
+test("a Slack-shaped origin (workspace recorded) still folds the conversation: reactions, threaded typing and the same_conversation refusal all hold", async () => {
   const ingested: Ingested[] = [];
+  const results: { readonly isError?: boolean | undefined; readonly content?: string | undefined }[] = [];
+  const opened: string[] = [];
+  const slackOwner = { surface: "slack", externalId: "T1:U1", actorId: "person:owner", messageId: "1710.0002" };
   const resident = residentRunner({
     model: { provider: "fake", id: "resident-test" },
     apiKey: "test-key",
-    // The model's own send (no surface) is refused; the pinned report is admitted.
-    tools: { messages: capturingPort(ingested, (send) => send.to.kind === "actor" && send.to.surface !== undefined) },
+    ackReaction: ACK,
+    tools: { messages: capturingPort(ingested) },
+    typingRoute: (surface) => surface === "slack"
+      ? {
+          everyMs: 4_000,
+          open: async (externalId, conversation) => {
+            opened.push(JSON.stringify(conversation));
+            return conversation ?? { channelId: externalId };
+          },
+          pulse: async () => undefined,
+        }
+      : undefined,
     sessionRuntime: { clock: () => 10 },
-    llm: replyingLlm("could not send it", { contact: "person:owner", message: "테스트 OK" }),
+    llm: replyingLlm(
+      "sent it",
+      { contact: "person:owner", message: "again", surface: "slack", conversation: { channelId: "C1", threadId: "1710.0001" } },
+      (result) => results.push(result),
+    ),
   });
-  await deliverExternal(resident, "reply-origin-refused", telegramOwner, "send a test");
-  expect(ingested.map((item) => [item.content, item.to.kind === "actor" ? item.to.surface : undefined])).toEqual([
-    [Outbound.payload("테스트 OK"), undefined],
-    [Outbound.payload("could not send it"), "telegram"],
-  ]);
+  await deliverExternal(resident, "reply-origin-workspace", {
+    ...slackOwner,
+    conversation: { channelId: "C1", threadId: "1710.0001", messageId: "1710.0002", dm: false, workspaceId: "T1" },
+  }, "ping");
+  expect(results.map((result) => result.isError === true)).toEqual([true]);
+  expect(results[0]?.content).toContain("same_conversation");
+  expect(opened).toEqual(['{"channelId":"C1","threadId":"1710.0001","replyToMessageId":"1710.0002"}']);
+  expect(ingested.map((entry) => entry.content.kind)).toEqual(["react", "message", "react"]);
+  expect(reactionsOf(ingested).map((reaction) => reaction.emoji)).toEqual(["👀", "✅"]);
+});
+
+test.each([
+  // The channel's top level is another conversation than the thread the person wrote in.
+  ["the same channel, outside the thread", { channelId: "7" }, false],
+  ["the same channel and thread", { channelId: "7", threadId: "t-1" }, true],
+  ["the same channel, another thread", { channelId: "7", threadId: "t-2" }, false],
+  ["another channel", { channelId: "8", threadId: "t-1" }, false],
+])("a letter into %s of a threaded prompt: refused %p", async (_name, conversation, refusedLetter) => {
+  const ingested: Ingested[] = [];
+  const results: { readonly isError?: boolean | undefined }[] = [];
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(ingested) },
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("done", { contact: "person:owner", message: "elsewhere", surface: "telegram", conversation }, (result) => results.push(result)),
+  });
+  await deliverExternal(resident, `reply-origin-thread-${JSON.stringify(conversation).length}-${refusedLetter}`, {
+    ...telegramOwner,
+    conversation: { channelId: "7", threadId: "t-1", messageId: telegramOwner.messageId, dm: false },
+  }, "ping");
+  expect(results.map((result) => result.isError === true)).toEqual([refusedLetter]);
+  expect(ingested.map((item) => item.to.kind)).toEqual(refusedLetter ? ["origin"] : ["actor", "origin"]);
+});
+
+test("a DM prompt refuses a letter naming no conversation or the DM chat itself, and passes one naming another chat", async () => {
+  for (const [conversation, refusedLetter] of [
+    [undefined, true],
+    [{ channelId: "7" }, true],
+    [{ channelId: "group-9" }, false],
+  ] as const) {
+    const ingested: Ingested[] = [];
+    const results: { readonly isError?: boolean | undefined }[] = [];
+    const resident = residentRunner({
+      model: { provider: "fake", id: "resident-test" },
+      apiKey: "test-key",
+      tools: { messages: capturingPort(ingested) },
+      sessionRuntime: { clock: () => 10 },
+      llm: replyingLlm("done", { contact: "person:owner", message: "elsewhere", ...(conversation === undefined ? {} : { conversation }) }, (result) => results.push(result)),
+    });
+    await deliverExternal(resident, `reply-origin-dm-${conversation?.channelId ?? "none"}`, {
+      ...telegramOwner,
+      conversation: { channelId: "7", messageId: telegramOwner.messageId, dm: true },
+    }, "ping");
+    expect(results.map((result) => result.isError === true)).toEqual([refusedLetter]);
+    expect(ingested.map((item) => item.to.kind)).toEqual(refusedLetter ? ["origin"] : ["actor", "origin"]);
+  }
+});
+
+test("a send_message letter to the same person in another conversation, channel or a reaction passes, and the reply still goes", async () => {
+  for (const [name, send] of [
+    ["another chat", { contact: "person:owner", message: "elsewhere", surface: "telegram", conversation: { channelId: "group-9" } }],
+    ["another channel", { contact: "person:owner", message: "elsewhere", surface: "slack" }],
+    ["a reaction", { contact: "person:owner", react: "👍", surface: "telegram", conversation: { channelId: "7", replyToMessageId: PROMPT_ID } }],
+  ] as const) {
+    const ingested: Ingested[] = [];
+    const results: { readonly isError?: boolean | undefined }[] = [];
+    const resident = residentRunner({
+      model: { provider: "fake", id: "resident-test" },
+      apiKey: "test-key",
+      tools: { messages: capturingPort(ingested) },
+      sessionRuntime: { clock: () => 10 },
+      llm: replyingLlm("done", send, (result) => results.push(result)),
+    });
+    await deliverExternal(resident, `reply-origin-other-${name.replace(" ", "-")}`, ackOrigin, "send a test");
+    expect(results.map((result) => result.isError === true)).toEqual([false]);
+    expect(ingested.map((item) => item.to.kind)).toEqual(["actor", "origin"]);
+  }
 });
 
 test("a WebSocket owner reads the turn stream and is not written to again", async () => {

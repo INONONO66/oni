@@ -1,6 +1,6 @@
 import { Ingress } from "@openomni/protocol";
 import type { ChannelStores } from "./stores.js";
-import { replyGrantEndpointFromFacts } from "./messaging/reply-grant";
+import { endpointFromFacts } from "./endpoint-facts";
 import { IngressRoutingError } from "../errors";
 
 /** Record before projection; a competing fact must preserve routing and reply authority. */
@@ -55,8 +55,8 @@ export function recordRouteDecided(
       decision,
     );
   }
-  const recordedEndpoint = replyGrantEndpointFromFacts(recorded.factsUsed);
-  const freshEndpoint = replyGrantEndpointFromFacts(decision.factsUsed);
+  const recordedEndpoint = endpointFromFacts(recorded.factsUsed);
+  const freshEndpoint = endpointFromFacts(decision.factsUsed);
   const endpointEquivalent =
     recordedEndpoint?.channel === freshEndpoint?.channel &&
     recordedEndpoint?.externalId === freshEndpoint?.externalId;

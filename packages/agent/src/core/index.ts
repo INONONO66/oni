@@ -32,6 +32,8 @@ export {
   ToolRefused, type ToolProjections, type ProjectableTool,
 } from "./loop/tool";
 export { toolInputSchema } from "./ports/capability";
+// The app runs its reply door and reactions under the turn's executor, as a tool body would.
+export { withExecutor } from "./loop/invocation";
 
 export {
   adoptedExecutor, makeSessionGenerations, createSessionChatRunner, closeSessions, getSessionHandle,

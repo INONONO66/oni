@@ -23,7 +23,11 @@ function testId(prefix: string): () => string {
   return () => { state.value += 1; return `${prefix}-${state.value}`; };
 }
 
-function recordingRouter(run: GatewayRouterPorts["run"], sender?: Delivery.Commit["sender"]) {
+function recordingRouter(
+  run: GatewayRouterPorts["run"],
+  sender?: Delivery.Commit["sender"],
+  taps: Pick<GatewayRouterPorts, "committed" | "observe"> = {},
+) {
   const commits: Delivery.Commit[] = [];
   const router = createGatewayRouter({
     requests: channelRequests(requestPort()),
@@ -33,6 +37,7 @@ function recordingRouter(run: GatewayRouterPorts["run"], sender?: Delivery.Commi
     id: testId("ingest"),
     sink: () => undefined,
     delivery: recordingDelivery(commits),
+    ...taps,
     prepare: () => Effect.succeed({
       target: "child",
       ...(sender === undefined ? {} : { sender }),
@@ -253,16 +258,25 @@ test.each(["interrupted", "outcome_unknown"] as const)("%s preserves the handle 
   expect(commits).toEqual([]);
 });
 
-test("post-execution denial retains the delivery handle and committed effect", async () => {
+test("post-execution denial retains the delivery handle, the committed effect, its callback and its observation", async () => {
+  const notified: Delivery.Row[] = [];
+  const observed: Gateway.MessageObservation["kind"][] = [];
   const { router, commits } = recordingRouter((_sender: Gateway.IngestSender, request: Parameters<GatewayRouterPorts["run"]>[1], body: Parameters<GatewayRouterPorts["run"]>[2]) => Effect.gen(function* () {
     yield* body(messageExecutionReceipt("source", "parent", request.intent));
     return { terminal: "blocked_post" as const, matchedRuleIds: ["post-rule"], reason: "post-denial" };
-  }));
+  }), undefined, {
+    committed: (row) => notified.push(row),
+    observe: (_sender, observation) => observed.push(observation.kind),
+  });
   const result = await runEffect(sendToChild(router, "work"));
   expect(result).toMatchObject({
     status: "blocked_post",
     reasonCode: "post-denial",
     handle: { target: "child" },
   });
+  // Commit progress survives the later denial: the executor's receipt, the
+  // committed callback and the message.committed observation all fire once.
   expect(commits).toHaveLength(1);
+  expect(notified.map((row) => row.sessionId)).toEqual(["child"]);
+  expect(observed).toEqual(["message.sent", "message.admitted", "message.committed"]);
 });

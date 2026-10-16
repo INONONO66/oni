@@ -2,13 +2,11 @@ import { ledger } from "../helpers/ledger";
 import { sessionTree } from "../../../agent/test/store/helpers/session-tree";
 import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../helpers/effect";
-import { Cause, Effect, Exit } from "effect";
+import { Effect, } from "effect";
 import { effectFailure } from "../helpers/effect-failure";
-import type { GatewayRouterPorts } from "../../src/router";
 import { replaceDecisionFacts } from "../helpers/ledger";
-import { replyGrantEndpointFacts } from "../../src/router/messaging/reply-grant";
-import { Channel, Ingress, type Gateway, type Delivery, type DecisionFact } from "@openomni/protocol";
-import { messageExecutionReceipt } from "../helpers/message-execution";
+import { endpointFacts } from "../../src/router/endpoint-facts";
+import { Channel, Ingress, type Delivery, type DecisionFact } from "@openomni/protocol";
 import { Bus } from "../helpers/observation";
 import { commits, createMappedOwnerSession, makeRouter, ownerEvent, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions, } from "./_router-fixture";
 
@@ -142,39 +140,6 @@ test.each([
   expect(routingDecisions()).toHaveLength(count);
 });
 
-test("a post-commit reply-grant failure retains commit progress for the executor receipt", async () => {
-  registerOwnerDm();
-  createMappedOwnerSession();
-  const failure = new Error("reply grant projection failed");
-  const observed: Gateway.MessageObservation[] = [];
-  const notified: Delivery.Row[] = [];
-  const router = makeRouter({
-    observe: (_sender: { kind: "external"; surface: string; externalId: string; } | { kind: "session"; id: string; }, observation: { messageId: string; kind: "message.sent"; sender: { kind: "external"; surface: string; externalId: string; } | { kind: "session"; id: string; }; targetKind: "session" | "actor" | "new_session"; type: "message" | "interrupt" | "resume"; bytes: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; matchedRuleIds: string[]; ingestMs: number; kind: "message.admitted"; verdict: "allow"; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; matchedRuleIds: string[]; ingestMs: number; kind: "message.rejected"; verdict: "deny"; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; kind: "message.committed"; commitMs: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; kind: "message.drained"; queueMs: number; boundary: "before_llm" | "after_llm" | "after_tools"; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; kind: "message.replied"; replyTo: string; roundTripMs: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; childTurnMs?: number | undefined; tokens?: number | undefined; } | { messageId: string; kind: "message.timed_out"; waitedMs: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; }) => observed.push(observation),
-    committed: (row: import("@openomni/protocol").Delivery.Row) => notified.push(row),
-    messaging: {
-      grants: () => [],
-      deliveryRoutes: new Map(),
-      replyGrantRules: () => {
-        throw failure;
-      },
-    },
-    run: (_sender: Gateway.IngestSender, request: Parameters<GatewayRouterPorts["run"]>[1], body: Parameters<GatewayRouterPorts["run"]>[2]) => Effect.gen(function* () {
-      const exit = yield* Effect.exit(body(messageExecutionReceipt("source", "ingress", request.intent)));
-      expect(Exit.isFailure(exit) ? exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect) : []).toEqual([failure]);
-      return { terminal: "blocked_post" as const, reason: "grant_projection_failed", matchedRuleIds: [] };
-    }),
-  });
-  expect(await runEffect(router.ingest(ownerSender, ownerFacts))).toMatchObject({
-    status: "blocked_post",
-    reasonCode: "grant_projection_failed",
-  });
-  expect(commits).toHaveLength(1);
-  expect(notified).toHaveLength(1);
-  expect(observed.filter((observation: { messageId: string; kind: "message.sent"; sender: { kind: "external"; surface: string; externalId: string; } | { kind: "session"; id: string; }; targetKind: "session" | "actor" | "new_session"; type: "message" | "interrupt" | "resume"; bytes: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; matchedRuleIds: string[]; ingestMs: number; kind: "message.admitted"; verdict: "allow"; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; matchedRuleIds: string[]; ingestMs: number; kind: "message.rejected"; verdict: "deny"; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; kind: "message.committed"; commitMs: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; kind: "message.drained"; queueMs: number; boundary: "before_llm" | "after_llm" | "after_tools"; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; } | { messageId: string; kind: "message.replied"; replyTo: string; roundTripMs: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; childTurnMs?: number | undefined; tokens?: number | undefined; } | { messageId: string; kind: "message.timed_out"; waitedMs: number; eventId?: string | undefined; traceId?: string | undefined; spanId?: string | undefined; parentSpanId?: string | undefined; sessionId?: string | undefined; runId?: string | undefined; turnId?: string | undefined; callId?: string | undefined; role?: "resident" | "child" | undefined; actorId?: string | undefined; agentName?: string | undefined; componentId?: string | undefined; componentGeneration?: number | undefined; pluginName?: string | undefined; pluginVersion?: string | undefined; configRevision?: number | undefined; time?: number | undefined; }) => observation.kind === "message.committed")).toHaveLength(
-    1,
-  );
-});
-
 test("reply endpoint changes reject an otherwise equivalent route replay", async () => {
   registerOwnerDm();
   createMappedOwnerSession();
@@ -184,7 +149,7 @@ test("reply endpoint changes reject an otherwise equivalent route replay", async
   const fact = ledger().sessions.decisionFacts?.head(streamId());
   if (fact === undefined) throw new Error("route fact missing");
   const original = Ingress.Events.RoutingDecision.schema.parse(fact.data);
-  const priorEndpoint: readonly string[] = replyGrantEndpointFacts({
+  const priorEndpoint: readonly string[] = endpointFacts({
     channel: ownerSender.surface,
     externalId: ownerSender.externalId,
   });
@@ -192,7 +157,7 @@ test("reply endpoint changes reject an otherwise equivalent route replay", async
     ...original,
     factsUsed: [
       ...original.factsUsed.filter((value: string) => !priorEndpoint.includes(value)),
-      ...replyGrantEndpointFacts({ channel: ownerSender.surface, externalId: "another-endpoint" }),
+      ...endpointFacts({ channel: ownerSender.surface, externalId: "another-endpoint" }),
     ],
   };
   expect(Ingress.routeDecisionsEquivalent(original, changed)).toBe(true);

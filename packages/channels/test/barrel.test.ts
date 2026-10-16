@@ -22,7 +22,6 @@ test("channels barrel exposes only its runtime public surface", () => {
     "createGatewayRouter",
     "createMachineEnrollmentStore",
     "createPersonStore",
-    "createReplyGrantStore",
     "createSecretStore",
     "createSurfaceKeyStore",
     "createWebhookProvider",

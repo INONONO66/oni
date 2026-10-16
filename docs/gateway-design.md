@@ -36,13 +36,13 @@ Pre-policy may deny, require approval or transform content. A routing transform 
 
 `IngestResult` is `blocked_pre`, `executed`, or `blocked_post`. Executed session delivery is `{kind: "session"}`: commit succeeds or throws. Only executed actor delivery has `{kind: "actor", value: "accepted" | "rejected" | "unknown"}`. Unknown delivery is never collapsed to rejection. A changed admission or failed durable commit throws rather than manufacturing a receipt.
 
-Final assistant text is a new actor send through ingest. A WebSocket `receipt` acknowledges admission; its later `message` carries text and a message id. Neither channel handlers nor typing wrappers write back a returned Resident value.
+Final assistant text enters ingest as an origin-targeted send (the reply door, below), not an actor send. A WebSocket `receipt` acknowledges admission; its later `message` carries text and a message id. Neither channel handlers nor typing wrappers write back a returned Resident value.
 
-## Actor egress and reply grants
+## Actor egress and the reply door
 
 Actor sends retain the existing sender-target grant, exact endpoint resolution, social budget and stable idempotency-key kernel. The platform owner receives the message id as its idempotency key. Session sends do not invoke that owner.
 
-A committed first contact can materialize a bounded reply-scoped grant from an Owner rule. Its workspace/channel and endpoint scope must match. `reply_grant` is an indexed durable current projection; restart reads live grants, never full `route.decided` history. Rebinding an endpoint invalidates the old scope. Rules, expiry and capacity do not create another session lifecycle.
+The reply to the conversation that prompted a turn is not an actor send and holds no grant (#1569). Its authority is the router's own conversation binding: inbound admission claimed the ingress surface key for the session it routed to, and only the session that owns that key may answer there. The composing app folds the binding from the named prompt's recorded origin; the router verifies ownership and a mounted delivery route before policy, records one budget-free admission fact per message id, and delivers into the channel or thread the person wrote in (a DM directly). The former rule-materialized reply grants, their durable projection and endpoint rebinding rule are gone; the initiator-endpoint facts on `route.decided` keep their byte-frozen names.
 
 ## Replies and deadlines
 

@@ -8,7 +8,6 @@ import { createSqliteBlacklistAdapter } from "./sqlite-blacklist-adapter.js";
 import { createSqliteChannelGrantAdapter } from "./sqlite-channel-grant-adapter.js";
 import { createSqliteEgressBudgetAdapter } from "./sqlite-egress-budget-adapter.js";
 import { createSqliteProvisioningAdapter } from "./sqlite-provisioning-adapter.js";
-import { createSqliteReplyGrantAdapter } from "./sqlite-reply-grant-adapter.js";
 import { createSqliteSurfaceKeyAdapter } from "./sqlite-surface-key-adapter.js";
 
 export interface ChannelStore {
@@ -16,7 +15,6 @@ export interface ChannelStore {
   readonly automation: AutomationAdapter;
   readonly blacklist: ProtocolStorage.BlacklistSubAdapter;
   readonly channelGrant: ProtocolStorage.ChannelGrantSubAdapter;
-  readonly replyGrant: ProtocolStorage.ReplyGrantSubAdapter;
   readonly egressBudget: ProtocolStorage.EgressBudgetSubAdapter;
   readonly surfaceKey: ProtocolStorage.SurfaceKeySubAdapter;
   readonly provisioning: ProtocolStorage.ProvisioningSubAdapter;
@@ -31,7 +29,6 @@ export function openChannelStore(db: Database, now: () => number): ChannelStore 
     automation: createSqliteAutomationAdapter(db, now),
     blacklist: createSqliteBlacklistAdapter(db, now),
     channelGrant: createSqliteChannelGrantAdapter(db, now),
-    replyGrant: createSqliteReplyGrantAdapter(db),
     egressBudget: createSqliteEgressBudgetAdapter(db, now),
     surfaceKey: createSqliteSurfaceKeyAdapter(db, now),
     provisioning: createSqliteProvisioningAdapter(db, now),
