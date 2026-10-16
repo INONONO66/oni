@@ -1,4 +1,4 @@
-import { DiscordClient, DiscordListener } from "agent-messenger/discord";
+import { DiscordClient, DiscordListener, loginWithRemoteAuth } from "agent-messenger/discord";
 import type { DiscordListenerEventMap } from "agent-messenger/discord";
 
 /**
@@ -39,5 +39,29 @@ export function discordOwnerSdk(): DiscordOwnerSdk {
     client: () => new DiscordClient(),
     // The listener only ever receives the client this same factory built.
     listener: (client) => new DiscordListener(client as DiscordClient),
+  };
+}
+
+/**
+ * The Owner's own sign-in (#1569 lane 5b): Discord's remote-auth QR, shown
+ * through `showQr` and scanned with the phone app, yields the account
+ * token. Nothing is stored here.
+ */
+export interface DiscordOwnerLoginInput {
+  readonly showQr: (url: string) => void | Promise<void>;
+  readonly timeoutMs?: number;
+}
+
+export async function discordOwnerLogin(
+  input: DiscordOwnerLoginInput,
+  login: typeof loginWithRemoteAuth = loginWithRemoteAuth,
+): Promise<{ token: string; userId?: string; username?: string }> {
+  const session = await login({
+    onQrUrl: input.showQr,
+    ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+  });
+  return {
+    token: session.token,
+    ...(session.user === null ? {} : { userId: session.user.id, username: session.user.username }),
   };
 }

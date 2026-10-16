@@ -1,4 +1,5 @@
 import * as Schema from "./schema.js";
+import * as Wire from "./wire.js";
 
 /**
  * Provisioning namespace (docs/provisioning-and-providers.md §3): Person /
@@ -21,4 +22,12 @@ export namespace Provisioning {
 
   export const VaultError = Schema.VaultError;
   export type VaultError = InstanceType<typeof Schema.VaultError>;
+
+  // #1569 lane 5b: the Owner's channel declaration over the ws wire.
+  export const ChannelDeclareRequest = Wire.ChannelDeclareRequest;
+  export type ChannelDeclareRequest = Wire.ChannelDeclareRequest;
+  export const ChannelDeclareRefused = Wire.ChannelDeclareRefused;
+  export type ChannelDeclareRefused = Wire.ChannelDeclareRefused;
+  export const ChannelDeclareResponse = Wire.ChannelDeclareResponse;
+  export type ChannelDeclareResponse = Wire.ChannelDeclareResponse;
 }

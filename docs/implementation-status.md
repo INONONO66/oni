@@ -1,5 +1,80 @@
 # Implementation Status
 
+## #1569 Login helpers and the channel wire: the Owner's own sign-in (lane 5b)
+
+On `feat/1569-login-helpers` (2026-10-17, stacked on lane 7). The Owner's
+own account is signed in through the agent-messenger SDK's flows and
+declared as the `owner` instance without any credential touching disk on
+the CLI side. `packages/channels/src/provider/owner-login.ts` gathers the
+four flows as `OwnerLogins` (exported from the channels index as the
+`OwnerLogin` port); each lives in its platform's `owner-sdk.ts` seam, the
+SDK subpath's one home: `slackOwnerLogin` walks Slack's QR magic login
+(the "Sign in on mobile" QR's image address, a mailed confirmation code
+asked for through the prompt only when Slack asks) and returns
+`{ token, cookie, workspace }`; `discordOwnerLogin` runs the remote-auth QR
+(the URL shown through the prompt) and returns the account token with the
+user when known; `instagramOwnerLogin` takes username and password, then
+the two-factor code or the security-challenge code through the prompts
+(`two_factor_required` / `challenge_required` / `login_incomplete` typed
+when the SDK offers no way on), and returns the SDK's session state —
+the SDK's device file is written into a scratch directory of the login's
+own, removed before the session is returned; `kakaoTalkOwnerLogin` takes
+email and password, shows the device passcode through the prompt, and
+returns `{ oauthToken, userId, deviceUuid, deviceType }`. The SDK's own
+credential store is never used. The wire: `Provisioning.ChannelDeclareRequest`
+/ `ChannelDeclareRefused` / `ChannelDeclareResponse`
+(`packages/protocol/src/provisioning/wire.ts`) is the provision tool's
+`channel_add` as a ws frame; `packages/channels/src/websocket.ts` decodes it
+(`decodeChannelDeclare`: a malformed frame is answered `invalid_record`
+naming its issues, never routed as chat); `apps/openomni/src/composition/channel-wire.ts`
+(`channelWire`) answers it — only the Owner's socket (the automation wire's
+admission: the registered identity, else the ws bootstrap grant) may
+declare, `owner_only` otherwise, `store_unconfigured` without provisioning,
+the tool's own refusal verbatim as `refused` — through `executeChannelDeclare`
+under `channelDomainRevisions`, so the declaration is bound to the instance
+revision exactly as an approved tool invocation is and an Owner instance
+passes consent by the call itself; `gateway.ts`'s `webSocketCallbacks`
+takes the wire as its `channels` port and `index.ts` composes it over the
+provisioning port. The CLI: `openomni login <slack|discord|instagram|kakaotalk>
+[--id channel:<platform>:owner] [--intake mentions_and_dms|all|none]
+[--outbound] [--auto-reply] [--print]` (`apps/openomni/src/cli/login.ts`)
+runs the sign-in, declares the instance over the Owner's socket
+(`main.ts`: `ws://$OPENOMNI_WS_HOST:$OPENOMNI_WS_PORT/ws` with the `auth`
+subprotocol from the env file, one frame out and the matching frame back)
+and prints its status; `--print` prints `{ provider, identity: "owner",
+credential }` instead, for an Owner declaring through the Resident's
+provision tool. The CLI fails closed
+around the sign-in, out of the PR's adversarial review: the declaration
+client is loopback-only and bounded — a refused upgrade, a socket closed
+before the answer, the gateway's id-less `error` frame and a silent daemon
+are typed errors within 60 s, never a hang with the session in memory; a
+declaration the daemon cannot take after the platform counted the sign-in
+(a device registration, a single-use code) shows the `--print` payload
+instead of losing it, and a failed sign-in declares nothing; the declared
+instance's own status decides the exit code (`mounted`, `ready` or
+`disabled`); `--auto-reply` needs `--outbound`; a wire-declared row is
+`createdBy: owner`; the KakaoTalk sign-in reads the SDK's own
+`authenticated` verdict and carries its reason (`passcode_request_failed`,
+`bad_credentials`, `choose_device`); the Instagram sign-in ends on a
+logged-in user — a checkpoint that closes without one re-runs the password
+login once — or not at all. Not in this lane: a live sign-in on any platform (the SDK
+flows are faked at the seam), a desktop sign-in, re-login on session
+expiry. Receipts: `packages/channels/test/owner-login.test.ts` (the four
+flows and their prompts, the Instagram scratch directory gone, the typed
+refusals), `test/websocket-channel-declare.test.ts` (decode and the
+`invalid_record` answer), `apps/openomni/test/cli-login.test.ts` (parsing,
+each platform's prompts, the declared request, the refused report,
+`--print`, the payload kept when the daemon cannot take the declaration,
+the own status deciding the exit, the secret prompts),
+`test/channel-wire.test.ts` (the Owner's socket over a booted daemon with
+an open vault: a refused bot credential lands nothing, the Owner instance
+is declared disabled with its credential sealed as `createdBy: owner`, a
+malformed frame is `invalid_record`, a collaborator's socket is
+`owner_only`; the CLI's real client against the daemon and against bare
+sockets that close, refuse the frame, refuse the token or sit off
+loopback), `test/cli.test.ts`; suites: `packages/channels`
+963 pass, `apps/openomni` 1009 pass, 0 fail.
+
 ## #1569 Owner-only platforms: Instagram and KakaoTalk through the Owner's account (lane 7)
 
 On `feat/1569-owner-only-platforms` (2026-10-17, stacked on lane 6). Two

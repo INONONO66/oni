@@ -1,4 +1,12 @@
-import { InstagramClient, InstagramError, InstagramHybridListener } from "agent-messenger/instagram";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  InstagramClient,
+  InstagramCredentialManager,
+  InstagramError,
+  InstagramHybridListener,
+} from "agent-messenger/instagram";
 import type { InstagramHybridListenerEventMap, InstagramMessageSummary } from "agent-messenger/instagram";
 
 /**
@@ -40,6 +48,8 @@ export interface InstagramOwnerEvents {
 export interface InstagramOwnerSdk {
   client(): InstagramOwnerApi;
   listener(client: InstagramOwnerApi, options: { readonly pollInterval: number }): InstagramOwnerEvents;
+  /** The sign-in client over a credential directory of the login's own (the SDK's device file goes there). */
+  loginClient(scratchDir: string): InstagramLoginApi;
 }
 
 export function instagramOwnerSdk(): InstagramOwnerSdk {
@@ -48,8 +58,86 @@ export function instagramOwnerSdk(): InstagramOwnerSdk {
     // The listener only ever receives the client this same factory built.
     listener: (client, options) =>
       new InstagramHybridListener(client as InstagramClient, { pollInterval: options.pollInterval }),
+    loginClient: (scratchDir) => new InstagramClient(new InstagramCredentialManager(scratchDir)),
   };
 }
 
 /** The SDK's error class: `code` names the platform refusal (`rate_limited`, `send_failed`, `not_authenticated`, …). */
 export { InstagramError as InstagramOwnerError };
+
+/** The SDK calls a password sign-in walks; the real client in production, a scripted fake in tests. */
+export interface InstagramLoginApi {
+  authenticate(
+    username: string,
+    password: string,
+  ): Promise<{
+    userId: string;
+    requiresTwoFactor?: boolean;
+    twoFactorInfo?: object;
+    challengeRequired?: boolean;
+    challengePath?: string;
+  }>;
+  twoFactorLogin(username: string, code: string, identifier: string): Promise<{ userId: string }>;
+  challengeSendCode(apiPath: string, method?: "email" | "sms"): Promise<{ contactPoint: string; stepName: string }>;
+  challengeSubmitCode(apiPath: string, code: string): Promise<{ userId: string }>;
+  getSessionState(): object;
+}
+
+/**
+ * The Owner's own sign-in (#1569 lane 5b): username and password, then the
+ * platform's two-factor code or security challenge through the prompts.
+ * The SDK keeps the device identity it minted under `scratchDir` (the
+ * caller removes it); the session state is returned for the vault and
+ * never written by the SDK, which has no session path here.
+ */
+export interface InstagramOwnerLoginInput {
+  readonly username: string;
+  readonly password: string;
+  readonly twoFactorCode: () => Promise<string>;
+  readonly challengeCode: (challenge: { readonly contactPoint: string }) => Promise<string>;
+}
+
+/**
+ * The SDK's client wants a credential directory for its device file; the
+ * login gives it a scratch directory of its own and removes it before
+ * returning, so the returned session state is the only copy.
+ */
+export async function instagramOwnerLogin(
+  input: InstagramOwnerLoginInput,
+  client: (scratchDir: string) => InstagramLoginApi = instagramOwnerSdk().loginClient,
+): Promise<{ session: string }> {
+  const scratchDir = await mkdtemp(join(tmpdir(), "openomni-instagram-login-"));
+  try {
+    const api = client(scratchDir);
+    await completeLogin(api, input);
+    return { session: JSON.stringify(api.getSessionState()) };
+  } finally {
+    await rm(scratchDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Password, then whichever second step Instagram asks for through the
+ * prompts. The login ends on a logged-in user or not at all: a checkpoint
+ * that closes without one only clears the way, so the password login runs
+ * once more; a session naming no account is never returned for the vault.
+ */
+async function completeLogin(api: InstagramLoginApi, input: InstagramOwnerLoginInput): Promise<void> {
+  const result = await api.authenticate(input.username, input.password);
+  let userId = result.userId;
+  if (result.requiresTwoFactor) {
+    const info = result.twoFactorInfo as { readonly two_factor_identifier?: string } | undefined;
+    const identifier = info?.two_factor_identifier;
+    if (typeof identifier !== "string")
+      throw new InstagramError("Two-factor login offered no identifier", "two_factor_required");
+    userId = (await api.twoFactorLogin(input.username, await input.twoFactorCode(), identifier)).userId;
+  } else if (result.challengeRequired) {
+    const path = result.challengePath;
+    if (path === undefined || path === "")
+      throw new InstagramError("Security challenge named no path", "challenge_required");
+    const sent = await api.challengeSendCode(path);
+    const cleared = await api.challengeSubmitCode(path, await input.challengeCode({ contactPoint: sent.contactPoint }));
+    userId = cleared.userId === "" ? (await api.authenticate(input.username, input.password)).userId : cleared.userId;
+  }
+  if (userId === "") throw new InstagramError("Login did not complete.", "login_incomplete");
+}

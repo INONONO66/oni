@@ -27,7 +27,7 @@ const AgentFailure = Core.AgentFailure;
 const scopeObservation = Core.scopeObservation;
 const attemptUsage = Inspect.attemptUsage;
 const toolWallMs = Inspect.toolWallMs;
-import { Gateway as GatewayProtocol, L0Observation, SessionGeneration, type PlainValue, type SessionFork, SessionRead, toolOutputRefSchema } from "@openomni/protocol";
+import { Gateway as GatewayProtocol, L0Observation, type Provisioning, SessionGeneration, type PlainValue, type SessionFork, SessionRead, toolOutputRefSchema } from "@openomni/protocol";
 import { messageDecisionRules } from "./composition/message-decision";
 import { createIngressExecutor, GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { SHIPPED_OWNER_POLICY } from "./composition/policy";
@@ -367,6 +367,11 @@ export function webSocketCallbacks(
     readonly stores: ChannelStores;
   },
   machines?: Pick<MachineHost, "list">,
+  /** #1569 lane 5b: the Owner's channel declaration (the login helper's seal) over the Owner's socket. */
+  channels?: {
+    readonly respond: (request: Provisioning.ChannelDeclareRequest, caller: "owner" | `session:${string}`) =>
+      Effect.Effect<Provisioning.ChannelDeclareResponse>;
+  },
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -412,6 +417,27 @@ export function webSocketCallbacks(
     });
     send();
   }
+  // #1456: the same fact chat admits the Owner by (registered identity,
+  // else the ws bootstrap grant), without registering one.
+  const wsCaller = (externalId: string): "owner" | `session:${string}` =>
+    automation !== undefined && webSocketSenderTier(automation.stores, externalId) === "owner"
+      ? "owner"
+      : `session:ws:${externalId}`;
+  // #1569 lane 5b: the Owner's channel declaration is answered by the composed
+  // wire; a perimeter refusal (malformed frame) goes back as it is.
+  const channelWireResponse = (
+    outcome: Provisioning.ChannelDeclareRequest | Provisioning.ChannelDeclareRefused,
+    caller: "owner" | `session:${string}`,
+  ): Effect.Effect<Provisioning.ChannelDeclareResponse> =>
+    outcome.type === "channel_add_refused"
+      ? Effect.succeed(outcome)
+      : (channels?.respond(outcome, caller) ??
+        Effect.succeed<Provisioning.ChannelDeclareResponse>({
+          type: "channel_add_refused",
+          requestId: outcome.requestId,
+          reason: "store_unconfigured",
+          detail: "provisioning is not composed",
+        }));
   return {
     callbacks: {
       ...handler.ws,
@@ -430,15 +456,17 @@ export function webSocketCallbacks(
           handler.handleFrame(ws.data, data).pipe(
             Effect.matchEffect({
               onSuccess: (outcome) => {
+                if ("type" in outcome && (outcome.type === "channel_add" || outcome.type === "channel_add_refused")) {
+                  return Effect.map(channelWireResponse(outcome, wsCaller(ws.data.externalId)), (frame) =>
+                    ws.send(JSON.stringify(frame)),
+                  );
+                }
                 if ("type" in outcome &&
                     (outcome.type === "automation_add" || outcome.type === "automation_remove" ||
                      outcome.type === "automation_enable" || outcome.type === "automation_disable" ||
                      outcome.type === "automation_list" || outcome.type === "automation_ledger")) {
                   return Effect.map(
-                    // #1456: the same fact chat admits the Owner by (registered
-                    // identity, else the ws bootstrap grant), without registering one.
-                    automation?.respond(outcome, webSocketSenderTier(automation.stores, ws.data.externalId) === "owner"
-                      ? "owner" : `session:ws:${ws.data.externalId}`) ??
+                    automation?.respond(outcome, wsCaller(ws.data.externalId)) ??
                       Effect.succeed<Ingress.AutomationResponse>({
                         type: `${outcome.type}_refused`, requestId: outcome.requestId,
                         reason: "store_unconfigured", detail: "Automation store is not configured",

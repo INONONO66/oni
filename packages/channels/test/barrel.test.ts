@@ -7,6 +7,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "AutomationEnableRefused",
     "ChannelProviders",
     "ChannelsFailure",
+    "OwnerLogins",
     "OwnerPosture",
     "SendAdmissionConflict",
     "StoredEndpoint",

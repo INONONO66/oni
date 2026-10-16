@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Effect } from "effect";
 import { decodeChannelFailure, DeliveryNotSent, InvalidInbound, type ChannelError } from "./errors";
 import { newTraceId } from "./support/trace";
-import { Channel, Gateway, Ingress, Operational, SessionFork, SessionRead } from "@openomni/protocol";
+import { Channel, Gateway, Ingress, Operational, Provisioning, SessionFork, SessionRead } from "@openomni/protocol";
 import { authenticateWebSocketUpgrade } from "./authn/websocket";
 import type { ChannelAuthnDecisionObserver } from "./authn/types";
 import type { PublishPort } from "./types";
@@ -14,6 +14,8 @@ export type WebSocketMessageHandler = (
 export type WebSocketFrameOutcome =
   | Ingress.AutomationRequest
   | Ingress.AutomationRefused
+  | Provisioning.ChannelDeclareRequest
+  | Provisioning.ChannelDeclareRefused
   | z.infer<typeof SessionRead.Receipt>
   | SessionRead.Bound
   | SessionRead.Request
@@ -26,6 +28,30 @@ type WebSocketKeyRefusal = {
   readonly admitted: false;
   readonly reason: "missing_key";
 };
+
+/** One inbound frame as JSON: a record of JSON values, typed before any schema reads it. */
+const FrameDocument = z.record(z.string(), z.json());
+type FrameDocument = z.infer<typeof FrameDocument>;
+
+/**
+ * The Owner's channel declaration rides its own frame (#1569 lane 5b); a
+ * malformed one is answered with its issues, never routed as chat.
+ */
+function decodeChannelDeclare(
+  data: FrameDocument,
+): Effect.Effect<Provisioning.ChannelDeclareRequest | Provisioning.ChannelDeclareRefused, InvalidInbound> {
+  const request = Provisioning.ChannelDeclareRequest.safeParse(data);
+  if (request.success) return Effect.succeed(request.data);
+  const refused = Provisioning.ChannelDeclareRefused.safeParse({
+    type: "channel_add_refused",
+    requestId: data.requestId,
+    reason: "invalid_record",
+    detail: request.error.issues.map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`).join("; "),
+  });
+  return refused.success
+    ? Effect.succeed(refused.data)
+    : Effect.fail(new InvalidInbound({ operation: "websocket.frame", reason: "invalid_frame" }));
+}
 
 export interface WebSocketConfig {
   /** Injected wall clock; the perimeter never reads ambient time. */
@@ -269,11 +295,16 @@ export class WebSocketHandler {
 }
 
 function decodeFrame(raw: string): Effect.Effect<
-  z.infer<typeof WebSocketFrame> | Ingress.AutomationRequest | Ingress.AutomationRefused, InvalidInbound
+  | z.infer<typeof WebSocketFrame>
+  | Ingress.AutomationRequest
+  | Ingress.AutomationRefused
+  | Provisioning.ChannelDeclareRequest
+  | Provisioning.ChannelDeclareRefused,
+  InvalidInbound
 > {
   return Effect.gen(function* () {
     const document = yield* Effect.try({
-      try: () => z.record(z.string(), z.json()).safeParse(JSON.parse(raw)),
+      try: () => FrameDocument.safeParse(JSON.parse(raw)),
       catch: decodeChannelFailure("websocket.decode"),
     }).pipe(Effect.mapError((failure) => new InvalidInbound({
       operation: "websocket.frame", reason: "invalid_json", cause: failure.cause,
@@ -281,6 +312,7 @@ function decodeFrame(raw: string): Effect.Effect<
     if (!document.success) {
       return yield* new InvalidInbound({ operation: "websocket.frame", reason: "invalid_frame" });
     }
+    if (document.data.type === "channel_add") return yield* decodeChannelDeclare(document.data);
     if (Ingress.AutomationRequest.options.some((schema) => schema.shape.type.value === document.data.type)) {
       const request = Ingress.AutomationRequest.safeParse(document.data);
       if (request.success) return request.data;

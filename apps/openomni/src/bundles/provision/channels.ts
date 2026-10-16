@@ -157,6 +157,8 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
   return async (
     input: z.output<typeof CHANNEL_DECLARE_INPUT>,
     domainRevisions?: Readonly<Record<string, number>>,
+    // The tool path is the Resident's act; the Owner's own socket declares as the Owner (#1569 lane 5b).
+    createdBy: "resident" | "owner" = "resident",
   ) => {
     const existing = port.instances.get(input.id);
     const identity = declaredIdentity(input, existing);
@@ -204,7 +206,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
             ? {}
             : { grant: { ...existing?.grant, ...(input.outbound === undefined ? {} : { outbound: input.outbound }) } }),
           revision: (existing?.revision ?? -1) + 1,
-          createdBy: "resident",
+          createdBy,
           updatedAt: now(),
         }),
       )

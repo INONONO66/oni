@@ -5,6 +5,7 @@ import { retryableOnce } from "./retryable-once";
 import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
 import { automationWire } from "./composition/automation-wire";
+import { channelWire } from "./composition/channel-wire";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
 import { createAutomationDelivery } from "./composition/automation-delivery";
@@ -1162,7 +1163,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
         sessionsDir: config.sessionsDir,
         now: services.now,
         id: services.entropy.id,
-      }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host);
+      }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
+      { respond: channelWire(provisioningPort, services.now) });
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,

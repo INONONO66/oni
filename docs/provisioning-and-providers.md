@@ -125,6 +125,16 @@ ChannelInstance {
 
 - One provider may have multiple instances (two Telegram bots, N Slack
   workspaces) — today's "one channel per kind" assumption dissolves.
+- The Owner's own sign-in (#1569 lane 5b): `openomni login <platform>` runs
+  the platform's flow through the agent-messenger SDK (Slack QR, Discord
+  remote-auth QR, Instagram password with two-factor or challenge code,
+  KakaoTalk device passcode) and declares the `owner` instance over the
+  Owner's socket as a `channel_add` frame (`Provisioning.ChannelDeclareRequest`);
+  the daemon seals the credential into the vault and the CLI keeps nothing
+  (the scratch directory the Instagram login lends the SDK for its device
+  file is removed before the session is returned); `--print` shows the
+  payload for a declaration through the Resident's provision tool instead,
+  which records it in the session journal.
 - `identity` (#1569) names the account: a `bot` instance mounts as
   `<provider>:bot` and reads inbound under the surface's ingress grant; an
   `owner` instance is the Owner's own account, builds through the provider's
@@ -315,7 +325,7 @@ model-callable decision):
 | `contact_remove` | remove Person, reconcile derived rows | refuses to remove the sole `owner` |
 | `contact_promote` | register a provisional contact | `require_approval` policy row; domain-revision CAS at apply |
 | `contact_merge` | move an endpoint onto an existing contact | `require_approval` policy row; domain-revision CAS at apply |
-| `channel_add` | upsert ChannelInstance (+ optional secret payload → vault write + ref) | credential validated against the provider schema (the Owner arm's for `identity: owner`) before the row lands; invalid → typed refusal, nothing mounts; an Owner instance, and any change to its `outbound` grant, suspends the invocation for Owner approval with a domain-revision CAS at apply; a re-declaration keeps the stored identity (#1569) |
+| `channel_add` | upsert ChannelInstance (+ optional secret payload → vault write + ref); also reachable as a ws frame from the Owner's own socket (#1569 lane 5b, `channelWire`: the login helper's seal — any other socket is refused `owner_only`, a malformed frame `invalid_record` with its issues, the tool's own refusal verbatim as `refused`) | credential validated against the provider schema (the Owner arm's for `identity: owner`) before the row lands; invalid → typed refusal, nothing mounts; an Owner instance, and any change to its `outbound` grant, suspends the invocation for Owner approval with a domain-revision CAS at apply; a re-declaration keeps the stored identity (#1569) |
 | `channel_enable` / `channel_disable` | flip `enabled`, bounce the stage | — |
 | `secret_rotate` | new ciphertext revision, remount referencing stages | the payload must satisfy every consumer under its own arm's schema (an Owner instance rotates an account session, never bot tokens) |
 | `status` | read-only: declared vs mounted diff, last reconcile errors | — |
