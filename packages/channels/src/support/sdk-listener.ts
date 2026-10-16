@@ -1,8 +1,18 @@
 import { Operational } from "@openomni/protocol";
 import { ChannelsFailure } from "../errors";
-import { RECONNECT_ATTEMPT_BOUND } from "./schedule";
 import { newTraceId } from "./trace";
 import type { PublishPort } from "../types";
+
+/**
+ * Consecutive failures (closes and refused reopens) without a reconnect
+ * before custody reports a surface unreachable: one Operational Error per
+ * streak — driver trouble must reach the Owner, never stay an unbounded
+ * silent retry loop. The SDK's own bounded backoff keeps running underneath;
+ * custody never stops a listener that may still recover, because nothing
+ * remounts a stopped surface. A poller whose every failed cycle is a close
+ * and whose SDK never re-emits `connected` alarms once per process.
+ */
+export const RECONNECT_ATTEMPT_BOUND = 10;
 
 /**
  * The three lifecycle events every agent-messenger listener emits. A

@@ -3,12 +3,6 @@ import { type Gateway, Operational, type PlainValue } from "@openomni/protocol";
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
-import {
-  type TelegramUpdate,
-  type TelegramUser,
-  TelegramUpdateSchema,
-  TelegramUserSchema,
-} from "./types";
 
 /** Telegram error envelope carries the flood-wait hint the retry helper reads. */
 const RetryAfterSchema = z.object({
@@ -28,9 +22,13 @@ const TrueSchema = z.literal(true);
 /** `sendPhoto` takes a `photo` field, `sendDocument` a `document` field. */
 const MEDIA_METHOD = { image: ["sendPhoto", "photo"], file: ["sendDocument", "document"] } as const;
 
-function conversationParams(conversation: Gateway.Conversation | undefined): Record<string, number> {
+function conversationParams(
+  conversation: Gateway.Conversation | undefined,
+): Record<string, number> {
   return {
-    ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+    ...(conversation?.threadId === undefined
+      ? {}
+      : { message_thread_id: Number(conversation.threadId) }),
     ...(conversation?.replyToMessageId === undefined
       ? {}
       : { reply_to_message_id: Number(conversation.replyToMessageId) }),
@@ -133,35 +131,23 @@ export class TelegramClient implements ChannelClient {
   }
 
   /** `sendChatAction typing` shows "typing…" for about five seconds. */
-  async typing(channelId: string, traceId: string, conversation?: Gateway.Conversation): Promise<void> {
+  async typing(
+    channelId: string,
+    traceId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<void> {
     await this.api("sendChatAction", traceId, TrueSchema, {
       chat_id: channelId,
       action: "typing",
-      ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+      ...(conversation?.threadId === undefined
+        ? {}
+        : { message_thread_id: Number(conversation.threadId) }),
     });
-  }
-
-  async getMe(traceId: string): Promise<TelegramUser> {
-    return this.api("getMe", traceId, TelegramUserSchema);
   }
 
   /** This acknowledgment only dismisses the client spinner; failure must not block handoff. */
   async answerCallbackQuery(id: string, traceId: string): Promise<void> {
     await this.api("answerCallbackQuery", traceId, TrueSchema, { callback_query_id: id });
-  }
-
-  async getUpdates(
-    offset: number,
-    traceId: string,
-    signal?: AbortSignal,
-  ): Promise<TelegramUpdate[]> {
-    return this.api(
-      "getUpdates",
-      traceId,
-      z.array(TelegramUpdateSchema),
-      { offset, timeout: 30, allowed_updates: ["message", "message_reaction", "callback_query"] },
-      signal,
-    );
   }
 
   private api<T>(
