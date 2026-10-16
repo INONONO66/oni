@@ -62,6 +62,14 @@ export interface ListenerCustodyOptions<Map extends SdkListenerEventMap> {
    * predicate the surface would look alive while receiving nothing.
    */
   readonly terminal?: (error: Error) => boolean;
+  /**
+   * An error before the first `connected` the SDK recovers from on its own
+   * by opening another transport (Instagram's hybrid listener emits its
+   * realtime failure, then starts polling, whose `connected` settles this
+   * start). Observed as a Warn; start keeps waiting. Without the predicate
+   * every error before `connected` fails the start.
+   */
+  readonly recoverableBeforeConnected?: (error: Error) => boolean;
 }
 
 export interface ListenerCustody {
@@ -78,7 +86,9 @@ export interface ListenerCustody {
  * `error` is subscribed before `start()` (an unhandled EventEmitter error is
  * process-fatal); start settles only on the first `connected`, an error (or,
  * where the SDK would not notice, a close) before it fails that start and
- * stops the listener — the caller owns boot retry; a terminal error after
+ * stops the listener, unless the SDK recovers from that error by another
+ * transport (`recoverableBeforeConnected`), when start keeps waiting for the
+ * fallback's `connected` — the caller owns boot retry; a terminal error after
  * that is a typed dead surface (the SDK has stopped itself; the listener is
  * stopped and an Error published); and a streak of closes or reopen errors
  * without a reconnect is reported unreachable once it passes the bound, loud
@@ -146,6 +156,10 @@ export function listenerCustody<Map extends SdkListenerEventMap>(
         ...("code" in error && typeof error.code === "string" ? { code: error.code } : {}),
       };
       if (!state.settled) {
+        if (options.recoverableBeforeConnected?.(error) === true) {
+          observe(Operational.Events.Warn, `${options.label} error, sdk falling back`, context);
+          return;
+        }
         observe(Operational.Events.Warn, `${options.label} error`, context);
         state.settled = true;
         reject(error);

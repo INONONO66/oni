@@ -28,6 +28,8 @@ export type MessagePolicyContext =
       readonly actorSendAllowed?: boolean;
       /** The sending identity is granted (the Owner's account only on an Owner-origin turn through an outbound-granted instance). */
       readonly identityGranted?: boolean;
+      /** The reply door may answer on its own (a bot instance, or an auto-replying Owner instance). */
+      readonly replyAutoAllowed?: boolean;
     };
 
 export function matchesMessage(
@@ -81,6 +83,7 @@ function sessionCheck(
     case "deadline": return context.withinParentDeadline;
     case "actor_send": return context.actorSendAllowed === true;
     case "identity": return context.identityGranted === true;
+    case "reply_auto": return context.replyAutoAllowed === true;
   }
 }
 

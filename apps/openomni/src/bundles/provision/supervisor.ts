@@ -63,6 +63,8 @@ export interface SupervisorDeps {
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
   readonly typingRoutes: Map<string, ProviderTypingRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
+  /** #1569 lane 7: the `<platform>:owner` surfaces whose declaration lets the reply door answer through the account. */
+  readonly autoReplies?: Set<string>;
   readonly traceId: () => string;
   /** Consecutive start failures before the breaker pauses the instance. */
   readonly breakerThreshold?: number;
@@ -164,9 +166,11 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     if (built.webhookHandler !== undefined) {
       deps.webhookHandlers.set(platform, built.webhookHandler);
     }
+    if (built.autoReply === true) deps.autoReplies?.add(surfaceId);
     const unwind = async (stopSurface: boolean) => {
       if (stopSurface) await built.surface.stop(deps.traceId());
       if (built.webhookHandler !== undefined) deps.webhookHandlers.delete(platform);
+      deps.autoReplies?.delete(surfaceId);
       deps.deliveryRoutes.delete(surfaceId);
       deps.typingRoutes.delete(surfaceId);
       revokeGrant();

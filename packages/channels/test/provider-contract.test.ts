@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound, type PlainValue } from "@openomni/protocol";
 import { injectedOptions } from "./helpers/injected";
-import type { ProviderRuntime } from "../src/provider/contract";
+import type { OwnerArm, ProviderRuntime } from "../src/provider/contract";
 import { ChannelProviders } from "../src/provider/registry";
 import type { PublishPort } from "../src/types";
 
@@ -28,6 +28,67 @@ interface ConformanceCase {
 }
 /** Surfaces whose deliver posts into a conversation (covered by their surface tests). */
 const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
+
+/**
+ * #1569 lane 7: an Owner-only platform has no bot account — its bot arm
+ * refuses every credential and never constructs, and the platform is
+ * reached through its `owner` arm alone. These cases conform the arm.
+ */
+interface OwnerOnlyCase {
+  readonly provider: (typeof ChannelProviders)["instagram"] | (typeof ChannelProviders)["kakaotalk"];
+  readonly credential: Record<string, string>;
+  readonly build: (publish: PublishPort) => ProviderRuntime;
+  readonly rendered: string;
+  readonly limit: number | null;
+}
+/** What the conformance reads off an Owner arm, whatever credential type it carries. */
+type ArmFacts = Pick<OwnerArm<never>, "listen" | "capabilities" | "preconditions"> & {
+  readonly credentials: { safeParse(input: PlainValue): { readonly success: boolean } };
+};
+
+/** The arm an Owner-only platform is reached through; its absence would be a registry defect. */
+function ownerArmOf(provider: { readonly id: string; readonly owner?: ArmFacts }): ArmFacts {
+  if (provider.owner === undefined) throw new Error(`${provider.id} has no owner arm`);
+  return provider.owner;
+}
+const instagramArm = () => {
+  const arm = ChannelProviders.instagram.owner;
+  if (arm === undefined) throw new Error("instagram has no owner arm");
+  return arm;
+};
+const kakaoArm = () => {
+  const arm = ChannelProviders.kakaotalk.owner;
+  if (arm === undefined) throw new Error("kakaotalk has no owner arm");
+  return arm;
+};
+const ownerOnlyCases: readonly OwnerOnlyCase[] = [
+  {
+    provider: ChannelProviders.instagram,
+    rendered: "**hi** `code`",
+    limit: 1000,
+    credential: { session: JSON.stringify({ cookies: "sessionid=x", device: {}, user_id: "1" }) },
+    build: (publish) =>
+      instagramArm().create(
+        { session: JSON.stringify({ cookies: "sessionid=x", device: {}, user_id: "1" }) },
+        { intake: "none", autoReply: false },
+        publish,
+        injectedOptions(),
+      ),
+  },
+  {
+    provider: ChannelProviders.kakaotalk,
+    rendered: "**hi** `code`",
+    limit: 4000,
+    credential: { oauthToken: "oauth", userId: "1001" },
+    build: (publish) =>
+      kakaoArm().create(
+        { oauthToken: "oauth", userId: "1001" },
+        { intake: "none", autoReply: false },
+        publish,
+        injectedOptions(),
+      ),
+  },
+];
 
 const cases: readonly ConformanceCase[] = [
   {
@@ -93,9 +154,53 @@ describe("provider conformance", () => {
       expect(provider.id).toBe(key as keyof typeof ChannelProviders);
   });
   test("every registry entry has a conformance case", () => {
-    const covered: string[] = cases.map((kase) => kase.provider.id);
+    const covered: string[] = [...cases, ...ownerOnlyCases].map((kase) => kase.provider.id);
     expect(covered.sort()).toEqual(Object.keys(ChannelProviders).sort());
   });
+  for (const kase of ownerOnlyCases) {
+    describe(`${kase.provider.id} (Owner-only)`, () => {
+      test("the bot arm refuses every credential and never constructs", () => {
+        expect(kase.provider.credentials.safeParse(kase.credential).success).toBe(false);
+        expect(kase.provider.credentials.safeParse({}).success).toBe(false);
+        expect(() => kase.provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow("identity: owner");
+        expect(kase.provider.capabilities.webhook).toBe(false);
+        expect(kase.provider.settings.safeParse({ knob: "x" }).success).toBe(false);
+      });
+      test("the owner arm's seams match its declared capabilities and mount as <platform>:owner", () => {
+        const arm = ownerArmOf(kase.provider);
+        const runtime = kase.build(noopPublish);
+        expect(runtime.surface.id).toBe(`${kase.provider.id}:owner`);
+        expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
+        expect(runtime.typingRoute !== undefined).toBe(arm.capabilities.typing);
+        expect(runtime.webhookHandler).toBeUndefined();
+        expect(arm.listen).toBe(true);
+      });
+      test("the owner arm's credential schema admits the account session and refuses junk, strictly", () => {
+        const arm = ownerArmOf(kase.provider);
+        expect(arm.credentials.safeParse(kase.credential).success).toBe(true);
+        expect(arm.credentials.safeParse({ bogus: "x" }).success).toBe(false);
+        expect(arm.credentials.safeParse({ ...kase.credential, extra: "x" }).success).toBe(false);
+      });
+      test("render policy is the platform's plain text and its delivery limit", () => {
+        const policy = kase.provider.capabilities.render;
+        expect(policy.renderMarkdown("**hi** `code`")).toBe(kase.rendered);
+        expect(policy.messageLimit).toBe(kase.limit);
+        expect(kase.provider.capabilities.media).toBe(false);
+      });
+      test("preconditions are a verbatim operator checklist naming the owner arm", () => {
+        for (const precondition of [...kase.provider.preconditions, ...ownerArmOf(kase.provider).preconditions])
+          expect(precondition.length).toBeGreaterThan(0);
+        expect(kase.provider.preconditions.some((text) => text.includes("identity: owner"))).toBe(true);
+      });
+      test("construction is pure — nothing published before start", () => {
+        let published = 0;
+        kase.build(() => {
+          published += 1;
+        });
+        expect(published).toBe(0);
+      });
+    });
+  }
   for (const kase of cases) {
     describe(kase.provider.id, () => {
       test("runtime seams match declared capabilities", () => {

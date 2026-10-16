@@ -151,7 +151,7 @@ function originBinding(
   };
 }
 
-const sessionDenial = (id: string, targetKind: "actor" | "origin", check: "actor_send" | "identity" = "actor_send") => ({
+const sessionDenial = (id: string, targetKind: "actor" | "origin", check: "actor_send" | "identity" | "reply_auto" = "actor_send") => ({
   generation: 1,
   name: id,
   kind: "message" as const,
@@ -185,6 +185,8 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
       sessionDenial("message.resident.identity_not_granted", "actor", "identity"),
       // #1569: the reply door's preflight (binding owned, route mounted) rides the same check.
       sessionDenial("message.resident.reply_unbound", "origin"),
+      // #1569 lane 7: a surface reached only through an Owner account that does not auto-reply.
+      sessionDenial("message.resident.reply_draft", "origin", "reply_auto"),
       {
         generation: 1,
         name: "compaction",

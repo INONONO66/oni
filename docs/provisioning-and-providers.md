@@ -147,7 +147,12 @@ ChannelInstance {
   Owner is then addressed to the Resident whichever instance observed it),
   and is revoked with the last reader. Both instances seeing one message
   hand it to routing once (`inboundOnce`). Without `grant.outbound` an owner
-  instance mounts neither a delivery nor a typing route.
+  instance mounts neither a delivery nor a typing route. `autoReply` (lane
+  7, default false) lets the reply door answer a conversation through this
+  account on its own where the platform has no bot instance; without it
+  the Resident's answer is refused `message.resident.reply_draft` and stays
+  a draft the Owner sends. Instagram and KakaoTalk are Owner-only
+  platforms: a bot declaration of them is `identity_unsupported`.
 - The `grant` block is the Owner's per-instance perimeter policy: boot threads
   `grant.defaultTier` into the surface's ChannelGrant row through the channel
   supervisor (`DesiredChannelRow.defaultTier` → `registerTrustedChannelGrant`).

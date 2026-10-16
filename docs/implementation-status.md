@@ -1,5 +1,91 @@
 # Implementation Status
 
+## #1569 Owner-only platforms: Instagram and KakaoTalk through the Owner's account (lane 7)
+
+On `feat/1569-owner-only-platforms` (2026-10-17, stacked on lane 6). Two
+platforms with no bot account join the registry: their bot arm admits no
+credential and never constructs (a bot declaration is `identity_unsupported`
+naming `identity: owner`), and each is reached through its `owner` arm alone.
+Instagram (`provider/instagram/`, `agent-messenger/instagram` only in
+`owner-sdk.ts`): the vault-opened session state (the SDK's own session JSON
+with its cookies, as the login helper will seal it) is restored through a
+file the surface writes with mode 0600, loads and removes at once, then
+clears the SDK's session path so nothing is persisted — the vault stays the
+one copy; the hybrid inbox listener (realtime, polling fallback) runs under
+`listenerCustody`: a realtime failure at boot is the one pre-connected error
+the SDK recovers from on its own (custody's `recoverableBeforeConnected`;
+polling's `connected` settles the start, a refused inbox read or any second
+error fails it), and because the SDK folds every refused inbox read — a
+revoked session and an outage alike — into one `inbox_error` with no
+reason, a streak of them as long as `RECONNECT_ATTEMPT_BOUND` with no
+message or reconnect between is the typed dead surface (the poller never
+re-emits `connected`, so it would otherwise poll a dead session forever);
+every inbox message is a DM to the Owner (`mentions_and_dms` and `all` read the whole
+inbox; the account's own messages never count); delivery posts into the
+person's thread, or cold into the direct thread with them; `rate_limited`
+and `send_failed` are proven `not_sent`, a lost response is `unknown`; the
+platform offers no media upload, reactions or typing to the account.
+KakaoTalk (`provider/kakaotalk/`, `agent-messenger/kakaotalk` only in
+`owner-sdk.ts`): the account logs in in memory (a registered device's OAuth
+token, user id, device uuid) and its profile's nickname is what a mention
+names; the LOCO push listener runs under custody, and because the SDK's
+listener never reopens a dropped session (and still counts itself running
+after one, so a bare `start()` is a no-op) the surface stops and restarts
+it under a bounded backoff through the injected run port, from a drop and
+from a refused reopen's `error` alike, with a session kicked by another
+device terminal; a chat's shape is read once through the SDK (the account
+plus one person is a direct chat; a failed lookup counts as a group), a
+direct chat is a DM, and a group message is intake only when it names
+`@nickname`; delivery posts into the conversation's chat or into the direct
+chat the person last wrote from (a stranger the account never chatted with
+cannot be reached cold), `success: false` and the preflight codes are
+`not_sent`, the SDK's synthetic status −1 (the socket closed before the
+reply: the WRITE may have landed) and a thrown send are `unknown` — the SDK
+re-runs a thrown send once when the session died under it — and an
+`unknown` key is never re-sent; typing rides the same chats. The SDK
+keeps the LOCO sync state (no secret) under `AGENT_MESSENGER_CONFIG_DIR`.
+The reply door through an Owner instance (`OwnerPosture.autoReply`, default
+false): a conversation reachable only through `<platform>:owner` is answered
+as the Owner when the declaration auto-replies (and grants outbound);
+otherwise the reply door refuses `message.resident.reply_draft` — the new
+Table B check `reply_auto` (`Gateway.RuleTableB`, gate `replyAutoAllowed`,
+policy row) — and the Resident's answer stays a draft the Owner sends; a bot
+instance of the surface always answers as the bot. `ReplyPorts.autoReplies`,
+`GatewayRouterPorts.messaging.autoReplies` and the app's
+`OutboundMessaging.autoReplies` carry the set the supervisor keeps with the
+routes (`BuiltChannel.autoReply`, from the posture and the outbound grant).
+The reply door's DM binding keeps its chat: `replyConversation` folds a DM
+to `{ channelId }` (unthreaded, unquoted), so a KakaoTalk or Instagram DM
+is answered in the chat the binding recorded rather than from the
+instance's memory of who last wrote, which a re-declaration or a restart
+empties; Slack, Discord and Telegram post into the same DM channel either
+way. These five corrections (Kakao reopen, Kakao closed-socket send,
+Instagram boot handover, Instagram dead-session evidence, DM binding) came
+out of the PR's adversarial review against the pinned SDK.
+Not in this lane: the login helpers (lane 5b: Instagram password/2FA,
+KakaoTalk passcode), surfacing a draft to the Owner beyond the refusal the
+Resident sees, group-chat mentions by anything but the nickname. Receipts:
+`packages/channels/test/instagram-owner.test.ts` (session restore and
+cleanup, no account fails start, inbox intake and own echo, media
+attachments, `none`/`all`, thread and cold delivery with the three receipts,
+the realtime-to-polling handover at boot, the refused-read streak beside
+custody's unreachable alarm, refused boot reads),
+`packages/channels/test/kakaotalk-owner.test.ts` (login/profile/listener,
+DM and `@nickname` intake with the chat shape read once, unknown chat as a
+group, `all`/`none`, conversation and direct-chat delivery, cold stranger
+refused, typing, receipts, reopen on drop as stop-then-start, a refused
+reopen retried, kicked dead, refused start, the closed-socket send unknown
+and never re-sent),
+`test/provider-contract.test.ts` (Owner-only conformance cases),
+`test/provider-owner-arm.test.ts`, `test/channel-band-boundary.test.ts`,
+`test/router/messaging/composition.test.ts` (draft, auto-reply, bot
+precedence, the DM answered in its chat), `test/sdk-listener.test.ts`
+(the recoverable pre-connected error), `apps/openomni/test/reply-door.test.ts`
+(the DM binding's chat), `apps/openomni/test/identity-instances.test.ts` (Owner-only
+rows, `autoReply` gated by outbound, the supervisor's auto-reply set),
+`apps/openomni/test/owner-policy.test.ts`; suites: `packages/channels`
+956 pass, `apps/openomni` 998 pass, 0 fail.
+
 ## #1569 Owner intake: the Owner instance reads what the account sees (lane 6)
 
 On `feat/1569-owner-intake` (2026-10-17, base `db4ac75bd`). An `identity:

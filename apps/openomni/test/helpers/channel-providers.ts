@@ -53,6 +53,9 @@ export function fakeProviders() {
     };
   };
   const providers: typeof ChannelProviders = {
+    // #1569 lane 7: Owner-only platforms have no bot arm to fake; the shipped entries serve as they are.
+    instagram: ChannelProviders.instagram,
+    kakaotalk: ChannelProviders.kakaotalk,
     telegram: {
       ...ChannelProviders.telegram,
       create: (credentials, config) => delivery("telegram", credentials, config, "tg-1"),

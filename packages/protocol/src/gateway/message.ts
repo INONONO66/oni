@@ -194,6 +194,9 @@ const RuleTableB = RuleBase.extend({
     // #1569: the sending identity is granted — the Owner's account only on an
     // Owner-origin turn through an outbound-granted Owner instance.
     z.object({ kind: z.literal("identity") }).strict(),
+    // #1569 lane 7: the reply door may answer on its own — the surface has a
+    // bot instance, or its Owner instance's declaration auto-replies.
+    z.object({ kind: z.literal("reply_auto") }).strict(),
   ]),
 });
 

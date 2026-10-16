@@ -83,6 +83,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           stores,
           transaction: ports.transaction,
           routes,
+          autoReplies: () => messagingPorts.autoReplies?.() ?? new Set<string>(),
           deliver,
           publish: ports.sink,
         });
@@ -114,14 +115,22 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
   ) {
     // The actor-send preflight's one verdict feeds two rows: an identity
     // refusal (#1569) is its own denial, every other refusal is the grant's.
+    // The reply door's verdict likewise: a draft (#1569 lane 7: the surface
+    // is reachable only through an Owner account that does not auto-reply)
+    // is its own denial, every other refusal is the binding's.
     const refusal = actorRefusal(sender, send, prepared, startedAt);
+    const replyRefusal =
+      send.to.kind === "origin"
+        ? reply === undefined || sender.kind !== "session"
+          ? "not_bound"
+          : reply.preflight(sender.id, prepared.binding, send.to.inReplyTo)
+        : undefined;
     const actorSendAllowed =
       send.to.kind === "origin"
-        ? reply !== undefined &&
-          sender.kind === "session" &&
-          reply.preflight(sender.id, prepared.binding, send.to.inReplyTo) === undefined
+        ? replyRefusal === undefined || replyRefusal === "draft"
         : refusal === undefined || refusal === "identity_not_granted";
     const identityGranted = refusal !== "identity_not_granted";
+    const replyAutoAllowed = replyRefusal !== "draft";
     const message =
       external !== undefined
         ? {
@@ -129,7 +138,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
             eventIdUnique: prepared.message.sender === "external" && prepared.message.eventIdUnique,
           }
         : prepared.message.sender === "session"
-          ? { ...prepared.message, actorSendAllowed, identityGranted }
+          ? { ...prepared.message, actorSendAllowed, identityGranted, replyAutoAllowed }
           : undefined;
     if (message === undefined)
       throw new ChannelsFailure({
