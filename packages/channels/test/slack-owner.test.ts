@@ -19,8 +19,8 @@ import {
 
 const noopPublish: PublishPort = () => undefined;
 const CREDENTIALS = { token: "xoxc-1", cookie: "d-cookie" };
-const SEND_ONLY: OwnerPosture = { intake: "none" };
-const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms" };
+const SEND_ONLY: OwnerPosture = { intake: "none", autoReply: false };
+const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
 
 /** One started Owner instance over the scripted user SDK; send-only unless a posture says otherwise. */
 async function started(
@@ -160,7 +160,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     });
 
     it("under `all` everything the account can see is intake, still never its own echo", async () => {
-      const { listener, next, inbound } = await started({}, noopPublish, { intake: "all" });
+      const { listener, next, inbound } = await started({}, noopPublish, { intake: "all", autoReply: false });
       listener.message({ channel: "C-general", user: "U7", text: "unrelated chatter", ts: "1700.9" });
       listener.message({ channel: "C-general", user: "U-owner", text: "mine", ts: "1700.10" });
       const sentinel = next();

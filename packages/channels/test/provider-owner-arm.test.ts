@@ -18,7 +18,7 @@ const noopPublish: PublishPort = () => undefined;
  * `identity_unsupported` rather than mounting anything.
  */
 describe("provider owner arms", () => {
-  test("slack and discord carry an Owner arm, both listening; the rest have none", () => {
+  test("slack, discord and the Owner-only platforms carry an Owner arm, all listening; the rest have none", () => {
     expect(
       Object.entries(ChannelProviders)
         .filter(([, provider]) => provider.owner !== undefined)
@@ -26,13 +26,27 @@ describe("provider owner arms", () => {
     ).toEqual([
       ["discord", true],
       ["slack", true],
+      ["instagram", true],
+      ["kakaotalk", true],
     ]);
+  });
+
+  test("an Owner-only platform's bot arm refuses every declaration and names the owner arm instead", () => {
+    for (const key of ["instagram", "kakaotalk"] as const) {
+      const provider = ChannelProviders[key];
+      expect(provider.credentials.safeParse({ token: "x" }).success).toBe(false);
+      expect(provider.credentials.safeParse({}).success).toBe(false);
+      expect(() => provider.create({} as never, {}, noopPublish, injectedOptions())).toThrow(
+        `${key} has no bot account; declare the instance with identity: owner`,
+      );
+      expect(provider.preconditions[0]).toContain("identity: owner");
+    }
   });
 
   test("the slack owner arm's runtime matches its declared capabilities and mounts as slack:owner", () => {
     const arm = ChannelProviders.slack.owner;
     if (arm === undefined) throw new Error("slack owner arm missing");
-    const runtime = arm.create({ token: "xoxc-1", cookie: "d" }, { intake: "none" }, noopPublish, injectedOptions());
+    const runtime = arm.create({ token: "xoxc-1", cookie: "d" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
     expect(runtime.surface.id).toBe("slack:owner");
     expect(runtime.deliveryRoute !== undefined).toBe(arm.capabilities.deliver);
     expect(runtime.typingRoute !== undefined).toBe(arm.capabilities.typing);
@@ -45,8 +59,8 @@ describe("provider owner arms", () => {
   });
 
   test("the posture an Owner declaration carries: a DM-and-mention intake by default, `all`, or no listener", () => {
-    expect(OwnerPosture.parse({})).toEqual({ intake: "mentions_and_dms" });
-    expect(OwnerPosture.parse({ intake: "none" })).toEqual({ intake: "none" });
+    expect(OwnerPosture.parse({})).toEqual({ intake: "mentions_and_dms", autoReply: false });
+    expect(OwnerPosture.parse({ intake: "none", autoReply: false })).toEqual({ intake: "none", autoReply: false });
     expect(OwnerPosture.safeParse({ intake: "everything" }).success).toBe(false);
     expect(OwnerPosture.safeParse({ botUsername: "x" }).success).toBe(false);
   });
@@ -55,7 +69,7 @@ describe("provider owner arms", () => {
     const owner = fakeSlackOwnerSdk();
     const arm = createSlackProvider(fakeSlackSdk().sdk, owner.sdk).owner;
     if (arm === undefined) throw new Error("slack owner arm missing");
-    const runtime = arm.create({ token: "xoxc-1", cookie: "d" }, { intake: "none" }, noopPublish, injectedOptions());
+    const runtime = arm.create({ token: "xoxc-1", cookie: "d" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
     if (runtime.deliveryRoute === undefined) throw new Error("slack owner arm mounts no delivery route");
     await runtime.surface.start("boot");
     expect(await runtime.deliveryRoute("T1:U7", Outbound.payload("as the Owner"), "k-1")).toEqual({

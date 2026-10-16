@@ -92,6 +92,8 @@ export interface GatewayRouterPorts {
   readonly id: () => string;
   readonly messaging?: MessagingGrantSources & {
     readonly deliveryRoutes: ReadonlyMap<string, ChannelDeliveryRoute>;
+    /** The `<platform>:owner` surfaces whose declaration lets the reply door answer through the account (#1569 lane 7). */
+    readonly autoReplies?: () => ReadonlySet<string>;
   };
 }
 

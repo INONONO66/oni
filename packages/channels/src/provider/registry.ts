@@ -1,5 +1,7 @@
 import { DiscordProvider } from "./discord/provider.js";
 import { GitHubProvider } from "./github/provider.js";
+import { InstagramProvider } from "./instagram/provider.js";
+import { KakaoTalkProvider } from "./kakaotalk/provider.js";
 import { SlackProvider } from "./slack/provider.js";
 import { TelegramProvider } from "./telegram/provider.js";
 import { WebhookProvider } from "./webhook/provider.js";
@@ -19,10 +21,15 @@ export const ChannelProviders: Readonly<{
   github: typeof GitHubProvider;
   slack: typeof SlackProvider;
   webhook: typeof WebhookProvider;
+  /** #1569 lane 7: Owner-only platforms — no bot account; reached through the `owner` arm alone. */
+  instagram: typeof InstagramProvider;
+  kakaotalk: typeof KakaoTalkProvider;
 }> = {
   telegram: TelegramProvider,
   discord: DiscordProvider,
   github: GitHubProvider,
   slack: SlackProvider,
   webhook: WebhookProvider,
+  instagram: InstagramProvider,
+  kakaotalk: KakaoTalkProvider,
 } as const;

@@ -17,6 +17,8 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/telegrambot", "src/provider/telegram/sdk.ts"],
   ["agent-messenger/slack", "src/provider/slack/owner-sdk.ts"],
   ["agent-messenger/discord", "src/provider/discord/owner-sdk.ts"],
+  ["agent-messenger/instagram", "src/provider/instagram/owner-sdk.ts"],
+  ["agent-messenger/kakaotalk", "src/provider/kakaotalk/owner-sdk.ts"],
 ]);
 const JUDGMENT_ALLOWED_PACKAGES = new Set(["@openomni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;

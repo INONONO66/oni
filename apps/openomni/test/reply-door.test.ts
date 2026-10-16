@@ -113,8 +113,8 @@ test("the reply door answers the conversation the prompt came from, bound by the
   }
 });
 
-test.each<[string, Conversation, "dm" | "channel", Gateway.Conversation | undefined]>([
-  ["a DM, answered directly", { channelId: "D1", messageId: "1710.0003", dm: true, workspaceId: "T1" }, "dm", undefined],
+test.each<[string, Conversation, "dm" | "channel", Gateway.Conversation]>([
+  ["a DM, answered in its chat, unthreaded and unquoted", { channelId: "D1", messageId: "1710.0003", dm: true, workspaceId: "T1" }, "dm", { channelId: "D1" }],
   [
     "a thread, answered in the thread",
     { ...CHANNEL, threadId: "1710.0001" },

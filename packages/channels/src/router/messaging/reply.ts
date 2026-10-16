@@ -6,7 +6,7 @@ import {
   MessagingEvents,
   type Outbound,
 } from "@openomni/protocol";
-import { type ChannelError, decodeChannelFailure } from "../../errors";
+import { type ChannelError, decodeChannelFailure, SendAdmissionConflict } from "../../errors";
 import type { KernelDeliveryReceipt } from "../../support/deliver";
 import type { ChannelStores } from "../stores.js";
 import type { GatewayRouterPorts } from "../message-ports";
@@ -35,7 +35,12 @@ export interface ConversationBinding {
   readonly threadId?: string;
 }
 
-type ReplyRefusal = "not_bound" | "no_route";
+/**
+ * `draft` (#1569 lane 7): the surface is reachable only through an Owner
+ * instance whose declaration does not let the reply door answer on its own;
+ * the Resident's answer stays a draft the Owner sends.
+ */
+type ReplyRefusal = "not_bound" | "no_route" | "draft";
 
 /** The ingress surface key the inbound claimed for its session: the same fold as `automation/input.ts`. */
 function bindingSurfaceKey(binding: ConversationBinding): string {
@@ -48,9 +53,9 @@ function bindingSurfaceKey(binding: ConversationBinding): string {
   });
 }
 
-/** Where the answer lands: the thread or channel the person wrote in; a DM carries no conversation. */
-function replyConversation(binding: ConversationBinding): Gateway.Conversation | undefined {
-  if (binding.dm) return undefined;
+/** Where the answer lands: the thread or channel the person wrote in; a DM keeps its chat, unthreaded and unquoted. */
+function replyConversation(binding: ConversationBinding): Gateway.Conversation {
+  if (binding.dm) return { channelId: binding.channelId };
   return {
     channelId: binding.channelId,
     ...(binding.threadId === undefined ? {} : { threadId: binding.threadId }),
@@ -72,6 +77,8 @@ export interface ReplyPorts {
   readonly transaction: GatewayRouterPorts["transaction"];
   /** The surfaces with a mounted delivery route. */
   readonly routes: () => ReadonlySet<string>;
+  /** The `<platform>:owner` surfaces whose declaration lets the reply door answer through the account (#1569 lane 7). */
+  readonly autoReplies: () => ReadonlySet<string>;
   readonly deliver: (
     message: OutboundMessage,
   ) => KernelDeliveryReceipt | Promise<KernelDeliveryReceipt>;
@@ -110,6 +117,7 @@ export interface ReplyMessaging {
 function deliveryTarget(
   stores: ChannelStores,
   binding: ConversationBinding,
+  identity: Channel.Identity,
 ): Gateway.DeliveryTarget {
   const resolved = stores.actors.resolveEndpoint(
     binding.surface,
@@ -123,9 +131,26 @@ function deliveryTarget(
     endpointId: resolved?.endpoint.id ?? `binding:${key}`,
     channel: binding.surface,
     externalId: binding.externalId,
-    identity: "bot",
+    identity,
     ...(conversation === undefined ? {} : { conversation }),
   };
+}
+
+/**
+ * The instance a reply leaves through (#1569 P4): the bot instance of the
+ * surface, or the surface's one identity-less route; where the platform is
+ * reached only through the Owner's account, that account when its
+ * declaration auto-replies.
+ */
+function replyIdentity(
+  ports: Pick<ReplyPorts, "routes" | "autoReplies">,
+  surface: string,
+): Channel.Identity | "draft" | "no_route" {
+  const routes = ports.routes();
+  if (routes.has(Channel.instanceId(surface, "bot")) || routes.has(surface)) return "bot";
+  const owner = Channel.instanceId(surface, "owner");
+  if (!routes.has(owner)) return "no_route";
+  return ports.autoReplies().has(owner) ? "owner" : "draft";
 }
 
 /**
@@ -151,16 +176,17 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
         ports.stores.surfaceKeys.lookup(bindingSurfaceKey(binding)) === senderId ||
         automationTarget(ports.stores, inReplyTo) === senderId;
       if (!routedTo) return "not_bound";
-      // The reply goes out as the bot (#1569 P4): the bot instance of the
-      // surface, or the surface's one identity-less route.
-      const routes = ports.routes();
-      if (!(routes.has(Channel.instanceId(binding.surface, "bot")) || routes.has(binding.surface)))
-        return "no_route";
-      return undefined;
+      const identity = replyIdentity(ports, binding.surface);
+      return identity === "bot" || identity === "owner" ? undefined : identity;
     },
     send: (input) =>
       Effect.gen(function* () {
-        const target = deliveryTarget(ports.stores, input.binding);
+        const identity = replyIdentity(ports, input.binding.surface);
+        if (identity !== "bot" && identity !== "owner")
+          return yield* Effect.fail(
+            new SendAdmissionConflict({ message: `reply admission changed: ${identity}` }),
+          );
+        const target = deliveryTarget(ports.stores, input.binding, identity);
         const admission = Gateway.SendInput.parse({
           messageId: input.messageId,
           traceId: input.traceId,

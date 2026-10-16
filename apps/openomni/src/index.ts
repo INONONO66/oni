@@ -848,6 +848,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // reconcile and every tool-driven mutation run the SAME diff over
     // declared ChannelInstances, the only source of external channel config.
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
+    // The Owner instances whose declaration lets the reply door answer through
+    // the account (#1569 lane 7); the supervisor keeps it with the routes.
+    const autoReplies = new Set<string>();
     const supervisor = createChannelSupervisor({
       desired: () =>
         desiredChannels(
@@ -873,6 +876,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       deliveryRoutes,
       typingRoutes,
       webhookHandlers,
+      autoReplies,
       traceId: () => traceIdFromUuid(services.entropy.id()),
     });
     channelSupervisor = supervisor;
@@ -993,6 +997,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
         },
         {
           deliveryRoutes,
+          autoReplies: () => autoReplies,
           grants: () =>
             plane
               .listSessions()

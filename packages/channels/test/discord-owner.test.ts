@@ -11,7 +11,7 @@ import { FakeDiscordOwnerListener, fakeDiscordOwnerSdk, OWNER_READY } from "./he
 import { injectedOptions } from "./helpers/injected";
 
 const noopPublish: PublishPort = () => undefined;
-const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms" };
+const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -130,7 +130,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   });
 
   it("under `all` every guild message is intake; under `none` no listener opens", async () => {
-    const everything = await started({ intake: "all" });
+    const everything = await started({ intake: "all", autoReply: false });
     everything.listener.dispatch("MESSAGE_CREATE", {
       id: "m-all",
       channel_id: "C1",
@@ -142,7 +142,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     everything.listener.dispatch("MESSAGE_CREATE", SENTINEL);
     await sentinel;
     expect(everything.inbound.map((message) => message.facts.eventId)).toEqual(["m-all", SENTINEL.id]);
-    const sendOnly = await started({ intake: "none" });
+    const sendOnly = await started({ intake: "none", autoReply: false });
     expect(sendOnly.listener.started).toBe(0);
   });
 
@@ -171,7 +171,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     expect(arm.capabilities).toMatchObject({ deliver: true, react: true, typing: true });
     expect(arm.credentials.safeParse({ token: "Bot abc" }).success).toBe(false);
     expect(arm.credentials.safeParse({ token: "abc", extra: 1 }).success).toBe(false);
-    const runtime = arm.create({ token: "owner-token" }, { intake: "none" }, noopPublish, injectedOptions());
+    const runtime = arm.create({ token: "owner-token" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
     expect(runtime.surface.id).toBe("discord:owner");
     expect(runtime.typingRoute).toBeDefined();
     await runtime.surface.start("boot");
@@ -193,7 +193,7 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   });
 
   it("types as the Owner: a DM channel is opened once per turn, a named conversation is reused, every pulse posts typing", async () => {
-    const { adapter, calls } = await started({ intake: "none" });
+    const { adapter, calls } = await started({ intake: "none", autoReply: false });
     expect(await adapter.openTyping("U7", { channelId: "C1" })).toEqual({ channelId: "C1" });
     expect(await adapter.openTyping("U7")).toEqual({ channelId: "D-owner" });
     await adapter.typing({ channelId: "D-owner" });

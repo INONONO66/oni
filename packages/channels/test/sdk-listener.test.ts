@@ -71,6 +71,7 @@ function custody(
     failOnCloseBeforeConnected?: boolean;
     onConnected?: (info: { id: string }) => void;
     terminal?: (error: Error) => boolean;
+    recoverableBeforeConnected?: (error: Error) => boolean;
   } = {},
 ) {
   const options = injectedOptions();
@@ -110,6 +111,24 @@ describe("listenerCustody", () => {
     await expect(custody(listener, publish).start()).rejects.toThrow("bad token");
     expect(listener.stopped).toBe(1);
     expect(seen).toEqual([{ level: Operational.Events.Warn.name, msg: "fake socket error" }]);
+  });
+
+  test("an error before connected the SDK recovers from by another transport keeps start waiting, observed once as a fallback", async () => {
+    const { seen, publish } = recorder();
+    const handover = (error: Error) => /realtime/.test(error.message);
+    const listener = new FakeListener((self) => {
+      self.emit("error", new Error("realtime down"));
+      self.emit("connected", { id: "bot" });
+    });
+    await custody(listener, publish, { recoverableBeforeConnected: handover }).start();
+    expect(listener.stopped).toBe(0);
+    expect(seen).toEqual([{ level: Operational.Events.Warn.name, msg: "fake socket error, sdk falling back" }]);
+    const twice = new FakeListener((self) => {
+      self.emit("error", new Error("realtime down"));
+      self.emit("error", new Error("fallback down"));
+    });
+    await expect(custody(twice, publish, { recoverableBeforeConnected: handover }).start()).rejects.toThrow("fallback down");
+    expect(twice.stopped).toBe(1);
   });
 
   test("a close before connected fails start with a typed failure by default", async () => {

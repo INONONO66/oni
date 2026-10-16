@@ -208,7 +208,7 @@ test("a binding the app folded for a session the router never routed the convers
   expect(delivered).toEqual([]);
 });
 
-test("a DM is answered directly and a thread in its thread: the binding folds the same key the inbound claimed", async () => {
+test("a DM is answered in its chat, unthreaded, and a thread in its thread: the binding folds the same key the inbound claimed", async () => {
   const router = makeRouter();
   registerOwnerDm();
   const dm = await runEffect(router.ingest(ownerSender, ownerFacts));
@@ -229,7 +229,7 @@ test("a DM is answered directly and a thread in its thread: the binding folds th
       externalId: ownerSender.externalId,
       body: "direct",
       idempotencyKey: delivered[0]?.idempotencyKey ?? "",
-      conversation: undefined,
+      conversation: { channelId: "owner-dm" },
     },
     {
       externalId: "buyer-external",
@@ -354,6 +354,40 @@ test("an actor send under a standing grant whose surface has no delivery route f
     ),
   ).toMatchObject({ _tag: "ChannelsFailure", operation: "message.deliver" });
   expect(delivered).toEqual([]);
+});
+
+test("a surface reached only through the Owner's account: the reply is a draft unless the declaration auto-replies (#1569 lane 7)", async () => {
+  const ownerDelivered: string[] = [];
+  const ownerRoute: ChannelDeliveryRoute = async (externalId, payload) => {
+    ownerDelivered.push(`${externalId}:${Outbound.text(payload)}`);
+    return { value: "accepted" };
+  };
+  const routes = new Map([["discord:owner", ownerRoute]]);
+  // The Owner instance does not auto-reply: the answer stays the Owner's to send.
+  const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
+  const prompt = await admitFirstContact(drafting);
+  expect(await replyFrom(drafting, prompt.target, prompt.messageId)).toMatchObject({
+    status: "blocked_pre",
+    reasonCode: "message.resident.reply_draft",
+  });
+  expect(ownerDelivered).toEqual([]);
+  // The same conversation with the declaration's auto-reply: the door answers as the Owner.
+  const answering = makeFixtureRouter({
+    messaging: { deliveryRoutes: routes, grants: () => [], autoReplies: () => new Set(["discord:owner"]) },
+  });
+  expect((await replyFrom(answering, prompt.target, prompt.messageId, "as the Owner")).status).toBe("executed");
+  expect(ownerDelivered).toEqual(["buyer-external:as the Owner"]);
+  // A bot instance of the surface always answers as the bot, auto-reply or not.
+  const withBot = makeFixtureRouter({
+    messaging: {
+      deliveryRoutes: new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]),
+      grants: () => [],
+      autoReplies: () => new Set(["discord:owner"]),
+    },
+  });
+  expect((await replyFrom(withBot, prompt.target, prompt.messageId, "as the bot")).status).toBe("executed");
+  expect(delivered.map((entry) => entry.body)).toEqual(["as the bot"]);
+  expect(ownerDelivered).toEqual(["buyer-external:as the Owner"]);
 });
 
 test("a conversation whose surface has no delivery route is refused before transport", async () => {

@@ -100,6 +100,36 @@ describe("declared Owner instances", () => {
     expect(validateProviderSettings("slack", { botUsername: "x" }, "owner")).toBeDefined();
   });
 
+  test("an Owner-only platform mounts through its owner arm; a bot declaration of it is identity_unsupported (#1569 lane 7)", () => {
+    const session = JSON.stringify({ cookies: "sessionid=x", device: {}, user_id: "1" });
+    const owner = declaredChannelProfile(
+      [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig", settings: { autoReply: true }, grant: { outbound: true } })],
+      reader(JSON.stringify({ session })),
+      testChannelDeps(),
+    );
+    expect(owner.rows[0]?.component).toMatchObject({ id: "instagram", identity: "owner", listens: true });
+    expect(owner.rows[0]?.component.build(async () => undefined)).toMatchObject({ autoReply: true });
+    // Without an outbound grant the auto-reply means nothing: no route, no auto-reply.
+    const drafting = declaredChannelProfile(
+      [instance({ id: "channel:instagram:owner", provider: "instagram", credentialRef: "secret:ig", settings: { autoReply: true } })],
+      reader(JSON.stringify({ session })),
+      testChannelDeps(),
+    );
+    expect(drafting.rows[0]?.component.build(async () => undefined).autoReply).toBeUndefined();
+    const bot = declaredChannelProfile(
+      [instance({ id: "channel:kakaotalk:main", provider: "kakaotalk", identity: "bot", credentialRef: "secret:kk" })],
+      reader('{"oauthToken":"o","userId":"1"}'),
+      testChannelDeps(),
+    );
+    expect(bot.rows).toEqual([]);
+    expect(bot.statuses[0]).toMatchObject({
+      state: "identity_unsupported",
+      detail: "kakaotalk has no bot account; declare the instance with identity: owner",
+    });
+    expect(validateProviderCredential("instagram", { token: "x" })).toContain("identity: owner");
+    expect(validateProviderCredential("kakaotalk", { oauthToken: "o", userId: "1" }, "owner")).toBeUndefined();
+  });
+
   test("a platform without an owner arm reports identity_unsupported and mounts nothing", () => {
     const { rows, statuses } = declaredChannelProfile(
       [instance({ id: "channel:telegram:owner", provider: "telegram", credentialRef: "secret:tg" })],
@@ -278,6 +308,42 @@ describe("the supervisor with an Owner instance", () => {
     expect(resolveChannelGrant(channelStores(), { surface: "slack" })?.grant.ownerIntake).toBeUndefined();
     await supervisor.stopAll();
     expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
+  });
+
+  test("the supervisor keeps the auto-replying Owner instances with the routes, from mount to unwind (#1569 lane 7)", async () => {
+    const answering: ChannelComponent = {
+      id: "slack",
+      identity: "owner",
+      listens: false,
+      build: () => ({
+        surface: {
+          id: "slack:owner",
+          config: {},
+          start: () => Promise.resolve(),
+          stop: () => undefined,
+          onMessage: () => undefined,
+        },
+        deliveryRoute: async () => ({ value: "accepted" as const }),
+        autoReply: true,
+      }),
+    };
+    let rows = [{ instanceId: "channel:slack:owner", key: "0:0", component: answering, defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }];
+    const autoReplies = new Set<string>();
+    const supervisor = createChannelSupervisor({
+      desired: () => ({ source: "declared", rows, statuses: [] }),
+      build: (row) => row.build(async () => undefined),
+      grant: (surface, defaultTier) => registerTrustedChannelGrant(plane().stores.channelGrants, { surface, defaultTier }),
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      autoReplies,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await supervisor.reconcile();
+    expect([...autoReplies]).toEqual(["slack:owner"]);
+    rows = [];
+    await supervisor.reconcile();
+    expect(autoReplies.size).toBe(0);
   });
 
   test("an Owner instance that reads alone registers the platform's grant itself", async () => {

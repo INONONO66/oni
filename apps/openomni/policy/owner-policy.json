@@ -351,6 +351,28 @@
       }
     },
     {
+      "id": "message.resident.reply_draft",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.reply_draft",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "origin",
+          "check": {
+            "kind": "reply_auto"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.reply_draft"
+      }
+    },
+    {
       "id": "message.child.reply",
       "point": "message.pre",
       "order": 1000,

@@ -35,6 +35,8 @@ export interface ChannelRuntimeDeps {
 
 export interface BuiltChannel {
   readonly surface: Channel.Surface;
+  /** #1569 lane 7: an Owner instance whose declaration lets the reply door answer through the account. */
+  readonly autoReply?: boolean;
   /** Outbound seam, keyed by `surface.id`: present only for channels the Resident can message into. */
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
@@ -72,6 +74,8 @@ function providerRow(
   deps: ChannelRuntimeDeps,
   /** #1569: an Owner instance without a declared outbound grant mounts no delivery route. */
   outbound = true,
+  /** #1569 lane 7: an Owner instance whose posture lets the reply door answer through the account. */
+  autoReply = false,
 ): ChannelComponent {
   return {
     id,
@@ -88,6 +92,7 @@ function providerRow(
       runtime.surface.onMessage(handler);
       return {
         surface: runtime.surface,
+        ...(autoReply && outbound ? { autoReply: true } : {}),
         ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
         ...(runtime.typingRoute === undefined || !outbound ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
@@ -154,14 +159,16 @@ function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
  * route mounts only when the declaration's `grant.outbound` says so, and
  * the instance reads inbound only when the arm listens under a posture.
  */
-function ownerRow<TOwner>(
-  provider: { readonly id: keyof typeof ChannelProviders; readonly owner?: OwnerArm<TOwner> },
+function ownerRow(
+  provider: (typeof ChannelProviders)[keyof typeof ChannelProviders],
   plaintext: Uint8Array,
   settings: Provisioning.ChannelInstance["settings"],
   deps: ChannelRuntimeDeps,
   outbound: boolean,
 ): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
-  const arm = provider.owner;
+  // Each platform's arm carries its own credential type; the arm's schema is
+  // what admits the vault payload, so the row reads it as plain data.
+  const arm = provider.owner as OwnerArm<PlainValue> | undefined;
   if (arm === undefined) return { unsupported: `${provider.id} has no Owner-account arm` };
   const decoded = Result.try({
     try: (): PlainValue => JSON.parse(new TextDecoder().decode(plaintext)),
@@ -181,6 +188,7 @@ function ownerRow<TOwner>(
     (options) => arm.create(parsed.data, posture.data, deps.publish, options),
     deps,
     outbound,
+    posture.data.autoReply,
   );
 }
 
@@ -194,6 +202,10 @@ function declaredRow(
   const key = instance.provider;
   if (instance.identity === "owner") {
     return ownerRow(providers[key], plaintext, instance.settings, deps, instance.grant?.outbound === true);
+  }
+  // #1569 lane 7: an Owner-only platform has no bot account to declare.
+  if (key === "instagram" || key === "kakaotalk") {
+    return { unsupported: `${key} has no bot account; declare the instance with identity: owner` };
   }
   if (key === "telegram") {
     return credentialRow(providers.telegram, plaintext, deps);

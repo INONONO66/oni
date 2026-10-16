@@ -153,7 +153,16 @@ export interface OwnerArm<TCredentials> {
  * never an outside event; reactions are not intake.
  */
 export const OwnerPosture = z
-  .object({ intake: z.enum(["mentions_and_dms", "all", "none"]).default("mentions_and_dms") })
+  .object({
+    intake: z.enum(["mentions_and_dms", "all", "none"]).default("mentions_and_dms"),
+    /**
+     * #1569 lane 7: whether the reply door may answer a conversation through
+     * this account on its own. False (the default) keeps the Resident's
+     * answer a draft the Owner sends; it needs `grant.outbound` as well.
+     * Meaningless where a bot instance of the platform answers.
+     */
+    autoReply: z.boolean().default(false),
+  })
   .strict();
 export type OwnerPosture = z.infer<typeof OwnerPosture>;
 
