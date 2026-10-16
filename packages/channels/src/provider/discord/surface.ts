@@ -42,7 +42,7 @@ import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
  * package's own client over `fetch-retry` (one physical attempt per key).
  */
 export class DiscordAdapter implements Channel.Surface {
-  readonly id = "discord";
+  readonly id = "discord:bot";
   private readonly client: DiscordClient;
   private readonly bot: DiscordBotApi;
   private readonly dedupe: Dedupe;

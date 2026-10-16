@@ -216,19 +216,37 @@ export type SlackFailure = "rejected" | "not_connected" | "uncertain";
  * custody as `unknown`. A single-attempt client (`singleAttempt`) is assumed:
  * with retries, an http or request error could follow an accepted post.
  */
+/**
+ * Both Slack SDK error classes (`SlackBotError` from the bot seam,
+ * `SlackError` from the Owner seam) carry a `code` string and name
+ * themselves; custody reads the shape, not the class, so one classifier
+ * serves both instances.
+ */
+function isSlackSdkError(error: Error): error is Error & { readonly code: string } {
+  return (
+    (error.name === "SlackBotError" || error.name === "SlackError") &&
+    typeof (error as Error & { readonly code?: string }).code === "string"
+  );
+}
+
 export function classifySlackFailure(error: Error): SlackFailure {
-  if (!(error instanceof SlackBotError)) return "uncertain";
+  if (!isSlackSdkError(error)) return "uncertain";
   if (error.code === REQUEST_ERROR)
     return NEVER_CONNECTED.test(error.message) ? "not_connected" : "uncertain";
   if (error.code === HTTP_ERROR) return "uncertain";
   // Platform `ok:false`, a typed rate-limit refusal after the SDK's bounded
   // retries, and the SDK's own preflight refusals all mean nothing was posted.
+  // The Owner seam's own `ok:false` check names the Slack error as the code.
   return error.code === PLATFORM_REFUSED ||
     error.code === RATE_LIMITED ||
-    SDK_PREFLIGHT.has(error.code)
+    SDK_PREFLIGHT.has(error.code) ||
+    (error.name === "SlackError" && !SDK_CUSTODY.has(error.code))
     ? "rejected"
     : "uncertain";
 }
+
+/** Owner-seam codes raised after a request may have been accepted, or that name no refusal. */
+const SDK_CUSTODY = new Set(["unknown_error", "file_not_found", "api_error"]);
 
 /**
  * A platform error naming a state that already holds (`already_reacted`,
@@ -236,11 +254,10 @@ export function classifySlackFailure(error: Error): SlackFailure {
  * (`An API error occurred: <error>`), so the name is matched there.
  */
 export function isSettledState(error: Error, states: readonly string[]): boolean {
-  return (
-    error instanceof SlackBotError &&
-    error.code === PLATFORM_REFUSED &&
-    states.some((state) => error.message.endsWith(`: ${state}`))
-  );
+  if (!isSlackSdkError(error)) return false;
+  if (error.code === PLATFORM_REFUSED) return states.some((state) => error.message.endsWith(`: ${state}`));
+  // The Owner seam's own `ok:false` check carries the state as the code.
+  return error.name === "SlackError" && states.includes(error.code);
 }
 
 /**

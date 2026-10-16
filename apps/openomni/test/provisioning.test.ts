@@ -26,6 +26,7 @@ function instance(overrides: Partial<Provisioning.ChannelInstance>): Provisionin
   return {
     id: "channel:telegram:main",
     provider: "telegram",
+    identity: "bot",
     enabled: true,
     settings: {},
     credentialRef: "secret:channel-telegram-main",
@@ -101,7 +102,7 @@ describe("declared channel profile", () => {
     expect(rows[0]?.component.id).toBe("telegram");
     const built = rows[0]?.component.build(() => Promise.resolve());
     expect(built?.surface.config).toEqual({});
-    expect(built?.surface.id).toBe("telegram");
+    expect(built?.surface.id).toBe("telegram:bot");
   });
 
   test("disabled, unknown-provider, and credential-less rows are statuses, not mounts", () => {
@@ -341,6 +342,7 @@ describe("github declared row", () => {
         {
           id: "channel:github:main",
           provider: "github",
+          identity: "bot",
           enabled: true,
           settings: {},
           credentialRef: "secret:channel-github-main",
@@ -365,6 +367,7 @@ describe("github declared row", () => {
         {
           id: "channel:slack:main",
           provider: "slack",
+          identity: "bot",
           enabled: true,
           settings: {},
           credentialRef: "secret:channel-slack-main",

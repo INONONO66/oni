@@ -26,6 +26,8 @@ export type MessagePolicyContext =
       readonly depth: number;
       readonly withinParentDeadline: boolean;
       readonly actorSendAllowed?: boolean;
+      /** The sending identity is granted (the Owner's account only on an Owner-origin turn through an outbound-granted instance). */
+      readonly identityGranted?: boolean;
     };
 
 export function matchesMessage(
@@ -78,6 +80,7 @@ function sessionCheck(
     case "depth": return context.depth <= check.max;
     case "deadline": return context.withinParentDeadline;
     case "actor_send": return context.actorSendAllowed === true;
+    case "identity": return context.identityGranted === true;
   }
 }
 

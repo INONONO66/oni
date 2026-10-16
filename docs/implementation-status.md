@@ -1,5 +1,86 @@
 # Implementation Status
 
+## #1569 the identity axis and the Slack Owner instance (PR 5 of the epic)
+
+On `feat/1569-identity-axis` (2026-10-16, stacked on PR 4). A mounted
+channel is one `(platform, identity)` instance, `Channel.Identity` being
+`bot | owner`: `Provisioning.ChannelInstance.identity` (default `bot`, so
+every row declared before the axis is a bot instance) names it, and the
+messenger surfaces mount under the instance id (`slack:bot`, `discord:bot`,
+`telegram:bot`; the identity-less ws, github and webhook surfaces keep their
+platform id and are reached as the bot). Delivery and typing routes key by
+instance surface id; the ingress trusted-channel grant and the webhook path
+key by the platform the inbound facts name, and only a bot instance
+registers an ingress grant (`provision/supervisor.ts`) — the Owner listener
+and its posture are lane 6. The provider contract gains an optional `owner`
+arm (`OwnerArm`: the account-session credential schema, operator
+preconditions, deliver/react/media/typing capabilities and `create`);
+Slack's arm (`provider/slack/{owner-sdk,owner}.ts`, `agent-messenger/slack`
+imported only by `owner-sdk.ts`) logs the Owner's own account in with the
+vault-opened `{token xoxc, cookie d}`, pins the inner web client to one
+attempt, verifies the identity at start, and delivers letters and
+reactions as the Owner (DM through `conversations.open`, threads, no media
+upload — reference lines stay in the text); it mounts a delivery route only
+when the declaration's `grant.outbound` is true. `classifySlackFailure` and
+`isSettledState` read both SDK error shapes (`SlackBotError`, the user
+SDK's `SlackError` whose own `ok:false` check names the Slack error as the
+code). The send door carries the identity: `send_message` contacts take
+`as: bot | owner` (default bot) → `Gateway.MessageTarget.identity` →
+`Gateway.DeliveryTarget.identity` → the `<channel>:<identity>` route
+(`router/index.ts`, bare platform fallback for identity-less surfaces);
+`messaging.sent` journals `identity`; the reply door always leaves as the
+bot. `as: owner` is admitted only when the app's authenticated
+`ownerOrigin` fact holds — `prepareMessage` reads the open turn's consumed
+deliveries off the sender's ledger and the actor registry (`trustTier:
+owner`), never message text — and a `<channel>:owner` route is mounted;
+otherwise `authorizeSend` refuses with the new `identity_not_granted`
+denial, projected onto the new `identity` policy check under
+`message.resident.identity_not_granted` (the grant row keeps its own
+verdict). The send-admission signature keeps the bot identity implicit, so
+every admission recorded before the axis replays equal; an Owner send is
+signed as such. `provision channel_add` takes `identity` and `outbound`
+(the owner arm validates the credential; a platform without an arm reports
+`identity_unsupported`; `outbound` lands on the instance's `grant`). An
+Owner instance, and any change to its outbound grant, is the Owner's call:
+`provisionApproval` suspends the invocation for Owner approval and
+`executeChannelDeclare` lands the row only on the consented path, bound to
+the instance revision the consent was given against (the contact_add
+pattern; the gate's `when` cannot see tool arguments, so the hook is the
+one layer). A re-declaration keeps the stored identity (`identity` is
+optional on the wire; a fresh row is the bot), and `secret_rotate`
+validates each consumer under its own arm's schema. The `ownerOrigin` fold
+lets the newest external delivery decide: a sender the registry does not
+hold (no actor) decides `false` even when an older Owner prompt shares the
+turn. The Slack Owner surface binds the authenticated workspace at start
+and refuses (`not_sent`, nothing attempted) an endpoint of another
+workspace. Mounted stages report their instance surface
+(`slack:bot`/`slack:owner`) and `provision status` lists the Owner arm's
+preconditions under it. Conformance snapshots regenerated (additive). Not in this PR: the QR-login
+CLI helper that seals the Owner session into the vault (its own branch
+next), the Owner listener (lane 6). Receipts:
+`packages/channels/test/slack-owner.test.ts` (login/pin/identity, DM open,
+thread, reference-line media, reaction swap with settled states, failure
+classification over both error shapes, the owner arm's runtime),
+`test/provider-owner-arm.test.ts`, `test/provider-contract.test.ts`
+(instance ids), `test/channel-band-boundary.test.ts` (`agent-messenger/slack`
+home), `test/router/messaging/identity.test.ts` (bot default and bare
+platform fallback, `as: owner` journaled through `slack:owner`, the three
+`identity_not_granted` refusals before transport, a bot send never leaving
+through the Owner's account), `apps/openomni/test/identity-door.test.ts`
+(the real gateway: Owner-origin turn + outbound-granted instance, non-Owner
+turn, no Owner instance, no identity, the tool's `as`),
+`apps/openomni/test/identity-instances.test.ts` (declared Owner rows,
+`identity_unsupported`, outbound gating the route, the supervisor keying
+grant/webhook by platform and routes by instance, `channel_add` identity),
+`apps/openomni/test/provision-tools.test.ts` (Owner consent for an Owner
+instance and its grant with the revision CAS, sticky identity on
+re-declaration, Owner-arm rotation, instance-surface preconditions),
+`apps/openomni/test/identity-door.test.ts` (the newest external delivery
+decides), `packages/channels/test/slack-owner.test.ts` (another workspace's
+endpoint refused); suites on the stacked tree: `packages/channels` 899 pass,
+`packages/protocol` 656 pass, `packages/agent` 1530 pass, `apps/openomni`
+991 pass, 0 fail each.
+
 ## #1569 the reply door (PR 4 of the epic)
 
 On `feat/1569-reply-door` (2026-10-16, stacked on PR 3). The ordinary answer

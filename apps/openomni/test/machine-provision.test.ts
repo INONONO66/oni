@@ -232,7 +232,7 @@ test("machine enrollment and channel declarations have independent identities", 
   const tool = createProvisionTool(port, () => 5);
   try {
     expect(plane.stores.instances.list()).toEqual([]);
-    await tool.execute({ operation: { op: "channel_add", args: { id, provider: "telegram", enabled: true, settings: {} } } }, context);
+    await tool.execute({ operation: { op: "channel_add", args: { id, provider: "telegram", identity: "bot", enabled: true, settings: {} } } }, context);
     await tool.execute({ operation: { op: "channel_disable", args: { instanceId: id } } }, context);
     expect(plane.stores.instances.get(id)).toMatchObject({ provider: "telegram", enabled: false });
     expect(enrollments.list()).toEqual([machine]);

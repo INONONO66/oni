@@ -66,6 +66,7 @@ test("the shipped JSON preserves the pre-R3 app-owned policy row id and point se
     ["message.resident.deadline", "message.pre"],
     ["message.resident.depth", "message.pre"],
     ["message.resident.fanout", "message.pre"],
+    ["message.resident.identity_not_granted", "message.pre"],
     ["message.resident.parent", "message.pre"],
     ["message.resident.reply_unbound", "message.pre"],
     ["provision-automation-add-consent", "tool.pre"],

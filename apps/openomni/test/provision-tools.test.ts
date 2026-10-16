@@ -11,6 +11,7 @@ import type { ChannelRuntimeStatus } from "../src/bundles/provision/supervisor";
 import { Core } from "@openomni/agent";
 const eraseTool = Core.eraseTool;
 import { createProvisionTool } from "../src/bundles/provision/provision";
+import { provisionApproval } from "../src/bundles/provision/execution";
 import type { ProvisionPort } from "../src/bundles/provision/channels";
 import { executor } from "./helpers/executor";
 import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
@@ -445,6 +446,118 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     );
   });
 
+  test("#1569 an Owner instance, and any change to its outbound grant, lands only with Owner consent bound to the row's revision", async () => {
+    const { port, supervisor } = portWith();
+    const tool = createProvisionTool(port, () => NOW);
+    const context = {
+      sessionId: "provision-session",
+      turnId: "provision-turn",
+      callId: "owner-consent",
+      signal: new AbortController().signal,
+    };
+    const args = {
+      id: "channel:slack:owner",
+      provider: "slack",
+      identity: "owner" as const,
+      outbound: true,
+      enabled: true,
+      settings: {},
+      credential: { token: "xoxc-1", cookie: "d" },
+    };
+    const redeclare = { id: "channel:slack:owner", provider: "slack", enabled: true, settings: {} };
+    const approval = provisionApproval(port);
+    expect(approval({ operation: { op: "channel_add", args } }, context)).toEqual({
+      required: true,
+      domainRevisions: { "channel:slack:owner": -1 },
+    });
+    // A bot declaration without an outbound grant stays the Resident's own call.
+    expect(
+      approval(
+        { operation: { op: "channel_add", args: { id: "channel:slack:hq", provider: "slack", enabled: true, settings: {} } } },
+        context,
+      ),
+    ).toMatchObject({ required: false });
+    // The direct path (no consent on the invocation) refuses before anything lands or reconciles.
+    await expect(tool.execute({ operation: { op: "channel_add", args } }, context)).rejects.toThrow(
+      "channel:slack:owner: an Owner instance and its outbound grant require Owner consent",
+    );
+    expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
+    expect(supervisor.calls).toEqual([]);
+    // Consent given against another revision no longer holds.
+    await expect(
+      tool.execute({ operation: { op: "channel_add", args } }, { ...context, domainRevisions: { "channel:slack:owner": 3 } }),
+    ).rejects.toThrow("domain revision changed");
+    expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
+    // Matching consent lands the Owner row with its grant and reconciles once.
+    expect(
+      await tool.execute({ operation: { op: "channel_add", args } }, { ...context, domainRevisions: { "channel:slack:owner": -1 } }),
+    ).toMatchObject({ op: "channel_add", id: "channel:slack:owner", action: "declared" });
+    expect(plane().stores.instances.get("channel:slack:owner")).toMatchObject({
+      identity: "owner",
+      grant: { outbound: true },
+      credentialRef: "secret:channel-slack-owner",
+      revision: 0,
+    });
+    expect(supervisor.calls).toEqual(["reconcile"]);
+    // Re-declaring the row keeps its identity (and so keeps needing consent), even when the call omits `identity`.
+    expect(approval({ operation: { op: "channel_add", args: redeclare } }, context)).toEqual({
+      required: true,
+      domainRevisions: { "channel:slack:owner": 0 },
+    });
+    expect(
+      await tool.execute(
+        { operation: { op: "channel_add", args: { ...redeclare, outbound: false } } },
+        { ...context, domainRevisions: { "channel:slack:owner": 0 } },
+      ),
+    ).toMatchObject({ action: "declared" });
+    expect(plane().stores.instances.get("channel:slack:owner")).toMatchObject({
+      identity: "owner",
+      grant: { outbound: false },
+      credentialRef: "secret:channel-slack-owner",
+      revision: 1,
+    });
+  });
+
+  test("#1569 secret_rotate validates an Owner instance's replacement under the Owner arm's schema", async () => {
+    const { port } = portWith();
+    const tool = createProvisionTool(port, () => NOW);
+    const context = {
+      sessionId: "provision-session",
+      turnId: "provision-turn",
+      callId: "owner-rotate",
+      signal: new AbortController().signal,
+      domainRevisions: { "channel:slack:owner": -1 },
+    };
+    await tool.execute(
+      {
+        operation: {
+          op: "channel_add",
+          args: {
+            id: "channel:slack:owner",
+            provider: "slack",
+            identity: "owner",
+            enabled: true,
+            settings: {},
+            credential: { token: "xoxc-old", cookie: "d-old" },
+          },
+        },
+      },
+      context,
+    );
+    const botTokens = await secretRotate(
+      port,
+      () => NOW + 10,
+    )({ secretId: "secret:channel-slack-owner", credential: { botToken: "xoxb-1", appToken: "xapp-1" } });
+    expect(botTokens).toContain("secret_rotate refused: channel:slack:owner:");
+    expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBeUndefined();
+    const rotated = await secretRotate(
+      port,
+      () => NOW + 10,
+    )({ secretId: "secret:channel-slack-owner", credential: { token: "xoxc-new", cookie: "d-new" } });
+    expect(rotated).toContain("rotated");
+    expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBe(NOW + 10);
+  });
+
   test("§8.7 secret_rotate keeps the id, bumps rotatedAt, and bounces via reconcile", async () => {
     const { port, supervisor } = portWith();
     await channelDeclare(
@@ -533,6 +646,19 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     expect(slackStatus).toContain(
       "slack precondition: Socket Mode enabled with an app-level token granted connections:write",
     );
+    // #1569: a mounted stage reports its instance surface; the bot's checklist is the platform's, the Owner's is the arm's.
+    const instancePort = portWith();
+    instancePort.supervisor.statuses = [
+      { id: "channel:slack:hq", surface: "slack:bot", state: "mounted" },
+      { id: "channel:slack:owner", surface: "slack:owner", state: "mounted" },
+    ];
+    const instanceStatus = await provisionStatus(instancePort.port)({});
+    expect(instanceStatus).toContain("channel:slack:owner [slack:owner] → mounted");
+    expect(instanceStatus).toContain(
+      "slack:bot precondition: Socket Mode enabled with an app-level token granted connections:write",
+    );
+    expect(instanceStatus).toContain("slack:owner precondition: Owner session from the Slack QR login");
+    expect(instanceStatus).not.toContain("slack:owner precondition: Socket Mode");
 
     const locked = portWith({ kek: { kind: "locked", reason: "no OPENOMNI_VAULT_KEY" } });
     expect(await provisionStatus(locked.port)({})).toContain(

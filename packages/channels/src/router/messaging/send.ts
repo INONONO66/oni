@@ -38,6 +38,8 @@ type MessagingPorts = Readonly<{
   transaction: GatewayRouterPorts["transaction"];
   /** Delivery owners reconcile retries using the stable idempotency key. */
   deliver: (message: OutboundMessage) => KernelDeliveryReceipt | Promise<KernelDeliveryReceipt>;
+  /** The mounted delivery routes by instance surface id (`<channel>:<identity>`, or a bare platform id); absent = no Owner instance anywhere. */
+  routes?: () => ReadonlySet<string>;
   publish: BusEvent.Sink["publish"];
 }> &
   Pick<NonNullable<GatewayRouterPorts["messaging"]>, "grants" | "budgets">;
@@ -131,6 +133,7 @@ function recordSent(
     operation: input.operation,
     grantId: grant.id,
     endpointId: target.endpointId,
+    identity: target.identity,
     ...(request === undefined ? {} : { requestId: request.requestId }),
     time: input.at,
   });
@@ -184,7 +187,7 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
   function send(rawInput: SendInput): Effect.Effect<SendReceipt, ChannelError> {
     return Effect.gen(function* () {
     const input = SendInput.parse(rawInput);
-    const checked = authorizeSend(ports.stores, input, ports.grants());
+    const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes?.() ?? new Set());
     if (!checked.ok) return deny(input, checked.code, checked.reason);
     const authorization = { input, target: checked.target, grant: checked.grant };
     const { target } = authorization;
@@ -202,7 +205,7 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
 
   return {
     preflight(input: SendAuthorityInput) {
-      const checked = authorizeSend(ports.stores, input, ports.grants());
+      const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes?.() ?? new Set());
       return checked.ok ? undefined : checked.code;
     },
     send,

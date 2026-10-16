@@ -28,6 +28,20 @@ export const SurfaceKeyError = NamedError.create(
 export type SurfaceKeyError = InstanceType<typeof SurfaceKeyError>;
 
 export namespace Channel {
+  /**
+   * The identity a mounted instance speaks as (#1569): the bot account, or the
+   * Owner's own account. A surface's id is `<platform>:<identity>` for the
+   * messenger instances; identity-less surfaces (ws, github, webhook) keep
+   * their platform id and are reached as the bot.
+   */
+  export const Identity = z.enum(["bot", "owner"]);
+  export type Identity = z.infer<typeof Identity>;
+
+  /** The surface id one `(platform, identity)` instance mounts under. */
+  export function instanceId(platform: string, identity: Identity): string {
+    return `${platform}:${identity}`;
+  }
+
   export interface InboundMessage {
     sender: import("../gateway/index.js").Gateway.IngestSender & { kind: "external" };
     facts: import("../gateway/index.js").Gateway.IngressFacts;

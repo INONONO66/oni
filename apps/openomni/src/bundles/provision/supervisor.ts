@@ -95,8 +95,14 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
 
   async function mountRow(row: DesiredChannelRow): Promise<void> {
     const built = deps.build(row.component);
+    // Routes key by the instance surface id (`<platform>:<identity>`, #1569);
+    // the ingress grant and the webhook path key by the platform the inbound
+    // facts name, and only a bot instance reads inbound (lane 6 mounts the
+    // Owner listener under its own posture).
     const surfaceId = built.surface.id;
-    const revokeGrant = deps.grant(surfaceId, row.defaultTier);
+    const platform = row.component.id;
+    const revokeGrant =
+      row.component.identity === "owner" ? () => undefined : deps.grant(platform, row.defaultTier);
     if (built.deliveryRoute !== undefined) {
       deps.deliveryRoutes.set(surfaceId, built.deliveryRoute);
     }
@@ -104,11 +110,11 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       deps.typingRoutes.set(surfaceId, built.typingRoute);
     }
     if (built.webhookHandler !== undefined) {
-      deps.webhookHandlers.set(surfaceId, built.webhookHandler);
+      deps.webhookHandlers.set(platform, built.webhookHandler);
     }
     const unwind = async (stopSurface: boolean) => {
       if (stopSurface) await built.surface.stop(deps.traceId());
-      deps.webhookHandlers.delete(surfaceId);
+      if (built.webhookHandler !== undefined) deps.webhookHandlers.delete(platform);
       deps.deliveryRoutes.delete(surfaceId);
       deps.typingRoutes.delete(surfaceId);
       revokeGrant();
@@ -140,7 +146,12 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     const failure = await mountRow(row).then(() => undefined, ThrownError.parse);
     if (failure === undefined) {
       failures.delete(row.instanceId);
-      statuses.push({ id: row.instanceId, surface: row.component.id, state: "mounted" });
+      // A mounted stage reports the surface it mounted under (`<platform>:<identity>`, #1569), first time and after.
+      statuses.push({
+        id: row.instanceId,
+        surface: mounted.get(row.instanceId)?.surfaceId ?? row.component.id,
+        state: "mounted",
+      });
       return;
     }
     const count = failed + 1;

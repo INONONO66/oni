@@ -44,7 +44,7 @@ const THREAD_HISTORY_LIMIT = 20;
  * at-least-once remainder.
  */
 export class SlackAdapter implements Channel.Surface {
-  readonly id = "slack";
+  readonly id = "slack:bot";
 
   private readonly client: SlackBotApi;
   private readonly dedupe: Dedupe;

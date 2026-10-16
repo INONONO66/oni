@@ -307,6 +307,28 @@
       }
     },
     {
+      "id": "message.resident.identity_not_granted",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.identity_not_granted",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "actor",
+          "check": {
+            "kind": "identity"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.identity_not_granted"
+      }
+    },
+    {
       "id": "message.resident.reply_unbound",
       "point": "message.pre",
       "order": 1000,

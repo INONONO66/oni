@@ -2,7 +2,7 @@ export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
 export { AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
 export type { ChannelError } from "./errors.js";
-export type { ChannelProvider, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
+export type { ChannelProvider, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
 export { typingPulse } from "./support/typing-pulse.js";
 export type { EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";

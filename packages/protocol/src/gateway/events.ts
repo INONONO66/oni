@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Channel } from "../channel/index.js";
 import { BusEvent } from "../bus/index.js";
 import { Gateway } from "./schema.js";
 import { EpochMs } from "../time.js";
@@ -26,6 +27,8 @@ export const MessagingEvents = {
       operation: Gateway.MessageOperation,
       grantId: z.string().min(1),
       endpointId: z.string().min(1),
+      /** #1569: the identity the send went out under; every send journals it. */
+      identity: Channel.Identity,
       requestId: z.string().min(1).optional(),
     }),
     { visibility: "llm_reason" },

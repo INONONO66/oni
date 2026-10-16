@@ -123,10 +123,31 @@ export interface ProviderRuntime {
  * and the injected `PublishPort` only. Authority (grants, blacklist, tiers,
  * admission) remains router-side.
  */
-export interface ChannelProvider<TCredentials, TId extends string = string> {
+/**
+ * The Owner-identity arm of a provider (#1569): the same platform spoken as
+ * the Owner's own account. Its credential is the account session the QR (or
+ * remote-auth) login produced, never the bot's; its runtime mounts under
+ * `<platform>:owner`. Only the capabilities an account can carry are
+ * declared — there is no webhook arm, and typing is the platform's own.
+ */
+export interface OwnerArm<TCredentials> {
+  readonly credentials: z.ZodType<TCredentials, TCredentials>;
+  readonly preconditions: readonly string[];
+  readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing">;
+  create(
+    credentials: TCredentials,
+    config: Channel.Config,
+    publish: PublishPort,
+    options: ProviderOptions,
+  ): ProviderRuntime;
+}
+
+export interface ChannelProvider<TCredentials, TId extends string = string, TOwner = never> {
   readonly id: TId;
   readonly ingest: IngestMode;
   readonly capabilities: ProviderCapabilities;
+  /** The Owner-account arm where the platform has one; absent, an `identity: owner` declaration is unsupported. */
+  readonly owner?: OwnerArm<TOwner>;
   /**
    * THE schema for this provider's secret payload — the app's credential
    * gates (boot declared rows, `channel_add`/`secret_rotate`) validate

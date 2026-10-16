@@ -296,6 +296,7 @@ test("channel stores ride the host's catalog handle and the bound entity ports s
   plane.stores.instances.put({
     id: "channel:fixture:main",
     provider: "telegram",
+    identity: "bot",
     enabled: true,
     settings: {},
     credentialRef: "secret:fixture",

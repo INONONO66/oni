@@ -15,6 +15,7 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/slackbot", "src/provider/slack/sdk.ts"],
   ["agent-messenger/discordbot", "src/provider/discord/sdk.ts"],
   ["agent-messenger/telegrambot", "src/provider/telegram/sdk.ts"],
+  ["agent-messenger/slack", "src/provider/slack/owner-sdk.ts"],
 ]);
 const JUDGMENT_ALLOWED_PACKAGES = new Set(["@openomni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;
@@ -123,11 +124,21 @@ describe("channels band import boundary", () => {
           path: "src/router/index.ts",
           text: 'import { SlackBotClient } from "agent-messenger/slackbot";',
         },
+        // #1569 lane 5: the Owner-account subpath has its own one home.
+        {
+          path: "src/provider/slack/owner-sdk.ts",
+          text: 'import { SlackClient } from "agent-messenger/slack";',
+        },
+        {
+          path: "src/provider/slack/sdk.ts",
+          text: 'import { SlackClient } from "agent-messenger/slack";',
+        },
       ]),
     ).toEqual([
       "src/provider/slack/surface.ts: imports agent-messenger/slackbot",
       "src/provider/slack/sdk.ts: imports agent-messenger/discordbot",
       "src/router/index.ts: imports agent-messenger/slackbot",
+      "src/provider/slack/sdk.ts: imports agent-messenger/slack",
     ]);
   });
 

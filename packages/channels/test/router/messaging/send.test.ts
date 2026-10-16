@@ -260,6 +260,7 @@ describe("explicit target resolution (fail closed)", () => {
       actorId: "actor:target",
       endpointId: "endpoint:target-slack",
       channel: "slack",
+      identity: "bot",
       externalId: "T1:U1",
       conversation,
     });
@@ -299,6 +300,7 @@ describe("fire-and-forget delivery", () => {
       actorId: "actor:target",
       endpointId: "endpoint:target",
       channel: "qa",
+      identity: "bot",
       externalId: "target-1",
     });
     expect(ledger().kernel.requestRows()).toHaveLength(0);

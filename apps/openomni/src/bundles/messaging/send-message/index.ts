@@ -39,6 +39,9 @@ const Target = z.discriminatedUnion("kind", [
       conversation: Gateway.Conversation.optional().describe(
         "Where on that channel to answer: the chat and thread the contact wrote in (needs surface). Omit to reach them directly.",
       ),
+      as: Gateway.SendIdentity.optional().describe(
+        "Which account the letter goes out under: bot (default) or owner — the Owner's own account, only when the Owner asked you to send from it in this conversation and their account is connected for sending.",
+      ),
     })
     .strict(),
 ]);
@@ -109,6 +112,7 @@ function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessag
             actorId: input.to.id,
             ...(input.to.surface === undefined ? {} : { surface: input.to.surface }),
             ...(input.to.conversation === undefined ? {} : { conversation: input.to.conversation }),
+            ...(input.to.as === undefined ? {} : { as: input.to.as }),
           }
         : input.to,
     type: input.kind === "prompt" ? "message" : input.kind,

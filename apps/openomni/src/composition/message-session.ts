@@ -378,6 +378,51 @@ function withinDeadline(
   );
 }
 
+/**
+ * The authenticated Owner-origin fact (#1569): the latest prompt delivered to
+ * this session carries an external origin whose actor the catalog holds at
+ * `trustTier: owner` — a channel prompt the perimeter routed from the Owner's
+ * endpoint, or the ws Owner. Read off the ledger and the actor registry,
+ * never off message text; it is what admits a send `as: owner`.
+ */
+function ownerOriginTurn(
+  plane: AppLedgerPlane,
+  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  sessionId: string,
+): boolean {
+  // The running turn's intent names the deliveries it consumed — the same
+  // ids the resident's turn input carries; the newest external one decides.
+  const open = kernel.latestOpenTurn(sessionId);
+  const turn = open === undefined ? undefined : kernel.actionById(open.turnId)?.intent.value;
+  const deliveries = TurnDeliveries.safeParse(turn);
+  if (!deliveries.success) return false;
+  for (const id of [...deliveries.data.deliveryIds].reverse()) {
+    const value = kernel.actionById(id)?.intent.value;
+    // Only kernel- or session-minted rows are skipped: the newest external
+    // row always decides, so a sender the registry does not hold (no actor)
+    // decides `false` even when an older Owner prompt shares the turn.
+    if (!ExternalKind.safeParse(value).success) continue;
+    const origin = OwnerOrigin.safeParse(value);
+    if (!origin.success || origin.data.inboundTreatment === "evidence_only") return false;
+    const actorId = origin.data.actorId;
+    if (actorId === undefined || actorId === "") return false;
+    return plane.stores.actors.getIdentity(actorId)?.trustTier === "owner";
+  }
+  return false;
+}
+
+const TurnDeliveries = z.object({ deliveryIds: z.array(z.string().min(1)) }).loose();
+
+const ExternalKind = z.object({ kind: z.literal("external") }).loose();
+
+const OwnerOrigin = z
+  .object({
+    kind: z.literal("external"),
+    actorId: z.string().optional(),
+    inboundTreatment: z.enum(["full_access", "evidence_only"]).optional(),
+  })
+  .loose();
+
 /** A new child's genesis and the fanout/depth limits the pinned policy declares for it; nothing for other targets. */
 function childCreation(
   kernel: ReturnType<AppLedgerPlane["openKernel"]>,
@@ -437,9 +482,11 @@ export function prepareMessage(
       const depth = sessionDepth(source.parentId, rows);
       const openChildren = rows.filter((row) => row.parentId === sender.id).length;
       const binding = originBinding(kernel, send);
+      const ownerOrigin = send.to.kind === "actor" && send.to.as === "owner" && ownerOriginTurn(plane, kernel, sender.id);
       return {
         target,
         ...(binding === undefined ? {} : { binding }),
+        ...(send.to.kind === "actor" && send.to.as === "owner" ? { ownerOrigin } : {}),
         ...(outbound === undefined
           ? {}
           : {

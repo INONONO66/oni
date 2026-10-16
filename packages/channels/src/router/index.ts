@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Gateway, Outbound } from "@openomni/protocol";
+import { Channel, Gateway, Outbound } from "@openomni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";
@@ -42,19 +42,26 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     ((_sender: Gateway.IngestSender, observation: Gateway.MessageObservation) =>
       ports.sink(Gateway.MessageObserved, observation));
   const messagingPorts = ports.messaging;
+  // A delivery leaves through one instance, `<channel>:<identity>` (#1569);
+  // an identity-less surface (ws, github, webhook) is keyed by its platform
+  // id alone and is reached as the bot.
+  const routeFor = (channel: string, identity: Channel.Identity) =>
+    messagingPorts?.deliveryRoutes.get(Channel.instanceId(channel, identity)) ??
+    (identity === "bot" ? messagingPorts?.deliveryRoutes.get(channel) : undefined);
   const deliver = (message: {
     readonly target: Gateway.DeliveryTarget;
     readonly payload: Outbound.Payload;
     readonly idempotencyKey: string;
   }) => {
-    const route = messagingPorts?.deliveryRoutes.get(message.target.channel);
+    const route = routeFor(message.target.channel, message.target.identity);
     if (route === undefined)
       throw new DeliveryNotSent({
         operation: "message.deliver",
-        cause: `no delivery route: ${message.target.channel}`,
+        cause: `no delivery route: ${Channel.instanceId(message.target.channel, message.target.identity)}`,
       });
     return route(message.target.externalId, message.payload, message.idempotencyKey, message.target.conversation);
   };
+  const routes = () => new Set(messagingPorts?.deliveryRoutes.keys() ?? []);
   const messaging =
     messagingPorts === undefined
       ? undefined
@@ -66,6 +73,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
           ...(messagingPorts.budgets === undefined ? {} : { budgets: messagingPorts.budgets }),
           publish: ports.sink,
           deliver,
+          routes,
         });
   // The reply door (#1569): authorized by the conversation binding, never a grant.
   const reply =
@@ -74,10 +82,28 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       : createReplyMessaging({
           stores,
           transaction: ports.transaction,
-          routes: () => new Set(messagingPorts.deliveryRoutes.keys()),
+          routes,
           deliver,
           publish: ports.sink,
         });
+
+  /** The actor-send preflight's verdict for a session letter; `undefined` for every other target. */
+  function actorRefusal(
+    sender: Gateway.IngestSender,
+    send: Gateway.SendMessage,
+    prepared: Effect.Success<ReturnType<GatewayRouterPorts["prepare"]>>,
+    startedAt: number,
+  ): Gateway.MessageDenialCode | undefined {
+    if (send.to.kind !== "actor") return undefined;
+    if (messaging === undefined) return "ungranted";
+    return messaging.preflight({
+      senderId: sender.kind === "session" ? sender.id : sender.externalId,
+      target: actorTarget(send.to),
+      operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
+      at: startedAt,
+      ...(prepared.ownerOrigin === undefined ? {} : { ownerOrigin: prepared.ownerOrigin }),
+    });
+  }
 
   function projectMessage(
     sender: Gateway.IngestSender,
@@ -86,19 +112,16 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     external: External | undefined,
     startedAt: number,
   ) {
+    // The actor-send preflight's one verdict feeds two rows: an identity
+    // refusal (#1569) is its own denial, every other refusal is the grant's.
+    const refusal = actorRefusal(sender, send, prepared, startedAt);
     const actorSendAllowed =
       send.to.kind === "origin"
         ? reply !== undefined &&
           sender.kind === "session" &&
           reply.preflight(sender.id, prepared.binding, send.to.inReplyTo) === undefined
-        : send.to.kind !== "actor" ||
-          (messaging !== undefined &&
-            messaging.preflight({
-              senderId: sender.kind === "session" ? sender.id : sender.externalId,
-              target: actorTarget(send.to),
-              operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
-              at: startedAt,
-            }) === undefined);
+        : refusal === undefined || refusal === "identity_not_granted";
+    const identityGranted = refusal !== "identity_not_granted";
     const message =
       external !== undefined
         ? {
@@ -106,7 +129,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
             eventIdUnique: prepared.message.sender === "external" && prepared.message.eventIdUnique,
           }
         : prepared.message.sender === "session"
-          ? { ...prepared.message, actorSendAllowed }
+          ? { ...prepared.message, actorSendAllowed, identityGranted }
           : undefined;
     if (message === undefined)
       throw new ChannelsFailure({

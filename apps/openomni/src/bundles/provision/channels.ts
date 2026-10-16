@@ -1,6 +1,6 @@
 import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore } from "@openomni/channels";
 import { Vault } from "@openomni/channels";
-import type { Provisioning } from "@openomni/protocol";
+import { type Channel, canonicalDigest, type Provisioning } from "@openomni/protocol";
 import { z } from "zod";
 import { validateProviderCredential, validateProviderSettings } from "../../channels";
 import type { ChannelSupervisor } from "./supervisor";
@@ -15,6 +15,16 @@ export const CHANNEL_DECLARE_INPUT = z
   .object({
     id: z.string().min(1).describe("Instance id, channel:<provider>:<slug>."),
     provider: z.string().min(1),
+    identity: z
+      .enum(["bot", "owner"])
+      .optional()
+      .describe(
+        "Which account this instance speaks as: the bot or the Owner's own account. A re-declaration keeps the stored identity; a fresh one is the bot.",
+      ),
+    outbound: z
+      .boolean()
+      .optional()
+      .describe("Owner instances only: whether the Resident may send from the Owner's account on explicit instruction."),
     enabled: z.boolean().default(true),
     settings: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
     credential: z
@@ -114,16 +124,52 @@ function sealCredential(
   };
 }
 
+/**
+ * An Owner-instance declaration, and any change to its outbound grant, is the
+ * Owner's call (#1569): the invocation suspends for Owner approval and the
+ * row lands only on the consented path, bound to the instance revision the
+ * consent was given against.
+ */
+export function channelConsentRequired(identity: Channel.Identity, outbound: boolean | undefined): boolean {
+  return identity === "owner" || outbound !== undefined;
+}
+
+/** The domain-revision CAS an Owner's channel consent is bound to: the declared row's revision, `-1` when none. */
+export function channelDomainRevisions(
+  instances: Pick<ChannelInstanceStore, "get"> | undefined,
+  id: string,
+): Readonly<Record<string, number>> {
+  return { [id]: instances?.get(id)?.revision ?? -1 };
+}
+
+/** A re-declaration keeps the stored identity; a fresh declaration is the bot unless the Owner says otherwise. */
+export function declaredIdentity(
+  input: Pick<z.output<typeof CHANNEL_DECLARE_INPUT>, "identity">,
+  existing: Pick<Provisioning.ChannelInstance, "identity"> | undefined,
+): Channel.Identity {
+  return input.identity ?? existing?.identity ?? "bot";
+}
+
 export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
-  return async (input: z.output<typeof CHANNEL_DECLARE_INPUT>) => {
+  return async (
+    input: z.output<typeof CHANNEL_DECLARE_INPUT>,
+    domainRevisions?: Readonly<Record<string, number>>,
+  ) => {
     // §4: knobs must parse under the provider's settings declaration before the row lands.
     const badSettings = validateProviderSettings(input.provider, input.settings);
     if (badSettings !== undefined) return refusal("channel_add", badSettings);
     const existing = port.instances.get(input.id);
+    const identity = declaredIdentity(input, existing);
+    if (channelConsentRequired(identity, input.outbound)) {
+      if (domainRevisions === undefined)
+        return refusal("channel_add", `${input.id}: an Owner instance and its outbound grant require Owner consent`);
+      if (canonicalDigest({ ...domainRevisions }) !== canonicalDigest(channelDomainRevisions(port.instances, input.id)))
+        return refusal("channel_add", "domain revision changed");
+    }
     let credentialRef = existing?.credentialRef;
     if (input.credential !== undefined) {
-      // §5: the provider schema gates BEFORE any row lands.
-      const invalid = validateProviderCredential(input.provider, input.credential);
+      // §5: the provider schema gates BEFORE any row lands — the owner arm's for an Owner instance (#1569).
+      const invalid = validateProviderCredential(input.provider, input.credential, identity);
       if (invalid !== undefined) return refusal("channel_add", invalid);
       const secretId = credentialRef ?? `secret:${input.id.replaceAll(":", "-")}`;
       const sealed = sealCredential(
@@ -142,9 +188,14 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
         port.instances.put({
           id: input.id,
           provider: input.provider,
+          identity,
           enabled: input.enabled,
           settings: input.settings,
           ...(credentialRef === undefined ? {} : { credentialRef }),
+          // The declared perimeter block survives a re-declaration; `outbound` is the Owner's call (#1569).
+          ...(existing?.grant === undefined && input.outbound === undefined
+            ? {}
+            : { grant: { ...existing?.grant, ...(input.outbound === undefined ? {} : { outbound: input.outbound }) } }),
           revision: (existing?.revision ?? -1) + 1,
           createdBy: "resident",
           updatedAt: now(),
@@ -192,7 +243,8 @@ export function executeSecretRotate(port: ProvisionPort, now: () => number) {
     // The rotated payload must still satisfy every consumer's provider schema.
     for (const instance of port.instances.list()) {
       if (instance.credentialRef !== existing.id) continue;
-      const invalid = validateProviderCredential(instance.provider, input.credential);
+      // Each consumer under its own arm's schema: an Owner instance rotates an account session, never bot tokens (#1569).
+      const invalid = validateProviderCredential(instance.provider, input.credential, instance.identity);
       if (invalid !== undefined) {
         return refusal("secret_rotate", `${instance.id}: ${invalid}`);
       }
