@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Actor } from "../actor/index.js";
+import { Channel } from "../channel/index.js";
 import { NamedError } from "../error/index.js";
 import { PlainValueSchema } from "../json.js";
 import { EpochMs } from "../time.js";
@@ -71,6 +72,13 @@ const GrantPolicy = z
     defaultTier: Actor.TrustTier.optional(),
     allowedSenders: z.array(z.string().min(1)).optional(),
     provisionalMint: z.boolean().optional(),
+    /**
+     * #1569: an Owner-identity instance may send on the Owner's behalf only
+     * when the Owner declared it here; absent or false, the instance mounts
+     * without a delivery route and `send_message … as: owner` is refused as
+     * `identity_not_granted`. Meaningless on a bot instance.
+     */
+    outbound: z.boolean().optional(),
   })
   .strict();
 
@@ -84,6 +92,8 @@ export const ChannelInstance = z
   .object({
     id: ChannelInstanceId,
     provider: z.string().min(1),
+    /** #1569: which account this instance speaks as; rows declared before the axis existed are bot instances. */
+    identity: Channel.Identity.default("bot"),
     enabled: z.boolean(),
     settings: z.record(z.string(), PlainValueSchema),
     credentialRef: SecretId.optional(),

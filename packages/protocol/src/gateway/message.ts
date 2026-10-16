@@ -6,6 +6,7 @@ import { EpochMs } from "../time.js";
 import { Author, Input } from "../ingress/input.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 import { Outbound } from "./outbound.js";
+import { Channel } from "../channel/index.js";
 
 const Id = z.string().min(1);
 const DurationMs = z.number().nonnegative();
@@ -46,6 +47,10 @@ const Target = z.discriminatedUnion("kind", [
         .object({ channelId: Id, threadId: Id.optional(), replyToMessageId: Id.optional() })
         .strict()
         .optional(),
+      // #1569: the identity the letter goes out under; absent is the bot. The
+      // Owner's account is admitted only on an authenticated Owner-origin turn
+      // through an instance whose declaration grants outbound.
+      as: Channel.Identity.optional(),
     })
     .strict(),
 ]);
@@ -180,6 +185,9 @@ const RuleTableB = RuleBase.extend({
     z.object({ kind: z.literal("deadline"), withinParent: z.literal(true) }).strict(),
     z.object({ kind: z.literal("type") }).strict(),
     z.object({ kind: z.literal("actor_send") }).strict(),
+    // #1569: the sending identity is granted — the Owner's account only on an
+    // Owner-origin turn through an outbound-granted Owner instance.
+    z.object({ kind: z.literal("identity") }).strict(),
   ]),
 });
 

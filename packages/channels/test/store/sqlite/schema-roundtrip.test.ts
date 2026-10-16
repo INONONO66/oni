@@ -153,7 +153,7 @@ function seed(store: ChannelStore): void {
     kekId: "kek-1", purpose: "channel_credential", createdAt: TEST_NOW,
   });
   store.provisioning.setChannelInstance({
-    id: "channel:telegram:main", provider: "telegram", enabled: true,
+    id: "channel:telegram:main", provider: "telegram", identity: "bot", enabled: true,
     settings: { pollIntervalMs: 500 }, credentialRef: "secret:tg",
     revision: 0, createdBy: "test", updatedAt: TEST_NOW,
   });

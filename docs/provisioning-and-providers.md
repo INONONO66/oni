@@ -114,16 +114,28 @@ The Owner's declaration that a channel exists and how it is mounted:
 ChannelInstance {
   id            "channel:<provider>:<slug>"   // e.g. channel:telegram:main
   provider      string                        // provider registry key
+  identity      "bot" | "owner"               // #1569: which account the instance speaks as (default bot)
   enabled       boolean
   settings      provider-schema-validated     // non-secret knobs (triggers, botUsername, workspace)
   credentialRef "secret:<id>" | absent        // never the secret itself
-  grant         { defaultTier?, allowedSenders?, provisionalMint? }   // perimeter policy
+  grant         { defaultTier?, allowedSenders?, provisionalMint?, outbound? }   // perimeter policy
   revision, createdBy, updatedAt
 }
 ```
 
 - One provider may have multiple instances (two Telegram bots, N Slack
   workspaces) — today's "one channel per kind" assumption dissolves.
+- `identity` (#1569) names the account: a `bot` instance mounts as
+  `<provider>:bot` and reads inbound under the surface's ingress grant; an
+  `owner` instance is the Owner's own account, builds through the provider's
+  `owner` arm (its credential is the account session, e.g. Slack's
+  `{token xoxc, cookie d}` from the QR login) and mounts as
+  `<provider>:owner`. A platform without an owner arm reports
+  `identity_unsupported`. `grant.outbound` is the Owner's declaration that
+  the Resident may send from that account on an explicit, authenticated
+  instruction (`send_message … as: owner` from an Owner-origin turn); without
+  it the owner instance mounts no delivery route and such a send is refused
+  as `identity_not_granted`.
 - The `grant` block is the Owner's per-instance perimeter policy: boot threads
   `grant.defaultTier` into the surface's ChannelGrant row through the channel
   supervisor (`DesiredChannelRow.defaultTier` → `registerTrustedChannelGrant`).
@@ -197,6 +209,10 @@ ChannelProvider {
   preconditions?      operator checklist items provision_status can only report,
                       not verify (Discord gateway intents, Slack app scopes)
   create(instance, credentials, publish) -> ProviderRuntime
+  owner?              #1569: the Owner-account arm — { credentials (the account
+                      session, never the bot's), preconditions, capabilities
+                      { deliver, react, media, typing }, create() } mounting as
+                      <id>:owner; absent = `identity: owner` is unsupported
 }
 
 ProviderRuntime {
@@ -282,9 +298,9 @@ model-callable decision):
 | `contact_remove` | remove Person, reconcile derived rows | refuses to remove the sole `owner` |
 | `contact_promote` | register a provisional contact | `require_approval` policy row; domain-revision CAS at apply |
 | `contact_merge` | move an endpoint onto an existing contact | `require_approval` policy row; domain-revision CAS at apply |
-| `channel_add` | upsert ChannelInstance (+ optional secret payload → vault write + ref) | credential validated against provider schema before the row lands; invalid → typed refusal, nothing mounts |
+| `channel_add` | upsert ChannelInstance (+ optional secret payload → vault write + ref) | credential validated against the provider schema (the Owner arm's for `identity: owner`) before the row lands; invalid → typed refusal, nothing mounts; an Owner instance, and any change to its `outbound` grant, suspends the invocation for Owner approval with a domain-revision CAS at apply; a re-declaration keeps the stored identity (#1569) |
 | `channel_enable` / `channel_disable` | flip `enabled`, bounce the stage | — |
-| `secret_rotate` | new ciphertext revision, remount referencing stages | — |
+| `secret_rotate` | new ciphertext revision, remount referencing stages | the payload must satisfy every consumer under its own arm's schema (an Owner instance rotates an account session, never bot tokens) |
 | `status` | read-only: declared vs mounted diff, last reconcile errors | — |
 
 Boot reconcile and tool-driven mutation are the same code path: declarations

@@ -7,6 +7,7 @@ import { SessionTransition } from "../ledger/session-transition.js";
 import { EpochMs } from "../time.js";
 import { MessageContract } from "./message.js";
 import { Outbound } from "./outbound.js";
+import { Channel } from "../channel/index.js";
 
 /**
  * Gateway contracts (docs/gateway-design.md §2, stage 0 — #706).
@@ -146,6 +147,8 @@ const MessageTargetSchema = z
     endpointId: z.string().min(1).optional(),
     surface: z.string().min(1).optional(),
     conversation: ConversationSchema.optional(),
+    /** #1569: the identity the send goes out under; absent is the bot. */
+    identity: Channel.Identity.optional(),
   })
   .strict();
 
@@ -177,6 +180,9 @@ const MessageDenialCodeSchema = z.enum([
   "budget_exhausted",
   "cooldown_suppressed",
   "dnc_denied",
+  // #1569: `as: owner` outside an authenticated Owner-origin turn, or through
+  // an instance whose declaration does not grant outbound (no owner route).
+  "identity_not_granted",
 ]);
 
 /**
@@ -286,6 +292,12 @@ const SendInputBase = z
      * awaited). Present → must stay coherent with `operation` (refined below).
      */
     class: MessageClassSchema.optional(),
+    /**
+     * #1569: the composing app's authenticated fact that the sending turn
+     * originates from an Owner-tier prompt — what admits `identity: owner`.
+     * Never derived from message text.
+     */
+    ownerOrigin: z.boolean().optional(),
   })
   .strict();
 
@@ -388,6 +400,9 @@ export namespace Gateway {
   export type MessageClass = z.infer<typeof MessageClassSchema>;
 
   export const Conversation = ConversationSchema;
+  /** #1569: the identity a send goes out under (`bot` | `owner`), the channel vocabulary re-exposed at the send seam. */
+  export const SendIdentity = Channel.Identity;
+  export type SendIdentity = Channel.Identity;
   export type Conversation = z.infer<typeof ConversationSchema>;
 
   export const MessageTarget = MessageTargetSchema;
@@ -420,6 +435,8 @@ export namespace Gateway {
     endpointId: string;
     channel: string;
     externalId: string;
+    /** #1569: the instance the delivery leaves through, `<channel>:<identity>`. */
+    identity: Channel.Identity;
     conversation?: Conversation;
   }>;
 

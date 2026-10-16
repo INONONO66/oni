@@ -37,6 +37,17 @@ function signedContent(
   return part?.kind === "text" && rest.length === 0 ? { body: part.text } : { payload };
 }
 
+/**
+ * The signed target: every admission recorded before the identity axis
+ * (#1569) named a bot delivery without saying so, so the bot identity stays
+ * implicit in the signature and a replay of such a send still matches; the
+ * Owner's identity is signed, so the same message id cannot switch accounts.
+ */
+function signedTarget(target: Gateway.DeliveryTarget): Omit<Gateway.DeliveryTarget, "identity"> & { identity?: "owner" } {
+  const { identity, ...rest } = target;
+  return identity === "owner" ? { ...rest, identity } : rest;
+}
+
 function sendSignature(input: Gateway.SendInput, target: Gateway.DeliveryTarget): string {
   return JSON.stringify({
     messageId: input.messageId,
@@ -44,7 +55,7 @@ function sendSignature(input: Gateway.SendInput, target: Gateway.DeliveryTarget)
     operation: input.operation,
     class: input.class,
     ...signedContent(input.payload),
-    target,
+    target: signedTarget(target),
     requestSpec: input.requestSpec,
   });
 }

@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { ChannelProvider, EffectRunner, MediaResolver, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
+import type { ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { ChannelProviders, createWebhookProvider } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
@@ -44,6 +44,8 @@ export interface BuiltChannel {
 
 export interface ChannelComponent {
   readonly id: keyof typeof ChannelProviders;
+  /** The account this instance speaks as (#1569); the surface mounts under `<id>:<identity>`. */
+  readonly identity: Channel.Identity;
   /** Constructs the surface and binds the Resident handler. Called once per boot. */
   build(handler: Channel.MessageHandler): BuiltChannel;
 }
@@ -54,13 +56,17 @@ export interface ChannelComponent {
  * through the provider schema when the declared vault payload is opened.
  */
 function providerRow<TCredentials, TId extends keyof typeof ChannelProviders>(
-  provider: ChannelProvider<TCredentials, TId>,
+  provider: Pick<ChannelProvider<TCredentials, TId>, "id" | "create">,
+  identity: Channel.Identity,
   credentials: TCredentials,
   config: Channel.Config,
   deps: ChannelRuntimeDeps,
+  /** #1569: an Owner instance without a declared outbound grant mounts no delivery route. */
+  outbound = true,
 ): ChannelComponent {
   return {
     id: provider.id,
+    identity,
     build(handler) {
       const runtime = provider.create(credentials, config, deps.publish, {
         now: deps.now,
@@ -72,7 +78,7 @@ function providerRow<TCredentials, TId extends keyof typeof ChannelProviders>(
       runtime.surface.onMessage(handler);
       return {
         surface: runtime.surface,
-        ...(runtime.deliveryRoute === undefined ? {} : { deliveryRoute: runtime.deliveryRoute }),
+        ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
         ...(runtime.typingRoute === undefined ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
       };
@@ -85,6 +91,7 @@ type DeclaredChannelState =
   | "disabled"
   | "vault_locked"
   | "unknown_provider"
+  | "identity_unsupported"
   | "missing_credential"
   | "credential_invalid";
 
@@ -108,7 +115,7 @@ export type CredentialReader = (
  * the provider's typed credential.
  */
 function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
-  provider: ChannelProvider<TCredentials, TId>,
+  provider: Pick<ChannelProvider<TCredentials, TId>, "id" | "credentials" | "create">,
   plaintext: Uint8Array,
   deps: ChannelRuntimeDeps,
 ): ChannelComponent | { readonly invalid: string } {
@@ -121,16 +128,45 @@ function credentialRow<TCredentials, TId extends keyof typeof ChannelProviders>(
   }
   const parsed = provider.credentials.safeParse(decoded.success);
   if (!parsed.success) return { invalid: parsed.error.message };
-  return providerRow(provider, parsed.data, {}, deps);
+  return providerRow(provider, "bot", parsed.data, {}, deps);
+}
+
+/**
+ * The Owner-identity row (#1569): the provider's `owner` arm validates the
+ * account session and builds the `<platform>:owner` surface; the delivery
+ * route mounts only when the declaration's `grant.outbound` says so.
+ */
+function ownerRow<TOwner>(
+  provider: { readonly id: keyof typeof ChannelProviders; readonly owner?: OwnerArm<TOwner> },
+  plaintext: Uint8Array,
+  deps: ChannelRuntimeDeps,
+  outbound: boolean,
+): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
+  const arm = provider.owner;
+  if (arm === undefined) return { unsupported: `${provider.id} has no Owner-account arm` };
+  const decoded = Result.try({
+    try: (): PlainValue => JSON.parse(new TextDecoder().decode(plaintext)),
+    catch: String,
+  });
+  if (Result.isFailure(decoded)) {
+    return { invalid: `credential payload is not JSON (${decoded.failure})` };
+  }
+  const parsed = arm.credentials.safeParse(decoded.success);
+  if (!parsed.success) return { invalid: parsed.error.message };
+  return providerRow({ id: provider.id, create: arm.create }, "owner", parsed.data, {}, deps, outbound);
 }
 
 function declaredRow(
-  key: keyof typeof ChannelProviders,
+  instance: Provisioning.ChannelInstance & { readonly provider: keyof typeof ChannelProviders },
   plaintext: Uint8Array,
   providers: typeof ChannelProviders,
   deps: ChannelRuntimeDeps,
   readCredential: CredentialReader,
-): ChannelComponent | { readonly invalid: string } {
+): ChannelComponent | { readonly invalid: string } | { readonly unsupported: string } {
+  const key = instance.provider;
+  if (instance.identity === "owner") {
+    return ownerRow(providers[key], plaintext, deps, instance.grant?.outbound === true);
+  }
   if (key === "telegram") {
     return credentialRow(providers.telegram, plaintext, deps);
   }
@@ -167,11 +203,16 @@ export function isRegisteredProvider(provider: string): provider is keyof typeof
 export function validateProviderCredential(
   provider: string,
   payload: Record<string, string>,
+  identity: Channel.Identity = "bot",
 ): string | undefined {
   if (!isRegisteredProvider(provider)) {
     return `unknown provider ${provider}`;
   }
-  const parsed = ChannelProviders[provider].credentials.safeParse(payload);
+  const registered = ChannelProviders[provider];
+  // #1569: an Owner-account credential parses under the provider's owner arm.
+  const schema = identity === "owner" ? registered.owner?.credentials : registered.credentials;
+  if (schema === undefined) return `${provider} has no Owner-account arm`;
+  const parsed = schema.safeParse(payload);
   return parsed.success ? undefined : parsed.error.message;
 }
 
@@ -245,12 +286,16 @@ export function declaredChannelProfile(
       continue;
     }
     const row = declaredRow(
-      instance.provider,
+      { ...instance, provider: instance.provider },
       credential.plaintext,
       providers,
       deps,
       readCredential,
     );
+    if ("unsupported" in row) {
+      record(instance, "identity_unsupported", row.unsupported);
+      continue;
+    }
     if ("invalid" in row) {
       record(instance, "credential_invalid", row.invalid);
       continue;

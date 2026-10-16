@@ -114,6 +114,7 @@ describe("channel supervisor", () => {
       failNextStarts: 0,
       component: {
         id,
+        identity: "bot",
         build: (): BuiltChannel => {
           const surface: Channel.Surface = {
             id,

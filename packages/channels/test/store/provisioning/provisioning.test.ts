@@ -74,6 +74,7 @@ describe("provisioning stores", () => {
     const instance: Provisioning.ChannelInstance = {
       id: "channel:telegram:main",
       provider: "telegram",
+      identity: "bot",
       enabled: true,
       settings: { pollIntervalMs: 500 },
       credentialRef: "secret:channel-telegram-main",

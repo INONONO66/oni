@@ -41,6 +41,11 @@ interface PreparedMessage {
   readonly createSession?: Delivery.Commit["createSession"];
   /** The reply door's candidate (#1569): the conversation the named prompt came from, folded by the app; the router verifies it. */
   readonly binding?: ConversationBinding;
+  /**
+   * #1569: the app's authenticated fact that this turn originates from an
+   * Owner-tier prompt — what admits a send `as: owner`. Absent means no.
+   */
+  readonly ownerOrigin?: boolean;
 }
 
 type RequestOpenInput = Pick<

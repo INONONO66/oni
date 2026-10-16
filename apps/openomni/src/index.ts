@@ -755,7 +755,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
     const typingRoutes = new Map<string, ProviderTypingRoute>();
     const resident = createResident({
-      typingRoute: (surface) => typingRoutes.get(surface),
+      // The turn's pulse rides the bot instance of the platform (#1569); an
+      // identity-less surface keeps its platform key.
+      typingRoute: (surface) => typingRoutes.get(`${surface}:bot`) ?? typingRoutes.get(surface),
       prompts: config.prompts,
       // #1257: the app's resolved cap is the input the composition writes
       // into every new session's genesis generation settings.

@@ -123,6 +123,7 @@ function deliveryTarget(
     endpointId: resolved?.endpoint.id ?? `binding:${key}`,
     channel: binding.surface,
     externalId: binding.externalId,
+    identity: "bot",
     ...(conversation === undefined ? {} : { conversation }),
   };
 }
@@ -150,7 +151,11 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
         ports.stores.surfaceKeys.lookup(bindingSurfaceKey(binding)) === senderId ||
         automationTarget(ports.stores, inReplyTo) === senderId;
       if (!routedTo) return "not_bound";
-      if (!ports.routes().has(binding.surface)) return "no_route";
+      // The reply goes out as the bot (#1569 P4): the bot instance of the
+      // surface, or the surface's one identity-less route.
+      const routes = ports.routes();
+      if (!(routes.has(Channel.instanceId(binding.surface, "bot")) || routes.has(binding.surface)))
+        return "no_route";
       return undefined;
     },
     send: (input) =>
@@ -164,6 +169,7 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
             actorId: target.actorId,
             endpointId: target.endpointId,
             surface: target.channel,
+            identity: target.identity,
             ...(target.conversation === undefined ? {} : { conversation: target.conversation }),
           },
           operation: "fire_and_forget",
@@ -194,6 +200,7 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
           operation: "fire_and_forget",
           grantId: `binding:${bindingSurfaceKey(input.binding)}`,
           endpointId: target.endpointId,
+          identity: target.identity,
           time: input.at,
         });
         return delivery.value;

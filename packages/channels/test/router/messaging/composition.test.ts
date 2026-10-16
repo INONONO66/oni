@@ -385,6 +385,7 @@ test("the reply admission records one budget-free fact per message id: a replay 
     actorId: "actor-buyer",
     endpointId: "ep-buyer",
     channel: "discord",
+    identity: "bot",
     externalId: "buyer-external",
   };
   const input = (text: string): Gateway.SendInput => ({

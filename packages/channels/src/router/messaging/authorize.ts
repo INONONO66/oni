@@ -1,4 +1,4 @@
-import type { Actor, Gateway } from "@openomni/protocol";
+import { type Actor, Channel, type Gateway } from "@openomni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { resolveSenderTargetGrant } from "./grant";
 
@@ -13,6 +13,7 @@ type TargetResolution =
 function deliveryTarget(
   actorId: string,
   endpoint: Actor.Endpoint,
+  identity: Channel.Identity,
   conversation?: Gateway.Conversation,
 ): Gateway.DeliveryTarget {
   return {
@@ -20,14 +21,44 @@ function deliveryTarget(
     endpointId: endpoint.id,
     channel: endpoint.channel,
     externalId: endpoint.externalId,
+    identity,
     ...(conversation === undefined ? {} : { conversation }),
   };
+}
+
+/**
+ * The identity gate (#1569): the bot is always its own identity; the Owner's
+ * account goes out only from an authenticated Owner-origin turn (the app's
+ * `ownerOrigin` fact on the prepared send, never message text) and only
+ * through an Owner instance whose declaration granted outbound — which is
+ * exactly when a `<channel>:owner` delivery route is mounted.
+ */
+function identityDenial(
+  target: Gateway.DeliveryTarget,
+  input: Pick<Gateway.SendInput, "senderId" | "ownerOrigin">,
+  routes: ReadonlySet<string>,
+): { readonly ok: false; readonly code: "identity_not_granted"; readonly reason: string } | undefined {
+  if (target.identity !== "owner") return undefined;
+  if (input.ownerOrigin !== true)
+    return {
+      ok: false,
+      code: "identity_not_granted",
+      reason: `${input.senderId} may send as the Owner only from an Owner-origin turn`,
+    };
+  if (!routes.has(Channel.instanceId(target.channel, "owner")))
+    return {
+      ok: false,
+      code: "identity_not_granted",
+      reason: `no Owner instance of ${target.channel} grants outbound`,
+    };
+  return undefined;
 }
 
 function resolveExistingTarget(
   stores: ChannelStores,
   target: Gateway.MessageTarget,
 ): TargetResolution {
+  const as = target.identity ?? "bot";
   const identity = stores.actors.getIdentity(target.actorId);
   if (identity === undefined) {
     return {
@@ -52,7 +83,7 @@ function resolveExistingTarget(
         reason: `pinned endpoint ${target.endpointId} no longer belongs to ${target.actorId}`,
       };
     }
-    return { ok: true, target: deliveryTarget(target.actorId, endpoint, target.conversation) };
+    return { ok: true, target: deliveryTarget(target.actorId, endpoint, as, target.conversation) };
   }
   // A conversation lives on one surface; without a surface pin the endpoint
   // picked below could be on another channel, so the hint is refused.
@@ -85,14 +116,15 @@ function resolveExistingTarget(
       reason: `actor ${target.actorId} is reachable at ${endpoints.length} endpoints${where} — pin target.endpointId`,
     };
   }
-  return { ok: true, target: deliveryTarget(target.actorId, endpoint, target.conversation) };
+  return { ok: true, target: deliveryTarget(target.actorId, endpoint, as, target.conversation) };
 }
 
 /** Grant admission precedes registry access, so ungranted senders learn no target facts. */
 export function authorizeSend(
   stores: ChannelStores,
-  input: Pick<Gateway.SendInput, "senderId" | "target" | "operation" | "at">,
+  input: Pick<Gateway.SendInput, "senderId" | "target" | "operation" | "at" | "ownerOrigin">,
   grants: readonly Gateway.SenderTargetGrant[],
+  routes: ReadonlySet<string>,
 ):
   | {
       readonly ok: true;
@@ -115,5 +147,7 @@ export function authorizeSend(
   }
   const resolution = resolveExistingTarget(stores, input.target);
   if (!resolution.ok) return resolution;
+  const identity = identityDenial(resolution.target, input, routes);
+  if (identity !== undefined) return identity;
   return { ok: true, target: resolution.target, grant };
 }

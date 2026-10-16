@@ -10,6 +10,8 @@ Every mounted channel is one `(platform, identity)` instance, `identity` being `
 
 Contact identity is identity-independent: actor endpoints are keyed by platform and external id, and the same person is the same actor whether the bot or the Owner instance saw them. A message both instances see is one event. A message this process posted through the Owner instance is not an inbound Owner prompt.
 
+Shipped by #1569 PR 5: the instance axis (`ChannelInstance.identity`, surfaces mounted as `<platform>:<identity>`, routes keyed by instance), the `as: bot | owner` selector on `send_message` with the `identity_not_granted` refusal, and the Slack Owner instance for sending (the account's listener is lane 6). The Owner-origin fact is read off the sending turn's own deliveries and the actor registry; the outbound grant is the instance's declaration. Shipped coverage per platform is recorded in Implementation Status.
+
 This withdraws the W2 #1110 identity amendment (only the Owner is public, the agent has no persona, replies go out as the Owner, draft by default). Where a platform forbids automation under a user account, the Owner instance stays read-only and egress degrades to the draft-then-Owner-taps-send path of the Kernel Contract.
 
 ## Platform transport

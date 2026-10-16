@@ -43,7 +43,7 @@ import type { PublishPort } from "../../types";
  * tap).
  */
 export class TelegramAdapter implements Channel.Surface {
-  readonly id = "telegram";
+  readonly id = "telegram:bot";
   private readonly client: TelegramClient;
   private readonly bot: TelegramBotApi;
   private readonly dedupe: Dedupe;

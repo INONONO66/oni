@@ -364,6 +364,11 @@
                   },
                   "required": ["channelId"],
                   "additionalProperties": false
+                },
+                "as": {
+                  "description": "Which account the letter goes out under: bot (default) or owner — the Owner's own account, only when the Owner asked you to send from it in this conversation and their account is connected for sending.",
+                  "type": "string",
+                  "enum": ["bot", "owner"]
                 }
               },
               "required": ["kind", "id"],
@@ -466,7 +471,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes and machine public keys require Owner consent. Session-created automations remain disabled until the Owner enables them.",
+    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances and their outbound grant require Owner consent. Session-created automations remain disabled until the Owner enables them.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -640,6 +645,15 @@
                     "provider": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "identity": {
+                      "description": "Which account this instance speaks as: the bot or the Owner's own account. A re-declaration keeps the stored identity; a fresh one is the bot.",
+                      "type": "string",
+                      "enum": ["bot", "owner"]
+                    },
+                    "outbound": {
+                      "description": "Owner instances only: whether the Resident may send from the Owner's account on explicit instruction.",
+                      "type": "boolean"
                     },
                     "enabled": {
                       "default": true,
@@ -1223,7 +1237,10 @@
                 "args": {
                   "type": "object",
                   "properties": {
-                    "machineId": { "type": "string", "minLength": 1 }
+                    "machineId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   },
                   "required": ["machineId"],
                   "additionalProperties": false

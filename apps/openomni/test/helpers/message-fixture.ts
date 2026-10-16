@@ -11,7 +11,7 @@ const session = Testing.session;
 type SessionRuntime = Core.SessionRuntime;
 import { Bus } from "./bus";
 import { createAppLedger } from "./ledger";
-import { Gateway, type LedgerSession, Outbound, type Tool } from "@openomni/protocol";
+import { type Delivery, Gateway, type LedgerSession, Outbound, type Tool } from "@openomni/protocol";
 import { channelRequests, channelStoreSource, createResidentGateway, type OutboundMessaging } from "../../src/gateway";
 import { createChannelStores, decodeChannelFailure } from "@openomni/channels";
 import {
@@ -138,10 +138,46 @@ export function messageFixture(
     gateway,
     sessionId,
     requests,
-    async send(input: Gateway.SendMessage, midTurn?: Effect.Effect<void>): Promise<Tool.Result> {
+    /**
+     * Commits a prompt as pending under the session's own fence without
+     * driving a turn, so the next `send` opens its turn on both deliveries
+     * (the kernel drains every pending prompt into one turn, oldest first).
+     */
+    async stage(text: string, origin: Delivery.Origin): Promise<void> {
+      const kernel = plane.openKernel(sessionId);
+      const row = kernel.row(sessionId);
+      if (row.fenceOwner === null) throw new Error("fixture session holds no fence");
+      await runEffect(
+        kernel.commit({
+          sessionId,
+          owner: row.fenceOwner,
+          fence: row.fence,
+          now: 100,
+          expectedRevision: row.revision,
+          actions: [
+            Core.receivedMessageAction({
+              id: `staged-${row.revision}`,
+              sessionId,
+              kind: "prompt",
+              content: text,
+              origin,
+              at: 100,
+              parentActionId: kernel.latestAction(sessionId)?.id ?? null,
+            }),
+          ],
+          state: row.state,
+        }),
+      );
+    },
+    async send(
+      input: Gateway.SendMessage,
+      midTurn?: Effect.Effect<void>,
+      /** The origin the prompt that opens the sending turn carries (#1569: an Owner-origin turn admits `as: owner`). */
+      origin?: Delivery.Origin,
+    ): Promise<Tool.Result> {
       result = undefined;
       beforeDispatch = midTurn;
-      await runEffect(handle.prompt(JSON.stringify(input)));
+      await runEffect(handle.prompt(JSON.stringify(input), origin));
       if (result === undefined) throw new Error("fixture tool did not execute");
       return result;
     },
@@ -163,7 +199,16 @@ function toolInput(send: Gateway.SendMessage): SendMessageInput {
   // The reply door is the app's own door (#1569); the runner routes it to its test face above.
   if (send.to.kind === "origin") throw new Error("an origin send is not a tool face");
   return {
-    to: send.to.kind === "actor" ? { kind: "contact", id: send.to.actorId } : send.to,
+    to:
+      send.to.kind === "actor"
+        ? {
+            kind: "contact",
+            id: send.to.actorId,
+            ...(send.to.surface === undefined ? {} : { surface: send.to.surface }),
+            ...(send.to.conversation === undefined ? {} : { conversation: send.to.conversation }),
+            ...(send.to.as === undefined ? {} : { as: send.to.as }),
+          }
+        : send.to,
     ...toolLetter(send.content),
     kind: send.type === "message" ? "prompt" : send.type,
     ...(send.replyTo === undefined ? {} : { reply_to: send.replyTo }),

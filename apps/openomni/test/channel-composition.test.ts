@@ -14,6 +14,7 @@ const credentials = {
 const instances: Provisioning.ChannelInstance[] = Object.keys(credentials).map((provider) => ({
   id: `channel:${provider}:main`,
   provider,
+  identity: "bot",
   enabled: true,
   settings: {},
   credentialRef: provider,
@@ -48,6 +49,7 @@ describe("declared channel composition", () => {
     const webhookInstance: Provisioning.ChannelInstance = {
       id: "channel:webhook:main",
       provider: "webhook",
+      identity: "bot",
       enabled: true,
       settings: {},
       credentialRef: "webhook",

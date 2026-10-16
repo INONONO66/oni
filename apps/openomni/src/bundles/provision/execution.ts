@@ -10,6 +10,9 @@ import {
   refusal,
 } from "./contacts";
 import {
+  channelConsentRequired,
+  channelDomainRevisions,
+  declaredIdentity,
   executeChannelDeclare,
   executeChannelEnable,
   executeChannelDisable,
@@ -66,7 +69,7 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
       case "contact_remove":
         return { op: operation.op, ...(await run.contact_remove(operation.args)) };
       case "channel_add":
-        return { op: operation.op, ...(await run.channel_add(operation.args)) };
+        return { op: operation.op, ...(await run.channel_add(operation.args, context.domainRevisions)) };
       case "channel_enable":
         return {
           op: operation.op,
@@ -101,6 +104,14 @@ export function provisionApproval(port: ProvisionPort | undefined) {
     if (operation.op === "contact_promote" || operation.op === "contact_merge") {
       if (port === undefined) return { required: false, domainRevisions: {} };
       return { required: false, domainRevisions: contactDomainRevisions(port.actors, operation) };
+    }
+    if (operation.op === "channel_add") {
+      // #1569: the Owner's account and its outbound grant are never the Resident's own call.
+      const identity = declaredIdentity(operation.args, port?.instances.get(operation.args.id));
+      return {
+        required: channelConsentRequired(identity, operation.args.outbound),
+        domainRevisions: channelDomainRevisions(port?.instances, operation.args.id),
+      };
     }
     if (operation.op !== "contact_add" || port === undefined)
       return { required: false, domainRevisions: {} };

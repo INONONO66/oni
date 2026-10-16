@@ -100,7 +100,9 @@ describe("provider conformance", () => {
     describe(kase.provider.id, () => {
       test("runtime seams match declared capabilities", () => {
         const runtime = kase.build(noopPublish);
-        expect(runtime.surface.id).toBe(kase.provider.id);
+        expect(runtime.surface.id).toBe(
+          CONVERSATION_SURFACES.has(kase.provider.id) ? `${kase.provider.id}:bot` : kase.provider.id,
+        );
         expect(runtime.deliveryRoute !== undefined).toBe(kase.provider.capabilities.deliver);
         expect(runtime.webhookHandler !== undefined).toBe(kase.provider.capabilities.webhook);
         expect(runtime.typingRoute !== undefined).toBe(kase.provider.capabilities.typing);

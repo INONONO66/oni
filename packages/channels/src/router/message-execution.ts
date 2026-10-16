@@ -102,6 +102,7 @@ export function actorTarget(
     actorId: to.actorId,
     ...(to.surface === undefined ? {} : { surface: to.surface }),
     ...(to.conversation === undefined ? {} : { conversation: to.conversation }),
+    ...(to.as === undefined ? {} : { identity: to.as }),
   };
 }
 
@@ -203,6 +204,39 @@ function executeReply(
     );
 }
 
+/** An actor send through the send kernel: a denial after preflight is a typed admission conflict. */
+function executeActorSend(
+  context: MessageContext,
+  to: Extract<Gateway.SendMessage["to"], { kind: "actor" }>,
+  intent: LedgerAction.Receipt,
+  payload: Outbound.Payload,
+): Effect.Effect<PlainValue, ChannelError> {
+  const { sender, send, prepared, messaging, messageId, handle, startedAt } = context;
+  if (messaging === undefined)
+    return Effect.die(
+      new ChannelsFailure({ operation: "message.actor_send", cause: "actor messaging is not configured" }),
+    );
+  return messaging
+    .send({
+      messageId,
+      traceId: intent.action.id,
+      senderId: sender.kind === "session" ? sender.id : sender.externalId,
+      target: actorTarget(to),
+      payload,
+      at: startedAt,
+      operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
+      ...(prepared.ownerOrigin === undefined ? {} : { ownerOrigin: prepared.ownerOrigin }),
+      ...requestSpec(send, intent),
+    })
+    .pipe(
+      Effect.flatMap((receipt) =>
+        receipt.kind === "denied"
+          ? Effect.fail(new SendAdmissionConflict({ message: `actor send admission changed: ${receipt.code}` }))
+          : Effect.succeed<PlainValue>({ status: "executed", handle, delivery: { kind: "actor", value: receipt.delivery } }),
+      ),
+    );
+}
+
 /** Executes an admitted message; commit progress survives a failure after the commit (the executor's receipt reads it). */
 export function executeMessage(
   context: MessageContext,
@@ -215,7 +249,6 @@ export function executeMessage(
     send,
     prepared,
     ports,
-    messaging,
     messageId,
     handle,
     startedAt,
@@ -226,31 +259,7 @@ export function executeMessage(
   const content = Outbound.text(payload);
   if (yield* admitExternal(context, content)) return sessionResult;
   if (send.to.kind === "origin") return yield* executeReply(context, intent, payload);
-  if (send.to.kind === "actor") {
-    if (messaging === undefined)
-      return yield* Effect.die(
-        new ChannelsFailure({
-          operation: "message.actor_send",
-          cause: "actor messaging is not configured",
-        }),
-      );
-    const receipt = yield* messaging.send({
-      messageId,
-      traceId: intent.action.id,
-      senderId: sender.kind === "session" ? sender.id : sender.externalId,
-      target: actorTarget(send.to),
-      payload,
-      at: startedAt,
-      operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
-      ...requestSpec(send, intent),
-    });
-    if (receipt.kind === "denied")
-      return yield* Effect.fail(
-        new SendAdmissionConflict({ message: `actor send admission changed: ${receipt.code}` }),
-      );
-    const actorResult: PlainValue = { status: "executed", handle, delivery: { kind: "actor", value: receipt.delivery } };
-    return actorResult;
-  }
+  if (send.to.kind === "actor") return yield* executeActorSend(context, send.to, intent, payload);
   if (yield* answerNativeRequest(ports.requests, sender, prepared.origin, content, clock()))
     return sessionResult;
   const commitAt = clock();
