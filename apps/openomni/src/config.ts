@@ -137,8 +137,9 @@ export interface OpenOmniConfig {
    * Names the Owner turns off (#1255, #1306): the manifest's `off` list.
    * One key, one meaning — it accepts bundle names (`monitor`, `cron`) and
    * capability names (`alarm`, `action`, `hook`, `compaction`, `tool`)
-   * alike; compose owns the cascade semantics and ignores names the
-   * manifest never declared. Absent means everything declared is on.
+   * alike; compose owns the cascade semantics and `Manifest.define` refuses
+   * a name nothing declares (typed `DefineRefused` `unknown`, the boot
+   * fails before any listener). Absent means everything declared is on.
    */
   readonly off?: readonly string[];
   /**

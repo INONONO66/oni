@@ -124,6 +124,13 @@ test("duplicate: a colliding kind, point, tool or row id rejects", async () => {
     }),
   );
   expect(rows.code).toBe("duplicate");
+  const ports = await rejectionOf(
+    Manifest.define({
+      capabilities: [capability("a", SeamA), capability("b", SeamA)],
+      bundles: [],
+    }),
+  );
+  expect(ports).toMatchObject({ code: "duplicate", name: "b", detail: `port ${SeamA.key}` });
 });
 
 test("product_declares_kind: a bundle carrying a capability-owned table rejects", async () => {

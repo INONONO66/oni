@@ -46,7 +46,8 @@ export const toolCapability = Bundle.Capability.define({
  * `off` comes from the Owner's `OPENOMNI_BUNDLES_OFF` tuple (`config.off`,
  * #1306): capability names (`alarm`, `action`, `hook`, `compaction`, `tool`)
  * and bundle names ride the same list; compose owns the transitive
- * off-cascade semantics and ignores names the manifest never declared.
+ * off-cascade semantics and `Manifest.define` refuses a name nothing
+ * declares (typed `DefineRefused` `unknown`).
  */
 export interface AppManifestInput {
   /** The composed alarm capability's frozen `Capability.define` contract. */
