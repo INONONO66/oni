@@ -395,7 +395,8 @@ export namespace SessionTurn {
       projectionHash: z.string().min(1),
       messageIds: z.array(Identifier),
       successorActionId: NullableIdentifier,
-      projection: z.array(ModelMessage.WithParts),
+      /** Rows written before the pin became a reference carry a copy of the projection; nothing reads it. */
+      projection: z.array(ModelMessage.WithParts).optional(),
     })
     .strict();
   export type Context = z.infer<typeof Context>;

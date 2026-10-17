@@ -21,7 +21,7 @@ export interface SessionReceipt {
   readonly genesis: LedgerAction.Receipt;
 }
 
-/** A fault before commit leaves neither side discoverable. */
+/** Pre-commit faults leave neither side discoverable; later catalog faults strand the file and retry as `duplicate`. */
 export function createSession(
   plane: Pick<LedgerPlane, "catalog" | "sessionStore"> & Partial<Pick<LedgerPlane, "discardSession">>,
   input: CreateSessionInput,

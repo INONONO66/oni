@@ -127,7 +127,8 @@ function restoreAnnotations(telemetry: HydratedSessionHistory["telemetry"]) {
 
 /**
  * The activation restore: fold the suffix after the latest checkpoint under `maxTailBytes` once and log
- * the cost. A typed budget refusal still logs the work done and the activation proceeds (the writer bounds every tail). Never fatal.
+ * the cost. A typed budget refusal (a tail grown past a row-cap-refused checkpoint) logs the work done once
+ * and the activation proceeds. Never fatal.
  */
 export function logRestoredHistory(kernel: SessionKernel, sessionId: string, now: () => number): Effect.Effect<void> {
   return restoreSessionHistory(kernel, sessionId, { now }).pipe(
