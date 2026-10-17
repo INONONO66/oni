@@ -1,5 +1,55 @@
 # Implementation Status
 
+## #1600 Messaging readiness — the first live run (lane R4)
+
+On `feat/1600-first-live-run` (2026-10-17, lane R4 of #1600, the last).
+Nothing in the repository has ever spoken to a real platform: every
+receipt below this section is a fake SDK listener or client. This lane
+gives the Owner the two commands and the one runbook that first live run
+needs, and nothing else. **`openomni channel add <platform>`**
+(`apps/openomni/src/cli/channel.ts`) declares a bot instance — Slack,
+Discord, Telegram, GitHub, a webhook target, an A2A peer — or Linear's
+Owner instance over the Owner's socket with its grant block (`--tier`,
+`--allow`, `--mention-only`; the Owner's consent by the call itself, lane
+R1), the credential asked for at the prompt (a token or secret never
+echoed, an optional field left blank not sent) and sealed by the daemon,
+`--print` showing the declaration for the Resident's provision tool
+instead; the Owner-account flags (`--intake`, `--outbound`,
+`--auto-reply`) belong to Linear alone, every other account signs in with
+`openomni login`. **`openomni messaging`** (`cli/messaging.ts`) is the
+readiness report read from the catalog the env file names (`main.ts`
+opens the channel tables on the catalog file and closes them at once):
+per platform the rows with their postures and whether the credential row
+is sealed, who reaches the Resident (READ: the declared tier against the
+owner policy's `grant_tier` row, the allowlist, the mention-only posture,
+the Owner account's intake; an a2a peer at its contact's tier through the
+one door, so `channel add a2a` refuses a grant block; Linear's comments
+that name the Owner), how the Resident answers and writes (WRITE: the bot,
+the Owner's account with or without auto-reply, the draft; a webhook
+target is never written back to by the reply door, GitHub only with a
+sealed token), and whether the Owner is known there (OWNER: the owner-tier
+Person's endpoint — and whether the bot row's allowlist names it — the
+binding on mount for the arms that name their account, or the
+`contact_add` still needed, Linear included); then who is reachable cold.
+The report opens the catalog read-only (`query_only`). Exit 0 is "every enabled row is sealed" — the live run
+proves the rest. **`docs/first-live-run.md`** is the runbook: declare,
+read the report, the seven live checks per platform (inbound as the
+Owner, as a stranger, a mention, the draft arm, a cold outbound, an
+approval, a webhook) with what to expect and where the log names a
+refusal, and how a passing platform is recorded here. Not in this lane,
+by construction: a live run itself — the Owner runs it, and the first
+platform with every check passing is the first this document may call
+live. Found by lane R3 and still open on #1600: an authenticated answer
+naming a request that does not exist never settles its frame.
+
+Receipts: `apps/openomni/test/cli-channel.test.ts` (the flags, the
+prompts and their secrecy, the declaration with its grant, the socket
+report, `--print`, every refusal), `test/cli-messaging.test.ts` (the
+report over every platform shape, nothing declared, a ready row),
+`test/cli.test.ts` (`messaging` over the real catalog reader: no catalog
+refused plainly, a declared row reported, the usage). Suites:
+`packages/channels` 1017 pass, `apps/openomni` 1055 pass, 0 fail.
+
 ## #1600 Messaging readiness — dead paths (lane R3)
 
 On `feat/1600-dead-paths` (2026-10-17, lane R3 of #1600). The readiness

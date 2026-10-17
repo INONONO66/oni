@@ -17,6 +17,8 @@ import { runDoctor } from "./doctor";
 import type { Ask } from "./onboard";
 import { gatherOnboarding } from "./onboard";
 import { login, type LoginDeps } from "./login";
+import { channelAdd } from "./channel";
+import { type MessagingFacts, messagingReadiness } from "./messaging";
 
 /**
  * Command dispatch with every side effect injected. `main.ts` is the only
@@ -37,6 +39,8 @@ export interface CliDeps {
   readonly follow: (argv: readonly string[]) => Promise<number>;
   /** #1569 lane 5b: the Owner's platform sign-ins and the socket that declares the instance. */
   readonly login: LoginDeps;
+  /** #1600 lane R4: the catalog's declared instances, Persons and sealed credentials, read for the readiness report. */
+  readonly messagingFacts: () => Promise<MessagingFacts>;
 }
 
 const USAGE = `openomni — Single-Owner Agent OS
@@ -49,6 +53,8 @@ Usage:
   openomni doctor                read-only diagnostics
   openomni logs                  follow the daemon logs
   openomni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk)
+  openomni channel add <platform> declare a bot (slack | discord | telegram | github | webhook | a2a) or Linear with its grant
+  openomni messaging             the messaging readiness report: who reads, how the Resident writes, where you are known
   openomni help                  show this message`;
 
 const DAEMON_VERBS: Record<string, (target: DaemonTarget, io: DaemonIo) => string> = {
@@ -82,6 +88,14 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
       return await deps.follow(logsArgv(deps.target));
     case "login":
       return await login(args.slice(1), deps.login, deps);
+    case "channel":
+      if (args[1] !== "add") {
+        deps.stderr("usage: openomni channel add <platform> [flags]");
+        return 1;
+      }
+      return await channelAdd(args.slice(2), deps.login, deps);
+    case "messaging":
+      return await messaging(deps);
     case "help":
     case "--help":
     case "-h":
@@ -121,6 +135,19 @@ function daemon(verb: string | undefined, deps: CliDeps): number {
   }
   deps.stdout(output.success);
   return 0;
+}
+
+async function messaging(deps: CliDeps): Promise<number> {
+  let facts: MessagingFacts;
+  try {
+    facts = await deps.messagingFacts();
+  } catch (error) {
+    deps.stderr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  const report = messagingReadiness(facts);
+  for (const line of report.lines) deps.stdout(line);
+  return report.ok ? 0 : 1;
 }
 
 async function doctor(deps: CliDeps): Promise<number> {

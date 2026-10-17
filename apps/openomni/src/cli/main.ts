@@ -7,7 +7,8 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { OwnerLogins } from "@openomni/channels";
+import { Database } from "bun:sqlite";
+import { createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore, OwnerLogins } from "@openomni/channels";
 import { listenForAbort, type Machine, Provisioning } from "@openomni/protocol";
 import { loadConfig } from "../config";
 import { installShutdownHandlers, startOpenOmni } from "..";
@@ -18,6 +19,7 @@ import type { DaemonIo, DaemonTarget, ExecResult } from "./daemon";
 import { daemonActive, unitPath } from "./daemon";
 import { applyEnvFile, mergeEnvFile, writeEnvFile } from "./env-file";
 import type { DoctorPorts } from "./doctor";
+import type { MessagingFacts } from "./messaging";
 import type { AskOptions } from "./onboard";
 
 /**
@@ -273,6 +275,33 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     return declareOver(new WebSocket(url, token === undefined ? [] : ["auth", token]), url, request);
   }
 
+  /**
+   * The readiness report's facts (#1600 lane R4): the catalog the daemon
+   * writes, opened read-only (`query_only`, which the channel schema honors
+   * by running no DDL) on its own channel tables and closed at once; the env
+   * file names the catalog path as the daemon reads it.
+   */
+  async function messagingFacts(): Promise<MessagingFacts> {
+    const env = mergeEnvFile(existsSync(envPath) ? await Bun.file(envPath).text() : "");
+    const catalogPath = env.get("OPENOMNI_CATALOG_PATH")?.trim() || join(home, ".openomni", "catalog.sqlite");
+    if (!existsSync(catalogPath))
+      throw new CliError(`no catalog at ${catalogPath}: nothing is declared yet (run the daemon once, then login or channel add)`);
+    const database = new Database(catalogPath, { readonly: true });
+    try {
+      database.run("PRAGMA query_only = 1");
+      const channel = openChannelStore(database, () => Date.now());
+      const instances = createChannelInstanceStore(channel).list();
+      const secrets = createSecretStore(channel);
+      return {
+        instances,
+        persons: createPersonStore(channel).list(),
+        sealed: new Set(instances.flatMap((instance) => (instance.credentialRef !== undefined && secrets.get(instance.credentialRef) !== undefined ? [instance.credentialRef] : []))),
+      };
+    } finally {
+      database.close();
+    }
+  }
+
   return {
     stdout: (line) => console.log(line),
     stderr: (line) => console.error(line),
@@ -316,6 +345,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
       declare: declareChannel,
       id: () => platformEntropy().id(),
     },
+    messagingFacts,
   };
 }
 
