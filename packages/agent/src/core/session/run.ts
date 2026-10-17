@@ -317,5 +317,5 @@ export { SessionPolicyRefusal } from "../journal/messages";
 export { GenerationRawSlots } from "../loop/executor";
 export { type SessionTool, type SessionSystem, type SessionCreateOptions, type SessionRunnerInput, type SessionBoundaryResult, type SessionRunnerResult, type SessionRunner, type SessionRuntime, type ComposedManifest, composedManifest, type ResolvedSessionRuntime, resolveSessionRuntime, type SessionHandle, type SessionController, type RegistryEntry, type SessionControllerLifecycle, type SessionAdmissionSnapshot, type SessionEntityAuthority, type SessionEntityTurnInput, type SessionEntityPorts, type SessionControllerState, adoptedExecutor, adoptSessionAuthority, installSessionHandlePlane, getSessionHandle, closeSessions } from "./runtime";
 export { createSessionConfiguration, type GenerationBundle, makeSessionGenerations } from "./generations";
-export { dispatchSessionOutbound } from "./outbound";
+export { dispatchSessionOutbound, outboundRedrivePort } from "./outbound";
 export { sessionStopEvidence, InboundAuthorityViolated, inboundAuthority, promptInboundAuthority, runnerOutputMissingResult } from "./turn-open";

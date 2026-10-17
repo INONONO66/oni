@@ -8,7 +8,7 @@ import { seedPolicy } from "./helpers/seed-policy";
 import { receiveOutbound, failure, foreign } from "./helpers/effect-g2";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 
-import { closeSessions, type SessionRunner } from "../src/core/session/run";
+import { closeSessions, outboundRedrivePort, type SessionRunner } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { resolveSessionRuntime } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
@@ -293,6 +293,39 @@ test("activation redrives a pending outbound once and later seals skip it", () =
     () => ledger,
   );
 });
+
+test("the activation port is absent without a receiving consumer and otherwise redrives the pending row once", () =>
+  isolated(
+    Effect.scoped(
+      Effect.gen(function* () {
+        seedPolicy();
+        const lost = dispatchRuntime(() => Effect.fail(foreign("receiver", "lost")));
+        yield* Effect.addFinalizer(() => closeSessions(lost).pipe(Effect.orDie));
+        yield* openSession(lost, { id: "parent", role: "resident", runner: parentRunner });
+        const child = yield* openSession(lost, { id: "child", parentId: "parent", role: "child", runner: childRunner });
+        yield* Effect.flip(child.prompt("work", origin));
+        const kernel = isolatedLedger().kernel;
+        const pending = kernel.outboundRows("child");
+        expect(pending).toMatchObject([{ state: "pending" }]);
+        const silent = dispatchRuntime(undefined);
+        expect(outboundRedrivePort(yield* withSessionServices(resolveSessionRuntime(silent), silent))).toBeUndefined();
+
+        const dispatched: string[] = [];
+        const consuming = dispatchRuntime(({ message }) =>
+          Effect.gen(function* () {
+            dispatched.push(message.messageId);
+            return (yield* receiveOutbound(message, 200)).receipt;
+          }),
+        );
+        const port = outboundRedrivePort(yield* withSessionServices(resolveSessionRuntime(consuming), consuming));
+        if (port === undefined) throw new Error("a consuming runtime must yield the activation port");
+        const row = kernel.row("child");
+        yield* port({ kernel, sessionId: "child", owner: row.fenceOwner ?? "", fence: row.fence, clock: () => 300 });
+        expect(dispatched).toEqual(pending.map((item) => item.message.messageId));
+        expect(kernel.outboundRows("child")).toMatchObject([{ state: "delivered" }]);
+      }),
+    ),
+  ));
 
 test("a destination receipt for different bytes is refused and the obligation stays pending", () =>
   isolated(
