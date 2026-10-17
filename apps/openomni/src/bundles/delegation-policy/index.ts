@@ -162,6 +162,59 @@ export const DELEGATION_GUARD_REFS: readonly string[] = [
 
 export const DELEGATION_DEADLINE = "delegation.deadline";
 
+/**
+ * The chain one cli child's deadline rides (#1512 r2 M2):
+ * `<session>:delegation.deadline:<child>`. One chain per child, so retiring
+ * child A's deadline (`at: null`) never supersedes the occurrence armed for
+ * child B in the same sender session — the deadline bounds THAT child. A
+ * `to.new` session child keeps the #1258 session chain
+ * (`<session>:delegation.deadline`), where a second arm supersedes the first.
+ */
+export function cliDeadlineChain(sessionId: string, child: string): string {
+  return `${sessionId}:${DELEGATION_DEADLINE}:${child}`;
+}
+
+/** One arm of the deadline purpose for a created child session or a cli child. */
+export interface DeadlineArmInput {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly child: string;
+  /** `session:<id>` or `cli:<id>`: tells the cancel door which interrupt the fire takes, and names the chain. */
+  readonly contact: string;
+  readonly at: number;
+}
+
+export interface DeadlineArmRefused {
+  readonly reason: string;
+}
+
+/** An armed deadline and its retire door: the same chain and source key armed `at: null` once the turn has ended (#1512 r1 L1). */
+export interface DeadlineArm {
+  readonly retire: Effect.Effect<void, DeadlineArmRefused>;
+}
+
+/**
+ * Arms `delegation.deadline` through the caller's ONE arm verb — minted
+ * before the first await, never re-resolved (#1254 r5 H1) — and answers with
+ * the retire door on the chain the arm landed on. A cli child gets its own
+ * chain (`cliDeadlineChain`); a session child the session's shared one.
+ */
+export function armDelegationDeadline(arm: Core.ArmVerb, input: DeadlineArmInput): Effect.Effect<DeadlineArm, DeadlineArmRefused> {
+  const payload = { child: input.child, contact: input.contact };
+  const sourceKey = `delegation:${input.child}`;
+  const chain = input.contact.startsWith("cli:") ? { alarmId: cliDeadlineChain(input.sessionId, input.child) } : {};
+  const refused = (error: Core.ArmRefused): DeadlineArmRefused => ({ reason: error.code });
+  return arm({ purpose: DELEGATION_DEADLINE, at: input.at, payload, sourceKey, ...chain }).pipe(
+    Effect.map((armed) => ({
+      retire: arm({ purpose: DELEGATION_DEADLINE, at: null, alarmId: armed.alarmId, supersedes: armed.occurrenceId, payload, sourceKey }).pipe(
+        Effect.asVoid,
+        Effect.mapError(refused),
+      ),
+    })),
+    Effect.mapError(refused),
+  );
+}
+
 /** Armed alongside a `to.new` send carrying `deadline_ms`. */
 const DeadlinePayload = z
   .object({

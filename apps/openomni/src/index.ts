@@ -99,8 +99,10 @@ import { createProcessSessionTransport } from "./composition/process-session";
 import { commitDeliverPayload, prepareMessage } from "./composition/message-session";
 import { dispatchOutboundMessage } from "./composition/terminal-message";
 import {
+  armDelegationDeadline,
   DELEGATION_DEADLINE,
   settleChild,
+  type DeadlineArmInput,
   type DelegationDeadlineDeps,
 } from "./bundles/delegation-policy/index";
 import {
@@ -370,6 +372,11 @@ export async function startOpenOmni(options: StartOptions = {}) {
   // contact runner binds it once the machine plane is up.
   let cancelDoor: DelegationDeadlineDeps["cancel"] | undefined;
   let cliInterrupt: CliRunner["interrupt"] | undefined;
+  /** The cli runner's typed interrupt refusal: `turn_already_ended` is the one the cancel door maps rather than reports. */
+  interface CliInterruptRefused {
+    readonly reason: string;
+    readonly code?: "turn_already_ended";
+  }
   const delegationDeadline: DelegationDeadlineDeps = {
     cancel: (input) =>
       cancelDoor === undefined
@@ -477,11 +484,11 @@ export async function startOpenOmni(options: StartOptions = {}) {
         );
     // #1512: the armed contact names the door — a `cli:` child's pane interrupt, else the child session's signal. A
     // cli turn that ended before the fire is `already_ended`: the wake prompts nothing (r1 L1).
+    const cliCancelOutcome = (refused: CliInterruptRefused) => (refused.code === "turn_already_ended" ? Effect.succeed("already_ended" as const) : Effect.fail({ reason: refused.reason }));
     const cancelCliChild: DelegationDeadlineDeps["cancel"] = ({ child }) =>
       (cliInterrupt === undefined ? Effect.fail({ reason: "cli contact runner is not composed" }) : cliInterrupt(child)).pipe(
         Effect.as("cancelled" as const),
-        Effect.catch((refused: { readonly reason: string; readonly code?: "turn_already_ended" }) =>
-          refused.code === "turn_already_ended" ? Effect.succeed("already_ended" as const) : Effect.fail({ reason: refused.reason })),
+        Effect.catch(cliCancelOutcome),
       );
     cancelDoor = (input) => (input.contact.startsWith("cli:") ? cancelCliChild(input) : cancelChildSession(input));
 
@@ -640,12 +647,13 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const machineKnown = (machineId: string): boolean =>
       machineId === machineProvision.selfId || enrollments.get(machineId)?.removedAt === null;
     const provisioningPort: ProvisionPort = {
-      get machines() { return machineProvision; },
       // #1512: `channel_add` with provider `cli` is judged by the contact's own door.
       cli: {
         declare: (settings) =>
           validateCliContactSettings(settings, { dialects: dialectPacks.map((pack) => pack.manifest.id), machineKnown }),
       },
+      // The machine port is read at access time, never captured.
+      get machines() { return machineProvision; },
       automations,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
@@ -828,25 +836,13 @@ export async function startOpenOmni(options: StartOptions = {}) {
       admit: (sessionId: string, rows: readonly ChildRow[]) => admit(entityClient, sessionId, rows),
     };
     // #1258/#1512: one arm of the delegation.deadline purpose for a created
-    // child session or a cli child; the payload's contact tells the cancel
-    // door which interrupt the fire takes.
-    // The arm answers with its retire door (#1512 r1 L1): the alarm plane's
-    // retire idiom, `at: null` on the same chain and source key, once the
-    // cli turn has ended, so a late fire never interrupts an idle child.
-    const armDeadline = (input: { readonly sessionId: string; readonly turnId: string; readonly child: string; readonly contact: string; readonly at: number }) => {
-      const arm = watchPlane.arms.arm(input.sessionId, input.turnId);
-      const payload = { child: input.child, contact: input.contact };
-      const sourceKey = `delegation:${input.child}`;
-      return arm({ purpose: DELEGATION_DEADLINE, at: input.at, payload, sourceKey }).pipe(
-        Effect.map((armed) => ({
-          retire: arm({ purpose: DELEGATION_DEADLINE, at: null, alarmId: armed.alarmId, supersedes: armed.occurrenceId, payload, sourceKey }).pipe(
-            Effect.asVoid,
-            Effect.mapError((refused) => ({ reason: refused.code })),
-          ),
-        })),
-        Effect.mapError((refused) => ({ reason: refused.code })),
-      );
-    };
+    // child session or a cli child, through the caller's one arm verb minted
+    // here before any await; the payload's contact tells the cancel door
+    // which interrupt the fire takes and names the chain — a cli child's own
+    // (r2 M2), a session child the session's shared one — and the arm answers
+    // with its retire door (r1 L1): `at: null` on that chain once the turn
+    // has ended, so a late fire never interrupts an idle child.
+    const armDeadline = (input: DeadlineArmInput) => armDelegationDeadline(watchPlane.arms.arm(input.sessionId, input.turnId), input);
     // #1512: the `cli:` contact over the declared machine's pty. Nothing runs
     // until a `channel:cli:<id>` row is declared; app stop drops every pane
     // this Resident launched (watch, tmux session, lease).

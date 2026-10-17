@@ -261,11 +261,23 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       }
       return attachment;
     }
+    /**
+     * ONE effective root set (#1512 r2 L11) both the host's routing
+     * (`location`) and the consumer-facing listing (`exportsOf`) read: the
+     * daemon's offered exports the enrollment allows — the set the daemon
+     * negotiated at attach — at their normalized roots. An offered root the
+     * enrollment does not allow is no candidate for either.
+     */
+    function effectiveRoots(peer: Attachment): readonly { readonly name: Machine.ExportName; readonly path: string }[] {
+      const allowed = new Set(peer.enrollment.allowedExports ?? []);
+      return (peer.offer.exports ?? [])
+        .filter((entry) => allowed.has(entry.name))
+        .map((entry) => ({ name: entry.name, path: normalizeExportRoot(entry.path) }));
+    }
     function location(id: string, path: string) {
       const peer = connection(id);
       const absolute = posix.normalize(Machine.AbsolutePath.parse(path));
-      const candidates = (peer.offer.exports ?? [])
-        .map((entry) => ({ ...entry, path: normalizeExportRoot(entry.path) }))
+      const candidates = effectiveRoots(peer)
         .filter((entry) => isContained(entry.path, absolute))
         .sort((a, b) => b.path.length - a.path.length);
       const root = candidates[0];
@@ -479,12 +491,10 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         };
       }).sort((a, b) => a.machineId.localeCompare(b.machineId));
     }
+    /** The effective roots a consumer may resolve a path against: a root two allowed exports share is one `location` refuses as ambiguous, so it is not offered here either. */
     function exportsOf(id: string): readonly { readonly name: Machine.ExportName; readonly path: string }[] {
-      const peer = connection(id);
-      const allowed = new Set(peer.enrollment.allowedExports ?? []);
-      return (peer.offer.exports ?? [])
-        .filter((entry) => allowed.has(entry.name))
-        .map((entry) => ({ name: entry.name, path: normalizeExportRoot(entry.path) }));
+      const roots = effectiveRoots(connection(id));
+      return roots.filter((entry) => roots.every((other) => other === entry || other.path !== entry.path));
     }
     return {
       get, list, place: capacity.place, capacity: capacity.capacity, exports: exportsOf,

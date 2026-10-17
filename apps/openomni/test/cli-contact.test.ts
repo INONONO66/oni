@@ -13,6 +13,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Core } from "@openomni/agent";
 import { type LeaseHandle, type MachineHandle, type MachineHost, MachineRefusalError } from "@openomni/machines";
 import { Effect } from "effect";
 import { executeChannelDeclare, channelDomainRevisions, CHANNEL_DECLARE_INPUT } from "../src/bundles/provision/channels";
@@ -25,11 +26,12 @@ import {
   validateCliContactSettings,
 } from "../src/bundles/child-activity/contact/declaration";
 import { hookCommand, hookScript } from "../src/bundles/child-activity/contact/hook-script";
-import { childState, stateInput } from "../src/bundles/child-activity/contact/rule";
+import { childState, foldState, NOTHING_SPOKEN, type StateFold, stateInputOf } from "../src/bundles/child-activity/contact/rule";
 import { createCliRunner, launchLine, type CliRunnerDeps } from "../src/bundles/child-activity/contact/runner";
 import type { DialectPack } from "../src/bundles/child-activity/dialects/pack";
 import type { ChildWatch } from "../src/bundles/child-activity/index";
-import { type ChildRow, reconcile, stateReceipts } from "../src/bundles/child-activity/reconcile";
+import { type ChildRow, reconcile, type StateReceipt, stateReceipts } from "../src/bundles/child-activity/reconcile";
+import { armDelegationDeadline, cliDeadlineChain, DELEGATION_DEADLINE } from "../src/bundles/delegation-policy/index";
 import { decodeSpool } from "../src/bundles/child-activity/spool";
 import { decodeTranscript } from "../src/bundles/child-activity/transcript";
 import { fixture, fixtures, pack, reference } from "./helpers/child-activity";
@@ -41,6 +43,11 @@ import { testChannelDeps, testIds } from "./helpers/test-entropy";
 const SENDER = "resident-1";
 const MACHINE = "m-1";
 const DIALECT = "fixture-dialect";
+
+/** The rule's input over a turn's joined receipts, through the incremental fold the runner keeps (r2 L9). */
+function stateInput(receipts: readonly StateReceipt[]) {
+  return stateInputOf(receipts.reduce<StateFold>((fold, entry) => foldState(fold, { phase: entry.fact.phase, ref: entry.receipt.ref }), NOTHING_SPOKEN));
+}
 
 /** The shipped pack under a fixture id with a short stall window: the runner is exercised, the vendor is not. */
 const testPack: DialectPack = {
@@ -91,8 +98,10 @@ interface Scripted {
   readonly writes: string[];
   readonly execs: string[];
   readonly lease: string[];
-  /** The fake child: what happens on the machine when the pane receives these bytes. */
-  onWrite?: (text: string) => void;
+  /** The fake child: what happens on the machine when the pane receives these bytes (`name` is the pane). */
+  onWrite?: (text: string, name: string) => void;
+  /** The pane each successful write reached, in write order, when a test asks for it. */
+  targets?: string[];
   /** Scripted daemon refusals. */
   listRefused?: boolean;
   openRefused?: boolean;
@@ -142,7 +151,8 @@ function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "ex
           if (script.writeRefused === true) return { status: "refused" as const, reason: "pty_not_available" as const };
           const text = Buffer.from(data).toString("utf8");
           script.writes.push(text);
-          script.onWrite?.(text);
+          script.targets?.push(_name);
+          script.onWrite?.(text, _name);
           return { status: "ok" as const };
         }),
       read: () => unused,
@@ -268,8 +278,18 @@ test("the data rule: hook authority, transcript terminal, the typed screen seam,
   const waiting = hookRows("c", "t", [liveLine("Stop"), liveLine("PermissionRequest")]);
   expect(stateInput(stateReceipts(waiting, "c", "t"))).toEqual({ hook: "waiting", transcriptTerminal: false });
   expect(stateInput(stateReceipts(rows, "c", "t"))).toEqual({ hook: "observed", transcriptTerminal: false });
-  expect(stateInput(stateReceipts([...rows, ...transcriptRows("c", "t", "terminal", rows)], "c", "t"))).toEqual({ hook: "observed", transcriptTerminal: true });
+  const ended = stateReceipts([...rows, ...transcriptRows("c", "t", "terminal", rows)], "c", "t");
+  expect(stateInput(ended)).toEqual({ hook: "observed", transcriptTerminal: true });
   expect(stateInput([])).toEqual({ transcriptTerminal: false });
+  // r2 L9: the fold is order-independent — a lower hook sequence never replaces a higher one, a transcript terminal
+  // stays however the receipts arrive — and a transcript row that is not the terminal changes nothing.
+  expect(stateInput([...ended].reverse())).toEqual({ hook: "observed", transcriptTerminal: true });
+  expect(stateInput([...stateReceipts(waiting, "c", "t")].reverse())).toEqual({ hook: "waiting", transcriptTerminal: false });
+  const requested = stateReceipts(transcriptRows("c", "t", "requested"), "c", "t");
+  expect(requested.length).toBeGreaterThan(0);
+  expect(stateInput(requested)).toEqual({ transcriptTerminal: false });
+  const terminalFold = ended.reduce<StateFold>((fold, entry) => foldState(fold, { phase: entry.fact.phase, ref: entry.receipt.ref }), NOTHING_SPOKEN);
+  expect(ended.reduce<StateFold>((fold, entry) => foldState(fold, { phase: entry.fact.phase, ref: entry.receipt.ref }), terminalFold)).toBe(terminalFold);
 });
 
 test("the declaration door: provider cli lands through channel_add under Owner consent, judged by the contact's door, and the profile mounts no channel for it", async () => {
@@ -475,8 +495,8 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
     // The submit has landed once the Enter write is recorded; await that state through the writes the fake saw.
     await new Promise<void>((resolve) => {
       const previous = script.onWrite;
-      script.onWrite = (text) => {
-        previous?.(text);
+      script.onWrite = (text, name) => {
+        previous?.(text, name);
         if (text === "\r") resolve();
       };
       if (script.writes.includes("\r") && script.writes.filter((write) => write === "\r").length >= 3) resolve();
@@ -543,8 +563,8 @@ test("#1512 r1 H2: the stall predicate measures new observation — an acknowled
   const enterSeen = () =>
     new Promise<void>((resolve) => {
       const previous = script.onWrite;
-      script.onWrite = (text) => {
-        previous?.(text);
+      script.onWrite = (text, name) => {
+        previous?.(text, name);
         if (text === "\r") resolve();
       };
     });
@@ -761,6 +781,286 @@ test("a launch whose first live line names no transcript keeps the spool-only wa
     });
     expect(script.live.has("cli-reviewer")).toBe(false);
   } finally {
+    plane.close();
+  }
+});
+
+/**
+ * The entity's arm verb as the alarm plane commits it (`entity-activation.ts`): the chain is `<session>:<purpose>`
+ * unless the arm names one, the arm supersedes the chain's latest occurrence, and `Core.alarmDisposition` is the one
+ * guard a delivered occurrence meets. Chains and arms are recorded for the assertions.
+ */
+function chainModel(sessionId: string) {
+  const chains = new Map<string, { readonly occurrenceId: string; readonly at: number | null }>();
+  const armed: { readonly alarmId: string; readonly occurrenceId: string; readonly supersedes: string | undefined; readonly at: number | null }[] = [];
+  let seq = 0;
+  const arm: Core.ArmVerb = (input) =>
+    Effect.sync(() => {
+      const alarmId = input.alarmId ?? `${sessionId}:${input.purpose}`;
+      seq += 1;
+      const occurrenceId = `${alarmId}:arm:${seq}`;
+      armed.push({ alarmId, occurrenceId, supersedes: input.supersedes ?? chains.get(alarmId)?.occurrenceId, at: input.at });
+      chains.set(alarmId, { occurrenceId, at: input.at });
+      return { alarmId, occurrenceId, armSeq: seq };
+    });
+  const reads: Core.AlarmChainReads = { latestArm: (alarmId) => chains.get(alarmId), settled: () => false };
+  return { arm, reads, armed };
+}
+
+test("#1512 r2 M2: each cli child's deadline rides its own chain — the first turn's retire leaves the second deadline armed, and its fire interrupts its own child only", async () => {
+  const model = chainModel(SENDER);
+  const armFor = (child: string, contact: string) =>
+    runEffect(armDelegationDeadline(model.arm, { sessionId: SENDER, turnId: "turn-1", child, contact, at: 70_000 }));
+  const first = await armFor("child-1", "cli:reviewer");
+  await armFor("child-2", "cli:auditor");
+  const [a, b] = model.armed;
+  if (a === undefined || b === undefined) throw new Error("two arms expected");
+  expect(a).toEqual({ alarmId: cliDeadlineChain(SENDER, "child-1"), occurrenceId: `${cliDeadlineChain(SENDER, "child-1")}:arm:1`, supersedes: undefined, at: 70_000 });
+  expect(b).toEqual({ alarmId: cliDeadlineChain(SENDER, "child-2"), occurrenceId: `${cliDeadlineChain(SENDER, "child-2")}:arm:2`, supersedes: undefined, at: 70_000 });
+  // The first turn ends: its retire is `at: null` on ITS chain, superseding its own occurrence — the second chain's
+  // latest is still the second deadline, so that occurrence runs when it is delivered.
+  await runEffect(first.retire);
+  expect(model.armed[2]).toEqual({ alarmId: a.alarmId, occurrenceId: `${a.alarmId}:arm:3`, supersedes: a.occurrenceId, at: null });
+  expect(Core.alarmDisposition(model.reads, a)).toEqual({ op: "skip", reason: "superseded" });
+  expect(Core.alarmDisposition(model.reads, b)).toEqual({ op: "run" });
+  // A session child keeps the #1258 session chain, where the second arm supersedes the first.
+  await armFor("s-1", "session:s-1");
+  await armFor("s-2", "session:s-2");
+  const [s1, s2] = model.armed.slice(3);
+  expect(s1).toMatchObject({ alarmId: `${SENDER}:${DELEGATION_DEADLINE}`, supersedes: undefined });
+  expect(s2).toMatchObject({ alarmId: `${SENDER}:${DELEGATION_DEADLINE}`, supersedes: s1?.occurrenceId });
+  // A refused arm or retire is the typed reason, never a thrown ArmRefused.
+  const refusing: Core.ArmVerb = () => Effect.fail(new Core.ArmRefused({ code: "not_live" }));
+  expect(await runEffect(Effect.flip(armDelegationDeadline(refusing, { sessionId: SENDER, turnId: "t", child: "c", contact: "cli:x", at: 1 })))).toEqual({ reason: "not_live" });
+  let arms = 0;
+  const refusingRetire: Core.ArmVerb = (input) => {
+    arms += 1;
+    return arms === 1 ? model.arm(input) : Effect.fail(new Core.ArmRefused({ code: "stale_activation" }));
+  };
+  const armedOnce = await runEffect(armDelegationDeadline(refusingRetire, { sessionId: SENDER, turnId: "t", child: "c", contact: "cli:x", at: 1 }));
+  expect(await runEffect(Effect.flip(armedOnce.retire))).toEqual({ reason: "stale_activation" });
+
+  // The runner side: two contacts on one sender, both turns running; the fire for child-2 writes ETX to ITS pane
+  // alone, and child-1's turn runs on to its terminal.
+  const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
+  plane.stores.instances.put({ id: cliContactRowId("auditor"), provider: "cli", identity: "bot", enabled: true, settings: { dialect: DIALECT, machine: MACHINE, cwd: "/work" }, revision: 0, createdBy: "owner", updatedAt: 1 });
+  const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [], targets: [] };
+  const watch = scriptedWatch();
+  const deadlines: string[] = [];
+  const runner = createCliRunner({
+    instances: plane.stores.instances,
+    machineKnown: () => true,
+    packs: [testPack],
+    host: scriptedHost(script),
+    watch: watch.ports,
+    committed: watch.committed,
+    deadline: (input) => Effect.sync(() => {
+      deadlines.push(`${input.contact}:${input.child}`);
+      return { retire: Effect.void };
+    }),
+    id: testIds("child"),
+    now: () => 0,
+  });
+  const childOf = (name: string) => (name === "cli-reviewer" ? "child-1" : "child-2");
+  const keyOf = (name: string) => (name === "cli-reviewer" ? "k1" : "k2");
+  const enters = Promise.withResolvers<void>();
+  let entered = 0;
+  script.onWrite = (text, name) => {
+    if (text.startsWith("exec ")) launchAnswer(script, watch, childOf(name), keyOf(name));
+    if (text === "\r") {
+      watch.push(SENDER, hookRows(childOf(name), keyOf(name), [liveLine("UserPromptSubmit")], watch.known(SENDER)));
+      entered += 1;
+      if (entered === 2) enters.resolve();
+    }
+  };
+  try {
+    const reviewer = runEffect(runner.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "turn-1", key: "k1", deadlineMs: 60_000 }));
+    const auditor = runEffect(Effect.flip(runner.run({ agent: "auditor", message: "hello", sender: SENDER, turnId: "turn-1", key: "k2", deadlineMs: 60_000 })));
+    await enters.promise;
+    expect(deadlines).toEqual(["cli:reviewer:child-1", "cli:auditor:child-2"]);
+    expect(script.live).toEqual(new Set(["cli-reviewer", "cli-auditor"]));
+    // The fire for child-2: one ETX, into cli-auditor; the waiting send ends `landed`.
+    await runEffect(runner.interrupt("child-2"));
+    expect(script.writes.filter((write) => write === "\u0003")).toHaveLength(1);
+    expect(script.targets?.at(-1)).toBe("cli-auditor");
+    expect(await auditor).toEqual({ reason: "deadline expired; the child was interrupted", landed: true });
+    // child-1 was not touched: its turn ends on its own terminal, and only then is its deadline door closed.
+    const known = watch.known(SENDER);
+    watch.push(SENDER, transcriptRows("child-1", "k1", "terminal", known));
+    expect(await reviewer).toEqual({ child: "child-1", turn: "k1", facts: 2 });
+    expect(await runEffect(Effect.flip(runner.interrupt("child-1")))).toMatchObject({ code: "turn_already_ended" });
+    expect(script.writes.filter((write) => write === "\u0003")).toHaveLength(1);
+  } finally {
+    await runEffect(runner.close());
+    plane.close();
+  }
+});
+
+test("#1512 r2 L8: the turn is ended before the deadline retire's await — an interrupt landing in that window is refused typed and writes no ETX", async () => {
+  const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
+  const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [] };
+  const watch = scriptedWatch();
+  // The retire blocks until the test releases it: the window between the observed terminal and the disarm's end.
+  const retiring = Promise.withResolvers<() => void>();
+  const runner = createCliRunner({
+    instances: plane.stores.instances,
+    machineKnown: () => true,
+    packs: [testPack],
+    host: scriptedHost(script),
+    watch: watch.ports,
+    committed: watch.committed,
+    deadline: () =>
+      Effect.succeed({
+        retire: Effect.callback<void, never>((resume) => {
+          retiring.resolve(() => resume(Effect.void));
+        }),
+      }),
+    id: testIds("child"),
+    now: () => 0,
+  });
+  script.onWrite = (text) => {
+    if (text.startsWith("exec ")) launchAnswer(script, watch, "child-1", "k1");
+    if (text === "\r") {
+      const known = watch.known(SENDER);
+      const added = hookRows("child-1", "k1", [liveLine("UserPromptSubmit")], known);
+      watch.push(SENDER, added);
+      watch.push(SENDER, transcriptRows("child-1", "k1", "terminal", [...known, ...added]));
+    }
+  };
+  try {
+    const run = runEffect(runner.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "turn-1", key: "k1", deadlineMs: 60_000 }));
+    // The retire is in flight: the terminal has been observed and the run has not resolved.
+    const release = await retiring.promise;
+    const writesAtTerminal = script.writes.length;
+    expect(await runEffect(Effect.flip(runner.interrupt("child-1")))).toMatchObject({ code: "turn_already_ended" });
+    expect(script.writes).toHaveLength(writesAtTerminal);
+    expect(script.writes.at(-1)).toBe("\r");
+    release();
+    expect(await run).toEqual({ child: "child-1", turn: "k1", facts: 2 });
+  } finally {
+    await runEffect(runner.close());
+    plane.close();
+  }
+});
+
+test("#1512 r2 L9: the runner retains one turn per child whatever the number of sends, and the rows of turns it does not retain are dropped", async () => {
+  const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
+  const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [] };
+  const watch = scriptedWatch();
+  const runner = createCliRunner({
+    instances: plane.stores.instances,
+    machineKnown: () => true,
+    packs: [testPack],
+    host: scriptedHost(script),
+    watch: watch.ports,
+    committed: watch.committed,
+    id: testIds("child"),
+    now: () => 0,
+  });
+  const send = (key: string) => runner.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "t", key });
+  /** The fake child answers the launch with SessionStart and every letter with an acknowledgement and the terminal. */
+  const answer = (child: string, key: string) => {
+    script.onWrite = (text) => {
+      if (text.startsWith("exec ")) launchAnswer(script, watch, child, key);
+      if (text === "\r") {
+        const known = watch.known(SENDER);
+        const added = hookRows(child, key, [liveLine("UserPromptSubmit")], known);
+        watch.push(SENDER, added);
+        watch.push(SENDER, transcriptRows(child, key, "terminal", [...known, ...added]));
+      }
+    };
+  };
+  try {
+    expect(runner.retained()).toBe(0);
+    for (const key of ["k1", "k2", "k3", "k4", "k5", "k6"]) {
+      answer("child-1", key);
+      expect(await runEffect(send(key))).toEqual({ child: "child-1", turn: key, facts: 2 });
+      // One child, one retained turn — the latest — however many sends it has seen.
+      expect(runner.retained()).toBe(1);
+    }
+    // The latest key still replays from the retained turn without typing.
+    const writesBefore = script.writes.length;
+    expect(await runEffect(send("k6"))).toEqual({ child: "child-1", turn: "k6", facts: 2 });
+    expect(script.writes).toHaveLength(writesBefore);
+    // Rows of a child this runner did not launch, in the same sender session, are read and dropped: nothing retained.
+    watch.push(SENDER, hookRows("stranger", "x1", [liveLine("SessionStart"), liveLine("UserPromptSubmit")], watch.known(SENDER)));
+    expect(await runEffect(Effect.flip(runner.interrupt("stranger")))).toEqual({ reason: "no cli child stranger is running" });
+    expect(runner.retained()).toBe(1);
+    // An older key left the registry with its turn: its replay is a NEW send — the letter is typed again (the
+    // scripted child has nothing new to say about a turn it already ended, so the send stalls and the pane retires).
+    script.onWrite = undefined;
+    expect(await runEffect(Effect.flip(send("k5")))).toEqual({ reason: "prompt_stalled: no live observation within 20 ms" });
+    expect(script.writes.slice(writesBefore)).toEqual(["hello", "\r"]);
+    expect(runner.retained()).toBe(1);
+    // The next send launches a second child: two children, two turns, no more.
+    answer("child-2", "k8");
+    expect(await runEffect(send("k8"))).toEqual({ child: "child-2", turn: "k8", facts: 2 });
+    expect(runner.retained()).toBe(2);
+    // The retired child's latest turn still answers the deadline door as ended, not unknown (r1 L1).
+    expect(await runEffect(Effect.flip(runner.interrupt("child-1")))).toMatchObject({ code: "turn_already_ended" });
+    // The cursor itself is one per sender session: paged forward once from 0, never rescanned.
+    expect(watch.scans.filter((after) => after === 0)).toHaveLength(1);
+  } finally {
+    await runEffect(runner.close());
+    plane.close();
+  }
+});
+
+test("#1512 r2 L10: a letter the daemon refuses after a successful launch ends the turn and retires the pane — the next send launches fresh instead of answering agent_busy; a refusal after bytes landed says so", async () => {
+  const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
+  const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [] };
+  const watch = scriptedWatch();
+  const retired: string[] = [];
+  const runner = createCliRunner({
+    instances: plane.stores.instances,
+    machineKnown: () => true,
+    packs: [testPack],
+    host: scriptedHost(script),
+    watch: watch.ports,
+    committed: watch.committed,
+    deadline: (input) => Effect.succeed({ retire: Effect.sync(() => void retired.push(input.child)) }),
+    id: testIds("child"),
+    now: () => 0,
+  });
+  const send = (key: string) => runner.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "t", key, deadlineMs: 60_000 });
+  const releases = () => script.lease.filter((entry) => entry === "release").length;
+  try {
+    // The launch succeeds (SessionStart observed), then the daemon refuses the letter's first write.
+    script.onWrite = (text) => {
+      if (text.startsWith("exec ")) {
+        launchAnswer(script, watch, "child-1", "k1");
+        script.writeRefused = true;
+      }
+    };
+    expect(await runEffect(Effect.flip(send("k1")))).toEqual({ reason: "pty.write refused: pty_not_available" });
+    // Ended, disarmed, retired: the deadline door refuses typed, the session is closed, the lease released.
+    expect(await runEffect(Effect.flip(runner.interrupt("child-1")))).toMatchObject({ code: "turn_already_ended" });
+    expect(retired).toEqual(["child-1"]);
+    expect(script.live.has("cli-reviewer")).toBe(false);
+    expect(releases()).toBe(1);
+    // The next send is not `agent_busy`: it launches a fresh child and runs to its terminal.
+    script.writeRefused = undefined;
+    script.onWrite = (text) => {
+      if (text.startsWith("exec ")) launchAnswer(script, watch, "child-2", "k2");
+      if (text === "\r") {
+        const known = watch.known(SENDER);
+        const added = hookRows("child-2", "k2", [liveLine("UserPromptSubmit")], known);
+        watch.push(SENDER, added);
+        watch.push(SENDER, transcriptRows("child-2", "k2", "terminal", [...known, ...added]));
+      }
+    };
+    expect(await runEffect(send("k2"))).toEqual({ child: "child-2", turn: "k2", facts: 2 });
+    expect(script.writes.filter((write) => write.startsWith("exec "))).toHaveLength(2);
+    // The text reached the pane and the Enter was refused: the refusal carries `landed`, and the pane is retired
+    // all the same — the letter sits unsubmitted in a pane this Resident will not write to again.
+    script.onWrite = (text) => {
+      if (text === "hello") script.writeRefused = true;
+    };
+    expect(await runEffect(Effect.flip(send("k3")))).toEqual({ reason: "pty.write refused: pty_not_available", landed: true });
+    expect(script.live.has("cli-reviewer")).toBe(false);
+    expect(retired).toEqual(["child-1", "child-2", "child-2"]);
+  } finally {
+    await runEffect(runner.close());
     plane.close();
   }
 });

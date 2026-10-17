@@ -17,7 +17,7 @@ import { L0Observation, Provisioning, type Tool } from "@openomni/protocol";
 import { Effect } from "effect";
 import { foldAlarmChains } from "../src/bundles/alarms/index";
 import { cliContactRowId, cliSessionName } from "../src/bundles/child-activity/contact/declaration";
-import { DELEGATION_DEADLINE } from "../src/bundles/delegation-policy/index";
+import { cliDeadlineChain, DELEGATION_DEADLINE } from "../src/bundles/delegation-policy/index";
 import { type ChildRow, receivedChildRows } from "../src/bundles/child-activity/reconcile";
 import { CliTurnPointer } from "../src/bundles/messaging/send-message/index";
 import { readSessionCursor } from "../src/gateway";
@@ -213,9 +213,12 @@ test("send_message to a declared cli: contact types the letter into the child's 
   }
   for (const row of rows) expect(listed.has(row.key)).toBe(true);
   // r1 L1: the deadline armed for the send is retired with the terminal — its chain's latest arm is `at: null`.
-  const deadline = foldAlarmChains(kernel, residentId).get(`${residentId}:${DELEGATION_DEADLINE}`);
+  // r2 M2: the chain is the cli child's own, never the session's shared `delegation.deadline` chain.
+  const chains = foldAlarmChains(kernel, residentId);
+  const deadline = chains.get(cliDeadlineChain(residentId, pointer.child));
   expect(deadline?.latest).toMatchObject({ purpose: DELEGATION_DEADLINE, at: null, sourceKey: `delegation:${pointer.child}` });
   expect(deadline?.armCount).toBe(2);
+  expect(chains.has(`${residentId}:${DELEGATION_DEADLINE}`)).toBe(false);
   // The pane lives on the private tmux socket while the app runs.
   const session = cliSessionName(CONTACT);
   expect(tmux("has-session", "-t", session).exitCode).toBe(0);

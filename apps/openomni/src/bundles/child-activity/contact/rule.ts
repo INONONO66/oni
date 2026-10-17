@@ -1,6 +1,5 @@
 import type { ChildLifecycleEvidence } from "@openomni/protocol";
 import type { ScreenState } from "../dialects/pack";
-import type { StateReceipt } from "../reconcile";
 
 /**
  * The idle/working/blocked data rule (#1512): an app judgement over the
@@ -40,17 +39,34 @@ export function childState(input: ChildStateInput): ChildState {
   return "unknown";
 }
 
-/** The rule's inputs from one turn's joined receipts: the latest hook phase by seq, the transcript terminal as a fact. */
-export function stateInput(receipts: readonly StateReceipt[]): Omit<ChildStateInput, "screen"> {
-  let hook: { readonly seq: number; readonly phase: Phase } | undefined;
-  let transcriptTerminal = false;
-  for (const entry of receipts) {
-    const ref = entry.receipt.ref;
-    if ("kind" in ref) {
-      if (hook === undefined || ref.seq > hook.seq) hook = { seq: ref.seq, phase: entry.fact.phase };
-    } else if (entry.fact.phase === "terminal") {
-      transcriptTerminal = true;
-    }
-  }
-  return { ...(hook === undefined ? {} : { hook: hook.phase }), transcriptTerminal };
+/** One joined receipt as the rule reads it: its fact's phase and the source reference that carried it. */
+export interface StateEvidence {
+  readonly phase: Phase;
+  readonly ref: ChildLifecycleEvidence["ref"];
+}
+
+/**
+ * The rule's inputs as a running fold over one turn's receipts (#1512 r2 L9):
+ * the latest hook phase by sequence and whether the transcript ended the
+ * turn. Two scalars per turn, however many receipts the turn admits — the
+ * runner keeps this, never the rows.
+ */
+export interface StateFold {
+  readonly hook?: { readonly seq: number; readonly phase: Phase };
+  readonly transcriptTerminal: boolean;
+}
+
+export const NOTHING_SPOKEN: StateFold = { transcriptTerminal: false };
+
+/** One more receipt: a higher hook sequence replaces the hook phase; a transcript terminal row is a fact that stays. */
+export function foldState(current: StateFold, evidence: StateEvidence): StateFold {
+  const ref = evidence.ref;
+  if ("kind" in ref)
+    return current.hook === undefined || ref.seq > current.hook.seq ? { ...current, hook: { seq: ref.seq, phase: evidence.phase } } : current;
+  return evidence.phase === "terminal" && !current.transcriptTerminal ? { ...current, transcriptTerminal: true } : current;
+}
+
+/** The rule's input from a fold: the latest hook phase, the transcript terminal as a fact. */
+export function stateInputOf(fold: StateFold): Omit<ChildStateInput, "screen"> {
+  return { ...(fold.hook === undefined ? {} : { hook: fold.hook.phase }), transcriptTerminal: fold.transcriptTerminal };
 }

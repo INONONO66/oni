@@ -4,11 +4,11 @@ import type { TranscriptRef } from "@openomni/protocol";
 import { Duration, Effect } from "effect";
 import type { Launch, SubmitRecipe } from "../dialects/pack";
 import type { ChildWatch } from "../index";
-import { type ChildRow, diagnosticRow, stateReceipts } from "../reconcile";
+import { type ChildRow, diagnosticRow } from "../reconcile";
 import { sourceDigest } from "../transcript";
 import { type CliContact, type CliContactResolution, resolveCliContact } from "./declaration";
 import { hookCommand, hookScript } from "./hook-script";
-import { type ChildState, childState, stateInput } from "./rule";
+import { type ChildState, childState, foldState, NOTHING_SPOKEN, type StateFold, stateInputOf } from "./rule";
 
 /**
  * The `cli:` contact's runner (#1512): one send is one turn of a child CLI
@@ -20,6 +20,12 @@ import { type ChildState, childState, stateInput } from "./rule";
  * on is a persisted row read back through the reconciler; the only rows it
  * derives itself (a stalled prompt or launch) go through the same Deliver
  * door as every other child row.
+ *
+ * What the runner retains is bounded by the children it launched, not by the
+ * sends or the rows it saw (r2 L9): one turn per child — the latest — for the
+ * replay short-circuit and the deadline door, and for that turn a summary of
+ * its persisted rows (its source-free facts by key and the rule's two
+ * scalars), folded as pages arrive. An older key is a new send.
  */
 
 interface CliRunInput {
@@ -97,10 +103,31 @@ export interface CliRunner {
   interrupt(child: string): Effect.Effect<void, CliRefusal>;
   /** Drops every pane this runner launched: watch, tmux session, lease. */
   close(): Effect.Effect<void>;
+  /** How many turns the runner holds (r2 L9): one per child it launched, whatever the number of sends. */
+  retained(): number;
 }
 
 type Location = NonNullable<ChildWatch["spool"]>;
-type Fact = Extract<ChildRow, { kind: "child_fact" }>;
+type Fact = Extract<ChildRow, { kind: "child_fact" }>["content"];
+
+/**
+ * What one retained turn's persisted rows say so far (r2 L9): its source-free
+ * facts by row key — one per phase and tool use, bounded by the turn — and
+ * the rule's fold over its receipts. A receipt's fact precedes it (the same
+ * or an earlier admission), so the owning turn is always known when the
+ * receipt is folded; rows of turns this runner does not retain are dropped.
+ */
+interface TurnSummary {
+  readonly turn: string;
+  readonly facts: Map<string, Fact>;
+  state: StateFold;
+}
+
+/** One sender session's read position and the summaries of its retained turns, by child. */
+interface Cursor {
+  revision: number;
+  readonly children: Map<string, TurnSummary>;
+}
 
 /** How a turn ended: the pointer it admitted, or the refusal that ended it. */
 type Settled = { readonly kind: "turn"; readonly turn: CliTurn } | { readonly kind: "refused"; readonly refusal: CliRefusal };
@@ -110,7 +137,7 @@ interface Turn {
   readonly sessionId: string;
   readonly watch: string;
   interrupted: boolean;
-  /** Set once the run resolved: a replay of the key returns it, the deadline door refuses on it. */
+  /** Set the moment the outcome is known, before any await that follows it (r2 L8): a replay of the key returns it, the deadline door refuses on it. */
   settled?: Settled;
   deadline?: CliDeadlineArm;
   readonly wake: Set<() => void>;
@@ -169,12 +196,12 @@ function advanced(before: Observation, now: Observation): boolean {
 export function createCliRunner(deps: CliRunnerDeps): CliRunner {
   const panes = new Map<string, Pane>();
   const children = new Map<string, string>();
-  /** Every turn this runner opened, by the send's key: a replay joins or reads it instead of typing again. */
-  const turns = new Map<string, Turn>();
-  /** The latest turn per child, kept past the pane's retirement so a late deadline is refused as ended, not unknown. */
+  /** The latest turn per child, kept past the pane's retirement so a late deadline is refused as ended, not unknown — the one turn per child this runner retains (r2 L9). */
   const latest = new Map<string, Turn>();
-  /** The sender sessions' child rows, paged forward from the last seen revision on every notification. */
-  const cursors = new Map<string, { readonly rows: ChildRow[]; revision: number }>();
+  /** The retained turns the run owns, by the send's key: a replay joins or reads one instead of typing again; a key `openTurn` replaced leaves here. */
+  const turns = new Map<string, Turn>();
+  /** The sender sessions' read positions and retained-turn summaries, paged forward from the last seen revision on every notification. */
+  const cursors = new Map<string, Cursor>();
 
   const machine = (contact: CliContact): Effect.Effect<MachineHandle, CliRefusal> =>
     Effect.try({
@@ -221,27 +248,52 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
         ),
       );
 
-  /** The session's child rows: the page after the last seen revision is appended, the whole history is read once. */
-  const rowsOf = (sessionId: string): readonly ChildRow[] => {
-    const cursor = cursors.get(sessionId) ?? { rows: [], revision: 0 };
-    cursors.set(sessionId, cursor);
-    const page = deps.watch.rows(sessionId, cursor.revision);
-    cursor.rows.push(...page.rows);
-    cursor.revision = page.revision;
-    return cursor.rows;
+  /** The summary a fact row lands in: the child's retained turn, started on its first row; a row of any other turn has none. */
+  const summaryFor = (cursor: Cursor, child: string, turn: string): TurnSummary | undefined => {
+    if (latest.get(child)?.id !== turn) return undefined;
+    const current = cursor.children.get(child);
+    if (current?.turn === turn) return current;
+    const started: TurnSummary = { turn, facts: new Map(), state: NOTHING_SPOKEN };
+    cursor.children.set(child, started);
+    return started;
   };
 
-  const factRows = (pane: Pane, turn: Turn): Fact[] =>
-    rowsOf(turn.sessionId).filter((row): row is Fact => row.kind === "child_fact" && row.content.child === pane.child && row.content.turn === turn.id);
+  /** One page of rows folded into the retained summaries: facts by key, receipts into the rule's fold through their fact. */
+  const fold = (cursor: Cursor, rows: readonly ChildRow[]): void => {
+    for (const row of rows) {
+      if (row.kind === "child_fact") {
+        summaryFor(cursor, row.content.child, row.content.turn)?.facts.set(row.key, row.content);
+      } else if (row.kind === "child_receipt") {
+        for (const summary of cursor.children.values()) {
+          const fact = summary.facts.get(row.content.factKey);
+          if (fact === undefined) continue;
+          summary.state = foldState(summary.state, { phase: fact.phase, ref: row.content.ref });
+          break;
+        }
+      }
+    }
+  };
+
+  /** The session's cursor after the page since the last seen revision: the whole history is read once, then only the tail. */
+  const sync = (sessionId: string): Cursor => {
+    const cursor = cursors.get(sessionId) ?? { revision: 0, children: new Map() };
+    cursors.set(sessionId, cursor);
+    const page = deps.watch.rows(sessionId, cursor.revision);
+    fold(cursor, page.rows);
+    cursor.revision = page.revision;
+    return cursor;
+  };
+
+  const summaryOf = (pane: Pane, turn: Turn): TurnSummary | undefined => {
+    const summary = sync(turn.sessionId).children.get(pane.child);
+    return summary?.turn === turn.id ? summary : undefined;
+  };
+
+  const facts = (pane: Pane, turn: Turn): Fact[] => [...(summaryOf(pane, turn)?.facts.values() ?? [])];
 
   const observe = (pane: Pane, turn: Turn): Observation => {
-    const receipts = stateReceipts(rowsOf(turn.sessionId), pane.child, turn.id);
-    let hookSeq = NOTHING_OBSERVED.hookSeq;
-    for (const entry of receipts) {
-      const ref = entry.receipt.ref;
-      if ("kind" in ref && ref.seq > hookSeq) hookSeq = ref.seq;
-    }
-    return { hookSeq, state: childState(stateInput(receipts)) };
+    const state = summaryOf(pane, turn)?.state ?? NOTHING_SPOKEN;
+    return { hookSeq: state.hook?.seq ?? NOTHING_OBSERVED.hookSeq, state: childState(stateInputOf(state)) };
   };
 
   /** Event-driven: resolves on the committed-action notification that satisfies the predicate, on an interrupt, or at the bound. */
@@ -287,7 +339,9 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       return Effect.sync(() => void turn.wake.delete(check));
     });
 
+  /** The first outcome wins: the run records it the moment it is known (r2 L8), and `settling` only backstops the refusals raised before that. */
   const settle = (turn: Turn, settled: Settled): void => {
+    if (turn.settled !== undefined) return;
     turn.settled = settled;
     for (const wake of turn.wake) wake();
   };
@@ -299,11 +353,19 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       Effect.tapError((refusal) => Effect.sync(() => settle(turn, { kind: "refused", refusal }))),
     );
 
-  /** The deadline is retired once the turn has ended; like the arm, a refused retire never fails the send. */
+  /** The deadline is retired once the turn has ended — after the turn is marked ended (r2 L8); like the arm, a refused retire never fails the send. */
   const disarm = (turn: Turn): Effect.Effect<void> => {
     const armed = turn.deadline;
-    turn.deadline = undefined;
-    return armed === undefined ? Effect.void : armed.retire.pipe(Effect.catch(() => Effect.void));
+    return armed === undefined
+      ? Effect.void
+      : armed.retire.pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              turn.deadline = undefined;
+            }),
+          ),
+          Effect.catch(() => Effect.void),
+        );
   };
 
   /**
@@ -314,18 +376,34 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
   const stalled = (pane: Pane, turn: Turn, code: "prompt_stalled" | "launch_stalled", windowMs: number): Effect.Effect<never, CliRefusal> => {
     const reason = `${code}: no live observation within ${windowMs} ms`;
     const row = diagnosticRow({ child: pane.child, turn: turn.id }, { ref: emptySpoolRef(pane.spool), diagnostic: { code, detail: reason } });
+    const refusal = failure(reason);
     return deps.watch.admit(turn.sessionId, [row]).pipe(
       Effect.mapError((refused) => failure(`${reason}; the diagnostic was refused: ${refused.reason}`)),
-      Effect.flatMap(() => disarm(turn)),
-      Effect.flatMap(() => retire(pane, true)),
-      Effect.flatMap(() => Effect.fail(failure(reason))),
+      Effect.flatMap(() => ended(pane, turn, { kind: "refused", refusal })),
+      Effect.flatMap(() => Effect.fail(refusal)),
     );
   };
 
-  /** One watch per turn: the previous turn's watch closes first; checkpoints resume from persisted receipts. */
+  /**
+   * The turn's end, in this order (r2 L8/L10): the outcome is recorded before
+   * any await, so the deadline door refuses `turn_already_ended` from here
+   * on; then the arm is retired; then, when the pane cannot be accounted for
+   * (`retirePane`), it is dropped — its close refusal never replaces the
+   * outcome the turn already has.
+   */
+  const ended = (pane: Pane, turn: Turn, settled: Settled, retirePane = true): Effect.Effect<void> =>
+    Effect.sync(() => settle(turn, settled)).pipe(
+      Effect.flatMap(() => disarm(turn)),
+      Effect.flatMap(() => (retirePane ? retire(pane, true).pipe(Effect.ignore) : Effect.void)),
+    );
+
+  /** One watch per turn: the previous turn's watch closes first; checkpoints resume from persisted receipts. The turn it replaces leaves the replay registry (r2 L9). */
   const openTurn = (pane: Pane, input: CliRunInput): Effect.Effect<Turn, CliRefusal> =>
     Effect.gen(function* () {
-      if (pane.turn !== undefined) yield* deps.watch.close(pane.turn.watch);
+      if (pane.turn !== undefined) {
+        yield* deps.watch.close(pane.turn.watch);
+        if (pane.turn.id !== input.key) turns.delete(pane.turn.id);
+      }
       const watch = `cli:${pane.child}:${input.key}`;
       yield* deps.watch.install({
         id: watch,
@@ -469,15 +547,16 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
     return Effect.fail(failure("child_state_unknown: the child's previous turn left no observation"));
   };
 
+  /** The recipe's writes in order; a refusal after the first write that reached the pane carries `landed` — the letter is never re-sent. */
   const submit = (pane: Pane, handle: MachineHandle, recipe: SubmitRecipe): Effect.Effect<void, CliRefusal> =>
     Effect.gen(function* () {
+      let landed = false;
       for (const step of recipe.writes) {
-        if (step.kind === "enter") {
-          yield* Effect.sleep(Duration.millis(recipe.enterDelayMs));
-          yield* write(pane, handle, "\r");
-        } else {
-          yield* write(pane, handle, step.value);
-        }
+        if (step.kind === "enter") yield* Effect.sleep(Duration.millis(recipe.enterDelayMs));
+        yield* write(pane, handle, step.kind === "enter" ? "\r" : step.value).pipe(
+          Effect.mapError((refusal) => (landed ? { ...refusal, landed: true } : refusal)),
+        );
+        landed = true;
       }
     });
 
@@ -491,19 +570,27 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
 
   const interrupted = failure("deadline expired; the child was interrupted", true);
 
-  /** The turn from the letter to its end: deadline armed, letter submitted, stall measured on new observation, terminal awaited. */
+  /**
+   * The turn from the letter to its end: deadline armed, letter submitted,
+   * stall measured on new observation, terminal awaited. A letter the daemon
+   * refused (r2 L10) ends the turn and retires the pane like a stall does —
+   * whatever did or did not reach it, this Resident cannot account for the
+   * pane, so the next send launches afresh instead of answering `agent_busy`.
+   */
   const drive = (pane: Pane, handle: MachineHandle, turn: Turn, input: CliRunInput, recipe: SubmitRecipe): Effect.Effect<CliTurn, CliRefusal> =>
     Effect.gen(function* () {
       turn.deadline = yield* armDeadline(pane, input);
       const before = observe(pane, turn);
-      yield* submit(pane, handle, recipe);
+      yield* submit(pane, handle, recipe).pipe(Effect.tapError((refusal) => ended(pane, turn, { kind: "refused", refusal })));
       const started = yield* awaitTurn(turn, () => advanced(before, observe(pane, turn)), recipe.stallWindowMs);
       if (started === "stalled") return yield* stalled(pane, turn, "prompt_stalled", recipe.stallWindowMs);
       if (started === "interrupted") return yield* Effect.fail(interrupted);
-      const ended = yield* awaitTurn(turn, () => factRows(pane, turn).some((row) => row.content.phase === "terminal"));
-      if (ended === "interrupted") return yield* Effect.fail(interrupted);
-      yield* disarm(turn);
-      return { child: pane.child, turn: turn.id, facts: factRows(pane, turn).length };
+      const outcome = yield* awaitTurn(turn, () => facts(pane, turn).some((fact) => fact.phase === "terminal"));
+      if (outcome === "interrupted") return yield* Effect.fail(interrupted);
+      const turnEnded: CliTurn = { child: pane.child, turn: turn.id, facts: facts(pane, turn).length };
+      // r2 L8: ended before the disarm's await — a fire landing in that window is refused, never written to an idle child.
+      yield* ended(pane, turn, { kind: "turn", turn: turnEnded }, false);
+      return turnEnded;
     });
 
   return {
@@ -537,5 +624,6 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       }),
     close: () =>
       Effect.forEach([...panes.values()], (pane) => retire(pane, true).pipe(Effect.catch(() => Effect.void)), { discard: true }),
+    retained: () => latest.size,
   };
 }

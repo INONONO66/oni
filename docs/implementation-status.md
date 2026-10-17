@@ -111,6 +111,58 @@ session-deadline receipts `test/message-terminal-boundaries.test.ts` and
 `test/request-channel-e2e.test.ts` that CI's whole-directory app lane also
 executes, passed 171/171 and carried the patch-coverage gate.
 
+r2 (2026-10-18, PR #1611 r1 verification M2 + L8–L12): every cli child's
+deadline rides its own alarm chain, `cliDeadlineChain(session, child)` =
+`<session>:delegation.deadline:<child>`, named by the delegation-policy
+bundle's `armDelegationDeadline` on the arm and on the `at: null` retire —
+retiring child A's deadline never supersedes the occurrence armed for
+child B in the same sender session; a `to.new` session child keeps the
+#1258 session chain, where a second arm supersedes the first. The turn is
+marked ended the moment its outcome is known and before any await that
+follows (`settle` is first-wins): the deadline door answers
+`turn_already_ended` while the arm's retire is still in flight, so a fire
+landing in that window writes no ETX. A letter the daemon refuses after a
+successful launch ends the turn (a refusal after the first write that
+reached the pane carries `landed`), retires the arm and retires the pane
+like a stall — the next send launches fresh instead of answering
+`agent_busy` until app stop; a pane close refused during that retirement
+never replaces the turn's outcome. What the runner retains is bounded by
+the children it launched, not by sends or rows: one turn per child — the
+latest — for the replay short-circuit and the deadline door (`retained()`
+reports the count), and for that turn a summary of its persisted rows (its
+source-free facts by key and the rule's fold `foldState` over its
+receipts: the latest hook phase by sequence and the transcript terminal),
+folded as pages arrive; rows of turns it does not retain, including other
+children's in the same sender session, are read and dropped; the cursor
+stays one per sender session. `MachineHost` reads ONE effective root set
+(`effectiveRoots`: the offered exports the enrollment allows, normalized)
+for both `location()` routing and `exports(id)`: an offered root the
+enrollment does not allow is no routing candidate (a path beneath it
+resolves through the allowed root containing it, where it used to be
+forwarded to a daemon that refused it), and the listing drops a root two
+allowed exports share because `location()` refuses it as ambiguous. The
+hook appender's header documents the single-user assumption behind
+`kill -0` (another uid's live holder would read as gone); no behaviour
+change. Receipts: the r2 cases in `apps/openomni/test/cli-contact.test.ts`
+(two cli deadlines on one sender through `armDelegationDeadline` against a
+chain model judged by `Core.alarmDisposition` — the first retire leaves
+the second `run`, session children share their chain, two panes with one
+ETX into the fired child's pane alone; an interrupt during a blocked
+retire refused typed with no ETX; one retained turn across six sends, two
+after a relaunch, stranger rows dropped, one scan from 0; a refused letter
+retiring the pane and the next send launching fresh, `landed` on an Enter
+refused after the text), `test/cli-contact-e2e.test.ts` (the per-child
+chain retired, the session chain absent), `packages/machines/test/attach.test.ts`
+(the listing versus routing: unallowed absent, shared root dropped and
+refused, a path under the unallowed root routed through `work`) and
+`packages/machines/test/fs-wire.test.ts` (a scripted daemon records the
+export the host routed to: `docs` when `private` is offered but not
+allowed, `private` when both are). The `kernel.commit` pin is re-measured
+at `index.ts:1440`. The focused app files above plus the two
+session-deadline receipts passed 117/117 across the twelve files with the patch-coverage gate
+at 100%; the machines suite passed 283/283; the complete app suite is not
+claimed here (#1498).
+
 ## #1511 child reconciler (epic #1508)
 
 On `feat/1511-child-reconciler` (2026-10-17, base `3f763326a`, PR #1570).
