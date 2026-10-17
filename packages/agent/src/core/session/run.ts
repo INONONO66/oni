@@ -1,4 +1,4 @@
-import type { OpenTurn } from "../store/session-reads";
+import type { OpenTurn, PendingSnapshot } from "../store/session-reads";
 import { Effect, Exit, type Scope, Cause } from "effect";
 import * as Failure from "../ports/failure";
 import { type SessionError, type ExecutionError, CommitFailed, AgentFailure } from "../ports/failure";
@@ -28,6 +28,8 @@ interface TurnInput {
   readonly resumeCount: number;
   readonly generation: SessionGeneration.Snapshot;
   readonly resume: boolean;
+  /** The turn-start full read; boundaries fold only the tail past it. Absent, the first boundary reads it. */
+  readonly pending?: PendingSnapshot;
 }
 
 export function createSessionTurn(
@@ -67,6 +69,7 @@ export function createSessionTurn(
       state.controller = controller;
       let parentActionId = input.parentActionId;
       let boundaryActionId = input.boundaryActionId;
+      let pending = input.pending;
       const ledger = ports.createExecutionLedger(input.turnId);
       const retainEffect = (raw: Promise<void>) => {
         const settle = state.rawSlots.open();
@@ -79,7 +82,8 @@ export function createSessionTurn(
       });
       const boundary = (kind: SessionTurn.Boundary): Effect.Effect<SessionBoundaryResult, ExecutionError> => Effect.gen(function* () {
         if (controller.signal.aborted) return { messages: [], interrupted: true };
-        const drained = yield* drainBoundary(input, kind, parentActionId);
+        const drained = yield* drainBoundary(input, kind, parentActionId, boundaryActionId, pending);
+        pending = drained.pending;
         parentActionId = drained.parentActionId;
         boundaryActionId = drained.boundaryActionId;
         if (drained.interrupted) controller.abort();
@@ -154,17 +158,20 @@ export function createSessionTurn(
     });
   }
 
-  function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string) {
+  function drainBoundary(input: TurnInput, boundary: SessionTurn.Boundary, parentActionId: string, boundaryActionId: string | null, since: PendingSnapshot | undefined) {
     return Effect.gen(function* () {
       const observations = yield* ObservationService;
+      const snapshot = kernel.pendingMessagesSince(sessionId, since);
       // Steer rows drain at tool.post boundaries, followUp rows at turn end. EVERY boundary
       // closes a late `action` with `after` behind the compaction head durably, never delivers it.
       const { consumed: pending, stale } = boundaryConsumption(
-        kernel.pendingMessages(sessionId),
+        snapshot.rows,
         boundary,
         consumptionSettings(kernel, sessionId),
         kernel.compactionHead(sessionId),
       );
+      if (pending.length === 0 && stale.length === 0)
+        return { messages: [], interrupted: false, parentActionId, boundaryActionId, pending: snapshot };
       const evaluated = yield* ports.evaluatePromptPolicies(pending);
       if (evaluated.refusal !== undefined) {
         yield* ports.consumePolicyBlockedDeliveries(pending);
@@ -198,6 +205,7 @@ export function createSessionTurn(
         messages: delivered.filter((item) => item.kind === "prompt").map((item) => ({ id: item.id, role: "user" as const, text: item.content })),
         interrupted: delivered.some((item) => item.kind === "interrupt" || item.kind === "cancel"),
         parentActionId: deliveries.at(-1)?.id ?? checkpointId, boundaryActionId: checkpointId,
+        pending: snapshot,
       };
     });
   }

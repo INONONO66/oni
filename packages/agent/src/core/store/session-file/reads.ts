@@ -12,6 +12,17 @@ const OrdinalRow = z.object({ ordinal: z.number().int().positive() }).nullable()
 const PayloadBytesRow = z.object({ bytes: z.number().int().nonnegative() });
 type Reads = Omit<Storage.ActionSubAdapter, "append" | "verifyChain">;
 
+export const PENDING_MESSAGES_SQL = `
+  SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind IN ('prompt', 'signal', 'action')
+    AND json_extract(a.effect, '$.deliveryKind') IS NOT NULL
+    AND a.id NOT IN (SELECT json_extract(d.intent, '$.deliveryId') FROM action d
+      WHERE d.session_id = ? AND d.kind IN ('prompt', 'signal', 'action')
+        AND json_extract(d.intent, '$.deliveryId') IS NOT NULL)
+    AND a.id NOT IN (SELECT stale.value FROM action t, json_each(t.intent, '$.consumedStale') stale
+      WHERE t.session_id = ? AND t.kind = 'turn' AND json_valid(t.intent)
+        AND stale.value IS NOT NULL)
+  ORDER BY a.ordinal`;
+
 /** Read degradation (): a row that fails decode is kept verbatim on disk, */
 function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, cause: Error): void {
   try {
@@ -290,17 +301,8 @@ export function createActionReads(db: Database, sink: ObservationSink): Reads {
     pendingMessages(sessionId) {
       return decodeRows(
         db
-          .query<ActionSqlRow, [string]>(`
-        SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind IN ('prompt', 'signal', 'action')
-          AND json_extract(a.effect, '$.deliveryKind') IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM action d WHERE d.session_id = a.session_id
-            AND d.kind IN ('prompt', 'signal', 'action')
-            AND json_extract(d.intent, '$.deliveryId') = a.id)
-          AND NOT EXISTS (SELECT 1 FROM action t, json_each(t.intent, '$.consumedStale') stale
-            WHERE t.session_id = a.session_id AND t.kind = 'turn' AND json_valid(t.intent)
-            AND stale.value = a.id)
-        ORDER BY a.ordinal`)
-          .all(sessionId),
+          .query<ActionSqlRow, [string, string, string]>(PENDING_MESSAGES_SQL)
+          .all(sessionId, sessionId, sessionId),
       );
     },
     latestCompaction(sessionId) {
