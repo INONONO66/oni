@@ -3132,7 +3132,14 @@ the alarm prompt, the `<occurrenceId>:delivered` row and the re-armed chain).
 The armed budget bounds the index, so only an arm that adds a chain (non-null
 `at`, no armed row for its id) consults `maxArmed`; a retire or a re-arm of an
 armed chain commits at a full budget and a retire frees its slot
-(`alarm-budget.test.ts`). Two activation-order defects surfaced by the
+(`alarm-budget.test.ts`). One forwarder per activation sends armed
+occurrences (a queued re-arm replaces its predecessor unsent); a timed re-arm
+of an occurrence already sent orphans that durable envelope, and orphans are
+capped at `maxArmed` per activation (`alarm_budget`) until each folds
+`stale`. Arms run under the activation gate the store-close finalizer takes:
+the finalizer refuses new arms (`stale_activation`), waits up to
+`armCloseWaitMs` (default 5000) for an in-flight one, then closes, so an arm
+across passivation never dies (`arm-passivation.test.ts`). Two activation-order defects surfaced by the
 restart e2e (`request-owner-e2e.test.ts`, red 3/3 before, green 3/3 after)
 once activations resend their armed occurrences and hold `keepAlive`: the
 cluster host redelivers a crashed process's persisted messages as soon as it

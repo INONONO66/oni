@@ -188,6 +188,8 @@ export interface AlarmDrainConfig {
   readonly maxArmed: number;
   readonly idleMs: number;
   readonly sweep: AlarmSweepConfig;
+  /** Bound the store-close finalizer waits for an in-flight arm's permit before closing anyway (default 5000). */
+  readonly armCloseWaitMs?: number;
 }
 
 /**
