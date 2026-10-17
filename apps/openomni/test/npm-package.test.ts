@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Bus } from "./helpers/bus";
 import { PROCESS_SESSION_NO_REQUEST_EXIT } from "../src/process-entry";
 import { startOpenOmni } from "../src/index";
 import { testMachinesPlane } from "./helpers/self-machine";
 
 const appDir = join(import.meta.dir, "..");
+const repoRoot = resolve(appDir, "..", "..");
 
 const directories: string[] = [];
 let stopApp: (() => Promise<void>) | undefined;
@@ -50,7 +51,7 @@ describe("health endpoint", () => {
 });
 
 describe("npm package staging", () => {
-  test("build stages a dependency-free package whose bundle boots against a fresh ledger", async () => {
+  test("build stages a portable package whose bundle boots against a fresh ledger", async () => {
     const staging = tempDir("openomni-pack-staging-");
     const home = tempDir("openomni-pack-home-");
     const env = {
@@ -86,18 +87,33 @@ describe("npm package staging", () => {
     });
     expect(build.exitCode, build.stderr.toString()).toBe(0);
 
-    // Manifest contract: no workspace deps may leak into the registry artifact.
+    // Manifest contract: no workspace dep may leak into the registry artifact;
+    // the only dependencies are native addons, pinned exactly.
     const manifest = JSON.parse(readFileSync(join(staging, "package.json"), "utf-8")) as {
       name: string;
       bin: Record<string, string>;
-      dependencies?: Record<string, string>;
+      dependencies: Record<string, string>;
     };
     expect(manifest.name).toBe("openomni");
-    expect(manifest.dependencies).toBeUndefined();
+    expect(manifest.dependencies).toEqual({ "classic-level": expect.stringMatching(/^\d+\.\d+\.\d+$/) });
     expect(existsSync(join(staging, manifest.bin.openomni ?? ""))).toBe(true);
     // W5.2: no migration plane ships; the schema is embedded in the bundle.
     expect(existsSync(join(staging, "migration"))).toBe(false);
     expect(existsSync(join(staging, "dist", "app", "process-entry.js"))).toBe(true);
+    // A bundle that inlines a native addon freezes the build host's absolute
+    // path as that module's __dirname and refuses to load anywhere else.
+    for (const bundle of ["main.js", "process-entry.js"]) {
+      expect(readFileSync(join(staging, "dist", "app", bundle), "utf-8")).not.toContain(repoRoot);
+    }
+    // `npm install` places the pinned addons beside the bundle; the smoke boot
+    // links the workspace's resolution of each one there instead.
+    const sdkDir = dirname(Bun.resolveSync("agent-messenger/package.json", join(repoRoot, "packages", "channels")));
+    mkdirSync(join(staging, "node_modules"));
+    for (const [name, version] of Object.entries(manifest.dependencies)) {
+      const resolved = Bun.resolveSync(`${name}/package.json`, sdkDir);
+      expect((JSON.parse(readFileSync(resolved, "utf-8")) as { version: string }).version).toBe(version);
+      symlinkSync(dirname(resolved), join(staging, "node_modules", name));
+    }
 
     // Boot the bundle exactly as the daemon would: `bun dist/app/main.js start`.
     const proc = Bun.spawn([process.execPath, join(staging, "dist", "app", "main.js"), "start"], {
