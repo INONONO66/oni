@@ -482,3 +482,15 @@ describe("machine fs limits", () => {
     })).toMatchObject({ status: "chunk", seq: 0 });
   });
 });
+
+describe("machine cell output bound", () => {
+  test("accepts legacy and truncated streams, but rejects unknown fields and oversized output", () => {
+    const legacy = { stdout: "ok", stderr: "" };
+    expect(Machine.CellOutput.parse(legacy)).toEqual(legacy);
+    const bounded = { ...legacy, truncated: { stdout: { originalBytes: Machine.CELL_OUTPUT_MAX_BYTES + 1 } } };
+    expect(Machine.CellOutput.parse(bounded)).toEqual(bounded);
+    expect(Machine.CellOutput.safeParse({ ...bounded, unexpected: true }).success).toBe(false);
+    expect(Machine.CellOutput.safeParse({ ...legacy, truncated: { stderr: { originalBytes: 1, extra: true } } }).success).toBe(false);
+    expect(Machine.CellOutput.safeParse({ ...legacy, stdout: "x".repeat(Machine.CELL_OUTPUT_MAX_BYTES + 1) }).success).toBe(false);
+  });
+});

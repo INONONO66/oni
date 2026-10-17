@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Machine } from "@openomni/protocol";
 import { createCodemode as create } from "../../../src";
 import { PythonKernel as NativeKernel } from "../../../src/kernel";
@@ -33,6 +34,7 @@ export function createCodemode(options: {
   tools?: (tenant: string) => Caller;
   boundary?: (tenant: string) => Boundary;
   self?: string;
+  onInterpreterSpawn?: (tenant: string, process: ChildProcessWithoutNullStreams) => void;
 } = {}) {
   const completion = options.completion;
   const toolOutput = options.toolOutput;
@@ -47,6 +49,7 @@ export function createCodemode(options: {
     tools: tools ? (tenant) => { const call = tools(tenant); return (request) => code(() => call(request)); } : undefined,
     boundary: boundary ? (tenant) => { const decide = boundary(tenant); return (call, body) => code(() => decide(call, () => run(body()))); } : undefined,
     self: options.self,
+    onInterpreterSpawn: options.onInterpreterSpawn,
   }));
   const runner: CodeRunner = { native: native.runner,
     runCode: (request, call, signal) => run(native.runner.runCode(request, (request) => foreign(() => call(request)), signal)),
@@ -70,7 +73,7 @@ export function createCodemode(options: {
     if (!found) { found = wrapHandle(value); handles.set(value, found); }
     return found;
   }
-  return { native, runner, close: runner.close, listMachines: native.listMachines,
+  return { native, runner, close: runner.close, retire: (tenant: string) => run(native.retire(tenant)), listMachines: native.listMachines,
     getMachine: (id: string) => handle(native.getMachine(id)),
     findMachine: (query: Parameters<typeof native.findMachine>[0]) => handle(native.findMachine(query)),
     callTool: (...args: Parameters<typeof native.callTool>) => run(native.callTool(...args)),
