@@ -11,7 +11,7 @@ import { type ListenerCustody, listenerCustody, RECONNECT_ATTEMPT_BOUND } from "
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
-import type { OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
 import { INSTAGRAM_RENDER } from "./format";
 import {
   type InstagramMessage,
@@ -99,6 +99,11 @@ export class InstagramOwnerAdapter implements Channel.Surface {
    * SDK persists nothing; the session must name the account. Under an
    * intake posture the inbox listener then opens.
    */
+  /** The account's Instagram user pk (#1600), the shape an Instagram endpoint takes. */
+  account(): AccountIdentity | undefined {
+    return this.userId === null ? undefined : { externalId: this.userId };
+  }
+
   async start(traceId: string): Promise<void> {
     await this.restoreSession();
     const userId = this.client.getUserId();

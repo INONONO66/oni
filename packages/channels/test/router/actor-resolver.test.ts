@@ -38,8 +38,8 @@ describe("internal ingress actor projection", () => {
       expect(actor).not.toHaveProperty(key);
   });
 
-  test.each(["guild-a", undefined])("workspace %s cannot resolve a guild endpoint", (workspace) => {
-    registerOwnerEndpoint(workspace);
+  test("an endpoint in another workspace cannot resolve a guild event", () => {
+    registerOwnerEndpoint("guild-a");
     const actor = actorFixtureSchema.parse(
       resolveIngressActor(
         ledger().stores,
@@ -53,6 +53,23 @@ describe("internal ingress actor projection", () => {
       ).meta?.actor,
     );
     expect(actor).toEqual({ id: "user-1", role: "user" });
+  });
+
+  test("#1600: a workspace-less endpoint resolves a guild event — a Person declared without a workspace is known in every workspace of the platform", () => {
+    registerOwnerEndpoint(undefined);
+    const actor = actorFixtureSchema.parse(
+      resolveIngressActor(
+        ledger().stores,
+        makeEvent("user-1", {
+          id: "user-1",
+          role: "user",
+          actorId: "spoofed",
+          trustTier: "owner",
+        }),
+        1,
+      ).meta?.actor,
+    );
+    expect(actor).toMatchObject({ id: "user-1", role: "user", actorId: "act_owner", trustTier: "owner" });
   });
 
   test("workspace match resolves the canonical endpoint", () => {

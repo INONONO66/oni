@@ -1,7 +1,8 @@
 import { AppInvariantError } from "../invariant";
-import type { ActorRegistry, PersonStore } from "@openomni/channels";
+import type { ActorRegistry, ChannelInstanceStore, PersonStore } from "@openomni/channels";
 import type { PlainValue, SessionTransition } from "@openomni/protocol";
 import { ContactOperation, contactDomainRevisions } from "../bundles/provision/contact-mutations";
+import { secretRotateDomainRevisions } from "../bundles/provision/channels";
 import { AutomationOperation } from "../bundles/provision/automation-schema";
 import { automationDomainRevisions, automationId, type AutomationPort } from "../bundles/provision/automation";
 import { MachineOperation } from "../bundles/provision/machine-schema";
@@ -12,6 +13,8 @@ export interface RequestDomainDeps {
   readonly automations?: AutomationPort;
   readonly actors: ActorRegistry;
   readonly persons: Pick<PersonStore, "get">;
+  /** #1600 lane R1: the channel declarations a secret rotation is consented against. */
+  readonly instances?: Pick<ChannelInstanceStore, "list">;
 }
 
 function operationDomainRevisions(
@@ -22,7 +25,16 @@ function operationDomainRevisions(
     const contact = ContactOperation.safeParse(operation);
     if (contact.success) return contactDomainRevisions(deps.actors, contact.data);
     if (operation.op === "contact_add") return personDomainRevisions(deps, operation.args);
+    if (operation.op === "secret_rotate") return secretRotateRevisions(deps, operation.args);
   }
+}
+
+function secretRotateRevisions(
+  deps: RequestDomainDeps,
+  args: PlainValue | undefined,
+): Readonly<Record<string, number>> | undefined {
+  if (args !== null && typeof args === "object" && !Array.isArray(args) && typeof args.secretId === "string")
+    return secretRotateDomainRevisions(deps.instances, args.secretId);
 }
 
 function personDomainRevisions(

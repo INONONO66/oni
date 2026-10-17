@@ -11,6 +11,7 @@ import {
 } from "./contacts";
 import {
   channelConsentRequired,
+  secretRotateDomainRevisions,
   channelDomainRevisions,
   declaredIdentity,
   executeChannelDeclare,
@@ -83,7 +84,7 @@ export function executeProvision(port: ProvisionPort | undefined, now: () => num
           action: "disabled" as const,
         };
       case "secret_rotate":
-        return { op: operation.op, ...(await run.secret_rotate(operation.args)) };
+        return { op: operation.op, ...(await run.secret_rotate(operation.args, context.domainRevisions)) };
       case "bundle_enable":
         return { op: operation.op, ...(await run.bundle_enable(operation.args)) };
       case "bundle_disable":
@@ -112,6 +113,11 @@ export function provisionApproval(port: ProvisionPort | undefined) {
         required: channelConsentRequired(identity, operation.args.outbound, operation.args),
         domainRevisions: channelDomainRevisions(port?.instances, operation.args.id),
       };
+    }
+    if (operation.op === "secret_rotate") {
+      // #1600 lane R1: a secret an Owner instance speaks as is the Owner's to rotate.
+      const owners = secretRotateDomainRevisions(port?.instances, operation.args.secretId);
+      return { required: Object.keys(owners).length > 0, domainRevisions: owners };
     }
     if (operation.op !== "contact_add" || port === undefined)
       return { required: false, domainRevisions: {} };

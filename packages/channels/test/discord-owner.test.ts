@@ -208,3 +208,11 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
     });
   });
 });
+
+it("#1600: a Discord Owner instance names its account once started, never before", async () => {
+  const fake = fakeDiscordOwnerSdk();
+  const adapter = new DiscordOwnerAdapter({ token: "owner-token" }, DEFAULT_INTAKE, noopPublish, injectedOptions(), fake.sdk);
+  expect(adapter.accountIdentity()).toBeUndefined();
+  const { adapter: live } = await started();
+  expect(live.accountIdentity()).toEqual({ externalId: "U-owner" });
+});

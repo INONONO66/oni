@@ -38,6 +38,7 @@ function createInstagramOwnerArm(sdk: InstagramOwnerSdk = instagramOwnerSdk()): 
       const surface = new InstagramOwnerAdapter(credentials, posture, publish, options, sdk);
       return {
         surface,
+        account: () => surface.account(),
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
           surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
       };

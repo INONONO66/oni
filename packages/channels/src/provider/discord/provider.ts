@@ -37,6 +37,7 @@ function createDiscordOwnerArm(sdk: DiscordOwnerSdk = discordOwnerSdk()): OwnerA
       const surface = new DiscordOwnerAdapter(credentials, posture, publish, options, sdk);
       return {
         surface,
+        account: () => surface.accountIdentity(),
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
           surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
         typingRoute: {

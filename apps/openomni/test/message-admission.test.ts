@@ -112,3 +112,26 @@ test("app ingress applies the channel default tier as policy facts, not top-leve
       ),
   ).toEqual([]);
 });
+
+test("#1600: a surface's declared default tier admits a stranger at that tier — the grant_tier row passes manager", async () => {
+  const fixture = messageFixture();
+  directories.push(fixture.directory);
+  fixture.plane.stores.channelGrants.put({
+    id: "manager",
+    surface: "discord",
+    kind: "trusted_channel",
+    defaultTier: "manager",
+    createdBy: "owner",
+  });
+  expect(
+    (await runEffect(fixture.gateway.ingest(
+      { kind: "external", surface: "discord", externalId: "guest" },
+      { eventId: "guest-2", surface: "discord", channelId: "public", addressees: [], dm: false, payload: "instruction", render: "instruction" },
+    ))).status,
+  ).toBe("executed");
+  expect(
+    fixture.plane
+      .listSessions()
+      .flatMap((row) => sessionTree(row.id, fixture.plane.sessionStore(row.id).actions).filter((action) => action.kind === "prompt")),
+  ).toHaveLength(1);
+});

@@ -12,7 +12,7 @@ import { testClock } from "./test-entropy";
  */
 export function declareChannel(
   catalogPath: string,
-  provider: "telegram" | "github" | "linear" | "a2a",
+  provider: "telegram" | "github" | "linear" | "a2a" | "slack" | "webhook",
   credentials: Record<string, string>,
   /** #1569: an Owner-identity row with its posture; the default is the bot row every earlier test declares. */
   owner?: { readonly settings: Record<string, string | number | boolean>; readonly outbound?: boolean },
@@ -53,7 +53,7 @@ export function declarePerson(
     readonly displayName: string;
     readonly kind: "human" | "ai_agent" | "service";
     readonly trustTier: "owner" | "co_owner" | "manager" | "collaborator" | "observer" | "assigned_worker";
-    readonly endpoints: readonly { readonly channel: string; readonly externalId: string }[];
+    readonly endpoints: readonly { readonly channel: string; readonly externalId: string; readonly workspace?: string }[];
     /** #1569 lane 8: the Owner's standing grant to be written to cold. */
     readonly reach?: boolean;
   },

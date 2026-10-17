@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { type ChannelDeliveryRoute, type ProviderTypingRoute, resolveChannelGrant } from "@openomni/channels";
 import type { Provisioning } from "@openomni/protocol";
-import { MOUNTED_CHANNEL_DEFAULT_TIER, registerTrustedChannelGrant } from "../src/gateway";
+import { createMountedChannelGrantRegistrar, MOUNTED_CHANNEL_DEFAULT_TIER, registerTrustedChannelGrant } from "../src/gateway";
+import { bindOwnerAccount, ownerAccountBinder } from "../src/bundles/provision/declared";
 import {
   type ChannelComponent,
   declaredChannelProfile,
@@ -160,12 +161,14 @@ describe("the supervisor with an Owner instance", () => {
     identity: "bot" | "owner",
     deliver: boolean,
     listens = identity === "bot",
+    account?: { readonly externalId: string; readonly workspace?: string },
   ): ChannelComponent {
     return {
       id,
       identity,
       listens,
       build: () => ({
+        ...(account === undefined ? {} : { account: () => account }),
         surface: {
           id: `${id}:${identity}`,
           config: {},
@@ -369,5 +372,166 @@ describe("the supervisor with an Owner instance", () => {
     expect(deliveryRoutes.size).toBe(0);
     await supervisor.stopAll();
     expect(resolveChannelGrant(channelStores(), { surface: "slack" })).toBeUndefined();
+  });
+});
+
+describe("#1600: the declaration's grant policy and the Owner account", () => {
+  const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
+  const typingRoutes = new Map<string, ProviderTypingRoute>();
+  const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
+  afterEach(async () => {
+    for (const grant of plane().stores.channelGrants.list()) plane().stores.channelGrants.remove(grant.id);
+  });
+  const component = (identity: "bot" | "owner", account?: { readonly externalId: string; readonly workspace?: string }): ChannelComponent => ({
+    id: "slack",
+    identity,
+    listens: true,
+    build: () => ({
+      surface: { id: `slack:${identity}`, config: {}, async start() { /* nothing to open */ }, stop() { /* nothing to close */ }, onMessage() { /* bound at build time */ } },
+      ...(account === undefined ? {} : { account: () => account }),
+    }),
+  });
+
+  test("the bot instance's declared allowlist and posture are the platform grant's; an Owner instance's speak only where the platform has no bot reader; the env lists stand only where no declaration speaks", async () => {
+    const rows: DesiredChannels["rows"] = [
+      { instanceId: "channel:slack:main", key: "0:0", component: component("bot"), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER, allowedSenders: ["T1:U1"], mentionOnly: true },
+      { instanceId: "channel:slack:owner", key: "0:0", component: component("owner"), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER, allowedSenders: ["T1:U2"] },
+    ];
+    const supervisor = createChannelSupervisor({
+      desired: () => ({ source: "declared", rows, statuses: [] }),
+      build: (row) => row.build(async () => undefined),
+      grant: createMountedChannelGrantRegistrar(plane().stores.channelGrants, { slack: ["T1:env"], telegram: ["env-only"] }, ["telegram"]),
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await supervisor.reconcile();
+    expect(resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:U1" })?.grant).toMatchObject({ allowedSenders: ["T1:U1"], mentionOnly: true, ownerIntake: true });
+    expect(resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:U2" })).toBeUndefined();
+    expect(resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:env" })).toBeUndefined();
+    await supervisor.stopAll();
+    // An Owner-only platform: the Owner reader's block is the platform's.
+    const ownerOnly = createChannelSupervisor({
+      desired: () => ({
+        source: "declared",
+        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("owner"), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER, allowedSenders: ["T1:U2"], mentionOnly: false }],
+        statuses: [],
+      }),
+      build: (row) => row.build(async () => undefined),
+      grant: createMountedChannelGrantRegistrar(plane().stores.channelGrants, undefined, ["slack"]),
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await ownerOnly.reconcile();
+    const ownerGrant = resolveChannelGrant(channelStores(), { surface: "slack", sender: "T1:U2" })?.grant;
+    expect(ownerGrant).toMatchObject({ allowedSenders: ["T1:U2"] });
+    // An explicit mentionOnly: false in the declaration is not overridden by the env list.
+    expect(ownerGrant?.mentionOnly).toBeUndefined();
+    await ownerOnly.stopAll();
+  });
+
+  test("a binding that throws unwinds the started Owner surface like a failed start", async () => {
+    const stops: string[] = [];
+    const failing: ChannelComponent = {
+      id: "slack",
+      identity: "owner",
+      listens: true,
+      build: () => ({
+        surface: { id: "slack:owner", config: {}, async start() { /* opened */ }, stop() { stops.push("slack:owner"); }, onMessage() { /* bound at build time */ } },
+        account: () => ({ externalId: "T1:U-owner", workspace: "T1" }),
+      }),
+    };
+    const supervisor = createChannelSupervisor({
+      desired: () => ({ source: "declared", rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: failing, defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }], statuses: [] }),
+      build: (row) => row.build(async () => undefined),
+      grant: () => () => undefined,
+      bindAccount: () => {
+        throw new Error("the address is held");
+      },
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    const statuses = await supervisor.reconcile();
+    expect(statuses.map((status) => [status.id, status.state, status.detail])).toEqual([["channel:slack:owner", "start_failed", "the address is held"]]);
+    expect(stops).toEqual(["slack:owner"]);
+    expect(deliveryRoutes.has("slack:owner")).toBe(false);
+    await supervisor.stopAll();
+  });
+
+  test("a started Owner instance's account becomes the Owner Person's endpoint, once; without an owner Person one is created, reachable", async () => {
+    const bound: [string, { readonly externalId: string; readonly workspace?: string }][] = [];
+    const supervisor = createChannelSupervisor({
+      desired: () => ({
+        source: "declared",
+        rows: [{ instanceId: "channel:slack:owner", key: "0:0", component: component("owner", { externalId: "T1:U-owner", workspace: "T1" }), defaultTier: MOUNTED_CHANNEL_DEFAULT_TIER }],
+        statuses: [],
+      }),
+      build: (row) => row.build(async () => undefined),
+      grant: () => () => undefined,
+      bindAccount: (platform, account) => {
+        bound.push([platform, account]);
+      },
+      deliveryRoutes,
+      typingRoutes,
+      webhookHandlers,
+      traceId: () => "00-11111111111111111111111111111111-2222222222222222-01",
+    });
+    await supervisor.reconcile();
+    expect(bound).toEqual([["slack", { externalId: "T1:U-owner", workspace: "T1" }]]);
+    await supervisor.stopAll();
+    // The app's binding: no owner Person -> person:owner with the endpoint, reach: true; again -> untouched; an existing owner Person gains the endpoint.
+    const persons = plane().stores.persons;
+    for (const person of persons.list()) persons.remove(person.id);
+    expect(bindOwnerAccount({ persons }, "slack", { externalId: "T1:U-owner", workspace: "T1" }, 5)).toMatchObject({
+      bound: {
+        id: "person:owner",
+        trustTier: "owner",
+        reach: true,
+        endpoints: [{ channel: "slack", externalId: "T1:U-owner", workspace: "T1" }],
+        revision: 0,
+      },
+    });
+    expect(bindOwnerAccount({ persons }, "slack", { externalId: "T1:U-owner", workspace: "T1" }, 6)).toBeUndefined();
+    expect(bindOwnerAccount({ persons }, "discord", { externalId: "D-owner" }, 7)).toMatchObject({ bound: { id: "person:owner", revision: 1 } });
+    expect(persons.get("person:owner")?.endpoints).toEqual([
+      { channel: "slack", externalId: "T1:U-owner", workspace: "T1" },
+      { channel: "discord", externalId: "D-owner" },
+    ]);
+    // An address another Person holds is never re-homed by a mount: named, left to the Owner.
+    persons.put({ id: "person:zed", displayName: "Zed", kind: "human", trustTier: "collaborator", endpoints: [{ channel: "telegram", externalId: "9" }], revision: 0, createdBy: "owner", updatedAt: 1 });
+    expect(bindOwnerAccount({ persons }, "telegram", { externalId: "9" }, 8)).toEqual({ held: "person:zed" });
+    expect(persons.get("person:owner")?.endpoints).toHaveLength(2);
+    for (const person of persons.list()) persons.remove(person.id);
+    persons.put({ id: "person:ino", displayName: "Ino", kind: "human", trustTier: "owner", endpoints: [{ channel: "telegram", externalId: "1" }], revision: 0, createdBy: "owner", updatedAt: 1 });
+    expect(bindOwnerAccount({ persons }, "slack", { externalId: "T1:U-owner", workspace: "T1" }, 8)).toMatchObject({ bound: { id: "person:ino", revision: 1 } });
+    expect(persons.get("person:owner")).toBeUndefined();
+    for (const person of persons.list()) persons.remove(person.id);
+    // The supervisor's binder over it: a binding rebuilds the actors; a held address and a thrown binding are the Owner's to hear, never a failure.
+    const warned: [string, Readonly<Record<string, string>>][] = [];
+    let rebuilt = 0;
+    const binder = ownerAccountBinder({ persons, now: () => 9, rebuildActors: () => { rebuilt += 1; }, warn: (msg, context) => { warned.push([msg, context]); } });
+    binder("slack", { externalId: "T1:U-owner", workspace: "T1" });
+    expect(rebuilt).toBe(1);
+    expect(persons.get("person:owner")?.endpoints).toEqual([{ channel: "slack", externalId: "T1:U-owner", workspace: "T1" }]);
+    binder("slack", { externalId: "T1:U-owner", workspace: "T1" });
+    expect(rebuilt).toBe(1);
+    persons.put({ id: "person:zed", displayName: "Zed", kind: "human", trustTier: "observer", endpoints: [{ channel: "telegram", externalId: "9" }], revision: 0, createdBy: "owner", updatedAt: 1 });
+    binder("telegram", { externalId: "9" });
+    expect(warned).toEqual([["owner account address held by another person", { platform: "telegram", externalId: "9", holder: "person:zed" }]]);
+    expect(rebuilt).toBe(1);
+    const closed = spyOn(persons, "put").mockImplementation(() => { throw new Error("store closed"); });
+    try {
+      binder("discord", { externalId: "D-owner" });
+    } finally {
+      closed.mockRestore();
+    }
+    expect(warned[1]).toEqual(["owner account binding failed", { platform: "discord", externalId: "D-owner", detail: "store closed" }]);
+    expect(rebuilt).toBe(1);
+    for (const person of persons.list()) persons.remove(person.id);
   });
 });

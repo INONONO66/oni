@@ -47,6 +47,14 @@ test("an unaddressed channel message on a mention-only grant is filtered before 
   )).toHaveLength(1);
 });
 
+test("#1600: a message the surface classified as a mention of the bot is addressed, whether or not the bot's account is a registered identity", async () => {
+  mount(true);
+  // The addressee is not a registered identity: only the surface's own `event: mention` makes this addressed.
+  const mentioned: Gateway.IngressFacts = { ...channelFacts, eventId: "slack-channel-2", event: "mention", addressees: [{ externalId: "T1:U-unregistered-bot" }] };
+  expect((await ingest(mentioned)).status).toBe("executed");
+  expect(routingDecisions().some((decision) => decision.reason === "mention_only")).toBe(false);
+});
+
 test("the same message routes when the grant carries no posture", async () => {
   mount(false);
   expect((await ingest(channelFacts)).status).toBe("executed");

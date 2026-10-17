@@ -1,6 +1,6 @@
 import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore } from "@openomni/channels";
 import { Vault } from "@openomni/channels";
-import { type Channel, canonicalDigest, type Provisioning } from "@openomni/protocol";
+import { type Channel, canonicalDigest, Provisioning } from "@openomni/protocol";
 import { z } from "zod";
 import { validateProviderCredential, validateProviderSettings } from "../../channels";
 import type { ChannelSupervisor } from "./supervisor";
@@ -25,6 +25,9 @@ export const CHANNEL_DECLARE_INPUT = z
       .boolean()
       .optional()
       .describe("Owner instances only: whether the Resident may send from the Owner's account on explicit instruction."),
+    grant: Provisioning.ChannelGrantDeclaration.optional().describe(
+      "Who this surface admits — the Owner's decision, so any grant block takes Owner consent: defaultTier is the tier every sender on it gets who is not a declared Person (absent, only Persons at manager or above are admitted); allowedSenders admits those platform ids alone; mentionOnly routes channel messages only when they address the Resident. A block replaces the stored one (a field left out is cleared); a declaration without a block keeps it.",
+    ),
     enabled: z.boolean().default(true),
     settings: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
@@ -137,11 +140,17 @@ export function channelConsentRequired(
   identity: Channel.Identity,
   outbound: boolean | undefined,
   /** #1569 lane 9: a webhook target's or an a2a peer's `url` is an outbound destination — never the Resident's own choice. */
-  declaration?: { readonly provider: string; readonly credential?: Readonly<Record<string, string>> },
+  declaration?: {
+    readonly provider: string;
+    readonly credential?: Readonly<Record<string, string>>;
+    /** #1600: the grant block — tier, allowlist, posture — is the Owner's perimeter decision, whichever field it carries. */
+    readonly grant?: Provisioning.ChannelGrantDeclaration;
+  },
 ): boolean {
   return (
     identity === "owner" ||
     outbound !== undefined ||
+    declaration?.grant !== undefined ||
     (declaration !== undefined && URL_IS_A_DESTINATION.has(declaration.provider) && declaration.credential?.url !== undefined)
   );
 }
@@ -185,7 +194,7 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
       if (domainRevisions === undefined)
         return refusal(
           "channel_add",
-          `${input.id}: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent`,
+          `${input.id}: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent`,
         );
       if (canonicalDigest({ ...domainRevisions }) !== canonicalDigest(channelDomainRevisions(port.instances, input.id)))
         return refusal("channel_add", "domain revision changed");
@@ -216,10 +225,19 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
           enabled: input.enabled,
           settings,
           ...(credentialRef === undefined ? {} : { credentialRef }),
-          // The declared perimeter block survives a re-declaration; `outbound` is the Owner's call (#1569).
-          ...(existing?.grant === undefined && input.outbound === undefined
+          // The declared perimeter block survives a re-declaration without one; a block
+          // given replaces the stored three fields, and `outbound` is its own field —
+          // every one of them the Owner's call (#1569, #1600).
+          ...(existing?.grant === undefined && input.outbound === undefined && input.grant === undefined
             ? {}
-            : { grant: { ...existing?.grant, ...(input.outbound === undefined ? {} : { outbound: input.outbound }) } }),
+            : {
+                grant: {
+                  ...(input.grant === undefined
+                    ? existing?.grant
+                    : { ...(existing?.grant?.outbound === undefined ? {} : { outbound: existing.grant.outbound }), ...input.grant }),
+                  ...(input.outbound === undefined ? {} : { outbound: input.outbound }),
+                },
+              }),
           revision: (existing?.revision ?? -1) + 1,
           createdBy,
           updatedAt: now(),
@@ -258,24 +276,57 @@ export function executeChannelDisable(port: ProvisionPort, now: () => number) {
   return channelToggleExecutor(port, false, now);
 }
 
+/**
+ * #1600 lane R1: the Owner instances a secret serves. Rotating their session
+ * re-points which account the daemon speaks and listens as — the Owner's call,
+ * consented against those rows' revisions.
+ */
+export function secretRotateDomainRevisions(
+  instances: Pick<ChannelInstanceStore, "list"> | undefined,
+  secretId: string,
+): Readonly<Record<string, number>> {
+  return Object.fromEntries(
+    (instances?.list() ?? [])
+      .filter((instance) => instance.credentialRef === secretId && instance.identity === "owner")
+      .map((instance) => [instance.id, instance.revision]),
+  );
+}
+
+/** Why a rotated payload cannot serve one of the secret's consumers, or nothing. */
+function rotationRefusal(port: ProvisionPort, secretId: string, credential: Readonly<Record<string, string>>): string | undefined {
+  // The rotated payload must still satisfy every consumer's provider schema.
+  for (const instance of port.instances.list()) {
+    if (instance.credentialRef !== secretId) continue;
+    // Each consumer under its own arm's schema: an Owner instance rotates an account session, never bot tokens (#1569).
+    const invalid = validateProviderCredential(instance.provider, credential, instance.identity);
+    if (invalid !== undefined) return `${instance.id}: ${invalid}`;
+    // A webhook target's or a2a peer's url is declared through channel_add under Owner consent; a rotation never introduces one (#1569 lane 9).
+    if (URL_IS_A_DESTINATION.has(instance.provider) && credential.url !== undefined)
+      return `${instance.id}: a url is declared through channel_add under Owner consent, never by rotation`;
+  }
+  return undefined;
+}
+
+/** #1600 lane R1: an Owner instance's session is rotated only with the Owner's consent bound to those rows. */
+function rotationConsentRefusal(
+  port: ProvisionPort,
+  secretId: string,
+  domainRevisions: Readonly<Record<string, number>> | undefined,
+): string | undefined {
+  const ownerRows = secretRotateDomainRevisions(port.instances, secretId);
+  if (Object.keys(ownerRows).length === 0) return undefined;
+  if (domainRevisions === undefined) return `${secretId}: an Owner instance's session is rotated only with Owner consent`;
+  return canonicalDigest({ ...domainRevisions }) === canonicalDigest(ownerRows) ? undefined : "domain revision changed";
+}
+
 export function executeSecretRotate(port: ProvisionPort, now: () => number) {
-  return async (input: z.output<typeof SECRET_ROTATE_INPUT>) => {
+  return async (input: z.output<typeof SECRET_ROTATE_INPUT>, domainRevisions?: Readonly<Record<string, number>>) => {
     const existing = port.secrets.get(input.secretId);
     if (existing === undefined) {
       return refusal("secret_rotate", `secret ${input.secretId} does not exist`);
     }
-    // The rotated payload must still satisfy every consumer's provider schema.
-    for (const instance of port.instances.list()) {
-      if (instance.credentialRef !== existing.id) continue;
-      // Each consumer under its own arm's schema: an Owner instance rotates an account session, never bot tokens (#1569).
-      const invalid = validateProviderCredential(instance.provider, input.credential, instance.identity);
-      if (invalid !== undefined) {
-        return refusal("secret_rotate", `${instance.id}: ${invalid}`);
-      }
-      // A webhook target's or a2a peer's url is declared through channel_add under Owner consent; a rotation never introduces one (#1569 lane 9).
-      if (URL_IS_A_DESTINATION.has(instance.provider) && input.credential.url !== undefined)
-        return refusal("secret_rotate", `${instance.id}: a url is declared through channel_add under Owner consent, never by rotation`);
-    }
+    const unfit = rotationRefusal(port, existing.id, input.credential) ?? rotationConsentRefusal(port, input.secretId, domainRevisions);
+    if (unfit !== undefined) return refusal("secret_rotate", unfit);
     const sealed = sealCredential(port, existing.id, input.credential, existing, now());
     if (typeof sealed === "string") return refusal("secret_rotate", sealed);
     port.secrets.put(sealed);

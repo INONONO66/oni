@@ -74,14 +74,17 @@ export function createSqliteActorRegistryAdapter(db: Database, now: () => number
       );
     },
     findEndpoint(channel, externalId, workspace) {
-      const row = EndpointRow.nullable().parse(
-        db
-          .query(
-            `SELECT data FROM actor_endpoint
-             WHERE channel = ? AND workspace = ? AND external_id = ?`,
-          )
-          .get(channel, workspaceKey(workspace), externalId),
-      );
+      const lookup = (key: string) =>
+        EndpointRow.nullable().parse(
+          db
+            .query(
+              `SELECT data FROM actor_endpoint
+               WHERE channel = ? AND workspace = ? AND external_id = ?`,
+            )
+            .get(channel, key, externalId),
+        );
+      // #1600: a Person declared without a workspace is reachable from every workspace of the platform.
+      const row = lookup(workspaceKey(workspace)) ?? (workspace === undefined ? null : lookup(workspaceKey(undefined)));
       return row ?? undefined;
     },
     listEndpoints(actorId?: string, workspace?: string) {

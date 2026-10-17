@@ -1153,6 +1153,7 @@
   "Provisioning.ChannelDeclareRequest": [
     "credential",
     "enabled",
+    "grant",
     "id",
     "identity",
     "outbound",
@@ -1172,6 +1173,11 @@
     "requestId",
     "statuses",
     "type"
+  ],
+  "Provisioning.ChannelGrantDeclaration": [
+    "allowedSenders",
+    "defaultTier",
+    "mentionOnly"
   ],
   "Provisioning.ChannelInstance": [
     "createdBy",

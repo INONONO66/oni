@@ -472,7 +472,7 @@
   },
   {
     "name": "provision",
-    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances and their outbound grant require Owner consent. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
+    "description": "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances, their outbound grant and a channel's declared default tier require Owner consent. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -538,7 +538,7 @@
                             "required": ["channel", "externalId"],
                             "additionalProperties": false
                           },
-                          "description": "Platform identities this Person speaks through."
+                          "description": "Platform identities this Person speaks through. externalId by channel: slack TEAM:USER (workspace TEAM), discord the user id, telegram the user id, instagram the user pk, kakaotalk the user id, github the login, linear the user id (workspace the organization id), ws the ?actor= name. A workspace-less endpoint matches in every workspace of the platform."
                         },
                         "reach": {
                           "description": "true lets the Resident write to this Person cold through send_message; absent, the Person is an inbound identity only.",
@@ -659,6 +659,35 @@
                     "outbound": {
                       "description": "Owner instances only: whether the Resident may send from the Owner's account on explicit instruction.",
                       "type": "boolean"
+                    },
+                    "grant": {
+                      "description": "Who this surface admits — the Owner's decision, so any grant block takes Owner consent: defaultTier is the tier every sender on it gets who is not a declared Person (absent, only Persons at manager or above are admitted); allowedSenders admits those platform ids alone; mentionOnly routes channel messages only when they address the Resident. A block replaces the stored one (a field left out is cleared); a declaration without a block keeps it.",
+                      "type": "object",
+                      "properties": {
+                        "defaultTier": {
+                          "type": "string",
+                          "enum": [
+                            "owner",
+                            "co_owner",
+                            "manager",
+                            "collaborator",
+                            "observer",
+                            "assigned_worker"
+                          ]
+                        },
+                        "allowedSenders": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "mentionOnly": {
+                          "type": "boolean"
+                        }
+                      },
+                      "additionalProperties": false
                     },
                     "enabled": {
                       "default": true,

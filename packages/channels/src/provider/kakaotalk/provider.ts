@@ -33,6 +33,7 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
       const surface = new KakaoTalkOwnerAdapter(credentials, posture, publish, options, sdk);
       return {
         surface,
+        account: () => surface.account(),
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
           surface.deliver(externalId, payload, idempotencyKey, conversation).then(kernelDeliveryReceipt),
         typingRoute: {

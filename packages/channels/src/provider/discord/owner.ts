@@ -7,7 +7,7 @@ import { handoffInbound } from "../../support/inbound-handoff";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import type { PublishPort } from "../../types";
-import type { OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
 import { DiscordClient } from "./client";
 import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
 import { DiscordNormalizer } from "./normalizer";
@@ -43,6 +43,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
   private custody: ListenerCustody | null = null;
   private normalizer: DiscordNormalizer | null = null;
   private handler: Channel.MessageHandler | null = null;
+  private selfId: string | null = null;
 
   constructor(
     private readonly credentials: { token: string },
@@ -71,6 +72,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
     await this.account.login(this.credentials);
     // The identity check rides the package's client: one attempt, no hidden sleeps.
     const identity = await this.client.me(traceId);
+    this.selfId = identity.id;
     this.normalizer = new DiscordNormalizer(identity.id);
     const listens = this.posture.intake !== "none" && this.handler !== null;
     if (listens) await this.listen();
@@ -85,6 +87,11 @@ export class DiscordOwnerAdapter implements Channel.Surface {
         listener: listens ? this.posture.intake : "none",
       },
     });
+  }
+
+  /** The account's Discord user id (#1600), the shape a Discord endpoint takes. */
+  accountIdentity(): AccountIdentity | undefined {
+    return this.selfId === null ? undefined : { externalId: this.selfId };
   }
 
   private async listen(): Promise<void> {

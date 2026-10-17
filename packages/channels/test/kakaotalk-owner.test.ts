@@ -246,3 +246,8 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     expect(seam.listener(client)).toBeDefined();
   });
 });
+
+it("#1600: a KakaoTalk Owner instance names its account from the declaration", async () => {
+  const { adapter } = await started();
+  expect(adapter.account()).toEqual({ externalId: "1001" });
+});

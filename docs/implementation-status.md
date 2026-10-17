@@ -1,5 +1,79 @@
 # Implementation Status
 
+## #1600 Messaging readiness — admission: a declared instance can admit people (lane R1)
+
+On `feat/1600-admission` (2026-10-17, PR #1601). The per-platform trace
+after #1569 found that a declared instance admitted nobody: its ingress
+grant mounted at `MOUNTED_CHANNEL_DEFAULT_TIER` (`assigned_worker`) and
+the owner-policy row `message.external.grant_tier` passes only
+owner/co_owner/manager, while `channel_add` could not raise the tier.
+**The declaration's grant block has a write path.** `channel_add` (the
+provision tool and the Owner's ws `channel_add` frame alike) takes
+`grant: { defaultTier?, allowedSenders?, mentionOnly? }`
+(`Provisioning.ChannelGrantDeclaration`; `GrantPolicy` gained
+`mentionOnly`, and an empty allowlist is refused). The block is the
+Owner's perimeter decision whichever field it carries (the review showed a
+tier-only consent let the Resident widen the list and drop the posture
+under it): any declaration carrying a block suspends for the Owner's
+consent bound to the row's revision (`channelConsentRequired`), a
+consented block replaces the stored three fields (a field left out is
+cleared — the only way a list or a posture is withdrawn), and a
+declaration without a block keeps what was consented to. The desired row
+carries the allowlist and the posture (`desiredChannels`); the bot
+instance's declaration is the platform grant's posture and an Owner
+instance's block speaks only where the platform has no bot reader
+(`settleGrant`; a union would have let an Owner-instance list lock
+strangers out of the bot); the registrar takes the declarations over the
+env lists `OPENOMNI_CHANNEL_ALLOWED_SENDERS`/`OPENOMNI_CHANNEL_MENTION_ONLY`,
+which stand only where no declaration speaks — an explicit
+`mentionOnly: false` included (`createMountedChannelGrantRegistrar`). A
+guest on a surface declared at `manager` is admitted at that tier
+(`message-admission.test.ts`). **An Owner instance's account is the
+Owner.** A provider runtime may name the account it speaks as
+(`ProviderRuntime.account`, `AccountIdentity`); the Slack (`TEAM:USER` in
+workspace `TEAM`), Discord, Instagram and KakaoTalk Owner adapters do once
+started, and the supervisor hands a started Owner instance's account to
+`bindOwnerAccount`, which adds it as an endpoint of the owner-tier Person
+— creating `person:owner` (reachable) when none exists — and
+re-materializes the actors; an address another Person already holds is
+never re-homed by a mount (the binding names the holder and the Owner is
+warned), a binding that throws unwinds the stage like a failed start, and
+because the session that decides which account that is can be rotated,
+`secret_rotate` of a secret an Owner instance speaks as takes the Owner's
+consent bound to those rows (`secretRotateDomainRevisions`; a bot
+instance's secret stays the Resident's to rotate). So the Owner writing to
+the bot on that platform is owner-tier without a `contact_add`, and
+`as: owner` can be authorized from there. **A mention is addressed.** `ingressInput`
+counts the surface's own `event: mention` classification as addressing the
+Resident, so a channel @mention of the bot routes under a mention-only
+grant whether or not the bot's account is a registered identity.
+**Endpoints resolve without a workspace.** `findEndpoint` falls back to a
+workspace-less row after the exact (channel, workspace, externalId) match,
+so a Person declared as `{ channel: "slack", externalId: "T1:U1" }` is
+recognized in workspace `T1`; the `contact_add` tool text names what an
+endpoint looks like on every platform. Receipts:
+`apps/openomni/test/provision-tools.test.ts` (any block takes consent, a
+consented block replaces, a declaration without one keeps, an empty list
+is refused; an Owner instance's secret rotates only under consent),
+`test/provisioning.test.ts` (the row carries it),
+`test/identity-instances.test.ts` (the bot reader's policy is the
+platform's, the Owner reader's only without a bot, an explicit
+`mentionOnly: false` over the env list; a started Owner instance binds its
+account; a throwing binding unwinds; `bindOwnerAccount` creates, extends,
+never duplicates and never re-homes another Person's address),
+`test/owner-account-binding.test.ts` (the booted composition binds a
+mounted Owner instance's account; an address another Person holds stays
+theirs and the Owner is warned), `test/request-domain-revisions.test.ts`
+(`secret_rotate` reads back the Owner instances' revisions),
+`test/channel-wire.test.ts` (the frame carries `grant`),
+`test/message-admission.test.ts` (a declared manager tier admits a guest),
+`packages/channels/test/router/mention-only.test.ts` (the surface's mention
+is addressed), `test/store/actor/endpoint-filters.test.ts` (the fallback),
+`test/{slack,discord,instagram,kakaotalk}-owner.test.ts` (each account);
+suites: `packages/channels` 1010 pass, `apps/openomni` 1032 pass,
+0 fail. Not in this lane: the remaining #1600 lanes (reply door, dead
+paths, the first live run).
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

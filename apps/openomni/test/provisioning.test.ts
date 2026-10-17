@@ -231,9 +231,11 @@ describe("boot profile selection (§8.1, §8.4)", () => {
       expect(declaredTier.rows[0]?.defaultTier).toBe(tier);
     }
 
-    plane().stores.instances.put(instance({ grant: { allowedSenders: ["tg:1"] } }));
+    plane().stores.instances.put(instance({ grant: { allowedSenders: ["tg:1"], mentionOnly: true } }));
     const noTier = desiredChannels(provisionStores(), resolveKek({ OPENOMNI_VAULT_KEY: KEY_B64 }, state.home), testChannelDeps());
     expect(noTier.rows[0]?.defaultTier).toBe(MOUNTED_CHANNEL_DEFAULT_TIER);
+    // #1600: the allowlist and the mention-only posture ride the row to the grant.
+    expect(noTier.rows[0]).toMatchObject({ allowedSenders: ["tg:1"], mentionOnly: true });
   });
 
   test("a disabled declaration stays unmounted", () => {
