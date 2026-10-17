@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import type { Machine } from "@openomni/protocol";
 import { attachMachineDaemon as nativeDaemon } from "../src/daemon";
 import { createMachineHost as nativeHost } from "../src/host";
+import { PTY_OPEN_SIZE } from "../src/pty";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
 import { acquire } from "./ipc/helpers/effects";
 import { connectIpcTcpClient } from "./ipc/helpers/native";
@@ -106,8 +107,16 @@ describe("host listener set (#1270)", () => {
     }
   });
 
-  test("a pty round trip completes through the tcp listener of a dual-listener host (#1273 r1 F4)", async () => {
+  test("a pty round trip completes through the tcp listener of a dual-listener host (#1273 r1 F4), and source: screen answers the rendered pane (#1510)", async () => {
     const tmuxSocket = `om-listen-pty-${process.pid}`;
+    const tmuxCli = (...args: string[]) => Bun.spawnSync(["tmux", "-L", tmuxSocket, ...args], { stderr: "pipe" });
+    const paneFact = (format: string) => tmuxCli("display-message", "-p", "-t", "=qa:", format).stdout.toString().trimEnd();
+    // The daemon's injected wall clock (#1510): every snapshot stamps the next tick.
+    let ticks = 0;
+    const now = () => {
+      ticks += 1;
+      return 1_700_000_000_000 + ticks;
+    };
     const unix = socketPath();
     const host = await createMachineHost({
       listen: { unix, tcp: { host: "127.0.0.1", port: 0 } },
@@ -128,7 +137,7 @@ describe("host listener set (#1270)", () => {
           dispatcherBound: 8,
           offer: { ...offer("via-tcp", "/"), offeredCapabilities: ["pty.session"] },
           fsExports: new Map([["docs", "/"]]),
-          pty: { socketName: tmuxSocket },
+          pty: { socketName: tmuxSocket, now },
         }),
       );
       try {
@@ -136,24 +145,55 @@ describe("host listener set (#1270)", () => {
         const pty = host.get("via-tcp").pty;
         const opened = await pty.open("qa", "/");
         if (opened.status !== "ok") throw new Error(`open refused: ${opened.reason}`);
-        await pty.write("qa", Buffer.from("printf 'TCP-PTY-%s\\n' OK\n", "utf8"));
+        // The shell becomes `tr`, so the uppercase marker can only be written
+        // by the exec'd process (typed-ahead echoes stay lowercase, however
+        // many the shell produces), after which the pane is quiescent: every
+        // screen fact below has exactly one possible value.
+        await pty.write("qa", Buffer.from("exec tr a-z A-Z\ntcp-pty-ok\n", "utf8"));
         // Event-driven drain on the daemon's long-poll; no sleeps.
         let seen = "";
         let cursor = opened.cursor;
-        for (let round = 0; round < 200 && !seen.includes("TCP-PTY-OK"); round += 1) {
+        for (let round = 0; round < 200 && !seen.includes("TCP-PTY-OK\r\n"); round += 1) {
           const view = await pty.read("qa", { cursor, waitMs: 2000 });
           if (view.status !== "ok") throw new Error(`read refused: ${view.reason}`);
           seen += Buffer.from(view.data).toString("utf8");
           cursor = view.cursor;
         }
-        expect(seen).toContain("TCP-PTY-OK");
+        expect(seen.split("TCP-PTY-OK")).toHaveLength(2);
+        // #1510: the rendered pane, captured on the daemon over the same wire
+        // method, equals what the tmux server itself reports for that pane.
+        const snapshot = await pty.screen("qa");
+        if (snapshot.status !== "ok") throw new Error(`screen refused: ${snapshot.reason}`);
+        expect(snapshot.rows).toHaveLength(PTY_OPEN_SIZE.rows);
+        expect(snapshot.rows).toHaveLength(Number(paneFact("#{pane_height}")));
+        expect(snapshot.rows.filter((row) => row.includes("TCP-PTY-OK"))).toHaveLength(1);
+        expect(snapshot.cursor).toEqual({ x: Number(paneFact("#{cursor_x}")), y: Number(paneFact("#{cursor_y}")) });
+        expect(snapshot.occupant).toEqual({ pid: Number(paneFact("#{pane_pid}")), command: "tr" });
+        expect(snapshot.observedAt).toBe(1_700_000_000_001);
+        // A second snapshot is a fresh capture on the next clock tick; the byte
+        // stream cursor is untouched by either.
+        const again = await pty.screen("qa");
+        if (again.status !== "ok") throw new Error(`screen refused: ${again.reason}`);
+        expect(again).toEqual({ ...snapshot, observedAt: 1_700_000_000_002 });
+        const after = await pty.read("qa", { cursor });
+        if (after.status !== "ok") throw new Error(`read refused: ${after.reason}`);
+        expect(after.data).toHaveLength(0);
         expect(await pty.close("qa")).toEqual({ status: "ok" });
+        // Cleanup proof: the named session and its linked window are gone from
+        // the private server; only the reserved control session remains.
+        expect(tmuxCli("has-session", "-t", "=qa").exitCode).not.toBe(0);
+        expect(tmuxCli("list-sessions", "-F", "#{session_name}").stdout.toString().trim().split("\n")).toEqual([
+          "omo-pty-control",
+        ]);
+        expect(tmuxCli("list-windows", "-a", "-F", "#{window_id}").stdout.toString().trim().split("\n")).toHaveLength(1);
+        expect(await pty.screen("qa")).toEqual({ status: "refused", reason: "pty_not_found" });
       } finally {
         await daemon.close();
       }
     } finally {
       await host.close();
-      Bun.spawnSync(["tmux", "-L", tmuxSocket, "kill-server"], { stderr: "pipe" });
+      tmuxCli("kill-server");
+      expect(tmuxCli("list-sessions").exitCode).not.toBe(0);
     }
   }, 30_000);
 

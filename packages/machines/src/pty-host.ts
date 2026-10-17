@@ -30,6 +30,12 @@ export interface PtyHandle {
     name: string,
     options?: { readonly cursor?: string; readonly waitMs?: number },
   ): Effect.Effect<PtyReadValue | Exclude<Machine.PtyReadResult, { status: "ok" }>, MachineError>;
+  /**
+   * Structural screen snapshot (#1510): the same `pty.read` wire method with
+   * `source: "screen"`, answered by {@link Machine.PtyScreenResult}. Separate
+   * from `read` so the byte-stream signature and its callers stay unchanged.
+   */
+  screen(name: string): Effect.Effect<Machine.PtyScreenResult, MachineError>;
   resize(name: string, cols: number, rows: number): Effect.Effect<Machine.PtyResizeResult, MachineError>;
   close(name: string): Effect.Effect<Machine.PtyCloseResult, MachineError>;
   list(): Effect.Effect<Machine.PtyListResult, MachineError>;
@@ -71,6 +77,14 @@ export function createPtyHandle(call: PtyWireCall, closed: (name: string) => voi
         { name, ...(options.cursor === undefined ? {} : { cursor: options.cursor }), ...(options.waitMs === undefined ? {} : { waitMs: options.waitMs }) },
         (options.waitMs ?? 0) + PTY_CALL_MARGIN_MS,
       ).pipe(Effect.map((result) => (result.status === "ok" ? { ...result, data: Buffer.from(result.data, "base64") } : result))),
+    screen: (name) =>
+      wire(
+        "pty.screen",
+        Machine.WireMethod.PtyRead,
+        { request: Machine.PtyReadScreenRequest, result: Machine.PtyScreenResult },
+        { name, source: "screen" },
+        PTY_CALL_MARGIN_MS,
+      ),
     resize: (name, cols, rows) =>
       wire("pty.resize", Machine.WireMethod.PtyResize, { request: Machine.PtyResizeRequest, result: Machine.PtyResizeResult }, { name, cols, rows }, PTY_CALL_MARGIN_MS),
     close: (name) =>

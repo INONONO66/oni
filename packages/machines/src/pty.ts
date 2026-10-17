@@ -17,6 +17,8 @@ import { createPtyRegistry, type PtySessionRecord } from "./pty-registry";
 const PTY_CONTROL_SESSION = "omo-pty-control";
 /** Input bytes per send-keys command; hex encoding keeps control lines short. */
 const WRITE_CHUNK_BYTES = 128;
+/** Screen a fresh `pty_open` session gets until `pty_resize`; a screen snapshot has this many rows. */
+export const PTY_OPEN_SIZE = { cols: 80, rows: 24 } as const;
 
 const ptyNotAvailable = { status: "refused", reason: "pty_not_available" } as const;
 const ptyNotFound = { status: "refused", reason: "pty_not_found" } as const;
@@ -31,6 +33,12 @@ export interface PtyAdapterOptions {
   readonly socketName?: string;
   /** Injected control-client factory; unit tests script the server side. */
   readonly control?: PtyControlFactory;
+  /**
+   * Wall clock for screen snapshots (#1510): `observedAt` is this clock at
+   * capture, never ambient time. A daemon composed without one cannot stamp
+   * a snapshot, so a screen read fails typed instead of inventing an instant.
+   */
+  readonly now?: () => number;
 }
 
 export interface PtyAdapter {
@@ -38,7 +46,10 @@ export interface PtyAdapter {
   offeredCapabilities(requested: readonly string[]): Effect.Effect<string[], MachineError>;
   open(request: Machine.PtyOpenRequest): Effect.Effect<Machine.PtyOpenResult, MachineError>;
   write(request: Machine.PtyWriteRequest): Effect.Effect<Machine.PtyWriteResult, MachineError>;
+  /** Byte stream after `cursor`, or (#1510) the rendered screen when `source` is `"screen"`. */
+  read(request: Machine.PtyReadScreenRequest): Effect.Effect<Machine.PtyScreenResult, MachineError>;
   read(request: Machine.PtyReadRequest): Effect.Effect<Machine.PtyReadResult, MachineError>;
+  read(request: Machine.PtyReadParams): Effect.Effect<Machine.PtyReadResult | Machine.PtyScreenResult, MachineError>;
   resize(request: Machine.PtyResizeRequest): Effect.Effect<Machine.PtyResizeResult, MachineError>;
   close(request: Machine.PtyCloseRequest): Effect.Effect<Machine.PtyCloseResult, MachineError>;
   list(request: Machine.PtyListRequest): Effect.Effect<Machine.PtyListResult, MachineError>;
@@ -47,6 +58,24 @@ export interface PtyAdapter {
 }
 
 const quote = (value: string): string => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+
+/**
+ * One `display-message -p` line answers every pane fact the snapshot needs:
+ * cursor cell, dead flag, foreground pid, then the process name (which may
+ * itself contain spaces, so it takes the rest of the line).
+ */
+const PANE_FACTS_FORMAT = '"#{cursor_x} #{cursor_y} #{pane_dead} #{pane_pid} #{pane_current_command}"';
+const PANE_FACTS = /^(\d+) (\d+) ([01]) (\d*) ?(.*)$/;
+type ScreenOk = Extract<Machine.PtyScreenResult, { status: "ok" }>;
+/** Structural facts only: a dead pane or no pid is `occupant: null`, never a guess. */
+function paneFacts(lines: readonly string[]): Pick<ScreenOk, "cursor" | "occupant"> | undefined {
+  const match = lines.length === 1 ? (lines[0] ?? "").match(PANE_FACTS) : null;
+  if (match === null) return undefined;
+  const [, x, y, dead, pid, command] = match;
+  const occupantPid = Number(pid);
+  const occupant = dead === "1" || !Number.isInteger(occupantPid) || occupantPid <= 0 ? null : { pid: occupantPid, command: command ?? "" };
+  return { cursor: { x: Number(x), y: Number(y) }, occupant };
+}
 
 export function createPtyAdapter(options: PtyAdapterOptions): PtyAdapter {
   const tmux = options.tmux ?? "tmux";
@@ -185,7 +214,7 @@ export function createPtyAdapter(options: PtyAdapterOptions): PtyAdapter {
         const record = yield* Effect.suspend(() => {
           if (existing !== undefined) return Effect.succeed(existing);
           return Effect.map(
-            ctl.command(`new-session -d -s ${request.name} -c ${quote(request.cwd)} -x 80 -y 24`),
+            ctl.command(`new-session -d -s ${request.name} -c ${quote(request.cwd)} -x ${PTY_OPEN_SIZE.cols} -y ${PTY_OPEN_SIZE.rows}`),
             () => registry.register(request.name),
           );
         });
@@ -204,7 +233,7 @@ export function createPtyAdapter(options: PtyAdapterOptions): PtyAdapter {
   }
   const okView = (view: ReturnType<typeof registry.read>) =>
     ({ status: "ok", data: view.data.toString("base64"), cursor: view.cursor, truncated: view.truncated }) as const;
-  function read(request: Machine.PtyReadRequest): Effect.Effect<Machine.PtyReadResult, MachineError> {
+  function stream(request: Machine.PtyReadRequest): Effect.Effect<Machine.PtyReadResult, MachineError> {
     return session(request.name, (_ctl, record) =>
       Effect.gen(function* () {
         const poisoned = poisonedFailure(record);
@@ -217,6 +246,28 @@ export function createPtyAdapter(options: PtyAdapterOptions): PtyAdapter {
         return okView(registry.read(record, request.cursor));
       }),
     );
+  }
+  /**
+   * Screen snapshot (#1510): the rendered pane with its escapes plus the
+   * pane facts, captured on the daemon in two control commands. Nothing here
+   * waits or judges readiness; malformed tmux facts fail typed.
+   */
+  const screen = (ctl: PtyControl, record: PtySessionRecord): Effect.Effect<ScreenOk, MachineError> =>
+    Effect.gen(function* () {
+      const now = options.now;
+      if (now === undefined)
+        return yield* new MachinesFailure({ operation: "pty.screen", cause: "daemon has no clock to stamp observedAt" });
+      const pane = record.paneId ?? "";
+      const rows = yield* ctl.command(`capture-pane -p -e -t ${pane}`);
+      const facts = paneFacts(yield* ctl.command(`display-message -p -t ${pane} ${PANE_FACTS_FORMAT}`));
+      if (facts === undefined) return yield* new MachinesFailure({ operation: "pty.screen", cause: "invalid tmux pane facts" });
+      return { status: "ok", rows, ...facts, observedAt: now() } as const;
+    });
+  function read(request: Machine.PtyReadScreenRequest): Effect.Effect<Machine.PtyScreenResult, MachineError>;
+  function read(request: Machine.PtyReadRequest): Effect.Effect<Machine.PtyReadResult, MachineError>;
+  function read(request: Machine.PtyReadParams): Effect.Effect<Machine.PtyReadResult | Machine.PtyScreenResult, MachineError>;
+  function read(request: Machine.PtyReadParams): Effect.Effect<Machine.PtyReadResult | Machine.PtyScreenResult, MachineError> {
+    return "source" in request ? session(request.name, screen) : stream(request);
   }
 
   function write(request: Machine.PtyWriteRequest): Effect.Effect<Machine.PtyWriteResult, MachineError> {

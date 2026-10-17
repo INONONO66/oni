@@ -112,7 +112,10 @@ const methods = {
    */
   [Machine.WireMethod.PtyOpen]: { params: Machine.PtyOpenRequest, result: Machine.PtyOpenResult },
   [Machine.WireMethod.PtyWrite]: { params: Machine.PtyWriteRequest, result: Machine.PtyWriteResult },
-  [Machine.WireMethod.PtyRead]: { params: Machine.PtyReadRequest, result: Machine.PtyReadResult },
+  [Machine.WireMethod.PtyRead]: {
+    params: Machine.PtyReadParams,
+    result: z.union([Machine.PtyReadResult, Machine.PtyScreenResult]),
+  },
   [Machine.WireMethod.PtyResize]: {
     params: Machine.PtyResizeRequest,
     result: Machine.PtyResizeResult,

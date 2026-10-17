@@ -26,10 +26,13 @@ describe("pty capability id and wire methods", () => {
       params: Machine.PtyWriteRequest,
       result: Machine.PtyWriteResult,
     });
-    expect(Ipc.Methods["machine.pty_read"]).toEqual({
-      params: Machine.PtyReadRequest,
-      result: Machine.PtyReadResult,
-    });
+    // pty_read answers either read mode (#1510): the table's result accepts both.
+    expect(Ipc.Methods["machine.pty_read"].params).toBe(Machine.PtyReadParams);
+    const stream: Machine.PtyReadResult = { status: "ok", data, cursor: "g.9", truncated: false };
+    const screen: Machine.PtyScreenResult = { status: "ok", rows: ["$ "], cursor: { x: 2, y: 0 }, occupant: null, observedAt: 5 };
+    expect(Ipc.Methods["machine.pty_read"].result.parse(stream)).toEqual(stream);
+    expect(Ipc.Methods["machine.pty_read"].result.parse(screen)).toEqual(screen);
+    expect(Ipc.Methods["machine.pty_read"].result.safeParse({ status: "ok" }).success).toBe(false);
     expect(Ipc.Methods["machine.pty_resize"]).toEqual({
       params: Machine.PtyResizeRequest,
       result: Machine.PtyResizeResult,
@@ -131,6 +134,55 @@ describe("Machine.PtyReadRequest / PtyReadResult", () => {
     ).toBe(false);
     expect(Machine.PtyReadRequest.safeParse({ name: "qa", waitMs: -1 }).success).toBe(false);
     expect(Machine.PtyReadRequest.safeParse({ name: "qa", cursor: "" }).success).toBe(false);
+    expect(Machine.PtyReadRequest.safeParse({ name: "qa", source: "screen" }).success).toBe(false);
+  });
+
+  test("source: screen selects the snapshot mode and admits no stream options (#1510)", () => {
+    expect(Machine.PtyReadParams.parse({ name: "qa" })).toEqual({ name: "qa" });
+    expect(Machine.PtyReadParams.parse({ name: "qa", cursor: "g.42", waitMs: 100 })).toEqual({
+      name: "qa",
+      cursor: "g.42",
+      waitMs: 100,
+    });
+    expect(Machine.PtyReadParams.parse({ name: "qa", source: "screen" })).toEqual({ name: "qa", source: "screen" });
+    expect(Machine.PtyReadScreenRequest.parse({ name: "qa", source: "screen" })).toEqual({
+      name: "qa",
+      source: "screen",
+    });
+    // One enforcement layer: mixing the modes fails both strict members.
+    expect(Machine.PtyReadParams.safeParse({ name: "qa", source: "screen", cursor: "g.1" }).success).toBe(false);
+    expect(Machine.PtyReadParams.safeParse({ name: "qa", source: "screen", waitMs: 1 }).success).toBe(false);
+    expect(Machine.PtyReadParams.safeParse({ name: "qa", source: "stream" }).success).toBe(false);
+    expect(Machine.PtyReadParams.safeParse({ name: "QA", source: "screen" }).success).toBe(false);
+    expect(Machine.PtyReadScreenRequest.safeParse({ name: "qa" }).success).toBe(false);
+  });
+
+  test("a screen snapshot carries rows, cursor, occupant-or-null and observedAt, nothing else (#1510)", () => {
+    const occupied: Extract<Machine.PtyScreenResult, { status: "ok" }> = {
+      status: "ok",
+      rows: ["\u001b[1m$\u001b[0m printf hi", "hi", ""],
+      cursor: { x: 2, y: 2 },
+      occupant: { pid: 4242, command: "zsh" },
+      observedAt: 1_700_000_000_000.5,
+    };
+    expect(Machine.PtyScreenResult.parse(occupied)).toEqual(occupied);
+    const vacant = { ...occupied, occupant: null };
+    expect(Machine.PtyScreenResult.parse(vacant)).toEqual(vacant);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, occupant: { pid: 0, command: "zsh" } }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, occupant: { pid: 1 } }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, cursor: { x: -1, y: 0 } }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, cursor: { x: 0, y: 0, z: 0 } }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, observedAt: -1 }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, rows: Array.from({ length: Machine.PTY_MAX_ROWS + 1 }, () => "") }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ ...occupied, idle: true }).success).toBe(false);
+    expect(Machine.PtyScreenResult.safeParse({ status: "ok", data, cursor: "g.9", truncated: false }).success).toBe(false);
+    for (const reason of ["machine_not_attached", "pty_not_available", "pty_not_found"]) {
+      expect(Machine.PtyScreenResult.parse({ status: "refused", reason })).toEqual({
+        status: "refused",
+        reason: reason as "pty_not_found",
+      });
+    }
+    expect(Machine.PtyScreenResult.safeParse({ status: "refused", reason: "path_escapes_export" }).success).toBe(false);
   });
 
   test("ok always carries data, cursor, and the truncation flag", () => {

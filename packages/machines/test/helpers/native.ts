@@ -43,6 +43,7 @@ function machineHandle(native: Native.MachineHandle) {
       open: (...args: Parameters<typeof native.pty.open>) => run(native.pty.open(...args)),
       write: (...args: Parameters<typeof native.pty.write>) => run(native.pty.write(...args)),
       read: (...args: Parameters<typeof native.pty.read>) => run(native.pty.read(...args)),
+      screen: (name: string) => run(native.pty.screen(name)),
       resize: (...args: Parameters<typeof native.pty.resize>) => run(native.pty.resize(...args)),
       close: (...args: Parameters<typeof native.pty.close>) => run(native.pty.close(...args)),
       list: () => run(native.pty.list()),
