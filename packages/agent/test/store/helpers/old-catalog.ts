@@ -6,7 +6,7 @@ export const RETIRED_ROLE = "worker";
 export const RETIRED_INGRESS_KIND = "inbox.deliver";
 
 export interface OldCatalogFixture {
-  readonly version: 1 | 2 | 3;
+  readonly version: 1 | 2 | 3 | 4;
   readonly roles: readonly string[];
   readonly kinds: readonly string[];
   readonly sessions: ReadonlyArray<readonly [id: string, parentId: string | null, role: string]>;

@@ -319,6 +319,7 @@ export class SessionStore extends StoreHandle {
    * (session-file recovery needs no partial-fork repair path).
    */
   fork(input: SessionForkWrite): Effect.Effect<SessionForkReceipt, LedgerError> {
+    const hasRequests = input.copies.some((copy) => copy.kind === "request");
     return writeEffect("session.fork", (refuse: RefuseWrite) =>
       this.indexed(input.index, input.materialize, input.createdAt, refuse, (materialize) => {
         const created = materializeSession(this.db, materialize, this.limits, refuse);
@@ -344,7 +345,7 @@ export class SessionStore extends StoreHandle {
         if (row === undefined)
           return refuse(new CorruptRecord({ operation: "session.fork", id: materialize.row.id }));
         return { row, head: receipt.action.actionHash, copied: input.copies.length };
-      }),
+      }, hasRequests),
     );
   }
 
@@ -376,13 +377,14 @@ export class SessionStore extends StoreHandle {
     createdAt: number,
     refuse: RefuseWrite,
     write: (materialize: LedgerSession.Materialize) => T,
+    hasRequests = false,
   ): T {
     const materialize = LedgerSession.Materialize.parse(input);
     const { id, parentId, role } = materialize.row;
     const written = this.transaction(() => write(materialize));
     let indexed = false;
     try {
-      indexed = index.transaction(() => index.indexSession({ id, parentId, role, createdAt }));
+      indexed = index.transaction(() => index.indexSession({ id, parentId, role, createdAt, hasRequests }));
     } finally {
       if (!indexed)
         this.transaction(() => {
@@ -402,6 +404,7 @@ export interface SessionIndexUnit {
     readonly parentId: string | null;
     readonly role: LedgerSession.Role;
     readonly createdAt: number;
+    readonly hasRequests?: boolean;
   }) => boolean;
 }
 

@@ -425,7 +425,7 @@ describe("Session.fork", () => {
         upgraded.close();
       }
       expect(rawCatalogRows(catalogPath)).toMatchObject({
-        version: { user_version: 4 },
+        version: { user_version: 5 },
         sessions: [
           { id: CHILD, parent_id: PARENT, role: "resident" },
           { id: PARENT, parent_id: "root", role: "child" },

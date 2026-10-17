@@ -6,11 +6,14 @@ import { Effect, Exit } from "effect";
 import { createSession } from "../../src/core/session/create";
 import { Ledger, openLedgerPlane } from "../../src/core/session/host";
 import { createSessionRequests } from "../../src/core/session/request";
+import * as sessionFile from "../../src/core/store/session-file";
 import { hydrateSessionHistory } from "../../src/inspect/history";
 import { isolated, isolatedLedger, isolatedRun } from "../helpers/isolated";
 import { paddingActions } from "../helpers/reconstruction-fixture";
 import { requestLedger } from "../helpers/request-ledger";
+import { openRequestDecision, pendingToolInvocation } from "../helpers/seed-request";
 import { seedPolicy } from "../helpers/seed-policy";
+import { fencedSession } from "../helpers/seeded-session";
 import { completingChatSession } from "../helpers/session-chat";
 import { allowConfigure, isolatedRuntime, type SessionFixture, silentRuntime, withSessionServices } from "../helpers/session-services";
 import { runLedgerSync } from "../store/helpers/effect";
@@ -60,7 +63,7 @@ test("repeated generation lookups reuse one read until a commit advances the rev
 
 const SCANNED_SESSIONS = Number(process.env.READ_PATH_SESSIONS ?? 40);
 
-test("a deadline lookup across many session files retains no session handle", () =>
+test("a deadline lookup across many session files retains no session handle and opens only request holders", () =>
   isolated(Effect.gen(function* () {
     const directory = mkdtempSync(join(tmpdir(), "request-scan-"));
     const config = {
@@ -68,6 +71,17 @@ test("a deadline lookup across many session files retains no session handle", ()
       catalog: { path: join(directory, "catalog.sqlite") },
       sessions: { dir: join(directory, "sessions") },
     };
+    // One file holds a real open request committed through the fence (the catalog hint's only writer).
+    yield* Effect.scoped(Effect.gen(function* () {
+      const session = yield* fencedSession(
+        { sessionsDir: config.sessions.dir, catalogFile: config.catalog.path },
+        "holder",
+        { commitNow: () => 50 },
+      );
+      yield* session.commit([pendingToolInvocation("holder", "holder:q", 50)]);
+      const { actions } = openRequestDecision(session, "holder:q", { deadline: 1_000, createdAt: 50, at: 50 });
+      yield* session.commit([...actions]);
+    }));
     const seeding = openLedgerPlane(config);
     for (let index = 0; index < SCANNED_SESSIONS; index += 1)
       runLedgerSync(createSession(seeding, {
@@ -100,15 +114,20 @@ test("a deadline lookup across many session files retains no session handle", ()
       );
       const handles = () => readdirSync("/dev/fd").length;
       const baseline = handles();
+      const opens = spyOn(sessionFile, "openSessionStore");
       const started = performance.now();
-      expect(port.list()).toEqual([]);
+      expect(port.list().map((request) => request.requestId)).toEqual(["holder:q"]);
       const listed = handles() - baseline;
       const missing = yield* Effect.exit(port.timeout("absent", 100));
       const scanned = handles() - baseline;
       const ms = (performance.now() - started).toFixed(1);
-      console.log(`request scan @${SCANNED_SESSIONS} sessions: retained after list=${listed} after deadline lookup=${scanned} scan=${ms}ms`);
+      const opened = opens.mock.calls.map(([path]) => path);
+      opens.mockRestore();
+      console.log(`request scan @${SCANNED_SESSIONS} sessions: retained after list=${listed} after deadline lookup=${scanned} opened=${opened.length} scan=${ms}ms`);
       expect(Exit.isFailure(missing)).toBe(true);
       expect({ listed, scanned }).toEqual({ listed: 0, scanned: 0 });
+      // Two scans (list, deadline lookup), each opening the one indexed request holder and nothing else.
+      expect(opened).toEqual([join(config.sessions.dir, "holder.sqlite"), join(config.sessions.dir, "holder.sqlite")]);
     } finally {
       plane.close();
       rmSync(directory, { recursive: true });
