@@ -173,6 +173,14 @@ const DeadlinePayload = z
   .strict();
 
 /**
+ * What the cancel door did: `cancelled` interrupted a running child;
+ * `already_ended` found the child's turn over before the fire reached it
+ * (#1512: a cli turn that resolved while its deadline was still armed), so
+ * nothing was interrupted and the parent is not told of an expiry.
+ */
+type DeadlineCancelOutcome = "cancelled" | "already_ended";
+
+/**
  * Composition wires this to the outbound cancel door: `signal{control:
  * cancel}` to a child session, or (#1512) the pty interrupt for a `cli:`
  * child — the armed `contact` tells the door which.
@@ -183,13 +191,14 @@ export interface DelegationDeadlineDeps {
     /** The contact the deadline was armed for: `session:<id>` or `cli:<id>`. */
     readonly contact: string;
     readonly occurrenceId: string;
-  }): Effect.Effect<void, { readonly reason: string }>;
+  }): Effect.Effect<DeadlineCancelOutcome, { readonly reason: string }>;
 }
 
 /**
  * On fire: cancel the silent child through the injected outbound door, then
  * prompt the parent with the expiry fact — no reply counts as unknown, and
- * the parent decides what happens next.
+ * the parent decides what happens next. A door that finds the turn already
+ * ended makes the fire a no-op: no prompt, the chain lapses `exhausted`.
  */
 function deadlineWake(deps: DelegationDeadlineDeps): Bundle.AlarmPurposeHandler {
   return ({ fired, ctx }) =>
@@ -198,12 +207,13 @@ function deadlineWake(deps: DelegationDeadlineDeps): Bundle.AlarmPurposeHandler 
         try: () => DeadlinePayload.parse(JSON.parse(fired.payload)),
         catch: () => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "payload" }),
       });
-      yield* deps.cancel({ child: payload.child, contact: payload.contact, occurrenceId: fired.occurrenceId }).pipe(
+      const cancelled = yield* deps.cancel({ child: payload.child, contact: payload.contact, occurrenceId: fired.occurrenceId }).pipe(
         Effect.mapError(
           (refused) =>
             new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.reason }),
         ),
       );
+      if (cancelled === "already_ended") return "exhausted" as const;
       yield* ctx.prompt({
         content: JSON.stringify({
           kind: DELEGATION_DEADLINE,

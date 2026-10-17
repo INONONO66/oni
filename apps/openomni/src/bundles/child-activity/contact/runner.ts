@@ -8,7 +8,7 @@ import { type ChildRow, diagnosticRow, stateReceipts } from "../reconcile";
 import { sourceDigest } from "../transcript";
 import { type CliContact, type CliContactResolution, resolveCliContact } from "./declaration";
 import { hookCommand, hookScript } from "./hook-script";
-import { childState, stateInput } from "./rule";
+import { type ChildState, childState, stateInput } from "./rule";
 
 /**
  * The `cli:` contact's runner (#1512): one send is one turn of a child CLI
@@ -43,23 +43,39 @@ interface CliTurn {
   readonly facts: number;
 }
 
-/** A refusal; `landed` means bytes reached the pane, so the letter is never re-sent. */
+/**
+ * A refusal; `landed` means bytes reached the pane, so the letter is never
+ * re-sent; `code` names the refusals a composed door maps rather than reports.
+ */
 interface CliRefusal {
   readonly reason: string;
   readonly landed?: boolean;
+  readonly code?: "turn_already_ended";
+}
+
+/** One page of a session's persisted child rows after a revision, and the revision to resume from. */
+interface CliRowPage {
+  readonly rows: readonly ChildRow[];
+  readonly revision: number;
 }
 
 /** The reconciler surface the runner consumes (`childActivity` in the composition). */
 interface CliWatchPorts {
   install(spec: ChildWatch): Effect.Effect<void, CliRefusal>;
   close(id: string): Effect.Effect<void>;
-  rows(sessionId: string): readonly ChildRow[];
+  /** The session's child rows committed after `afterRevision`: the runner pages forward from its last seen revision, never over the whole history. */
+  rows(sessionId: string, afterRevision: number): CliRowPage;
   /** The reconciler's one admission door, for the rows this contact derives. */
   admit(sessionId: string, rows: readonly ChildRow[]): Effect.Effect<void, CliRefusal>;
 }
 
+/** An armed deadline and its retire door: the same chain armed `at: null` once the turn has ended. */
+interface CliDeadlineArm {
+  readonly retire: Effect.Effect<void, CliRefusal>;
+}
+
 export interface CliRunnerDeps extends CliContactResolution {
-  readonly host: Pick<MachineHost, "place" | "get" | "list">;
+  readonly host: Pick<MachineHost, "place" | "get" | "exports">;
   readonly watch: CliWatchPorts;
   /** One call per committed action of the session; `undefined` when the bus offers no subscription. */
   readonly committed: (sessionId: string, listener: () => void) => (() => void) | undefined;
@@ -70,14 +86,14 @@ export interface CliRunnerDeps extends CliContactResolution {
     readonly child: string;
     readonly contact: string;
     readonly at: number;
-  }) => Effect.Effect<void, CliRefusal>;
+  }) => Effect.Effect<CliDeadlineArm, CliRefusal>;
   readonly id: () => string;
   readonly now: () => number;
 }
 
 export interface CliRunner {
   run(input: CliRunInput): Effect.Effect<CliTurn, CliRefusal>;
-  /** The deadline door: ETX to the child's pane; the waiting send ends `landed`. */
+  /** The deadline door: ETX to the child's pane; the waiting send ends `landed`. A turn that already ended refuses `turn_already_ended`. */
   interrupt(child: string): Effect.Effect<void, CliRefusal>;
   /** Drops every pane this runner launched: watch, tmux session, lease. */
   close(): Effect.Effect<void>;
@@ -86,11 +102,17 @@ export interface CliRunner {
 type Location = NonNullable<ChildWatch["spool"]>;
 type Fact = Extract<ChildRow, { kind: "child_fact" }>;
 
+/** How a turn ended: the pointer it admitted, or the refusal that ended it. */
+type Settled = { readonly kind: "turn"; readonly turn: CliTurn } | { readonly kind: "refused"; readonly refusal: CliRefusal };
+
 interface Turn {
   readonly id: string;
   readonly sessionId: string;
   readonly watch: string;
   interrupted: boolean;
+  /** Set once the run resolved: a replay of the key returns it, the deadline door refuses on it. */
+  settled?: Settled;
+  deadline?: CliDeadlineArm;
   readonly wake: Set<() => void>;
 }
 
@@ -103,10 +125,20 @@ interface Pane {
   turn?: Turn;
 }
 
+/** What one turn's persisted receipts say so far: the highest hook sequence and the state the rule derives. */
+interface Observation {
+  readonly hookSeq: number;
+  readonly state: ChildState;
+}
+
+const NOTHING_OBSERVED: Observation = { hookSeq: -1, state: "unknown" };
+
 const failure = (reason: string, landed?: boolean): CliRefusal => (landed === undefined ? { reason } : { reason, landed });
 const described = (error: MachineError): string => (error instanceof Error ? error.message : String(error));
 const machineFailure = (operation: string) => (error: MachineError): CliRefusal => failure(`${operation}: ${described(error)}`);
 const shellQuoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+const normalizedRoot = (path: string): string => posix.normalize(path).replace(/\/+$/, "") || "/";
+const withinRoot = (root: string, path: string): boolean => path === root || path.startsWith(root === "/" ? "/" : `${root}/`);
 
 /** The launch as one shell line: `exec` so the pane's lifetime is the child's. */
 export function launchLine(launch: Launch): string {
@@ -124,9 +156,25 @@ function emptySpoolRef(spool: Location): TranscriptRef {
   };
 }
 
+/**
+ * New observation since `before`: a hook receipt with a greater sequence, or
+ * the derived state leaving `unknown`. One more source-free fact is not the
+ * measure — the vendor's start, submit and stop events share one `observed`
+ * fact per turn, so a text-only answer never grows the fact count.
+ */
+function advanced(before: Observation, now: Observation): boolean {
+  return now.hookSeq > before.hookSeq || (before.state === "unknown" && now.state !== "unknown");
+}
+
 export function createCliRunner(deps: CliRunnerDeps): CliRunner {
   const panes = new Map<string, Pane>();
   const children = new Map<string, string>();
+  /** Every turn this runner opened, by the send's key: a replay joins or reads it instead of typing again. */
+  const turns = new Map<string, Turn>();
+  /** The latest turn per child, kept past the pane's retirement so a late deadline is refused as ended, not unknown. */
+  const latest = new Map<string, Turn>();
+  /** The sender sessions' child rows, paged forward from the last seen revision on every notification. */
+  const cursors = new Map<string, { readonly rows: ChildRow[]; revision: number }>();
 
   const machine = (contact: CliContact): Effect.Effect<MachineHandle, CliRefusal> =>
     Effect.try({
@@ -173,10 +221,28 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
         ),
       );
 
+  /** The session's child rows: the page after the last seen revision is appended, the whole history is read once. */
+  const rowsOf = (sessionId: string): readonly ChildRow[] => {
+    const cursor = cursors.get(sessionId) ?? { rows: [], revision: 0 };
+    cursors.set(sessionId, cursor);
+    const page = deps.watch.rows(sessionId, cursor.revision);
+    cursor.rows.push(...page.rows);
+    cursor.revision = page.revision;
+    return cursor.rows;
+  };
+
   const factRows = (pane: Pane, turn: Turn): Fact[] =>
-    deps.watch
-      .rows(turn.sessionId)
-      .filter((row): row is Fact => row.kind === "child_fact" && row.content.child === pane.child && row.content.turn === turn.id);
+    rowsOf(turn.sessionId).filter((row): row is Fact => row.kind === "child_fact" && row.content.child === pane.child && row.content.turn === turn.id);
+
+  const observe = (pane: Pane, turn: Turn): Observation => {
+    const receipts = stateReceipts(rowsOf(turn.sessionId), pane.child, turn.id);
+    let hookSeq = NOTHING_OBSERVED.hookSeq;
+    for (const entry of receipts) {
+      const ref = entry.receipt.ref;
+      if ("kind" in ref && ref.seq > hookSeq) hookSeq = ref.seq;
+    }
+    return { hookSeq, state: childState(stateInput(receipts)) };
+  };
 
   /** Event-driven: resolves on the committed-action notification that satisfies the predicate, on an interrupt, or at the bound. */
   const awaitTurn = (
@@ -208,6 +274,38 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
     );
   };
 
+  /** A replay of a running turn's key joins its one resolution: never a second letter. */
+  const joinTurn = (turn: Turn): Effect.Effect<CliTurn, CliRefusal> =>
+    Effect.callback<CliTurn, CliRefusal>((resume) => {
+      const check = () => {
+        const settled = turn.settled;
+        if (settled === undefined) return;
+        resume(settled.kind === "turn" ? Effect.succeed(settled.turn) : Effect.fail(settled.refusal));
+      };
+      turn.wake.add(check);
+      check();
+      return Effect.sync(() => void turn.wake.delete(check));
+    });
+
+  const settle = (turn: Turn, settled: Settled): void => {
+    turn.settled = settled;
+    for (const wake of turn.wake) wake();
+  };
+
+  /** The turn's one resolution — recorded for replays and the deadline door — then propagated unchanged. */
+  const settling = (turn: Turn, body: Effect.Effect<CliTurn, CliRefusal>): Effect.Effect<CliTurn, CliRefusal> =>
+    body.pipe(
+      Effect.tap((outcome) => Effect.sync(() => settle(turn, { kind: "turn", turn: outcome }))),
+      Effect.tapError((refusal) => Effect.sync(() => settle(turn, { kind: "refused", refusal }))),
+    );
+
+  /** The deadline is retired once the turn has ended; like the arm, a refused retire never fails the send. */
+  const disarm = (turn: Turn): Effect.Effect<void> => {
+    const armed = turn.deadline;
+    turn.deadline = undefined;
+    return armed === undefined ? Effect.void : armed.retire.pipe(Effect.catch(() => Effect.void));
+  };
+
   /**
    * A stalled prompt or launch: the diagnostic goes through the reconciler's
    * door, then the pane is retired — its state is unknown, so this Resident
@@ -218,6 +316,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
     const row = diagnosticRow({ child: pane.child, turn: turn.id }, { ref: emptySpoolRef(pane.spool), diagnostic: { code, detail: reason } });
     return deps.watch.admit(turn.sessionId, [row]).pipe(
       Effect.mapError((refused) => failure(`${reason}; the diagnostic was refused: ${refused.reason}`)),
+      Effect.flatMap(() => disarm(turn)),
       Effect.flatMap(() => retire(pane, true)),
       Effect.flatMap(() => Effect.fail(failure(reason))),
     );
@@ -237,8 +336,10 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
         spool: pane.spool,
         ...(pane.transcript === undefined ? {} : { transcript: pane.transcript }),
       });
-      const turn: Turn = { id: input.key, sessionId: input.sender, watch, interrupted: false, wake: new Set() };
+      // The same key re-installs the watch (the transcript was located) without a second turn.
+      const turn: Turn = pane.turn?.id === input.key ? pane.turn : { id: input.key, sessionId: input.sender, watch, interrupted: false, wake: new Set() };
       pane.turn = turn;
+      latest.set(pane.child, turn);
       return turn;
     });
 
@@ -254,11 +355,20 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       }),
     );
 
-  const exportOf = (contact: CliContact): string => {
-    const info = deps.host.list().find((entry) => entry.machineId === contact.machine);
-    const exports = info?.allowedExports ?? [];
-    return exports.length === 1 ? (exports[0] ?? "declared") : "declared";
-  };
+  /** The export the declared cwd lives in: the longest offered root containing it; none is a typed refusal before any pane opens. */
+  const exportOf = (contact: CliContact): Effect.Effect<string, CliRefusal> =>
+    Effect.try({
+      try: () => deps.host.exports(contact.machine),
+      catch: (error) => failure(`machine ${contact.machine}: ${error instanceof Error ? error.message : String(error)}`),
+    }).pipe(
+      Effect.flatMap((exports) => {
+        const cwd = normalizedRoot(contact.cwd);
+        const root = exports.filter((entry) => withinRoot(entry.path, cwd)).sort((a, b) => b.path.length - a.path.length)[0];
+        if (root !== undefined) return Effect.succeed(root.name);
+        const offered = exports.map((entry) => `${entry.name}=${entry.path}`).join(", ") || "none";
+        return Effect.fail(failure(`cwd ${contact.cwd} is outside every export machine ${contact.machine} offers (${offered})`));
+      }),
+    );
 
   /** The live config on the machine: the hook script, and the pack's wiring of it. */
   const installLiveConfig = (pane: Pane, handle: MachineHandle, dir: string, configPath: string) =>
@@ -275,16 +385,21 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       return config !== undefined;
     });
 
+  /** Once the pane is open, any refusal before the run owns it retires it: no live bare shell stays registered with its lease held. */
+  const rollback = <A>(pane: Pane, effect: Effect.Effect<A, CliRefusal>): Effect.Effect<A, CliRefusal> =>
+    effect.pipe(Effect.tapError(() => (panes.get(pane.contact.id) === pane ? retire(pane, true).pipe(Effect.ignore) : Effect.void)));
+
   const launch = (contact: CliContact, handle: MachineHandle, input: CliRunInput, stallWindowMs: number): Effect.Effect<Pane, CliRefusal> =>
     Effect.gen(function* () {
       const lease = yield* place(contact);
+      const exportName = yield* exportOf(contact).pipe(Effect.tapError(() => Effect.sync(() => lease.release())));
       const child = deps.id();
       const dir = posix.join(contact.cwd, ".openomni", child);
       const pane: Pane = {
         contact,
         child,
         lease,
-        spool: { machine: contact.machine, export: exportOf(contact), path: posix.join(dir, "spool.jsonl"), parser: { dialect: "hook-spool", version: "1" } },
+        spool: { machine: contact.machine, export: exportName, path: posix.join(dir, "spool.jsonl"), parser: { dialect: "hook-spool", version: "1" } },
       };
       const opened = yield* lease
         .renewPtyWhile(handle.pty.open(contact.session, contact.cwd), { name: contact.session, op: "open" })
@@ -295,21 +410,23 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       }
       panes.set(contact.id, pane);
       children.set(child, contact.id);
-      const configPath = posix.join(dir, "live.json");
-      const configured = yield* installLiveConfig(pane, handle, dir, configPath);
-      const launched = contact.pack.launch?.({ sessionId: child, ...(configured ? { liveConfigPath: configPath } : {}) });
-      if (launched === undefined)
-        return yield* Effect.fail(failure(`dialect ${contact.pack.manifest.id} declares no correlated launch; attaching to a running child is not in this increment`));
-      const turn = yield* openTurn(pane, input);
-      yield* write(pane, handle, launchLine(launched));
-      const started = yield* awaitTurn(turn, () => factRows(pane, turn).length > 0, stallWindowMs);
-      if (started !== "observed") return yield* stalled(pane, turn, "launch_stalled", stallWindowMs);
-      const transcriptPath = yield* locateTranscript(pane, handle);
-      if (transcriptPath !== undefined) {
-        pane.transcript = { ...pane.spool, path: transcriptPath, parser: { dialect: contact.pack.manifest.id, version: "1" } };
-        yield* openTurn(pane, input);
-      }
-      return pane;
+      return yield* rollback(pane, Effect.gen(function* () {
+        const configPath = posix.join(dir, "live.json");
+        const configured = yield* installLiveConfig(pane, handle, dir, configPath);
+        const launched = contact.pack.launch?.({ sessionId: child, ...(configured ? { liveConfigPath: configPath } : {}) });
+        if (launched === undefined)
+          return yield* Effect.fail(failure(`dialect ${contact.pack.manifest.id} declares no correlated launch; attaching to a running child is not in this increment`));
+        const turn = yield* openTurn(pane, input);
+        yield* write(pane, handle, launchLine(launched));
+        const started = yield* awaitTurn(turn, () => advanced(NOTHING_OBSERVED, observe(pane, turn)), stallWindowMs);
+        if (started !== "observed") return yield* stalled(pane, turn, "launch_stalled", stallWindowMs);
+        const transcriptPath = yield* locateTranscript(pane, handle);
+        if (transcriptPath !== undefined) {
+          pane.transcript = { ...pane.spool, path: transcriptPath, parser: { dialect: contact.pack.manifest.id, version: "1" } };
+          yield* openTurn(pane, input);
+        }
+        return pane;
+      }));
     });
 
   const retire = (pane: Pane, live: boolean): Effect.Effect<void, CliRefusal> =>
@@ -317,11 +434,11 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       panes.delete(pane.contact.id);
       children.delete(pane.child);
       if (pane.turn !== undefined) yield* deps.watch.close(pane.turn.watch);
-      if (live) {
-        const handle = yield* machine(pane.contact);
-        yield* handle.pty.close(pane.contact.session).pipe(Effect.mapError(machineFailure("pty.close")));
-      }
-      pane.lease.release();
+      const closeSession = live
+        ? machine(pane.contact).pipe(Effect.flatMap((handle) => handle.pty.close(pane.contact.session).pipe(Effect.mapError(machineFailure("pty.close")))))
+        : Effect.void;
+      // The lease goes back whatever the daemon says about the session.
+      yield* closeSession.pipe(Effect.ensuring(Effect.sync(() => pane.lease.release())));
     });
 
   /** Lookup-or-create: the pane this runner launched is reused while its tmux session lives; an occupant it did not launch is never written to. */
@@ -345,7 +462,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
   const gate = (pane: Pane, input: CliRunInput, recipe: SubmitRecipe): Effect.Effect<void, CliRefusal> => {
     const previous = pane.turn;
     if (previous === undefined || previous.id === input.key || previous.interrupted) return Effect.void;
-    const state = childState(stateInput(stateReceipts(deps.watch.rows(previous.sessionId), pane.child, previous.id)));
+    const state = observe(pane, previous).state;
     if (state === "idle" || (state === "blocked" && !recipe.refuseWhenWaiting)) return Effect.void;
     if (state === "blocked") return Effect.fail(failure("agent_blocked: the child is waiting on a permission request"));
     if (state === "working") return Effect.fail(failure("agent_busy: the child's previous turn has not ended"));
@@ -364,45 +481,57 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       }
     });
 
-  const armDeadline = (pane: Pane, input: CliRunInput): Effect.Effect<void> => {
-    if (input.deadlineMs === undefined || deps.deadline === undefined) return Effect.void;
+  const armDeadline = (pane: Pane, input: CliRunInput): Effect.Effect<CliDeadlineArm | undefined> => {
+    if (input.deadlineMs === undefined || deps.deadline === undefined) return Effect.succeed(undefined);
     // A failed arm never fails the send (the #1258 rule): the letter still goes; the deadline is best-effort policy.
     return deps
       .deadline({ sessionId: input.sender, turnId: input.turnId, child: pane.child, contact: `cli:${pane.contact.id}`, at: deps.now() + input.deadlineMs })
-      .pipe(Effect.catch(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
   };
 
   const interrupted = failure("deadline expired; the child was interrupted", true);
+
+  /** The turn from the letter to its end: deadline armed, letter submitted, stall measured on new observation, terminal awaited. */
+  const drive = (pane: Pane, handle: MachineHandle, turn: Turn, input: CliRunInput, recipe: SubmitRecipe): Effect.Effect<CliTurn, CliRefusal> =>
+    Effect.gen(function* () {
+      turn.deadline = yield* armDeadline(pane, input);
+      const before = observe(pane, turn);
+      yield* submit(pane, handle, recipe);
+      const started = yield* awaitTurn(turn, () => advanced(before, observe(pane, turn)), recipe.stallWindowMs);
+      if (started === "stalled") return yield* stalled(pane, turn, "prompt_stalled", recipe.stallWindowMs);
+      if (started === "interrupted") return yield* Effect.fail(interrupted);
+      const ended = yield* awaitTurn(turn, () => factRows(pane, turn).some((row) => row.content.phase === "terminal"));
+      if (ended === "interrupted") return yield* Effect.fail(interrupted);
+      yield* disarm(turn);
+      return { child: pane.child, turn: turn.id, facts: factRows(pane, turn).length };
+    });
 
   return {
     run: (input) =>
       Effect.gen(function* () {
         const resolved = resolveCliContact(input.agent, deps);
         if ("reason" in resolved) return yield* Effect.fail(failure(resolved.reason));
+        // A replayed tool call: the key's turn is running or ended, and its one outcome is the answer — the letter is never re-typed.
+        const replay = turns.get(input.key);
+        if (replay !== undefined) return yield* joinTurn(replay);
         const handle = yield* machine(resolved);
         const recipe = resolved.pack.submit(input.message);
         const pane = yield* ensurePane(resolved, handle, input, recipe.stallWindowMs);
         yield* gate(pane, input, recipe);
         const turn = pane.turn?.id === input.key ? pane.turn : yield* openTurn(pane, input);
-        yield* armDeadline(pane, input);
-        const before = factRows(pane, turn).length;
-        yield* submit(pane, handle, recipe);
-        const started = yield* awaitTurn(turn, () => factRows(pane, turn).length > before, recipe.stallWindowMs);
-        if (started === "stalled") return yield* stalled(pane, turn, "prompt_stalled", recipe.stallWindowMs);
-        if (started === "interrupted") return yield* Effect.fail(interrupted);
-        const ended = yield* awaitTurn(turn, () => factRows(pane, turn).some((row) => row.content.phase === "terminal"));
-        if (ended === "interrupted") return yield* Effect.fail(interrupted);
-        return { child: pane.child, turn: turn.id, facts: factRows(pane, turn).length };
+        turns.set(input.key, turn);
+        return yield* settling(turn, drive(pane, handle, turn, input, recipe));
       }),
     interrupt: (child) =>
       Effect.gen(function* () {
         const contactId = children.get(child);
         const pane = contactId === undefined ? undefined : panes.get(contactId);
-        if (pane === undefined || pane.child !== child) return yield* Effect.fail(failure(`no cli child ${child} is running`));
+        const turn = pane?.turn ?? latest.get(child);
+        if (turn?.settled !== undefined)
+          return yield* Effect.fail({ reason: `turn_already_ended: cli child ${child} has no running turn to interrupt`, code: "turn_already_ended" as const });
+        if (pane === undefined || pane.child !== child || turn === undefined) return yield* Effect.fail(failure(`no cli child ${child} is running`));
         const handle = yield* machine(pane.contact);
         yield* write(pane, handle, "\u0003");
-        const turn = pane.turn;
-        if (turn === undefined) return;
         turn.interrupted = true;
         for (const wake of turn.wake) wake();
       }),

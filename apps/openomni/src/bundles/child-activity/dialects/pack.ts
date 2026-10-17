@@ -93,7 +93,9 @@ export interface DialectPack {
   /**
    * #1512: the vendor-side live configuration (hook wiring) written to the
    * machine before a correlated launch, as the file `launch` names through
-   * `liveConfigPath`. Required when `capabilities.live` is `hooks`.
+   * `liveConfigPath`. Required when `capabilities.live` is `hooks`; an
+   * `extension` pack may provide it for its own spool appender (#1527 pi);
+   * absent when `none`.
    */
   readonly liveConfig?: (input: LiveConfigInput) => string;
 }

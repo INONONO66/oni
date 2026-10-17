@@ -64,6 +64,53 @@ text verbatim), attach-by-observation to a pane the Resident did not launch,
 and the screen fallback — the `screen` seam waits for #1603. Required on the
 contact's machine: `pty.session`, `fs.read`, `fs.write`, `shell.exec`.
 
+r1 (2026-10-18, PR #1611 review): once `pty.open` has succeeded, every
+refusal before the run owns the pane — a refused live-config exec, a pack
+without `launch`, a refused watch install, a refused launch-line write, a
+bus without subscription — retires it (watch closed, tmux session closed,
+lease released, registry dropped) before the typed refusal propagates, so
+the next send launches fresh and no bare letter is ever typed into a shell
+without a launch; the stall predicate measures NEW OBSERVATION for the turn
+— a hook receipt with a sequence above the pre-submit maximum, or the
+derived state leaving `unknown` — never `child_fact` growth, because the
+vendor's start, submit and stop events share one `observed` fact per turn
+(a text-only answer or a first tool call after the window is not a stall;
+the e2e `[hang]` child acknowledges with `UserPromptSubmit` alone under a
+deadline longer than the stall window, so the deadline path and the stall
+path are provably distinct); the pack contract's `liveConfig` rule is
+one-directional (hooks ⇒ defined, none ⇒ undefined, an `extension` pack may
+opt in); `interrupt` refuses a turn that already ended with the typed
+`turn_already_ended`, the cancel door maps it to `already_ended` and the
+`delegation.deadline` wake then prompts nothing (`exhausted`), and the arm
+is retired through the plane's `at: null` idiom on the terminal and on a
+stall; the hook appender reopens a closed stdin on `/dev/null` before
+reading the payload and records its holder pid in the `mkdir` lock,
+breaking past the bound only a lock whose holder is gone; the spool's
+export is resolved from the declared `cwd` against the attachment's
+offered roots (new `MachineHost.exports(id)`), a cwd outside every export
+is a typed refusal after placement and before any pane opens; a replayed
+tool call with the same key joins the running turn or returns its settled
+outcome without re-typing the letter; committed-action rescans page from
+the last seen revision (`childRowsAfter`). Receipts: the r1 cases in
+`apps/openomni/test/cli-contact.test.ts` (pane rollback across three
+refusals, the TestClock stall predicate, typed `turn_already_ended` with no
+ETX, deadline retire on terminal and stall, replay of ended and running
+keys, one full-history scan, the hook appender run under `/bin/sh` with a
+closed stdin and live/dead/absent lock holders under a process watchdog,
+export resolution and refusal), `test/delegation-policy.test.ts`
+(`already_ended` → no prompt), `test/cli-contact-e2e.test.ts` (the retired
+deadline chain after the terminal; the longer-than-stall deadline), and
+`packages/machines/test/attach.test.ts` (`host.exports`). The
+`kernel.commit` pin is re-measured at `index.ts:1444`. At the r1 tip the
+complete `bun test apps/openomni --timeout 15000` run, backgrounded under
+the #1498 15-minute watchdog, was terminated by the watchdog after 25 test
+files with 0 `(fail)` lines (its last file header `test/hooks-json.test.ts`,
+a sibling lane's app suite running on the same machine when it ended) and
+is not claimed green; the focused files above, run with the two
+session-deadline receipts `test/message-terminal-boundaries.test.ts` and
+`test/request-channel-e2e.test.ts` that CI's whole-directory app lane also
+executes, passed 171/171 and carried the patch-coverage gate.
+
 ## #1511 child reconciler (epic #1508)
 
 On `feat/1511-child-reconciler` (2026-10-17, base `3f763326a`, PR #1570).

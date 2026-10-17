@@ -628,6 +628,9 @@ describe("machine attach handshake", () => {
             effectiveExports: ["work"],
           });
           const handle = host.get("mac-studio");
+          // #1512: the consumer resolves a declared cwd against the attachment's effective roots through the host.
+          expect(host.native.exports("mac-studio")).toEqual([{ name: "work", path: root }]);
+          expect(() => host.native.exports("unknown-machine")).toThrow(/machine is not attached/);
           expect(await handle.pty.open("qa", "/")).toEqual({ status: "refused", reason: "path_escapes_export" });
           // A symlink under the export escapes it: refused before tmux runs.
           expect(await handle.pty.open("qa", join(root, "leak"))).toEqual({

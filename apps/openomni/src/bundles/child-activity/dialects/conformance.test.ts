@@ -196,7 +196,11 @@ for (const pack of packs) {
       const live = pack.live;
       // A pack with both sources must say where the transcript is; a live-only or transcript-only pack has nothing to join.
       expect(pack.locate !== undefined).toBe(live !== undefined && pack.transcript !== undefined);
-      expect(pack.liveConfig !== undefined).toBe(pack.manifest.capabilities.live === "hooks");
+      // One direction only (r1 M1): hooks must be wired, nothing is wired without a live source, and an extension pack
+      // may ship its own appender's wiring from inside its directory or leave it out.
+      const liveKind = pack.manifest.capabilities.live;
+      if (liveKind === "hooks") expect(pack.liveConfig).toBeDefined();
+      if (liveKind === "none") expect(pack.liveConfig).toBeUndefined();
       const lines = fixtures.live ?? [];
       // The spool envelope is app-owned: `event` names the vendor event the hook command received.
       const Envelope = z.object({ event: z.string().min(1) });

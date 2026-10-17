@@ -273,7 +273,11 @@ test("deadline fire cancels the silent child through the injected door and promp
   const cancelled: { child: string; contact: string; occurrenceId: string }[] = [];
   const prompts: { content: string }[] = [];
   const handler = delegationPurposes({
-    cancel: (input) => Effect.sync(() => void cancelled.push(input)),
+    cancel: (input) =>
+      Effect.sync(() => {
+        cancelled.push(input);
+        return "cancelled" as const;
+      }),
   }).purposes[0]?.handler;
   if (handler === undefined) throw new Error("deadline purpose missing");
   const outcome = await runEffect(
@@ -293,6 +297,17 @@ test("deadline fire cancels the silent child through the injected door and promp
     firedAt: 5_000,
     note: "deadline expired with no reply; the child was cancelled",
   });
+});
+
+test("#1512 r1 L1: a door that finds the turn already ended makes the fire a no-op — no expiry prompt, the chain lapses exhausted", async () => {
+  const handler = delegationPurposes({ cancel: () => Effect.succeed("already_ended" as const) }).purposes[0]?.handler;
+  if (handler === undefined) throw new Error("deadline purpose missing");
+  const prompts: { content: string }[] = [];
+  const outcome = await runEffect(
+    handler({ fired: fired(JSON.stringify({ child: "child-1", contact: "cli:reviewer" })), ctx: wakeContext(prompts) }),
+  );
+  expect(outcome).toBe("exhausted");
+  expect(prompts).toEqual([]);
 });
 
 test("a malformed payload or a refused cancel is the typed wake failure, never a silent success", async () => {

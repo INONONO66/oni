@@ -3,11 +3,12 @@
  * rule, #1512): the vendor runs `sh <script> <event>` with its payload JSON
  * on stdin, and the script appends exactly one line
  * `{seq, event, receivedAt, payload}` to the spool. The sequence is a
- * per-child counter file advanced under a `mkdir` lock, so two concurrent
- * hook processes never share a number; `receivedAt` is epoch milliseconds.
- * POSIX sh only — it has to run on whatever shell the machine offers — and
- * vendor-neutral: the event name is whatever argument the pack's live config
- * wired, the payload is appended verbatim.
+ * per-child counter file advanced under a `mkdir` lock that records its
+ * holder's pid, so two concurrent hook processes never share a number and a
+ * waiter breaks only a lock whose holder is gone; `receivedAt` is epoch
+ * milliseconds. POSIX sh only — it has to run on whatever shell the machine
+ * offers — and vendor-neutral: the event name is whatever argument the pack's
+ * live config wired, the payload is appended verbatim.
  */
 const LOCK_TRIES_BEFORE_BREAK = 500;
 
@@ -15,10 +16,11 @@ function singleQuoted(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function hookScript(spoolPath: string): string {
+/** `lockTriesBeforeBreak` is the wait (in 20 ms tries) before a lock's holder is checked; tests shorten it. */
+export function hookScript(spoolPath: string, lockTriesBeforeBreak: number = LOCK_TRIES_BEFORE_BREAK): string {
   return [
     "#!/bin/sh",
-    "# openomni hook spool appender (#1512): one line per vendor event, monotonic seq, mkdir lock.",
+    "# openomni hook spool appender (#1512): one line per vendor event, monotonic seq, mkdir lock held by pid.",
     "set -u",
     // The vendor passes exactly one argument; `$*` reads it without tripping `set -u` when none came.
     'event="$*"',
@@ -26,6 +28,10 @@ export function hookScript(spoolPath: string): string {
     'counter="$spool.seq"',
     'lock="$spool.lock"',
     "case \"$event\" in ''|*[!A-Za-z0-9_]*) exit 0 ;; esac",
+    // A vendor that closed stdin must not hang the hook (r1 L2): with fd 0 closed the command substitution's own
+    // pipe would land on it and `cat` would read its own output forever, so a closed fd 0 is reopened on /dev/null
+    // first. Duplicating fd 0 onto a spare descriptor is the one probe every POSIX shell reports honestly.
+    "if ! { true 3<&0; } 2>/dev/null; then exec </dev/null; fi",
     // JSON strings never carry raw CR/LF, so stripping them only removes inter-token whitespace.
     "payload=$(cat | tr -d '\\r\\n')",
     "[ -n \"$payload\" ] || payload='{}'",
@@ -38,11 +44,18 @@ export function hookScript(spoolPath: string): string {
     "tries=0",
     'until mkdir "$lock" 2>/dev/null; do',
     "  tries=$((tries + 1))",
-    // A holder that died mid-append leaves its lock; after the bound it is broken rather than held forever.
-    `  if [ "$tries" -gt ${LOCK_TRIES_BEFORE_BREAK} ]; then rmdir "$lock" 2>/dev/null; tries=0; fi`,
+    // Past the bound only a lock whose holder is gone is broken (r1 L3): a live holder keeps it however long its
+    // append takes; a holder that died before recording itself, or after, has left a lock nobody will release.
+    `  if [ "$tries" -gt ${lockTriesBeforeBreak} ]; then`,
+    '    holder=$(cat "$lock/pid" 2>/dev/null)',
+    "    case \"$holder\" in ''|*[!0-9]*) holder= ;; esac",
+    '    if [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null; then rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null; fi',
+    "    tries=0",
+    "  fi",
     "  sleep 0.02 2>/dev/null || sleep 1",
     "done",
-    "trap 'rmdir \"$lock\" 2>/dev/null' EXIT",
+    "trap 'rm -f \"$lock/pid\"; rmdir \"$lock\" 2>/dev/null' EXIT",
+    "printf '%s\\n' \"$$\" > \"$lock/pid\"",
     'seq=$(cat "$counter" 2>/dev/null || printf 0)',
     "case \"$seq\" in ''|*[!0-9]*) seq=0 ;; esac",
     "seq=$((seq + 1))",

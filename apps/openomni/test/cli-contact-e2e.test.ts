@@ -15,7 +15,9 @@ import { join } from "node:path";
 import { attachMachineDaemon } from "@openomni/machines";
 import { L0Observation, Provisioning, type Tool } from "@openomni/protocol";
 import { Effect } from "effect";
+import { foldAlarmChains } from "../src/bundles/alarms/index";
 import { cliContactRowId, cliSessionName } from "../src/bundles/child-activity/contact/declaration";
+import { DELEGATION_DEADLINE } from "../src/bundles/delegation-policy/index";
 import { type ChildRow, receivedChildRows } from "../src/bundles/child-activity/reconcile";
 import { CliTurnPointer } from "../src/bundles/messaging/send-message/index";
 import { readSessionCursor } from "../src/gateway";
@@ -210,6 +212,10 @@ test("send_message to a declared cli: contact types the letter into the child's 
     cursor = { epoch: page.epoch, revision: page.nextRevision };
   }
   for (const row of rows) expect(listed.has(row.key)).toBe(true);
+  // r1 L1: the deadline armed for the send is retired with the terminal — its chain's latest arm is `at: null`.
+  const deadline = foldAlarmChains(kernel, residentId).get(`${residentId}:${DELEGATION_DEADLINE}`);
+  expect(deadline?.latest).toMatchObject({ purpose: DELEGATION_DEADLINE, at: null, sourceKey: `delegation:${pointer.child}` });
+  expect(deadline?.armCount).toBe(2);
   // The pane lives on the private tmux socket while the app runs.
   const session = cliSessionName(CONTACT);
   expect(tmux("has-session", "-t", session).exitCode).toBe(0);
@@ -219,8 +225,13 @@ test("send_message to a declared cli: contact types the letter into the child's 
 }, 120_000);
 
 test("a deadline on a cli send arms delegation.deadline; its fire interrupts the pane and the parent gets the expiry prompt", async () => {
+  // The [hang] child acknowledges the letter with UserPromptSubmit alone and never ends its turn. The deadline is
+  // LONGER than the pack's stall window (r1 H2): an acknowledgement that shares the turn's one `observed` fact must
+  // count as live observation, so the deadline path and the stall path are provably distinct — a stall here would
+  // retire the pane first, and the later fire would find no child to interrupt.
+  const stallWindowMs = pack.submit("probe").stallWindowMs;
   const { app, plane, tmux } = await bootContact("cli-deadline", {
-    to: { kind: "contact", id: `cli:${CONTACT}` }, message: "Run: echo hello [hang]", deadline_ms: 3_000,
+    to: { kind: "contact", id: `cli:${CONTACT}` }, message: "Run: echo hello [hang]", deadline_ms: stallWindowMs + 2_000,
   });
   const expired = awaitPrompt(plane, "delegation.deadline prompt", expiry);
   await ownerStart(app, "cli-deadline-start");
@@ -228,11 +239,12 @@ test("a deadline on a cli send arms delegation.deadline; its fire interrupts the
   const prompt = receivedMessages(plane, residentId).find(expiry);
   if (prompt === undefined) throw new Error("no expiry prompt");
   expect(JSON.parse(prompt.content)).toMatchObject({ kind: "delegation.deadline", contact: `cli:${CONTACT}` });
-  // The letter reached the pane: the child's submit was observed, no terminal, no contact reply.
+  // The letter reached the pane: the child's submit was observed, no terminal, no stall diagnostic, no contact reply.
   const rows = childRowsOf(plane, residentId);
   const phases = rows.flatMap((row) => (row.kind === "child_fact" && row.content.turn === `${residentId}:send-1` ? [row.content.phase] : []));
   expect(phases).toContain("observed");
   expect(phases).not.toContain("terminal");
+  expect(rows.some((row) => row.kind === "child_diagnostic")).toBe(false);
   expect(receivedMessages(plane, residentId).some(fromContact)).toBe(false);
   // The interrupt reached the pane: ETX ended the fake child, and with it the pane it was exec'd in.
   expect(tmux("has-session", "-t", cliSessionName(CONTACT)).exitCode).not.toBe(0);

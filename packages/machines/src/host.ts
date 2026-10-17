@@ -85,6 +85,13 @@ export interface MachineHost {
   place(request: HostPlacementRequest, workClass?: LeaseClass): HostPlacement;
   capacity(): ReturnType<ReturnType<typeof createCapacity>["capacity"]>;
   get(id: Machine.MachineId): MachineHandle;
+  /**
+   * The attachment's effective exports with their offered roots (#1512): the
+   * names the enrollment allows, each at the canonical root the daemon offered
+   * — the same roots `fs`/`exec`/`pty` confine to. Refuses like `get` when the
+   * machine is not attached.
+   */
+  exports(id: Machine.MachineId): readonly { readonly name: Machine.ExportName; readonly path: string }[];
   /** Enrollment persistence belongs to the caller; this revokes its live attachment. */
   unenroll(id: Machine.MachineId, reason?: "enrollment_removed" | "enrollment_replaced"): void;
   /** The bound endpoints — tcp carries the REAL port when the spec asked for 0. */
@@ -472,8 +479,15 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         };
       }).sort((a, b) => a.machineId.localeCompare(b.machineId));
     }
+    function exportsOf(id: string): readonly { readonly name: Machine.ExportName; readonly path: string }[] {
+      const peer = connection(id);
+      const allowed = new Set(peer.enrollment.allowedExports ?? []);
+      return (peer.offer.exports ?? [])
+        .filter((entry) => allowed.has(entry.name))
+        .map((entry) => ({ name: entry.name, path: normalizeExportRoot(entry.path) }));
+    }
     return {
-      get, list, place: capacity.place, capacity: capacity.capacity,
+      get, list, place: capacity.place, capacity: capacity.capacity, exports: exportsOf,
       unenroll(id, reason = "enrollment_removed") {
         const key = connectionByMachine.get(id);
         const attachment = key === undefined ? undefined : attachments.get(key);

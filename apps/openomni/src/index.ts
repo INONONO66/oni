@@ -472,11 +472,18 @@ export async function startOpenOmni(options: StartOptions = {}) {
           idempotencyKey: `${occurrenceId}:cancel`,
         })
         .pipe(
-          Effect.asVoid,
+          Effect.as("cancelled" as const),
           Effect.mapError((error) => ({ reason: String(error) })),
         );
-    // #1512: the armed contact names the door — a `cli:` child's pane interrupt, else the child session's signal.
-    cancelDoor = (input) => (input.contact.startsWith("cli:") ? (cliInterrupt?.(input.child) ?? Effect.fail({ reason: "cli contact runner is not composed" })) : cancelChildSession(input));
+    // #1512: the armed contact names the door — a `cli:` child's pane interrupt, else the child session's signal. A
+    // cli turn that ended before the fire is `already_ended`: the wake prompts nothing (r1 L1).
+    const cancelCliChild: DelegationDeadlineDeps["cancel"] = ({ child }) =>
+      (cliInterrupt === undefined ? Effect.fail({ reason: "cli contact runner is not composed" }) : cliInterrupt(child)).pipe(
+        Effect.as("cancelled" as const),
+        Effect.catch((refused: { readonly reason: string; readonly code?: "turn_already_ended" }) =>
+          refused.code === "turn_already_ended" ? Effect.succeed("already_ended" as const) : Effect.fail({ reason: refused.reason })),
+      );
+    cancelDoor = (input) => (input.contact.startsWith("cli:") ? cancelCliChild(input) : cancelChildSession(input));
 
     const domainRevisions = createRequestDomainRevisions({
       machineEnrollments: enrollments,
@@ -766,17 +773,20 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // send only answers at `fireAt`, and the arming turn must not block on it.
     const scheduleAlarm = (sessionId: string, occurrence: Parameters<typeof sendAlarm>[1]) =>
       entityClient(sessionId).Alarm(occurrence, { discard: true });
-    const childRows = (sessionId: string): ChildRow[] => {
+    // #1512 r1 L6: one paged read; the cli runner resumes from the revision it last saw instead of rescanning.
+    const childRowsAfter = (sessionId: string, afterRevision: number): { readonly rows: ChildRow[]; readonly revision: number } => {
       const kernel = plane.openKernel(sessionId);
       const rows: ChildRow[] = [];
-      let afterRevision = 0;
+      let after = afterRevision;
       for (;;) {
-        const page = kernel.historyPage(sessionId, { afterRevision });
+        const page = kernel.historyPage(sessionId, { afterRevision: after });
         rows.push(...receivedChildRows(page.actions));
-        if (page.nextRevision === null) return rows;
-        afterRevision = page.nextRevision;
+        after = page.actions.at(-1)?.ordinal ?? after;
+        if (page.nextRevision === null) return { rows, revision: after };
+        after = page.nextRevision;
       }
     };
+    const childRows = (sessionId: string): ChildRow[] => childRowsAfter(sessionId, 0).rows;
     // Terminal watches drain the same machines surface the bash door uses.
     const watchSources = createWatchSources(
       {
@@ -820,18 +830,23 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // #1258/#1512: one arm of the delegation.deadline purpose for a created
     // child session or a cli child; the payload's contact tells the cancel
     // door which interrupt the fire takes.
-    const armDeadline = (input: { readonly sessionId: string; readonly turnId: string; readonly child: string; readonly contact: string; readonly at: number }) =>
-      watchPlane.arms
-        .arm(input.sessionId, input.turnId)({
-          purpose: DELEGATION_DEADLINE,
-          at: input.at,
-          payload: { child: input.child, contact: input.contact },
-          sourceKey: `delegation:${input.child}`,
-        })
-        .pipe(
-          Effect.asVoid,
-          Effect.mapError((refused) => ({ reason: refused.code })),
-        );
+    // The arm answers with its retire door (#1512 r1 L1): the alarm plane's
+    // retire idiom, `at: null` on the same chain and source key, once the
+    // cli turn has ended, so a late fire never interrupts an idle child.
+    const armDeadline = (input: { readonly sessionId: string; readonly turnId: string; readonly child: string; readonly contact: string; readonly at: number }) => {
+      const arm = watchPlane.arms.arm(input.sessionId, input.turnId);
+      const payload = { child: input.child, contact: input.contact };
+      const sourceKey = `delegation:${input.child}`;
+      return arm({ purpose: DELEGATION_DEADLINE, at: input.at, payload, sourceKey }).pipe(
+        Effect.map((armed) => ({
+          retire: arm({ purpose: DELEGATION_DEADLINE, at: null, alarmId: armed.alarmId, supersedes: armed.occurrenceId, payload, sourceKey }).pipe(
+            Effect.asVoid,
+            Effect.mapError((refused) => ({ reason: refused.code })),
+          ),
+        })),
+        Effect.mapError((refused) => ({ reason: refused.code })),
+      );
+    };
     // #1512: the `cli:` contact over the declared machine's pty. Nothing runs
     // until a `channel:cli:<id>` row is declared; app stop drops every pane
     // this Resident launched (watch, tmux session, lease).
@@ -842,7 +857,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       watch: {
         install: (spec) => childActivity.install(spec).pipe(Effect.mapError((refused) => ({ reason: refused.reason }))),
         close: childActivity.close,
-        rows: childRows,
+        rows: childRowsAfter,
         admit: (sessionId, rows) =>
           childActivity.admit(sessionId, rows).pipe(Effect.asVoid, Effect.mapError((error) => ({ reason: String(error) }))),
       },
@@ -929,7 +944,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
             run: (effect) => runAppEffect(runtime, effect),
           }),
           deadline: {
-            arm: ({ sessionId, turnId, child, at }) => armDeadline({ sessionId, turnId, child, contact: `session:${child}`, at }),
+            arm: ({ sessionId, turnId, child, at }) => armDeadline({ sessionId, turnId, child, contact: `session:${child}`, at }).pipe(Effect.asVoid),
           },
           // #1512: the declared cli contact's runner, and the one reply path:
           // the pointer prompt lands in the sender's inbox through the entity's

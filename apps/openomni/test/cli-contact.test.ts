@@ -6,9 +6,13 @@
  * through the reconciler's door, the deadline interrupt, and pane cleanup.
  * Every observation the runner acts on is a persisted row built from the
  * dialect fixtures through the pack's own decoders; no vendor payload is
- * written by hand here.
+ * written by hand here. The hook appender itself runs under the local
+ * POSIX shell with a closed stdin and contested locks.
  */
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type LeaseHandle, type MachineHandle, type MachineHost, MachineRefusalError } from "@openomni/machines";
 import { Effect } from "effect";
 import { executeChannelDeclare, channelDomainRevisions, CHANNEL_DECLARE_INPUT } from "../src/bundles/provision/channels";
@@ -29,7 +33,7 @@ import { type ChildRow, reconcile, stateReceipts } from "../src/bundles/child-ac
 import { decodeSpool } from "../src/bundles/child-activity/spool";
 import { decodeTranscript } from "../src/bundles/child-activity/transcript";
 import { fixture, fixtures, pack, reference } from "./helpers/child-activity";
-import { runEffect } from "./helpers/effect";
+import { runEffect, testClockRuntime } from "./helpers/effect";
 import { testPlane } from "./helpers/ledger";
 import { provisionPort } from "./helpers/provision-port";
 import { testChannelDeps, testIds } from "./helpers/test-entropy";
@@ -92,11 +96,16 @@ interface Scripted {
   /** Scripted daemon refusals. */
   listRefused?: boolean;
   openRefused?: boolean;
+  writeRefused?: boolean;
+  /** The exit code every exec answers with; `0` when unset. */
+  execExit?: number;
+  /** The attachment's effective exports with their roots; `work=/work` when unset. */
+  exports?: readonly { readonly name: string; readonly path: string }[];
   /** Scripted placement outcomes by machine id; unlisted machines are placed on MACHINE only. */
   placement?: Record<string, ReturnType<MachineHost["place"]>>;
 }
 
-function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "list"> {
+function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "exports"> {
   const unused = Effect.die(new Error("unused machine operation"));
   const handle: MachineHandle = {
     fs: {
@@ -117,7 +126,7 @@ function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "li
     exec: (cmd) =>
       Effect.sync(() => {
         script.execs.push(cmd);
-        return { status: "completed" as const, stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: 0, signal: null, truncated: false };
+        return { status: "completed" as const, stdout: new Uint8Array(), stderr: new Uint8Array(), exitCode: script.execExit ?? 0, signal: null, truncated: false };
       }),
     screen: () => unused,
     input: () => unused,
@@ -130,6 +139,7 @@ function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "li
         }),
       write: (_name, data) =>
         Effect.sync(() => {
+          if (script.writeRefused === true) return { status: "refused" as const, reason: "pty_not_available" as const };
           const text = Buffer.from(data).toString("utf8");
           script.writes.push(text);
           script.onWrite?.(text);
@@ -159,25 +169,33 @@ function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "li
         : { kind: "no_member" };
     },
     get: () => handle,
-    list: () => [{ machineId: MACHINE, name: "m", allowedCapabilities: ["pty.session"], allowedExports: ["work"], publicKey: "0".repeat(64), enrolledAt: 1, tags: [], capabilities: ["pty.session"], os: "darwin", arch: "arm64" }],
+    exports: () => script.exports ?? [{ name: "work", path: "/work" }],
   };
 }
 
-/** The reconciler stand-in: persisted rows per session, one admission door, and the committed-action notification. */
+/** The reconciler stand-in: persisted rows per session, one admission door, the paged read, and the committed-action notification. */
 function scriptedWatch() {
   const rows = new Map<string, ChildRow[]>();
   const listeners = new Map<string, Set<() => void>>();
   const installs: ChildWatch[] = [];
   const closes: string[] = [];
   const admitted: ChildRow[][] = [];
+  /** Every `afterRevision` the runner paged from (r1 L6): the whole history is read once, then only the tail. */
+  const scans: number[] = [];
+  const knobs: { refuseInstall?: string } = {};
   const push = (sessionId: string, added: readonly ChildRow[]) => {
     rows.set(sessionId, [...(rows.get(sessionId) ?? []), ...added]);
     for (const listener of listeners.get(sessionId) ?? []) listener();
   };
   const ports: CliRunnerDeps["watch"] = {
-    install: (spec) => Effect.sync(() => void installs.push(spec)),
+    install: (spec) =>
+      knobs.refuseInstall === undefined ? Effect.sync(() => void installs.push(spec)) : Effect.fail({ reason: knobs.refuseInstall }),
     close: (id) => Effect.sync(() => void closes.push(id)),
-    rows: (sessionId) => rows.get(sessionId) ?? [],
+    rows: (sessionId, afterRevision) => {
+      scans.push(afterRevision);
+      const all = rows.get(sessionId) ?? [];
+      return { rows: all.slice(afterRevision), revision: all.length };
+    },
     admit: (sessionId, added) =>
       Effect.sync(() => {
         admitted.push([...added]);
@@ -190,7 +208,7 @@ function scriptedWatch() {
     listeners.set(sessionId, set);
     return () => void set.delete(listener);
   };
-  return { ports, committed, push, installs, closes, admitted, known: (sessionId: string) => rows.get(sessionId) ?? [] };
+  return { ports, committed, push, installs, closes, admitted, scans, knobs, known: (sessionId: string) => rows.get(sessionId) ?? [] };
 }
 
 function declaredContact(id: string, settings: Record<string, string>) {
@@ -199,6 +217,12 @@ function declaredContact(id: string, settings: Record<string, string>) {
     id: cliContactRowId(id), provider: "cli", identity: "bot", enabled: true, settings, revision: 0, createdBy: "owner", updatedAt: 1,
   });
   return plane;
+}
+
+/** The fake child's launch answer: SessionStart in the spool, admitted for the turn. */
+function launchAnswer(script: Scripted, watch: ReturnType<typeof scriptedWatch>, child: string, key: string): void {
+  script.files.set(`/work/.openomni/${child}/spool.jsonl`, `${liveLine("SessionStart")}\n`);
+  watch.push(SENDER, hookRows(child, key, [liveLine("SessionStart")], watch.known(SENDER)));
 }
 
 test("the address resolves a declared row only: unknown dialect, unknown machine, disabled or undeclared rows are typed refusals", () => {
@@ -289,11 +313,62 @@ test("the hook appender is POSIX sh, names its spool quoted, and the pack wires 
   expect(launchLine({ argv: ["agent"], env: { A: "x y" } })).toBe("exec env A='x y' 'agent'\n");
 });
 
+/**
+ * One hook invocation under the local shell, bounded by the process watchdog: never a sleep, never an unbounded
+ * wait. `exec` makes the hook's shell the watched process itself, so a kill at the bound leaves no orphan waiting on
+ * the lock behind the test's back.
+ */
+async function runHook(shell: string, stdin: "ignore" | Uint8Array, timeoutMs: number) {
+  const child = Bun.spawn(["/bin/sh", "-c", `exec ${shell}`], { stdin, stdout: "ignore", stderr: "ignore", timeout: timeoutMs, killSignal: "SIGKILL" });
+  await child.exited;
+  return { exitCode: child.exitCode, signalCode: child.signalCode };
+}
+
+test("#1512 r1 L2/L3: the hook appender appends {} on a closed stdin instead of hanging, and breaks only a lock whose holder is gone", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "openomni-hook-"));
+  const spool = join(dir, "spool.jsonl");
+  const lock = `${spool}.lock`;
+  const script = join(dir, "hook.sh");
+  // Three 20 ms tries before the holder is checked: the shipped 500 would hold a dead holder's lock for ten seconds here.
+  writeFileSync(script, hookScript(spool, 3));
+  const lines = () => readFileSync(spool, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { seq: number; event: string; receivedAt: number; payload: object });
+  try {
+    // A vendor that closed stdin: the event still lands, with the empty payload, and the hook exits.
+    expect(await runHook(`sh '${script}' UserPromptSubmit <&-`, "ignore", 3_000)).toEqual({ exitCode: 0, signalCode: null });
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]).toMatchObject({ seq: 1, event: "UserPromptSubmit", payload: {} });
+    expect(typeof lines()[0]?.receivedAt).toBe("number");
+    // The payload on stdin is appended verbatim under the next sequence.
+    expect(await runHook(`sh '${script}' PreToolUse`, Buffer.from('{"tool_name":"Bash"}'), 3_000)).toEqual({ exitCode: 0, signalCode: null });
+    expect(lines().at(-1)).toMatchObject({ seq: 2, event: "PreToolUse", payload: { tool_name: "Bash" } });
+    // A lock held by a LIVE process (this one) is never broken: the hook waits until the watchdog ends it.
+    mkdirSync(lock);
+    writeFileSync(join(lock, "pid"), `${process.pid}\n`);
+    expect(await runHook(`sh '${script}' Stop <&-`, "ignore", 1_500)).toEqual({ exitCode: null, signalCode: "SIGKILL" });
+    expect(lines()).toHaveLength(2);
+    expect(readFileSync(join(lock, "pid"), "utf8").trim()).toBe(String(process.pid));
+    // A lock whose holder is gone is broken past the bound, and the appender releases its own on exit.
+    const gone = Bun.spawn(["/bin/sh", "-c", "exit 0"], { stdout: "ignore", stderr: "ignore" });
+    await gone.exited;
+    writeFileSync(join(lock, "pid"), `${gone.pid}\n`);
+    expect(await runHook(`sh '${script}' Stop <&-`, "ignore", 3_000)).toEqual({ exitCode: 0, signalCode: null });
+    expect(lines().at(-1)).toMatchObject({ seq: 3, event: "Stop" });
+    expect(() => readFileSync(join(lock, "pid"))).toThrow();
+    // A holder that died before recording itself left a lock with no pid: broken past the bound as well.
+    mkdirSync(lock);
+    expect(await runHook(`sh '${script}' SessionEnd <&-`, "ignore", 3_000)).toEqual({ exitCode: 0, signalCode: null });
+    expect(lines().at(-1)).toMatchObject({ seq: 4, event: "SessionEnd" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 15_000);
+
 test("the runner: launch on first send, one watch per turn, refusals by the data rule, the stalled diagnostic through the door, the deadline interrupt, and pane cleanup", async () => {
   const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
   const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [] };
   const watch = scriptedWatch();
   const armed: object[] = [];
+  const retired: string[] = [];
   const runner = createCliRunner({
     instances: plane.stores.instances,
     machineKnown: (machine) => machine === MACHINE,
@@ -301,7 +376,11 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
     host: scriptedHost(script),
     watch: watch.ports,
     committed: watch.committed,
-    deadline: (input) => Effect.sync(() => void armed.push(input)),
+    deadline: (input) =>
+      Effect.sync(() => {
+        armed.push(input);
+        return { retire: Effect.sync(() => void retired.push(input.child)) };
+      }),
     id: testIds("child"),
     now: () => 10_000,
   });
@@ -316,10 +395,7 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
     const spool = "/work/.openomni/child-1/spool.jsonl";
     const respond = (key: string, lines: readonly string[], terminal: boolean) => {
       script.onWrite = (text) => {
-        if (text.startsWith("exec ")) {
-          script.files.set(spool, `${liveLine("SessionStart")}\n`);
-          watch.push(SENDER, hookRows("child-1", key, [liveLine("SessionStart")], watch.known(SENDER)));
-        }
+        if (text.startsWith("exec ")) launchAnswer(script, watch, "child-1", key);
         if (text === "\r") {
           const known = watch.known(SENDER);
           const added = hookRows("child-1", key, lines, known);
@@ -349,6 +425,14 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
     expect(watch.installs[1]).toMatchObject({ sessionId: SENDER, child: "child-1", occupant: { command: "claude" }, spool: { machine: MACHINE, export: "work", parser: { dialect: "hook-spool", version: "1" } }, transcript: { parser: { dialect: DIALECT, version: "1" } } });
     expect(watch.closes).toEqual(["cli:child-1:k1"]);
     expect(armed).toEqual([{ sessionId: SENDER, turnId: "turn-1", child: "child-1", contact: "cli:reviewer", at: 70_000 }]);
+    // r1 L1: the deadline is retired with the terminal — a late fire has nothing to interrupt.
+    expect(retired).toEqual(["child-1"]);
+    // r1 L5: a replay of the tool call's key returns the admitted pointer and types nothing.
+    expect(await runEffect(send("k1"))).toEqual(first);
+    expect(script.writes).toHaveLength(3);
+    // r1 L1: the ended turn refuses the deadline door typed; no ETX reaches the idle child.
+    expect(await runEffect(Effect.flip(runner.interrupt("child-1")))).toEqual({ reason: expect.stringContaining("turn_already_ended"), code: "turn_already_ended" });
+    expect(script.writes).toHaveLength(3);
 
     // The second send reuses the pane; a child waiting on a permission request (hook authority, even after the
     // transcript ended the turn) refuses the write as agent_blocked.
@@ -360,11 +444,12 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
     const decidedLine = fixtures.live.find((entry) => entry.phase === "decided")?.line;
     if (decidedLine === undefined) throw new Error("missing decided fixture");
     watch.push(SENDER, hookRows("child-1", "k1", [decidedLine], watch.known(SENDER)));
-    const stalled = await runEffect(Effect.flip(send("k3")));
+    const stalled = await runEffect(Effect.flip(send("k3", 60_000)));
     expect(stalled).toEqual({ reason: "prompt_stalled: no live observation within 20 ms" });
     expect(watch.closes.slice(1)).toEqual(["cli:child-1:k1", "cli:child-1:k3"]);
     expect(script.writes.slice(3)).toEqual(["hello", "\r"]);
-    // The stalled diagnostic went through the reconciler's door with the spool reference and no bytes; the pane was retired.
+    // The stalled diagnostic went through the reconciler's door with the spool reference and no bytes; the pane was
+    // retired, and the stall retired its deadline too (r1 L1).
     expect(watch.admitted).toHaveLength(1);
     expect(watch.admitted[0]?.[0]).toMatchObject({
       kind: "child_diagnostic",
@@ -372,14 +457,14 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
     });
     expect(script.live.has("cli-reviewer")).toBe(false);
     expect(script.lease).toContain("release");
+    expect(retired).toEqual(["child-1", "child-1"]);
+    // A replay of the stalled key is the same refusal, with no fresh launch and no letter.
+    expect(await runEffect(Effect.flip(send("k3")))).toEqual(stalled);
+    expect(script.writes).toHaveLength(5);
 
     // The next send launches a fresh child; the deadline door interrupts its pane and the waiting send ends `landed`.
-    const spool2 = "/work/.openomni/child-2/spool.jsonl";
     script.onWrite = (text) => {
-      if (text.startsWith("exec ")) {
-        script.files.set(spool2, `${liveLine("SessionStart")}\n`);
-        watch.push(SENDER, hookRows("child-2", "k4", [liveLine("SessionStart")], watch.known(SENDER)));
-      }
+      if (text.startsWith("exec ")) launchAnswer(script, watch, "child-2", "k4");
       if (text === "\r") watch.push(SENDER, hookRows("child-2", "k4", [liveLine("UserPromptSubmit")], watch.known(SENDER)));
     };
     const pending = runEffect(Effect.flip(send("k4")));
@@ -396,13 +481,16 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
       };
       if (script.writes.includes("\r") && script.writes.filter((write) => write === "\r").length >= 3) resolve();
     });
-    // A concurrent send to a running child is busy, and writes nothing.
+    // A concurrent send to a running child is busy, and writes nothing; a replay of the running key joins it (r1 L5).
     const writesBefore = script.writes.length;
     expect(await runEffect(Effect.flip(send("k4b")))).toEqual({ reason: "agent_busy: the child's previous turn has not ended" });
+    const replayed = runEffect(Effect.flip(send("k4")));
     expect(script.writes).toHaveLength(writesBefore);
     await runEffect(runner.interrupt("child-2"));
     expect(await pending).toEqual({ reason: "deadline expired; the child was interrupted", landed: true });
+    expect(await replayed).toEqual({ reason: "deadline expired; the child was interrupted", landed: true });
     expect(script.writes.at(-1)).toBe("\u0003");
+    expect(script.writes).toHaveLength(writesBefore + 1);
 
     // After our own interrupt the pane is idle for the next turn, which runs to its terminal.
     script.onWrite = (text) => {
@@ -414,6 +502,16 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
       }
     };
     expect(await runEffect(send("k5"))).toEqual({ child: "child-2", turn: "k5", facts: 2 });
+    // r1 L1: terminal resolved, then the deadline door — typed refusal, no ETX written.
+    const writesAfterTerminal = script.writes.length;
+    expect(await runEffect(Effect.flip(runner.interrupt("child-2")))).toMatchObject({ code: "turn_already_ended" });
+    expect(script.writes).toHaveLength(writesAfterTerminal);
+    expect(script.writes.at(-1)).toBe("\r");
+
+    // r1 L6: the committed-action rescans paged forward — the whole history was read exactly once, then only the tail.
+    expect(watch.scans[0]).toBe(0);
+    expect(watch.scans.filter((after) => after === 0)).toHaveLength(1);
+    expect(watch.scans.every((after, index) => index === 0 || after >= (watch.scans[index - 1] ?? 0))).toBe(true);
 
     // Closing the runner drops the pane: its watch, its tmux session, its lease.
     await runEffect(runner.close());
@@ -425,10 +523,157 @@ test("the runner: launch on first send, one watch per turn, refusals by the data
   }
 });
 
+test("#1512 r1 H2: the stall predicate measures new observation — an acknowledgement alone inside the window is not a stall, a silent child is", async () => {
+  const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
+  const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [] };
+  const watch = scriptedWatch();
+  const clock = testClockRuntime();
+  const runner = createCliRunner({
+    instances: plane.stores.instances,
+    machineKnown: () => true,
+    packs: [testPack],
+    host: scriptedHost(script),
+    watch: watch.ports,
+    committed: watch.committed,
+    id: testIds("child"),
+    now: () => 0,
+  });
+  const send = (key: string) => runner.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "t", key });
+  /** Resolves on the exact write the fake child saw: the Enter that submits the letter. */
+  const enterSeen = () =>
+    new Promise<void>((resolve) => {
+      const previous = script.onWrite;
+      script.onWrite = (text) => {
+        previous?.(text);
+        if (text === "\r") resolve();
+      };
+    });
+  try {
+    // The child answers the launch with SessionStart, and the letter with UserPromptSubmit alone: one more receipt
+    // on the turn's single `observed` fact — the fact count does not grow, the hook sequence does.
+    script.onWrite = (text) => {
+      if (text.startsWith("exec ")) launchAnswer(script, watch, "child-1", "k1");
+      if (text === "\r") watch.push(SENDER, hookRows("child-1", "k1", [liveLine("UserPromptSubmit")], watch.known(SENDER)));
+    };
+    const submitted = enterSeen();
+    const first = clock.run(send("k1"));
+    await clock.adjust(1);
+    await submitted;
+    // The whole stall window passes on the test clock with nothing but the acknowledgement: no stall.
+    await clock.adjust(20);
+    expect(watch.admitted).toEqual([]);
+    expect(script.live.has("cli-reviewer")).toBe(true);
+    // The first tool call and the turn's end arrive after the window; the run resolves on the terminal.
+    const known = watch.known(SENDER);
+    const tools = hookRows("child-1", "k1", [liveLine("PreToolUse"), liveLine("PostToolUse"), liveLine("Stop")], known);
+    watch.push(SENDER, tools);
+    watch.push(SENDER, transcriptRows("child-1", "k1", "terminal", [...known, ...tools]));
+    expect(await first).toEqual({ child: "child-1", turn: "k1", facts: 4 });
+
+    // A child that yields nothing at all within the window is the prompt_stalled diagnostic, and its pane is retired.
+    script.onWrite = undefined;
+    const silent = enterSeen();
+    const second = clock.run(Effect.flip(send("k2")));
+    await clock.adjust(1);
+    await silent;
+    await clock.adjust(20);
+    expect(await second).toEqual({ reason: "prompt_stalled: no live observation within 20 ms" });
+    expect(watch.admitted[0]?.[0]).toMatchObject({ kind: "child_diagnostic", content: { turn: "k2", diagnostic: { code: "prompt_stalled" } } });
+    expect(script.live.has("cli-reviewer")).toBe(false);
+  } finally {
+    await clock.dispose();
+    plane.close();
+  }
+});
+
+test("#1512 r1 H1: a refusal between pty.open and the launch line retires the pane — session closed, lease released, nothing registered — and the next send launches fresh", async () => {
+  const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
+  plane.stores.instances.put({ id: cliContactRowId("nested"), provider: "cli", identity: "bot", enabled: true, settings: { dialect: DIALECT, machine: MACHINE, cwd: "/work/deep/project" }, revision: 0, createdBy: "owner", updatedAt: 1 });
+  const script: Scripted = { live: new Set(), files: new Map(), writes: [], execs: [], lease: [] };
+  const watch = scriptedWatch();
+  const runner = createCliRunner({
+    instances: plane.stores.instances,
+    machineKnown: () => true,
+    packs: [testPack],
+    host: scriptedHost(script),
+    watch: watch.ports,
+    committed: watch.committed,
+    id: testIds("child"),
+    now: () => 0,
+  });
+  const attempt = (agent: string, key: string) => runEffect(Effect.flip(runner.run({ agent, message: "hello", sender: SENDER, turnId: "t", key })));
+  const releases = () => script.lease.filter((entry) => entry === "release").length;
+  try {
+    // The live-config exec refused: the pane was open, so it is closed again and its lease released; no watch, no bytes.
+    script.execExit = 1;
+    expect(await attempt("reviewer", "k1")).toEqual({ reason: "live config directory /work/.openomni/child-1: exit 1" });
+    expect(script.live.has("cli-reviewer")).toBe(false);
+    expect(releases()).toBe(1);
+    expect(watch.installs).toEqual([]);
+    expect(script.writes).toEqual([]);
+    // The watch install refused after the live config landed: the just-installed watch is closed with the pane.
+    script.execExit = undefined;
+    watch.knobs.refuseInstall = "not_live";
+    expect(await attempt("reviewer", "k2")).toEqual({ reason: "not_live" });
+    expect(script.live.has("cli-reviewer")).toBe(false);
+    expect(releases()).toBe(2);
+    expect(watch.closes).toEqual([]);
+    expect(script.writes).toEqual([]);
+    // The launch line itself refused by the daemon: the bare shell is not kept either.
+    watch.knobs.refuseInstall = undefined;
+    script.writeRefused = true;
+    expect(await attempt("reviewer", "k3")).toEqual({ reason: "pty.write refused: pty_not_available" });
+    expect(script.live.has("cli-reviewer")).toBe(false);
+    expect(releases()).toBe(3);
+    expect(watch.closes).toEqual(["cli:child-3:k3"]);
+    expect(script.writes).toEqual([]);
+    // The next send launches fresh: its first write into the pane is the exec launch line, and the letter follows
+    // only after the child answered — no bare letter was ever typed into a shell without a launch.
+    script.writeRefused = undefined;
+    script.onWrite = (text) => {
+      if (text.startsWith("exec ")) launchAnswer(script, watch, "child-4", "k4");
+      if (text === "\r") {
+        const known = watch.known(SENDER);
+        const added = hookRows("child-4", "k4", [liveLine("UserPromptSubmit")], known);
+        watch.push(SENDER, added);
+        watch.push(SENDER, transcriptRows("child-4", "k4", "terminal", [...known, ...added]));
+      }
+    };
+    expect(await runEffect(runner.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "t", key: "k4" }))).toEqual({ child: "child-4", turn: "k4", facts: 2 });
+    expect(script.writes[0]?.startsWith("exec ")).toBe(true);
+    expect(script.writes).toEqual([
+      launchLine({ argv: ["claude", "--session-id", "child-4", "--settings", "/work/.openomni/child-4/live.json"], env: {} }),
+      "hello",
+      "\r",
+    ]);
+    expect(script.live.has("cli-reviewer")).toBe(true);
+    // r1 L4: the spool's export is the longest offered root containing the declared cwd, never a fabricated name.
+    script.exports = [{ name: "work", path: "/work" }, { name: "deep", path: "/work/deep" }];
+    script.onWrite = (text) => {
+      if (text.startsWith("exec ")) {
+        script.files.set("/work/deep/project/.openomni/child-5/spool.jsonl", `${liveLine("SessionStart")}\n`);
+        watch.push(SENDER, hookRows("child-5", "k5", [liveLine("SessionStart")], watch.known(SENDER)));
+      }
+      if (text === "\r") {
+        const known = watch.known(SENDER);
+        const added = hookRows("child-5", "k5", [liveLine("UserPromptSubmit")], known);
+        watch.push(SENDER, added);
+        watch.push(SENDER, transcriptRows("child-5", "k5", "terminal", [...known, ...added]));
+      }
+    };
+    expect(await runEffect(runner.run({ agent: "nested", message: "hello", sender: SENDER, turnId: "t", key: "k5" }))).toEqual({ child: "child-5", turn: "k5", facts: 2 });
+    expect(watch.installs.at(-1)?.spool).toMatchObject({ export: "deep", path: "/work/deep/project/.openomni/child-5/spool.jsonl" });
+  } finally {
+    await runEffect(runner.close());
+    plane.close();
+  }
+});
+
 test("the runner never writes to a pane it did not launch, and every placement or daemon refusal is a typed reason before any write", async () => {
   const plane = declaredContact("reviewer", { dialect: DIALECT, machine: MACHINE, cwd: "/work" });
   for (const [id, machine] of [["remote", "m-2"], ["stale", "m-3"], ["full", "m-4"]] as const)
     plane.stores.instances.put({ id: cliContactRowId(id), provider: "cli", identity: "bot", enabled: true, settings: { dialect: DIALECT, machine }, revision: 0, createdBy: "owner", updatedAt: 1 });
+  plane.stores.instances.put({ id: cliContactRowId("astray"), provider: "cli", identity: "bot", enabled: true, settings: { dialect: DIALECT, machine: MACHINE, cwd: "/elsewhere" }, revision: 0, createdBy: "owner", updatedAt: 1 });
   const script: Scripted = {
     live: new Set(["cli-reviewer"]), files: new Map(), writes: [], execs: [], lease: [],
     placement: {
@@ -455,14 +700,18 @@ test("the runner never writes to a pane it did not launch, and every placement o
     expect(await attempt("remote", "k2")).toEqual({ reason: "machine m-2 is not attached" });
     expect(await attempt("stale", "k3")).toEqual({ reason: "machine m-3 is stale" });
     expect(await attempt("full", "k4")).toEqual({ reason: "machine_saturated: m-4 (slots)" });
-    // The daemon's own refusals: no pty surface, a cwd outside the exports (the lease is released again).
+    // r1 L4: a cwd outside every offered export is refused typed after placement and before any pane opens; the
+    // lease goes straight back.
     script.live.clear();
+    expect(await attempt("astray", "k4b")).toEqual({ reason: "cwd /elsewhere is outside every export machine m-1 offers (work=/work)" });
+    expect(script.lease).toEqual(["release"]);
+    // The daemon's own refusals: no pty surface, a cwd outside the exports (the lease is released again).
     script.listRefused = true;
     expect(await attempt("reviewer", "k5")).toEqual({ reason: "pty.list refused: pty_not_available" });
     script.listRefused = false;
     script.openRefused = true;
     expect(await attempt("reviewer", "k6")).toEqual({ reason: "pty.open refused: path_escapes_export" });
-    expect(script.lease).toEqual(["open:cli-reviewer", "release"]);
+    expect(script.lease).toEqual(["release", "open:cli-reviewer", "release"]);
     expect(script.writes).toEqual([]);
     expect(watch.installs).toEqual([]);
   } finally {
@@ -502,13 +751,15 @@ test("a launch whose first live line names no transcript keeps the spool-only wa
     expect(await runEffect(createCliRunner(deps).run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "t", key: "k1" }))).toEqual({ child: "child-1", turn: "k1", facts: 3 });
     expect(watch.installs).toHaveLength(1);
     expect(watch.installs[0]?.transcript).toBeUndefined();
-    // Without a committed-action subscription the first wait is a typed refusal, after the launch went out.
+    // Without a committed-action subscription the first wait is a typed refusal, after the launch went out — and the
+    // pane it launched is not kept (r1 H1).
     script.live.clear();
     script.onWrite = undefined;
     const silent = createCliRunner({ ...deps, id: testIds("quiet"), committed: () => undefined });
     expect(await runEffect(Effect.flip(silent.run({ agent: "reviewer", message: "hello", sender: SENDER, turnId: "t", key: "k2" })))).toEqual({
       reason: "the observation bus offers no subscription; a cli turn cannot be awaited",
     });
+    expect(script.live.has("cli-reviewer")).toBe(false);
   } finally {
     plane.close();
   }
