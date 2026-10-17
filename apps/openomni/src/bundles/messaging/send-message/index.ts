@@ -1,4 +1,5 @@
 import { Bundle, Core } from "@openomni/agent";
+import { activeBudgetFor, type PersonStore } from "@openomni/channels";
 import { Gateway, Outbound } from "@openomni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -105,8 +106,10 @@ function outboundPayload(input: SendMessageInput): Outbound.Payload {
 }
 
 /** The tool's vocabulary folded onto the gateway's consumer surface. */
-function toGatewaySend(input: SendMessageInput, now: number): Gateway.SendMessage {
+function toGatewaySend(input: SendMessageInput, now: number, consented = false): Gateway.SendMessage {
   return {
+    // #1569 lane 8: the Owner approved this invocation — the fact the gate admits a budget-less send on.
+    ...(consented ? { consented: true as const } : {}),
     to:
       input.to.kind === "contact"
         ? {
@@ -218,6 +221,34 @@ export interface ContactPorts {
   readonly a2a?: A2AContactPort;
   readonly reply?: ContactReplyPort;
   readonly deadline?: DelegationDeadlinePort;
+  /** #1569 lane 8: the Owner-declared social budgets the gateway's gate reads; a reachable contact without an active one is the Owner's to approve. */
+  readonly budgets?: () => readonly Gateway.SocialBudget[];
+  /** #1569 lane 8: the Person rows — the grant fact (`reach`) the consent hook reads, and the revision the Owner's answer binds to. */
+  readonly persons?: Pick<PersonStore, "get">;
+}
+
+/**
+ * #1569 lane 8: a letter to a Person the Owner made reachable, for whom no
+ * active social budget is declared, suspends for the Owner's consent;
+ * connector contacts (cli, webhook, a2a), sessions, new children, budgeted
+ * Persons and Persons the Owner never made reachable (the gate refuses those
+ * on its own) never do. The returned revisions bind the Owner's answer to
+ * the Person row as it stood: an edit of the row in between is stale consent.
+ * Without the budgets and persons ports nothing is gated here — the gateway's
+ * own gate still rules.
+ */
+function ownerConsent(
+  input: SendMessageInput,
+  contacts: ContactPorts,
+  at: number,
+): { readonly required: boolean; readonly domainRevisions: Readonly<Record<string, number>> } {
+  const direct = { required: false, domainRevisions: {} };
+  if (input.to.kind !== "contact" || contacts.budgets === undefined || contacts.persons === undefined) return direct;
+  if (parseContactAddress(input.to.id) !== undefined) return direct;
+  const person = contacts.persons.get(input.to.id);
+  if (person?.reach !== true) return direct;
+  if (activeBudgetFor(contacts.budgets(), person.id, at) !== undefined) return direct;
+  return { required: true, domainRevisions: { [person.id]: person.revision } };
 }
 
 function contactName(address: ContactAddress): string {
@@ -451,7 +482,7 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },
@@ -460,9 +491,12 @@ export function createSendMessageTool(
       if (address !== undefined) return routeContact(registry, contacts, address, input, context);
       if (port === undefined)
         throw new ToolRefused("send_message", "message gateway is not composed");
+      // The consent fact: the hook bound the Owner's answer to the Person row at admission
+      // (a non-empty map), and the kernel runs the body only after that answer.
+      const consented = Object.keys(context.domainRevisions ?? {}).length > 0;
       const result = await port.ingest(
         { kind: "session", id: context.sessionId },
-        toGatewaySend(input, now()),
+        toGatewaySend(input, now(), consented),
       );
       if (result.status !== "executed") throw new ToolRefused("send_message", result.reasonCode);
       // #1258: a child created with a deadline arms the delegation.deadline
@@ -472,7 +506,7 @@ export function createSendMessageTool(
       return result.handle;
     },
     render: (_input, result) => JSON.stringify(result),
-  });
+  }, (input) => ownerConsent(input, contacts, now()));
 }
 
 /**

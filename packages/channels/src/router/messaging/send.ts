@@ -12,7 +12,7 @@ import {
 import type { GatewayRouterPorts } from "../message-ports.js";
 import type { KernelDeliveryReceipt } from "../../support/deliver";
 import { authorizeSend } from "./authorize";
-import { admitSend } from "./admission";
+import { activeBudgetFor, admitSend } from "./admission";
 
 type DeliveryTarget = Gateway.DeliveryTarget;
 type MessageDenialCode = Gateway.MessageDenialCode;
@@ -45,7 +45,8 @@ type MessagingPorts = Readonly<{
   Pick<NonNullable<GatewayRouterPorts["messaging"]>, "grants" | "budgets">;
 
 type ExistingAgentMessaging = Readonly<{
-  preflight: (input: SendAuthorityInput) => MessageDenialCode | undefined;
+  /** The verdict a send would get, before any transaction: the grant's, then (#1569 lane 8) the consent's. */
+  preflight: (input: SendAuthorityInput & { readonly consented?: boolean }) => MessageDenialCode | undefined;
   send: (input: SendInput) => Effect.Effect<SendReceipt, ChannelError>;
 }>;
 
@@ -204,9 +205,13 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
   }
 
   return {
-    preflight(input: SendAuthorityInput) {
+    preflight(input) {
       const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes?.() ?? new Set());
-      return checked.ok ? undefined : checked.code;
+      if (!checked.ok) return checked.code;
+      // A granted cold send to a target with no active budget is the Owner's to approve (#1569 lane 8).
+      if (ports.budgets !== undefined && input.consented !== true && activeBudgetFor(ports.budgets(), input.target.actorId, input.at) === undefined)
+        return "approval_required";
+      return undefined;
     },
     send,
   };

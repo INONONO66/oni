@@ -643,6 +643,15 @@ describe("ws exposure enforcement", () => {
     );
   });
 
+  it("refuses OPENOMNI_ACTORS, retired by #1569 lane 8, instead of dropping it silently", () => {
+    process.env.OPENOMNI_ACTORS = JSON.stringify([{ actorId: "owner", externalId: "owner", trustTier: "owner" }]);
+    try {
+      expect(loadConfig).toThrow("OPENOMNI_ACTORS is retired (#1569)");
+    } finally {
+      delete process.env.OPENOMNI_ACTORS;
+    }
+  });
+
   it("reads explicit social budgets while keeping the default absent", () => {
     expect(loadConfig().socialBudgets).toBeUndefined();
     process.env.OPENOMNI_SOCIAL_BUDGETS = JSON.stringify([

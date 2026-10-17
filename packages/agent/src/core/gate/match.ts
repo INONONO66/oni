@@ -30,6 +30,7 @@ export type MessagePolicyContext =
       readonly identityGranted?: boolean;
       /** The reply door may answer on its own (a bot instance, or an auto-replying Owner instance). */
       readonly replyAutoAllowed?: boolean;
+      readonly consentGranted?: boolean;
     };
 
 export function matchesMessage(
@@ -84,6 +85,7 @@ function sessionCheck(
     case "actor_send": return context.actorSendAllowed === true;
     case "identity": return context.identityGranted === true;
     case "reply_auto": return context.replyAutoAllowed === true;
+    case "consent": return context.consentGranted === true;
   }
 }
 

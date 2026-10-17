@@ -447,6 +447,7 @@
   "Gateway.SendInput": [
     "at",
     "class",
+    "consented",
     "messageId",
     "operation",
     "ownerOrigin",
@@ -456,7 +457,14 @@
     "target",
     "traceId"
   ],
-  "Gateway.SendMessage": ["content", "deadline", "replyTo", "to", "type"],
+  "Gateway.SendMessage": [
+    "consented",
+    "content",
+    "deadline",
+    "replyTo",
+    "to",
+    "type"
+  ],
   "Gateway.SendMessageHandle": ["messageId", "target"],
   "Gateway.SessionTarget": ["id", "kind"],
   "Gateway.SocialBudget": [
@@ -1183,6 +1191,7 @@
     "endpoints",
     "id",
     "kind",
+    "reach",
     "revision",
     "trustTier",
     "updatedAt"

@@ -47,15 +47,18 @@ export function declareChannel(
  * materializes it as the actor its endpoints name, at its tier.
  */
 export function declarePerson(
-  catalogPath: string,
+  catalogPath: string | undefined,
   person: {
     readonly id: string;
     readonly displayName: string;
     readonly kind: "human" | "ai_agent" | "service";
     readonly trustTier: "owner" | "co_owner" | "manager" | "collaborator" | "observer" | "assigned_worker";
     readonly endpoints: readonly { readonly channel: string; readonly externalId: string }[];
+    /** #1569 lane 8: the Owner's standing grant to be written to cold. */
+    readonly reach?: boolean;
   },
 ): void {
+  if (catalogPath === undefined) throw new Error("suite config is missing catalogPath");
   const plane = createAppLedger({ now: testClock(), catalogPath });
   try {
     plane.stores.persons.put({ ...person, endpoints: [...person.endpoints], revision: 0, createdBy: "owner", updatedAt: 1 });

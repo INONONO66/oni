@@ -150,7 +150,6 @@ async function serve() {
       wsToken: OWNER_TOKEN,
       kek: { kind: "locked", reason: "no vault key in this fixture" },
       machines: testMachinesPlane(),
-      actors: [{ actorId: "owner", externalId: "owner", kind: "human", trustTier: "owner" }],
       model: { provider: "fake", id: "request-owner-e2e", apiKey: "fixture-key" },
     },
     sessionRuntime: {

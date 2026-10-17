@@ -44,7 +44,7 @@ export function createProvisionTool(port: ProvisionPort | undefined, now: () => 
       name: "provision",
       category: "mutation",
       description:
-        "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances and their outbound grant require Owner consent. Session-created automations remain disabled until the Owner enables them.",
+        "Administer contacts, channels, credentials, automations, machines, and provisioning status. Use op=contact_add|contact_remove|contact_promote|contact_merge|channel_add|channel_enable|channel_disable|secret_rotate|bundle_enable|bundle_disable|automation_add|automation_remove|automation_enable|automation_disable|automation_list|machine_add|machine_remove|machine_list|status. Authority changes, machine public keys, Owner-account channel instances and their outbound grant require Owner consent. A contact with reach: true is one the Resident may write to cold. Session-created automations remain disabled until the Owner enables them.",
       input: ProvisionInput,
       output: ProvisionOutput,
       visibility: { model: ["resident"], cell: ["resident"] },

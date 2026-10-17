@@ -1,5 +1,72 @@
 # Implementation Status
 
+## #1569 Perimeter collapse for addressed sends (lane 8)
+
+On `feat/1569-perimeter-collapse` (2026-10-17, PR #1597, reviewed and
+corrected). Who the Resident may write to, and when the Owner is asked, are
+now the Owner's declarations alone. **Person `reach`**:
+`Provisioning.Person` carries `reach?: boolean`
+(`packages/protocol/src/provisioning/schema.ts`), set through `contact_add`'s
+manifest (`apps/openomni/src/bundles/provision/contacts.ts`) — and it is the
+Owner's to grant: a manifest carrying `reach: true` (a new Person, or a
+re-declaration of a reachable one, so the endpoints behind the grant are
+the Owner's too) suspends `contact_add` for the Owner's consent bound to the
+row's revision (`approvalRequirement`), like a tier raise; without consent
+the row never lands. The standing `SenderTargetGrant` for every resident
+session is built from the Person store at each send (`grants` in
+`apps/openomni/src/index.ts`: residents × Persons with `reach: true`,
+operations `awaited` and `fire_and_forget`), so a contact named mid-run is
+reachable at once and a Person without `reach` is an inbound identity only
+— a letter to it is `ungranted` (the tool sees the
+`message.resident.actor_grant` policy row). **`OPENOMNI_ACTORS` is
+retired**: `config.actors`, `RegisteredActor`, `actorsFromEnv` and
+`registerActors` are gone; `materializePersons` is the one path from a
+declaration to an actor row (the loopback `ws` Owner bootstrap is
+unchanged), and `loadConfig` refuses the variable when it is still set
+(`retired_env`) rather than dropping an authority silently. **A missing
+social budget is the Owner's to approve, never a silent denial**: the
+consent is one judgement made in two places that read the same facts — the
+Person's `reach` and the active budgets (`activeBudgetFor`, exported by
+`@openomni/channels`: a lapsed allowance is no budget). At the tool,
+`send_message`'s approval hook (`ownerConsent`) suspends a letter to a
+reachable Person with no active budget for the Owner's consent, bound to
+the Person row's revision (`domainRevisions: { [personId]: revision }`,
+read back by `createRequestDomainRevisions`, so an edit of the row between
+the request and the answer is `stale_approval`); connector contacts
+(`cli:`, `webhook:`, `a2a:`), sessions, new children, budgeted Persons and
+Persons the Owner never made reachable never wait. The kernel runs the
+body only after the Owner's answer, and the body's consent fact is the
+non-empty bound revisions the kernel hands it — never the budget list read
+again — setting `consented: true` on the gateway send
+(`Gateway.SendMessage.consented`, threaded to `SendInput.consented`). At
+the perimeter, the actor-send preflight returns `approval_required` for a
+granted cold send with no active budget and no consent, which the compiled
+row `message.resident.approval_required` (`check.kind: consent`, the gate's
+`consentGranted` fact) denies before any admission; `admitSend` admits a
+consented budget-less send once with no debit and denies `approval_required`
+itself when reached without one (a composition that wires only the
+router's budgets port). A declared budget is never widened by consent: the
+pure `evaluateSocialBudget` fold is reached only with an active budget in
+hand and its window/cooldown/quiet-hours/do-not-contact suppressions
+stand. Receipts: `packages/channels/test/router/messaging/social-budget.test.ts`
+(preflight's `approval_required`, the lapsed budget, the consented send
+with no debit, consent under a declared budget), `test/barrel.test.ts`,
+`apps/openomni/test/send-message-contacts.test.ts` (the hook per target
+kind and the bound revision; the consent fact from the kernel's revisions;
+the kernel leg through `protectedDispatch`: suspend, answer, one consented
+send; refusal sends nothing; an edited row is stale consent),
+`test/gateway-contracts.test.ts` (the compiled consent row denies cold
+egress before any delivery), `test/owner-policy.test.ts` (the row),
+`test/provision-tools.test.ts` (`reach` suspends for consent and lands on
+the Owner's answer; re-declaring a reachable Person's endpoints takes it
+again), `test/send-message-e2e.test.ts` (a Person without `reach` is
+`ungranted` on the booted daemon; `reach` set on the row makes the next
+letter land with no reboot), `test/app-surface.test.ts`,
+`test/request-channel-e2e.test.ts` and `test/helpers/request-owner-process.ts`
+(Person rows with `reach`, never env actors), `test/config.test.ts`
+(`OPENOMNI_ACTORS` refused); suites: `packages/channels` 1005 pass,
+`apps/openomni` 1024 pass, 0 fail.
+
 ## #1569 A2A: the door and the `a2a:` contact (lane 9c)
 
 On `feat/1569-a2a` (2026-10-17, PR #1596, reviewed and corrected). Other

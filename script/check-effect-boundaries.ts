@@ -40,11 +40,11 @@ export const TOOL_BODY_PATHS: ReadonlyMap<string, string> = new Map([
 function isToolBodyPath(file: string): boolean {
   return new Set(TOOL_BODY_PATHS.values()).has(file);
 }
-// pre-existing at origin/main (bundles/send-message/index.ts:3); follow-up #1454
+// pre-existing at origin/main (bundles/send-message/index.ts:3, line 4 since the channels import of #1569 lane 8); follow-up #1454
 export const PREEXISTING_TOOL_EFFECT_PINS: ReadonlyMap<string, { readonly file: string; readonly line: number; readonly text: string }> = new Map([
   ["send_message", {
     file: "apps/openomni/src/bundles/messaging/send-message/index.ts",
-    line: 3,
+    line: 4,
     text: 'import { Effect } from "effect";',
   }],
 ]);

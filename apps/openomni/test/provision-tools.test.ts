@@ -857,3 +857,44 @@ describe("refusal branches", () => {
     ).toBe("channel_add refused: disk full");
   });
 });
+
+test("#1569 lane 8: a Person's `reach` is the Owner's standing grant — contact_add with it suspends for consent and lands the row only on the Owner's answer; without it the row carries none", async () => {
+  const { port } = portWith();
+  const tool = createProvisionTool(port, () => NOW);
+  const context = {
+    sessionId: "provision-session",
+    turnId: "provision-turn",
+    callId: "reach-declare",
+    signal: new AbortController().signal,
+  };
+  const scout = { id: "person:scout", kind: "ai_agent" as const, trustTier: "observer" as const, endpoints: [{ channel: "a2a", externalId: "scout" }] };
+  if (tool.approval === undefined) throw new Error("provision declares no approval hook");
+  expect(tool.approval({ operation: { op: "contact_add", args: { manifest: { ...scout, reach: true } } } }, context)).toEqual({
+    required: true,
+    domainRevisions: { "person:scout": -1 },
+  });
+  expect(tool.approval({ operation: { op: "contact_add", args: { manifest: scout } } }, context)).toMatchObject({ required: false });
+  // The direct path (no consent on the invocation) lands nothing.
+  await expect(tool.execute({ operation: { op: "contact_add", args: { manifest: { ...scout, reach: true } } } }, context)).rejects.toThrow(
+    "domain revision changed",
+  );
+  expect(plane().stores.persons.get("person:scout")).toBeUndefined();
+  // The Owner's answer, bound to the row's revision, lands reach.
+  const f = consentedDeclare(port, { ...scout, reach: true });
+  try {
+    expect((await f.answer()).isError).toBeUndefined();
+    expect(plane().stores.persons.get("person:scout")).toMatchObject({ reach: true, createdBy: "resident", revision: 0 });
+  } finally {
+    await f.close();
+  }
+  // A lateral re-declaration keeping reach (new endpoints behind a reachable Person) takes consent again.
+  expect(tool.approval({ operation: { op: "contact_add", args: { manifest: { ...scout, endpoints: [{ channel: "a2a", externalId: "other" }], reach: true } } } }, context)).toEqual({
+    required: true,
+    domainRevisions: { "person:scout": 0 },
+  });
+  // Without reach a lateral declaration stays direct, and the row carries none.
+  expect(
+    await tool.execute({ operation: { op: "contact_add", args: { manifest: { ...scout, id: "person:ranger", endpoints: [{ channel: "a2a", externalId: "ranger" }] } } } }, context),
+  ).toMatchObject({ result: { kind: "declared", id: "person:ranger" } });
+  expect(plane().stores.persons.get("person:ranger")?.reach).toBeUndefined();
+});

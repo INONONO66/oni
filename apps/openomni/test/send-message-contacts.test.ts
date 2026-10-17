@@ -10,6 +10,7 @@
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@openomni/agent";
 import type { Gateway, Outbound } from "@openomni/protocol";
+const eraseTool = Core.eraseTool;
 import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
@@ -26,7 +27,8 @@ import {
 import { assistantMessage } from "./helpers/assistant-message";
 import { runEffect } from "./helpers/effect";
 import { runAppEffect } from "../src/gateway";
-import { localDelivery, planeOf } from "./helpers/ledger";
+import { localDelivery, planeOf, testPlane } from "./helpers/ledger";
+import { bounded, protectedDispatch } from "./helpers/protected-dispatch";
 import { ownerStart } from "./helpers/owner-start";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
@@ -195,6 +197,78 @@ test("the a2a connector sends the letter through the port under the tool call's 
     reason: "the outcome is unknown; the letter is not re-sent",
   });
   expect(await runEffect(a2aConnector(undefined)(send))).toEqual({ contact: "a2a:scout", status: "not_sent", reason: "a2a port is not composed" });
+});
+
+test("#1569 lane 8: a letter to a reachable Person with no active budget suspends for the Owner's consent, bound to the Person row; connector contacts, sessions, budgeted and unreachable Persons never wait; the kernel's answer is the consent fact", async () => {
+  const ingested: Gateway.SendMessage[] = [];
+  const port: MessagePort = {
+    ingest: async (_sender, message) => {
+      ingested.push(message as Gateway.SendMessage);
+      return { status: "executed", handle: { messageId: "m-1", target: "person:peer" }, delivery: { kind: "actor", value: "accepted" } } satisfies Gateway.IngestResult;
+    },
+  };
+  const plane = testPlane();
+  const person = (id: string, reach: boolean) => ({ id, displayName: id, kind: "human" as const, trustTier: "observer" as const, endpoints: [{ channel: "ws", externalId: id }], ...(reach ? { reach: true } : {}), revision: 0, createdBy: "owner", updatedAt: 1 });
+  plane.stores.persons.put(person("person:peer", true));
+  plane.stores.persons.put(person("person:owner", true));
+  plane.stores.persons.put(person("person:stranger", false));
+  const budgets: Gateway.SocialBudget[] = [
+    { id: "b-owner", targetActorId: "person:owner", maxPerWindow: 1, windowMs: 1000, cooldownMs: 0 },
+    { id: "b-lapsed", targetActorId: "person:lapsed", maxPerWindow: 1, windowMs: 1000, cooldownMs: 0, expiresAt: 500 },
+  ];
+  plane.stores.persons.put(person("person:lapsed", true));
+  const contacts = { run: runEffect, budgets: () => budgets, persons: plane.stores.persons };
+  const tool = createSendMessageTool(port, () => 1_000, contacts);
+  const context = { sessionId: "resident", turnId: "turn-1", callId: "call-1", signal: new AbortController().signal };
+  const letterTo = (id: string) => ({ to: { kind: "contact" as const, id }, message: "hello", kind: "prompt" as const });
+  if (tool.approval === undefined) throw new Error("send_message declares no approval hook");
+  // Reachable, no budget: the Owner's to approve, bound to the row as it stands.
+  expect(tool.approval(letterTo("person:peer"), context)).toEqual({ required: true, domainRevisions: { "person:peer": 0 } });
+  // A lapsed budget is no budget.
+  expect(tool.approval(letterTo("person:lapsed"), context)).toEqual({ required: true, domainRevisions: { "person:lapsed": 0 } });
+  // Budgeted, unreachable (the gate refuses on its own), unknown, connector, session and child targets never wait.
+  for (const id of ["person:owner", "person:stranger", "person:nobody", "cli:codex", "webhook:out", "a2a:scout"])
+    expect(tool.approval(letterTo(id), context)).toEqual({ required: false, domainRevisions: {} });
+  expect(tool.approval({ to: { kind: "session" as const, id: "child-1" }, message: "hello", kind: "prompt" as const }, context)).toEqual({ required: false, domainRevisions: {} });
+  expect(tool.approval({ to: { kind: "new_session" as const, role: "child" as const, runner: "resident", parent: "me" as const }, message: "hello", kind: "prompt" as const, spend_cap: 1 }, context)).toEqual({ required: false, domainRevisions: {} });
+  // The body derives the consent fact from the bound revisions the kernel hands it, never from the budget list again.
+  await tool.execute(letterTo("person:peer"), { ...context, domainRevisions: {} });
+  expect(ingested[0]?.consented).toBeUndefined();
+  await tool.execute(letterTo("person:peer"), { ...context, domainRevisions: { "person:peer": 0 } });
+  expect(ingested[1]).toMatchObject({ consented: true, to: { kind: "actor", actorId: "person:peer" } });
+  // Without the budgets and persons ports nothing is gated here.
+  const ungated = createSendMessageTool(port, () => 1_000, { run: runEffect });
+  expect(ungated.approval?.(letterTo("person:peer"), context)).toEqual({ required: false, domainRevisions: {} });
+  // The kernel leg: the invocation suspends, the Owner's answer runs the captured body once, and the send carries consent.
+  const sealed = eraseTool(createSendMessageTool(port, () => 1_000, contacts));
+  const consent = protectedDispatch(sealed, letterTo("person:peer"), undefined, { plane });
+  try {
+    const request = await bounded(consent.opened);
+    expect(request.domainRevisions).toEqual({ "person:peer": 0 });
+    expect(ingested).toHaveLength(2);
+    expect((await consent.answer()).isError).toBeUndefined();
+    expect(ingested[2]).toMatchObject({ consented: true, to: { kind: "actor", actorId: "person:peer" } });
+  } finally {
+    await consent.close();
+  }
+  // A refused answer sends nothing; an edit of the Person row between the request and the answer is stale consent.
+  const refused = protectedDispatch(sealed, letterTo("person:peer"), undefined, { plane });
+  try {
+    expect((await refused.answer("refuse")).isError).toBe(true);
+    expect(ingested).toHaveLength(3);
+  } finally {
+    await refused.close();
+  }
+  const stale = protectedDispatch(sealed, letterTo("person:peer"), undefined, { plane });
+  try {
+    await bounded(stale.opened);
+    plane.stores.persons.put({ ...person("person:peer", true), endpoints: [{ channel: "ws", externalId: "elsewhere" }], revision: 1 });
+    await expect(stale.answer()).rejects.toMatchObject({ code: "stale_approval" });
+    expect(ingested).toHaveLength(3);
+  } finally {
+    await stale.close();
+  }
+  plane.close();
 });
 
 test("the tool routes CLI contacts through connectors and everything else through the gateway door as one payload", async () => {

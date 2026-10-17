@@ -36,7 +36,7 @@ A turn that came from a conversation answers in that conversation through the re
 
 Session mail becomes a prompt at atomic inbox commit and passes the receiving session's prompt pre-policy. New child configuration and first mail share that commit. Session delivery has no external receipt classification.
 
-Actor sends use existing grants, exact endpoint resolution, egress budget and stable platform idempotency keys. Their executed values distinguish accepted, rejected and unknown. The reply door shares the delivery custody (one admission fact per message id, one physical attempt per key) but neither a grant nor a budget: a reply is never outreach.
+Actor sends use existing grants (a Person's `reach`, the Owner's standing grant from `contact_add`; #1569 lane 8), exact endpoint resolution, egress budget (a reachable target with no active budget takes the Owner's consent on the `send_message` invocation, bound to the Person row; `message.resident.approval_required` denies it otherwise) and stable platform idempotency keys. Their executed values distinguish accepted, rejected and unknown. The reply door shares the delivery custody (one admission fact per message id, one physical attempt per key) but neither a grant nor a budget: a reply is never outreach.
 
 WebSocket admission receipts and later message frames are distinct. Rendering and chunking remain provider-owned, after admission.
 

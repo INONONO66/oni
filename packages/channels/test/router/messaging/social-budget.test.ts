@@ -200,11 +200,29 @@ describe("send kernel active-egress gate (#219 seam)", () => {
     expectWithoutDebit(await runEffect(messaging(false).send(buildSendInput())));
   });
 
-  test("fail-safe default: gate wired but no budget entry → cold proactive denied budget_exhausted", async () => {
+  test("fail-safe default: gate wired but no budget entry → cold proactive is the Owner's to approve, denied approval_required (#1569 lane 8)", async () => {
     const receipt = await runEffect(messaging().send(buildSendInput()));
-    expectDenied(receipt, "budget_exhausted");
+    expectDenied(receipt, "approval_required");
     expect(deliveries).toHaveLength(0);
     expect(inspectDebitState("actor:sender", "actor:target").countInWindow).toBe(0);
+  });
+
+  test("preflight names the consent: approval_required without an active budget, nothing with one or with consent; a lapsed budget is no budget (#1569 lane 8)", () => {
+    const input = buildSendInput();
+    expect(messaging().preflight(input)).toBe("approval_required");
+    expect(messaging().preflight({ ...input, consented: true })).toBeUndefined();
+    expect(messaging(false).preflight(input)).toBeUndefined();
+    budgets = [budget({ expiresAt: messagingNow - 1 })];
+    expect(messaging().preflight(input)).toBe("approval_required");
+    budgets = [budget({ expiresAt: messagingNow + 1 })];
+    expect(messaging().preflight(input)).toBeUndefined();
+  });
+
+  test("a consented send to a target without a budget is admitted once, with no debit; consent never widens a declared budget (#1569 lane 8)", async () => {
+    expectWithoutDebit(await runEffect(messaging().send(buildSendInput({ consented: true }))));
+    budgets = [budget({ maxPerWindow: 1 })];
+    expect((await runEffect(messaging().send(buildSendInput({ messageId: "message:budgeted", consented: true })))).kind).toBe("sent");
+    expectDenied(await runEffect(messaging().send(buildSendInput({ messageId: "message:over", consented: true }))), "budget_exhausted");
   });
 
   test("an admitted send records a debit (record-before-act)", async () => {

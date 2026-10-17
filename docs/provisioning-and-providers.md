@@ -16,8 +16,11 @@ boot (`apps/openomni/src/config.ts`):
 
 - **Bot tokens** — `DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`,
   `GITHUB_WEBHOOK_SECRET`/`GITHUB_TOKEN` as raw env strings.
-- **People** — `OPENOMNI_ACTORS` as a JSON blob in a single env var, upserted
-  into ActorRegistry at boot (`registerActors`).
+- **People** — were `OPENOMNI_ACTORS`, a JSON blob in a single env var
+  upserted into ActorRegistry at boot; retired by #1569 lane 8 (`loadConfig`
+  refuses it when still set) — Person rows (`contact_add`) are the one
+  declaration, and a Person's `reach` is the Owner's standing grant to be
+  written to cold, given only with the Owner's consent.
 - **Budgets** — `OPENOMNI_SOCIAL_BUDGETS` as env JSON.
 - **Machines** — `OPENOMNI_MACHINES_ENROLLED` as env JSON.
 
@@ -28,9 +31,9 @@ Consequences:
    a mutated env silently rewrites authority with no record of what changed or
    why. This violates the record-before-act spirit: the Owner's provisioning
    act is the one act the ledger cannot see.
-2. **One person across platforms has no single declaration.** `OPENOMNI_ACTORS`
-   binds one `externalId` per actor and its `channel` enum is a hardcoded
-   three-value list. The P3 `endpoint_merge` approval act can bind endpoints at
+2. **One person across platforms has no single declaration.** The retired
+   `OPENOMNI_ACTORS` bound one `externalId` per actor and its `channel` enum
+   was a hardcoded three-value list. The P3 `endpoint_merge` approval act can bind endpoints at
    runtime, but the Owner cannot *declare* "this person is these five platform
    IDs" anywhere durable.
 3. **Secrets are unmanaged.** Tokens sit in env plaintext, appear in `ps e`
@@ -97,7 +100,8 @@ Person {
   least authority the tier vocabulary carries — so mounting a surface grants
   nothing beyond existing.
 - **Reconcile at boot:** each Person materializes `ActorRegistry` identity +
-  endpoint rows (upsert, same idempotence contract `registerActors` has today).
+  endpoint rows (upsert, idempotent per boot; the one declaration-to-actor
+  path since #1569 lane 8 retired env actors).
   Removing an endpoint from a Person removes the endpoint row; deletions are
   reconciled, not leaked (repo law: reconcile before deletion).
 - **Relation to P3:** a promoted provisional contact *becomes* a Person row
@@ -360,9 +364,9 @@ The chicken-and-egg: tools require an owner-tier session; owner tier requires a
 declaration. Resolution — `openomni init` (CLI, local filesystem trust):
 
 1. Creates the vault key file.
-2. Imports current env (tokens → vault, `OPENOMNI_ACTORS` → Person rows,
-   channel env → ChannelInstance rows) so existing installations migrate with
-   one command.
+2. Imports current env (tokens → vault, channel env → ChannelInstance rows)
+   so existing installations migrate with one command; people are declared
+   as Person rows (#1569 lane 8 retired the env actors).
 3. Writes the Owner Person row (interactive or flag-driven).
 
 Until an Owner Person exists, the loopback ws bootstrap grant behaves as today

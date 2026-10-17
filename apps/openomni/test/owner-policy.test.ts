@@ -63,6 +63,7 @@ test("the shipped JSON preserves the pre-R3 app-owned policy row id and point se
     ["message.external.reply_correlation", "message.pre"],
     ["message.resident.actor_grant", "message.pre"],
     ["message.resident.actor_interrupt", "message.pre"],
+    ["message.resident.approval_required", "message.pre"],
     ["message.resident.deadline", "message.pre"],
     ["message.resident.depth", "message.pre"],
     ["message.resident.fanout", "message.pre"],

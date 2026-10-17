@@ -64,6 +64,8 @@ const Send = z
     content: z.union([z.string(), Outbound.Payload]),
     replyTo: Id.optional(),
     deadline: EpochMs.optional(),
+    /** #1569 lane 8: the invocation carried the Owner's approval; set by the composing app from the approved tool call, never from model input. */
+    consented: z.literal(true).optional(),
   })
   .strict();
 
@@ -194,6 +196,9 @@ const RuleTableB = RuleBase.extend({
     // #1569: the sending identity is granted — the Owner's account only on an
     // Owner-origin turn through an outbound-granted Owner instance.
     z.object({ kind: z.literal("identity") }).strict(),
+    // #1569 lane 8: a cold send to a target with no declared budget carries the
+    // Owner's consent on the invocation; without it the send is the Owner's to approve.
+    z.object({ kind: z.literal("consent") }).strict(),
     // #1569 lane 7: the reply door may answer on its own — the surface has a
     // bot instance, or its Owner instance's declaration auto-replies.
     z.object({ kind: z.literal("reply_auto") }).strict(),

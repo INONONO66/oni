@@ -6,6 +6,7 @@ export type { ChannelProvider, OwnerArm, ProviderDeliveryRoute, ProviderTypingRo
 export { OwnerPosture } from "./provider/contract.js";
 export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
 export { inboundOnce } from "./support/inbound-once.js";
+export { activeBudgetFor } from "./router/messaging/admission.js";
 export { typingPulse } from "./support/typing-pulse.js";
 export type { EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";

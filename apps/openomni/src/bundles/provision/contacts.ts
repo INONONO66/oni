@@ -28,6 +28,10 @@ const MANIFEST_INPUT = z
           .strict(),
       )
       .describe("Platform identities this Person speaks through."),
+    reach: z
+      .boolean()
+      .optional()
+      .describe("true lets the Resident write to this Person cold through send_message; absent, the Person is an inbound identity only."),
   })
   .strict();
 export const PERSON_DECLARE_INPUT = z
@@ -79,6 +83,11 @@ export function approvalRequirement(
 ): string | undefined {
   if (existing?.trustTier === "owner") {
     return "any mutation of the owner Person requires Owner approval (§8.6)";
+  }
+  // #1569 lane 8: reach is the Owner's standing grant — declaring it, or re-declaring the
+  // endpoints behind a reachable Person, is never the Resident's own call.
+  if (next.reach === true) {
+    return `reach on ${next.id} is the Owner's standing grant and requires Owner approval`;
   }
   const from = existing === undefined ? tierRank("observer") : tierRank(existing.trustTier);
   if (tierRank(next.trustTier) > from && tierRank(next.trustTier) > tierRank("collaborator")) {
