@@ -129,7 +129,8 @@ ui <- apps/desktop
 | App alarms and provision operations | `apps/openomni/src/bundles/alarms/`, `apps/openomni/src/bundles/provision/` |
 | Production compaction strategy | `apps/openomni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/` |
 | Gateway and channel registration | `apps/openomni/src/gateway.ts`, `apps/openomni/src/channels.ts` |
-| Contacts and the one send_message tool (#1258) | `apps/openomni/src/bundles/messaging/send-message/` |
+| Contacts and the one send_message tool (#1258; `cli:`/`webhook:`/`a2a:` contact kinds, the missing-budget consent hook, #1569) | `apps/openomni/src/bundles/messaging/send-message/`, `apps/openomni/src/composition/{webhook,a2a}-contacts.ts` |
+| A2A door, Linear and Owner-only providers, the Person `reach` grant (#1569) | `packages/channels/src/provider/{a2a,linear,instagram,kakaotalk}/`, `A2A_DOOR_ID`/`a2aRoster` in `apps/openomni/src/channels.ts`, `grants` in `apps/openomni/src/index.ts` |
 | Delegation caps, deadline, and child replies (#1258) | `apps/openomni/src/bundles/delegation-policy/` |
 | Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271; every tool is a removable bundle listed in `apps/openomni/src/manifest.ts`, #1561) | `apps/openomni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/openomni/src/bundles/provision/provision.ts` |
 | Shipped-state truth | `docs/implementation-status.md` |
