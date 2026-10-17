@@ -45,7 +45,7 @@ exports: the baseline is empty and `check-dead-exports` passes at this
 commit; SLOP receipts for the epic's deletions are in `docs/SLOP.md`
 (the #1569 table). Suite counts at the epic's close: see each lane's
 section; the last full runs were `packages/channels` 1005, `apps/openomni`
-1024, `packages/protocol` 656, 0 fail.
+1023, `packages/protocol` 656, 0 fail.
 
 ## #1569 Perimeter collapse for addressed sends (lane 8)
 
@@ -112,7 +112,7 @@ letter land with no reboot), `test/app-surface.test.ts`,
 `test/request-channel-e2e.test.ts` and `test/helpers/request-owner-process.ts`
 (Person rows with `reach`, never env actors), `test/config.test.ts`
 (`OPENOMNI_ACTORS` refused); suites: `packages/channels` 1005 pass,
-`apps/openomni` 1024 pass, 0 fail.
+`apps/openomni` 1023 pass, 0 fail (the earlier 1024 counted the child process a cleanup test spawns).
 
 ## #1569 A2A: the door and the `a2a:` contact (lane 9c)
 
