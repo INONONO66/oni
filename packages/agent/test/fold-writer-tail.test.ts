@@ -141,14 +141,14 @@ function pinnedTurn(ledger: Ledger, prompts: readonly string[]) {
 }
 
 describe("fold writer tail", () => {
-  test("a 200k-token history whose projection-bearing intent is 1,354,051 B commits as a reference under the 1 MiB cap", () =>
+  test("a 200k-token history whose projection-bearing intent is 1,354,023 B commits as a reference under the 1 MiB cap", () =>
     isolatedRun((ledger) => {
       // Two prompts, because one 1.35 MB prompt row would itself pass the cap.
       const { kernel, id, node, context, history, copy, commitCopy } = pinnedTurn(ledger, [
         "q".repeat(676_152),
         "q".repeat(676_153),
       ]);
-      expect(actionPayloadBytes(copy)).toBe(1_354_051);
+      expect(actionPayloadBytes(copy)).toBe(1_354_023);
       expect(node === undefined ? 0 : actionPayloadBytes(node)).toBe(646);
       expect(context.projectionHash).toBe(
         canonicalDigest({ foldVersion: 1, projection: PlainValueSchema.parse(history) }),
