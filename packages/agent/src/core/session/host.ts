@@ -53,7 +53,11 @@ export interface LedgerPlane {
   readonly handles: LedgerHandles;
   /** Both valid until the session's next passivation closes them: resolve per use, never hold across an await. */
   openKernel(sessionId: string): SessionKernel;
-  scanSessions<A>(read: (kernel: SessionKernel, row: LedgerSession.Row) => A[]): A[];
+  /** `skip` names files the catalog proves hold nothing for `read`; an unindexed file is still opened. */
+  scanSessions<A>(
+    read: (kernel: SessionKernel, row: LedgerSession.Row) => A[],
+    skip?: ReadonlySet<string>,
+  ): A[];
   sessionStore(sessionId: string): SessionStore;
   releaseSession(sessionId: string): void;
   discardSession(sessionId: string): void;
@@ -174,10 +178,14 @@ function planeOver(
     });
     return view;
   }
-  function scanSessions<A>(read: (kernel: SessionKernel, row: LedgerSession.Row) => A[]): A[] {
-    const live = [...memo].filter(([id, entry]) => entry.store.sessions.get(id) !== undefined);
+  function scanSessions<A>(
+    read: (kernel: SessionKernel, row: LedgerSession.Row) => A[],
+    skip?: ReadonlySet<string>,
+  ): A[] {
+    const live = [...memo].filter(([id, entry]) => entry.store.sessions.get(id) !== undefined && !skip?.has(id));
     if (sessionsDir === undefined) return live.flatMap(([id, entry]) => readRow(entry.kernel, id, ":memory:", read));
     return [...new Set([...catalog.sessionIds(), ...live.map(([id]) => id)])].flatMap((id) => {
+      if (skip?.has(id)) return [];
       // A second handle's bootstrap would wait on a write transaction held through the memo.
       const entry = memo.get(id);
       const path = sessionFilePath(sessionsDir, id);

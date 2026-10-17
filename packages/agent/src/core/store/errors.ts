@@ -133,7 +133,12 @@ export class CatalogUpgradeRefused extends Data.TaggedError("CatalogUpgradeRefus
 export class CatalogVersionRefused extends Data.TaggedError("CatalogVersionRefused")<{
   readonly fileVersion: number;
   readonly codeVersion: number;
-  readonly operation: "indexSession" | "rotateFence" | "markArmed" | "openSessionStore";
+  readonly operation:
+    | "indexSession"
+    | "rotateFence"
+    | "markArmed"
+    | "markRequests"
+    | "openSessionStore";
 }> {
   override get message(): string {
     const file = this.operation === "openSessionStore" ? "session file" : "catalog";

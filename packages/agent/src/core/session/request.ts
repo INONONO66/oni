@@ -127,7 +127,7 @@ export function createSessionRequests(runtime: SessionRuntime): Effect.Effect<Se
   const scan = <A>(read: (kernel: SessionKernel, row: { readonly id: string }) => A[]): A[] =>
     ledger === undefined
       ? runtime.listSessions().flatMap((row) => readKernel(runtime, row.id, (kernel) => read(kernel, row)))
-      : ledger.scanSessions(read);
+      : ledger.scanSessions(read, new Set(ledger.catalog.requestFreeSessionIds()));
   function transition(
     sessionId: string,
     payload: SessionTransition.Payload,

@@ -31,6 +31,7 @@ export interface SessionKernelContext {
   readonly childSessionsPage: CatalogStore["childSessionsPage"];
   /** Ordering law in `commitIn`. */
   readonly markArmed?: (sessionId: string, armed: boolean) => void;
+  readonly markRequests?: (sessionId: string) => void;
 }
 
 
@@ -70,6 +71,9 @@ function commitIn(
   });
   return Effect.suspend(() => {
     if (deltas.some((delta) => delta.op === "upsert")) context.markArmed?.(input.sessionId, true);
+    // Same law for requests: flagged before the commit, never cleared (the request stays in the file).
+    if (input.actions.some((action) => action.kind === "request"))
+      context.markRequests?.(input.sessionId);
     return sessionWritesIn(context).pipe(
       Effect.flatMap((sessions) => sessions.commit(input)),
       Effect.tap(() =>
@@ -261,5 +265,6 @@ export function createSessionKernel(session: SessionStore, catalog: CatalogStore
     childSessionsPage: (parentId, afterId, limit) =>
       catalog.childSessionsPage(parentId, afterId, limit),
     markArmed: (sessionId, armed) => catalog.markArmed(sessionId, armed),
+    markRequests: (sessionId) => catalog.markRequests(sessionId),
   });
 }

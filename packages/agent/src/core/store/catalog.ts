@@ -37,7 +37,8 @@ export const CATALOG_SCHEMA: readonly string[] = [
     role TEXT NOT NULL CHECK (role IN (${ROLE_LIST})),
     fence INTEGER NOT NULL DEFAULT 0 CHECK (fence >= 0),
     created_at INTEGER NOT NULL,
-    has_armed INTEGER NOT NULL DEFAULT 0 CHECK (has_armed IN (0, 1))
+    has_armed INTEGER NOT NULL DEFAULT 0 CHECK (has_armed IN (0, 1)),
+    has_requests INTEGER NOT NULL DEFAULT 0 CHECK (has_requests IN (0, 1))
   )`,
   "CREATE INDEX IF NOT EXISTS idx_session_index_parent ON session_index(parent_id, id)",
   `CREATE TABLE IF NOT EXISTS policy (
@@ -59,7 +60,7 @@ export const CATALOG_SCHEMA: readonly string[] = [
  * catalog is created or opened by code at least this new. A file whose marker
  * is greater than this constant was written by newer code and opens read-only.
  */
-const CATALOG_SCHEMA_VERSION = 4;
+const CATALOG_SCHEMA_VERSION = 5;
 
 const UserVersion = z.object({ user_version: z.number().int().nonnegative() });
 
@@ -73,7 +74,10 @@ export interface SessionIndexRow {
   readonly hasArmed: boolean;
 }
 
-export type SessionIndexInsert = Omit<SessionIndexRow, "fence" | "hasArmed">;
+export type SessionIndexInsert = Omit<SessionIndexRow, "fence" | "hasArmed"> & {
+  /** True when the file already holds request rows (a fork copy, a repair re-index). */
+  readonly hasRequests?: boolean;
+};
 
 const SessionIndexSqlRow = z
   .object({
@@ -115,7 +119,9 @@ export class CatalogStore extends StoreHandle {
   }
 
   /** A catalog written by newer code is read-only. */
-  private refuseNewerSchema(operation: "indexSession" | "rotateFence" | "markArmed"): void {
+  private refuseNewerSchema(
+    operation: "indexSession" | "rotateFence" | "markArmed" | "markRequests",
+  ): void {
     if (this.newerFileVersion === undefined) return;
     throw new CatalogVersionRefused({
       fileVersion: this.newerFileVersion,
@@ -140,10 +146,10 @@ export class CatalogStore extends StoreHandle {
     this.refuseNewerSchema("indexSession");
     const inserted = this.db
       .query(
-        `INSERT INTO session_index (id, parent_id, role, fence, created_at)
-         VALUES (?, ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING`,
+        `INSERT INTO session_index (id, parent_id, role, fence, created_at, has_requests)
+         VALUES (?, ?, ?, 0, ?, ?) ON CONFLICT(id) DO NOTHING`,
       )
-      .run(input.id, input.parentId, input.role, input.createdAt);
+      .run(input.id, input.parentId, input.role, input.createdAt, input.hasRequests === true ? 1 : 0);
     return inserted.changes === 1;
   }
 
@@ -186,6 +192,25 @@ export class CatalogStore extends StoreHandle {
   }
 
   /**
+   * `has_requests = 1` is written BEFORE the first commit carrying a request action and never
+   * cleared: request scans skip only rows still at 0, so an extra true costs one session open.
+   */
+  markRequests(sessionId: string): void {
+    this.refuseNewerSchema("markRequests");
+    this.db
+      .query("UPDATE session_index SET has_requests = 1 WHERE id = ? AND has_requests = 0")
+      .run(sessionId);
+  }
+
+  /** Sessions the index knows hold no request; a file without an index row is never listed. */
+  requestFreeSessionIds(): readonly string[] {
+    return z
+      .array(z.object({ id: z.string() }))
+      .parse(this.db.query("SELECT id FROM session_index WHERE has_requests = 0 ORDER BY id").all())
+      .map((row) => row.id);
+  }
+
+  /**
    * Only ALLOCATES the next fence: authority transfers when the winner adopts it into the session
    * file, whose lock serializes against every fenced commit.
    */
@@ -221,9 +246,10 @@ function migrateCatalogChecks(db: Database): void {
   }
   // The raw DDL list: pragmas cannot change inside the migration transaction.
   for (const statement of CATALOG_SCHEMA) db.run(statement);
-  db.run(`INSERT INTO session_index (id, parent_id, role, fence, created_at, has_armed)
+  // Pre-v5 rows may hold requests the hint never saw: backfill true, the scan proves it.
+  db.run(`INSERT INTO session_index (id, parent_id, role, fence, created_at, has_armed, has_requests)
     SELECT id, parent_id, CASE WHEN role = 'worker' THEN 'child' ELSE role END,
-      fence, created_at, has_armed FROM session_index_old`);
+      fence, created_at, has_armed, 1 FROM session_index_old`);
   db.run(`INSERT INTO policy (name, kind, phase, match, verdict, encoding_version, priority, generation)
     SELECT name, CASE WHEN phase = 'pre' AND kind = 'inbox.deliver' THEN 'ingress' ELSE kind END,
       phase,

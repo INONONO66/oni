@@ -67,7 +67,13 @@ export function rotateActivationFence(env: SessionEntityEnv, kernel: SessionKern
   } catch (error) {
     if (!(error instanceof SessionNotFound)) throw error;
     const row = kernel.row(sessionId);
-    env.catalog.indexSession({ id: sessionId, parentId: row.parentId, role: row.role, createdAt: env.clock() });
+    env.catalog.indexSession({
+      id: sessionId,
+      parentId: row.parentId,
+      role: row.role,
+      createdAt: env.clock(),
+      hasRequests: kernel.requestRows(sessionId).length > 0,
+    });
     return env.catalog.rotateFence(sessionId);
   }
 }
