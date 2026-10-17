@@ -133,28 +133,31 @@ function toGatewaySend(input: SendMessageInput, now: number, consented = false):
 const CONTACT_KINDS = ["cli", "webhook", "a2a"] as const;
 export type ContactKind = (typeof CONTACT_KINDS)[number];
 
-/** The external CLI agents (#1180 absorbed): contacts, not a separate integration. */
-const CLI_AGENTS = ["claude-code", "codex", "omp"] as const;
-
 export interface ContactAddress {
   readonly kind: ContactKind;
   readonly id: string;
 }
 
-/** `cli:claude-code|codex|omp`, `webhook:<declared target>` and `a2a:<declared peer>`; any other id is a registered contact reached through the gateway. */
+/**
+ * `cli:<declared contact>`, `webhook:<declared target>` and `a2a:<declared
+ * peer>`; any other id is a registered contact reached through the gateway.
+ * No kind carries a literal list: a `cli:` id resolves to a row the Owner
+ * declared (#1512), never to a vendor name (#1527).
+ */
 export function parseContactAddress(contact: string): ContactAddress | undefined {
   const split = contact.indexOf(":");
   if (split <= 0 || split === contact.length - 1) return undefined;
   const kind = contact.slice(0, split);
   const id = contact.slice(split + 1);
   if (!CONTACT_KINDS.some((known) => known === kind)) return undefined;
-  if (kind === "cli" && !CLI_AGENTS.some((agent) => agent === id)) return undefined;
   return { kind: kind as ContactKind, id };
 }
 
 /** One outbound letter as a connector sees it. */
 interface OutboundSend {
   readonly sender: string;
+  /** The sender's turn: what a deadline armed for this send binds to. */
+  readonly turnId: string;
   readonly address: ContactAddress;
   /** The tool call's own id: one physical attempt per call, however the call is replayed. */
   readonly idempotencyKey: string;
@@ -184,22 +187,55 @@ type ContactOutcome = z.infer<typeof ContactOutcome>;
 /** A connector never throws: failure is the journaled `not_sent` fact. */
 export type Connector = (send: OutboundSend) => Effect.Effect<ContactOutcome>;
 
-/** External CLI agent runner over the machines exec/pty surface; injected, never ambient. */
+/**
+ * The declared CLI contact's runner over the attached machine's pty (#1512):
+ * one send is one turn of the child; the port resolves when the reconciler
+ * has admitted the turn's terminal fact, with the child and turn the rows
+ * carry. A refusal with `landed` means the letter reached the pane and is
+ * never re-sent. Injected, never ambient.
+ */
 export interface CliRunnerPort {
   run(input: {
     readonly agent: string;
     readonly message: string;
-  }): Effect.Effect<{ readonly stdout: string; readonly code: number }, { readonly reason: string }>;
+    readonly sender: string;
+    readonly turnId: string;
+    /** The send's key: the child turn id. */
+    readonly key: string;
+    readonly deadlineMs?: number;
+  }): Effect.Effect<
+    { readonly child: string; readonly turn: string; readonly facts: number },
+    { readonly reason: string; readonly landed?: boolean }
+  >;
 }
 
-/** Captured connector output delivered back as the sender's prompt (one reply path for every kind). */
+/** A connector's answer delivered back as the sender's prompt (one reply path for every kind). */
 export interface ContactReplyPort {
   prompt(input: {
     readonly sessionId: string;
     readonly contact: string;
     readonly content: string;
+    /** The send this prompt answers (its key). */
+    readonly replyTo?: string;
   }): Effect.Effect<void, { readonly reason: string }>;
 }
+
+/**
+ * The reply a cli turn leaves in the sender's inbox (#1512): a pointer to
+ * the admitted rows, never a copy of them — the child's tool rows, text and
+ * terminal are already in the ledger through the reconciler.
+ */
+export const CliTurnPointer = z
+  .object({
+    kind: z.literal("cli_turn"),
+    contact: Id,
+    child: Id,
+    turn: Id,
+    phase: z.literal("terminal"),
+    facts: z.number().int().nonnegative(),
+  })
+  .strict();
+export type CliTurnPointer = z.infer<typeof CliTurnPointer>;
 
 /** Arms the `delegation.deadline` purpose for a freshly created child (#1258). */
 interface DelegationDeadlinePort {
@@ -264,29 +300,58 @@ function notSent(address: ContactAddress, reason: string): ContactOutcome {
 }
 
 /**
- * CLI agent connector (#1180): spawns the external agent on the injected
- * runner, writes the message to stdin, and forwards captured stdout to the
- * sender as a `prompt{origin: contact cli:<agent>}` through the reply port.
- * Spawn failure is `not_sent`; a silent process is bounded by the deadline path.
+ * CLI contact connector (#1512, superseding #1180's local spawn): the letter
+ * is one turn of the declared child on its machine's pty through the
+ * injected runner; when the reconciler has admitted the turn's terminal fact
+ * the sender gets one `prompt{origin: contact cli:<id>}` whose content is
+ * the pointer to those rows and whose reply_to is this send. A refusal is
+ * `not_sent` with the runner's reason; a letter that reached the pane but
+ * never ended (`landed`) is `unknown` and never re-sent. A silent child is
+ * bounded by the deadline path.
  */
 export function cliConnector(runner: CliRunnerPort | undefined, reply: ContactReplyPort | undefined): Connector {
   return (send) =>
     runner === undefined
       ? Effect.succeed(notSent(send.address, "cli runner is not composed"))
-      : runner.run({ agent: send.address.id, message: send.message }).pipe(
-          Effect.flatMap(({ stdout, code }) => {
-            if (code !== 0) return Effect.succeed(notSent(send.address, `exit ${code}`));
-            const outcome = delivered(send.address);
-            if (reply === undefined || stdout.length === 0) return Effect.succeed(outcome);
-            return reply
-              .prompt({ sessionId: send.sender, contact: contactName(send.address), content: stdout })
-              .pipe(
-                Effect.as(outcome),
-                Effect.catch((refused: { readonly reason: string }) => Effect.succeed(notSent(send.address, refused.reason))),
-              );
-          }),
-          Effect.catch((refused: { readonly reason: string }) => Effect.succeed(notSent(send.address, refused.reason))),
-        );
+      : runner
+          .run({
+            agent: send.address.id,
+            message: send.message,
+            sender: send.sender,
+            turnId: send.turnId,
+            key: send.idempotencyKey,
+            ...(send.deadlineMs === undefined ? {} : { deadlineMs: send.deadlineMs }),
+          })
+          .pipe(
+            Effect.flatMap((turn) => {
+              const outcome = delivered(send.address);
+              if (reply === undefined) return Effect.succeed(outcome);
+              const pointer: CliTurnPointer = {
+                kind: "cli_turn",
+                contact: contactName(send.address),
+                child: turn.child,
+                turn: turn.turn,
+                phase: "terminal",
+                facts: turn.facts,
+              };
+              return reply
+                .prompt({
+                  sessionId: send.sender,
+                  contact: contactName(send.address),
+                  content: JSON.stringify(pointer),
+                  replyTo: send.idempotencyKey,
+                })
+                .pipe(
+                  Effect.as(outcome),
+                  Effect.catch((refused: { readonly reason: string }) => Effect.succeed(notSent(send.address, refused.reason))),
+                );
+            }),
+            Effect.catch((refused: { readonly reason: string; readonly landed?: boolean }) =>
+              Effect.succeed(
+                refused.landed === true ? unknownOutcome(send.address, refused.reason) : notSent(send.address, refused.reason),
+              ),
+            ),
+          );
 }
 
 /** What one POST to a declared webhook target came to, as the port reports it. */
@@ -435,7 +500,7 @@ function routeContact(
   contacts: ContactPorts,
   address: ContactAddress,
   input: SendMessageInput,
-  context: { readonly sessionId: string; readonly callId: string },
+  context: { readonly sessionId: string; readonly turnId: string; readonly callId: string },
 ): Promise<ContactOutcome> {
   const connector = registry.get(address.kind);
   if (connector === undefined)
@@ -447,6 +512,7 @@ function routeContact(
   return contacts.run(
     connector({
       sender: context.sessionId,
+      turnId: context.turnId,
       address,
       idempotencyKey: `${context.sessionId}:${context.callId}`,
       message: Outbound.text(outboundPayload(input)),
@@ -482,7 +548,7 @@ export function createSendMessageTool(
     name: "send_message",
     category: "authority",
     description:
-      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent.",
+      "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), a declared CLI agent on an attached machine (cli:<id> — the letter is typed into its terminal; the reply is a prompt pointing at the child's admitted rows), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session. A letter to a person on a channel for whom the Owner declared no social budget waits for the Owner's consent.",
     input: SendMessageInput,
     output: SendMessageOutput,
     visibility: { model: ["resident", "child"], cell: ["resident", "child"] },

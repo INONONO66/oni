@@ -172,10 +172,16 @@ const DeadlinePayload = z
   })
   .strict();
 
-/** Composition wires this to the entity deliver door: `signal{control: cancel}` to the child. */
+/**
+ * Composition wires this to the outbound cancel door: `signal{control:
+ * cancel}` to a child session, or (#1512) the pty interrupt for a `cli:`
+ * child — the armed `contact` tells the door which.
+ */
 export interface DelegationDeadlineDeps {
   cancel(input: {
     readonly child: string;
+    /** The contact the deadline was armed for: `session:<id>` or `cli:<id>`. */
+    readonly contact: string;
     readonly occurrenceId: string;
   }): Effect.Effect<void, { readonly reason: string }>;
 }
@@ -192,7 +198,7 @@ function deadlineWake(deps: DelegationDeadlineDeps): Bundle.AlarmPurposeHandler 
         try: () => DeadlinePayload.parse(JSON.parse(fired.payload)),
         catch: () => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "payload" }),
       });
-      yield* deps.cancel({ child: payload.child, occurrenceId: fired.occurrenceId }).pipe(
+      yield* deps.cancel({ child: payload.child, contact: payload.contact, occurrenceId: fired.occurrenceId }).pipe(
         Effect.mapError(
           (refused) =>
             new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.reason }),

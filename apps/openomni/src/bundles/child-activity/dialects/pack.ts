@@ -56,6 +56,17 @@ export interface LaunchInput {
   readonly liveConfigPath?: string;
 }
 
+/** The one input a pack's live config takes: the installed hook command the machine runs per event. */
+export interface LiveConfigInput {
+  /** `<hookCommand> <event>` reads the vendor payload on stdin and appends one spool line (#1512). */
+  readonly hookCommand: string;
+}
+
+/** What one spool line locates: the vendor transcript path a correlated launch advertised, when the line carries it. */
+export interface Located {
+  readonly transcriptPath?: string;
+}
+
 export interface SubmitRecipe {
   readonly writes: readonly [
     { readonly kind: "text"; readonly value: string },
@@ -72,6 +83,19 @@ export interface DialectPack {
   readonly live?: (line: string, context: LiveContext) => ChildLifecycleEvidence;
   readonly transcript?: (record: string, context: TranscriptContext) => ChildLifecycleEvidence;
   readonly submit: (text: string) => SubmitRecipe;
+  /**
+   * #1512: the transcript path from one spool line (the correlated launch's
+   * first live event), so the contact never reads a vendor payload itself.
+   * Never throws: a line without a location is `{}`. Required when the pack
+   * has both a live and a transcript source.
+   */
+  readonly locate?: (line: string) => Located;
+  /**
+   * #1512: the vendor-side live configuration (hook wiring) written to the
+   * machine before a correlated launch, as the file `launch` names through
+   * `liveConfigPath`. Required when `capabilities.live` is `hooks`.
+   */
+  readonly liveConfig?: (input: LiveConfigInput) => string;
 }
 
 export type ScreenState = keyof Manifest["screen"];

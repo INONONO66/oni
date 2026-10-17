@@ -1,5 +1,69 @@
 # Implementation Status
 
+## #1512 cli: contact over the machine pty (epic #1508)
+
+On `feat/1512-cli-contact-pty` (2026-10-17, base `0d88e4fa7` = the #1511
+tip after its r1b fixes). `send_message(to: "cli:<id>")` reaches a child CLI agent in a tmux
+pane on the declared machine. The address is a declared row, never a vendor
+literal: `provision channel_add` with provider `cli` and settings
+`{dialect, machine, cwd?}` lands `channel:cli:<id>` under Owner consent (a
+machine is where the Resident's letters go), judged by the contact's own door
+(`ProvisionPort.cli.declare`): the dialect must be a registered pack and the
+machine the self machine or a live enrollment; the row carries no credential
+and the channel profile mounts nothing for it (`CONTACT_ONLY_PROVIDERS`,
+status `ready` with the contact detail). The hard-coded
+`cli:claude-code|codex|omp` list is gone from `send-message`.
+`apps/openomni/src/bundles/child-activity/contact/`: `declaration.ts`
+(row resolution, `cli-<id>` pane name), `rule.ts` (the idle/working/blocked
+data rule over the turn's persisted receipts — hook `waiting` blocks, hook
+`terminal` or the transcript's terminal is idle, any other hook phase is
+working, a typed `screen` seam decides only without file evidence, and
+`unknown` fails closed), `hook-script.ts` (the vendor-neutral POSIX spool
+appender: `sh <script> <event>` with the payload on stdin appends one
+`{seq, event, receivedAt, payload}` line under a `mkdir` lock with a
+per-child counter file) and `runner.ts` (Effect-native: `host.place({
+machineId })` is an exact placement whose lease `renewPtyWhile` holds the
+pane; `pty.list` decides lookup-or-create — a pane this Resident did not
+launch is never written to; a launch writes the hook script and the pack's
+`liveConfig` under `<cwd>/.openomni/<child>/`, installs a spool-only watch,
+writes `exec <pack.launch argv>`, takes the transcript path from the first
+live line through the pack's `locate`, and re-installs the watch with both
+sources; one watch per turn, keyed by the send; submit is the pack's recipe,
+text then a delayed Enter; a blocked previous turn refuses `agent_blocked`,
+a running one `agent_busy`, no evidence `child_state_unknown`; no live
+observation within `stallWindowMs` admits a `prompt_stalled` /
+`launch_stalled` `child_diagnostic` through the reconciler's Deliver door
+and retires the pane; the run resolves when the reconciler has admitted the
+turn's terminal fact, through the observation bus's committed-action
+notification, never a poll). The pack contract (#1527) gains `locate(line)
+→ {transcriptPath?}` and `liveConfig({hookCommand}) → string`; claude-code
+implements both (its live config wires SessionStart, UserPromptSubmit,
+PreToolUse, PostToolUse, Stop and SessionEnd — not PermissionRequest, which a
+logging-only hook would deny), and the conformance suite checks them. The
+reply is one `prompt{origin: {kind: "contact", contact: "cli:<id>", replyTo:
+<send key>}}` whose content is the pointer `{kind: "cli_turn", contact,
+child, turn, phase: "terminal", facts}`, delivered through the entity's
+Deliver door keyed `<send key>:reply`; a refusal is `not_sent`, a letter that
+reached the pane and never ended is `unknown`. A `deadline_ms` arms the
+existing `delegation.deadline` purpose with `contact: cli:<id>`; the cancel
+door (`DelegationDeadlineDeps.cancel` now carries the contact) writes ETX to
+the pane and the waiting send ends `landed`; the parent gets the existing
+expiry prompt. `index.ts` composes `contacts.cli` and `contacts.reply` in
+production; nothing runs until a cli row is declared, and app stop drops
+every pane this Resident launched (watch, tmux session, lease).
+Receipts: `apps/openomni/test/cli-contact.test.ts` (declaration door under
+consent, the rule table, the runner over a scripted host — launch, one
+watch per turn, blocked/busy refusals, the stalled diagnostic, the
+interrupt, cleanup) and `test/cli-contact-e2e.test.ts` (a booted Resident, a
+real attached daemon on a private tmux socket, a FAKE child resolved as the
+pack's command that fires the installed hook command and appends the pack's
+fixture transcript; the sender's inbox prompt, the admitted rows through
+`childActivity.state` and the session read page, and the pane gone on stop).
+Not claimed: a live vendor child, multi-line letters (the recipe writes the
+text verbatim), attach-by-observation to a pane the Resident did not launch,
+and the screen fallback — the `screen` seam waits for #1603. Required on the
+contact's machine: `pty.session`, `fs.read`, `fs.write`, `shell.exec`.
+
 ## #1511 child reconciler (epic #1508)
 
 On `feat/1511-child-reconciler` (2026-10-17, base `3f763326a`, PR #1570).

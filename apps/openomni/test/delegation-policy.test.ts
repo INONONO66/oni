@@ -270,7 +270,7 @@ function wakeContext(prompts: { content: string }[]): Bundle.AlarmPurposeHandler
 }
 
 test("deadline fire cancels the silent child through the injected door and prompts the parent", async () => {
-  const cancelled: { child: string; occurrenceId: string }[] = [];
+  const cancelled: { child: string; contact: string; occurrenceId: string }[] = [];
   const prompts: { content: string }[] = [];
   const handler = delegationPurposes({
     cancel: (input) => Effect.sync(() => void cancelled.push(input)),
@@ -283,7 +283,8 @@ test("deadline fire cancels the silent child through the injected door and promp
     }),
   );
   expect(outcome).toBe("delivered");
-  expect(cancelled).toEqual([{ child: "child-1", occurrenceId: "alarm-1:1:deadline" }]);
+  // #1512: the armed contact rides to the cancel door, which routes a cli child to its pane's interrupt.
+  expect(cancelled).toEqual([{ child: "child-1", contact: "session:child-1", occurrenceId: "alarm-1:1:deadline" }]);
   expect(prompts).toHaveLength(1);
   expect(JSON.parse(prompts[0]?.content ?? "")).toEqual({
     kind: DELEGATION_DEADLINE,

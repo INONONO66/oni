@@ -2,7 +2,7 @@ import type { ActorRegistry, ChannelInstanceStore, PersonStore, SecretStore } fr
 import { Vault } from "@openomni/channels";
 import { type Channel, canonicalDigest, Provisioning } from "@openomni/protocol";
 import { z } from "zod";
-import { validateProviderCredential, validateProviderSettings } from "../../channels";
+import { CONTACT_ONLY_PROVIDERS, validateProviderCredential, validateProviderSettings } from "../../channels";
 import type { ChannelSupervisor } from "./supervisor";
 import type { KekResolution } from "./vault-key";
 import { refusal, storeRefusal } from "./contacts";
@@ -106,6 +106,12 @@ export interface ProvisionPort {
   /** The composition recompose seam (#1255 P4): bundle_enable/bundle_disable run here. */
   readonly bundles: BundlePort;
   readonly removeIdentity: (id: string) => boolean;
+  /**
+   * #1512: the `cli:` contact's declaration door — validates `{dialect,
+   * machine, cwd?}` against the registered dialect packs and the known
+   * machines; absent, a `cli` declaration is refused.
+   */
+  readonly cli?: { readonly declare: (settings: Provisioning.ChannelInstance["settings"]) => string | undefined };
 }
 
 function sealCredential(
@@ -139,7 +145,7 @@ function sealCredential(
 export function channelConsentRequired(
   identity: Channel.Identity,
   outbound: boolean | undefined,
-  /** #1569 lane 9: a webhook target's or an a2a peer's `url` is an outbound destination — never the Resident's own choice. */
+  /** #1569 lane 9: a webhook target's or an a2a peer's `url` is an outbound destination — never the Resident's own choice; #1512: so is a cli contact's machine. */
   declaration?: {
     readonly provider: string;
     readonly credential?: Readonly<Record<string, string>>;
@@ -151,6 +157,7 @@ export function channelConsentRequired(
     identity === "owner" ||
     outbound !== undefined ||
     declaration?.grant !== undefined ||
+    (declaration !== undefined && CONTACT_ONLY_PROVIDERS.has(declaration.provider)) ||
     (declaration !== undefined && URL_IS_A_DESTINATION.has(declaration.provider) && declaration.credential?.url !== undefined)
   );
 }
@@ -174,6 +181,31 @@ export function declaredIdentity(
   return input.identity ?? existing?.identity ?? "bot";
 }
 
+/** The settings gate by provider: a contact row's by its own door (#1512), a channel's by the provider schema. */
+function settingsRefusal(
+  port: ProvisionPort,
+  input: z.output<typeof CHANNEL_DECLARE_INPUT>,
+  settings: Provisioning.ChannelInstance["settings"],
+  identity: Channel.Identity,
+): string | undefined {
+  return CONTACT_ONLY_PROVIDERS.has(input.provider)
+    ? contactDeclarationRefusal(port, input, settings, identity)
+    : validateProviderSettings(input.provider, settings, identity);
+}
+
+/** The cli contact's declaration gate (#1512): bot identity, no credential, settings the contact door accepts. */
+function contactDeclarationRefusal(
+  port: ProvisionPort,
+  input: z.output<typeof CHANNEL_DECLARE_INPUT>,
+  settings: Provisioning.ChannelInstance["settings"],
+  identity: Channel.Identity,
+): string | undefined {
+  if (identity !== "bot") return `${input.provider} contacts have no Owner-account arm`;
+  if (input.credential !== undefined) return `${input.provider} contacts carry no credential; the machine and dialect are settings`;
+  if (port.cli === undefined) return `${input.provider} contacts are not composed`;
+  return port.cli.declare(settings);
+}
+
 export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
   return async (
     input: z.output<typeof CHANNEL_DECLARE_INPUT>,
@@ -187,14 +219,16 @@ export function executeChannelDeclare(port: ProvisionPort, now: () => number) {
     // dropped by an unrelated edit); a fresh declaration carries none.
     const settings = input.settings ?? existing?.settings ?? {};
     // §4: knobs must parse under the provider's settings declaration before
-    // the row lands — an Owner instance's are its intake posture (#1569).
-    const badSettings = validateProviderSettings(input.provider, settings, identity);
+    // the row lands — an Owner instance's are its intake posture (#1569); a
+    // cli contact's (#1512) are its dialect, machine and cwd, judged by the
+    // contact's own door, and it carries no credential.
+    const badSettings = settingsRefusal(port, input, settings, identity);
     if (badSettings !== undefined) return refusal("channel_add", badSettings);
     if (channelConsentRequired(identity, input.outbound, input)) {
       if (domainRevisions === undefined)
         return refusal(
           "channel_add",
-          `${input.id}: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent`,
+          `${input.id}: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent`,
         );
       if (canonicalDigest({ ...domainRevisions }) !== canonicalDigest(channelDomainRevisions(port.instances, input.id)))
         return refusal("channel_add", "domain revision changed");

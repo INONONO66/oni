@@ -64,6 +64,7 @@ import {
 } from "@openomni/machines";
 import {
   Alarm,
+  L0Observation,
   Operational,
   Outbound,
   traceIdFromUuid,
@@ -139,6 +140,9 @@ import { createRequestDomainRevisions } from "./composition/request-domain-revis
 import { admit } from "./bundles/child-activity/admit";
 import { ChildWatch } from "./bundles/child-activity/index";
 import { type ChildRow, currentState, receivedChildRows, stateReceipts } from "./bundles/child-activity/reconcile";
+import { validateCliContactSettings } from "./bundles/child-activity/contact/declaration";
+import { type CliRunner, createCliRunner } from "./bundles/child-activity/contact/runner";
+import { packs as dialectPacks } from "./bundles/child-activity/dialects/index";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {
@@ -362,7 +366,10 @@ export async function startOpenOmni(options: StartOptions = {}) {
   // below is rebuilt per composed on-set.
   // #1258: the deadline cancel door exists before the manifest but binds at
   // boot (it needs the entity client); unbound it fails the wake loudly.
+  // #1512: a `cli:` child's deadline is the pty interrupt of its pane; the
+  // contact runner binds it once the machine plane is up.
   let cancelDoor: DelegationDeadlineDeps["cancel"] | undefined;
+  let cliInterrupt: CliRunner["interrupt"] | undefined;
   const delegationDeadline: DelegationDeadlineDeps = {
     cancel: (input) =>
       cancelDoor === undefined
@@ -456,7 +463,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
     const entityClient = await runAppBoot(runtime, SessionEntity.client);
     // #1258: bind the deadline cancel door — `signal{control: cancel}` through
     // the entity's one deliver door, keyed by the alarm occurrence.
-    cancelDoor = ({ child, occurrenceId }) =>
+    const cancelChildSession: DelegationDeadlineDeps["cancel"] = ({ child, occurrenceId }) =>
       entityClient(child)
         .Deliver({
           kind: "signal",
@@ -468,6 +475,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
           Effect.asVoid,
           Effect.mapError((error) => ({ reason: String(error) })),
         );
+    // #1512: the armed contact names the door — a `cli:` child's pane interrupt, else the child session's signal.
+    cancelDoor = (input) => (input.contact.startsWith("cli:") ? (cliInterrupt?.(input.child) ?? Effect.fail({ reason: "cli contact runner is not composed" })) : cancelChildSession(input));
 
     const domainRevisions = createRequestDomainRevisions({
       machineEnrollments: enrollments,
@@ -620,8 +629,16 @@ export async function startOpenOmni(options: StartOptions = {}) {
       ),
     };
     const alarmPlane = alarmCapabilityView(liveAlarm);
+    // #1512: a cli contact names the self machine or a live enrollment.
+    const machineKnown = (machineId: string): boolean =>
+      machineId === machineProvision.selfId || enrollments.get(machineId)?.removedAt === null;
     const provisioningPort: ProvisionPort = {
       get machines() { return machineProvision; },
+      // #1512: `channel_add` with provider `cli` is judged by the contact's own door.
+      cli: {
+        declare: (settings) =>
+          validateCliContactSettings(settings, { dialects: dialectPacks.map((pack) => pack.manifest.id), machineKnown }),
+      },
       automations,
       persons: plane.stores.persons,
       instances: plane.stores.instances,
@@ -788,6 +805,55 @@ export async function startOpenOmni(options: StartOptions = {}) {
       }),
     );
     watchPlane.bind(watchSources);
+    // #1511: the child-activity surface — one watch per child turn through the
+    // watch plane, the persisted read model, and the reconciler's Deliver door.
+    const childActivityEnabled = () => services.composed.current().generation.bundles.includes("child-activity");
+    const childActivity = {
+      install: (spec: ChildWatch) => watchPlane.installChild(ChildWatch.parse(spec), childActivityEnabled()),
+      close: (id: string) => Effect.promise(() => watchSources.close(id)),
+      observe: (sessionId: string, id: string) => watchSources.observe(sessionId, id),
+      state: (sessionId: string, child: string, turn: string) =>
+        currentState(stateReceipts(childRows(sessionId), child, turn)),
+      rows: childRows,
+      admit: (sessionId: string, rows: readonly ChildRow[]) => admit(entityClient, sessionId, rows),
+    };
+    // #1258/#1512: one arm of the delegation.deadline purpose for a created
+    // child session or a cli child; the payload's contact tells the cancel
+    // door which interrupt the fire takes.
+    const armDeadline = (input: { readonly sessionId: string; readonly turnId: string; readonly child: string; readonly contact: string; readonly at: number }) =>
+      watchPlane.arms
+        .arm(input.sessionId, input.turnId)({
+          purpose: DELEGATION_DEADLINE,
+          at: input.at,
+          payload: { child: input.child, contact: input.contact },
+          sourceKey: `delegation:${input.child}`,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((refused) => ({ reason: refused.code })),
+        );
+    // #1512: the `cli:` contact over the declared machine's pty. Nothing runs
+    // until a `channel:cli:<id>` row is declared; app stop drops every pane
+    // this Resident launched (watch, tmux session, lease).
+    const cliRunner: CliRunner = createCliRunner({
+      instances: plane.stores.instances,
+      machineKnown,
+      host: machinery.host,
+      watch: {
+        install: (spec) => childActivity.install(spec).pipe(Effect.mapError((refused) => ({ reason: refused.reason }))),
+        close: childActivity.close,
+        rows: childRows,
+        admit: (sessionId, rows) =>
+          childActivity.admit(sessionId, rows).pipe(Effect.asVoid, Effect.mapError((error) => ({ reason: String(error) }))),
+      },
+      committed: (sessionId, listener) =>
+        services.observations.subscribe?.(L0Observation.ActionCommittedEvent, () => listener(), { match: { sessionId } }),
+      deadline: armDeadline,
+      id: services.entropy.id,
+      now: services.now,
+    });
+    await acquire(Effect.succeed(cliRunner), (runner) => runner.close());
+    cliInterrupt = (child) => cliRunner.interrupt(child);
     // #1308: bind the live alarm ports the wake bundle's ONE tool
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
@@ -863,17 +929,24 @@ export async function startOpenOmni(options: StartOptions = {}) {
             run: (effect) => runAppEffect(runtime, effect),
           }),
           deadline: {
-            arm: ({ sessionId, turnId, child, at }) =>
-              watchPlane.arms
-                .arm(sessionId, turnId)({
-                  purpose: DELEGATION_DEADLINE,
-                  at,
-                  payload: { child, contact: `session:${child}` },
-                  sourceKey: `delegation:${child}`,
+            arm: ({ sessionId, turnId, child, at }) => armDeadline({ sessionId, turnId, child, contact: `session:${child}`, at }),
+          },
+          // #1512: the declared cli contact's runner, and the one reply path:
+          // the pointer prompt lands in the sender's inbox through the entity's
+          // Deliver door like every other prompt, keyed by the send it answers.
+          cli: cliRunner,
+          reply: {
+            prompt: ({ sessionId, contact, content, replyTo }) =>
+              entityClient(sessionId)
+                .Deliver({
+                  kind: "prompt",
+                  body: JSON.stringify({ content }),
+                  source: JSON.stringify({ kind: "contact", contact, ...(replyTo === undefined ? {} : { replyTo }) }),
+                  idempotencyKey: `${replyTo ?? services.entropy.id()}:reply`,
                 })
                 .pipe(
                   Effect.asVoid,
-                  Effect.mapError((refused) => ({ reason: refused.code })),
+                  Effect.mapError((error) => ({ reason: String(error) })),
                 ),
           },
         },
@@ -1470,13 +1543,10 @@ export async function startOpenOmni(options: StartOptions = {}) {
       gateway,
       sessions: { get: sessionFacade },
       childActivity: {
-        install: (spec: ChildWatch) => runAppEffect(runtime, watchPlane.installChild(
-          ChildWatch.parse(spec), services.composed.current().generation.bundles.includes("child-activity"),
-        )),
+        install: (spec: ChildWatch) => runAppEffect(runtime, childActivity.install(spec)),
         close: (id: string) => watchSources.close(id),
-        observe: (sessionId: string, id: string) => watchSources.observe(sessionId, id),
-        state: (sessionId: string, child: string, turn: string) =>
-          currentState(stateReceipts(childRows(sessionId), child, turn)),
+        observe: childActivity.observe,
+        state: childActivity.state,
       },
       // The boot's honest channel record: where config came from and why each
       // declared row did or did not mount (provision_status reads this later).
