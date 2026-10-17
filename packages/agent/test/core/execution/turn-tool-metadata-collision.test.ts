@@ -30,12 +30,12 @@ function config(tools: NonNullable<ChatAgentConfig["tools"]>): ChatAgentConfig {
   };
 }
 
-function spec(name: string) {
+function spec(name: string, labeled = true) {
   return {
     name,
     description: `${name} test tool`,
     inputSchema: { type: "object" as const, properties: {} },
-    labels: [`origin:${name}`],
+    ...(labeled ? { labels: [`origin:${name}`] } : {}),
   };
 }
 
@@ -58,4 +58,19 @@ describe("tool metadata key collisions", () => {
     ));
     expect(result.finishReason).toBe("stop");
   });
+
+  for (const names of [
+    ["a.b", "a_b"],
+    ["a.b", "a_b", "a:b"],
+    ["café", "caf_"],
+  ]) {
+    it(`refuses unlabeled wire alias collision ${names.join(" / ")}`, async () => {
+      const result = await isolated(failure(runTestAgent(
+        runInput([{ role: "user", content: "hi" }]),
+        config(names.map((name) => spec(name, false))),
+      )));
+      expect(result).toMatchObject({ message: expect.stringContaining("tool metadata collision") });
+      console.log(`A7 guard collision names=${names.length} refused=1`);
+    });
+  }
 });

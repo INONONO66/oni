@@ -15,6 +15,7 @@ import type { ResolvedExecutorOptions } from "./invocation";
 export interface StopObservation {
   readonly text: string;
   readonly toolCalls: number;
+  readonly calls?: readonly { readonly tool: string; readonly input: PlainValue }[];
   readonly continueRequested?: boolean;
   readonly interrupted: boolean;
   readonly exhausted: boolean;
@@ -46,7 +47,10 @@ export function stopState(): StopState {
 }
 
 function advanceStopState(previous: StopState, observation: StopObservation): StopState {
-  const outputHash = canonicalDigest(observation.text);
+  const outputHash = canonicalDigest({
+    text: observation.text,
+    calls: observation.calls ?? [],
+  });
   return {
     outputHash,
     repetition: observation.progress

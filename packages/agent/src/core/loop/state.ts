@@ -1,4 +1,4 @@
-import type { Message, Policy, TraceContext } from "@openomni/protocol";
+import type { Message, TraceContext } from "@openomni/protocol";
 import { stopState, type StopState } from "./stop";
 import { accumulateUsage, type RunInput, type LlmSink as Sink } from "../ports/llm";
 import { createBudgetState, recordTokenUsage, recordTurn, restoreBudgetState, type BudgetState, effectiveMaxToolCalls } from "./budget";
@@ -112,7 +112,6 @@ export interface TurnArtifacts {
   /** The llm fold's latest boundary snapshot: the one source of what enters history at turn end. */
   readonly turnAssistant: { message?: Message.WithParts };
   readonly turnUsage: TokenUsage;
-  readonly toolPolicyDecisions: Array<{ readonly decision: Policy.PolicyDecision }>;
   /** A turn that used its whole step budget ended on the cap, not a window yield. */
   readonly stepCap: number;
   /**
@@ -124,9 +123,7 @@ export interface TurnArtifacts {
   readonly steering: { requested: boolean };
 }
 
-type BuildTurnResult =
-  | { type: "ready"; turn: TurnArtifacts }
-  | { type: "complete"; result: AgentResult };
+type BuildTurnResult = { type: "ready"; turn: TurnArtifacts };
 
 export function createRunState(
   input: ChatAgentInput & { traceContext: RunTrace },
@@ -381,7 +378,6 @@ export function buildTurn(
       stepCap,
       windowYieldArmed: yieldAtInputTokens !== undefined,
       steering,
-      toolPolicyDecisions: [],
     },
   };
 }

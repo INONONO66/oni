@@ -8,6 +8,10 @@ import { toolResultSchema } from "./result.js";
 export { toolResultText, toolResultJsonSchema, toolOutputRefSchema, type ToolOutputRef } from "./result.js";
 
 export type ToolCategory = "query" | "mutation" | "authority" | "execution";
+/** Provider-safe name shared by catalog admission and model serialization. */
+export function toolWireName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
+}
 /** Derived from the one session-role vocabulary (#1315): no second copy. */
 export type ToolRole = LedgerSession.Role;
 

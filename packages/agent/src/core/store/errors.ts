@@ -95,6 +95,12 @@ export class CorruptRecord extends Data.TaggedError("CorruptRecord")<{
   readonly id: string;
 }> {}
 
+export class SessionFileUnreadable extends Data.TaggedError("SessionFileUnreadable")<{
+  readonly path: string;
+  readonly code?: string;
+  readonly errno?: number;
+}> {}
+
 /**
  * A broken programmer invariant on a synchronous ledger path — corrupt or
  * missing stored facts, a capability gap, or caller misuse. Thrown, never
@@ -145,4 +151,5 @@ export type LedgerError =
   | CatalogVersionRefused
   | StorageUnavailable
   | CorruptRecord
+  | SessionFileUnreadable
   | AgentFailure;

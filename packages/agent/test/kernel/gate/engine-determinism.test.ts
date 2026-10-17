@@ -1,6 +1,6 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
 import { describe, expect, it } from "bun:test";
-import { compilePolicySnapshot, createPolicyCompiler, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
+import { compilePolicySnapshot, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
 import type { PolicyRow, Storage } from "@openomni/protocol";
 import { atGeneration, compaction, draft, MemoryPolicyRows, unrelatedRows, withPolicyRows } from "./row-fixtures";
 
@@ -36,12 +36,10 @@ function initialRows() {
 describe("compiled policy snapshot determinism", () => {
   it("pins a turn while the transactional writer advances new evaluators", () => withPolicyRows((source: Storage.PolicyRowSubAdapter) => {
     source.appendGeneration(() => initialRows());
-    const compiler = createPolicyCompiler({
-      registry: KERNEL_POLICY_REGISTRY,
-      source,
+    const oldEvaluator = compilePolicySnapshot({
+      registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1,
       mandatory: ["compaction"],
     });
-    const oldEvaluator = compiler.pin(1);
     const before = oldEvaluator.evaluate(request);
 
     const generation = source.appendGeneration((current: readonly PolicyRow.Row[]) => [
@@ -54,7 +52,10 @@ describe("compiled policy snapshot determinism", () => {
         { match: { op: "read" }, priority: 2_000 },
       ),
     ]);
-    const current = compiler.pin(generation);
+    const current = compilePolicySnapshot({
+      registry: KERNEL_POLICY_REGISTRY, rows: source.rows(generation), generation,
+      mandatory: ["compaction"],
+    });
     expect(generation).toBe(2);
     expect(before.verdict).toBe("allow");
     expect(current.evaluate(request)).toMatchObject({
@@ -141,12 +142,10 @@ describe("compiled policy snapshot determinism", () => {
   it("reads exactly one kind/phase/op bucket and never reads storage on the hot path", () => {
     const unrelated = unrelatedRows(220);
     const source = new MemoryPolicyRows([...initialRows(), ...unrelated]);
-    const compiler = createPolicyCompiler({
-      registry: KERNEL_POLICY_REGISTRY,
-      source,
+    const evaluator = compilePolicySnapshot({
+      registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1,
       mandatory: ["compaction"],
     });
-    const evaluator = compiler.pin(1);
     const readsBefore = source.reads;
 
     for (let index = 0; index < 1_000; index += 1) evaluator.evaluate(request);

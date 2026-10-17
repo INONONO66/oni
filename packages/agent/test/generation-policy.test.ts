@@ -2,8 +2,8 @@ import { generationSnapshot } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { expect, test } from "bun:test";
 
-import { createHandlerTable, createPolicyCompiler, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
-import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
+import { compilePolicySnapshot, createHandlerTable, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
+import type { PlainValue, PolicyRow } from "@openomni/protocol";
 import { Clock, Effect, Layer } from "effect";
 import { z } from "zod";
 import { GenerationHandlers } from "../src/core/composition/compose";
@@ -12,8 +12,7 @@ import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../src/core
 import { defineTool, projectTools } from "../src/core/loop/tool";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import { isolated, isolatedLedger } from "./helpers/isolated";
-import { effectValue, fiberSessionId, nativeExecutorOptions } from "./helpers/native-executor";
-import { sessionTree } from "./helpers/session-tree";
+import { fiberSessionId, nativeExecutorOptions } from "./helpers/native-executor";
 import { TEST_APPROVAL_POLICY } from "./helpers/approval-policy";
 
 type SeedRow = Omit<PolicyRow.Row, "generation">;
@@ -57,7 +56,7 @@ function generationFixture(rows: readonly SeedRow[], bodies: PlainValue[]) {
     );
     const layer = Layer.effect(SessionLayer, Effect.gen(function* () {
       const composed = yield* GenerationHandlers;
-      return { snapshot, policy: createPolicyCompiler({ registry: composed, source }).pin(policyGeneration) };
+      return { snapshot, policy: compilePolicySnapshot({ registry: composed, rows: source.rows(policyGeneration), generation: policyGeneration }) };
     })).pipe(Layer.provideMerge(seed));
     const owner = yield* makeSessionGenerations({ id: { sessionId: fiberSessionId, generation: 1 }, snapshot, layer, activate: Effect.void });
     return yield* owner.capture();
@@ -107,19 +106,19 @@ test("a transform's non-string declared field entry is skipped at projection; th
 }))));
 
 for (const type of ["transform", "obligation"] as const) {
-  test(`unresolved ${type} ref denies at pinned pre before a tool body runs`, () => isolated(Effect.scoped(Effect.gen(function* () {
+  test(`unresolved ${type} ref refuses the generation before a tool body runs`, () => isolated(Effect.scoped(Effect.gen(function* () {
     const bodies: PlainValue[] = [];
     const verdict: PlainValue = type === "transform" ? { type, ref: "demo/missing" }
       : { type, ref: "demo/missing", metric: "fanout", limit: 2 };
-    const { result, policy } = yield* dispatch([policyRow("demo/missing-row", verdict)], bodies);
-    expect(result).toMatchObject({ toolCallId: "call", id: "call", isError: true, errorKind: "precondition_failed" });
+    const source = isolatedLedger().catalog.policies;
+    const generation = source.appendGeneration(() => [...SEEDED_POLICY_ROWS, policyRow("demo/missing-row", verdict)]);
+    expect(() => compilePolicySnapshot({
+      registry: KERNEL_POLICY_REGISTRY, generation, rows: source.rows(generation),
+    })).toThrow(expect.objectContaining({
+      data: expect.objectContaining({
+        code: "unknown_ref", generation, ruleName: "demo/missing-row", ref: "demo/missing",
+      }),
+    }));
     expect(bodies).toEqual([]);
-    expect(policy.evaluate({ kind: "tool", phase: "pre", value: {} })).toMatchObject({
-      verdict: "deny", reason: "unknown_ref", error: { code: "unknown_ref", ref: "demo/missing" },
-    });
-    const tree = sessionTree(isolatedLedger().kernel, fiberSessionId);
-    const decisions = tree.filter((action: LedgerAction.Node) => action.kind === "policy.decision");
-    expect(decisions.map(effectValue)).toMatchObject([{ terminal: "blocked_pre", reason: "unknown_ref" }]);
-    expect(tree.filter((action: LedgerAction.Node) => action.kind === "tool")).toEqual([]);
   }))));
 }

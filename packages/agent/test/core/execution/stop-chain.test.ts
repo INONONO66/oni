@@ -21,7 +21,7 @@ function harness(limit = 3) {
           row.verdict.value !== null &&
           !Array.isArray(row.verdict.value) &&
           row.verdict.value.type === "obligation"
-            ? { ...row.verdict.value, limit }
+            ? { ...row.verdict.value, limit: row.verdict.value.metric === "continuation" ? 8 : limit }
             : row.verdict.value,
       },
     })),
@@ -79,6 +79,28 @@ test("alternate policy thresholds change repetition; invoking tools never resets
       );
       state = result.state;
     }
+  }
+});
+
+test("three distinct tool inputs continue but three identical calls stop", async () => {
+  for (const distinct of [true, false]) {
+    const { executor } = harness();
+    let state = stopState();
+    for (let step = 1; step <= 3; step += 1) {
+      const result = await isolated(executor.judgeStop(state, {
+        ...ordinary,
+        text: "",
+        toolCalls: 1,
+        calls: [{ tool: "read", input: { path: distinct ? `file-${step}` : "same" } }],
+      }));
+      expect(result.verdict).toMatchObject(
+        !distinct && step === 3
+          ? { kind: "error", reason: "exact_repeat" }
+          : { kind: "continue" },
+      );
+      state = result.state;
+    }
+    console.log(`A7 repeat distinct=${distinct} steps=3 repetition=${state.repetition}`);
   }
 });
 

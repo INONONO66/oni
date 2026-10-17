@@ -564,7 +564,6 @@ function terminalAssistant(
       parentID: parentId,
       modelID: "",
       providerID: "",
-      path: { cwd: "", root: "" },
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     },
     text,

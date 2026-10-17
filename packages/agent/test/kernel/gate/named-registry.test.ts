@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { canonicalDigest, type PlainValue, RowVerdict, RowVerdictRead, PolicyRow, type Storage } from "@openomni/protocol";
-import { compilePolicySnapshot, createHandlerTable, createPolicyCompiler, KERNEL_POLICY_REGISTRY, HandlerTableError, SEEDED_POLICY_ROWS, type ConsultInput } from "../../../src/core/gate/compile";
+import { compilePolicySnapshot, createHandlerTable, KERNEL_POLICY_REGISTRY, HandlerTableError, SEEDED_POLICY_ROWS, type ConsultInput } from "../../../src/core/gate/compile";
 import { atGeneration, compaction, draft, withPolicyRows, type PolicyRowDraft } from "./row-fixtures";
 import { runTestPromise } from "../../helpers/isolated";
 import type { GateHandlerResult } from "../../../src/core/gate/compose";
@@ -23,8 +23,7 @@ describe("immutable named policy registry", () => {
       ),
     ]);
     const bytes = JSON.stringify(source.rows(1));
-    const compiler = createPolicyCompiler({ source, registry: KERNEL_POLICY_REGISTRY });
-    const before = compiler.pin(1);
+    const before = compilePolicySnapshot({ rows: source.rows(1), generation: 1, registry: KERNEL_POLICY_REGISTRY });
     const generation = source.appendGeneration((current: readonly PolicyRow.Row[]) => current.map((row: PolicyRow.Row) => ({
       ...row, verdict: { ...row.verdict, value: RowVerdictRead.parse(row.verdict.value) },
     })));
@@ -35,8 +34,9 @@ describe("immutable named policy registry", () => {
       config: { paths: ["secret"] },
     });
     expect(JSON.stringify(source.rows(1))).toBe(bytes);
-    expect(compiler.pin(2).evaluate(input).value).toEqual(before.evaluate(input).value);
-    expect(compiler.pin(2).contentHash).not.toBe(before.contentHash);
+    const after = compilePolicySnapshot({ rows: source.rows(2), generation: 2, registry: KERNEL_POLICY_REGISTRY });
+    expect(after.evaluate(input).value).toEqual(before.evaluate(input).value);
+    expect(after.contentHash).not.toBe(before.contentHash);
   }));
 
   test.each([

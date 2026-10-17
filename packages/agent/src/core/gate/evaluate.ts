@@ -13,13 +13,8 @@ import { clonePlain, type MessagePolicyContext } from "./match";
 import type { GatePointTable } from "./points";
 import type { GateHandler, PendingConsult, PreparedResults } from "./compose";
 import { pointOfRow } from "./migrate";
-import type { CompileErrorData, CompiledRow, PolicyCompileError } from "./row-parse";
+import type { CompileErrorData, CompiledRow } from "./row-parse";
 import type { ProjectedGeneration } from "./project";
-
-/**
- * The legacy `PolicyEvaluation` shape, the evaluator that formats a gate decision back into it, and
- * the fail-closed snapshot for generations that refused to compile.
- */
 
 export interface PolicyEvaluationInput {
   readonly kind: string;
@@ -242,29 +237,4 @@ function consultedReason(decision: GateDecision): string | undefined {
   }
   if (decision.verdict === "deny") return decision.facts[0]?.code;
   return undefined;
-}
-
-export function failedSnapshot(error: PolicyCompileError, table: GatePointTable): CompiledPolicySnapshot {
-  const contentHash = canonicalDigest({ generation: error.generation, error: error.data });
-  return Object.freeze({
-    generation: error.generation,
-    contentHash,
-    pointTable: table,
-    evaluate(input: PolicyEvaluationInput) {
-      const { recorded: _recorded, ...identity } = input;
-      return Object.freeze({
-        generation: error.generation,
-        snapshotHash: contentHash,
-        inputHash: canonicalDigest(identity),
-        matchedRuleIds: Object.freeze([]),
-        transforms: Object.freeze([]),
-        verdict: "deny",
-        reason: error.data.composeCode ?? error.code,
-        value: clonePlain(input.value),
-        effects: Object.freeze([]),
-        obligations: Object.freeze([]),
-        error: Object.freeze(error.data),
-      });
-    },
-  });
 }

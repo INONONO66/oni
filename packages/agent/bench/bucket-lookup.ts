@@ -1,6 +1,6 @@
 import { KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
 import { expect, test } from "bun:test";
-import { createPolicyCompiler, type PolicyEvaluationInput } from "../src/core/gate/compile";
+import { compilePolicySnapshot, type PolicyEvaluationInput } from "../src/core/gate/compile";
 import { atGeneration, compaction, draft, MemoryPolicyRows, unrelatedRows, } from "../test/kernel/gate/row-fixtures";
 
 const ROW_COUNT = 220;
@@ -27,7 +27,7 @@ test("bucket lookup stays below the policy hot-path budget", () => {
     ),
     ...unrelated,
   ]);
-  const evaluator = createPolicyCompiler({ registry: KERNEL_POLICY_REGISTRY, source }).pin(1);
+  const evaluator = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1 });
 
   for (let index = 0; index < 10_000; index += 1) evaluator.evaluate(input);
   const readsBefore = source.reads;

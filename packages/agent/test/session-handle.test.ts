@@ -201,10 +201,13 @@ describe("durable session handle: admission and turn sealing", () => {
             }),
           ),
         );
-        const result = yield* awaitSignal(handle.prompt("rejected generation"));
+        const result = yield* handle.prompt("rejected generation").pipe(Effect.match({
+          onFailure: (left) => ({ _tag: "Left", left }),
+          onSuccess: (right) => ({ _tag: "Right", right }),
+        }));
         expect(result).toMatchObject({
-          kind: "error",
-          cause: { _tag: "SessionPolicyRefusal", reason: "unknown_point" },
+          _tag: "Left",
+          left: { _tag: "AgentFailure", operation: "generation.policy", cause: expect.stringContaining("unknown_point") },
         });
         expect(calls).toBe(0);
         expect(tree(handle.id).filter((action) => action.kind === "turn")).toEqual([]);
@@ -429,13 +432,17 @@ describe("durable session handle: admission and turn sealing", () => {
           ),
         );
 
-        const result = yield* awaitSignal(handle.prompt("must be refused"));
+        const result = yield* handle.prompt("must be refused").pipe(Effect.match({
+          onFailure: (left) => ({ _tag: "Left", left }),
+          onSuccess: (right) => ({ _tag: "Right", right }),
+        }));
 
         expect(calls).toBe(0);
         expect(result).toMatchObject({
-          kind: "error",
-          cause: { _tag: "SessionPolicyRefusal", code: "session_policy_refused" },
+          _tag: "Left",
+          left: { _tag: "AgentFailure", operation: "generation.policy", cause: expect.stringContaining("missing mandatory rule compaction") },
         });
+        expect(tree(handle.id).filter((action) => action.kind === "turn")).toEqual([]);
       }),
       { seedPolicies: false },
     ));

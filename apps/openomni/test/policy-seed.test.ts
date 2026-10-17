@@ -157,11 +157,9 @@ test("a base-era compaction deny converts at boot and keeps refusing summarizati
     });
 
     // The production compiler refuses summarization under the converted generation.
-    const compiler = Core.createPolicyCompiler({
-      source: policies,
-      registry: Core.KERNEL_POLICY_REGISTRY,
-    });
-    const refused = compiler.pin(3).evaluate({ kind: "compaction", phase: "pre", op: "compact", value: {} });
+    const refused = Core.compilePolicySnapshot({
+      rows: policies.rows(3), generation: 3, registry: Core.KERNEL_POLICY_REGISTRY,
+    }).evaluate({ kind: "compaction", phase: "pre", op: "compact", value: {} });
     expect(refused.verdict).toBe("deny");
 
     // Reseeding converges: the converted generation is already in point shape.

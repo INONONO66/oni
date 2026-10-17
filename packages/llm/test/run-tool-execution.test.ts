@@ -78,13 +78,37 @@ test("sanitized provider names return the original dotted invocation name", asyn
   expect(observed.results).toEqual([]);
 });
 
-test("colliding MCP wire names retain independent positional invocations", async () => {
-  const observed = await returnedCalls(["srv.x.y", "srv_x_y"], ["srv_x_y", "srv_x_y_2"]);
-  expect(observed.calls).toEqual([
-    { id: "call-0", tool: "srv.x.y", input: { slot: 0 } },
-    { id: "call-1", tool: "srv_x_y", input: { slot: 1 } },
-  ]);
-  expect(observed.states).toEqual(["pending", "pending"]);
+test("the reverse wire map preserves every distinct original identity", async () => {
+  const original = ["a.b", "café", "third_name"];
+  const observed = await returnedCalls(original, ["a_b", "caf_", "third_name"]);
+  expect(observed.calls.map((call) => call.tool)).toEqual(original);
+  expect(observed.attempts).toBe(1);
+  console.log(`A7 originalByWire identity=${observed.calls.length}/${original.length}`);
+});
+
+test("colliding provider names refuse before a stream opens", async () => {
+  let streams = 0;
+  await expect(run({
+    model: { id: "model", providerID: "fixture", name: "model" },
+    messages: [],
+    tools: ["srv.x.y", "srv_x_y"].map((name) => ({ name, inputSchema: { type: "object" } })),
+    trace: { traceId: "trace", sessionId: "session", runId: "run" },
+    events: { publish: () => undefined },
+  }, {
+    onMessage: () => undefined,
+    onToolCall: () => undefined,
+    onToolResult: () => undefined,
+  }, {
+    createStream: async () => {
+      streams += 1;
+      throw new Error("stream must not open");
+    },
+  })).rejects.toMatchObject({
+    _tag: "InvalidProviderData",
+    operation: "run.tools",
+  });
+  expect(streams).toBe(0);
+  console.log(`A7 wire collision streams before=1 after=${streams}`);
 });
 
 test("the provider input contract exposes no tool execution capability", () => {

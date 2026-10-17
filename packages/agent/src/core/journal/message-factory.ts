@@ -45,7 +45,6 @@ export function createAssistantMessage(
     parentID,
     modelID: "",
     providerID: "",
-    path: { cwd: process.cwd(), root: process.cwd() },
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
   };
 

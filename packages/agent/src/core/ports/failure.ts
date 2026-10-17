@@ -174,7 +174,6 @@ export type ExecutionError =
   | ContextAdmissionError
   | CommitFailed
   | OutcomeUnknown
-  | AgentFailure
   | CompactionExecutionError
   | ExecutionApprovalError
   | AgentStopError;

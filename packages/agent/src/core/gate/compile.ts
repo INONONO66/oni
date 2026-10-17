@@ -1,4 +1,4 @@
-import { canonicalDigest, type PolicyRow, type PlainValue, type Storage } from "@openomni/protocol";
+import { canonicalDigest, type PolicyRow, type PlainValue } from "@openomni/protocol";
 import { Effect } from "effect";
 import { composePointTable, GateComposeError, KERNEL_CAPABILITY_POINTS, type GatePointTable } from "./points";
 import { translateLegacyPolicyRow } from "./migrate";
@@ -12,7 +12,7 @@ import {
 } from "./row-parse";
 import { createHandlerTable, wrapTransformer, type HandlerTable } from "./registry";
 import { projectGeneration, type ProjectedGeneration } from "./project";
-import { evaluateProjected, failedSnapshot, nextProjectedConsult, type CompiledPolicySnapshot, type PolicyEvaluationInput } from "./evaluate";
+import { evaluateProjected, nextProjectedConsult, type CompiledPolicySnapshot, type PolicyEvaluationInput } from "./evaluate";
 import type { GateHandlerResult } from "./compose";
 
 export { createHandlerTable, HandlerTableError, KERNEL_POLICY_REGISTRY, type HandlerTable, type NamedTransformer, type NamedConsultant, type ConsultInput, type NamedGuard } from "./registry";
@@ -123,62 +123,6 @@ export function compilePolicySnapshot(
 }
 
 type PolicyRowDraft = Omit<PolicyRow.Row, "generation">;
-
-export interface PolicyCompiler {
-  pin(generation: number): CompiledPolicySnapshot;
-}
-
-export function createPolicyCompiler(options: {
-  readonly registry: HandlerTable;
-  readonly source: Pick<Storage.PolicyRowSubAdapter, "rows">;
-  readonly mandatory?: readonly RuleName[];
-  readonly kinds?: readonly string[];
-  readonly table?: GatePointTable;
-}): PolicyCompiler {
-  const registry = createHandlerTable(options.registry);
-  const cache = new Map<number, CompiledPolicySnapshot>();
-  const mandatory = options.mandatory ?? MANDATORY_RULE_NAMES;
-  const table = options.table ?? kernelPointTable();
-
-  function pin(generation: number): CompiledPolicySnapshot {
-    const found = cache.get(generation);
-    if (found !== undefined) return found;
-    const compiled = loadSnapshot(generation);
-    cache.set(generation, compiled);
-    return compiled;
-  }
-
-  function loadSnapshot(generation: number): CompiledPolicySnapshot {
-    let rows: readonly PolicyRow.Row[];
-    try {
-      rows = options.source.rows(generation);
-    } catch {
-      return failedSnapshot(
-        new PolicyCompileError({
-          code: "snapshot_load_failed",
-          generation,
-          message: "policy snapshot load failed",
-        }),
-        table,
-      );
-    }
-    try {
-      return compilePolicySnapshot({
-        registry,
-        generation,
-        rows,
-        mandatory,
-        table,
-        ...(options.kinds === undefined ? {} : { kinds: options.kinds }),
-      });
-    } catch (error) {
-      if (PolicyCompileError.isInstance(error)) return failedSnapshot(error, table);
-      throw error;
-    }
-  }
-
-  return { pin };
-}
 
 function seeded(
   name: string,

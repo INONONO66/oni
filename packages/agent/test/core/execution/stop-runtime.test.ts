@@ -42,7 +42,7 @@ function armAlarm(alarmId: string): string {
   return armed.action.id;
 }
 
-function scenario(mode: "repeat" | "stall" | "blocked" | "wait" | "progress" | "prior-alarm") {
+function scenario(mode: "repeat" | "stall" | "blocked" | "wait" | "progress" | "prior-alarm" | "distinct" | "same-tool") {
   return isolated(
     Effect.scoped(
       Effect.gen(function* () {
@@ -79,7 +79,7 @@ function scenario(mode: "repeat" | "stall" | "blocked" | "wait" | "progress" | "
               name: "loop",
               description: "loop",
               category: "mutation",
-              input: z.object({}),
+              input: z.object({ step: z.number().optional() }),
               output: z.string(),
               visibility: { model: ["resident"], cell: [] },
               execute: () =>
@@ -136,18 +136,28 @@ function scenario(mode: "repeat" | "stall" | "blocked" | "wait" | "progress" | "
                         const text =
                           mode === "stall" || mode === "blocked"
                             ? `attempt ${calls}`
-                            : mode === "prior-alarm"
+                            : mode === "prior-alarm" || mode === "distinct" || mode === "same-tool"
                               ? ""
                               : "same";
+                        const message = assistantStep(
+                          text,
+                          input.sessionId,
+                          "",
+                          mode === "stall" || mode === "prior-alarm"
+                            ? undefined
+                            : { id: `tool-${calls}`, callID: `call-${calls}`, tool: "loop" },
+                        );
                         sink.onMessage(
-                          assistantStep(
-                            text,
-                            input.sessionId,
-                            "",
-                            mode === "stall" || mode === "prior-alarm"
-                              ? undefined
-                              : { id: `tool-${calls}`, callID: `call-${calls}`, tool: "loop" },
-                          ),
+                          mode === "distinct" || mode === "same-tool"
+                            ? {
+                                ...message,
+                                parts: message.parts.map((part) =>
+                                  part.type === "tool" ? {
+                                    ...part,
+                                    state: { ...part.state, input: { step: mode === "distinct" ? calls : 1 } },
+                                  } : part),
+                              }
+                            : message,
                         );
                         return { type: "stop" as const };
                       }),
@@ -182,6 +192,16 @@ function scenario(mode: "repeat" | "stall" | "blocked" | "wait" | "progress" | "
   );
 }
 
+test("real tool-only steps stop only when the invocation repeats", async () => {
+  const distinct = await scenario("distinct");
+  const identical = await scenario("same-tool");
+  expect(distinct.result).toMatchObject({ kind: "error", cause: { code: "agent_stop", reason: "continuation" } });
+  expect(distinct.calls).toBe(8);
+  expect(identical.result).toMatchObject({ kind: "error", cause: { code: "agent_stop", reason: "exact_repeat" } });
+  expect(identical.calls).toBe(3);
+  console.log(`A7 tool-only distinct before=3 after=${distinct.calls} identical=${identical.calls}`);
+});
+
 for (const [mode, reason, count] of [
   ["repeat", "exact_repeat", 3],
   ["stall", "toolless_stall", 3],
@@ -199,6 +219,11 @@ for (const [mode, reason, count] of [
         (action.kind === "prompt" || action.kind === "signal") &&
         (action.effect.value as { phase?: string } | null)?.phase === "delivery",
       )).toHaveLength(9);
+    if (mode === "repeat") {
+      const messages = outcome.actions.filter((action) => action.kind === "message");
+      expect(JSON.stringify(messages)).not.toContain(process.cwd());
+      console.log(`A7 persisted cwd before=${messages.length} after=0`);
+    }
   });
 }
 test("only a still-armed action created by this turn permits a waiting terminal", async () => {

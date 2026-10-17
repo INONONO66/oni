@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { Core } from "@openomni/agent";
-const createPolicyCompiler = Core.createPolicyCompiler;
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
 import type { PolicyRow } from "@openomni/protocol";
@@ -31,19 +30,18 @@ test("the ledger writer seeds generation one with mandatory rows and identical r
   expect(source.rows(2)).toEqual([]);
 });
 
-test("an unresolved named ref in a ledger generation compiles to a typed deny", () => {
+test("an unresolved named ref in a ledger generation refuses compilation with typed fields", () => {
   const source = testPlane().catalog.policies;
   const generation = seedKernelPolicyRows(source, [{
     name: "missing-ref", kind: "tool", phase: "pre", priority: 1000,
     match: { encodingVersion: 1, value: { op: "provision" } },
     verdict: { encodingVersion: 1, value: { type: "transform", ref: "app/not-registered" } },
   }]);
-  const compiler = createPolicyCompiler({ source, registry: KERNEL_POLICY_REGISTRY });
-  const decision = compiler.pin(generation).evaluate({
-    kind: "tool", phase: "pre", op: "provision", value: {}, role: "resident", sessionId: "test",
-  });
-  expect(decision).toMatchObject({
-    generation: 1, verdict: "deny", reason: "unknown_ref",
-    error: { code: "unknown_ref", ruleName: "missing-ref", ref: "app/not-registered" },
-  });
+  expect(() => Core.compilePolicySnapshot({
+    rows: source.rows(generation), generation, registry: KERNEL_POLICY_REGISTRY,
+  })).toThrow(expect.objectContaining({
+    data: expect.objectContaining({
+      code: "unknown_ref", generation: 1, ruleName: "missing-ref", ref: "app/not-registered",
+    }),
+  }));
 });

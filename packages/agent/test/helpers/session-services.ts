@@ -1,10 +1,10 @@
 import { FakeLlmLive as LlmLive } from "./fake-llm";
-import { createPolicyCompiler, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
+import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { canonicalDigest, Delivery, LedgerAction, SessionTransition, type LedgerSession, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
 import { Clock, type Context, Effect, Layer, Scope, Semaphore } from "effect";
 import { GenerationHandlers } from "../../src/core/composition/compose";
 import type { SessionKernel } from "../../src/core/session/entity";
-import { GenerationUnavailable, type SessionError } from "../../src/core/ports/failure";
+import { AgentFailure, GenerationUnavailable, type SessionError } from "../../src/core/ports/failure";
 import { AgentGenerationLive } from "./generation-layer";
 import { makeSessionGenerations, type GenerationBundle } from "../../src/core/session/run";
 import type { SessionRuntime } from "../../src/core/session/run";
@@ -98,13 +98,21 @@ function sessionServices(fixture: SessionFixture) {
     const lock = yield* Semaphore.make(1);
     const managers = new Map<string, Effect.Success<ReturnType<typeof makeSessionGenerations>>>();
     const observations = observationService(fixture.observations);
-    const compiler = createPolicyCompiler({ registry: KERNEL_POLICY_REGISTRY, kinds: LedgerAction.Kind.options,
-      source: { rows: (generation?: number) => fixture.openKernel("policy").policyRows(generation) } });
     function bundle(sessionId: string, snapshot: SessionGeneration.Snapshot): GenerationBundle {
       return {
         id: { sessionId, generation: snapshot.generation }, snapshot, activate: Effect.void,
         layer: Layer.mergeAll(
-          AgentGenerationLive({ snapshot, policy: compiler.pin(snapshot.policyGeneration), definitions: [] }),
+          Layer.unwrap(Effect.try({
+            try: () => compilePolicySnapshot({
+              registry: KERNEL_POLICY_REGISTRY, kinds: LedgerAction.Kind.options,
+              rows: fixture.openKernel("policy").policyRows(snapshot.policyGeneration),
+              generation: snapshot.policyGeneration,
+            }),
+            catch: String,
+          }).pipe(
+            Effect.mapError((cause) => new AgentFailure({ operation: "generation.policy", cause })),
+            Effect.map((policy) => AgentGenerationLive({ snapshot, policy, definitions: [] })),
+          )),
           Layer.succeed(ObservationSink, observations), Layer.succeed(GenerationHandlers, KERNEL_POLICY_REGISTRY),
         ),
       };
