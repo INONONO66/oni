@@ -1,0 +1,5 @@
+{
+  "idle_prompt": "────────────────────────────────────\n❯\n────────────────────────────────────\n⏸ manual mode on · ? for shortcuts · ← for agents",
+  "working": "✽ Simmering…\n────────────────────────────────────\n❯\n────────────────────────────────────\n⏸ manual mode on · esc to interrupt · ← for agents",
+  "permission_prompt": "Bash command\n[redacted command]\nThis command requires approval\nDo you want to proceed?\n❯ 1. Yes\n2. Yes, and don’t ask again\n3. Yes, and switch to auto mode\n4. No\nEsc to cancel · Tab to amend"
+}

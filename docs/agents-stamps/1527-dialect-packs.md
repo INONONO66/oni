@@ -1,0 +1,1 @@
+#1527 (epic #1508) on `feat/1527-dialect-packs` (2026-10-15, base `8638019e8`, PR #1549): pure dialect-pack contract and claude-code pack with captured screen, hook, and JSONL fixtures in `apps/openomni/src/bundles/child-activity/dialects/claude-code/test/` checked by `dialects/conformance.test.ts`; reconciler integration follows #1511.

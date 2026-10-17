@@ -1,0 +1,19 @@
+{
+  "id": "claude-code",
+  "versions": "^2\\.",
+  "commands": ["claude"],
+  "screen": {
+    "permission_prompt": [
+      "^This command requires approval$",
+      "^Do you want to proceed\\?$"
+    ],
+    "idle_prompt": ["^.* · \\? for shortcuts · ← for agents$"],
+    "working": ["^.* · esc to interrupt · ← for agents$"]
+  },
+  "capabilities": {
+    "live": "hooks",
+    "transcript": "jsonl",
+    "permission_decision": true,
+    "correlated_launch": true
+  }
+}
