@@ -180,4 +180,15 @@ describe("Slack outbound calls through the SDK", () => {
     ).toEqual({ value: "rejected" });
     expect(fake.client.calls).toEqual([]);
   });
+
+  test("downloads an inbound file by id with the platform's name and mime", async () => {
+    const fake = fakeSlackSdk();
+    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, injectedOptions());
+    expect(await runtime.attachments?.("F-9")).toEqual({
+      bytes: new TextEncoder().encode("F-9"),
+      name: "F-9.txt",
+      mime: "text/plain",
+    });
+    expect(fake.client.calls.at(-1)?.method).toBe("downloadFile");
+  });
 });

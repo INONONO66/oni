@@ -6,7 +6,6 @@ import { handoffInbound } from "../../support/inbound-handoff";
 import { requireHandler } from "../../support/handler-frame";
 import { type DeliveryReceipt, DeliveryReconciliation } from "../../support/deliver";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
-import { DiscordClient } from "./client";
 import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
 import { DiscordHandlerMissingError } from "../../errors";
 import { DiscordNormalizer } from "./normalizer";
@@ -15,6 +14,7 @@ import {
   type DiscordBotApi,
   type DiscordBotEventMap,
   type DiscordSdk,
+  classifyDiscordFailure,
   discordSdk,
 } from "./sdk";
 import {
@@ -32,13 +32,13 @@ import type { ProviderOptions } from "../contract";
  * Discord over the agent-messenger bot SDK's gateway listener (#1569): the
  * SDK owns identify/resume, heartbeats and reconnects; this surface owns the
  * bot identity (from READY), facts-only normalization, inbound dedupe,
- * interaction acks, delivery custody and rendering. REST stays on the
- * package's own client over `fetch-retry` (one physical attempt per key).
+ * interaction acks, delivery custody and rendering. Every request rides the
+ * SDK client with retries disabled.
  */
 export class DiscordAdapter implements Channel.Surface {
   readonly id = "discord:bot";
-  private readonly client: DiscordClient;
   private readonly bot: DiscordBotApi;
+  private readonly ready: Promise<void>;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
   private custody: ListenerCustody | null = null;
@@ -53,8 +53,8 @@ export class DiscordAdapter implements Channel.Surface {
     private readonly sdk: DiscordSdk = discordSdk(),
   ) {
     this.dedupe = new Dedupe(options.now);
-    this.client = new DiscordClient(token, publish, options.run);
     this.bot = sdk.client();
+    this.ready = this.bot.login({ token }).then(() => undefined);
   }
 
   onMessage(handler: Channel.MessageHandler): void {
@@ -68,7 +68,7 @@ export class DiscordAdapter implements Channel.Surface {
         message: "[discord] No message handler registered. Call onMessage() before start().",
       });
     }
-    await this.bot.login({ token: this.token });
+    await this.ready;
     const listener = this.sdk.listener(this.bot, { intents: DISCORD_INTENTS });
     const custody = listenerCustody<DiscordBotEventMap>(listener, {
       label: "discord gateway",
@@ -118,8 +118,8 @@ export class DiscordAdapter implements Channel.Surface {
       }
       // Defer the interaction before any potentially slow inbound handoff;
       // a refused ack drops the tap rather than answering a dead token later.
-      void this.client
-        .ackInteraction(interaction.data.id, interaction.data.token, traceId)
+      void this.bot
+        .respondToInteraction(interaction.data.id, interaction.data.token, 6)
         .then(() => this.handleMessageCreate(interaction.data, traceId))
         .catch((error) => {
           this.warn(traceId, "discord interaction acknowledgment failed; dropped", {
@@ -185,15 +185,25 @@ export class DiscordAdapter implements Channel.Surface {
     conversation?: Gateway.Conversation,
   ): Promise<Gateway.Conversation> {
     if (conversation !== undefined) return conversation;
-    return { channelId: await discordDmChannel(this.client, externalId, newTraceId(this.options.id)) };
+    await this.ready;
+    return {
+      channelId: await discordDmChannel(this.bot, classifyDiscordFailure, externalId),
+    };
   }
 
   typing(conversation: Gateway.Conversation): Promise<void> {
-    return this.client.typing(conversation.channelId, newTraceId(this.options.id));
+    return this.bot.triggerTyping(conversation.channelId);
   }
 
   private delivery(): DiscordDelivery {
-    return { client: this.client, outbound: this.outbound, publish: this.publish, options: this.options };
+    return {
+      client: this.bot,
+      ready: this.ready,
+      classify: classifyDiscordFailure,
+      outbound: this.outbound,
+      publish: this.publish,
+      options: this.options,
+    };
   }
 
   private handleMessageCreate(

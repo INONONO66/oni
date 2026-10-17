@@ -193,7 +193,10 @@ mandatory and absolute — the Owner names the host roots the in-process daemon
 may expose; no host path outside them is readable, writable, listable,
 stat-able, or usable as a shell cwd. Duplicate self/enrolled ids, a default
 absent from effective enrollments, and empty or relative exports are typed
-configuration refusals BEFORE the listener starts.
+configuration refusals BEFORE the listener starts. `OPENOMNI_MACHINES_INBOX`
+(absolute, must already exist inside the default machine's exports) names the
+directory where inbound channel attachments are stored before the Resident
+sees the message; unset, attachments keep their platform references.
 
 Boot order is fixed: validate the plane, start the listener set, start an
 in-process daemon with the self exports/capabilities, dial the host's own

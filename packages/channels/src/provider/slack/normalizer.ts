@@ -10,9 +10,9 @@ interface SlackNormalizerContext {
 
 function slackAttachments(files: NonNullable<SlackMessageEvent["files"]>) {
   return files.flatMap((file) => {
-    // The download URL when the file is hosted, else the private URL, else the
-    // file id a `files.info` call resolves; a file with none of them has no handle.
-    const ref = file.url_private_download ?? file.url_private ?? file.id;
+    // The file id first: it is what the authenticated download takes, and the
+    // private URLs answer only with the bot token anyway.
+    const ref = file.id ?? file.url_private_download ?? file.url_private;
     return ref === undefined ? [] : [{
       kind: file.mimetype?.startsWith("image/") ? "image" as const
         : file.mimetype?.startsWith("audio/") ? "audio" as const : "file" as const,

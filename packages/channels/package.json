@@ -13,7 +13,7 @@
   "dependencies": {
     "@openomni/agent": "workspace:*",
     "@openomni/protocol": "workspace:*",
-    "agent-messenger": "2.39.0",
+    "agent-messenger": "github:INONONO66/agent-messenger#e3fceff579d137c895126cde55b0d4d920395f8f",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"
   },

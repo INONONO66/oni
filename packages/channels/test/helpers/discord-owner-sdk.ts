@@ -62,10 +62,39 @@ export class FakeDiscordOwnerListener implements DiscordOwnerEvents {
 
 export class FakeDiscordOwnerClient implements DiscordOwnerApi {
   readonly logins: string[] = [];
+  readonly calls: Array<{ method: string; channelId?: string }> = [];
 
   login(credentials: { token: string }): Promise<object> {
     this.logins.push(credentials.token);
     return Promise.resolve(this);
+  }
+
+  testAuth(): Promise<{ id: string; username: string }> {
+    this.calls.push({ method: "testAuth" });
+    return Promise.resolve({ id: "U-owner", username: "owner" });
+  }
+
+  createMessage(channelId: string): Promise<{ id: string }> {
+    this.calls.push({ method: "createMessage", channelId });
+    return Promise.resolve({ id: "m-1" });
+  }
+
+  createDM(userId: string): Promise<{ id: string }> {
+    this.calls.push({ method: "createDM", channelId: userId });
+    return Promise.resolve({ id: "D-owner" });
+  }
+
+  triggerTyping(channelId: string): Promise<void> {
+    this.calls.push({ method: "triggerTyping", channelId });
+    return Promise.resolve();
+  }
+
+  addReaction(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  removeReaction(): Promise<void> {
+    return Promise.resolve();
   }
 }
 

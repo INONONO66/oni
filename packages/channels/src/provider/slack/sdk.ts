@@ -45,6 +45,7 @@ export interface SlackBotApi {
    * `reactions.add` take a channel id and refuse a bare user id.
    */
   openDm(userId: string): Promise<string>;
+  downloadFile(fileId: string): Promise<{ buffer: Uint8Array; file: { name?: string; mimetype?: string } }>;
 }
 
 /** What one `slack_event` carries: Events API args with an ack, or a bare envelope the SDK did not type. */

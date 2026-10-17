@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
+import { injectedOptions } from "./helpers/injected";
 import { Operational, Outbound } from "@openomni/protocol";
-import { DiscordClient } from "../src/provider/discord/client";
-import { createDiscordProvider, DiscordProvider } from "../src/provider/discord/provider";
+import { createDiscordProvider } from "../src/provider/discord/provider";
 import { fakeDiscordSdk } from "./helpers/discord-sdk";
 import { GitHubProvider } from "../src/provider/github/provider";
 import { createSlackProvider } from "../src/provider/slack/provider";
 import { fakeSlackSdk } from "./helpers/slack-sdk";
-import { TelegramClient } from "../src/provider/telegram/client";
-import { TelegramProvider } from "../src/provider/telegram/provider";
+import { createTelegramProvider } from "../src/provider/telegram/provider";
+import { fakeTelegramSdk } from "./helpers/telegram-sdk";
 import type { PublishPort } from "../src/types";
 
 const realFetch = globalThis.fetch;
@@ -31,43 +30,6 @@ function jsonResponse(body: object): Response {
 }
 
 describe("provider retry and receipt paths", () => {
-  it.each([
-    {
-      name: "Discord",
-      limited: { retry_after: 0 },
-      success: { id: "m1" },
-      address: "channel-1",
-      id: "m1",
-      client: (publish: PublishPort) => new DiscordClient("token", publish, testRun),
-    },
-    {
-      name: "Telegram",
-      limited: { parameters: { retry_after: 0 } },
-      success: { ok: true, result: { message_id: 7 } },
-      address: "chat-1",
-      id: "7",
-      client: (publish: PublishPort) =>
-        new TelegramClient("token", publish, () => FIXED_NOW, testRun),
-    },
-  ])("retries $name rate limits and returns the platform id", async (scenario) => {
-    const { published, publish } = collector();
-    let calls = 0;
-    globalThis.fetch = Object.assign(
-      async () => {
-        calls += 1;
-        return calls === 1
-          ? Response.json(scenario.limited, { status: 429 })
-          : Response.json(scenario.success);
-      },
-      { preconnect: realFetch.preconnect },
-    );
-    // retry_after 0 hint: the Effect retry sleeps zero — no clock control needed.
-    const id = await scenario.client(publish).send(scenario.address, "hello", "trace-1");
-    expect(id).toBe(scenario.id);
-    expect(calls).toBe(2);
-    expect(published).toContain(Operational.Events.Warn.name);
-  });
-
   it("provider delivery routes return accepted receipts", async () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : input);
@@ -83,13 +45,15 @@ describe("provider retry and receipt paths", () => {
       return jsonResponse({ id: "m-9" });
     }) as typeof fetch;
 
-    const telegram = await TelegramProvider.create(
+    const telegramSdk = fakeTelegramSdk();
+    const telegram = await createTelegramProvider(telegramSdk.sdk).create(
       { token: "t" },
       {},
       () => undefined,
       injectedOptions(),
     ).deliveryRoute?.("100", Outbound.payload("hello"), "key-1");
-    const discord = await DiscordProvider.create(
+    const discordSdk = fakeDiscordSdk();
+    const discord = await createDiscordProvider(discordSdk.sdk).create(
       { token: "t" },
       {},
       () => undefined,
@@ -106,8 +70,8 @@ describe("provider retry and receipt paths", () => {
       injectedOptions(),
     ).deliveryRoute?.("owner/repo#1", Outbound.payload("hello"), "key-4");
 
-    expect(telegram).toEqual({ value: "accepted", externalMessageId: "5" });
-    expect(discord).toEqual({ value: "accepted", externalMessageId: "m-9" });
+    expect(telegram).toEqual({ value: "accepted", externalMessageId: "42" });
+    expect(discord).toEqual({ value: "accepted", externalMessageId: "m-17" });
     expect(slack).toEqual({ value: "accepted", externalMessageId: "1.2" });
     expect(github).toEqual({ value: "accepted", externalMessageId: "42" });
   });

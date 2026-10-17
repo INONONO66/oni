@@ -92,13 +92,14 @@ export function createSlackProvider(
     preconditions: [
       "Socket Mode enabled with an app-level token granted connections:write",
       "event subscriptions: message.channels and message.im",
-      "bot scopes: chat:write, im:write, app_mentions:read, files:write, reactions:write",
+      "bot scopes: chat:write, im:write, app_mentions:read, files:write, files:read, reactions:write",
       "bot invited to the target channels",
     ],
     create(credentials, config, publish, options) {
       const surface = new SlackAdapter(credentials, config, publish, options, sdk);
       return {
         surface,
+        attachments: (ref) => surface.download(ref),
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
           surface
             .deliver(externalId, payload, idempotencyKey, conversation)

@@ -37,6 +37,7 @@ export function createTelegramProvider(
       const surface = new TelegramAdapter(credentials.token, config, publish, options, sdk);
       return {
         surface,
+        attachments: (ref) => surface.download(ref),
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
           surface
             .deliver(externalId, payload, idempotencyKey, conversation)
