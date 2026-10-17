@@ -1204,10 +1204,15 @@ custody evidence is pinned over the SDK error shapes in `slack-surface.test.ts`.
 (`agent-messenger/slackbot` → `src/provider/slack/sdk.ts`); a surface, the
 router or a store importing the SDK is a band violation, and the real
 `SlackBotListener` is pinned to emit `error` (not swallow) on a fatal auth code
-during start. The seam's `appsConnectionsOpen` override rides the pinned
-inner client with the app token (the SDK's own builds a fresh web client per
-attempt under the ten-retries policy, which would hold `start()` for up to
-half an hour on a network failure). `classifySlackFailure` treats only the
+during start. The seam's `appsConnectionsOpen` override builds the app
+token its own pinned web client from the bot client's class (`appClient`;
+the SDK's own builds a fresh web client per attempt under the ten-retries
+policy, which would hold `start()` for up to half an hour on a network
+failure) — the first live run (#1600, 2026-10-18) found the earlier form,
+which passed the app token as a per-call argument to the bot client,
+refused `invalid_auth` by Slack, since `apps.connections.open` reads the
+app-level token from the Authorization header that `@slack/web-api` fills
+from the client's own token. `classifySlackFailure` treats only the
 SDK's pre-request refusals (`missing_token`, `invalid_token_type`,
 `not_authenticated`, `missing_app_token`, `invalid_app_token_type`), platform
 `ok:false` and the typed rate-limit refusal as `rejected`; `file_not_found`

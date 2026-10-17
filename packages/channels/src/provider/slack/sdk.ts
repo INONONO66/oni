@@ -71,7 +71,8 @@ export interface SlackSdk {
 }
 
 /** The `@slack/web-api` client the SDK keeps private; only these members are touched. */
-interface InnerWebClient {
+export interface InnerWebClient {
+  readonly token?: string;
   retryConfig?: { readonly retries?: number };
   rejectRateLimitedCalls?: boolean;
   conversations: {
@@ -81,10 +82,13 @@ interface InnerWebClient {
   };
   apps: {
     connections: {
-      open(args: { token: string }): Promise<{ ok?: boolean; error?: string; url?: string }>;
+      open(): Promise<{ ok?: boolean; error?: string; url?: string }>;
     };
   };
 }
+
+/** The inner client's own class, reached through the instance so the seam never imports `@slack/web-api` itself. */
+type InnerWebClientClass = new (token: string) => InnerWebClient;
 
 function innerWebClient(client: object): InnerWebClient {
   const inner = (client as { client?: InnerWebClient | null }).client;
@@ -135,11 +139,30 @@ function thrown<T>(error: T): Error {
 
 /**
  * The SDK client plus the two calls the surface needs that the SDK does not
- * offer. Both ride the one pinned inner client: `appsConnectionsOpen` in the
- * SDK builds a fresh web client per attempt under the default retry policy,
- * which would hold `start()` for up to half an hour on a network failure.
+ * offer. `openDm` rides the one pinned inner client. `appsConnectionsOpen`
+ * in the SDK builds a fresh web client per attempt under the default retry
+ * policy, which would hold `start()` for up to half an hour on a network
+ * failure; the seam builds the app token its own client from the same class
+ * and pins it the same way (`appClient`).
  */
-class CustodySlackBotClient extends SlackBotClient implements SlackBotApi {
+export class CustodySlackBotClient extends SlackBotClient implements SlackBotApi {
+  /**
+   * The web client the socket url is fetched with (#1600, the first live
+   * run): Slack reads the app-level token from the Authorization header,
+   * which `@slack/web-api` fills from the client's own token — a per-call
+   * `token` argument rides the body, and the bot client's header answered
+   * `invalid_auth` on the Owner's server. So the app token gets a client of
+   * its own, built from the pinned bot client's class and pinned the same
+   * way; a test swaps this seam for a scripted client.
+   */
+  appClient: (appToken: string) => InnerWebClient = (appToken) => {
+    const Inner = innerWebClient(this).constructor as InnerWebClientClass;
+    const app = new Inner(appToken);
+    app.retryConfig = { retries: 0 };
+    app.rejectRateLimitedCalls = true;
+    return app;
+  };
+
   /** A refused open keeps the platform code: custody classifies it and the surface proves `not_sent`. */
   async openDm(userId: string): Promise<string> {
     let response: { ok?: boolean; error?: string; channel?: { id?: string } };
@@ -160,7 +183,7 @@ class CustodySlackBotClient extends SlackBotClient implements SlackBotApi {
   override async appsConnectionsOpen(appToken: string): Promise<{ url: string }> {
     let response: { ok?: boolean; error?: string; url?: string };
     try {
-      response = await innerWebClient(this).apps.connections.open({ token: appToken });
+      response = await this.appClient(appToken).apps.connections.open();
     } catch (error) {
       throw asSlackBotError(
         thrown(error),
