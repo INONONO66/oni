@@ -301,7 +301,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
     turn: Turn,
     satisfied: () => boolean,
     boundMs?: number,
-  ): Effect.Effect<"observed" | "interrupted" | "stalled", CliRefusal> => {
+  ): Effect.Effect<"observed" | "interrupted" | "unobserved", CliRefusal> => {
     const waiting = Effect.callback<"observed" | "interrupted", CliRefusal>((resume) => {
       const check = () => {
         if (turn.interrupted) resume(Effect.succeed("interrupted" as const));
@@ -322,7 +322,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
     if (boundMs === undefined) return waiting;
     return waiting.pipe(
       Effect.timeoutOption(boundMs),
-      Effect.map((outcome) => (outcome._tag === "None" ? ("stalled" as const) : outcome.value)),
+      Effect.map((outcome) => (outcome._tag === "None" ? ("unobserved" as const) : outcome.value)),
     );
   };
 
@@ -583,7 +583,7 @@ export function createCliRunner(deps: CliRunnerDeps): CliRunner {
       const before = observe(pane, turn);
       yield* submit(pane, handle, recipe).pipe(Effect.tapError((refusal) => ended(pane, turn, { kind: "refused", refusal })));
       const started = yield* awaitTurn(turn, () => advanced(before, observe(pane, turn)), recipe.stallWindowMs);
-      if (started === "stalled") return yield* stalled(pane, turn, "prompt_stalled", recipe.stallWindowMs);
+      if (started === "unobserved") return yield* stalled(pane, turn, "prompt_stalled", recipe.stallWindowMs);
       if (started === "interrupted") return yield* Effect.fail(interrupted);
       const outcome = yield* awaitTurn(turn, () => facts(pane, turn).some((fact) => fact.phase === "terminal"));
       if (outcome === "interrupted") return yield* Effect.fail(interrupted);
