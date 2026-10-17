@@ -103,6 +103,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
       operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
       at: startedAt,
       ...(prepared.ownerOrigin === undefined ? {} : { ownerOrigin: prepared.ownerOrigin }),
+      ...(send.consented === true ? { consented: true } : {}),
     });
   }
 
@@ -113,8 +114,9 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     external: External | undefined,
     startedAt: number,
   ) {
-    // The actor-send preflight's one verdict feeds two rows: an identity
-    // refusal (#1569) is its own denial, every other refusal is the grant's.
+    // The actor-send preflight's one verdict feeds three rows: an identity
+    // refusal (#1569) and a missing consent (#1569 lane 8) are their own
+    // denials, every other refusal is the grant's.
     // The reply door's verdict likewise: a draft (#1569 lane 7: the surface
     // is reachable only through an Owner account that does not auto-reply)
     // is its own denial, every other refusal is the binding's.
@@ -128,8 +130,9 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
     const actorSendAllowed =
       send.to.kind === "origin"
         ? replyRefusal === undefined || replyRefusal === "draft"
-        : refusal === undefined || refusal === "identity_not_granted";
+        : refusal === undefined || refusal === "identity_not_granted" || refusal === "approval_required";
     const identityGranted = refusal !== "identity_not_granted";
+    const consentGranted = refusal !== "approval_required";
     const replyAutoAllowed = replyRefusal !== "draft";
     const message =
       external !== undefined
@@ -138,7 +141,7 @@ export function createGatewayRouter(ports: GatewayRouterPorts): GatewayRouter {
             eventIdUnique: prepared.message.sender === "external" && prepared.message.eventIdUnique,
           }
         : prepared.message.sender === "session"
-          ? { ...prepared.message, actorSendAllowed, identityGranted, replyAutoAllowed }
+          ? { ...prepared.message, actorSendAllowed, identityGranted, consentGranted, replyAutoAllowed }
           : undefined;
     if (message === undefined)
       throw new ChannelsFailure({

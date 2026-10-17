@@ -180,6 +180,9 @@ const MessageDenialCodeSchema = z.enum([
   "budget_exhausted",
   "cooldown_suppressed",
   "dnc_denied",
+  // #1569 lane 8: a cold send to a target with no Owner-declared budget and no
+  // Owner consent on the invocation — the send is the Owner's to approve.
+  "approval_required",
   // #1569: `as: owner` outside an authenticated Owner-origin turn, or through
   // an instance whose declaration does not grant outbound (no owner route).
   "identity_not_granted",
@@ -298,6 +301,12 @@ const SendInputBase = z
      * Never derived from message text.
      */
     ownerOrigin: z.boolean().optional(),
+    /**
+     * #1569 lane 8: the composing app's authenticated fact that the Owner
+     * approved this very invocation — what admits a cold send to a target
+     * with no declared budget, without a debit. Never derived from text.
+     */
+    consented: z.boolean().optional(),
   })
   .strict();
 

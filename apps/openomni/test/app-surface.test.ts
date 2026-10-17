@@ -25,6 +25,7 @@ import { testToolsBundle } from "./helpers/app-fixture";
 import { testIds } from "./helpers/test-entropy";
 import { nextFrame } from "./helpers/ws";
 import { approvalPolicy } from "./helpers/approval-policy";
+import { declarePerson } from "./helpers/declared-channel";
 import { materializeResident } from "./helpers/resident-materialize";
 
 const suite = residentSuite();
@@ -384,30 +385,19 @@ test("a deadline-bearing external send opens and arms its live request", async (
   const releaseSend = Promise.withResolvers<void>();
   const config = suite.config("index-deadline-send-", {
     wsToken: "index-send-token",
-    actors: [
-      {
-        actorId: "owner",
-        externalId: "owner",
-        kind: "human",
-        trustTier: "owner",
-      },
-      {
-        actorId: "peer",
-        externalId: "peer",
-        kind: "ai_agent",
-        trustTier: "assigned_worker",
-      },
-    ],
     socialBudgets: [
       {
         id: "peer-budget",
-        targetActorId: "peer",
+        targetActorId: "person:peer",
         maxPerWindow: 5,
         windowMs: 1000,
         cooldownMs: 0,
       },
     ],
   });
+  // #1569 lane 8: the people the Resident knows are Person rows; `reach` is the Owner's standing grant.
+  declarePerson(config.catalogPath, { id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner", endpoints: [{ channel: "ws", externalId: "owner" }], reach: true });
+  declarePerson(config.catalogPath, { id: "person:peer", displayName: "Peer", kind: "ai_agent", trustTier: "assigned_worker", endpoints: [{ channel: "ws", externalId: "peer" }], reach: true });
   const app = await suite.boot({
     config,
     llm: {
@@ -423,7 +413,7 @@ test("a deadline-bearing external send opens and arms its live request", async (
               id: "deadline-send",
               tool: "send_message",
               input: {
-                to: { kind: "contact", id: "peer" },
+                to: { kind: "contact", id: "person:peer" },
                 message: "DEADLINE_QUESTION",
                 deadline_ms: 60_000,
               },

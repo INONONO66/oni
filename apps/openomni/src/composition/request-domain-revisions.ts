@@ -41,6 +41,14 @@ function personDomainRevisions(
   }
 }
 
+function sendTargetRevisions(
+  deps: RequestDomainDeps,
+  to: PlainValue | undefined,
+): Readonly<Record<string, number>> | undefined {
+  if (to !== null && typeof to === "object" && !Array.isArray(to) && to.kind === "contact" && typeof to.id === "string")
+    return { [to.id]: deps.persons.get(to.id)?.revision ?? -1 };
+}
+
 /** Product read-back injected into the generic request owner, including dormant answers. */
 export function createRequestDomainRevisions(deps: RequestDomainDeps) {
   return (request: SessionTransition.Request): Readonly<Record<string, number>> => {
@@ -55,6 +63,9 @@ export function createRequestDomainRevisions(deps: RequestDomainDeps) {
         return automationDomainRevisions(deps.automations, automationId(automation.data, request));
       const revisions = operationDomainRevisions(deps, input.operation);
       if (revisions !== undefined) return revisions;
+      // #1569 lane 8: a send_message consent is bound to the Person the letter goes to.
+      const letter = sendTargetRevisions(deps, input.to);
+      if (letter !== undefined) return letter;
     }
     throw new AppInvariantError(`unrecognized request domain preconditions: ${request.requestId}`);
   };

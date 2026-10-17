@@ -17,6 +17,7 @@ test("channels barrel exposes only its runtime public surface", () => {
     "Vault",
     "WebSocketHandler",
     "WebhookCredentials",
+    "activeBudgetFor",
     "createA2AProvider",
     "createActorRegistry",
     "createAutomationStore",

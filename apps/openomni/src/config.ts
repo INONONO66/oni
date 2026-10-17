@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Actor, Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
+import { Gateway, Machine, NamedError, type Model, type PlainValue } from "@openomni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
 import { ProviderRowsError, readProviderRows, type ProviderRow } from "@openomni/llm";
@@ -16,6 +16,8 @@ export const ConfigurationError = NamedError.create(
       "invalid_alarm_sweep",
       "invalid_entity_idle_ms",
       "invalid_env_json",
+      // #1569 lane 8: a retired variable still set is a silent authority change — refused.
+      "retired_env",
       "invalid_fork_copy_byte_cap",
       "invalid_machines_default",
       "invalid_machines_self",
@@ -125,12 +127,11 @@ export interface OpenOmniConfig {
     readonly capacity?: readonly Machine.CapacityRow[];
   };
   /**
-   * External actors the Owner has admitted as delegation targets. Absent
-   * means the channel transport has nobody to reach: sends are denied
-   * ungranted rather than the driver being unwired.
+   * Owner-declared allowances for cold proactive sends (#1569 lane 8: a
+   * target without one takes the Owner's consent on the invocation). The
+   * people the Resident may write to are Person rows with `reach`
+   * (`contact_add`), never env.
    */
-  readonly actors?: readonly RegisteredActor[];
-  /** Owner-declared allowances for cold proactive sends; absent denies all. */
   readonly socialBudgets?: readonly Gateway.SocialBudget[];
   /**
    * Names the Owner turns off (#1255, #1306): the manifest's `off` list.
@@ -191,17 +192,6 @@ export interface OpenOmniConfig {
     readonly ok: string;
     readonly failed: string;
   };
-}
-
-export interface RegisteredActor {
-  readonly actorId: string;
-  /** The identity the actor's connection declares (`?actor=<externalId>`). */
-  readonly externalId: string;
-  /** The configured delivery surface; existing configs remain WebSocket actors. */
-  readonly channel?: "ws" | "discord" | "telegram";
-  readonly trustTier: Actor.TrustTier;
-  readonly kind: Actor.Kind;
-  readonly displayName?: string;
 }
 
 /**
@@ -575,21 +565,6 @@ export function validateMachinePlane(
 }
 const SocialBudgets = z.array(Gateway.SocialBudget);
 
-const Actors = z
-  .array(
-    z
-      .object({
-        actorId: z.string().min(1),
-        externalId: z.string().min(1),
-        channel: z.enum(["ws", "discord", "telegram"]).optional(),
-        trustTier: Actor.TrustTier,
-        kind: Actor.Kind.default("human"),
-        displayName: z.string().min(1).optional(),
-      })
-      .strict(),
-  )
-  .min(1);
-
 /** Reads an env var holding JSON, naming the variable on both parse and schema failure. */
 function parseEnvJson<T>(
   name: string,
@@ -608,14 +583,6 @@ function parseEnvJson<T>(
     throw new ConfigurationError({ code, message: `${name} is invalid: ${parsed.error.issues[0]?.message}` });
   }
   return parsed.data;
-}
-
-/**
- * Like enrollment, actor admission is the Owner's decision read from config:
- * who may be delegated to is never inferred from whoever connects.
- */
-function actorsFromEnv(env: Record<string, string | undefined>): OpenOmniConfig["actors"] {
-  return parseEnvJson("OPENOMNI_ACTORS", Actors, env);
 }
 
 const ChannelAllowedSenders = z.record(z.string(), z.array(z.string().min(1)).min(1));
@@ -830,7 +797,12 @@ export function loadConfig(
   const host = env.OPENOMNI_WS_HOST?.trim() || "127.0.0.1";
   const wsToken = env.OPENOMNI_WS_TOKEN?.trim();
   const machines = machinesFromEnv(home, env);
-  const actors = actorsFromEnv(env);
+  if ((env.OPENOMNI_ACTORS?.trim() ?? "").length > 0) {
+    throw new ConfigurationError({
+      code: "retired_env",
+      message: "OPENOMNI_ACTORS is retired (#1569): declare people as Person rows through contact_add, with reach: true for those the Resident may write to",
+    });
+  }
   const socialBudgets = socialBudgetsFromEnv(env);
   const alarmSweep = alarmSweepFromEnv(env);
   const forkCopyByteCap = forkCopyByteCapFromEnv(env);
@@ -860,7 +832,6 @@ export function loadConfig(
     kek: resolveKek(env, home),
     model: modelFromEnv(env),
     ...(machines === undefined ? {} : { machines }),
-    ...(actors === undefined ? {} : { actors }),
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
     ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),

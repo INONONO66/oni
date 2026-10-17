@@ -79,9 +79,10 @@ export function desiredChannels(
 }
 
 /**
- * Person manifests become durable identity facts the way env actors do:
- * an idempotent upsert per boot, one identity per Person and one endpoint
- * per platform binding. The sole-owner invariant was already enforced at
+ * Person manifests become durable identity facts — the one path from a
+ * declaration to an actor (#1569 lane 8 retired env actors): an idempotent
+ * upsert per boot, one identity per Person and one endpoint per platform
+ * binding. The sole-owner invariant was already enforced at
  * write time (PersonStore.put) — materialization just replays the manifest.
  */
 export function materializePersons(stores: {

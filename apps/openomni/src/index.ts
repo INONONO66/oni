@@ -52,7 +52,6 @@ import {
   createWebhookSender,
   A2AClient,
 } from "@openomni/channels";
-import type { ActorRegistry } from "@openomni/channels";
 
 import {
   createMachineHost,
@@ -89,7 +88,6 @@ import {
   resolveToolOutput,
   validateMachinePlane,
   type OpenOmniConfig,
-  type RegisteredActor,
 } from "./config";
 import { createCompletionPort } from "./composition/completion";
 import { processEntryPath } from "./process-entry-path";
@@ -153,30 +151,6 @@ interface StartOptions {
     "closeGraceMs" | "approvalTimeoutMs" | "retryAlarm" | "openIntent" | "onHibernate"
   >;
   readonly config?: OpenOmniConfig;
-}
-
-/**
- * Owner-admitted delegation targets, recorded as durable identity facts.
- * Registration is an upsert, so a restart re-asserting the same actors is a
- * no-op — which is also why this is not a scoped resource: durable facts are
- * history, not runtime handles.
- */
-function registerActors(registry: ActorRegistry, actors: readonly RegisteredActor[]): void {
-  for (const actor of actors) {
-    registry.registerIdentity({
-      id: actor.actorId,
-      kind: actor.kind,
-      trustTier: actor.trustTier,
-      ...(actor.displayName === undefined ? {} : { displayName: actor.displayName }),
-    });
-    const channel = actor.channel ?? "ws";
-    registry.registerEndpoint({
-      id: `${channel}:${actor.externalId}`,
-      actorId: actor.actorId,
-      channel,
-      externalId: actor.externalId,
-    });
-  }
 }
 
 /**
@@ -585,10 +559,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // on activation; there is no boot sweep to await.
     const recovery: Promise<void> = Promise.resolve();
     await acquire(Effect.void, () => shutdownSessions(sessionRuntime, recovery));
-    const actors: readonly RegisteredActor[] = config.actors ?? [];
-    registerActors(plane.stores.actors, actors);
-    // Declared Person manifests materialize alongside env actors — both are
-    // idempotent identity upserts; the provisioning store is the durable one.
+    // Declared Person manifests are the people the Resident knows (#1569
+    // lane 8: no env actors) — an idempotent identity upsert from the
+    // provisioning store, the durable one.
     const materializeDeclaredPersons = () =>
       materializePersons({ persons: plane.stores.persons, actors: plane.stores.actors });
     materializeDeclaredPersons();
@@ -800,6 +773,10 @@ export async function startOpenOmni(options: StartOptions = {}) {
         contacts: {
           // The one Effect boundary the bundle gets (#1248): the app runtime.
           run: (effect) => runAppEffect(runtime, effect),
+          // #1569 lane 8: a reachable Person with no active budget is the Owner's to approve;
+          // the tool reads the same budgets the gateway's gate does and the Person rows it grants from.
+          budgets: () => config.socialBudgets ?? [],
+          persons: plane.stores.persons,
           // #1569 lane 9: a declared webhook target, read from the vault at send time;
           // its textual answer rides the tool result.
           webhook: webhookContacts({
@@ -1047,17 +1024,23 @@ export async function startOpenOmni(options: StartOptions = {}) {
         {
           deliveryRoutes,
           autoReplies: () => autoReplies,
+          // #1569 lane 8: the standing grant is the Owner's `reach` on a Person
+          // (`contact_add`), read from the store at each send so a contact named
+          // mid-run is reachable at once; a Person without it is inbound-only.
           grants: () =>
             plane
               .listSessions()
               .filter((row) => row.role === "resident")
               .flatMap((row) =>
-                actors.map((actor) => ({
-                  id: `${row.id}->${actor.actorId}`,
-                  senderId: row.id,
-                  targetActorId: actor.actorId,
-                  operations: ["awaited" as const, "fire_and_forget" as const],
-                })),
+                plane.stores.persons
+                  .list()
+                  .filter((person) => person.reach === true)
+                  .map((person) => ({
+                    id: `${row.id}->${person.id}`,
+                    senderId: row.id,
+                    targetActorId: person.id,
+                    operations: ["awaited" as const, "fire_and_forget" as const],
+                  })),
               ),
           budgets: () => config.socialBudgets ?? [],
           // #1569: the reply to the conversation that prompted a turn needs no

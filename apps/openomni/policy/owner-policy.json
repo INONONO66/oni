@@ -329,6 +329,28 @@
       }
     },
     {
+      "id": "message.resident.approval_required",
+      "point": "message.pre",
+      "order": 1000,
+      "when": {
+        "message": {
+          "id": "message.resident.approval_required",
+          "effect": "deny",
+          "table": "B",
+          "sender": "session",
+          "senderRole": "resident",
+          "targetKind": "actor",
+          "check": {
+            "kind": "consent"
+          }
+        }
+      },
+      "verdict": {
+        "type": "deny",
+        "reason": "message.resident.approval_required"
+      }
+    },
+    {
       "id": "message.resident.reply_unbound",
       "point": "message.pre",
       "order": 1000,

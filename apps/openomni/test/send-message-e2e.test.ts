@@ -12,6 +12,7 @@ import { assistantMessage, commissionInput, requestToolStep } from "./helpers/as
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { receivedMessages } from "./helpers/received-messages";
 import { nextFrame } from "./helpers/ws";
+import { declarePerson } from "./helpers/declared-channel";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { eventSignal } from "./helpers/event-signal";
 import { runEffect } from "./helpers/effect";
@@ -41,28 +42,21 @@ test.each([
   "?actor=owner",
   "",
 ])("an external turn never dispatches an unsolicited reply for connection %s", async (query) => {
+  const unsolicited = suite.config("message-e2e-", {
+    wsToken: "token",
+    socialBudgets: [
+      {
+        id: "owner-budget",
+        targetActorId: "person:known-owner",
+        maxPerWindow: 10,
+        windowMs: 1000,
+        cooldownMs: 0,
+      },
+    ],
+  });
+  declarePerson(unsolicited.catalogPath, { id: "person:known-owner", displayName: "Owner", kind: "human", trustTier: "owner", endpoints: [{ channel: "ws", externalId: "owner" }], reach: true });
   const app = await suite.boot({
-    config: suite.config("message-e2e-", {
-      wsToken: "token",
-      actors: [
-        {
-          actorId: "known-owner",
-          externalId: "owner",
-          kind: "human",
-          trustTier: "owner",
-          displayName: "Owner",
-        },
-      ],
-      socialBudgets: [
-        {
-          id: "owner-budget",
-          targetActorId: "known-owner",
-          maxPerWindow: 10,
-          windowMs: 1000,
-          cooldownMs: 0,
-        },
-      ],
-    }),
+    config: unsolicited,
     llm: {
       resolveModel: fakeProviderModel,
       run: (input, sink) => Effect.sync(() => {
@@ -92,18 +86,19 @@ test.each([
 });
 
 test("an explicit model send_message routes through MessagePort.ingest to the external surface", async () => {
+  const explicit = suite.config("explicit-message-", {
+    wsToken: "token",
+    socialBudgets: [{ id: "owner-budget", targetActorId: "person:owner", maxPerWindow: 1, windowMs: 1000, cooldownMs: 0 }],
+  });
+  declarePerson(explicit.catalogPath, { id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner", endpoints: [{ channel: "ws", externalId: "owner" }], reach: true });
   const app = await suite.boot({
-    config: suite.config("explicit-message-", {
-      wsToken: "token",
-      actors: [{ actorId: "owner", externalId: "owner", kind: "human", trustTier: "owner" }],
-      socialBudgets: [{ id: "owner-budget", targetActorId: "owner", maxPerWindow: 1, windowMs: 1000, cooldownMs: 0 }],
-    }),
+    config: explicit,
     llm: {
       resolveModel: fakeProviderModel,
       run: (input, sink) => Effect.sync(() => {
         const result = requestToolStep(input, sink, {
           id: "explicit-send", tool: "send_message",
-          input: { to: { kind: "contact", id: "owner" }, message: "EXPLICIT_SENTINEL" },
+          input: { to: { kind: "contact", id: "person:owner" }, message: "EXPLICIT_SENTINEL" },
         });
         if (result === undefined) return { type: "stop" };
         expect(result.isError).not.toBe(true);
@@ -124,10 +119,57 @@ test("an explicit model send_message routes through MessagePort.ingest to the ex
   expect((await terminal).text).toBe("LOCAL_ONLY_SENTINEL");
   expect(ingest.mock.calls.filter(([sender]) => sender.kind === "session")).toEqual([
     [containing<IngestCall[0]>({ kind: "session" }), containing<IngestCall[1]>({
-      to: { kind: "actor", actorId: "owner" },
+      to: { kind: "actor", actorId: "person:owner" },
       content: { kind: "message", parts: [{ kind: "text", text: "EXPLICIT_SENTINEL" }] },
     })],
   ]);
+});
+
+test("#1569 lane 8: a Person the Owner named without `reach` is an inbound identity only — the Resident's letter to it is ungranted; `reach` set on the row makes the next letter land, no reboot", async () => {
+  const stranger = suite.config("ungranted-message-", {
+    wsToken: "token",
+    socialBudgets: [{ id: "stranger-budget", targetActorId: "person:stranger", maxPerWindow: 5, windowMs: 1000, cooldownMs: 0 }],
+  });
+  declarePerson(stranger.catalogPath, { id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner", endpoints: [{ channel: "ws", externalId: "owner" }], reach: true });
+  declarePerson(stranger.catalogPath, { id: "person:stranger", displayName: "Stranger", kind: "human", trustTier: "observer", endpoints: [{ channel: "ws", externalId: "stranger" }] });
+  const refusals: string[] = [];
+  let letters = 0;
+  const app = await suite.boot({
+    config: stranger,
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input, sink) => Effect.sync(() => {
+        const result = requestToolStep(input, sink, {
+          id: `letter-${letters}`,
+          tool: "send_message",
+          input: { to: { kind: "contact", id: "person:stranger" }, message: `COLD_SENTINEL_${letters}` },
+        });
+        if (result === undefined) return { type: "stop" };
+        if (result.isError === true) refusals.push(String(result.content));
+        sink.onMessage(assistantMessage(input, { text: `DONE_${letters}` }));
+        return { type: "stop" };
+      }),
+    },
+  });
+  const plane = await planeOf(app.runtime);
+  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, ["auth", "token"]);
+  const strangerWs = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=stranger`, ["auth", "token"]);
+  const first = nextResidentTurn(plane);
+  ws.send(JSON.stringify({ eventId: newTraceId(), text: "write to the stranger" }));
+  expect((await first).text).toBe("DONE_0");
+  // The router's `ungranted` surfaces to the tool as the resident's actor-grant policy row.
+  expect(refusals).toEqual(["send_message refused: message.resident.actor_grant"]);
+  // The Owner's standing grant is read from the store at each send: reach on the row, and the next letter lands.
+  const row = plane.stores.persons.get("person:stranger");
+  if (row === undefined) throw new Error("the stranger row vanished");
+  plane.stores.persons.put({ ...row, reach: true, revision: row.revision + 1, updatedAt: 2 });
+  letters = 1;
+  const delivered = nextFrame(strangerWs, (frame) => frame.type === "message");
+  const second = nextResidentTurn(plane);
+  ws.send(JSON.stringify({ eventId: newTraceId(), text: "write to the stranger again" }));
+  expect((await second).text).toBe("DONE_1");
+  expect(await delivered).toMatchObject({ text: "COLD_SENTINEL_1" });
+  expect(refusals).toHaveLength(1);
 });
 
 test("a child settlement opens the parent's next turn as its followUp input after the open turn seals", async () => {

@@ -277,7 +277,7 @@ describe("authenticated gateway ingress", () => {
   });
 });
 
-test("cold egress needs a budget", async () => {
+test("cold egress without a budget is the Owner's to approve: the compiled consent row denies it before any delivery (#1569 lane 8)", async () => {
   const deliveries: Outbound.Payload[] = [];
   const denials: Gateway.MessageDenialCode[] = [];
   const unsubscribe = Bus.subscribe(MessagingEvents.Denied, (event) => denials.push(event.code));
@@ -314,7 +314,9 @@ test("cold egress needs a budget", async () => {
       content: "cold",
     });
     expect(cold.isError).toBe(true);
-    expect(denials).toEqual(["budget_exhausted"]);
+    expect(cold.content).toContain("message.resident.approval_required");
+    // The preflight verdict is the policy row's; the send kernel is never entered.
+    expect(denials).toEqual([]);
     expect(deliveries).toEqual([]);
   } finally {
     unsubscribe();

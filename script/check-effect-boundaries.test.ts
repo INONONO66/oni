@@ -170,7 +170,7 @@ test("maps every catalog tool name to an existing checked body", async (): Promi
 test("keeps the pre-existing send_message Effect pin exact and detects staleness", (): void => {
   const pin = PREEXISTING_TOOL_EFFECT_PINS.get("send_message");
   if (!pin) throw new Error("missing send_message pin");
-  const root = fixture([{ path: pin.file, source: `\n\n${pin.text}\n` }]);
+  const root = fixture([{ path: pin.file, source: `${"\n".repeat(pin.line - 1)}${pin.text}\n` }]);
   expect(checkEffectBoundaryFindings(root, PREEXISTING_TOOL_EFFECT_PINS)).toContainEqual({
     code: "R1_TOOL_EFFECT_IMPORT", file: pin.file, line: pin.line, failing: false,
   });

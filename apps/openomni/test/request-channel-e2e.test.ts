@@ -11,6 +11,7 @@ import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { bounded } from "./helpers/protected-dispatch";
 import { nextFrame } from "./helpers/ws";
+import { declarePerson } from "./helpers/declared-channel";
 
 const suite = residentSuite();
 
@@ -34,14 +35,13 @@ test("real external WebSocket reply wakes its original idle request owner withou
   );
   const config = suite.config("request-channel-", {
     wsToken: "token",
-    actors: [
-      { actorId: "owner", externalId: "owner", kind: "human", trustTier: "owner" },
-      { actorId: "peer", externalId: "peer", kind: "ai_agent", trustTier: "assigned_worker" },
-    ],
     socialBudgets: [
-      { id: "peer-budget", targetActorId: "peer", maxPerWindow: 5, windowMs: 1000, cooldownMs: 0 },
+      { id: "peer-budget", targetActorId: "person:peer", maxPerWindow: 5, windowMs: 1000, cooldownMs: 0 },
     ],
   });
+  // #1569 lane 8: Person rows with `reach`, never env actors.
+  declarePerson(config.catalogPath, { id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner", endpoints: [{ channel: "ws", externalId: "owner" }], reach: true });
+  declarePerson(config.catalogPath, { id: "person:peer", displayName: "Peer", kind: "ai_agent", trustTier: "assigned_worker", endpoints: [{ channel: "ws", externalId: "peer" }], reach: true });
   const app = await suite.boot({
     config,
     sessionRuntime: { clock: () => 100 },
@@ -53,7 +53,7 @@ test("real external WebSocket reply wakes its original idle request owner withou
             id: "external-request",
             tool: "send_message",
             input: {
-              to: { kind: "contact", id: "peer" },
+              to: { kind: "contact", id: "person:peer" },
               message: "QUESTION_SENTINEL",
               deadline_ms: 900,
             },

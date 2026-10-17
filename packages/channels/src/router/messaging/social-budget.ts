@@ -14,7 +14,10 @@ import type { Gateway } from "@openomni/protocol";
  *
  * Fail-safe default (critical): `budget === undefined` means the target has NO
  * Owner-declared budget, so cold proactive outreach is capped at ZERO —
- * suppressed `budget_exhausted`, never unlimited.
+ * suppressed `budget_exhausted`, never unlimited. The send kernel reaches
+ * this fold only with a budget in hand (#1569 lane 8: a target without one
+ * takes the Owner's consent on the invocation, denied `approval_required`
+ * otherwise); the undefined arm stays as the fold's own floor.
  */
 
 type Suppression = Readonly<{ suppress: Gateway.MessageDenialCode }>;

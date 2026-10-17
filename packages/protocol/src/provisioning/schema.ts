@@ -56,6 +56,12 @@ export const Person = z
     kind: Actor.Kind,
     trustTier: Actor.TrustTier,
     endpoints: z.array(PersonEndpoint),
+    /**
+     * #1569 lane 8: the Owner's standing grant — the Resident may write to
+     * this Person cold through `send_message`. Absent, the Person is an
+     * inbound identity only: a letter to it is `ungranted`.
+     */
+    reach: z.boolean().optional(),
     revision: z.number().int().nonnegative(),
     createdBy: z.string().min(1),
     updatedAt: EpochMs,

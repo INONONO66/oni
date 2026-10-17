@@ -226,6 +226,8 @@ function executeActorSend(
       at: startedAt,
       operation: send.deadline === undefined ? "fire_and_forget" : "awaited",
       ...(prepared.ownerOrigin === undefined ? {} : { ownerOrigin: prepared.ownerOrigin }),
+      // #1569 lane 8: the Owner's approval of the invocation rides the send as a fact.
+      ...(send.consented === true ? { consented: true } : {}),
       ...requestSpec(send, intent),
     })
     .pipe(

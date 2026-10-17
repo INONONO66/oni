@@ -154,6 +154,20 @@ function repairBudgetDebit(
   stores.egressBudgets.claim(debitRow(input, admission.sendClass), input.at, () => "allow");
 }
 
+/**
+ * The Owner-declared budget that governs a target now (#1569 lane 8): a
+ * lapsed allowance is no budget — the target is the Owner's to approve again.
+ */
+export function activeBudgetFor(
+  budgets: readonly Gateway.SocialBudget[] | undefined,
+  targetActorId: string,
+  at: number,
+): Gateway.SocialBudget | undefined {
+  return budgets?.find(
+    (candidate) => candidate.targetActorId === targetActorId && (candidate.expiresAt === undefined || candidate.expiresAt > at),
+  );
+}
+
 /** Runs synchronously inside the caller's ledger transaction, before any physical delivery. */
 export function admitSend(
   stores: ChannelStores,
@@ -174,14 +188,22 @@ export function admitSend(
   }
   // Every actor send is outreach under the standing grant; the reply door
   // (`admitReply`) is the one budget-free path, and it never comes through here.
-  const budgeted = ports.budgets !== undefined;
+  const budget = activeBudgetFor(ports.budgets?.(), input.target.actorId, input.at);
+  // #1569 lane 8: with the gate wired and no budget declared for the target,
+  // the send is the Owner's to approve — consented, it goes with no debit;
+  // otherwise it is denied `approval_required`, never silently exhausted.
+  if (ports.budgets !== undefined && budget === undefined && input.consented !== true) {
+    return deny(
+      input,
+      "approval_required",
+      `no Owner-declared budget for ${input.target.actorId}: a ${sendClass} send ${input.senderId} -> ${input.target.actorId} needs the Owner's consent`,
+    );
+  }
+  const budgeted = budget !== undefined;
   if (budgeted) {
-    const budget = ports
-      .budgets?.()
-      .find((candidate) => candidate.targetActorId === input.target.actorId);
     const budgetClaim = stores.egressBudgets.claim(
       debitRow(input, sendClass),
-      input.at - (budget?.windowMs ?? 0),
+      input.at - budget.windowMs,
       (state) => evaluateSocialBudget(budget, state, { class: sendClass, at: input.at }),
     );
     if (budgetClaim.kind === "refused") {
