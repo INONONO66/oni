@@ -1,5 +1,6 @@
+import type { BunPlugin } from "bun";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -13,11 +14,34 @@ import { fileURLToPath } from "node:url";
  * - `dist/app/process-entry.js` — the process-transport child, resolved by
  *   the app as a sibling of the running bundle.
  * - `bin/openomni.js` — node-runnable stub that re-executes under bun.
- * - the generated package.json carries NO dependencies: workspace packages
- *   are folded into the bundles and never exist on the npm registry.
+ * - the generated package.json carries no workspace dependency: workspace
+ *   packages are folded into the bundles and never exist on the npm registry.
+ *   Its only dependencies are the native addons below, pinned to the version
+ *   the bundler resolved.
  */
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const staging = process.argv[2] ?? join(appDir, "dist-npm");
+
+/**
+ * A native addon cannot be folded into a bundle: its loader opens the prebuilt
+ * binary relative to the module's own directory, which the bundle freezes as
+ * the build host's absolute path. These stay external and ship as registry
+ * dependencies; the resolver records the version the bundler would have
+ * inlined so the pin and the bundle can never drift apart.
+ */
+const NATIVE_ADDONS = ["classic-level"];
+const nativeAddonVersions = new Map<string, string>();
+const externalNativeAddons: BunPlugin = {
+  name: "external-native-addons",
+  setup(build) {
+    build.onResolve({ filter: new RegExp(`^(${NATIVE_ADDONS.join("|")})$`) }, (args) => {
+      const manifest = Bun.resolveSync(`${args.path}/package.json`, dirname(args.importer));
+      const { version } = JSON.parse(readFileSync(manifest, "utf-8")) as { readonly version: string };
+      nativeAddonVersions.set(args.path, version);
+      return { path: args.path, external: true };
+    });
+  },
+};
 
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(join(staging, "bin"), { recursive: true });
@@ -27,6 +51,7 @@ for (const entrypoint of ["src/cli/main.ts", "src/process-entry.ts"]) {
     entrypoints: [join(appDir, entrypoint)],
     outdir: join(staging, "dist", "app"),
     target: "bun",
+    plugins: [externalNativeAddons],
   });
   if (!result.success) {
     for (const log of result.logs) console.error(String(log));
@@ -47,6 +72,7 @@ const manifest = {
   type: "module",
   bin: { openomni: "bin/openomni.js" },
   files: ["bin", "dist", "README.md"],
+  dependencies: Object.fromEntries([...nativeAddonVersions].sort(([a], [b]) => a.localeCompare(b))),
   repository: { type: "git", url: "git+https://github.com/INONONO66/openomni.git" },
   engines: { node: ">=20" },
   publishConfig: { access: "public" },
