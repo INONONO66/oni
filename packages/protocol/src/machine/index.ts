@@ -117,8 +117,14 @@ export namespace Machine {
   export type PtyWriteResult = Schema.PtyWriteResult;
   export const PtyReadRequest = Schema.PtyReadRequest;
   export type PtyReadRequest = Schema.PtyReadRequest;
+  export const PtyReadScreenRequest = Schema.PtyReadScreenRequest;
+  export type PtyReadScreenRequest = Schema.PtyReadScreenRequest;
+  export const PtyReadParams = Schema.PtyReadParams;
+  export type PtyReadParams = Schema.PtyReadParams;
   export const PtyReadResult = Schema.PtyReadResult;
   export type PtyReadResult = Schema.PtyReadResult;
+  export const PtyScreenResult = Schema.PtyScreenResult;
+  export type PtyScreenResult = Schema.PtyScreenResult;
   export const PtyResizeRequest = Schema.PtyResizeRequest;
   export type PtyResizeRequest = Schema.PtyResizeRequest;
   export const PtyResizeResult = Schema.PtyResizeResult;

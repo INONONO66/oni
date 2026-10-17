@@ -88,13 +88,17 @@ type MachineDaemonOptions = DaemonConnection & {
    */
   readonly reconnect?: ReconnectOptions;
   readonly report?: ReportOptions;
-  /** Persistent terminals (#1273): tmux binary/socket overrides and test ports. */
+  /**
+   * Persistent terminals (#1273): tmux binary/socket overrides and test ports.
+   * `now` stamps screen snapshots (#1510); absent, the adapter reads the
+   * heartbeat clock (`report.now`), the daemon's one wall clock.
+   */
   readonly pty?: Omit<import("./pty").PtyAdapterOptions, "id" | "runner">;
 };
 type WireParse = <T>(schema: z.ZodType<T>) => T;
 type WireResult =
   | Machine.FsResult | Machine.FsStreamResult | Machine.ExecResult | Machine.CancelResult | Machine.PeekAnswer | Machine.CellResult | Machine.ScreenReadResult | Machine.InputWriteResult
-  | Machine.PtyOpenResult | Machine.PtyWriteResult | Machine.PtyReadResult | Machine.PtyResizeResult | Machine.PtyCloseResult | Machine.PtyListResult;
+  | Machine.PtyOpenResult | Machine.PtyWriteResult | Machine.PtyReadResult | Machine.PtyScreenResult | Machine.PtyResizeResult | Machine.PtyCloseResult | Machine.PtyListResult;
 export interface MachineDaemon {
   /** The CURRENT attachment: reattach and refusal outcomes replace it. */
   readonly attachment: Machine.AttachResult;
@@ -117,7 +121,9 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     const configured = yield* Effect.try({ try: () => Machine.Offer.parse(options.offer), catch: decodeMachineFailure("daemon.offer") });
     const commands = options.commands ?? systemCommandRunner();
     const computer = createComputerUse({ runner: commands, id: options.id });
-    const pty = createPtyAdapter({ runner: commands, id: options.id, ...options.pty });
+    // Clock precedence resolved AFTER the spread (#1603 r1): an explicit
+    // `pty: { now: undefined }` must still fall back to the heartbeat clock.
+    const pty = createPtyAdapter({ runner: commands, id: options.id, ...options.pty, now: options.pty?.now ?? options.report?.now });
     // Attach-time probes: computer-use needs complete prerequisites (#1274),
     // pty.session needs tmux resolving on PATH (#1273).
     const report = options.report === undefined ? undefined : { ...options.report, intervalMs: Math.max(REPORT_INTERVAL_FLOOR_MS, options.report.intervalMs ?? REPORT_INTERVAL_MS), probe: options.report.probe ?? systemLoadProbe() };
@@ -362,7 +368,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
       [Machine.WireMethod.InputWrite]: (parse) => inputWrite(parse(Machine.InputWriteRequest)),
       [Machine.WireMethod.PtyOpen]: (parse) => ptyOpen(parse(Machine.PtyOpenRequest)),
       [Machine.WireMethod.PtyWrite]: (parse) => ptyGuard(() => pty.write(parse(Machine.PtyWriteRequest))),
-      [Machine.WireMethod.PtyRead]: (parse) => ptyGuard(() => pty.read(parse(Machine.PtyReadRequest))),
+      [Machine.WireMethod.PtyRead]: (parse) => ptyGuard(() => pty.read(parse(Machine.PtyReadParams))),
       [Machine.WireMethod.PtyResize]: (parse) => ptyGuard(() => pty.resize(parse(Machine.PtyResizeRequest))),
       [Machine.WireMethod.PtyClose]: (parse) => ptyGuard(() => pty.close(parse(Machine.PtyCloseRequest))),
       [Machine.WireMethod.PtyList]: (parse) => ptyGuard(() => pty.list(parse(Machine.PtyListRequest))),

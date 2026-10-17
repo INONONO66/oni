@@ -15,8 +15,12 @@ const spawnFailure = z
   .preprocess(String, z.string())
   .transform((cause) => new SpawnFailure({ operation: "pty.spawn", message: cause, cause })).parse;
 
-/** A tmux command that produced no reply within this bound is a wedged server. */
-const COMMAND_TIMEOUT_MS = 10_000;
+/**
+ * A tmux command that produced no reply within this bound is a wedged server.
+ * Owned here; the host side (`pty-host.ts`) imports it to size call budgets
+ * for operations that issue a known number of control commands.
+ */
+export const COMMAND_TIMEOUT_MS = 10_000;
 
 interface PtyControlOptions {
   readonly argv: readonly [string, ...string[]];

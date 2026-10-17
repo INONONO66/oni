@@ -9,6 +9,7 @@ import { systemCommandRunner } from "../src/commands";
 import { MachinesFailure } from "../src/errors";
 import { createPtyAdapter, type PtyAdapter } from "../src/pty";
 import { startPtyControl, type PtyControl, type PtyControlFactory } from "../src/pty-control";
+import { scriptedTmux } from "./helpers/scripted-tmux";
 import { run } from "./ipc/helpers/effects";
 
 /**
@@ -327,44 +328,23 @@ describe("pty.session over real tmux", () => {
   });
 });
 
+/**
+ * Scripted tmux control server for the fault and #1510 snapshot suites below
+ * (`helpers/scripted-tmux.ts`): `facts` answers `display-message` (the pane
+ * facts), `now` is the snapshot clock.
+ */
+function scripted(screen: { readonly facts: string[]; readonly now?: () => number } = { facts: [] }) {
+  const { control, runner, lines, faults } = scriptedTmux(screen.facts);
+  const adapter = createPtyAdapter({
+    id: () => "gen-scripted",
+    runner,
+    control,
+    ...(screen.now === undefined ? {} : { now: screen.now }),
+  });
+  return { adapter, faults, lines };
+}
+
 describe("pty.session control-stream faults (scripted server)", () => {
-  function scripted() {
-    const names: string[] = [];
-    const lines: string[] = [];
-    let hooks: Parameters<PtyControlFactory>[0] | undefined;
-    const control: PtyControl = {
-      command: (line) =>
-        Effect.sync(() => {
-          lines.push(line);
-          if (line.startsWith("list-sessions")) return [...names];
-          if (line.startsWith("new-session")) {
-            names.push(line.split(" ")[3] ?? "");
-            return [];
-          }
-          if (line.startsWith("list-panes")) return ["@9 %9"];
-          if (line.startsWith("capture-pane")) return ["snapshot"];
-          if (line.startsWith("kill-session")) {
-            names.length = 0;
-            return [];
-          }
-          return [];
-        }),
-      close: () => Effect.void,
-    };
-    const adapter = createPtyAdapter({
-      id: () => "gen-scripted",
-      runner: { run: () => Effect.succeed({ exitCode: 0, stdout: "tmux 3.7c", stderr: "" }) },
-      control: (options) => {
-        hooks = options;
-        return Effect.succeed(control);
-      },
-    });
-    const faults = () => {
-      if (hooks === undefined) throw new Error("control client never started");
-      return hooks;
-    };
-    return { adapter, faults, lines };
-  }
 
   // CI runs tmux 3.4 (ubuntu-24.04) while this Mac runs 3.7: the adapter may
   // only speak the 3.4 grammar. This pins every command line the adapter can
@@ -441,6 +421,98 @@ describe("pty.session control-stream faults (scripted server)", () => {
     okOpen(await run(adapter.open({ name: "zeta", cwd: "/" })));
     faults().onExit();
     expect(await run(adapter.read({ name: "zeta" }))).toEqual({ status: "refused", reason: "pty_not_available" });
+  });
+});
+
+describe("pty.read source: screen (#1510, scripted server)", () => {
+  const PANE_FACTS = 'display-message -p -t %9 "#{cursor_x} #{cursor_y} #{pane_dead} #{pane_pid} #{pane_current_command}"';
+
+  test("a screen read answers the captured rows, cursor, occupant and the injected clock in two 3.4-grammar commands", async () => {
+    const facts = ["3 1 0 4242 node"];
+    let ticks = 0;
+    const clock = () => {
+      ticks += 1;
+      return 1_700_000_000_000 + ticks;
+    };
+    const { adapter, lines } = scripted({ facts, now: clock });
+    await run(adapter.offeredCapabilities([Machine.WellKnownCapability.ptySession]));
+    okOpen(await run(adapter.open({ name: "zeta", cwd: "/" })));
+    expect(await run(adapter.read({ name: "zeta", source: "screen" }))).toEqual({
+      status: "ok",
+      rows: ["snapshot"],
+      cursor: { x: 3, y: 1 },
+      occupant: { pid: 4242, command: "node" },
+      observedAt: 1_700_000_000_001,
+    });
+    expect(lines.slice(-2)).toEqual(["capture-pane -p -e -t %9", PANE_FACTS]);
+    // The process name takes the rest of the line: a command with spaces survives.
+    facts[0] = "0 23 0 4242 my prog";
+    expect(await run(adapter.read({ name: "zeta", source: "screen" }))).toEqual({
+      status: "ok",
+      rows: ["snapshot"],
+      cursor: { x: 0, y: 23 },
+      occupant: { pid: 4242, command: "my prog" },
+      observedAt: 1_700_000_000_002,
+    });
+    // The byte stream is untouched by the snapshot: same cursor, same replay.
+    const replay = okRead(await run(adapter.read({ name: "zeta" })));
+    expect(Buffer.from(replay.data, "base64").toString("utf8")).toBe("snapshot\n");
+  });
+
+  test("a dead pane or a pane without a pid is occupant: null, never a guessed process", async () => {
+    const facts = ["0 0 1 4242 bash"];
+    const { adapter } = scripted({ facts, now: () => 7 });
+    await run(adapter.offeredCapabilities([Machine.WellKnownCapability.ptySession]));
+    okOpen(await run(adapter.open({ name: "zeta", cwd: "/" })));
+    const dead = await run(adapter.read({ name: "zeta", source: "screen" }));
+    expect(dead).toEqual({ status: "ok", rows: ["snapshot"], cursor: { x: 0, y: 0 }, occupant: null, observedAt: 7 });
+    facts[0] = "4 2 0 0 ";
+    expect(await run(adapter.read({ name: "zeta", source: "screen" }))).toEqual({
+      status: "ok",
+      rows: ["snapshot"],
+      cursor: { x: 4, y: 2 },
+      occupant: null,
+      observedAt: 7,
+    });
+  });
+
+  test("malformed pane facts fail the read typed instead of fabricating a snapshot", async () => {
+    const facts = ["garbage"];
+    const { adapter } = scripted({ facts, now: () => 7 });
+    await run(adapter.offeredCapabilities([Machine.WellKnownCapability.ptySession]));
+    okOpen(await run(adapter.open({ name: "zeta", cwd: "/" })));
+    const invalid = { _tag: "MachinesFailure", operation: "pty.screen", cause: "invalid tmux pane facts" };
+    await expect(run(adapter.read({ name: "zeta", source: "screen" }))).rejects.toMatchObject(invalid);
+    facts.splice(0, 1, "1 1 0 9 zsh", "1 1 0 9 zsh");
+    await expect(run(adapter.read({ name: "zeta", source: "screen" }))).rejects.toMatchObject(invalid);
+    facts.splice(0, 2);
+    await expect(run(adapter.read({ name: "zeta", source: "screen" }))).rejects.toMatchObject(invalid);
+  });
+
+  test("without an injected clock the snapshot fails typed before any tmux command runs", async () => {
+    const { adapter, lines } = scripted({ facts: ["1 1 0 9 zsh"] });
+    await run(adapter.offeredCapabilities([Machine.WellKnownCapability.ptySession]));
+    okOpen(await run(adapter.open({ name: "zeta", cwd: "/" })));
+    const issued = lines.length;
+    await expect(run(adapter.read({ name: "zeta", source: "screen" }))).rejects.toMatchObject({
+      _tag: "MachinesFailure",
+      operation: "pty.screen",
+      cause: "daemon has no clock to stamp observedAt",
+    });
+    expect(lines).toHaveLength(issued);
+  });
+
+  test("screen reads share the session refusals of the byte stream", async () => {
+    const { adapter } = scripted({ facts: ["1 1 0 9 zsh"], now: () => 7 });
+    expect(await run(adapter.read({ name: "zeta", source: "screen" }))).toEqual({
+      status: "refused",
+      reason: "pty_not_available",
+    });
+    await run(adapter.offeredCapabilities([Machine.WellKnownCapability.ptySession]));
+    expect(await run(adapter.read({ name: "zeta", source: "screen" }))).toEqual({
+      status: "refused",
+      reason: "pty_not_found",
+    });
   });
 });
 

@@ -856,6 +856,26 @@ export const PtyReadRequest = z
 export type PtyReadRequest = z.infer<typeof PtyReadRequest>;
 
 /**
+ * Structural screen snapshot (#1510): the rendered pane as the daemon sees it
+ * right now, answered with {@link PtyScreenResult}. No cursor or wait: the
+ * screen is a different representation of the same bytes, not a stream
+ * position, and this request never blocks.
+ */
+export const PtyReadScreenRequest = z
+  .object({ name: PtySessionName, source: z.literal("screen") })
+  .strict();
+export type PtyReadScreenRequest = z.infer<typeof PtyReadScreenRequest>;
+
+/**
+ * `machine.pty_read` params: `source` discriminates the two read modes, the
+ * byte stream ({@link PtyReadRequest}, unchanged) and the screen snapshot. A
+ * screen request carrying stream options (or the reverse) fails both strict
+ * members and is refused at the wire parse, the one enforcement layer.
+ */
+export const PtyReadParams = z.union([PtyReadScreenRequest, PtyReadRequest]);
+export type PtyReadParams = z.infer<typeof PtyReadParams>;
+
+/**
  * When available output exceeds {@link PTY_READ_MAX_BYTES} the daemon returns
  * the bounded suffix with `truncated: true` and a cursor advanced past ALL
  * observed output, so repeated reads can never loop on discarded bytes.
@@ -872,6 +892,36 @@ export const PtyReadResult = z.discriminatedUnion("status", [
   PtySessionRefusal,
 ]);
 export type PtyReadResult = z.infer<typeof PtyReadResult>;
+
+/**
+ * Answer to a `source: "screen"` read (#1510): `rows` are the pane's visible
+ * lines top to bottom with their escape sequences (one per pane row, so the
+ * count is the pane height, bounded by {@link PTY_MAX_ROWS}); `cursor` is the
+ * pane cursor in cells; `occupant` pairs two distinct tmux pane facts and must
+ * be read as such: `pid` is tmux's `#{pane_pid}`, the pid of the pane's
+ * initial process (the shell tmux started, the pane's root), and `command` is
+ * tmux's `#{pane_current_command}`, the name of the process currently in the
+ * foreground of the pane as tmux reports it. So occupant is {pid of the
+ * pane's root process, name of the foreground command}; `pid` is NOT the
+ * foreground process's pid (a shell running `vim` reports the shell's pid
+ * with command `vim`). `null` when the pane is dead or tmux reports no pid.
+ * The pid is a fact for the caller's correlation, never the terminal's
+ * identity; `observedAt` is the daemon clock at capture. Idle/working/blocked
+ * are not decided here.
+ */
+export const PtyScreenResult = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("ok"),
+      rows: z.array(z.string()).max(PTY_MAX_ROWS),
+      cursor: z.object({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative() }).strict(),
+      occupant: z.object({ pid: z.number().int().positive(), command: z.string() }).strict().nullable(),
+      observedAt: EpochMs,
+    })
+    .strict(),
+  PtySessionRefusal,
+]);
+export type PtyScreenResult = z.infer<typeof PtyScreenResult>;
 
 export const PtyResizeRequest = z
   .object({
