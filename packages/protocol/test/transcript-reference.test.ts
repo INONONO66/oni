@@ -22,22 +22,24 @@ describe("TranscriptRef", () => {
     }
   });
 
-  test("refuses invalid and extra source coordinates", () => {
+  test("refuses invalid and extra source coordinates at the exact path", () => {
     const value = {
       ...location,
       generation: { kind: "size-and-prefix-hash", size: 60, prefixSha256: hash },
     };
-    for (const invalid of [
-      { ...value, generation: { ...value.generation, prefixSha256: "not-a-hash" } },
-      { ...value, generation: { kind: "inode", device: "dev-1" } },
-      { ...value, generation: { kind: "inode", device: "dev-1", inode: "1", extra: 1 } },
-      { ...value, range: { offsetBytes: -1, lengthBytes: 48 } },
-      { ...value, range: { offsetBytes: 12.5, lengthBytes: 48 } },
-      { ...value, range: { ...value.range, extra: 1 } },
-      { ...value, parser: { ...value.parser, extra: 1 } },
-      { ...value, extra: 1 },
-    ]) {
-      expect(TranscriptRef.safeParse(invalid).success).toBe(false);
+    expect(TranscriptRef.safeParse(value).success).toBe(true);
+    const refusals: [object, PropertyKey[]][] = [
+      [{ ...value, generation: { ...value.generation, prefixSha256: "not-a-hash" } }, ["generation", "prefixSha256"]],
+      [{ ...value, generation: { kind: "inode", device: "dev-1" } }, ["generation", "inode"]],
+      [{ ...value, generation: { kind: "inode", device: "dev-1", inode: "1", extra: 1 } }, ["generation"]],
+      [{ ...value, range: { offsetBytes: -1, lengthBytes: 48 } }, ["range", "offsetBytes"]],
+      [{ ...value, range: { offsetBytes: 12.5, lengthBytes: 48 } }, ["range", "offsetBytes"]],
+      [{ ...value, range: { ...value.range, extra: 1 } }, ["range"]],
+      [{ ...value, parser: { ...value.parser, extra: 1 } }, ["parser"]],
+      [{ ...value, extra: 1 }, []],
+    ];
+    for (const [invalid, path] of refusals) {
+      expect(TranscriptRef.safeParse(invalid).error?.issues.map((issue) => issue.path)).toEqual([path]);
     }
   });
 });
@@ -74,7 +76,7 @@ describe("ChildLifecycleEvidence", () => {
     expect(ChildLifecycleEvidence.parse(JSON.parse(JSON.stringify(parsed)))).toEqual(parsed);
   });
 
-  test("refuses invalid and extra evidence", () => {
+  test("refuses invalid and extra evidence at the exact path", () => {
     const value = {
       child: "child-1",
       turn: "turn-1",
@@ -82,16 +84,18 @@ describe("ChildLifecycleEvidence", () => {
       ref: { kind: "hook", event: "request", receivedAt: 1_700_000_000_000, seq: 1 },
       diagnostics: [{ code: "notice", detail: "detail" }],
     };
-    for (const invalid of [
-      { ...value, phase: "finished" },
-      { ...value, diagnostics: undefined },
-      { ...value, diagnostics: [{ code: "notice", detail: "detail", extra: 1 }] },
-      { ...value, ref: { ...value.ref, seq: -1 } },
-      { ...value, ref: { ...value.ref, receivedAt: -1 } },
-      { ...value, ref: { ...value.ref, extra: 1 } },
-      { ...value, extra: 1 },
-    ]) {
-      expect(ChildLifecycleEvidence.safeParse(invalid).success).toBe(false);
+    expect(ChildLifecycleEvidence.safeParse(value).success).toBe(true);
+    const refusals: [object, PropertyKey[]][] = [
+      [{ ...value, phase: "finished" }, ["phase"]],
+      [{ ...value, diagnostics: undefined }, ["diagnostics"]],
+      [{ ...value, diagnostics: [{ code: "notice", detail: "detail", extra: 1 }] }, ["diagnostics", 0]],
+      [{ ...value, ref: { ...value.ref, seq: -1 } }, ["ref", "seq"]],
+      [{ ...value, ref: { ...value.ref, receivedAt: -1 } }, ["ref", "receivedAt"]],
+      [{ ...value, ref: { ...value.ref, extra: 1 } }, ["ref"]],
+      [{ ...value, extra: 1 }, []],
+    ];
+    for (const [invalid, path] of refusals) {
+      expect(ChildLifecycleEvidence.safeParse(invalid).error?.issues.map((issue) => issue.path)).toEqual([path]);
     }
   });
 });

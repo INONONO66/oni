@@ -3,6 +3,8 @@ import { EpochMs } from "../time.js";
 
 const Id = z.string().min(1);
 const ByteCount = z.number().int().nonnegative();
+/** Position in the monotonic hook spool (#1527); not a byte count. */
+const Seq = z.number().int().nonnegative();
 
 /** Location and generation of bytes retained by an attached machine. */
 export const TranscriptRef = z
@@ -42,7 +44,7 @@ export const ChildLifecycleEvidence = z
           kind: z.literal("hook"),
           event: Id,
           receivedAt: EpochMs,
-          seq: ByteCount,
+          seq: Seq,
         })
         .strict(),
     ]),
