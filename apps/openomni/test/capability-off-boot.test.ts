@@ -29,6 +29,8 @@ import { composeRowOf } from "./helpers/app-fixture";
 import { planeOf } from "./helpers/ledger";
 import { nextResidentTurn } from "./helpers/resident-turn";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
+import { CHILD_WATCH } from "../src/bundles/child-activity/index";
+import { spec as childSpec } from "./helpers/child-activity";
 
 const suite = residentSuite();
 const T0 = 1_700_000_000_000;
@@ -63,6 +65,7 @@ const ROWS: readonly OffRow[] = [
     disabled: [
       { name: "alarm", because: "alarm" },
       { name: "monitor", because: "alarm" },
+      { name: "child-activity", because: "alarm" },
       { name: "cron", because: "alarm" },
       { name: "delegation-policy", because: "alarm" },
     ],
@@ -76,6 +79,7 @@ const ROWS: readonly OffRow[] = [
     disabled: [
       { name: "action", because: "action" },
       { name: "hook", because: "action" },
+      { name: "child-activity", because: "action" },
       { name: "hooks-json", because: "action" },
       { name: "delegation-policy", because: "action" },
     ],
@@ -231,6 +235,24 @@ test("a bundle and a capability ride one off list: each cascade keeps its own ro
     { name: "hooks-json", because: "hook" },
   ]);
   expect(toolsSeen[0]).not.toContain("monitor");
+}, 40_000);
+
+test("the app boots with the child-activity bundle off: typed cascade journaled, purpose gone, install refuses", async () => {
+  const toolsSeen: string[][] = [];
+  const { app } = await bootWithOff("cap-off-child-activity-", ["child-activity"], toolsSeen);
+  const intent = (await composeRowOf(app)).intent.value as { disabled?: OffRow["disabled"] };
+  expect(intent.disabled).toEqual([{ name: "child-activity", because: "child-activity" }]);
+  const generation = await runAppEffect(
+    app.runtime,
+    Effect.map(ComposedGeneration, (holder) => holder.current().generation),
+  );
+  expect(generation.bundles).not.toContain("child-activity");
+  expect([...generation.purposes.keys()]).not.toContain(CHILD_WATCH);
+  // The bundle's one install door refuses typed before any source or cadence exists.
+  await expect(app.childActivity.install(childSpec)).rejects.toMatchObject({ reason: "disabled" });
+  // Nothing else composed out: the alarm plane and the monitor face stay.
+  expect(generation.points).toContain("alarm.fired");
+  expect(toolsSeen[0]).toContain("monitor");
 }, 40_000);
 
 test("an off name the manifest never declared refuses the boot typed: no runtime, no model call", async () => {

@@ -136,6 +136,9 @@ import { configureAuthority, type GenerationDefinitions } from "./composition/ge
 import { createResident } from "./composition/resident";
 import { composeCodemode, sessionOutputsSource, type ComposedCodemode } from "./composition/codemode";
 import { createRequestDomainRevisions } from "./composition/request-domain-revisions";
+import { admit } from "./bundles/child-activity/admit";
+import { ChildWatch } from "./bundles/child-activity/index";
+import { type ChildRow, currentState, receivedChildRows, stateReceipts } from "./bundles/child-activity/reconcile";
 
 /** A channel message the gateway refused pre-admission: the driver reports it to the sender. */
 class MessageAdmissionRefused extends Error {
@@ -746,18 +749,36 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // send only answers at `fireAt`, and the arming turn must not block on it.
     const scheduleAlarm = (sessionId: string, occurrence: Parameters<typeof sendAlarm>[1]) =>
       entityClient(sessionId).Alarm(occurrence, { discard: true });
+    const childRows = (sessionId: string): ChildRow[] => {
+      const kernel = plane.openKernel(sessionId);
+      const rows: ChildRow[] = [];
+      let afterRevision = 0;
+      for (;;) {
+        const page = kernel.historyPage(sessionId, { afterRevision });
+        rows.push(...receivedChildRows(page.actions));
+        if (page.nextRevision === null) return rows;
+        afterRevision = page.nextRevision;
+      }
+    };
     // Terminal watches drain the same machines surface the bash door uses.
     const watchSources = createWatchSources(
       {
         deliver: ({ sessionId, ...occurrence }) =>
           runAppEffect(runtime, sendAlarm(sessionId, occurrence)),
+        admit: (sessionId: string, rows: readonly ChildRow[]) => runAppEffect(runtime, admit(entityClient, sessionId, rows)),
       },
       {
         clock: services.now,
         failure: (watchId, error) => incident(`watch ${watchId} send failed`, error),
         pathWatch: options.pathWatch,
-        ...(tools.machines === undefined ? {} : { machines: tools.machines }),
         retirePath: (sessionId, watchId) => runAppEffect(runtime, watchPlane.retirePath(sessionId, watchId)),
+        ...(tools.machines === undefined ? {} : {
+          machines: tools.machines,
+          children: {
+            machines: tools.machines,
+            rows: childRows,
+          },
+        }),
       },
     );
     await acquire(Effect.succeed(watchSources), (resource) =>
@@ -1448,6 +1469,15 @@ export async function startOpenOmni(options: StartOptions = {}) {
       port: boundPort,
       gateway,
       sessions: { get: sessionFacade },
+      childActivity: {
+        install: (spec: ChildWatch) => runAppEffect(runtime, watchPlane.installChild(
+          ChildWatch.parse(spec), services.composed.current().generation.bundles.includes("child-activity"),
+        )),
+        close: (id: string) => watchSources.close(id),
+        observe: (sessionId: string, id: string) => watchSources.observe(sessionId, id),
+        state: (sessionId: string, child: string, turn: string) =>
+          currentState(stateReceipts(childRows(sessionId), child, turn)),
+      },
       // The boot's honest channel record: where config came from and why each
       // declared row did or did not mount (provision_status reads this later).
       channels: { source: liveSupervisor().source(), statuses: liveSupervisor().status() },

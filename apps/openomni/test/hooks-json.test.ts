@@ -546,7 +546,7 @@ async function offCascadeConfigureRows(prefix: string) {
   // The adopted generation dropped the cascaded bundle.
   const adopted = plane.openKernel(sessionId).latestGenerationFor(sessionId);
   expect([...adopted.bundles].sort()).toEqual([
-    "approval-policy", "bash", "compaction-strategy", "compaction-summarizer", "completion", "cron",
+    "approval-policy", "bash", "child-activity", "compaction-strategy", "compaction-summarizer", "completion", "cron",
     "delegation-policy", "eval", "file", "monitor", "provision", "send-message",
   ]);
   if (config.sessionsDir === undefined) throw new Error("suite config always sets sessionsDir");

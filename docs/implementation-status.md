@@ -1,5 +1,78 @@
 # Implementation Status
 
+## #1511 child reconciler (epic #1508)
+
+On `feat/1511-child-reconciler` (2026-10-17, base `3f763326a`, PR #1570).
+The #1511 child-activity bundle consumes the #1527 dialect packs through
+retained-byte spool/transcript cursors, admits source-free facts and
+per-source receipts through entity Deliver, and exposes an
+authority-ordered read model; the existing watch owner reads verified remote
+locations through daemon filesystem calls and the alarm cadence, with
+fixture-backed real-daemon/entity tests but no live external-child launch
+claimed. r1 (2026-10-17, ruling amendment
+https://github.com/INONONO66/openomni/issues/1511#issuecomment-6233905889):
+a transcript line re-read under a new file generation lands as a new
+`child_receipt` beside the `generation_changed` diagnostic row, never an
+`idempotency_conflict`; the dialect pack's `live` decoder is the one owner of
+the per-child sequence gate and `spool.ts` consumes its typed `stale_seq`
+refusal (`DialectDecodeError.detail.seq`) instead of re-parsing the line;
+spool and transcript drain inside their own failure boundary, every failure
+reaches the watch owner's failure port, `ready` rejects only when every
+configured source failed on the first drain, and a refused spool read never
+stops transcript admission for the same child; a Deliver whose reply was lost
+refreshes the admitted rows before the retry, and the restored sequence and
+replay matching belong to the child, not to one file or turn.
+
+r1b (2026-10-17, PR #1570 review): `installChild` rolls the just-installed
+source back through the watch owner's close path when the cadence arm is
+refused, so a `not_live` refusal leaves no orphaned handle and no
+`watch_conflict` for the next install; a size-0 anchor is no anchor and the
+first non-empty generation is adopted without a `generation_changed` row;
+the watch owner counts consecutive drains in which every configured source
+failed and after three (`CHILD_FAILURE_LIMIT`) refuses the observation so
+the wake retires the chain `exhausted`, with any progressing drain resetting
+the count and an explicit install starting fresh; a Deliver-side
+`idempotency_conflict` reply is retained as the conflict row (the r1c
+paragraph below records why no separate map refresh follows it);
+`currentState` is a total order (authority, position, larger generation
+size, canonical generation text, later offset); child admission enters
+Effect through the one injected
+`WatchSenders` door (`deliver` and `admit`), keeping the #1423 single-entry
+rule; the `off: ["child-activity"]` boot row and the fixture-derived
+`toolUseId` assertion are in the receipts. At `49a4efa87` the complete
+`bun test apps/openomni --timeout 15000` run was terminated by the #1498
+15-minute watchdog after 33 files with 0 failures and was not claimed green;
+at the r1b tip the same command completed under the watchdog with 1066 pass,
+0 fail across 144 files (73.5 s, exit 0), the only `(fail)` line in its
+output being the inner sub-run `test/cleanup-oracle.test.ts` deliberately
+spawns; the focused files named in the stamp remain the per-finding receipt.
+
+r1c (2026-10-18, PR #1570 r1b verification follow-ups): the admitted-map
+refresh after a Deliver-side `idempotency_conflict` reply was deleted
+rather than tested, because its re-send is unreachable: within one adapter
+the cursor advances past the bytes once `accept` returns, so the refused
+key is re-derived only after a thrown Deliver, and that path already
+refreshes the map from the journal; a new adapter rebuilds the map from the
+journal at construction, `close()` joins the in-flight drain, and
+`watch_conflict` admits one adapter per child, so no second writer can
+place a row under the key between the two. The conflict receipt in
+`test/child-source.test.ts` now reaches the Deliver-side reply through a
+fake entity (a `child_conflict` row for the requested key beside a lost
+reply on the next committed receipt) and asserts the retry re-derives the
+same bytes against the refreshed journal without re-sending the refused
+key or adding a second conflict row; deleting the surviving refresh fails
+it. The empty-anchor receipt pins the adopted generation: every admitted
+`child_receipt` (transcript ref or `spool_ref` diagnostic) carries the
+first non-empty file's byte size and no `generation_changed` row exists.
+The adapter stamps transcript reads strictly monotonic per child
+(`max(clock(), last + 1)`, seeded from the child's persisted transcript
+receipts), so two reads inside one clock millisecond across a generation
+change can never tie in `currentState` and a shrinking rewrite wins over
+the larger stale generation; the total comparator is unchanged. The
+complete `bun test apps/openomni --timeout 15000` run on `0d88e4fa7`
+completed under the #1498 watchdog (1066 pass, 0 fail, 144 files); one
+completion does not retire the #1498 record.
+
 ## #1527 worker dialect packs (epic #1508)
 
 On `feat/1527-dialect-packs` (2026-10-17, base `8638019e8`, PR #1549).
@@ -2419,7 +2492,7 @@ added there. Comment-only; zero behavior change; no lint or script added.
 
 | module | forcing API | Effect entry call | verdict |
 | --- | --- | --- | --- |
-| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll; the reconcile cadence is a `watch`-purpose alarm chain on the app alarm plane (#1426) | injected `WatchSenders.deliver` (bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
+| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll, daemon fs reads for child sources (#1511); the reconcile cadence is a `watch`-purpose alarm chain on the app alarm plane (#1426) | the one injected `WatchSenders` door — `deliver` for native hits, `admit` for child rows (both bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
 | `composition/process-session.ts` | `Bun.spawn` stdin/stdout byte streams (`ReadableStream` reader, `child.exited`) | injected `answer` (`runAppEffect(runtime, requests.answer(...))`) | keep |
 | `provisioning/supervisor.ts` | channels driver `surface.start` Promise contract (`stop` is synchronous; channels is the #1248 Promise band with its own injected `EffectRunner`) | the driver runner (`ChannelRuntimeDeps.run` = `runAppEffect`) that `deps.desired()` passes into each built surface; `.then(() => undefined, ThrownError.parse)` narrows the rejection to a typed Error that `mountRow` re-throws and `startRow` records as breaker status, never a swallow | keep |
 

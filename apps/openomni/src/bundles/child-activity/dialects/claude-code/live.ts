@@ -26,7 +26,7 @@ export function live(line: string, context: LiveContext): ChildLifecycleEvidence
   if (!decoded.success) throw new DialectDecodeError("live", "malformed");
   const { seq, event, receivedAt, payload, decision } = decoded.data;
   if (event !== payload.hook_event_name) throw new DialectDecodeError("live", "malformed");
-  if (seq <= context.lastSeq) throw new DialectDecodeError("live", "stale_seq");
+  if (seq <= context.lastSeq) throw new DialectDecodeError("live", "stale_seq", { seq });
   let phase: ChildLifecycleEvidence["phase"];
   switch (event) {
     case "SessionStart":

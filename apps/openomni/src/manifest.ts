@@ -8,6 +8,7 @@ import { monitorBundle } from "./bundles/alarms/monitor/index";
 import { ToolCapabilityPort } from "./bundles/seams";
 import type { MonitorPorts } from "./bundles/alarms/monitor/ports";
 import { sendMessageBundle } from "./bundles/messaging/send-message/index";
+import { childActivityBundle } from "./bundles/child-activity/index";
 import { provisionBundle } from "./bundles/provision/provision";
 import { bashBundle } from "./bundles/tools/bash/index";
 import { completionBundle } from "./bundles/tools/completion/index";
@@ -74,6 +75,7 @@ export function appManifest(input: AppManifestInput): Bundle.ManifestDefinition 
     bashBundle(input.tools),
     evalBundle(input.tools),
     monitorBundle(input.wake, input.alarms),
+    ...(input.wake.cadence === undefined ? [] : [childActivityBundle(input.wake.cadence)]),
     cronBundle(input.wake.prompt),
     hooksJsonBundle(input.hooks),
     delegationPolicyBundle((input.policy ?? SHIPPED_OWNER_POLICY).delegationRows),

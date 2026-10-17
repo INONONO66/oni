@@ -104,9 +104,16 @@ for (const pack of packs) {
           if (!("kind" in result.ref)) throw new Error("expected hook reference");
           const seq = result.ref.seq;
           expect(seq).toBeGreaterThan(lastSeq);
-          expect(() => pack.live?.(fixture.line, { ...identity, lastSeq: seq })).toThrow(
-            new DialectDecodeError("live", "stale_seq"),
-          );
+          // The pack owns the sequence gate; its refusal names the refused sequence for the consumer.
+          let refusal: DialectDecodeError | undefined;
+          try {
+            pack.live(fixture.line, { ...identity, lastSeq: seq });
+          } catch (error) {
+            if (!(error instanceof DialectDecodeError)) throw error;
+            refusal = error;
+          }
+          expect(refusal?.code).toBe("stale_seq");
+          expect(refusal?.detail).toEqual({ seq });
           lastSeq = seq;
           phases.add(result.phase);
         }

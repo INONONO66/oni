@@ -2,8 +2,15 @@ import { statSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { Bundle } from "@openomni/agent";
-import type { Alarm, Machine } from "@openomni/protocol";
+import { MachineRefusalError } from "@openomni/machines";
+import { TranscriptRef, canonicalJson, parseJson, type Alarm, type Machine } from "@openomni/protocol";
 import { processEnvironment } from "../cli/env-file";
+import type { FilePorts } from "../bundles/tools/core/filesystem";
+import type { ChildWatch } from "../bundles/child-activity/index";
+import { selectPack } from "../bundles/child-activity/dialects/index";
+import { decodeSpool, type SpoolCursor } from "../bundles/child-activity/spool";
+import { decodeTranscript, sourceDigest, transcriptCursor, type Generation, type TranscriptCursor } from "../bundles/child-activity/transcript";
+import { diagnosticRow, reconcile, type ChildRow } from "../bundles/child-activity/reconcile";
 
 /**
  * Watch plane over the Session entity (W5.2 plan §1 F2, #1254): this module
@@ -15,8 +22,8 @@ import { processEnvironment } from "../cli/env-file";
  */
 
 // Promise band (#1423): `node:fs` `watch`, `Bun.spawn` PTY streams, the machines `pty.read`
-// long-poll and native path-watch callbacks force callbacks here; Effect takes over only
-// inside the injected `WatchSenders.deliver`, so no alarm decision or durable write lives here.
+// long-poll, daemon fs reads and native path-watch callbacks force callbacks here; Effect takes over
+// inside the one injected `WatchSenders` door (`deliver` and `admit`); no durable write lives here.
 
 export class AlarmRuntimeError extends Error {
   readonly requiredVersion = ">=1.4.0";
@@ -365,9 +372,11 @@ export interface WatchHitSend {
   readonly fireAt: number;
 }
 
-/** Entity-message sender, implemented over the Session entity client. */
+/** Entity-message sender, implemented over the Session entity client: native hits and child rows take the same door. */
 export interface WatchSenders {
   deliver(send: WatchHitSend): Promise<void>;
+  /** Child intake through the entity's Deliver RPC; absent when no body is attached. */
+  admit?(sessionId: string, rows: readonly ChildRow[]): Promise<readonly ChildRow[]>;
 }
 
 /** One armed watch: identity, native spec, and the chain state its hits carry. */
@@ -393,6 +402,212 @@ export interface WatchSources {
   observe(sessionId: string, id: string): boolean;
   close(id: string): Promise<void>;
   closeAll(): Promise<void>;
+  installChild?(spec: ChildWatch): Promise<void>;
+  restoreChild?(spec: ChildWatch): void;
+}
+
+export interface ChildSourcePorts {
+  readonly machines: {
+    get(id: string): { readonly fs: Pick<ReturnType<NonNullable<FilePorts["machines"]>["get"]>["fs"], "read" | "stat"> };
+  };
+  readonly rows: (sessionId: string) => readonly ChildRow[];
+  readonly admit: NonNullable<WatchSenders["admit"]>;
+}
+
+/** Consecutive drains in which every configured source failed; the third retires the chain. */
+const CHILD_FAILURE_LIMIT = 3;
+
+type ChildFs = ReturnType<ChildSourcePorts["machines"]["get"]>["fs"];
+
+/**
+ * The anchored generation: fixed size plus the hash of its first bytes. A size-0 anchor hashed
+ * no bytes, so the caller passes none and the first non-empty generation is adopted silently.
+ */
+async function anchoredGeneration(fs: ChildFs, path: string, size: number, old: Generation | undefined): Promise<Generation> {
+  const anchorSize = old !== undefined && size >= old.size ? old.size : size;
+  const prefix = anchorSize === 0 ? new Uint8Array() : (await fs.read(path, { offset: 0, limit: Math.min(anchorSize, 4096) })).data;
+  const prefixSha256 = sourceDigest(prefix);
+  if (old !== undefined && size >= old.size && old.prefixSha256 === prefixSha256) return old;
+  return {
+    kind: "size-and-prefix-hash", size,
+    prefixSha256: anchorSize === size ? prefixSha256 : sourceDigest((await fs.read(path, { offset: 0, limit: Math.min(size, 4096) })).data),
+  };
+}
+
+class ChildSourceError extends Error {
+  constructor(readonly code: "pack_missing" | "source_missing" | "not_file" | "read_stalled" | "watch_conflict") {
+    super(`child source: ${code}`);
+    this.name = "ChildSourceError";
+  }
+}
+
+/** Both remote files share one source, one serialized drain, and the existing alarm cadence. */
+export function childSource(
+  spec: ChildWatch,
+  ports: ChildSourcePorts,
+  options: {
+    readonly clock: () => number;
+    readonly failure: (error: Error) => void;
+    /** After every drain: false when every configured source failed, true otherwise. */
+    readonly drained?: (progress: boolean) => void;
+  },
+): AlarmSource & { observe(): Promise<void> } {
+  const selected = selectPack(spec.occupant);
+  if (selected === undefined) throw new ChildSourceError("pack_missing");
+  const pack = selected;
+  if ((spec.spool === undefined && spec.transcript === undefined) ||
+      (spec.spool !== undefined && pack.live === undefined) ||
+      (spec.transcript !== undefined && pack.transcript === undefined))
+    throw new ChildSourceError("source_missing");
+  const admitted = new Map(ports.rows(spec.sessionId).map((row) => [row.key, row]));
+  const childFacts = new Set([...admitted.values()].flatMap((row) =>
+    row.kind === "child_fact" && row.content.child === spec.child ? [row.key] : []));
+  const configured = [spec.spool, spec.transcript].filter((location) => location !== undefined).length;
+  let spool: SpoolCursor | undefined;
+  let transcript: TranscriptCursor | undefined;
+  let closed = false;
+  // Transcript reads are stamped strictly later than the previous read of this child, even inside
+  // one clock millisecond: two reads across a generation change must never tie in `currentState`.
+  let lastObservedAt = [...admitted.values()].reduce((last, row) =>
+    row.kind === "child_receipt" && childFacts.has(row.content.factKey) && !("kind" in row.content.ref)
+      ? Math.max(last, row.content.observedAt) : last, -1);
+  const observedAt = () => {
+    lastObservedAt = Math.max(options.clock(), lastObservedAt + 1);
+    return lastObservedAt;
+  };
+
+  function restored(location: NonNullable<ChildWatch["spool"]>): TranscriptCursor | undefined {
+    const refs: TranscriptRef[] = [];
+    for (const row of admitted.values()) {
+      if (row.kind !== "child_receipt" || !childFacts.has(row.content.factKey)) continue;
+      const ref = row.content.ref;
+      if (!("kind" in ref)) refs.push(ref);
+      refs.push(...row.content.diagnostics.flatMap((diagnostic) => {
+        if (diagnostic.code !== "spool_ref") return [];
+        const parsed = parseJson(TranscriptRef, diagnostic.detail);
+        return parsed === undefined ? [] : [parsed];
+      }));
+    }
+    const ref = refs.filter((entry) =>
+      entry.machine === location.machine && entry.export === location.export && entry.path === location.path,
+    ).at(-1);
+    return ref?.generation.kind === "size-and-prefix-hash"
+      ? { checkpoint: { generation: ref.generation, offsetBytes: ref.range.offsetBytes + ref.range.lengthBytes }, tail: new Uint8Array() }
+      : undefined;
+  }
+
+  async function read(location: NonNullable<ChildWatch["spool"]>, previous: TranscriptCursor | undefined) {
+    const fs = ports.machines.get(location.machine).fs;
+    const stat = await fs.stat(location.path).catch((error: Error) => {
+      if (error instanceof MachineRefusalError && error.reason === "not_found") return undefined;
+      throw error;
+    });
+    if (stat === undefined) return undefined;
+    if (stat.kind !== "file") throw new ChildSourceError("not_file");
+    // A size-0 anchor anchors nothing: the first non-empty generation is adopted, not reported as a rewrite.
+    const anchor = previous === undefined || previous.checkpoint.generation.size === 0 ? undefined : previous;
+    const generation = await anchoredGeneration(fs, location.path, stat.size, anchor?.checkpoint.generation);
+    const resumed = transcriptCursor(anchor, generation).cursor;
+    const offset = resumed.checkpoint.offsetBytes + resumed.tail.length;
+    const chunk = offset >= stat.size ? new Uint8Array() : (await fs.read(location.path, { offset, limit: 256 * 1024 })).data;
+    if (offset < stat.size && chunk.length === 0) throw new ChildSourceError("read_stalled");
+    return {
+      ref: { ...location, generation, range: { offsetBytes: offset, lengthBytes: chunk.length } },
+      chunk,
+      more: offset + chunk.length < stat.size,
+      anchor,
+    };
+  }
+
+  /** What the journal holds, so memory never disagrees with it after a refused or lost Deliver. */
+  const refresh = () => {
+    for (const persisted of ports.rows(spec.sessionId)) admitted.set(persisted.key, persisted);
+  };
+  async function accept(rows: readonly ChildRow[]) {
+    for (const row of rows) {
+      if (closed) return;
+      if (admitted.has(row.key)) continue;
+      let accepted: readonly ChildRow[];
+      try {
+        accepted = await ports.admit(spec.sessionId, [row]);
+      } catch (error) {
+        // A Deliver may have committed before its reply was lost: the retry must see what the journal holds.
+        refresh();
+        throw error;
+      }
+      // A Deliver-side idempotency conflict answers with the conflict row only. The requested
+      // key is never re-derived without an intervening thrown Deliver (the cursor advances past
+      // the bytes), and that path refreshes above, so no further refresh is needed here.
+      for (const entry of accepted) admitted.set(entry.key, entry);
+    }
+  }
+
+  async function drainSpool(location: NonNullable<ChildWatch["spool"]>) {
+      // The sequence belongs to the child, so it is restored even when this file location has no checkpoint.
+      spool ??= {
+        file: restored(location),
+        lastSeq: [...admitted.values()].reduce((seq, row) =>
+          row.kind === "child_receipt" && childFacts.has(row.content.factKey) && "kind" in row.content.ref
+            ? Math.max(seq, row.content.ref.seq) : seq, -1),
+      };
+      let more = true;
+      while (more && !closed) {
+        const input = await read(location, spool.file);
+        if (input === undefined) break;
+        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, cursor: { ...spool, file: input.anchor } });
+        await accept([...reconcile(decoded.observations, [...admitted.values()], decoded.replays), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
+        spool = decoded.cursor;
+        more = input.more;
+      }
+  }
+  async function drainTranscript(location: NonNullable<ChildWatch["transcript"]>) {
+      transcript ??= restored(location);
+      let more = true;
+      while (more && !closed) {
+        const input = await read(location, transcript);
+        if (input === undefined) break;
+        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: observedAt(), ...(input.anchor === undefined ? {} : { cursor: input.anchor }) });
+        await accept([...reconcile(decoded.observations, [...admitted.values()]), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
+        transcript = decoded.cursor;
+        more = input.more;
+      }
+  }
+  /** Each source drains on its own: a broken spool read must not stop transcript admission. */
+  async function drain(): Promise<Error[]> {
+    const failures: Error[] = [];
+    const isolated = (run: Promise<void>) => run.catch((error: Error) => { failures.push(error); });
+    if (spec.spool !== undefined) await isolated(drainSpool(spec.spool));
+    if (spec.transcript !== undefined) await isolated(drainTranscript(spec.transcript));
+    return failures;
+  }
+  const report = (failures: readonly Error[]) => {
+    for (const failure of failures) options.failure(failure);
+  };
+  const settle = (failures: Error[]) => {
+    options.drained?.(failures.length < configured);
+    return failures;
+  };
+  // The first drain settles `ready`: it refuses only when every configured source failed.
+  const ready = drain().then(settle).then((failures) => {
+    const [first] = failures;
+    if (first !== undefined && failures.length === configured) {
+      report(failures.slice(1));
+      throw first;
+    }
+    report(failures);
+  });
+  let pending = ready;
+  return {
+    ready,
+    observe() {
+      pending = pending.then(() => closed ? undefined : drain().then(settle).then(report)).catch((error: Error) => options.failure(error));
+      return pending;
+    },
+    async close() {
+      closed = true;
+      await pending;
+    },
+  };
 }
 
 interface Holder {
@@ -414,12 +629,18 @@ export function createWatchSources(
     readonly pathWatch?: PathWatchInstaller | undefined;
     /** Retires the path's alarm chain through the live entity arm verb. */
     readonly retirePath?: (sessionId: string, watchId: string) => Promise<void>;
+    /** The child reader's body-side ports; admission itself is the senders' door. */
+    readonly children?: Omit<ChildSourcePorts, "admit">;
   },
 ): WatchSources {
   // The watch plane owns the boot-time runtime requirement: composing it on a
   // Bun without PTY support is a typed refusal, not a first-watch surprise.
   assertAlarmRuntime();
   const holders = new Map<string, Holder>();
+  const children = new Map<string, { readonly spec: ChildWatch; readonly source: AlarmSource }>();
+  /** Consecutive all-source drain failures per child watch; a drain that made progress clears it. */
+  const starved = new Map<string, number>();
+  const exhausted = (id: string) => (starved.get(id) ?? 0) >= CHILD_FAILURE_LIMIT;
 
   function enqueue(holder: Holder, hit: WatchHit): void {
     const { sessionId, occurrence, base } = holder.current;
@@ -523,7 +744,22 @@ export function createWatchSources(
   const retirements = new Set<Promise<void>>();
   let shutdown: Promise<void> | undefined;
 
+  function trackRetirement(retirement: Promise<void>): Promise<void> {
+    retirements.add(retirement);
+    void retirement.then(
+      () => retirements.delete(retirement),
+      () => retirements.delete(retirement),
+    );
+    return retirement;
+  }
+
   function retire(id: string): Promise<void> {
+    const child = children.get(id);
+    if (child !== undefined) {
+      children.delete(id);
+      starved.delete(id);
+      return trackRetirement(child.source.close().then(() => options.retirePath?.(child.spec.sessionId, id)));
+    }
     const holder = holders.get(id);
     if (holder === undefined) return Promise.resolve();
     holders.delete(id);
@@ -538,12 +774,7 @@ export function createWatchSources(
         }
       }
     })();
-    retirements.add(retirement);
-    void retirement.then(
-      () => retirements.delete(retirement),
-      () => retirements.delete(retirement),
-    );
-    return retirement;
+    return trackRetirement(retirement);
   }
 
   function close(id: string): Promise<void> {
@@ -584,7 +815,56 @@ export function createWatchSources(
       holders.set(spec.id, holder);
   }
 
+  async function startChild(spec: ChildWatch) {
+      if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
+      const existing = children.get(spec.id);
+      if (existing !== undefined) {
+        if (canonicalJson(existing.spec) !== canonicalJson(spec)) throw new ChildSourceError("watch_conflict");
+        await existing.source.ready;
+        return;
+      }
+      if (holders.has(spec.id) || [...children.values()].some((child) => child.spec.child === spec.child))
+        throw new ChildSourceError("watch_conflict");
+      const admit = senders.admit;
+      if (options.children === undefined || admit === undefined) throw new ChildSourceError("source_missing");
+      const source = childSource(spec, { ...options.children, admit }, {
+        clock: options.clock,
+        failure: (error) => options.failure(spec.id, error),
+        drained: (progress) => {
+          if (progress) starved.delete(spec.id);
+          else starved.set(spec.id, (starved.get(spec.id) ?? 0) + 1);
+        },
+      });
+      children.set(spec.id, { spec, source });
+      try {
+        await source.ready;
+        if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
+      } catch (error) {
+        children.delete(spec.id);
+        await source.close().catch((closing: Error) => {
+          if (closing !== error) options.failure(spec.id, closing);
+        });
+        throw error;
+      }
+  }
+
+  function installChild(spec: ChildWatch): Promise<void> {
+    // An explicit install is a fresh start: earlier starvation does not count against it.
+    starved.delete(spec.id);
+    return startChild(spec);
+  }
+
+  function restoreChild(spec: ChildWatch): void {
+    // A starved chain is not re-installed: this tick's observe refuses and the wake retires it.
+    if (exhausted(spec.id)) return;
+    // An alarm already owns the receiver's mailbox. Queue intake here and
+    // let the alarm return before its Deliver RPC waits on that same entity.
+    void startChild(spec).catch((error: Error) => options.failure(spec.id, error));
+  }
+
   return {
+    installChild,
+    restoreChild,
     async install(spec) {
       if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       // #1254 H2: an arm's forward and the watch verb's awaited install may
@@ -615,6 +895,21 @@ export function createWatchSources(
       return true;
     },
     observe(sessionId, id) {
+      const child = children.get(id);
+      if (child?.spec.sessionId === sessionId && !exhausted(id)) {
+        child.source.observe?.();
+        return true;
+      }
+      if (exhausted(id) && (child === undefined || child.spec.sessionId === sessionId)) {
+        // Three consecutive all-source failures: the handle goes, the count resets
+        // and the refused observation lets the wake retire the chain.
+        starved.delete(id);
+        if (child !== undefined) {
+          children.delete(id);
+          void trackRetirement(child.source.close()).catch((error: Error) => options.failure(id, error));
+        }
+        return false;
+      }
       const holder = holders.get(id);
       const source = holder?.current.sessionId === sessionId ? holder.source : undefined;
       if (source?.observe === undefined) return false;
@@ -626,6 +921,7 @@ export function createWatchSources(
       shutdown ??= Promise.resolve().then(async () => {
         await Promise.allSettled([...pending.values()]);
         await Promise.allSettled([...holders.keys()].map(retire));
+        await Promise.allSettled([...children.keys()].map(retire));
         while (retirements.size > 0) await Promise.allSettled([...retirements]);
       });
       return shutdown;
