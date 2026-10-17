@@ -156,6 +156,7 @@ function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "ex
           return { status: "ok" as const };
         }),
       read: () => unused,
+      screen: () => unused,
       resize: () => unused,
       close: (name) =>
         Effect.sync(() => {
