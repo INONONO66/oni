@@ -204,8 +204,13 @@ function recordedVerdict(verdict: PlainValue | undefined): PolicyEvaluation["ver
   return parsed.data;
 }
 
-export function assertFresh(request: ExecutionRequest, captured: ReturnType<SessionHandleStore.SessionKernel["requestById"]>): void {
-  if (captured !== undefined && request.domainRevisions !== undefined &&
-      canonicalDigest({ ...request.domainRevisions() }) !== canonicalDigest(captured.domainRevisions))
-    throw new ExecutionApprovalError({ code: "stale_approval" });
+export function assertFresh(
+  request: ExecutionRequest,
+  captured: ReturnType<SessionHandleStore.SessionKernel["requestById"]>,
+): Effect.Effect<void, ExecutionApprovalError> {
+  return Effect.suspend(() =>
+    captured !== undefined && request.domainRevisions !== undefined &&
+      canonicalDigest({ ...request.domainRevisions() }) !== canonicalDigest(captured.domainRevisions)
+      ? Effect.fail(new ExecutionApprovalError({ code: "stale_approval" }))
+      : Effect.void);
 }

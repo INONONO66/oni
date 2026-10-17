@@ -333,7 +333,7 @@ export function requestAuthorityKernel(base: SessionKernel, sessionId: string): 
       }),
     commit: (input) =>
       base.commit(
-        holder.borrowed === undefined
+        holder.borrowed === undefined || input.owner !== holder.caller
           ? input
           : { ...input, owner: holder.borrowed.owner, fence: holder.borrowed.fence },
       ),

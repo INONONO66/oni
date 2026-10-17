@@ -24,7 +24,7 @@ function open(request: SessionTransition.Request) {
   );
 }
 
-test("admission carries its observed count into the real SQLite transaction", () =>
+test("sessionOpenApprovalCount: admission carries the per-session-file count into the real SQLite transaction; both sessions share this one store", () =>
   isolated(
     Effect.gen(function* () {
       const first = yield* pending("first");

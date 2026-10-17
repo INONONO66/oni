@@ -196,7 +196,7 @@ function openApprovalSince(existing: SessionTransition.Request, since: number): 
   return existing.mode === "approval" && existing.state === "open" && existing.createdAt > since;
 }
 
-function openApprovalCount(
+function sessionOpenApprovalCount(
   snapshot: RequestSnapshot,
   next: SessionTransition.Request,
   since: number,
@@ -240,7 +240,7 @@ function openRequest(
   inputDigest: string,
   recentOpen: ApprovalRecentOpen,
 ): RequestDecision {
-  const requestCount = openApprovalCount(snapshot, next, command.at - recentOpen.windowMs);
+  const requestCount = sessionOpenApprovalCount(snapshot, next, command.at - recentOpen.windowMs);
   if (exceedsApprovalBudget(requestCount, recentOpen.limit) || !admitsOpen(next, snapshot)) return rejected;
   return {
     ...recordRequest(command, next, inputDigest, "opened"),
