@@ -4,6 +4,7 @@ import type { LedgerAction, LedgerSession } from "@openomni/protocol";
 import type { LedgerPlane } from "./host";
 import { thrownAsError } from "../ports/failure";
 import { CreateRefused, type LedgerError } from "../store/errors";
+import { sessionIdProblem } from "./session-id";
 
 
 export { CreateRefused };
@@ -29,6 +30,9 @@ export function createSession(
     const { id, parentId, role, genesis } = input;
     const refuse = (cause: Error | LedgerError): CreateRefused =>
       cause instanceof CreateRefused ? cause : new CreateRefused({ sessionId: id, reason: "write", cause });
+    const idProblem = sessionIdProblem(id);
+    if (idProblem !== undefined)
+      return yield* new CreateRefused({ sessionId: id, reason: "invalid_id", cause: new Error(idProblem) });
     const snapshot = yield* Effect.try({
       try: () =>
         generationSnapshot({

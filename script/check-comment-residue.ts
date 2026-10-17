@@ -340,6 +340,7 @@ const RESIDUE_FILE_PINS: ReadonlyMap<string, readonly [number, number]> = new Ma
   ["packages/agent/src/core/loop/retry.ts", [0, 0]],
   ["packages/agent/src/core/observation/run-events.ts", [0, 0]],
   ["packages/agent/src/core/session/run.ts", [0, 0]],
+  ["packages/agent/src/core/session/session-id.ts", [0, 0]],
   ["packages/agent/src/core/loop/stop.ts", [0, 0]],
   ["packages/agent/src/core/store/action-hash.ts", [0, 0]],
   ["packages/agent/src/core/store/catalog.ts", [0, 0]],
