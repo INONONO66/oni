@@ -1,43 +1,29 @@
-import { afterEach, expect, test } from "bun:test";
-import { z } from "zod";
-import { FIXED_NOW, testRun } from "./helpers/injected";
-import { TelegramClient } from "../src/provider/telegram/client";
+import { expect, test } from "bun:test";
+import { TelegramAdapter } from "../src/provider/telegram/surface";
+import { injectedOptions } from "./helpers/injected";
+import { fakeTelegramSdk } from "./helpers/telegram-sdk";
 
-type JsonValue = z.infer<ReturnType<typeof z.json>>;
-
-const realFetch = globalThis.fetch;
-
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
-
-test("TelegramClient acknowledges a callback query through answerCallbackQuery", async () => {
-  const requests: { path: string; method: string | undefined; body: JsonValue }[] = [];
-  globalThis.fetch = Object.assign(
-    async (input: string | URL | Request, init?: RequestInit) => {
-      requests.push({
-        path: String(input),
-        method: init?.method,
-        body: z.json().parse(JSON.parse(String(init?.body))),
-      });
-      return Response.json({ ok: true, result: true });
+test("TelegramAdapter acknowledges a callback query through the SDK client", async () => {
+  const fake = fakeTelegramSdk();
+  const adapter = new TelegramAdapter("token", {}, () => undefined, injectedOptions(), fake.sdk);
+  adapter.onMessage(async () => undefined);
+  await adapter.start("boot");
+  fake.listener.update({
+    update_id: 1,
+    callback_query: {
+      id: "callback-1",
+      from: { id: 7, is_bot: false, first_name: "User" },
+      data: "approve",
+      message: {
+        message_id: 2,
+        date: 1,
+        chat: { id: 3, type: "private", first_name: "User" },
+        from: { id: 42, is_bot: true, first_name: "Omni" },
+        text: "Approve?",
+        reply_markup: { inline_keyboard: [[{ text: "Approve", callback_data: "approve" }]] },
+      },
     },
-    { preconnect: realFetch.preconnect },
-  );
-  const client = new TelegramClient(
-    "token",
-    () => undefined,
-    () => FIXED_NOW,
-    testRun,
-  );
-
-  await client.answerCallbackQuery("callback-1", "trace-ack");
-
-  expect(requests).toEqual([
-    {
-      path: "https://api.telegram.org/bottoken/answerCallbackQuery",
-      method: "POST",
-      body: { callback_query_id: "callback-1" },
-    },
-  ]);
+  });
+  await Promise.resolve();
+  expect(fake.client.calls.map(({ method }) => method)).toContain("answerCallbackQuery");
 });

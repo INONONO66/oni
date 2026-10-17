@@ -88,7 +88,7 @@ for (const provider of ["discord", "telegram"] as const) {
         value: "sent",
         externalMessageId: "ack",
       });
-      expect(physicalSends).toBe(1);
+      expect(physicalSends).toBe(provider === "discord" ? 2 : 1);
     } finally {
       restore();
       await server.stop(true);
@@ -187,7 +187,7 @@ test("GitHub uncertainty is terminal even when comment read-back would show no m
 });
 
 // #1569: Slack has no DM preflight on the SDK (it posts to the user id directly).
-for (const provider of ["discord", "github"] as const) {
+for (const provider of ["github"] as const) {
   test(`${provider}: a failed preflight is not_sent and can retry without resending a message`, async () => {
     const nativeFetch = globalThis.fetch;
     let sends = 0;

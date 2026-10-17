@@ -1,4 +1,6 @@
 import type { DiscordBotListenerEventMap } from "agent-messenger/discordbot";
+import { DiscordBotError } from "agent-messenger/discordbot";
+import { sdkResponse } from "./sdk-script";
 import type { DiscordBotApi, DiscordBotEvents, DiscordSdk } from "../../src/provider/discord/sdk";
 
 type Handler = (...args: never[]) => void;
@@ -67,6 +69,20 @@ export class FakeDiscordListener implements DiscordBotEvents {
 
 export class FakeDiscordClient implements DiscordBotApi {
   readonly logins: string[] = [];
+  readonly calls: Array<{ method: string; channelId?: string; messageId?: string; emoji?: string }> = [];
+  private readonly failures = new Map<string, Error>();
+
+  fail(method: string, error: Error): void {
+    this.failures.set(method, error);
+  }
+
+  private check(method: string): void {
+    const error = this.failures.get(method);
+    if (error !== undefined) {
+      this.failures.delete(method);
+      throw error;
+    }
+  }
 
   login(credentials: { token: string }): Promise<object> {
     this.logins.push(credentials.token);
@@ -75,6 +91,61 @@ export class FakeDiscordClient implements DiscordBotApi {
 
   gatewayConnect(): Promise<{ token: string }> {
     return Promise.resolve({ token: this.logins[0] ?? "" });
+  }
+
+  testAuth(): Promise<{ id: string; username: string }> {
+    this.check("testAuth");
+    return Promise.resolve({ id: "bot", username: "openomni" });
+  }
+
+  createMessage(channelId: string, _options: { content?: string }): Promise<{ id: string }> {
+    this.calls.push({ method: "createMessage", channelId });
+    this.check("createMessage");
+    return this.respond("createMessage", { id: "m-17" });
+  }
+
+  createDm(userId: string): Promise<{ id: string }> {
+    this.check("createDm");
+    this.calls.push({ method: "createDm", channelId: userId });
+    return this.respond("createDm", { id: "D-owner" });
+  }
+
+  private async respond<T extends { id: string }>(method: string, fallback: T): Promise<T> {
+    let response: Response | undefined;
+    try {
+      response = await sdkResponse();
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      const code = "code" in error && typeof error.code === "string" ? error.code : "request_error";
+      throw new DiscordBotError(error.message, code);
+    }
+    if (response === undefined) return fallback;
+    if (!response.ok) throw new DiscordBotError(`${method} refused`, "api_error", { httpStatus: response.status });
+    const body = (await response.json()) as { id?: string };
+    return { id: body.id ?? fallback.id } as T;
+  }
+
+  triggerTyping(channelId: string): Promise<void> {
+    this.check("triggerTyping");
+    this.calls.push({ method: "triggerTyping", channelId });
+    return Promise.resolve();
+  }
+
+  async respondToInteraction(id: string, token: string): Promise<void> {
+    this.calls.push({ method: "respondToInteraction", messageId: id, emoji: token });
+    this.check(`respondToInteraction:${id}`);
+  }
+
+  addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    this.check("addReaction");
+    this.calls.push({ method: "addReaction", channelId, messageId, emoji });
+    return Promise.resolve();
+  }
+
+  removeReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    this.check("removeReaction");
+    this.calls.push({ method: "removeReaction", channelId, messageId, emoji });
+    return Promise.resolve();
   }
 }
 

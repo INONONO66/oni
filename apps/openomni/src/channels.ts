@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { AccountIdentity, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
+import type { AccountIdentity, AttachmentFetch, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
@@ -31,6 +31,8 @@ export interface ChannelRuntimeDeps {
   readonly run: EffectRunner;
   /** Resolves an image or file part's reference to bytes at delivery time; absent, media parts stay as reference lines. */
   readonly media?: MediaResolver;
+  /** Stores inbound attachments on the default machine before the handler runs; absent, references stay the platform's. */
+  readonly inbox?: (fetch: AttachmentFetch | undefined, handler: Channel.MessageHandler) => Channel.MessageHandler;
 }
 
 export interface BuiltChannel {
@@ -93,7 +95,7 @@ function providerRow(
         run: deps.run,
         ...(deps.media === undefined ? {} : { media: deps.media }),
       });
-      runtime.surface.onMessage(handler);
+      runtime.surface.onMessage(deps.inbox === undefined ? handler : deps.inbox(runtime.attachments, handler));
       return {
         surface: runtime.surface,
         ...(autoReply && outbound ? { autoReply: true } : {}),

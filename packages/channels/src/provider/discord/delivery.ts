@@ -4,21 +4,36 @@ import { type DeliveryReceipt, type DeliveryReconciliation, deliverKeyed } from 
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
 import type { ProviderOptions } from "../contract";
-import type { DiscordClient } from "./client";
+import type { DiscordBotApi, DiscordFailure } from "./sdk";
+import type { DiscordOwnerApi } from "./owner-sdk";
 import { DISCORD_MEDIA_LIMITS, DISCORD_RENDER } from "./format";
+
+type DiscordClient = DiscordBotApi | DiscordOwnerApi;
 
 /** What one Discord instance delivers with: its REST client under its own token and its custody ledger. */
 export interface DiscordDelivery {
   readonly client: DiscordClient;
+  readonly ready: Promise<void>;
+  readonly classify: (error: Error) => DiscordFailure;
   readonly outbound: DeliveryReconciliation;
   readonly publish: PublishPort;
   readonly options: ProviderOptions;
 }
 
 /** A DM channel is created once per delivery (and once per typing turn), never per pulse. */
-export function discordDmChannel(client: DiscordClient, externalId: string, traceId: string): Promise<string> {
-  return client.createDmChannel(externalId, traceId).catch((error) => {
-    throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: String(error) });
+export function discordDmChannel(
+  client: DiscordClient,
+  classify: (error: Error) => DiscordFailure,
+  externalId: string,
+): Promise<string> {
+  return discordCall(
+    client,
+    classify,
+    "discord.createDmChannel",
+    "createDm" in client ? () => client.createDm(externalId) : () => client.createDM(externalId),
+  ).then((channel) => {
+    if (channel.id === undefined) throw new DiscordApiError({ message: "Discord DM channel response carried no string id" });
+    return channel.id;
   });
 }
 
@@ -41,32 +56,84 @@ export function deliverThroughDiscord(
   return deliverKeyed(
     delivery.outbound,
     idempotencyKey,
-    async (traceId) => {
-      const channelId = conversation?.channelId ?? (await discordDmChannel(client, externalId, traceId));
+    async (_traceId) => {
+      await delivery.ready;
+      const channelId =
+        conversation?.channelId ?? (await discordDmChannel(client, delivery.classify, externalId));
       return await translate(
         payload,
         DISCORD_RENDER,
         {
-          text: (chunk) => client.send(channelId, chunk, traceId, conversation),
+          text: async (chunk) => {
+            const message = await discordCall(client, delivery.classify, "discord.createMessage", () =>
+              client.createMessage(channelId, {
+                content: chunk,
+                ...(conversation?.replyToMessageId === undefined
+                  ? {}
+                  : { reply_to: conversation.replyToMessageId }),
+              }),
+            );
+            return message.id;
+          },
           media: {
             limits: DISCORD_MEDIA_LIMITS,
             upload: async (_kind, bytes, caption) => {
-              const externalMessageId = await client.sendMedia(channelId, bytes, caption, traceId, conversation);
+              const message = await discordCall(client, delivery.classify, "discord.createMessage", () =>
+                client.createMessage(channelId, {
+                  ...(caption === undefined ? {} : { content: caption }),
+                  files: [{ data: bytes.bytes, filename: bytes.name, contentType: bytes.mime }],
+                  ...(conversation?.replyToMessageId === undefined
+                    ? {}
+                    : { reply_to: conversation.replyToMessageId }),
+                }),
+              );
+              const externalMessageId = message.id;
               return externalMessageId === undefined ? {} : { externalMessageId };
             },
           },
           react: async (messageId, emoji, replaces) => {
-            if (replaces !== undefined) await client.removeReaction(channelId, messageId, replaces, traceId);
-            await client.react(channelId, messageId, emoji, traceId);
+            if (replaces !== undefined)
+              await discordCall(
+                client,
+                delivery.classify,
+                "discord.removeReaction",
+                () => client.removeReaction(channelId, messageId, replaces),
+                true,
+              );
+            await discordCall(client, delivery.classify, "discord.addReaction", () =>
+              client.addReaction(channelId, messageId, emoji),
+            );
           },
         },
         delivery.options.media,
       );
     },
-    (error) =>
+    (error) => delivery.classify(error) === "rejected" ||
       (error instanceof DiscordApiError && error.rejected === true) ||
       (error instanceof RateLimited && error.status === 429),
     delivery.publish,
     delivery.options,
   );
+}
+
+async function discordCall<T>(
+  _client: DiscordClient,
+  classify: (error: Error) => DiscordFailure,
+  operation: string,
+  call: () => Promise<T>,
+  settled404 = false,
+): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    const status = "httpStatus" in error && typeof error.httpStatus === "number" ? error.httpStatus : undefined;
+    if (settled404 && status === 404) return undefined as T;
+    const failure = classify(error);
+    if (failure === "not_connected") throw new DeliveryNotSent({ operation, cause: String(error) });
+    throw new DiscordApiError({
+      message: String(error),
+      rejected: failure === "rejected",
+    });
+  }
 }

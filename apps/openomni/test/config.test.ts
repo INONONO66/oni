@@ -45,6 +45,7 @@ const ENV_KEYS = [
   "OPENOMNI_PROMPTS_DIR",
   "OPENOMNI_SKILLS_DIR",
   "OPENOMNI_MACHINES_DEFAULT",
+  "OPENOMNI_MACHINES_INBOX",
   "OPENOMNI_MACHINES_ENROLLED",
   "OPENOMNI_MACHINES_CAPACITY",
   "OPENOMNI_MACHINES_SELF",
@@ -802,6 +803,20 @@ describe("machines self enrollment config (#1271)", () => {
     if (machines === undefined) throw new Error("machines plane expected");
     expect(machines.default).toBe("alpha");
     expect(validateMachinePlane(machines).defaultMachine).toBe("alpha");
+  });
+
+  it("carries an absolute attachment inbox into the plane", () => {
+    process.env.OPENOMNI_MACHINES_SELF = selfEnv;
+    process.env.OPENOMNI_MACHINES_INBOX = "/srv/inbox";
+    const machines = loadConfig().machines;
+    if (machines === undefined) throw new Error("machines plane expected");
+    expect(validateMachinePlane(machines).inbox).toBe("/srv/inbox");
+  });
+
+  it("rejects a relative attachment inbox", () => {
+    process.env.OPENOMNI_MACHINES_SELF = selfEnv;
+    process.env.OPENOMNI_MACHINES_INBOX = "inbox";
+    expect(loadConfig).toThrow("OPENOMNI_MACHINES_INBOX must be an absolute path: inbox");
   });
 });
 

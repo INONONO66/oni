@@ -3,22 +3,31 @@ import { injectedOptions } from "./injected";
 import { TelegramAdapter } from "../../src/provider/telegram/surface";
 import { ChannelProviders } from "../../src/provider/registry";
 import type { PublishPort } from "../../src/types";
+import { fakeDiscordSdk } from "./discord-sdk";
+import { fakeTelegramSdk } from "./telegram-sdk";
+import { setSdkResponse } from "./sdk-script";
 
-/** The providers still posting over `fetch`; Slack's boundary is the agent-messenger SDK (#1569). */
+/** The providers use scripted SDK clients; Slack's boundary is the same seam (#1569). */
 type Provider = "discord" | "telegram";
 
 export function deliveryFixture(provider: Provider, publish: PublishPort = () => undefined) {
-  const adapter =
-    provider === "discord"
-      ? new DiscordAdapter("token", {}, publish, injectedOptions())
-      : new TelegramAdapter("token", {}, publish, injectedOptions());
+  if (provider === "discord") {
+    const fake = fakeDiscordSdk();
+    const adapter = new DiscordAdapter("token", {}, publish, injectedOptions(), fake.sdk);
+    const limit = ChannelProviders[provider].capabilities.render.messageLimit;
+    if (limit === null) throw new Error("delivery fixture requires a bounded provider");
+    return { adapter, limit, address: "123", client: fake.client };
+  }
+  const fake = fakeTelegramSdk();
+  const adapter = new TelegramAdapter("token", {}, publish, injectedOptions(), fake.sdk);
   const limit = ChannelProviders[provider].capabilities.render.messageLimit;
   if (limit === null) throw new Error("delivery fixture requires a bounded provider");
-  return { adapter, limit, address: "123" };
+  return { adapter, limit, address: "123", client: fake.client };
 }
 
 export function installDeliveryFetch(send: () => Response | Promise<Response>): () => void {
   const original = globalThis.fetch;
+  setSdkResponse(send);
   globalThis.fetch = Object.assign(
     async (input: string | URL | Request) => {
       const url = String(input);
@@ -31,5 +40,6 @@ export function installDeliveryFetch(send: () => Response | Promise<Response>): 
   );
   return () => {
     globalThis.fetch = original;
+    setSdkResponse(undefined);
   };
 }
