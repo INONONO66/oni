@@ -6,9 +6,9 @@ import { arch, platform, release } from "node:os";
  */
 const VERSION = "0.1.0";
 
-/** `pi/<version> (<platform> <kernelRelease>; <arch>)`: the one owner of every SDK `user-agent`. */
+/** `openomni/<version> (<platform> <kernelRelease>; <arch>)`: the one owner of every SDK `user-agent`. */
 export function clientIdentity(): string {
-  return `pi/${VERSION} (${platform()} ${release()}; ${arch()})`;
+  return `openomni/${VERSION} (${platform()} ${release()}; ${arch()})`;
 }
 
 /** The reported version, exposed so the manifest-sync gate can pin it. */
