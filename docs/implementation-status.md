@@ -38,10 +38,13 @@ so the refused key is not re-sent every tick; `currentState` is a total order
 later offset); child admission enters Effect through the one injected
 `WatchSenders` door (`deliver` and `admit`), keeping the #1423 single-entry
 rule; the `off: ["child-activity"]` boot row and the fixture-derived
-`toolUseId` assertion are in the receipts. The complete
+`toolUseId` assertion are in the receipts. At `49a4efa87` the complete
 `bun test apps/openomni --timeout 15000` run was terminated by the #1498
-15-minute watchdog after 33 files with 0 failures and is not claimed green;
-the focused files named in the stamp are the receipt.
+15-minute watchdog after 33 files with 0 failures and was not claimed green;
+at the r1b tip the same command completed under the watchdog with 1066 pass,
+0 fail across 144 files (73.5 s, exit 0), the only `(fail)` line in its
+output being the inner sub-run `test/cleanup-oracle.test.ts` deliberately
+spawns; the focused files named in the stamp remain the per-finding receipt.
 
 ## #1527 worker dialect packs (epic #1508)
 
