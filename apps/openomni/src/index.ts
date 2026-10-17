@@ -6,6 +6,7 @@ import { bootResource } from "./composition/boot";
 import { automationClock } from "./composition/automation-clock";
 import { automationWire } from "./composition/automation-wire";
 import { channelWire } from "./composition/channel-wire";
+import { a2aContacts } from "./composition/a2a-contacts";
 import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
@@ -49,6 +50,7 @@ import {
   inboundOnce,
   WebSocketHandler,
   createWebhookSender,
+  A2AClient,
 } from "@openomni/channels";
 import type { ActorRegistry } from "@openomni/channels";
 
@@ -270,11 +272,14 @@ async function composeMachinePlane(
   return { host, self, defaultMachine: plane.defaultMachine };
 }
 
-/** The public webhook paths and the provider whose handler answers each (#1569 lane 9b adds Linear). */
+/** The public webhook paths and the provider whose handler answers each (#1569 lane 9b adds Linear, 9c the A2A door). */
 const WEBHOOK_ROUTES: ReadonlyMap<string, string> = new Map([
   ["/github/webhook", "github"],
   ["/linear/webhook", "linear"],
+  ["/a2a", "a2a"],
 ]);
+/** The A2A card's well-known path, and the older one some peers still read. */
+const CARD_PATHS: ReadonlySet<string> = new Set(["/.well-known/agent-card.json", "/.well-known/agent.json"]);
 
 /**
  * The app's HTTP surface: the ws upgrade seam, unauthenticated liveness (no
@@ -302,6 +307,10 @@ function createHttpRoutes(
     const provider = WEBHOOK_ROUTES.get(url.pathname);
     if (request.method === "POST" && provider !== undefined) {
       const handler = webhookHandler(provider);
+      if (handler !== undefined) return handler(request);
+    }
+    if (request.method === "GET" && CARD_PATHS.has(url.pathname)) {
+      const handler = webhookHandler("a2a");
       if (handler !== undefined) return handler(request);
     }
     return new Response("Not found", { status: 404 });
@@ -805,6 +814,21 @@ export async function startOpenOmni(options: StartOptions = {}) {
             publish: services.observations.publish,
             now: services.now,
             id: services.entropy.id,
+          }),
+          // #1569 lane 9c: a declared A2A peer, written to with its own bearer; its answer rides the tool result.
+          a2a: a2aContacts({
+            instances: plane.stores.instances,
+            readCredential: vaultCredentialReader(config.kek, (ref) => plane.stores.secrets.get(ref)),
+            client: new A2AClient({
+              fetch: (url, init) => fetch(url, init),
+              publish: services.observations.publish,
+              now: services.now,
+              id: services.entropy.id,
+            }),
+            publish: services.observations.publish,
+            now: services.now,
+            id: services.entropy.id,
+            run: (effect) => runAppEffect(runtime, effect),
           }),
           deadline: {
             arm: ({ sessionId, turnId, child, at }) =>

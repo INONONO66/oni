@@ -14,6 +14,8 @@ import { Effect } from "effect";
 import { appManifest } from "../src/manifest";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import {
+  type A2AContactPort,
+  a2aConnector,
   cliConnector,
   createSendMessageTool,
   parseContactAddress,
@@ -43,6 +45,7 @@ test("contact addresses parse per kind; channel ids, unknown kinds and unknown C
   expect(parseContactAddress("cli:claude-code")).toEqual({ kind: "cli", id: "claude-code" });
   expect(parseContactAddress("webhook:hook-1")).toEqual({ kind: "webhook", id: "hook-1" });
   expect(parseContactAddress("webhook:")).toBeUndefined();
+  expect(parseContactAddress("a2a:scout")).toEqual({ kind: "a2a", id: "scout" });
   expect(parseContactAddress("cli:vim")).toBeUndefined();
   expect(parseContactAddress("telegram:12345")).toBeUndefined();
   expect(parseContactAddress("human:owner")).toBeUndefined();
@@ -136,6 +139,62 @@ test("the webhook connector posts the letter through the port under the tool cal
     status: "not_sent",
     reason: "webhook port is not composed",
   });
+});
+
+test("the a2a connector sends the letter through the port under the tool call's key with its deadline and thread, and returns the peer's answer or where its task stands", async () => {
+  const posted: object[] = [];
+  const port = (outcome: { status: "sent" | "not_sent" | "unknown"; reason?: string; response?: string; taskId?: string; taskState?: string; thread?: string }): A2AContactPort => ({
+    post: (input) => Effect.sync(() => {
+      posted.push(input);
+      return outcome;
+    }),
+  });
+  const send = {
+    sender: "parent-session",
+    address: { kind: "a2a", id: "scout" } as const,
+    idempotencyKey: "parent-session:call-1",
+    message: "scout the area",
+    deadlineMs: 5_000,
+  };
+  expect(await runEffect(a2aConnector(port({ status: "sent", response: "two camps", thread: "context:c-1" }))(send))).toEqual({
+    contact: "a2a:scout",
+    status: "delivered",
+    response: "two camps",
+    thread: "context:c-1",
+  });
+  expect(posted).toEqual([{ id: "scout", idempotencyKey: "parent-session:call-1", sender: "parent-session", message: "scout the area", deadlineMs: 5_000 }]);
+  await runEffect(a2aConnector(port({ status: "sent" }))({ ...send, replyTo: "task:t-1" }));
+  expect(posted[1]).toMatchObject({ replyTo: "task:t-1" });
+  expect(await runEffect(a2aConnector(port({ status: "sent", taskId: "t-1", taskState: "working", thread: "task:t-1" }))(send))).toEqual({
+    contact: "a2a:scout",
+    status: "delivered",
+    reason: "the peer is still working on task t-1 (working)",
+    thread: "task:t-1",
+  });
+  expect(await runEffect(a2aConnector(port({ status: "sent", taskId: "t-1", taskState: "input-required", response: "which area?", thread: "task:t-1" }))(send))).toEqual({
+    contact: "a2a:scout",
+    status: "delivered",
+    reason: "the peer is waiting on the sender for task t-1 (input-required); reply_to task:t-1 answers it",
+    response: "which area?",
+    thread: "task:t-1",
+  });
+  expect(await runEffect(a2aConnector(port({ status: "sent", taskId: "t-1", taskState: "rejected", thread: "context:c-1" }))(send))).toEqual({
+    contact: "a2a:scout",
+    status: "delivered",
+    reason: "the peer's task t-1 ended rejected",
+    thread: "context:c-1",
+  });
+  expect(await runEffect(a2aConnector(port({ status: "not_sent", reason: "-32005: Incompatible content types" }))(send))).toEqual({
+    contact: "a2a:scout",
+    status: "not_sent",
+    reason: "-32005: Incompatible content types",
+  });
+  expect(await runEffect(a2aConnector(port({ status: "unknown" }))(send))).toEqual({
+    contact: "a2a:scout",
+    status: "unknown",
+    reason: "the outcome is unknown; the letter is not re-sent",
+  });
+  expect(await runEffect(a2aConnector(undefined)(send))).toEqual({ contact: "a2a:scout", status: "not_sent", reason: "a2a port is not composed" });
 });
 
 test("the tool routes CLI contacts through connectors and everything else through the gateway door as one payload", async () => {

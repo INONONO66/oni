@@ -621,7 +621,7 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
   try {
     const violations = await validateAppsSessionWrites(root, silent);
     expect(violations).toEqual([
-      expect.stringContaining("apps/openomni/src/index.ts:1328 no longer names kernel.commit"),
+      expect.stringContaining("apps/openomni/src/index.ts:1352 no longer names kernel.commit"),
       expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
     ]);
   } finally {
@@ -637,11 +637,11 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
   }
 });
 
-/** The two pinned writes on their exact lines: the tools.add commit at index.ts:1328, the ingress adoption at ingress-executor.ts:62. */
+/** The two pinned writes on their exact lines: the tools.add commit at index.ts:1352, the ingress adoption at ingress-executor.ts:62. */
 function pinnedWritesTree(ingressLine: number, extra = ""): string {
   return scratchAppsTree(
     {
-      "index.ts": `${"\n".repeat(1327)}kernel.commit(action);\n`,
+      "index.ts": `${"\n".repeat(1351)}kernel.commit(action);\n`,
       "composition/ingress-executor.ts": `${"\n".repeat(ingressLine - 1)}const executor = Core.adoptedExecutor(kernel, id, owner, clock, {});\n${extra}`,
     },
     "file",

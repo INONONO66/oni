@@ -1,5 +1,113 @@
 # Implementation Status
 
+## #1569 A2A: the door and the `a2a:` contact (lane 9c)
+
+On `feat/1569-a2a` (2026-10-17, PR #1596, reviewed and corrected). Other
+agents reach the Resident through ordinary ingress with their own actor and
+tier, and the Resident reaches other agents through `send_message` — both
+on the A2A 0.3 JSON-RPC binding (`kind` discriminators; the 1.0 spellings
+`SendMessage`/`GetTask`/`CancelTask` accepted as aliases). A peer is a
+`channel:a2a:<id>` declaration whose sealed credential carries `token` (the
+shared bearer the peer presents inbound and this daemon presents when
+writing to it), optionally `url` (the peer's base, where its card is
+served; absent leaves the peer inbound-only) and `name`
+(`packages/channels/src/provider/a2a/{types,client,surface,provider}.ts`,
+registry key `a2a`). Naming a `url` is an outbound destination, so the
+declaration takes Owner consent like a webhook target's and a rotation
+never introduces one (`channelConsentRequired`, `executeSecretRotate`).
+**One door for every peer**: `declaredChannelProfile` turns every a2a
+declaration into a `ready` roster entry and mounts one row, `A2A_DOOR_ID`
+(`channel:a2a`, surface `a2a`), while any peer is declared — keyed by
+nothing a peer's revision or rotation changes, since the roster
+(`a2aRoster` in `apps/openomni/src/channels.ts`) lists the instance store
+and opens each credential from the vault at request time; disabling,
+rotating or declaring a peer takes effect at the next request with no
+remount, and the door goes only with the last peer
+(`apps/openomni/test/a2a-door.test.ts`). The door (`A2AAdapter`, `POST
+/a2a` and `GET /.well-known/agent-card.json` — `/.well-known/agent.json`
+too — through `WEBHOOK_ROUTES`/`CARD_PATHS` in `apps/openomni/src/index.ts`)
+compares a bearer in constant time against every peer; the match's id is
+the peer's actor id, and the peer's tier is the Owner's `contact_add` of an
+actor with endpoint `{ channel: "a2a", externalId: <id> }`, never the
+door's: a peer the Owner has not named is refused by policy at the mount
+tier (`message.external.grant_tier`) and its task fails. The peer is a bot
+author on surface `a2a`, and the perimeter admits it as an agent rather
+than an echo: `BOT_AUTHORED_SURFACES` (`webhook`, `alarm`, `a2a`) is
+exempt from `rule/bot-author`, and the granted-direct automation those
+surfaces migrate carries `includeBots: true`. `message/send` creates a task
+in a context — **the context is the conversation** (`channelId`), the task
+one exchange in it, so every task a peer opens in one context reaches the
+same session — hands the text parts off as one inbound message (`surface:
+a2a`, `event: message`, `dm: true`) and answers with the task `working`;
+`configuration.blocking` waits for the Resident's answer, bounded at 30 s
+on the injected run port, every blocking send on a task woken by it, and
+returns the task as it stands, its history cut to
+`configuration.historyLength` (0 omits it); a follow-up naming the task
+continues it, one naming a finished task is refused, and a task is its
+peer's alone (another peer naming it in `message/send`, `tasks/get` or
+`tasks/cancel` gets `Task not found`). The reply door's delivery into the
+context lands on its newest open task, appends the agent's message and
+completes it; `tasks/get` reads a task back (`historyLength` honoured, 0
+omitting); `tasks/cancel` cancels an open task, never a finished one; a
+handler throw fails the task loudly; streaming, resubscription and push
+notifications are declared unsupported (-32004 / -32003); malformed calls
+are the standard JSON-RPC errors; a stranger is 401 with a JSON-RPC body.
+Tasks live in the process, bounded at 1000: the oldest finished task goes
+first, then the oldest open one is canceled (its waiters woken, the Owner
+warned); a restart forgets them. The card names this agent (`A2A_CARD`),
+`protocolVersion: 0.3.0`, `preferredTransport: JSONRPC`, a bearer security
+scheme, and as its url the door the request came through — the forwarded
+scheme and host when a proxy terminating TLS sets them. Out: the
+`a2a:<id>` contact kind on `send_message` (`a2aConnector`,
+`apps/openomni/src/composition/a2a-contacts.ts`): the peer's card is read
+once from either well-known path (a GET that fails in any way is no card)
+and honoured only when its url shares the declared url's origin — a card
+pointing elsewhere is `not_sent` with nothing sent and the Owner warned
+where it pointed, since the bearer goes nowhere the Owner did not declare;
+one `message/send` (blocking) per tool call under `deliverKeyed` custody
+with the peer's own bearer and never a redirect followed (`A2AClient`); a
+replayed call keeps its `sent` receipt with no answer (the answer went to
+the first). The peer's answer — its message, or its task's status message
+and artifacts, bounded at 64 KiB — returns on the tool result as
+`response`; a task still `submitted`/`working` is read back (`tasks/get`,
+`historyLength: 0`) every 2 s until it leaves those states or the send's
+`deadline_ms` (default 30 s, ceiling 5 min) passes, a read that fails
+ending the wait with the task as last seen (Warn `a2a task read failed`),
+then reported as it stands. Every task that did not complete is named with
+its state on `reason` (still working; waiting on the sender for
+`input-required`/`auth-required`; ended `failed`/`rejected`/`canceled`),
+and `thread` on the result is what a later `reply_to` continues:
+`task:<id>` while the task is open (the letter carries `taskId`),
+`context:<id>` once it is not or for a message answer (the letter carries
+`contextId`; a bare id is a context). A 4xx, a redirect, a JSON-RPC error
+and a request that never left are `not_sent`, a 5xx and a lost or
+unreadable answer `unknown`, never re-sent; an undeclared, disabled,
+url-less, cardless or foreign-carded peer, or an unreadable credential, is
+the sender's `not_sent` reason with nothing sent (the detail as a Warn for
+the Owner). Not in this lane: a contact's later answer delivered as a
+prompt (the door's inbound path is that today — a peer asks and the
+Resident answers; the outbound path returns what the peer said within the
+wait), streaming, push notifications, file and data parts (passed through,
+not read), durable tasks. Receipts: `packages/channels/test/a2a-provider.test.ts`
+(the card and its forwarded origin, the roster's bearers, the inbound facts
+and the context conversation, ownership, the answer on the newest open
+task and its read-back, `historyLength` 0, blocking and the woken second
+waiter, cancel, bounded retention, every JSON-RPC error, the failed task),
+`test/a2a-client.test.ts` (the card from either path, a failed GET, the
+foreign card, one send per key with every receipt, the task read-back),
+`test/router-bot-filtered.test.ts` and `test/automation-store.test.ts` (the
+a2a exemptions), `test/provider-contract.test.ts`,
+`apps/openomni/test/a2a-door.test.ts` (one door for two peers, the live
+roster, the door going with the last peer),
+`apps/openomni/test/a2a-contacts.test.ts` (the card, the foreign card, the
+send, the replay, every answer shape and task state, the thread, the wait,
+its ceiling and the failed read, the bounded answer, every withheld peer),
+`test/send-message-contacts.test.ts`, `test/provision-tools.test.ts` (the
+url consent), `test/e2e.test.ts` (two peers on the booted daemon: the
+named peer's blocking send answered by the Resident, the unnamed peer's
+task failed); suites: `packages/channels` 1003 pass, `apps/openomni` 1020
+pass, 0 fail.
+
 ## #1569 Linear provider (lane 9b)
 
 On `feat/1569-linear-provider` (2026-10-17, stacked on lane 9a). Linear

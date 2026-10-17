@@ -24,6 +24,14 @@ test("webhook bot authors are eligible while reactions remain filtered", () => {
   expect(matchPerimeterRules(webhook, 0)).toBeUndefined();
   expect(matchPerimeterRules({ ...webhook, event: "reaction" }, 0))
     .toMatchObject({ reason: "reaction_unrouted" });
+  // #1569 lane 9c: an A2A peer is an agent admitted by its declared bearer; the bot-echo rule is not for it.
+  const peer = Ingress.Input.parse({
+    eventId: "m-1", surface: "a2a", event: "message",
+    channelId: "ctx-1", author: { externalId: "scout", isBot: true },
+    dm: true, mentionsBot: false, body: "plan the sprint", receivedAt: 0,
+  });
+  expect(matchPerimeterRules(peer, 0)).toBeUndefined();
+  expect(matchPerimeterRules({ ...peer, surface: "telegram" }, 0)).toMatchObject({ reason: "bot_author" });
 });
 
 for (const [event, reason, used] of [

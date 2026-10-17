@@ -285,7 +285,7 @@
   },
   {
     "name": "send_message",
-    "description": "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), or a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
+    "description": "Send one letter — markdown, code, images, files — or one emoji reaction to a contact: a session, a new child session, a person on a channel (contact id, with surface and conversation to answer where they wrote), an external CLI agent (cli:claude-code|codex|omp), a declared webhook target (webhook:<id> — the letter is POSTed to its URL, signed; the target's textual answer is returned on the result as `response`), or a declared A2A peer (a2a:<id> — the letter goes to the agent as message/send; its answer, or where its task stands, is returned on the result, with `thread` for reply_to to continue the exchange). Otherwise returns a handle without waiting for a reply; the reply arrives as a delivered prompt in this session.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -449,6 +449,7 @@
           "enum": ["prompt", "interrupt", "resume"]
         },
         "reply_to": {
+          "description": "The message this answers; for a webhook or a2a contact, the thread a previous result named, to continue that exchange.",
           "type": "string",
           "minLength": 1
         },

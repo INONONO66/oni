@@ -58,6 +58,8 @@ export function fakeProviders() {
     kakaotalk: ChannelProviders.kakaotalk,
     // #1569 lane 9b: Linear is webhook-fed and reaches no network at construction; the shipped entry serves.
     linear: ChannelProviders.linear,
+    // #1569 lane 9c: the A2A door admits the composed roster; the shipped entry admits nobody.
+    a2a: ChannelProviders.a2a,
     telegram: {
       ...ChannelProviders.telegram,
       create: (credentials, config) => delivery("telegram", credentials, config, "tg-1"),

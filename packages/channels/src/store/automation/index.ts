@@ -2,6 +2,7 @@ import { Ingress } from "@openomni/protocol";
 import { Effect } from "effect";
 import { AutomationConfigurationError, AutomationEnableRefused } from "../../errors.js";
 import { compiledPattern } from "../../automation/regex.js";
+import { BOT_AUTHORED_SURFACES } from "../../automation/rules.js";
 import type { StoredGroup } from "./group.js";
 import type { MatchDecision } from "../../automation/matcher.js";
 
@@ -91,7 +92,8 @@ export function createAutomationStore(source: { readonly automation?: Automation
           { type: "message", surface: input.surface, event: "message" },
           { type: "message", surface: input.surface, event: "mention" },
         ],
-        conditions: { channels: [input.channelId], includeBots: false },
+        // A bot-authored surface's granted-direct automation admits its authors: they are agents, not echoes (#1569 lane 9c).
+        conditions: { channels: [input.channelId], includeBots: BOT_AUTHORED_SURFACES.has(input.surface) },
         target: `session:${input.sessionId}`, kind: "prompt",
       });
       const previous = adapter().get(id);

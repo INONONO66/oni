@@ -15,7 +15,8 @@ import { planeOf } from "./helpers/ledger";
 import { assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
-import { declareChannel } from "./helpers/declared-channel";
+import { z } from "zod";
+import { declareChannel, declarePerson } from "./helpers/declared-channel";
 import { expectAbsentWebhook } from "./helpers/http";
 
 const REPLY = "A deterministic Resident reply.";
@@ -367,6 +368,49 @@ describe("OpenOmni Resident WebSocket", () => {
     expect(response.status).toBe(401);
     expect(await response.text()).toBe("Missing signature");
     expect((await fetch(`http://127.0.0.1:${app.port}/github/webhook`, { method: "POST", body: "{}" })).status).toBe(404);
+  });
+
+  it("mounts the one A2A door for every declared peer: the card at the well-known path, the JSON-RPC door refusing a stranger and answering a peer through the Resident", async () => {
+    const declared = suite.config("declared-a2a-", { wsToken: WS_TOKEN });
+    declareChannel(statePath(declared.catalogPath), "a2a", { token: "scout-token" }, undefined, "scout");
+    const kek = declareChannel(statePath(declared.catalogPath), "a2a", { token: "planner-token" }, undefined, "planner");
+    // The peer's tier is the Owner's contact, never the door's: planner is a named agent, scout is not.
+    declarePerson(statePath(declared.catalogPath), { id: "person:planner", displayName: "Planner", kind: "ai_agent", trustTier: "manager", endpoints: [{ channel: "a2a", externalId: "planner" }] });
+    const app = await bootWithConfig({ ...declared, kek });
+
+    const card = await fetch(`http://127.0.0.1:${app.port}/.well-known/agent-card.json`);
+    expect(card.status).toBe(200);
+    expect(await card.json()).toMatchObject({ protocolVersion: "0.3.0", url: `http://127.0.0.1:${app.port}/a2a`, preferredTransport: "JSONRPC" });
+    const stranger = await fetch(`http://127.0.0.1:${app.port}/a2a`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "message/send", params: {} }),
+    });
+    expect(stranger.status).toBe(401);
+    expect(await stranger.json()).toMatchObject({ jsonrpc: "2.0", error: { code: -32600, message: "Unauthorized" } });
+    expect((await fetch(`http://127.0.0.1:${app.port}/.well-known/agent-card.json`, { method: "POST" })).status).toBe(404);
+    // A declared peer's blocking send reaches the Resident through the real router (an agent, not a bot echo) at its contact's tier and comes back with the answer on the task; a peer the Owner has not named is refused by policy at the mount tier, and its task fails.
+    const TaskAnswer = z.object({ result: z.object({ kind: z.literal("task"), id: z.string(), contextId: z.string(), status: z.object({ state: z.string(), message: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }).optional() }) }) });
+    const ask = async (token: string, messageId: string) => {
+      const asked = await fetch(`http://127.0.0.1:${app.port}/a2a`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: messageId,
+          method: "message/send",
+          params: { message: { kind: "message", role: "user", parts: [{ kind: "text", text: "plan the sprint" }], messageId }, configuration: { blocking: true } },
+        }),
+      });
+      expect(asked.status).toBe(200);
+      return TaskAnswer.parse(await asked.json()).result;
+    };
+    const answered = await ask("planner-token", "m-1");
+    expect(answered.status.state).toBe("completed");
+    expect(answered.status.message?.parts[0]?.text).toBe(REPLY);
+    expect((await ask("scout-token", "m-2")).status.state).toBe("failed");
+    const plane = await planeOf(app.runtime);
+    expect(plane.listSessions().filter((row) => row.id !== "gateway-ingress")).toHaveLength(1);
   });
 
   it("rejects an upgrade carrying the wrong subprotocol token", async () => {
