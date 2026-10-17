@@ -5,27 +5,29 @@ import { materializationSeed, generationSnapshot } from "../../src/core/store/co
 // index back with it, a duplicate id refuses typed without rewriting genesis,
 // and supplied settings, generation, and action identity survive verbatim.
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
 import { SessionGeneration } from "@openomni/protocol";
 import { createSession, CreateRefused, type CreateSessionInput } from "../../src/core/session/create";
-import { openLedgerPlane, type LedgerPlane } from "../../src/core/session/host";
+import { openLedgerPlane, OpenRefused, type LedgerPlane } from "../../src/core/session/host";
 import { MaterializeRefused } from "../../src/core/store/errors";
 
 import { runLedgerSync } from "./helpers/effect";
 import { testNow } from "./helpers/storage";
 
-function openPlane(): { plane: LedgerPlane; close: () => void } {
+function openPlane(): { plane: LedgerPlane; sessionsDir: string; close: () => void } {
   const directory = mkdtempSync(join(tmpdir(), "session-create-"));
+  const sessionsDir = join(directory, "sessions");
   const plane = openLedgerPlane({
     now: testNow,
     catalog: { path: join(directory, "catalog.sqlite") },
-    sessions: { dir: join(directory, "sessions") },
+    sessions: { dir: sessionsDir },
   });
   return {
     plane,
+    sessionsDir,
     close: () => {
       plane.close();
       rmSync(directory, { recursive: true });
@@ -129,7 +131,7 @@ test("an orphan index row (no session file) refuses typed as orphan_index before
       reason: "orphan_index",
     });
     expect(plane.sessionStore("s-indexed").sessions.get("s-indexed")).toBeUndefined();
-    expect(plane.listSessions()).toHaveLength(0);
+    expect(() => plane.listSessions()).toThrow(OpenRefused);
   } finally {
     close();
   }
@@ -185,7 +187,6 @@ test("a fault after genesis preparation but before commit leaves neither the ind
     });
     expect(plane.catalog.sessionIndex("s-fault")).toBeUndefined();
     expect(store.sessions.get("s-fault")).toBeUndefined();
-
     // The id is still free: the same creation succeeds once the fault is gone.
     const receipt = runLedgerSync(
       createSession(plane, { id: "s-fault", parentId: null, role: "resident", genesis }),
@@ -193,6 +194,39 @@ test("a fault after genesis preparation but before commit leaves neither the ind
     expect(receipt.row.revision).toBe(1);
     expect(plane.catalog.sessionIndex("s-fault")).toBeDefined();
   } finally {
+    close();
+  }
+});
+
+test("a failed catalog index leaves no session file and retry creates the same id", () => {
+  const { plane, sessionsDir, close } = openPlane();
+  const path = join(sessionsDir, "s-index-fail.sqlite");
+  const index = plane.catalog.indexSession.bind(plane.catalog);
+  try {
+    plane.catalog.indexSession = () => {
+      throw new Error("injected index failure");
+    };
+    const result = runLedgerSync(Effect.result(
+      createSession(plane, { id: "s-index-fail", parentId: null, role: "resident", genesis }),
+    ));
+    expect(Result.isFailure(result)).toBe(true);
+    expect(Result.isFailure(result) ? result.failure : undefined).toBeInstanceOf(CreateRefused);
+    expect(plane.catalog.sessionIndex("s-index-fail")).toBeUndefined();
+    expect(existsSync(path)).toBe(false);
+    expect(
+      readdirSync(sessionsDir)
+        .filter((name) => name.endsWith(".sqlite"))
+        .map((name) => name.slice(0, -".sqlite".length))
+        .sort(),
+    ).toEqual(plane.catalog.sessionIds());
+    console.info(`A2 failed create filesOnDisk=0 session_index=0`);
+    plane.catalog.indexSession = index;
+    const created = runLedgerSync(
+      createSession(plane, { id: "s-index-fail", parentId: null, role: "resident", genesis }),
+    );
+    expect(created.row.id).toBe("s-index-fail");
+  } finally {
+    plane.catalog.indexSession = index;
     close();
   }
 });

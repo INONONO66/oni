@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   LedgerAction,
@@ -187,6 +187,7 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
 /** Newer-build marker: typed `CatalogVersionRefused` before any DDL, stamp or read, no handle survives; else bootstrap and upgrade. */
 function openStampedSessionDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  const fresh = path !== ":memory:" && !existsSync(path);
   const db = new Database(path);
   let ready = false;
   try {
@@ -202,7 +203,10 @@ function openStampedSessionDatabase(path: string): Database {
     if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db);
     ready = true;
   } finally {
-    if (!ready) db.close();
+    if (!ready) {
+      db.close();
+      if (fresh) rmSync(path, { force: true });
+    }
   }
   return db;
 }

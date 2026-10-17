@@ -22,7 +22,7 @@ export interface SessionReceipt {
 
 /** A fault before commit leaves neither side discoverable. */
 export function createSession(
-  plane: Pick<LedgerPlane, "catalog" | "sessionStore">,
+  plane: Pick<LedgerPlane, "catalog" | "sessionStore"> & Partial<Pick<LedgerPlane, "discardSession">>,
   input: CreateSessionInput,
 ): Effect.Effect<SessionReceipt, CreateRefused> {
   return Effect.gen(function* () {
@@ -53,10 +53,16 @@ export function createSession(
       },
       snapshot,
     );
-    const created = yield* plane
-      .sessionStore(id)
+    const store = yield* Effect.try({
+      try: () => plane.sessionStore(id),
+      catch: (thrown) => refuse(thrownAsError(thrown)),
+    });
+    const created = yield* store
       .create({ materialize, index: plane.catalog, createdAt: genesis.at })
-      .pipe(Effect.mapError(refuse));
+      .pipe(
+        Effect.tapError(() => Effect.sync(() => plane.discardSession?.(id))),
+        Effect.mapError(refuse),
+      );
     return { row: created.row, genesis: created.receipt };
   });
 }

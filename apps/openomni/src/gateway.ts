@@ -655,14 +655,14 @@ export interface OutboundMessaging {
   readonly autoReplies?: () => ReadonlySet<string>;
 }
 
-/** One synchronous ledger unit on the ingress session file (decision facts live there). */
+/** One synchronous ledger unit on the ingress session file (decision facts live there), resolved per use. */
 export function channelTransaction(
-  run: <T>(operation: () => T) => T,
+  plane: AppLedgerPlane,
 ): <A>(operation: Effect.Effect<A, ChannelError>) => Effect.Effect<A, ChannelError> {
   return (operation) =>
     Effect.try({
       try: () =>
-        run(() =>
+        plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction(() =>
           Result.getOrThrowWith(Effect.runSync(Effect.result(operation)), (error) => error),
         ),
       catch: decodeChannelFailure("message.transaction"),
@@ -671,7 +671,7 @@ export function channelTransaction(
 
 /** The perimeter's store source over the app plane (#1317): the channels-owned store plus the ingress session's decision facts. */
 export function channelStoreSource(plane: AppLedgerPlane, now: () => number): ChannelStoreSource {
-  const ingress = plane.sessionStore(GATEWAY_INGRESS_SESSION);
+  const ingress = () => plane.sessionStore(GATEWAY_INGRESS_SESSION);
   return {
     now,
     actorRegistry: plane.channel.actorRegistry,
@@ -680,8 +680,10 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
     channelGrant: plane.channel.channelGrant,
     egressBudget: plane.channel.egressBudget,
     surfaceKey: plane.channel.surfaceKey,
-    decisionFacts: ingress.decisionFacts,
-    transaction: ingress.transaction,
+    get decisionFacts() {
+      return ingress().decisionFacts;
+    },
+    transaction: <T>(operation: () => T): T => ingress().transaction(operation),
   };
 }
 
@@ -724,7 +726,7 @@ export function createResidentGateway(
     const externalRun = yield* createIngressExecutor(plane, approvalPolicy);
     return createGatewayRouter({
       ...ports,
-      transaction: channelTransaction(plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction),
+      transaction: channelTransaction(plane),
       sink: scopeObservation(observations, { sessionId: "gateway-ingress" }, stamp).publish,
       run: (sender, request, body) =>
         Effect.gen(function* () {
