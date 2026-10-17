@@ -222,7 +222,6 @@ function makeSessionKernel(context: SessionKernelContext) {
   };
 }
 
-/** File-backed host views use this internal hook to end a synchronous read scope. */
 export const releaseSessionKernel = Symbol("releaseSessionKernel");
 
 export type SessionKernel = ReturnType<typeof makeSessionKernel> & {

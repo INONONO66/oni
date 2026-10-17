@@ -44,9 +44,8 @@ export interface LedgerPlane {
   readonly catalog: CatalogStore;
   readonly catalogDatabase: Database;
   readonly handles: LedgerHandles;
-  /** Valid until the session's next passivation closes it: resolve per use, never hold across an await. */
+  /** Both valid until the session's next passivation closes them: resolve per use, never hold across an await. */
   openKernel(sessionId: string): SessionKernel;
-  /** Same lifetime as `openKernel`. */
   sessionStore(sessionId: string): SessionStore;
   releaseSession(sessionId: string): void;
   discardSession(sessionId: string): void;
@@ -191,7 +190,6 @@ function planeOver(
     releaseSession,
     discardSession: (sessionId) => {
       const entry = memo.get(sessionId);
-      // An existing session (a duplicate create) keeps its live store.
       if (entry?.newFile !== true || entry.store.sessions.get(sessionId) !== undefined) return;
       releaseSession(sessionId);
       if (sessionsDir !== undefined) rmSync(sessionFilePath(sessionsDir, sessionId));
@@ -201,7 +199,6 @@ function planeOver(
         return [...memo]
           .filter(([id, entry]) => entry.store.sessions.get(id) !== undefined)
           .map(([id, entry]) => entry.kernel.row(id));
-      // Live sessions list too: a session file need not carry an index row.
       const liveIds = [...memo].filter(([id, entry]) => entry.store.sessions.get(id) !== undefined).map(([id]) => id);
       return [...new Set([...catalog.sessionIds(), ...liveIds])].flatMap((id) => {
         // A second handle's bootstrap would wait on a write transaction held through the memo.
