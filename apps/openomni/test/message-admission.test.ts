@@ -47,8 +47,6 @@ test.each([
   registerTarget(fixture.plane);
   const result = await fixture.send(actorMessage("target"));
   expect(result.isError).not.toBe(true);
-  const handle = Gateway.SendMessageHandle.parse(JSON.parse(String(result.content)));
-  expect(keys).toEqual([handle.messageId]);
   const receipts = sessionTree(fixture.sessionId, fixture.plane.sessionStore(fixture.sessionId).actions).flatMap((action) => {
     const effect = action.effect.value;
     if (
@@ -61,7 +59,14 @@ test.each([
     const parsed = Gateway.IngestResult.safeParse(effect.result);
     return parsed.success ? [parsed.data] : [];
   });
-  expect(receipts).toEqual([{ status: "executed", handle, delivery: { kind: "actor", value } }]);
+  const receipt = receipts[0];
+  if (receipt?.status !== "executed") throw new Error("expected one executed receipt");
+  expect(keys).toEqual([receipt.handle.messageId]);
+  expect(receipts).toEqual([{ status: "executed", handle: receipt.handle, delivery: { kind: "actor", value } }]);
+  // #1600 lane R3: the tool's word follows the delivery — the handle for an accepted letter, the contact outcome for one the platform rejected or lost.
+  const content = JSON.parse(String(result.content));
+  if (value === "accepted") expect(Gateway.SendMessageHandle.parse(content)).toEqual(receipt.handle);
+  else expect(content).toEqual({ contact: "target", status: value === "rejected" ? "not_sent" : "unknown", reason: expect.any(String) });
 });
 
 test("ungranted app actor send is a compiled pre-denial, never an executed delivery", async () => {

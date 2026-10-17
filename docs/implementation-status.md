@@ -1,5 +1,67 @@
 # Implementation Status
 
+## #1600 Messaging readiness — dead paths (lane R3)
+
+On `feat/1600-dead-paths` (2026-10-17, lane R3 of #1600). The readiness
+sweep found paths that were declared but could never be walked. **A
+declared webhook target had no door**: its handler was keyed by the
+platform and no path served it. Every webhook declaration is now its own
+door at `/webhook/<slug>`, keyed like its outbound contact
+(`BuiltChannel`/`ChannelComponent.webhookKey` set by `declaredChannels` in
+`channels.ts`, held by the supervisor under that key, served by
+`webhookFor` in `index.ts`; an undeclared slug, an empty one and anything
+outside the slug grammar — a percent-escape included, never decoded — are
+404),
+and the webhook surface answers a perimeter refusal 200 as its own verdict
+and a handler failure 500 — the first cut let the throw escape and reset
+the connection (`WebhookAdapter.dispatch`). **A tokenless loopback boot
+could never answer a request**: nothing could present the token the answer
+required, and the wire refused an empty credential before any rule ran.
+The socket is now the evidence on a tokenless boot, under the one rule chat
+already admits it by — the ws bootstrap grant makes every loopback socket
+the Owner, and `assertWsExposure` confines a tokenless boot to loopback
+(`ownerAnswerAuthentication` in `composition/answer-authentication.ts`,
+over `webSocketSenderTier`); `Gateway.RequestAnswer.credential` admits the
+empty string; with a token configured the token is required as before, and
+a sender on any other surface goes to the token rule. The in-process
+approvals facade (reached by tests alone) keeps the token rule. Found while
+proving it, not fixed here: an authenticated answer naming a request that
+does not exist never settles its frame (no receipt, no error) — recorded
+as a follow-up on #1600. **A send to an Owner-only platform
+without `as: owner` died at transport**: the preflight now refuses it
+`identity_not_granted` naming the way (`router/messaging/authorize.ts`:
+a platform with an Owner instance and no bot has no bot to send as). **The
+typing pulse never reached an auto-replying Owner account** (`typingRouteFor`
+in `composition/typing-route.ts`: the bot, else the identity-less surface,
+else the Owner instance whose declaration auto-replies; a drafting one
+never pulses, since a pulse would promise an answer). **A ws refusal was a
+bare tag**: the error frame carries the operation, cause and message of a
+`ChannelsFailure` (`gateway.ts`). **A Linear instance could mount deaf**:
+keyless and nameless under `mentions_and_dms` nothing could ever name the
+Owner, so the start refuses (`linear.owner.start`); under `all` it reads
+everything. **A cold KakaoTalk send threw**: with no direct chat yet the
+delivery is the typed `not_sent` receipt. **A rejected actor delivery was
+reported as a handle**: `send_message` returns the contact outcome
+(`not_sent` for a platform that rejected the letter, `unknown` for one
+whose outcome is unknown), the same word a connector contact gives.
+
+Receipts: `apps/openomni/test/e2e.test.ts` (the declared webhook door:
+unsigned 401, signed and refused 200 "Not ingested", undeclared 404),
+`test/boot-wiring.test.ts` (the handler under its own key, gone with the
+stage), `packages/channels/test/webhook-provider.test.ts` (refusal 200,
+failure 500), `apps/openomni/test/answer-authentication.test.ts` (the production ws
+grant and a `connection:<uuid>` socket; another surface and a token boot
+go to the token rule), `test/request-entry-auth.test.ts` (the booted
+tokenless frame with an empty credential is authenticated),
+`test/typing-route.test.ts`, `test/message-terminal-boundaries.test.ts`
+(the error frame names the refusal), `test/send-message-contacts.test.ts`
+(rejected and unknown deliveries on the result),
+`packages/channels/test/router/messaging/identity.test.ts` (the Owner-only
+platform refusal before transport), `test/linear-provider.test.ts` (the
+deaf start refused; `all` reads), `test/kakaotalk-owner.test.ts` (the cold
+send receipt). Suites: `packages/channels` 1017 pass, `apps/openomni`
+1045 pass, 0 fail.
+
 ## #1600 Messaging readiness — the reply door (lane R2)
 
 On `feat/1600-reply-door` (2026-10-17, lane R2 of #1600). The readiness
@@ -151,7 +213,6 @@ suites: `packages/channels` 1010 pass, `apps/openomni` 1032 pass,
 0 fail. Not in this lane: the remaining #1600 lanes (reply door, dead
 paths, the first live run).
 
-||||||| parent of 461d0d0f3 (wip: #1600 lane R2 reply door (to be amended))
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

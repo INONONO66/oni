@@ -33,7 +33,8 @@ test("startOpenOmni reports pre-denied socket admission as an error, not accepte
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "token"]);
   const response = nextFrame(socket, (frame) => frame.type === "receipt" || frame.type === "error");
   socket.send(JSON.stringify({ eventId: newTraceId(), text: "DENIED_INPUT" }));
-  expect(await response).toMatchObject({ type: "error" });
+  // #1600 lane R3: the refusal names its operation and cause on the wire, not only its tag.
+  expect(await response).toMatchObject({ type: "error", reason: "ChannelsFailure", operation: expect.any(String), cause: expect.any(String), message: expect.any(String) });
   expect(
     plane.listSessions().flatMap((row) => receivedMessages(plane, row.id)),
   ).toEqual([]);

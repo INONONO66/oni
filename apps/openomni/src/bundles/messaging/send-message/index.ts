@@ -499,6 +499,13 @@ export function createSendMessageTool(
         toGatewaySend(input, now(), consented),
       );
       if (result.status !== "executed") throw new ToolRefused("send_message", result.reasonCode);
+      // #1600 lane R3: an actor delivery the platform rejected, or whose outcome is
+      // unknown, is the sender's fact — the same word a connector contact gives.
+      if (input.to.kind === "contact" && result.delivery?.kind === "actor" && result.delivery.value !== "accepted") {
+        return result.delivery.value === "rejected"
+          ? { contact: input.to.id, status: "not_sent" as const, reason: "the platform did not accept the letter" }
+          : { contact: input.to.id, status: "unknown" as const, reason: "the outcome is unknown; the letter is not re-sent" };
+      }
       // #1258: a child created with a deadline arms the delegation.deadline
       // purpose; its handler cancels the child and prompts the parent.
       if (input.to.kind === "new_session" && input.deadline_ms !== undefined)

@@ -500,8 +500,20 @@ export function webSocketCallbacks(
                   else ws.send(JSON.stringify(outcome));
                 });
               },
+              // #1600 lane R3: a refusal names its operation and cause on the wire, not only its tag.
               onFailure: (error) =>
-                Effect.sync(() => void ws.send(JSON.stringify({ type: "error", reason: error._tag }))),
+                Effect.sync(
+                  () =>
+                    void ws.send(
+                      JSON.stringify({
+                        type: "error",
+                        reason: error._tag,
+                        ...(error._tag === "ChannelsFailure"
+                          ? { operation: error.operation, cause: error.cause, message: error.message }
+                          : {}),
+                      }),
+                    ),
+                ),
             }),
           ),
         );

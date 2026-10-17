@@ -2,7 +2,6 @@ import { ledger } from "../../helpers/ledger";
 import { beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { runEffect } from "../../helpers/effect";
-import { effectFailure } from "../../helpers/effect-failure";
 import { type Gateway, MessagingEvents, Outbound } from "@openomni/protocol";
 import type { ChannelDeliveryRoute } from "../../../src/router";
 import { Bus } from "../../helpers/observation";
@@ -108,6 +107,23 @@ test("a send with no identity leaves through the bot instance, and an identity-l
   expect(delivered.at(-1)).toEqual({ route: "ws", externalId: "owner", body: "loopback" });
 });
 
+test("#1600 lane R3: a platform reached only through the Owner's account has no bot to send as — a send without as: owner is refused identity_not_granted, naming the way", async () => {
+  ledger().stores.actors.registerEndpoint({ id: "ep-owner-instagram", actorId: "actor-owner", channel: "instagram", externalId: "ig-owner" });
+  const router = makeRouter(["instagram:owner"], true);
+  const toInstagram = (as: "bot" | "owner" | undefined) =>
+    runEffect(
+      router.ingest(
+        { kind: "session", id: "resident" },
+        { to: { kind: "actor", actorId: "actor-owner", surface: "instagram", ...(as === undefined ? {} : { as }) }, type: "message", content: "hi" },
+      ),
+    );
+  expect(await toInstagram(undefined)).toMatchObject({ status: "blocked_pre", reasonCode: "message.resident.identity_not_granted" });
+  expect(await toInstagram("bot")).toMatchObject({ status: "blocked_pre", reasonCode: "message.resident.identity_not_granted" });
+  expect(delivered).toEqual([]);
+  expect(await toInstagram("owner")).toMatchObject({ status: "executed" });
+  expect(delivered).toEqual([{ route: "instagram:owner", externalId: "ig-owner", body: "hi" }]);
+});
+
 test("as: owner from an Owner-origin turn through an outbound-granted Owner instance leaves as the Owner and journals it", async () => {
   const sent = Promise.withResolvers<{ identity: string; endpointId: string }>();
   const stop = Bus.observe((event, data) => {
@@ -149,15 +165,8 @@ test.each([
   }
 });
 
-test("a bot send whose platform has only an Owner instance fails closed at transport, never through the Owner's account", async () => {
+test("a bot send whose platform has only an Owner instance is refused before transport, never through the Owner's account (#1600 lane R3)", async () => {
   const router = makeRouter(["slack:owner"], true);
-  expect(
-    await effectFailure(
-      router.ingest(
-        { kind: "session", id: "resident" },
-        { to: { kind: "actor", actorId: "actor-owner", surface: "slack" }, type: "message", content: "bot?" },
-      ),
-    ),
-  ).toMatchObject({ _tag: "ChannelsFailure", operation: "message.deliver" });
+  expect(await send(router, undefined)).toMatchObject({ status: "blocked_pre", reasonCode: "message.resident.identity_not_granted" });
   expect(delivered).toEqual([]);
 });

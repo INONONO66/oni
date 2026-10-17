@@ -175,6 +175,12 @@ export class LinearAdapter implements Channel.Surface {
       this.ownerUserId = this.credentials.ownerUserId ?? me.id;
       this.ownerNames = [me.name, me.displayName].flatMap((name) => (name === undefined || name === "" ? [] : [name]));
     }
+    // #1600 lane R3: under the default posture only a mention of the Owner is intake; with nothing naming the Owner the instance would mount deaf.
+    if (this.ownerUserId === undefined && this.posture.intake === "mentions_and_dms")
+      throw new ChannelsFailure({
+        operation: "linear.owner.start",
+        cause: "no api key and no ownerUserId: under mentions_and_dms nothing can name the Owner",
+      });
     this.publish(Operational.Events.Info, {
       traceId,
       time: this.options.now(),

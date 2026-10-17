@@ -107,7 +107,7 @@ describe("channel supervisor", () => {
   function fakeChannel(
     id: ChannelComponent["id"],
     calls: string[],
-    options: { deliveryRoute?: ProviderDeliveryRoute; typingRoute?: ProviderTypingRoute; webhook?: boolean } = {},
+    options: { deliveryRoute?: ProviderDeliveryRoute; typingRoute?: ProviderTypingRoute; webhook?: boolean; webhookKey?: string } = {},
   ): FakeChannel {
     const channel: FakeChannel = {
       calls,
@@ -116,6 +116,7 @@ describe("channel supervisor", () => {
         id,
         identity: "bot",
         listens: true,
+        ...(options.webhookKey === undefined ? {} : { webhookKey: options.webhookKey }),
         build: (): BuiltChannel => {
           const surface: Channel.Surface = {
             id,
@@ -217,6 +218,21 @@ describe("channel supervisor", () => {
     expect(webhookHandlers.has("github")).toBe(false);
     expect(resolveChannelGrant(channelStores(), { surface: "telegram" })).toBeUndefined();
     expect(resolveChannelGrant(channelStores(), { surface: "github" })).toBeUndefined();
+  });
+
+  test("#1600 lane R3: a webhook declaration's handler is held under its own key, never the platform's, and leaves with the stage", async () => {
+    const calls: string[] = [];
+    const hooky = fakeChannel("webhook", calls, { webhook: true, webhookKey: "webhook:hooky" });
+    const { supervisor, webhookHandlers } = supervisorFor(() => ({
+      source: "declared",
+      rows: [{ ...row(hooky, "0:0"), instanceId: "channel:webhook:hooky" }],
+      statuses: [],
+    }));
+    expect((await supervisor.reconcile()).map((status) => status.state)).toEqual(["mounted"]);
+    expect(webhookHandlers.has("webhook:hooky")).toBe(true);
+    expect(webhookHandlers.has("webhook")).toBe(false);
+    await supervisor.stopAll();
+    expect(webhookHandlers.has("webhook:hooky")).toBe(false);
   });
 
   // #931 done-means 5: the grant row is observable immediately after the

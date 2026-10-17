@@ -139,6 +139,13 @@ ChannelInstance {
   Naming a url is an outbound destination, so the declaration takes Owner
   consent like an Owner instance or an outbound grant, and a rotation never
   introduces one.
+- A declared webhook target is its own inbound door at `/webhook/<slug>`
+  (#1600 lane R3), verified by its `X-Signature` HMAC under the declared
+  secret; a perimeter refusal is answered 200 (never redelivered), a
+  failure 500. On a tokenless loopback boot every loopback socket is the
+  Owner (the ws bootstrap grant; `assertWsExposure` confines such a boot to
+  loopback) and answers a request with an empty credential; with a token
+  configured the token is required.
 - A declaration's grant block (#1600 lane R1) is written by `channel_add`:
   `grant.defaultTier` is the tier every sender on the surface gets who is
   not a declared Person, `allowedSenders` the platform ids it admits alone,

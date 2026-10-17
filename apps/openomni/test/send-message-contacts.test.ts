@@ -199,6 +199,27 @@ test("the a2a connector sends the letter through the port under the tool call's 
   expect(await runEffect(a2aConnector(undefined)(send))).toEqual({ contact: "a2a:scout", status: "not_sent", reason: "a2a port is not composed" });
 });
 
+test("#1600 lane R3: an actor delivery the platform rejected, or whose outcome is unknown, is the sender's fact on the result — the same word a connector contact gives", async () => {
+  let value: "rejected" | "unknown" = "rejected";
+  const port: MessagePort = {
+    ingest: async () =>
+      ({ status: "executed", handle: { messageId: "m-1", target: "person:peer" }, delivery: { kind: "actor", value } }) satisfies Gateway.IngestResult,
+  };
+  const tool = createSendMessageTool(port, () => 1_000, { run: runEffect });
+  const letter = { to: { kind: "contact" as const, id: "person:peer" }, message: "hello", kind: "prompt" as const };
+  expect(await tool.execute(letter, { ...context, domainRevisions: {} })).toEqual({
+    contact: "person:peer",
+    status: "not_sent",
+    reason: "the platform did not accept the letter",
+  });
+  value = "unknown";
+  expect(await tool.execute(letter, { ...context, domainRevisions: {} })).toEqual({
+    contact: "person:peer",
+    status: "unknown",
+    reason: "the outcome is unknown; the letter is not re-sent",
+  });
+});
+
 test("#1569 lane 8: a letter to a reachable Person with no active budget suspends for the Owner's consent, bound to the Person row; connector contacts, sessions, budgeted and unreachable Persons never wait; the kernel's answer is the consent fact", async () => {
   const ingested: Gateway.SendMessage[] = [];
   const port: MessagePort = {
