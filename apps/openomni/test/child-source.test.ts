@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { MachineRefusalError } from "@openomni/machines";
 import { canonicalJson } from "@openomni/protocol";
 import { childSource, createWatchSources, type ChildSourcePorts } from "../src/composition/watch-sources";
-import { type ChildRow, conflictRow, currentState, stateReceipts } from "../src/bundles/child-activity/reconcile";
-import { fixture, fixtures, identity, spec } from "./helpers/child-activity";
+import { type ChildRow, conflictRow, currentState, reconcile, stateReceipts } from "../src/bundles/child-activity/reconcile";
+import { decodeTranscript } from "../src/bundles/child-activity/transcript";
+import { fixture, fixtures, identity, pack, reference, spec } from "./helpers/child-activity";
 
 function sourceFixture() {
   const files = new Map<string, Buffer>();
@@ -184,6 +185,137 @@ test("a committed Deliver whose reply was lost retries without a conflict", asyn
   await source.close();
 });
 
+test("an empty anchor adopts the first non-empty generation without a generation_changed row", async () => {
+  const fx = sourceFixture();
+  fx.write("spool", "");
+  fx.write("transcript", "");
+  const source = childSource(spec, fx.ports, fx.options);
+  await source.ready;
+  expect(fx.rows).toEqual([]);
+  fx.write("spool", `${fixture("live", "requested")}\n`);
+  fx.write("transcript", `${fixture("transcript", "requested")}\n`);
+  await source.observe();
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_receipt"]);
+  // Still anchored on the non-empty prefix: a further append is the same generation.
+  fx.write("transcript", `${fixture("transcript", "requested")}\n${fixture("transcript", "terminal")}\n`);
+  await source.observe();
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_receipt", "child_fact", "child_receipt"]);
+  expect(fx.errors).toEqual([]);
+  await source.close();
+});
+
+test("a Deliver-side idempotency conflict teaches the adapter the journal's row so the next tick is silent", async () => {
+  const fx = sourceFixture();
+  const journal: ChildRow[] = [];
+  let admissions = 0;
+  // The entity's view: the journal already holds a row under the same key with other content.
+  const ports: ChildSourcePorts = {
+    ...fx.ports,
+    rows: () => journal,
+    admit: async (_sessionId, rows) => {
+      admissions += 1;
+      return rows.map((row) => {
+        const previous = journal.find((entry) => entry.key === row.key);
+        if (previous !== undefined && canonicalJson(previous) === canonicalJson(row)) return row;
+        const result = previous === undefined ? row : conflictRow(row);
+        journal.push(result);
+        return result;
+      });
+    },
+  };
+  const { spool: _spool, ...backfill } = spec;
+  const source = childSource(backfill, ports, fx.options);
+  await source.ready;
+  const text = `${fixture("transcript", "requested")}\n`;
+  const foreign = reconcile(decodeTranscript({ ...identity, pack, ref: reference(text), chunk: Buffer.from(text), observedAt: 999 }).observations, []);
+  journal.push(...foreign);
+  fx.write("transcript", text);
+  await source.observe();
+  expect(journal.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_conflict"]);
+  expect(journal[2]).toMatchObject({ content: { code: "idempotency_conflict", key: foreign[1]?.key } });
+  expect(admissions).toBe(2);
+  await source.observe();
+  expect(admissions).toBe(2);
+  expect(journal).toHaveLength(3);
+  expect(fx.errors).toEqual([]);
+  await source.close();
+});
+
+test("three consecutive all-source failures retire the child chain and one progressing drain resets the count", async () => {
+  const fx = sourceFixture();
+  const error = new Error("attachment unavailable");
+  let broken = true;
+  let stats = 0;
+  const fs = fx.ports.machines.get("self").fs;
+  const reports: Error[] = [];
+  const waiters: { readonly count: number; readonly resolve: () => void }[] = [];
+  const reported = (count: number) => reports.length >= count
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => { waiters.push({ count, resolve }); });
+  const admitted: (() => void)[] = [];
+  const sources = createWatchSources(
+    {
+      deliver: async () => undefined,
+      admit: async (...input) => {
+        const rows = await fx.ports.admit(...input);
+        for (const resolve of admitted.splice(0)) resolve();
+        return rows;
+      },
+    },
+    {
+      clock: fx.options.clock,
+      children: {
+        ...fx.ports,
+        machines: { get: () => ({ fs: { ...fs, stat: (path) => { stats += 1; return broken ? Promise.reject(error) : fs.stat(path); } } }) },
+      },
+      failure: (_id, failure) => {
+        reports.push(failure);
+        for (const waiter of waiters.splice(0)) {
+          if (reports.length >= waiter.count) waiter.resolve();
+          else waiters.push(waiter);
+        }
+      },
+    },
+  );
+  // Each cadence tick restores, then observes. A refused install reports three times: the second
+  // source's refusal, the observation queued behind the refused `ready`, and the refused restore itself.
+  for (const count of [3, 6, 9]) {
+    sources.restoreChild?.(spec);
+    expect(sources.observe(spec.sessionId, spec.id)).toBe(true);
+    await reported(count);
+  }
+  const before = stats;
+  sources.restoreChild?.(spec);
+  expect(stats).toBe(before);
+  expect(sources.observe(spec.sessionId, spec.id)).toBe(false);
+  expect(reports).toHaveLength(9);
+  expect(new Set(reports)).toEqual(new Set([error]));
+  // An explicit install starts fresh; failures on a live source count the same way.
+  broken = false;
+  fx.write("spool", `${fixture("live", "requested")}\n`);
+  await sources.installChild?.(spec);
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt"]);
+  broken = true;
+  for (const count of [11, 13]) {
+    expect(sources.observe(spec.sessionId, spec.id)).toBe(true);
+    await reported(count);
+  }
+  broken = false;
+  fx.write("transcript", `${fixture("transcript", "requested")}\n`);
+  const progressed = new Promise<void>((resolve) => { admitted.push(resolve); });
+  expect(sources.observe(spec.sessionId, spec.id)).toBe(true);
+  await progressed;
+  broken = true;
+  for (const count of [15, 17, 19]) {
+    expect(sources.observe(spec.sessionId, spec.id)).toBe(true);
+    await reported(count);
+  }
+  expect(sources.observe(spec.sessionId, spec.id)).toBe(false);
+  expect(sources.observe(spec.sessionId, spec.id)).toBe(false);
+  expect(reports).toHaveLength(19);
+  await sources.closeAll();
+});
+
 test("a relocated spool restores the child's sequence without a checkpoint for the new file", async () => {
   const fx = sourceFixture();
   if (spec.spool === undefined) throw new Error("fixture spool missing");
@@ -207,7 +339,7 @@ test("the existing watch owner installs, observes, and closes the child adapter"
   const fx = sourceFixture();
   fx.write("spool", `${fixture("live", "requested")}\n`);
   const retired: string[] = [];
-  const sources = createWatchSources({ deliver: async () => undefined }, {
+  const sources = createWatchSources({ deliver: async () => undefined, admit: fx.ports.admit }, {
     ...fx.options, failure: (_id, error) => fx.options.failure(error),
     children: fx.ports, retirePath: async (_sessionId, id) => { retired.push(id); },
   });
@@ -234,6 +366,11 @@ test("unsupported occupants and absent source ports fail explicitly", async () =
   });
   await expect(sources.installChild?.(spec)).rejects.toThrow("source_missing");
   await sources.closeAll();
+  const doorless = createWatchSources({ deliver: async () => undefined }, {
+    ...fx.options, failure: (_id, error) => fx.options.failure(error), children: fx.ports,
+  });
+  await expect(doorless.installChild?.(spec)).rejects.toThrow("source_missing");
+  await doorless.closeAll();
 });
 
 test("remote source refuses non-files, failed transport, and reads that make no progress", async () => {
@@ -290,7 +427,7 @@ test("restoration does not wait on entity admission and shutdown joins an in-fli
       return fx.ports.admit(...input);
     },
   };
-  const sources = createWatchSources({ deliver: async () => undefined }, {
+  const sources = createWatchSources({ deliver: async () => undefined, admit: ports.admit }, {
     clock: fx.options.clock, children: ports,
     failure: (_id, error) => fx.options.failure(error),
   });
@@ -312,7 +449,7 @@ test("failed source restoration reports the original error and removes its handl
   const reports: Error[] = [];
   const reported = Promise.withResolvers<void>();
   const fs = fx.ports.machines.get("self").fs;
-  const sources = createWatchSources({ deliver: async () => undefined }, {
+  const sources = createWatchSources({ deliver: async () => undefined, admit: fx.ports.admit }, {
     clock: fx.options.clock,
     children: { ...fx.ports, machines: { get: () => ({ fs: { ...fs, stat: () => Promise.reject(error) } }) } },
     failure: (_id, failure) => {
@@ -331,7 +468,7 @@ test("failed source restoration reports the original error and removes its handl
 test("native and child sources cannot take the same watch identity", async () => {
   const fx = sourceFixture();
   let nativeClosed = false;
-  const sources = createWatchSources({ deliver: async () => undefined }, {
+  const sources = createWatchSources({ deliver: async () => undefined, admit: fx.ports.admit }, {
     clock: fx.options.clock, children: fx.ports,
     failure: (_id, error) => fx.options.failure(error),
     pathWatch: () => ({ on: () => undefined, close: () => { nativeClosed = true; } }),

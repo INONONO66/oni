@@ -37,8 +37,10 @@ test("daemon reads reach real entity Deliver and the app exposes the persisted c
   if (spec.spool === undefined || spec.transcript === undefined) throw new Error("source fixture missing");
   const watched = { ...spec, spool: { ...spec.spool, path: spoolPath }, transcript: { ...spec.transcript, path: transcriptPath } };
   await app.childActivity.install(watched);
+  const decoded = decodeSpool({ ...identity, pack, ref: reference(text), chunk: Buffer.from(text) }).observations[0]?.evidence;
+  if (decoded === undefined || decoded.toolUseId === undefined) throw new Error("fixture decodes no tool use");
   expect(app.childActivity.state(spec.sessionId, identity.child, identity.turn)?.fact).toEqual({
-    ...identity, phase: "requested", toolUseId: "toolu_redacted",
+    ...identity, phase: decoded.phase, toolUseId: decoded.toolUseId,
   });
   await app.childActivity.close(spec.id);
   await app.childActivity.install(watched);

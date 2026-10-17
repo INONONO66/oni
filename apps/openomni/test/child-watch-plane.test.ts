@@ -10,6 +10,7 @@ import { spec } from "./helpers/child-activity";
 function fixture() {
   const restored: ChildWatch[] = [];
   const installed: ChildWatch[] = [];
+  const closed: string[] = [];
   const arms: Parameters<Core.ArmVerb>[0][] = [];
   const plane = createWatchPlane();
   const sources: WatchSources = {
@@ -18,7 +19,7 @@ function fixture() {
     restoreChild: (child) => { restored.push(child); },
     refresh: () => false,
     observe: () => true,
-    close: async () => undefined,
+    close: async (id) => { closed.push(id); },
     closeAll: async () => undefined,
   };
   plane.bind(sources);
@@ -40,7 +41,7 @@ function fixture() {
     arm: () => Effect.succeed({ alarmId: fired.alarmId, occurrenceId: "retired", armSeq: 2 }),
     prompt: () => Effect.succeed({ seq: 1 }),
   };
-  return { plane, sources, arms, installed, restored, release, fired, context };
+  return { plane, sources, arms, installed, closed, restored, release, fired, context };
 }
 
 test("child cadence persists its source spec and restores without awaiting reentrant intake", async () => {
@@ -78,9 +79,14 @@ test("installation exposes source failure and unavailable activation without a p
   const fx = fixture();
   fx.sources.installChild = () => Promise.reject(new Error("detached"));
   await expect(runEffect(fx.plane.installChild(spec))).rejects.toMatchObject({ reason: "Error: detached" });
-  fx.sources.installChild = async () => undefined;
+  expect(fx.closed).toEqual([]);
+  fx.sources.installChild = async (child) => { fx.installed.push(child); };
   fx.release();
+  // A refused arm rolls the just-installed source back through the same close path a retired chain takes.
   await expect(runEffect(fx.plane.installChild(spec))).rejects.toMatchObject({ reason: "not_live" });
+  expect(fx.installed).toEqual([spec]);
+  expect(fx.closed).toEqual([spec.id]);
+  expect(fx.arms).toEqual([]);
 });
 
 test("a child cadence retires its own purpose when restoration leaves no source", async () => {

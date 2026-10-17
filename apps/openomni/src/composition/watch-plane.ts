@@ -217,8 +217,11 @@ export function createWatchPlane(
         try: () => install(spec),
         catch: (error) => new Bundle.WatchRefused({ reason: String(error) }),
       });
+      // A refused arm leaves no cadence to drive the source: roll the install back through
+      // the same close path a retired chain takes, so the watch identity is free again.
       yield* armCadence(spec.sessionId, spec.id, spec).pipe(
         Effect.mapError((error) => new Bundle.WatchRefused({ reason: error.code })),
+        Effect.tapError((refused) => Effect.tryPromise({ try: () => live().close(spec.id), catch: () => refused })),
       );
     }),
     bind: (bound) => {

@@ -137,20 +137,39 @@ function receiptPosition(receipt: StateReceipt["receipt"]): number {
   return "kind" in receipt.ref ? receipt.ref.seq : receipt.observedAt;
 }
 
-/** A derived view only: no winning receipt removes or rewrites a journal row. */
+function generationSize(generation: TranscriptRef["generation"]): number {
+  return generation.kind === "size-and-prefix-hash" ? generation.size : -1;
+}
+
+/** Same generation: the later byte offset; otherwise the larger size, then the canonical generation text. */
+function compareTranscriptRefs(next: TranscriptRef, current: TranscriptRef): number {
+  const generation = canonicalJson(next.generation);
+  const held = canonicalJson(current.generation);
+  if (generation === held) return next.range.offsetBytes - current.range.offsetBytes;
+  const size = generationSize(next.generation) - generationSize(current.generation);
+  if (size !== 0) return size;
+  return generation > held ? 1 : -1;
+}
+
+/** Positive when `next` outranks `current`: authority, then position (hook seq or observedAt), then the transcript ref. */
+function compareReceipts(next: StateReceipt, current: StateReceipt): number {
+  const rank = authority[next.source] - authority[current.source];
+  if (rank !== 0) return rank;
+  const position = receiptPosition(next.receipt) - receiptPosition(current.receipt);
+  if (position !== 0) return position;
+  if ("kind" in next.receipt.ref || "kind" in current.receipt.ref) return 0;
+  return compareTranscriptRefs(next.receipt.ref, current.receipt.ref);
+}
+
+/**
+ * A derived view only: no winning receipt removes or rewrites a journal row.
+ * The comparison is total, so the fold does not depend on input order.
+ */
 export function currentState(receipts: readonly StateReceipt[]): StateReceipt | undefined {
-  return receipts.reduce<StateReceipt | undefined>((current, next) => {
-    if (current === undefined) return next;
-    const rank = authority[next.source] - authority[current.source];
-    if (rank !== 0) return rank > 0 ? next : current;
-    const latest = receiptPosition(next.receipt);
-    const prior = receiptPosition(current.receipt);
-    if (latest !== prior) return latest > prior ? next : current;
-    if ("kind" in next.receipt.ref || "kind" in current.receipt.ref) return current;
-    if (canonicalJson(next.receipt.ref.generation) !== canonicalJson(current.receipt.ref.generation))
-      return next;
-    return next.receipt.ref.range.offsetBytes > current.receipt.ref.range.offsetBytes ? next : current;
-  }, undefined);
+  return receipts.reduce<StateReceipt | undefined>(
+    (current, next) => current === undefined || compareReceipts(next, current) > 0 ? next : current,
+    undefined,
+  );
 }
 
 function childReceipts(rows: readonly ChildRow[], child: string): StateReceipt[] {

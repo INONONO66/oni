@@ -23,6 +23,26 @@ stops transcript admission for the same child; a Deliver whose reply was lost
 refreshes the admitted rows before the retry, and the restored sequence and
 replay matching belong to the child, not to one file or turn.
 
+r1b (2026-10-17, PR #1570 review): `installChild` rolls the just-installed
+source back through the watch owner's close path when the cadence arm is
+refused, so a `not_live` refusal leaves no orphaned handle and no
+`watch_conflict` for the next install; a size-0 anchor is no anchor and the
+first non-empty generation is adopted without a `generation_changed` row;
+the watch owner counts consecutive drains in which every configured source
+failed and after three (`CHILD_FAILURE_LIMIT`) refuses the observation so
+the wake retires the chain `exhausted`, with any progressing drain resetting
+the count and an explicit install starting fresh; a Deliver-side
+`idempotency_conflict` refreshes the adapter's admitted map from the journal
+so the refused key is not re-sent every tick; `currentState` is a total order
+(authority, position, larger generation size, canonical generation text,
+later offset); child admission enters Effect through the one injected
+`WatchSenders` door (`deliver` and `admit`), keeping the #1423 single-entry
+rule; the `off: ["child-activity"]` boot row and the fixture-derived
+`toolUseId` assertion are in the receipts. The complete
+`bun test apps/openomni --timeout 15000` run was terminated by the #1498
+15-minute watchdog after 33 files with 0 failures and is not claimed green;
+the focused files named in the stamp are the receipt.
+
 ## #1527 worker dialect packs (epic #1508)
 
 On `feat/1527-dialect-packs` (2026-10-17, base `8638019e8`, PR #1549).
@@ -2442,7 +2462,7 @@ added there. Comment-only; zero behavior change; no lint or script added.
 
 | module | forcing API | Effect entry call | verdict |
 | --- | --- | --- | --- |
-| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll; the reconcile cadence is a `watch`-purpose alarm chain on the app alarm plane (#1426) | injected `WatchSenders.deliver` (bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
+| `composition/watch-sources.ts` | `node:fs` `watch` listener callbacks, `Bun.spawn` PTY streams / `child.exited`, machines `pty.read` long-poll, daemon fs reads for child sources (#1511); the reconcile cadence is a `watch`-purpose alarm chain on the app alarm plane (#1426) | the one injected `WatchSenders` door — `deliver` for native hits, `admit` for child rows (both bound to `runAppEffect` in `index.ts`); the module never commits an arm row | keep |
 | `composition/process-session.ts` | `Bun.spawn` stdin/stdout byte streams (`ReadableStream` reader, `child.exited`) | injected `answer` (`runAppEffect(runtime, requests.answer(...))`) | keep |
 | `provisioning/supervisor.ts` | channels driver `surface.start` Promise contract (`stop` is synchronous; channels is the #1248 Promise band with its own injected `EffectRunner`) | the driver runner (`ChannelRuntimeDeps.run` = `runAppEffect`) that `deps.desired()` passes into each built surface; `.then(() => undefined, ThrownError.parse)` narrows the rejection to a typed Error that `mountRow` re-throws and `startRow` records as breaker status, never a swallow | keep |
 

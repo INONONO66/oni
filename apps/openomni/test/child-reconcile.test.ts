@@ -169,10 +169,40 @@ test("backfill current state uses byte order when one read observes several phas
   const receipts = stateReceipts(reconcile(observations, []), identity.child, identity.turn);
   expect(currentState(receipts)?.fact.phase).toBe("terminal");
   expect(currentState([...receipts].reverse())?.fact.phase).toBe("terminal");
+  // A later observation of a replaced file wins on time, not on input order.
   const replacement = `${fixture("transcript", "result")}\n`;
-  const replaced = decodeTranscript({ ...identity, pack, ref: reference(replacement), chunk: Buffer.from(replacement), observedAt: 10 }).observations;
+  const replaced = decodeTranscript({ ...identity, pack, ref: reference(replacement), chunk: Buffer.from(replacement), observedAt: 11 }).observations;
   const rows = reconcile(observations, []);
   expect(currentState(stateReceipts([...rows, ...reconcile(replaced, rows)], identity.child, identity.turn))?.fact.phase).toBe("result");
+});
+
+test("current state across generations at one observation time is total and input-order independent", () => {
+  const decode = (text: string) => stateReceipts(
+    reconcile(decodeTranscript({ ...identity, pack, ref: reference(text), chunk: Buffer.from(text), observedAt: 10 }).observations, []),
+    identity.child, identity.turn,
+  );
+  const [smaller] = decode(`${fixture("transcript", "result")}\n`);
+  const [larger] = decode(`${fixture("transcript", "requested")}\n${fixture("transcript", "terminal")}\n`);
+  if (smaller === undefined || larger === undefined || "kind" in smaller.receipt.ref || "kind" in larger.receipt.ref)
+    throw new Error("missing receipts");
+  const sizes = [smaller, larger].map((entry) =>
+    "kind" in entry.receipt.ref || entry.receipt.ref.generation.kind !== "size-and-prefix-hash" ? -1 : entry.receipt.ref.generation.size);
+  expect(sizes[0]).toBeGreaterThan(0);
+  expect(sizes[1]).toBeGreaterThan(sizes[0] ?? Number.POSITIVE_INFINITY);
+  expect(currentState([smaller, larger])).toBe(larger);
+  expect(currentState([larger, smaller])).toBe(larger);
+  // Equal sizes with different prefixes order on the canonical generation text.
+  const ref = smaller.receipt.ref;
+  const generation = ref.generation.kind === "size-and-prefix-hash" ? ref.generation : undefined;
+  if (generation === undefined) throw new Error("size generation expected");
+  const rehashed = { ...smaller, receipt: { ...smaller.receipt, ref: { ...ref, generation: { ...generation, prefixSha256: "0".repeat(64) } } } };
+  const forward = currentState([smaller, rehashed]);
+  expect(currentState([rehashed, smaller])).toBe(forward);
+  expect(forward).toBe(canonicalJson(generation) > canonicalJson(rehashed.receipt.ref.generation) ? smaller : rehashed);
+  // A generation without a size ranks below any sized generation.
+  const inode = { ...smaller, receipt: { ...smaller.receipt, ref: { ...ref, generation: { kind: "inode" as const, device: "dev", inode: "1" } } } };
+  expect(currentState([smaller, inode])).toBe(smaller);
+  expect(currentState([inode, smaller])).toBe(smaller);
 });
 
 test("source decoders report malformed records and refuse missing pack capabilities", () => {

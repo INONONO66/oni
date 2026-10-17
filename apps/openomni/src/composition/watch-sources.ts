@@ -23,7 +23,7 @@ import { diagnosticRow, reconcile, type ChildRow } from "../bundles/child-activi
 
 // Promise band (#1423): `node:fs` `watch`, `Bun.spawn` PTY streams, the machines `pty.read`
 // long-poll, daemon fs reads and native path-watch callbacks force callbacks here; Effect takes over
-// inside the injected `WatchSenders.deliver` or `ChildSourcePorts.admit`; no durable write lives here.
+// inside the one injected `WatchSenders` door (`deliver` and `admit`); no durable write lives here.
 
 export class AlarmRuntimeError extends Error {
   readonly requiredVersion = ">=1.4.0";
@@ -372,9 +372,11 @@ export interface WatchHitSend {
   readonly fireAt: number;
 }
 
-/** Entity-message sender, implemented over the Session entity client. */
+/** Entity-message sender, implemented over the Session entity client: native hits and child rows take the same door. */
 export interface WatchSenders {
   deliver(send: WatchHitSend): Promise<void>;
+  /** Child intake through the entity's Deliver RPC; absent when no body is attached. */
+  admit?(sessionId: string, rows: readonly ChildRow[]): Promise<readonly ChildRow[]>;
 }
 
 /** One armed watch: identity, native spec, and the chain state its hits carry. */
@@ -409,7 +411,27 @@ export interface ChildSourcePorts {
     get(id: string): { readonly fs: Pick<ReturnType<NonNullable<FilePorts["machines"]>["get"]>["fs"], "read" | "stat"> };
   };
   readonly rows: (sessionId: string) => readonly ChildRow[];
-  readonly admit: (sessionId: string, rows: readonly ChildRow[]) => Promise<readonly ChildRow[]>;
+  readonly admit: NonNullable<WatchSenders["admit"]>;
+}
+
+/** Consecutive drains in which every configured source failed; the third retires the chain. */
+const CHILD_FAILURE_LIMIT = 3;
+
+type ChildFs = ReturnType<ChildSourcePorts["machines"]["get"]>["fs"];
+
+/**
+ * The anchored generation: fixed size plus the hash of its first bytes. A size-0 anchor hashed
+ * no bytes, so the caller passes none and the first non-empty generation is adopted silently.
+ */
+async function anchoredGeneration(fs: ChildFs, path: string, size: number, old: Generation | undefined): Promise<Generation> {
+  const anchorSize = old !== undefined && size >= old.size ? old.size : size;
+  const prefix = anchorSize === 0 ? new Uint8Array() : (await fs.read(path, { offset: 0, limit: Math.min(anchorSize, 4096) })).data;
+  const prefixSha256 = sourceDigest(prefix);
+  if (old !== undefined && size >= old.size && old.prefixSha256 === prefixSha256) return old;
+  return {
+    kind: "size-and-prefix-hash", size,
+    prefixSha256: anchorSize === size ? prefixSha256 : sourceDigest((await fs.read(path, { offset: 0, limit: Math.min(size, 4096) })).data),
+  };
 }
 
 class ChildSourceError extends Error {
@@ -423,7 +445,12 @@ class ChildSourceError extends Error {
 export function childSource(
   spec: ChildWatch,
   ports: ChildSourcePorts,
-  options: { readonly clock: () => number; readonly failure: (error: Error) => void },
+  options: {
+    readonly clock: () => number;
+    readonly failure: (error: Error) => void;
+    /** After every drain: false when every configured source failed, true otherwise. */
+    readonly drained?: (progress: boolean) => void;
+  },
 ): AlarmSource & { observe(): Promise<void> } {
   const selected = selectPack(spec.occupant);
   if (selected === undefined) throw new ChildSourceError("pack_missing");
@@ -468,20 +495,10 @@ export function childSource(
     });
     if (stat === undefined) return undefined;
     if (stat.kind !== "file") throw new ChildSourceError("not_file");
-    const old = previous?.checkpoint.generation;
-    const anchorSize = old !== undefined && stat.size >= old.size ? old.size : stat.size;
-    const prefix = anchorSize === 0 ? new Uint8Array() : (await fs.read(location.path, { offset: 0, limit: Math.min(anchorSize, 4096) })).data;
-    const prefixSha256 = sourceDigest(prefix);
-    const stable = old !== undefined && (old.size > 0 || stat.size === 0) &&
-      stat.size >= old.size && old.prefixSha256 === prefixSha256;
-    const generation: Generation = stable
-      ? old
-      : {
-          kind: "size-and-prefix-hash", size: stat.size,
-          prefixSha256: sourceDigest(anchorSize === stat.size ? prefix :
-            (await fs.read(location.path, { offset: 0, limit: Math.min(stat.size, 4096) })).data),
-        };
-    const resumed = transcriptCursor(previous, generation).cursor;
+    // A size-0 anchor anchors nothing: the first non-empty generation is adopted, not reported as a rewrite.
+    const anchor = previous === undefined || previous.checkpoint.generation.size === 0 ? undefined : previous;
+    const generation = await anchoredGeneration(fs, location.path, stat.size, anchor?.checkpoint.generation);
+    const resumed = transcriptCursor(anchor, generation).cursor;
     const offset = resumed.checkpoint.offsetBytes + resumed.tail.length;
     const chunk = offset >= stat.size ? new Uint8Array() : (await fs.read(location.path, { offset, limit: 256 * 1024 })).data;
     if (offset < stat.size && chunk.length === 0) throw new ChildSourceError("read_stalled");
@@ -489,20 +506,30 @@ export function childSource(
       ref: { ...location, generation, range: { offsetBytes: offset, lengthBytes: chunk.length } },
       chunk,
       more: offset + chunk.length < stat.size,
+      anchor,
     };
   }
 
+  /** What the journal holds, so memory never disagrees with it after a refused or lost Deliver. */
+  const refresh = () => {
+    for (const persisted of ports.rows(spec.sessionId)) admitted.set(persisted.key, persisted);
+  };
   async function accept(rows: readonly ChildRow[]) {
     for (const row of rows) {
       if (closed) return;
       if (admitted.has(row.key)) continue;
+      let accepted: readonly ChildRow[];
       try {
-        for (const accepted of await ports.admit(spec.sessionId, [row])) admitted.set(accepted.key, accepted);
+        accepted = await ports.admit(spec.sessionId, [row]);
       } catch (error) {
         // A Deliver may have committed before its reply was lost: the retry must see what the journal holds.
-        for (const persisted of ports.rows(spec.sessionId)) admitted.set(persisted.key, persisted);
+        refresh();
         throw error;
       }
+      for (const entry of accepted) admitted.set(entry.key, entry);
+      // A Deliver-side idempotency conflict answers with the conflict row only: the journal's
+      // real row under the requested key is learned here so the next tick short-circuits in memory.
+      if (accepted.some((entry) => entry.key !== row.key)) refresh();
     }
   }
 
@@ -518,7 +545,7 @@ export function childSource(
       while (more && !closed) {
         const input = await read(location, spool.file);
         if (input === undefined) break;
-        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, cursor: spool });
+        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, cursor: { ...spool, file: input.anchor } });
         await accept([...reconcile(decoded.observations, [...admitted.values()], decoded.replays), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
         spool = decoded.cursor;
         more = input.more;
@@ -530,7 +557,7 @@ export function childSource(
       while (more && !closed) {
         const input = await read(location, transcript);
         if (input === undefined) break;
-        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: options.clock(), ...(transcript === undefined ? {} : { cursor: transcript }) });
+        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: options.clock(), ...(input.anchor === undefined ? {} : { cursor: input.anchor }) });
         await accept([...reconcile(decoded.observations, [...admitted.values()]), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
         transcript = decoded.cursor;
         more = input.more;
@@ -547,8 +574,12 @@ export function childSource(
   const report = (failures: readonly Error[]) => {
     for (const failure of failures) options.failure(failure);
   };
+  const settle = (failures: Error[]) => {
+    options.drained?.(failures.length < configured);
+    return failures;
+  };
   // The first drain settles `ready`: it refuses only when every configured source failed.
-  const ready = drain().then((failures) => {
+  const ready = drain().then(settle).then((failures) => {
     const [first] = failures;
     if (first !== undefined && failures.length === configured) {
       report(failures.slice(1));
@@ -560,7 +591,7 @@ export function childSource(
   return {
     ready,
     observe() {
-      pending = pending.then(() => closed ? undefined : drain().then(report)).catch((error: Error) => options.failure(error));
+      pending = pending.then(() => closed ? undefined : drain().then(settle).then(report)).catch((error: Error) => options.failure(error));
       return pending;
     },
     async close() {
@@ -589,7 +620,8 @@ export function createWatchSources(
     readonly pathWatch?: PathWatchInstaller | undefined;
     /** Retires the path's alarm chain through the live entity arm verb. */
     readonly retirePath?: (sessionId: string, watchId: string) => Promise<void>;
-    readonly children?: ChildSourcePorts;
+    /** The child reader's body-side ports; admission itself is the senders' door. */
+    readonly children?: Omit<ChildSourcePorts, "admit">;
   },
 ): WatchSources {
   // The watch plane owns the boot-time runtime requirement: composing it on a
@@ -597,6 +629,9 @@ export function createWatchSources(
   assertAlarmRuntime();
   const holders = new Map<string, Holder>();
   const children = new Map<string, { readonly spec: ChildWatch; readonly source: AlarmSource }>();
+  /** Consecutive all-source drain failures per child watch; a drain that made progress clears it. */
+  const starved = new Map<string, number>();
+  const exhausted = (id: string) => (starved.get(id) ?? 0) >= CHILD_FAILURE_LIMIT;
 
   function enqueue(holder: Holder, hit: WatchHit): void {
     const { sessionId, occurrence, base } = holder.current;
@@ -713,6 +748,7 @@ export function createWatchSources(
     const child = children.get(id);
     if (child !== undefined) {
       children.delete(id);
+      starved.delete(id);
       return trackRetirement(child.source.close().then(() => options.retirePath?.(child.spec.sessionId, id)));
     }
     const holder = holders.get(id);
@@ -770,7 +806,7 @@ export function createWatchSources(
       holders.set(spec.id, holder);
   }
 
-  async function installChild(spec: ChildWatch) {
+  async function startChild(spec: ChildWatch) {
       if (shutdown !== undefined) throw new Bundle.WatchRefused({ reason: "shutdown" });
       const existing = children.get(spec.id);
       if (existing !== undefined) {
@@ -780,10 +816,15 @@ export function createWatchSources(
       }
       if (holders.has(spec.id) || [...children.values()].some((child) => child.spec.child === spec.child))
         throw new ChildSourceError("watch_conflict");
-      if (options.children === undefined) throw new ChildSourceError("source_missing");
-      const source = childSource(spec, options.children, {
+      const admit = senders.admit;
+      if (options.children === undefined || admit === undefined) throw new ChildSourceError("source_missing");
+      const source = childSource(spec, { ...options.children, admit }, {
         clock: options.clock,
         failure: (error) => options.failure(spec.id, error),
+        drained: (progress) => {
+          if (progress) starved.delete(spec.id);
+          else starved.set(spec.id, (starved.get(spec.id) ?? 0) + 1);
+        },
       });
       children.set(spec.id, { spec, source });
       try {
@@ -798,10 +839,18 @@ export function createWatchSources(
       }
   }
 
+  function installChild(spec: ChildWatch): Promise<void> {
+    // An explicit install is a fresh start: earlier starvation does not count against it.
+    starved.delete(spec.id);
+    return startChild(spec);
+  }
+
   function restoreChild(spec: ChildWatch): void {
+    // A starved chain is not re-installed: this tick's observe refuses and the wake retires it.
+    if (exhausted(spec.id)) return;
     // An alarm already owns the receiver's mailbox. Queue intake here and
     // let the alarm return before its Deliver RPC waits on that same entity.
-    void installChild(spec).catch((error: Error) => options.failure(spec.id, error));
+    void startChild(spec).catch((error: Error) => options.failure(spec.id, error));
   }
 
   return {
@@ -838,9 +887,19 @@ export function createWatchSources(
     },
     observe(sessionId, id) {
       const child = children.get(id);
-      if (child?.spec.sessionId === sessionId) {
+      if (child?.spec.sessionId === sessionId && !exhausted(id)) {
         child.source.observe?.();
         return true;
+      }
+      if (exhausted(id) && (child === undefined || child.spec.sessionId === sessionId)) {
+        // Three consecutive all-source failures: the handle goes, the count resets
+        // and the refused observation lets the wake retire the chain.
+        starved.delete(id);
+        if (child !== undefined) {
+          children.delete(id);
+          void trackRetirement(child.source.close()).catch((error: Error) => options.failure(id, error));
+        }
+        return false;
       }
       const holder = holders.get(id);
       const source = holder?.current.sessionId === sessionId ? holder.source : undefined;
