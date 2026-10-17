@@ -4,7 +4,7 @@ import { type SessionError, CommitFailed, AgentInvariantViolation } from "../por
 
 import type { SessionKernel } from "./entity";
 import { type LedgerAction, SessionTransition, canonicalDigest, PlainValueSchema } from "@openomni/protocol";
-import { fencedExecutionLedger, type ResolvedSessionRuntime } from "./runtime";
+import { fencedExecutionLedger, type ResolvedSessionRuntime, type SessionEntityPorts } from "./runtime";
 
 export function outboundOpen(
   message: SessionTransition.OutboundMessage,
@@ -80,6 +80,15 @@ function acknowledge(
     ts: at,
     irreversible: true,
   };
+}
+
+/** The entity's activation redrive over the composed runtime; absent without a receiving consumer. */
+export function outboundRedrivePort(
+  runtime: ResolvedSessionRuntime,
+): SessionEntityPorts["dispatchOutbound"] {
+  if (runtime.dispatchOutbound === undefined) return undefined;
+  return (input) =>
+    dispatchSessionOutbound(input.kernel, input.sessionId, runtime, input.owner, input.fence, input.clock);
 }
 
 /** Never seals again or writes a destination session. */

@@ -206,6 +206,14 @@ function activate(drainConfig: AlarmDrainConfig) {
         ownsTurn: (turnId) => kernel.latestOpenTurn(sessionId)?.turnId === turnId,
       });
       if (releaseLive !== undefined) yield* Effect.addFinalizer(() => Effect.sync(releaseLive));
+      if (env.ports.dispatchOutbound !== undefined)
+        yield* env.ports.dispatchOutbound({
+          kernel,
+          sessionId,
+          owner: authority.owner,
+          fence: authority.fence,
+          clock: env.clock,
+        }).pipe(Effect.orDie);
       yield* logRestoredHistory(kernel, sessionId, env.clock);
       yield* resendArmedAlarms(handle);
       yield* drain(handle).pipe(Effect.orDie);

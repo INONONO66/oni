@@ -236,7 +236,7 @@ export function serveProcessSession(
   const binding = yield* SessionEntityBinding;
   // Live reads: the bound ports reflect the composed generation at admission
   // time, not at bind time — a recompose between bind and wake must win.
-  const entityPorts: Core.SessionEntityPorts = { runTurn, approvalPolicy: runtime.approvalPolicy, get inputRegistrations(): readonly string[] { return ["prompt", "signal", ...composed.current().generation.inputs]; },
+  const entityPorts: Core.SessionEntityPorts = { runTurn, approvalPolicy: runtime.approvalPolicy, dispatchOutbound: Core.outboundRedrivePort(resolved), get inputRegistrations(): readonly string[] { return ["prompt", "signal", ...composed.current().generation.inputs]; },
     get capabilityKinds(): readonly string[] { return Object.keys(composed.current().generation.kinds); } };
   binding.bind(entityPorts);
   const entityClient = yield* SessionEntity.client;

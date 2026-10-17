@@ -23,6 +23,17 @@ export const PENDING_MESSAGES_SQL = `
         AND stale.value IS NOT NULL)
   ORDER BY a.ordinal`;
 
+export const OUTBOUND_STATES_SQL = `
+  SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind = 'message'
+    AND json_extract(a.intent, '$.op') IN ('open', 'ack')
+    AND coalesce(json_extract(a.effect, '$.outbound.message.messageId'), a.id) > ?
+    AND (json_extract(a.effect, '$.outbound.message.messageId') IS NULL
+      OR a.ordinal = (SELECT max(b.ordinal) FROM action b WHERE b.session_id = a.session_id
+        AND b.kind = 'message' AND json_extract(b.intent, '$.op') IN ('open', 'ack')
+        AND json_extract(b.effect, '$.outbound.message.messageId') =
+          json_extract(a.effect, '$.outbound.message.messageId')))
+  ORDER BY coalesce(json_extract(a.effect, '$.outbound.message.messageId'), a.id) LIMIT ?`;
+
 /** Read degradation (): a row that fails decode is kept verbatim on disk, */
 function reportCorruptRow(row: ActionSqlRow, sink: ObservationSink, cause: Error): void {
   try {
@@ -235,15 +246,7 @@ export function createActionReads(db: Database, sink: ObservationSink): Reads {
     outboundStatesPage(sessionId, cursor, limit) {
       return decodeRows(
         db
-          .query<ActionSqlRow, [string, string, number]>(`
-        SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind = 'message'
-          AND json_extract(a.intent, '$.op') IN ('open', 'ack')
-          AND coalesce(json_extract(a.effect, '$.outbound.message.messageId'), a.id) > ?
-          AND (json_extract(a.effect, '$.outbound.message.messageId') IS NULL
-            OR a.ordinal = (SELECT max(b.ordinal) FROM action b WHERE b.session_id = a.session_id
-              AND b.kind = 'message' AND json_extract(b.effect, '$.outbound.message.messageId') =
-                json_extract(a.effect, '$.outbound.message.messageId')))
-        ORDER BY coalesce(json_extract(a.effect, '$.outbound.message.messageId'), a.id) LIMIT ?`)
+          .query<ActionSqlRow, [string, string, number]>(OUTBOUND_STATES_SQL)
           .all(sessionId, cursor, pageSize.parse(limit)),
       );
     },

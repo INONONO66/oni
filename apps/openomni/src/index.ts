@@ -1111,7 +1111,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       services: services.context,
     };
     services.entityPorts.bind({
-      approvalPolicy: sessionRuntime.approvalPolicy,
+      approvalPolicy: sessionRuntime.approvalPolicy, dispatchOutbound: Core.outboundRedrivePort(resolvedRuntime),
       runTurn: (input) =>
         sessionRunner(input.authority.sessionId) === "process"
           ? Effect.tryPromise({

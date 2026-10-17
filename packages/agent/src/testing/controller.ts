@@ -10,7 +10,7 @@ import { createSessionAdmission, decideSessionAdmission } from "../core/session/
 import { createSessionRecovery } from "../core/session/recovery";
 import { commitSessionRequest } from "../core/session/request";
 import { adoptSessionAuthority, createSessionConfiguration } from "../core/session/run";
-import { dispatchSessionOutbound } from "../core/session/run";
+import { dispatchSessionOutbound, outboundRedrivePort } from "../core/session/run";
 import { inspectSession } from "../inspect";
 import { createRawSlots } from "../core/loop/executor";
 import { commitFoldBatch } from "../core/journal/compaction";
@@ -163,6 +163,8 @@ export function createController(
         yield* releaseAfterClose();
       })),
     };
+    const redrive = outboundRedrivePort(runtime);
+    if (redrive !== undefined) yield* redrive({ kernel, sessionId, owner, fence: state.fence, clock });
 
     /**
      * Ingress is a fenced received-message chain action (the input-queue table is
