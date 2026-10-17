@@ -18,6 +18,8 @@ import {
   type A2AContactPort,
   a2aConnector,
   cliConnector,
+  type CliRunnerPort,
+  CliTurnPointer,
   createSendMessageTool,
   parseContactAddress,
   type MessagePort,
@@ -43,12 +45,13 @@ const context = {
   signal: new AbortController().signal,
 } as const;
 
-test("contact addresses parse per kind; channel ids, unknown kinds and unknown CLI agents are no connector address", () => {
+test("contact addresses parse per kind; channel ids and unknown kinds are no connector address, and no cli id is a literal (#1512)", () => {
   expect(parseContactAddress("cli:claude-code")).toEqual({ kind: "cli", id: "claude-code" });
   expect(parseContactAddress("webhook:hook-1")).toEqual({ kind: "webhook", id: "hook-1" });
   expect(parseContactAddress("webhook:")).toBeUndefined();
   expect(parseContactAddress("a2a:scout")).toEqual({ kind: "a2a", id: "scout" });
-  expect(parseContactAddress("cli:vim")).toBeUndefined();
+  // A cli id is a declared row the runner resolves, never a vendor name parsed here.
+  expect(parseContactAddress("cli:reviewer")).toEqual({ kind: "cli", id: "reviewer" });
   expect(parseContactAddress("telegram:12345")).toBeUndefined();
   expect(parseContactAddress("human:owner")).toBeUndefined();
   expect(parseContactAddress("slack:general")).toBeUndefined();
@@ -56,43 +59,60 @@ test("contact addresses parse per kind; channel ids, unknown kinds and unknown C
   expect(parseContactAddress("cli:")).toBeUndefined();
 });
 
-test("the scripted CLI connector forwards captured stdout to the sender as its prompt", async () => {
+test("#1512: the cli connector runs one turn under the send's key and replies with the pointer to the admitted rows, reply_to the send", async () => {
   const prompts: object[] = [];
-  const runner = {
-    run: (input: { agent: string; message: string }) =>
-      Effect.succeed({ stdout: `${input.agent} answered: ${input.message}`, code: 0 }),
+  const runs: object[] = [];
+  const runner: CliRunnerPort = {
+    run: (input) =>
+      Effect.sync(() => {
+        runs.push(input);
+        return { child: "child-7", turn: input.key, facts: 5 };
+      }),
   };
   const reply = {
     prompt: (input: object) => Effect.sync(() => void prompts.push(input)),
   };
   const send = {
     sender: "parent-session",
-    address: { kind: "cli", id: "claude-code" } as const,
+    turnId: "turn-1",
+    address: { kind: "cli", id: "reviewer" } as const,
     idempotencyKey: "parent-session:call-1",
     message: "review this diff",
+    deadlineMs: 5_000,
   };
-  expect(await runEffect(cliConnector(runner, reply)(send))).toEqual({
-    contact: "cli:claude-code",
-    status: "delivered",
-  });
+  expect(await runEffect(cliConnector(runner, reply)(send))).toEqual({ contact: "cli:reviewer", status: "delivered" });
+  expect(runs).toEqual([
+    { agent: "reviewer", message: "review this diff", sender: "parent-session", turnId: "turn-1", key: "parent-session:call-1", deadlineMs: 5_000 },
+  ]);
+  // The reply is the pointer, never a copy of the child's rows.
   expect(prompts).toEqual([
     {
       sessionId: "parent-session",
-      contact: "cli:claude-code",
-      content: "claude-code answered: review this diff",
+      contact: "cli:reviewer",
+      content: JSON.stringify(CliTurnPointer.parse({
+        kind: "cli_turn", contact: "cli:reviewer", child: "child-7", turn: "parent-session:call-1", phase: "terminal", facts: 5,
+      })),
+      replyTo: "parent-session:call-1",
     },
   ]);
+  // A refusal before the pane is `not_sent`; a letter that reached the pane and never ended is `unknown`, never re-sent.
   expect(
-    await runEffect(cliConnector({ run: () => Effect.succeed({ stdout: "", code: 7 }) }, reply)(send)),
-  ).toEqual({ contact: "cli:claude-code", status: "not_sent", reason: "exit 7" });
+    await runEffect(cliConnector({ run: () => Effect.fail({ reason: "agent_blocked: the child is waiting on a permission request" }) }, reply)(send)),
+  ).toEqual({ contact: "cli:reviewer", status: "not_sent", reason: "agent_blocked: the child is waiting on a permission request" });
   expect(
-    await runEffect(cliConnector({ run: () => Effect.fail({ reason: "spawn refused" }) }, reply)(send)),
-  ).toEqual({ contact: "cli:claude-code", status: "not_sent", reason: "spawn refused" });
+    await runEffect(cliConnector({ run: () => Effect.fail({ reason: "deadline expired; the child was interrupted", landed: true }) }, reply)(send)),
+  ).toEqual({ contact: "cli:reviewer", status: "unknown", reason: "deadline expired; the child was interrupted" });
   expect(await runEffect(cliConnector(undefined, reply)(send))).toEqual({
-    contact: "cli:claude-code",
+    contact: "cli:reviewer",
     status: "not_sent",
     reason: "cli runner is not composed",
   });
+  // A refused reply door is the sender's not_sent fact, not a silent success.
+  expect(
+    await runEffect(cliConnector(runner, { prompt: () => Effect.fail({ reason: "inbox closed" }) })(send)),
+  ).toEqual({ contact: "cli:reviewer", status: "not_sent", reason: "inbox closed" });
+  // Without a reply port the turn still ran and the send is delivered.
+  expect(await runEffect(cliConnector(runner, undefined)(send))).toEqual({ contact: "cli:reviewer", status: "delivered" });
 });
 
 test("the webhook connector posts the letter through the port under the tool call's key and returns the target's answer on the result", async () => {
@@ -105,6 +125,7 @@ test("the webhook connector posts the letter through the port under the tool cal
   });
   const send = {
     sender: "parent-session",
+    turnId: "turn-1",
     address: { kind: "webhook", id: "hook-1" } as const,
     idempotencyKey: "parent-session:call-1",
     message: "build is green",
@@ -153,6 +174,7 @@ test("the a2a connector sends the letter through the port under the tool call's 
   });
   const send = {
     sender: "parent-session",
+    turnId: "turn-1",
     address: { kind: "a2a", id: "scout" } as const,
     idempotencyKey: "parent-session:call-1",
     message: "scout the area",
@@ -357,10 +379,10 @@ test("the tool routes CLI contacts through connectors and everything else throug
   const cli = createSendMessageTool(port, () => 1_000, {
     run: runEffect,
     cli: {
-      run: (input: { message: string }) =>
+      run: (input) =>
         Effect.sync(() => {
           piped.push(input.message);
-          return { stdout: "ok", code: 0 };
+          return { child: "child-1", turn: input.key, facts: 1 };
         }),
     },
     reply: { prompt: () => Effect.void },

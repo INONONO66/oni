@@ -1,5 +1,168 @@
 # Implementation Status
 
+## #1512 cli: contact over the machine pty (epic #1508)
+
+On `feat/1512-cli-contact-pty` (2026-10-17, base `0d88e4fa7` = the #1511
+tip after its r1b fixes). `send_message(to: "cli:<id>")` reaches a child CLI agent in a tmux
+pane on the declared machine. The address is a declared row, never a vendor
+literal: `provision channel_add` with provider `cli` and settings
+`{dialect, machine, cwd?}` lands `channel:cli:<id>` under Owner consent (a
+machine is where the Resident's letters go), judged by the contact's own door
+(`ProvisionPort.cli.declare`): the dialect must be a registered pack and the
+machine the self machine or a live enrollment; the row carries no credential
+and the channel profile mounts nothing for it (`CONTACT_ONLY_PROVIDERS`,
+status `ready` with the contact detail). The hard-coded
+`cli:claude-code|codex|omp` list is gone from `send-message`.
+`apps/openomni/src/bundles/child-activity/contact/`: `declaration.ts`
+(row resolution, `cli-<id>` pane name), `rule.ts` (the idle/working/blocked
+data rule over the turn's persisted receipts — hook `waiting` blocks, hook
+`terminal` or the transcript's terminal is idle, any other hook phase is
+working, a typed `screen` seam decides only without file evidence, and
+`unknown` fails closed), `hook-script.ts` (the vendor-neutral POSIX spool
+appender: `sh <script> <event>` with the payload on stdin appends one
+`{seq, event, receivedAt, payload}` line under a `mkdir` lock with a
+per-child counter file) and `runner.ts` (Effect-native: `host.place({
+machineId })` is an exact placement whose lease `renewPtyWhile` holds the
+pane; `pty.list` decides lookup-or-create — a pane this Resident did not
+launch is never written to; a launch writes the hook script and the pack's
+`liveConfig` under `<cwd>/.openomni/<child>/`, installs a spool-only watch,
+writes `exec <pack.launch argv>`, takes the transcript path from the first
+live line through the pack's `locate`, and re-installs the watch with both
+sources; one watch per turn, keyed by the send; submit is the pack's recipe,
+text then a delayed Enter; a blocked previous turn refuses `agent_blocked`,
+a running one `agent_busy`, no evidence `child_state_unknown`; no live
+observation within `stallWindowMs` admits a `prompt_stalled` /
+`launch_stalled` `child_diagnostic` through the reconciler's Deliver door
+and retires the pane; the run resolves when the reconciler has admitted the
+turn's terminal fact, through the observation bus's committed-action
+notification, never a poll). The pack contract (#1527) gains `locate(line)
+→ {transcriptPath?}` and `liveConfig({hookCommand}) → string`; claude-code
+implements both (its live config wires SessionStart, UserPromptSubmit,
+PreToolUse, PostToolUse, Stop and SessionEnd — not PermissionRequest, which a
+logging-only hook would deny), and the conformance suite checks them. The
+reply is one `prompt{origin: {kind: "contact", contact: "cli:<id>", replyTo:
+<send key>}}` whose content is the pointer `{kind: "cli_turn", contact,
+child, turn, phase: "terminal", facts}`, delivered through the entity's
+Deliver door keyed `<send key>:reply`; a refusal is `not_sent`, a letter that
+reached the pane and never ended is `unknown`. A `deadline_ms` arms the
+existing `delegation.deadline` purpose with `contact: cli:<id>`; the cancel
+door (`DelegationDeadlineDeps.cancel` now carries the contact) writes ETX to
+the pane and the waiting send ends `landed`; the parent gets the existing
+expiry prompt. `index.ts` composes `contacts.cli` and `contacts.reply` in
+production; nothing runs until a cli row is declared, and app stop drops
+every pane this Resident launched (watch, tmux session, lease).
+Receipts: `apps/openomni/test/cli-contact.test.ts` (declaration door under
+consent, the rule table, the runner over a scripted host — launch, one
+watch per turn, blocked/busy refusals, the stalled diagnostic, the
+interrupt, cleanup) and `test/cli-contact-e2e.test.ts` (a booted Resident, a
+real attached daemon on a private tmux socket, a FAKE child resolved as the
+pack's command that fires the installed hook command and appends the pack's
+fixture transcript; the sender's inbox prompt, the admitted rows through
+`childActivity.state` and the session read page, and the pane gone on stop).
+Not claimed: a live vendor child, multi-line letters (the recipe writes the
+text verbatim), attach-by-observation to a pane the Resident did not launch,
+and the screen fallback — the `screen` seam waits for #1603. Required on the
+contact's machine: `pty.session`, `fs.read`, `fs.write`, `shell.exec`.
+
+r1 (2026-10-18, PR #1611 review): once `pty.open` has succeeded, every
+refusal before the run owns the pane — a refused live-config exec, a pack
+without `launch`, a refused watch install, a refused launch-line write, a
+bus without subscription — retires it (watch closed, tmux session closed,
+lease released, registry dropped) before the typed refusal propagates, so
+the next send launches fresh and no bare letter is ever typed into a shell
+without a launch; the stall predicate measures NEW OBSERVATION for the turn
+— a hook receipt with a sequence above the pre-submit maximum, or the
+derived state leaving `unknown` — never `child_fact` growth, because the
+vendor's start, submit and stop events share one `observed` fact per turn
+(a text-only answer or a first tool call after the window is not a stall;
+the e2e `[hang]` child acknowledges with `UserPromptSubmit` alone under a
+deadline longer than the stall window, so the deadline path and the stall
+path are provably distinct); the pack contract's `liveConfig` rule is
+one-directional (hooks ⇒ defined, none ⇒ undefined, an `extension` pack may
+opt in); `interrupt` refuses a turn that already ended with the typed
+`turn_already_ended`, the cancel door maps it to `already_ended` and the
+`delegation.deadline` wake then prompts nothing (`exhausted`), and the arm
+is retired through the plane's `at: null` idiom on the terminal and on a
+stall; the hook appender reopens a closed stdin on `/dev/null` before
+reading the payload and records its holder pid in the `mkdir` lock,
+breaking past the bound only a lock whose holder is gone; the spool's
+export is resolved from the declared `cwd` against the attachment's
+offered roots (new `MachineHost.exports(id)`), a cwd outside every export
+is a typed refusal after placement and before any pane opens; a replayed
+tool call with the same key joins the running turn or returns its settled
+outcome without re-typing the letter; committed-action rescans page from
+the last seen revision (`childRowsAfter`). Receipts: the r1 cases in
+`apps/openomni/test/cli-contact.test.ts` (pane rollback across three
+refusals, the TestClock stall predicate, typed `turn_already_ended` with no
+ETX, deadline retire on terminal and stall, replay of ended and running
+keys, one full-history scan, the hook appender run under `/bin/sh` with a
+closed stdin and live/dead/absent lock holders under a process watchdog,
+export resolution and refusal), `test/delegation-policy.test.ts`
+(`already_ended` → no prompt), `test/cli-contact-e2e.test.ts` (the retired
+deadline chain after the terminal; the longer-than-stall deadline), and
+`packages/machines/test/attach.test.ts` (`host.exports`). The
+`kernel.commit` pin is re-measured at `index.ts:1444`. At the r1 tip the
+complete `bun test apps/openomni --timeout 15000` run, backgrounded under
+the #1498 15-minute watchdog, was terminated by the watchdog after 25 test
+files with 0 `(fail)` lines (its last file header `test/hooks-json.test.ts`,
+a sibling lane's app suite running on the same machine when it ended) and
+is not claimed green; the focused files above, run with the two
+session-deadline receipts `test/message-terminal-boundaries.test.ts` and
+`test/request-channel-e2e.test.ts` that CI's whole-directory app lane also
+executes, passed 171/171 and carried the patch-coverage gate.
+
+r2 (2026-10-18, PR #1611 r1 verification M2 + L8–L12): every cli child's
+deadline rides its own alarm chain, `cliDeadlineChain(session, child)` =
+`<session>:delegation.deadline:<child>`, named by the delegation-policy
+bundle's `armDelegationDeadline` on the arm and on the `at: null` retire —
+retiring child A's deadline never supersedes the occurrence armed for
+child B in the same sender session; a `to.new` session child keeps the
+#1258 session chain, where a second arm supersedes the first. The turn is
+marked ended the moment its outcome is known and before any await that
+follows (`settle` is first-wins): the deadline door answers
+`turn_already_ended` while the arm's retire is still in flight, so a fire
+landing in that window writes no ETX. A letter the daemon refuses after a
+successful launch ends the turn (a refusal after the first write that
+reached the pane carries `landed`), retires the arm and retires the pane
+like a stall — the next send launches fresh instead of answering
+`agent_busy` until app stop; a pane close refused during that retirement
+never replaces the turn's outcome. What the runner retains is bounded by
+the children it launched, not by sends or rows: one turn per child — the
+latest — for the replay short-circuit and the deadline door (`retained()`
+reports the count), and for that turn a summary of its persisted rows (its
+source-free facts by key and the rule's fold `foldState` over its
+receipts: the latest hook phase by sequence and the transcript terminal),
+folded as pages arrive; rows of turns it does not retain, including other
+children's in the same sender session, are read and dropped; the cursor
+stays one per sender session. `MachineHost` reads ONE effective root set
+(`effectiveRoots`: the offered exports the enrollment allows, normalized)
+for both `location()` routing and `exports(id)`: an offered root the
+enrollment does not allow is no routing candidate (a path beneath it
+resolves through the allowed root containing it, where it used to be
+forwarded to a daemon that refused it), and the listing drops a root two
+allowed exports share because `location()` refuses it as ambiguous. The
+hook appender's header documents the single-user assumption behind
+`kill -0` (another uid's live holder would read as gone); no behaviour
+change. Receipts: the r2 cases in `apps/openomni/test/cli-contact.test.ts`
+(two cli deadlines on one sender through `armDelegationDeadline` against a
+chain model judged by `Core.alarmDisposition` — the first retire leaves
+the second `run`, session children share their chain, two panes with one
+ETX into the fired child's pane alone; an interrupt during a blocked
+retire refused typed with no ETX; one retained turn across six sends, two
+after a relaunch, stranger rows dropped, one scan from 0; a refused letter
+retiring the pane and the next send launching fresh, `landed` on an Enter
+refused after the text), `test/cli-contact-e2e.test.ts` (the per-child
+chain retired, the session chain absent), `packages/machines/test/attach.test.ts`
+(the listing versus routing: unallowed absent, shared root dropped and
+refused, a path under the unallowed root routed through `work`) and
+`packages/machines/test/fs-wire.test.ts` (a scripted daemon records the
+export the host routed to: `docs` when `private` is offered but not
+allowed, `private` when both are). The `kernel.commit` pin is re-measured
+at `index.ts:1440`. The focused app files above plus the two
+session-deadline receipts passed 117/117 across the twelve files with the patch-coverage gate
+at 100%; the machines suite passed 283/283; the complete app suite is not
+claimed here (#1498).
+
 ## #1511 child reconciler (epic #1508)
 
 On `feat/1511-child-reconciler` (2026-10-17, base `3f763326a`, PR #1570).

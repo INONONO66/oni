@@ -85,6 +85,13 @@ export interface MachineHost {
   place(request: HostPlacementRequest, workClass?: LeaseClass): HostPlacement;
   capacity(): ReturnType<ReturnType<typeof createCapacity>["capacity"]>;
   get(id: Machine.MachineId): MachineHandle;
+  /**
+   * The attachment's effective exports with their offered roots (#1512): the
+   * names the enrollment allows, each at the canonical root the daemon offered
+   * — the same roots `fs`/`exec`/`pty` confine to. Refuses like `get` when the
+   * machine is not attached.
+   */
+  exports(id: Machine.MachineId): readonly { readonly name: Machine.ExportName; readonly path: string }[];
   /** Enrollment persistence belongs to the caller; this revokes its live attachment. */
   unenroll(id: Machine.MachineId, reason?: "enrollment_removed" | "enrollment_replaced"): void;
   /** The bound endpoints — tcp carries the REAL port when the spec asked for 0. */
@@ -254,11 +261,23 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       }
       return attachment;
     }
+    /**
+     * ONE effective root set (#1512 r2 L11) both the host's routing
+     * (`location`) and the consumer-facing listing (`exportsOf`) read: the
+     * daemon's offered exports the enrollment allows — the set the daemon
+     * negotiated at attach — at their normalized roots. An offered root the
+     * enrollment does not allow is no candidate for either.
+     */
+    function effectiveRoots(peer: Attachment): readonly { readonly name: Machine.ExportName; readonly path: string }[] {
+      const allowed = new Set(peer.enrollment.allowedExports ?? []);
+      return (peer.offer.exports ?? [])
+        .filter((entry) => allowed.has(entry.name))
+        .map((entry) => ({ name: entry.name, path: normalizeExportRoot(entry.path) }));
+    }
     function location(id: string, path: string) {
       const peer = connection(id);
       const absolute = posix.normalize(Machine.AbsolutePath.parse(path));
-      const candidates = (peer.offer.exports ?? [])
-        .map((entry) => ({ ...entry, path: normalizeExportRoot(entry.path) }))
+      const candidates = effectiveRoots(peer)
         .filter((entry) => isContained(entry.path, absolute))
         .sort((a, b) => b.path.length - a.path.length);
       const root = candidates[0];
@@ -472,8 +491,13 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         };
       }).sort((a, b) => a.machineId.localeCompare(b.machineId));
     }
+    /** The effective roots a consumer may resolve a path against: a root two allowed exports share is one `location` refuses as ambiguous, so it is not offered here either. */
+    function exportsOf(id: string): readonly { readonly name: Machine.ExportName; readonly path: string }[] {
+      const roots = effectiveRoots(connection(id));
+      return roots.filter((entry) => roots.every((other) => other === entry || other.path !== entry.path));
+    }
     return {
-      get, list, place: capacity.place, capacity: capacity.capacity,
+      get, list, place: capacity.place, capacity: capacity.capacity, exports: exportsOf,
       unenroll(id, reason = "enrollment_removed") {
         const key = connectionByMachine.get(id);
         const attachment = key === undefined ? undefined : attachments.get(key);

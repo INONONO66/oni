@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import net from "node:net";
-import { createIpcServer, typedCall } from "./ipc/helpers/native";
+import { connectIpcClient, createIpcServer, typedCall } from "./ipc/helpers/native";
 import { Machine } from "@openomni/protocol";
 import { attachMachineDaemon, createMachineHost, MachineRefusalError } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
@@ -260,35 +260,66 @@ describe("real machine consumer surface", () => {
   });
 });
 
-test("longest normalized root wins, and equal roots refuse rather than selecting arbitrarily", async () => {
+test("the longest effective normalized root wins — an offered root the enrollment does not allow is no candidate — and equal roots refuse rather than selecting arbitrarily", async () => {
   await fixture(async (root) => {
     const nested = join(root, "nested");
     mkdirSync(nested);
     const path = socketPath();
     const host = await wireHost(path);
-    const daemon = await attachMachineDaemon({
-      socketPath: path,
-      offer: offer(root, {
-        exports: [
-          { name: "docs", path: root },
-          { name: "private", path: `${nested}/./` },
-        ],
-      }),
-      fsExports: new Map([
-        ["docs", root],
-        ["private", `${nested}/./`],
-      ]),
-    });
-    try {
-      await expect(host.get("m-1").fs.stat(nested)).rejects.toMatchObject({
-        _tag: "MachineRefusalError",
-        reason: "export_not_available",
+    const twoExports = {
+      exports: [
+        { name: "docs", path: root },
+        { name: "private", path: `${nested}/./` },
+      ],
+    };
+    /** A scripted daemon: records the export and relative path the host routed each fs_op to, answers a stat. */
+    const routed: string[] = [];
+    const scripted = (socket: string) =>
+      connectIpcClient(socket, {
+        onRequest: async (method, params, respond) => {
+          if (method !== "machine.fs_op") throw new Error(`unexpected ${method}`);
+          const request = Machine.FsRequest.parse(params);
+          routed.push(`${request.export}:${request.path}`);
+          respond({ status: "completed", value: { op: "stat", kind: "file", size: 1, mtimeMs: 0 } });
+        },
       });
+    // The enrollment allows `docs` alone: `private`, though offered and the longer root, is not a candidate
+    // (#1512 r2 L11 — the host routes by the roots the daemon negotiated), so the path resolves through `docs`.
+    const client = await scripted(path);
+    try {
+      await client.call("machine.attach", offer(root, twoExports));
+      expect(await host.get("m-1").fs.stat(join(nested, "file"))).toMatchObject({ op: "stat", kind: "file", size: 1 });
+      expect(routed).toEqual(["docs:nested/file"]);
     } finally {
-      await daemon.close();
+      client.close();
     }
+    // Both allowed: the longest root wins.
+    const bothPath = socketPath();
+    const both = await createMachineHost({
+      listen: { unix: bothPath },
+      enrollment: () => ({ ...enrollment(), allowedExports: ["docs", "private"] }),
+      events: silent,
+      now: () => 3,
+    });
+    const bothClient = await scripted(bothPath);
+    try {
+      await bothClient.call("machine.attach", offer(root, twoExports));
+      expect(await both.get("m-1").fs.stat(join(nested, "file"))).toMatchObject({ op: "stat", kind: "file", size: 1 });
+      expect(routed).toEqual(["docs:nested/file", "private:file"]);
+    } finally {
+      bothClient.close();
+      both.close();
+    }
+    // Two ALLOWED exports naming one root: refused as ambiguous rather than selected arbitrarily.
+    const aliasPath = socketPath();
+    const aliased = await createMachineHost({
+      listen: { unix: aliasPath },
+      enrollment: () => ({ ...enrollment(), allowedExports: ["docs", "alias"] }),
+      events: silent,
+      now: () => 3,
+    });
     const duplicate = await attachMachineDaemon({
-      socketPath: path,
+      socketPath: aliasPath,
       offer: offer(root, {
         exports: [
           { name: "docs", path: root },
@@ -297,12 +328,13 @@ test("longest normalized root wins, and equal roots refuse rather than selecting
       }),
     });
     try {
-      await expect(host.get("m-1").fs.stat(root)).rejects.toMatchObject({
+      await expect(aliased.get("m-1").fs.stat(root)).rejects.toMatchObject({
         _tag: "MachineRefusalError",
         reason: "ambiguous_export",
       });
     } finally {
       await duplicate.close();
+      aliased.close();
       host.close();
     }
   });

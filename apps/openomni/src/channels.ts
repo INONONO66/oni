@@ -301,6 +301,14 @@ export function isRegisteredProvider(provider: string): provider is keyof typeof
 }
 
 /**
+ * Providers whose declared rows are contacts, not channels (#1512): a
+ * `channel:cli:<id>` row names a machine the Resident's letters go to over
+ * its pty. The row is declared through `channel_add` under Owner consent
+ * and validated by the contact's own door; the profile mounts nothing for it.
+ */
+export const CONTACT_ONLY_PROVIDERS: ReadonlySet<string> = new Set(["cli"]);
+
+/**
  * The pre-persist credential gate for `channel_add`/`secret_rotate`
  * (docs/provisioning-and-providers.md §5): the payload must parse under the
  * provider's credential schema BEFORE any row lands — an invalid credential
@@ -382,6 +390,10 @@ export function declaredChannelProfile(
   for (const instance of instances) {
     if (!instance.enabled) {
       record(instance, "disabled");
+      continue;
+    }
+    if (CONTACT_ONLY_PROVIDERS.has(instance.provider)) {
+      record(instance, "ready", "contact row: reached over the machine pty, no channel component");
       continue;
     }
     if (!isRegisteredProvider(instance.provider)) {

@@ -1,6 +1,6 @@
 import { Exit, Cause } from "effect";
 import { describe, expect, test } from "bun:test";
-import { statSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { statSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IpcRemoteError, connectIpcClient, createIpcServer, typedCall } from "./ipc/helpers/native";
@@ -628,11 +628,56 @@ describe("machine attach handshake", () => {
             effectiveExports: ["work"],
           });
           const handle = host.get("mac-studio");
+          // #1512: the consumer resolves a declared cwd against the attachment's effective roots through the host.
+          expect(host.native.exports("mac-studio")).toEqual([{ name: "work", path: root }]);
+          expect(() => host.native.exports("unknown-machine")).toThrow(/machine is not attached/);
           expect(await handle.pty.open("qa", "/")).toEqual({ status: "refused", reason: "path_escapes_export" });
           // A symlink under the export escapes it: refused before tmux runs.
           expect(await handle.pty.open("qa", join(root, "leak"))).toEqual({
             status: "refused",
             reason: "path_escapes_export",
+          });
+          daemon.close();
+        },
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("#1512 r2 L11: the export listing reads the one effective root set routing does — an offered export the enrollment does not allow is absent, and a root two allowed exports share is dropped because `location` refuses it as ambiguous", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roots-export-"));
+    const outside = mkdtempSync(join(tmpdir(), "roots-outside-"));
+    mkdirSync(join(root, "sub"));
+    try {
+      await withHost(
+        () => ({ ...enrollment, allowedCapabilities: ["fs.read"], allowedExports: ["work", "twin", "alias"] }),
+        async ({ host, path }) => {
+          const daemon = await attachMachineDaemon({
+            socketPath: path,
+            offer: offer({
+              offeredCapabilities: ["fs.read"],
+              exports: [
+                { name: "work", path: root },
+                { name: "twin", path: `${outside}/` },
+                { name: "alias", path: `${outside}/./` },
+                { name: "unallowed", path: join(root, "sub") },
+              ],
+            }),
+            fsExports: new Map([["work", root], ["twin", outside], ["alias", outside], ["unallowed", join(root, "sub")]]),
+          });
+          expect(daemon.attachment).toMatchObject({ status: "attached", effectiveExports: ["alias", "twin", "work"] });
+          // Listed: `work` alone — `twin` and `alias` share one normalized root, `unallowed` is not the enrollment's.
+          expect(host.native.exports("mac-studio")).toEqual([{ name: "work", path: root }]);
+          const handle = host.get("mac-studio");
+          // Routed the same way: the shared root is refused, the unallowed longer root is no candidate (its path
+          // resolves through `work`), and a path outside every effective root is refused.
+          await expect(handle.fs.stat(outside)).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "ambiguous_export" });
+          expect(await handle.fs.stat(join(root, "sub"))).toMatchObject({ op: "stat", kind: "dir" });
+          await expect(handle.fs.stat(join(tmpdir(), "nowhere-in-any-export"))).rejects.toMatchObject({
+            _tag: "MachineRefusalError",
+            reason: "export_not_available",
           });
           daemon.close();
         },

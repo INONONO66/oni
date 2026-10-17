@@ -479,7 +479,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     ).toMatchObject({ required: false });
     // The direct path (no consent on the invocation) refuses before anything lands or reconciles.
     await expect(tool.execute({ operation: { op: "channel_add", args } }, context)).rejects.toThrow(
-      "channel:slack:owner: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent",
+      "channel:slack:owner: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
     );
     // A webhook declaration naming a url is an outbound destination: the Owner's call, never the Resident's own.
     const target = {
@@ -500,7 +500,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       ),
     ).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: target } }, context)).rejects.toThrow(
-      "channel:webhook:out: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent",
+      "channel:webhook:out: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
     );
     expect(plane().stores.instances.get("channel:webhook:out")).toBeUndefined();
     expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
@@ -567,7 +567,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     });
     expect(approval({ operation: { op: "channel_add", args: { ...peer, credential: { token: "scout-token" } } } }, context)).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: peer } }, context)).rejects.toThrow(
-      "channel:a2a:scout: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent",
+      "channel:a2a:scout: an Owner instance, its outbound grant, a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
     );
     expect(plane().stores.instances.get("channel:a2a:scout")).toBeUndefined();
     expect(
@@ -919,7 +919,7 @@ test("#1600: the grant block is the Owner's — any block suspends for consent b
     domainRevisions: { "channel:telegram:main": -1 },
   });
   await expect(tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, context)).rejects.toThrow(
-    "a grant block and a webhook target's or a2a peer's url require Owner consent",
+    "a grant block, a webhook target's or a2a peer's url and a cli contact's machine require Owner consent",
   );
   expect(plane().stores.instances.get("channel:telegram:main")).toBeUndefined();
   expect(

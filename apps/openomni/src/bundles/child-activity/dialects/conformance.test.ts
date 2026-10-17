@@ -191,6 +191,46 @@ for (const pack of packs) {
       expect(matchScreen(pack.manifest, "unrecognized pane")).toBeUndefined();
     });
 
+    test("#1512: locates the transcript from its own live line and wires the observed events into its live config", async () => {
+      const fixtures = await fixtureFor(pack.manifest.id);
+      const live = pack.live;
+      // A pack with both sources must say where the transcript is; a live-only or transcript-only pack has nothing to join.
+      expect(pack.locate !== undefined).toBe(live !== undefined && pack.transcript !== undefined);
+      // One direction only (r1 M1): hooks must be wired, nothing is wired without a live source, and an extension pack
+      // may ship its own appender's wiring from inside its directory or leave it out.
+      const liveKind = pack.manifest.capabilities.live;
+      if (liveKind === "hooks") expect(pack.liveConfig).toBeDefined();
+      if (liveKind === "none") expect(pack.liveConfig).toBeUndefined();
+      const lines = fixtures.live ?? [];
+      // The spool envelope is app-owned: `event` names the vendor event the hook command received.
+      const Envelope = z.object({ event: z.string().min(1) });
+      const eventOf = (line: string) => Envelope.parse(JSON.parse(line)).event;
+      if (pack.locate !== undefined) {
+        expect(pack.locate("{")).toEqual({});
+        expect(pack.locate("{}")).toEqual({});
+        const located = lines.flatMap((fixture) => {
+          const path = pack.locate?.(fixture.line).transcriptPath;
+          return path === undefined ? [] : [{ event: eventOf(fixture.line), path }];
+        });
+        expect(located.length).toBeGreaterThan(0);
+        for (const entry of located) expect(entry.path.length).toBeGreaterThan(0);
+        if (pack.liveConfig !== undefined) {
+          const content = pack.liveConfig({ hookCommand: "/machine/hook" });
+          for (const entry of located) expect(content).toContain(`/machine/hook ${entry.event}`);
+        }
+      }
+      if (pack.liveConfig !== undefined && live !== undefined) {
+        const content = pack.liveConfig({ hookCommand: "/machine/hook" });
+        expect(() => JSON.parse(content)).not.toThrow();
+        expect(content).toContain("/machine/hook");
+        // Every tool row and the turn end must reach the spool: their events are wired.
+        for (const fixture of lines) {
+          if (fixture.phase !== "requested" && fixture.phase !== "result" && fixture.phase !== "terminal") continue;
+          expect(content).toContain(`/machine/hook ${eventOf(fixture.line)}`);
+        }
+      }
+    });
+
     test("provides a guarded submit recipe and optional correlated launch", () => {
       if (pack.launch !== undefined) {
         const launch = pack.launch({

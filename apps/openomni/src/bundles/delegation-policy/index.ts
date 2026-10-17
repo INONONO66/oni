@@ -162,6 +162,59 @@ export const DELEGATION_GUARD_REFS: readonly string[] = [
 
 export const DELEGATION_DEADLINE = "delegation.deadline";
 
+/**
+ * The chain one cli child's deadline rides (#1512 r2 M2):
+ * `<session>:delegation.deadline:<child>`. One chain per child, so retiring
+ * child A's deadline (`at: null`) never supersedes the occurrence armed for
+ * child B in the same sender session — the deadline bounds THAT child. A
+ * `to.new` session child keeps the #1258 session chain
+ * (`<session>:delegation.deadline`), where a second arm supersedes the first.
+ */
+export function cliDeadlineChain(sessionId: string, child: string): string {
+  return `${sessionId}:${DELEGATION_DEADLINE}:${child}`;
+}
+
+/** One arm of the deadline purpose for a created child session or a cli child. */
+export interface DeadlineArmInput {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly child: string;
+  /** `session:<id>` or `cli:<id>`: tells the cancel door which interrupt the fire takes, and names the chain. */
+  readonly contact: string;
+  readonly at: number;
+}
+
+export interface DeadlineArmRefused {
+  readonly reason: string;
+}
+
+/** An armed deadline and its retire door: the same chain and source key armed `at: null` once the turn has ended (#1512 r1 L1). */
+export interface DeadlineArm {
+  readonly retire: Effect.Effect<void, DeadlineArmRefused>;
+}
+
+/**
+ * Arms `delegation.deadline` through the caller's ONE arm verb — minted
+ * before the first await, never re-resolved (#1254 r5 H1) — and answers with
+ * the retire door on the chain the arm landed on. A cli child gets its own
+ * chain (`cliDeadlineChain`); a session child the session's shared one.
+ */
+export function armDelegationDeadline(arm: Core.ArmVerb, input: DeadlineArmInput): Effect.Effect<DeadlineArm, DeadlineArmRefused> {
+  const payload = { child: input.child, contact: input.contact };
+  const sourceKey = `delegation:${input.child}`;
+  const chain = input.contact.startsWith("cli:") ? { alarmId: cliDeadlineChain(input.sessionId, input.child) } : {};
+  const refused = (error: Core.ArmRefused): DeadlineArmRefused => ({ reason: error.code });
+  return arm({ purpose: DELEGATION_DEADLINE, at: input.at, payload, sourceKey, ...chain }).pipe(
+    Effect.map((armed) => ({
+      retire: arm({ purpose: DELEGATION_DEADLINE, at: null, alarmId: armed.alarmId, supersedes: armed.occurrenceId, payload, sourceKey }).pipe(
+        Effect.asVoid,
+        Effect.mapError(refused),
+      ),
+    })),
+    Effect.mapError(refused),
+  );
+}
+
 /** Armed alongside a `to.new` send carrying `deadline_ms`. */
 const DeadlinePayload = z
   .object({
@@ -172,18 +225,33 @@ const DeadlinePayload = z
   })
   .strict();
 
-/** Composition wires this to the entity deliver door: `signal{control: cancel}` to the child. */
+/**
+ * What the cancel door did: `cancelled` interrupted a running child;
+ * `already_ended` found the child's turn over before the fire reached it
+ * (#1512: a cli turn that resolved while its deadline was still armed), so
+ * nothing was interrupted and the parent is not told of an expiry.
+ */
+type DeadlineCancelOutcome = "cancelled" | "already_ended";
+
+/**
+ * Composition wires this to the outbound cancel door: `signal{control:
+ * cancel}` to a child session, or (#1512) the pty interrupt for a `cli:`
+ * child — the armed `contact` tells the door which.
+ */
 export interface DelegationDeadlineDeps {
   cancel(input: {
     readonly child: string;
+    /** The contact the deadline was armed for: `session:<id>` or `cli:<id>`. */
+    readonly contact: string;
     readonly occurrenceId: string;
-  }): Effect.Effect<void, { readonly reason: string }>;
+  }): Effect.Effect<DeadlineCancelOutcome, { readonly reason: string }>;
 }
 
 /**
  * On fire: cancel the silent child through the injected outbound door, then
  * prompt the parent with the expiry fact — no reply counts as unknown, and
- * the parent decides what happens next.
+ * the parent decides what happens next. A door that finds the turn already
+ * ended makes the fire a no-op: no prompt, the chain lapses `exhausted`.
  */
 function deadlineWake(deps: DelegationDeadlineDeps): Bundle.AlarmPurposeHandler {
   return ({ fired, ctx }) =>
@@ -192,12 +260,13 @@ function deadlineWake(deps: DelegationDeadlineDeps): Bundle.AlarmPurposeHandler 
         try: () => DeadlinePayload.parse(JSON.parse(fired.payload)),
         catch: () => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "payload" }),
       });
-      yield* deps.cancel({ child: payload.child, occurrenceId: fired.occurrenceId }).pipe(
+      const cancelled = yield* deps.cancel({ child: payload.child, contact: payload.contact, occurrenceId: fired.occurrenceId }).pipe(
         Effect.mapError(
           (refused) =>
             new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.reason }),
         ),
       );
+      if (cancelled === "already_ended") return "exhausted" as const;
       yield* ctx.prompt({
         content: JSON.stringify({
           kind: DELEGATION_DEADLINE,
