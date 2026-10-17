@@ -235,12 +235,9 @@ test("a bundle and a capability ride one off list: each cascade keeps its own ro
 
 test("an off name the manifest never declared refuses the boot typed: no runtime, no model call", async () => {
   const toolsSeen: string[][] = [];
-  const refusal = await bootWithOff("cap-off-unknown-", ["not-a-capability"], toolsSeen).then(
-    () => undefined,
-    (error: unknown) => error,
-  );
-  expect(refusal).toBeInstanceOf(Bundle.DefineRefused);
-  expect(refusal).toMatchObject({ code: "unknown", name: "manifest", detail: "not-a-capability" });
+  const boot = bootWithOff("cap-off-unknown-", ["not-a-capability"], toolsSeen);
+  await expect(boot).rejects.toBeInstanceOf(Bundle.DefineRefused);
+  await expect(boot).rejects.toMatchObject({ code: "unknown", name: "manifest", detail: "not-a-capability" });
   expect(toolsSeen).toEqual([]);
 }, 40_000);
 
