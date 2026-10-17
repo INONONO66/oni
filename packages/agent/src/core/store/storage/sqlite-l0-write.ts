@@ -154,18 +154,15 @@ export function appendAction(
   // `SchemaRefused`, never a silent `undefined`.
   refuseRow(action, limits, refuse);
   if (!validActionBatch(db, [action], action.sessionId)) return undefined;
-  return appendValidatedAction(db, action, expectedRevision, limits, refuse);
+  return appendValidatedAction(db, action, expectedRevision);
 }
 
-/** Callers guarantee `validActionBatch` covered this action in-transaction; no re-query. */
+/** Callers guarantee `refuseRow` and `validActionBatch` covered this action in-transaction. */
 function appendValidatedAction(
   db: Database,
   action: LedgerAction.Append,
   expectedRevision: number,
-  limits: AppendLimits,
-  refuse?: RefuseWrite,
 ): LedgerAction.Receipt | undefined {
-  refuseRow(action, limits, refuse);
   const revision = expectedRevision + 1;
   const updated = db
     .query(
@@ -224,6 +221,7 @@ export function commitSession(
   if (current === undefined) return undefined;
   const refusal = sessionAuthorityRefusal(db, request, current);
   if (refusal !== undefined) return refusal;
+  for (const action of request.actions) refuseRow(action, limits, refuse);
   if (!validActionBatch(db, request.actions, request.sessionId)) {
     return refusedSessionCommit("revision", current);
   }
@@ -231,8 +229,7 @@ export function commitSession(
   const receipts: LedgerAction.Receipt[] = [];
   let revision = current.revision;
   for (const action of request.actions) {
-    // `validActionBatch` above already ran the existence and parent checks.
-    const receipt = appendValidatedAction(db, action, revision, limits, refuse);
+    const receipt = appendValidatedAction(db, action, revision);
     if (receipt === undefined) return refusedSessionCommit("revision", current);
     receipts.push(receipt);
     revision = receipt.revision;

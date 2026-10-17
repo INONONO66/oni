@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 
 import type { LedgerError } from "../src/core/store/errors";
 import type { AnyToolDefinition, LedgerAction, PlainValue, SessionGeneration } from "@openomni/protocol";
-import { Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { z } from "zod";
 import { CommitFailed, AgentFailure, GenerationUnavailable } from "../src/core/ports/failure";
 import { createExecutor } from "../src/core/loop/executor";
@@ -267,3 +267,23 @@ test("retired generation stays acquired after interrupted fiber until its raw sl
   yield* Deferred.await(closed);
   expect(finalized).toBe(1);
 }))));
+
+test("a defect in the selected generation's activate still releases its scope at shutdown", () => isolated(Effect.gen(function* () {
+  let acquired = 0;
+  let released = 0;
+  let committed = 0;
+  const counted = (generation: number, name: string, activate: Effect.Effect<void>): GenerationBundle => {
+    const base = bundle(generation, name, () => { released += 1; });
+    return { ...base, activate, layer: Layer.merge(base.layer, Layer.effectDiscard(Effect.sync(() => { acquired += 1; }))) };
+  };
+  const exit = yield* Effect.scoped(Effect.gen(function* () {
+    const generations = yield* makeSessionGenerations(counted(1, "A", Effect.void));
+    return yield* Effect.exit(generations.configure(counted(2, "B", Effect.die("activate defect")), Effect.sync(() => { committed += 1; })));
+  }));
+  console.info(`A6 activate defect acquired=${acquired} released=${released}`);
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined).toBe("activate defect");
+  expect(committed).toBe(1);
+  expect(acquired).toBe(2);
+  expect(released).toBe(acquired);
+})));

@@ -366,9 +366,9 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * Catalog lock encloses the session-file write: index first, so lost races refuse before session writes.
-   * A pre-inner-commit failure unwinds both; a later catalog fault strands the file. `createdAt` is caller's
-   * clock. A colliding row is `duplicate` only with a file behind it; catalog-only is `orphan_index`.
+   * The session file commits first, then the index row in its own unit; a refused or thrown index
+   * deletes the uncommitted-to-catalog session again. `createdAt` is the caller's clock. A colliding
+   * row is `duplicate` only with a file behind it; a catalog row alone is `orphan_index`.
    */
   private indexed<T>(
     index: SessionIndexUnit,
@@ -378,17 +378,19 @@ export class SessionStore extends StoreHandle {
     write: (materialize: LedgerSession.Materialize) => T,
   ): T {
     const materialize = LedgerSession.Materialize.parse(input);
-    return index.transaction(() => {
-      const { id, parentId, role } = materialize.row;
-      if (!index.indexSession({ id, parentId, role, createdAt }))
-        return refuse(
-          new CreateRefused({
-            sessionId: id,
-            reason: selectSession(this.db, id) === undefined ? "orphan_index" : "duplicate",
-          }),
-        );
-      return this.transaction(() => write(materialize));
-    });
+    const { id, parentId, role } = materialize.row;
+    const written = this.transaction(() => write(materialize));
+    let indexed = false;
+    try {
+      indexed = index.transaction(() => index.indexSession({ id, parentId, role, createdAt }));
+    } finally {
+      if (!indexed)
+        this.transaction(() => {
+          this.db.query("DELETE FROM session WHERE id = ?").run(id);
+          this.db.run("DELETE FROM tool_outputs");
+        });
+    }
+    return indexed ? written : refuse(new CreateRefused({ sessionId: id, reason: "orphan_index" }));
   }
 }
 

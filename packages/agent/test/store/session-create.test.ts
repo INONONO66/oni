@@ -211,6 +211,7 @@ test("a failed catalog index leaves no session file and retry creates the same i
     ));
     expect(Result.isFailure(result)).toBe(true);
     expect(Result.isFailure(result) ? result.failure : undefined).toBeInstanceOf(CreateRefused);
+    expect(Result.isFailure(result) ? result.failure : undefined).toMatchObject({ _tag: "CreateRefused", sessionId: "s-index-fail", reason: "write" });
     expect(plane.catalog.sessionIndex("s-index-fail")).toBeUndefined();
     expect(existsSync(path)).toBe(false);
     expect(
@@ -219,14 +220,49 @@ test("a failed catalog index leaves no session file and retry creates the same i
         .map((name) => name.slice(0, -".sqlite".length))
         .sort(),
     ).toEqual(plane.catalog.sessionIds());
+    expect(plane.listSessions()).toEqual([]);
     console.info(`A2 failed create filesOnDisk=0 session_index=0`);
     plane.catalog.indexSession = index;
-    const created = runLedgerSync(
+    const retried = runLedgerSync(Effect.result(
       createSession(plane, { id: "s-index-fail", parentId: null, role: "resident", genesis }),
-    );
-    expect(created.row.id).toBe("s-index-fail");
+    ));
+    expect(Result.isSuccess(retried)).toBe(true);
+    const created = Result.isSuccess(retried) ? retried.success : undefined;
+    expect(created?.row).toMatchObject({ id: "s-index-fail", parentId: null, role: "resident", revision: 1 });
+    expect(plane.catalog.sessionIndex("s-index-fail")).toMatchObject({ id: "s-index-fail", parentId: null, role: "resident" });
+    expect(plane.listSessions().map((row) => row.id)).toEqual(["s-index-fail"]);
+    expect(existsSync(path)).toBe(true);
   } finally {
     plane.catalog.indexSession = index;
+    close();
+  }
+});
+
+test("the session file commits before its index row; a thrown index commit leaves neither", () => {
+  const { plane, sessionsDir, close } = openPlane();
+  const transaction = plane.catalog.transaction;
+  let fileBeforeIndex: boolean | undefined;
+  Object.defineProperty(plane.catalog, "transaction", {
+    configurable: true,
+    value: <T>(operation: () => T): T => transaction(() => {
+      fileBeforeIndex = plane.sessionStore("s-order").sessions.get("s-order") !== undefined;
+      operation();
+      throw new Error("injected index commit fault");
+    }),
+  });
+  try {
+    const result = runLedgerSync(Effect.result(
+      createSession(plane, { id: "s-order", parentId: null, role: "resident", genesis }),
+    ));
+    expect(Result.isFailure(result) ? result.failure : undefined).toMatchObject({ _tag: "CreateRefused", reason: "write" });
+    expect(fileBeforeIndex).toBe(true);
+    expect(plane.catalog.sessionIndex("s-order")).toBeUndefined();
+    expect(existsSync(join(sessionsDir, "s-order.sqlite"))).toBe(false);
+    expect(plane.listSessions()).toEqual([]);
+    console.info(`A6 create order fileBeforeIndex=${fileBeforeIndex} session_index=0 listSessions=0`);
+    Object.defineProperty(plane.catalog, "transaction", { configurable: true, value: transaction });
+    expect(runLedgerSync(createSession(plane, { id: "s-order", parentId: null, role: "resident", genesis })).row.revision).toBe(1);
+  } finally {
     close();
   }
 });

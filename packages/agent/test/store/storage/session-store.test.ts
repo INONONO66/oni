@@ -278,6 +278,15 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
     expect(chainHead(path)).toEqual(settled);
     expect(kernel.row("s2").revision).toBe(revision);
     expect(kernel.verifyChain("s2")).toMatchObject({ kind: "intact", length: 2 });
+    const reused = runLedgerSync(Effect.flip(commit([{ ...over, id: "s2:at-cap" }])));
+    expect(reused).toMatchObject({ _tag: "SchemaRefused", actionId: "s2:at-cap", reason: "row_bytes" });
+    expect(kernel.row("s2").revision).toBe(revision);
+    // A duplicate id ahead of an invalid row: the row refusal wins over the batch's revision refusal.
+    const mixed = runLedgerSync(Effect.flip(commit([{ ...small, id: "s2:at-cap" }, { ...over, parentId: "s2:at-cap" }])));
+    expect(mixed).toBeInstanceOf(SchemaRefused);
+    expect(mixed).toMatchObject({ _tag: "SchemaRefused", actionId: "s2:over", reason: "row_bytes" });
+    expect(chainHead(path)).toEqual(settled);
+    expect(kernel.row("s2").revision).toBe(revision);
 
     // The injected cap, not a literal: a store opened with a smaller cap refuses the same 256-byte row.
     session.close();

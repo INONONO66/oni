@@ -98,3 +98,15 @@ describe("Session.fork copies referenced tool outputs (#1305)", () => {
     expect(refusal.detail).toContain("exceed the cap 4096");
   });
 });
+
+test("a referenced output the parent no longer holds refuses the fork with no child row or index", () => {
+  const parent = fixture.buildParent();
+  fixture.commit(parent.authority, [refRow("turn-1:terminal", OUTPUT_ID, 12), terminalRow("turn-2")]);
+  const refusal = fixture.refusalOf(fixture.fork(hashOf("turn-2:terminal")));
+  expect(refusal).toMatchObject({ _tag: "ForkRefused", reason: "output_missing" });
+  expect(stores.kernel.toolOutput(OUTPUT_ID)).toBeUndefined();
+  expect(child().toolOutputs.get(OUTPUT_ID)).toBeUndefined();
+  expect(refusal.detail).toBe(`parent holds no tool output ${OUTPUT_ID}`);
+  expect(child().sessions.get(CHILD)).toBeUndefined();
+  expect(stores.catalog.sessionIndex(CHILD)).toBeUndefined();
+});

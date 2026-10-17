@@ -135,8 +135,8 @@ export function makeSessionGenerations(initial: GenerationBundle) {
         yield* admitCapture(bundle, entry);
         if (entry === undefined) {
           entry = yield* restore(acquire(bundle));
-          yield* bundle.activate;
           entries.set(bundle.id.generation, entry);
+          yield* bundle.activate;
         }
         const release = entry.owners.open();
         yield* Effect.addFinalizer(() => Effect.sync(release));
@@ -161,11 +161,11 @@ export function makeSessionGenerations(initial: GenerationBundle) {
           return yield* new GenerationUnavailable({ generation: bundle.id.generation });
         const candidate = yield* restore(acquire(bundle));
         const receipt = yield* commit.pipe(Effect.onError((cause) => Scope.close(candidate.scope, Exit.failCause(cause))));
-        yield* bundle.activate;
         const previous = current;
         entries.set(bundle.id.generation, candidate);
         current = candidate;
         yield* retire(previous);
+        yield* bundle.activate;
         return receipt;
       })));
     }

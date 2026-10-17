@@ -1,4 +1,4 @@
-import { configureAction } from "../store/configure";
+import { configurationSnapshot, configureAction } from "../store/configure";
 /**
  * The child genesis pins the parent, anchor, anchor parent ordinal and chain
  * head so later parent appends never alter the child's verification. Arms,
@@ -31,7 +31,8 @@ export type ForkRefusalReason =
   | "anchor_not_boundary"
   | "byte_cap"
   | "child_exists"
-  | "child_id_invalid";
+  | "child_id_invalid"
+  | "output_missing";
 
 /** Every fork failure path lands here. */
 export class ForkRefused extends Data.TaggedError("ForkRefused")<{
@@ -175,6 +176,8 @@ interface ForkPlan {
   /** Stored outputs the copied rows reference, re-stored on the child. */
   readonly outputs: readonly ToolOutputWrite[];
   readonly forkedFrom: SessionGeneration.ForkAncestry;
+  /** The newest configure at or before the anchor. */
+  readonly snapshot: SessionGeneration.Snapshot;
 }
 
 /** Refuses before any child write. */
@@ -215,8 +218,11 @@ function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
   const outputs: ToolOutputWrite[] = [];
   for (const outputId of outputIds) {
     const stored = ports.parent.toolOutput(outputId);
-    if (stored !== undefined) outputs.push(stored);
+    if (stored === undefined) return refuse("output_missing", `parent holds no tool output ${outputId}`);
+    outputs.push(stored);
   }
+  const snapshot = eligible.map(configurationSnapshot).filter((entry) => entry !== undefined).at(-1);
+  if (snapshot === undefined) return refuse("anchor_not_found", "no configured generation precedes the anchor");
   const bytes =
     eligible.reduce((total, node) => total + actionPayloadBytes(node), 0) +
     outputs.reduce((total, output) => total + output.bytes.byteLength, 0);
@@ -232,6 +238,7 @@ function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
     parentRow,
     copies: eligible.map((node) => copyAction(node, input.childId, ids, renames)),
     outputs,
+    snapshot,
     forkedFrom: {
       session: input.from,
       anchor: anchor.actionHash,
@@ -249,8 +256,7 @@ export function forkSession(
   return Effect.gen(function* () {
     const plan = planFork(ports, input);
     if (plan instanceof ForkRefused) return yield* plan;
-    const { parentRow, copies, outputs, forkedFrom } = plan;
-    const snapshot = ports.parent.latestGenerationFor(input.from);
+    const { parentRow, copies, outputs, forkedFrom, snapshot } = plan;
     const child = ports.openChild();
     if (child.sessions.get(input.childId) !== undefined)
       return yield* new ForkRefused({

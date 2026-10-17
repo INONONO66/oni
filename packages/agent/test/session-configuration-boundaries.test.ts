@@ -1,7 +1,7 @@
-import { latestGeneration } from "../src/core/store/configure";
+import { generationSnapshot, latestGeneration } from "../src/core/store/configure";
 import { sessionTree as kernelSessionTree } from "./helpers/session-tree";
 import { isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices } from "./helpers/session-services";
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { expect, it } from "bun:test";
 
 import { closeSessions, type SessionHandle } from "../src/core/session/run";
@@ -102,6 +102,32 @@ it("rejects configuration whose authorization outlives its captured generation",
               }
             }),
         );
+      }),
+    ),
+  ));
+
+it("refuses a redeclaration whose bundles differ from the durable generation", () =>
+  isolated(
+    Effect.scoped(
+      Effect.gen(function* () {
+        let sequence = 0;
+        const runtime: SessionFixture = { observations: collector(), clock: () => 1000, entropy: () => `redeclare-${++sequence}`, processId: "redeclare", ...isolatedRuntime(), authorizeConfigure: () => Effect.succeed(true) };
+        seedPolicy();
+        yield* Effect.addFinalizer(() => closeSessions(runtime).pipe(Effect.orDie));
+        const declare = (bundles: readonly string[]) => withSessionServices(session({
+          id: "redeclare-session", role: "resident", bundles,
+          runner: () => Effect.succeed({ kind: "result", text: "done" }),
+        }, runtime), runtime);
+        yield* declare(["a"]);
+        yield* closeSessions(runtime);
+        const seed = { generation: 1, revertTo: 0, tools: [], system: { preset: "", blocks: [] }, policyGeneration: 0 };
+        const [first, second] = [generationSnapshot({ ...seed, bundles: ["a"] }), generationSnapshot({ ...seed, bundles: ["b"] })];
+        expect([second.toolsHash, second.systemHash]).toEqual([first.toolsHash, first.systemHash]);
+        expect(second.bundles).not.toEqual(first.bundles);
+        const refused = yield* Effect.exit(declare(["b"]));
+        expect(Exit.isFailure(refused)).toBe(true);
+        expect(String(Exit.isFailure(refused) ? Cause.squash(refused.cause) : undefined)).toContain("session declaration conflicts with durable generation: redeclare-session");
+        expect(Exit.isSuccess(yield* Effect.exit(declare(["a"])))).toBe(true);
       }),
     ),
   ));
