@@ -435,6 +435,7 @@ export function childSource(
   const admitted = new Map(ports.rows(spec.sessionId).map((row) => [row.key, row]));
   const childFacts = new Set([...admitted.values()].flatMap((row) =>
     row.kind === "child_fact" && row.content.child === spec.child ? [row.key] : []));
+  const configured = [spec.spool, spec.transcript].filter((location) => location !== undefined).length;
   let spool: SpoolCursor | undefined;
   let transcript: TranscriptCursor | undefined;
   let closed = false;
@@ -495,23 +496,29 @@ export function childSource(
     for (const row of rows) {
       if (closed) return;
       if (admitted.has(row.key)) continue;
-      for (const accepted of await ports.admit(spec.sessionId, [row])) admitted.set(accepted.key, accepted);
+      try {
+        for (const accepted of await ports.admit(spec.sessionId, [row])) admitted.set(accepted.key, accepted);
+      } catch (error) {
+        // A Deliver may have committed before its reply was lost: the retry must see what the journal holds.
+        for (const persisted of ports.rows(spec.sessionId)) admitted.set(persisted.key, persisted);
+        throw error;
+      }
     }
   }
 
   async function drainSpool(location: NonNullable<ChildWatch["spool"]>) {
-      const file = spool?.file ?? restored(location);
-      if (spool === undefined && file !== undefined) {
-        const lastSeq = [...admitted.values()].reduce((seq, row) =>
+      // The sequence belongs to the child, so it is restored even when this file location has no checkpoint.
+      spool ??= {
+        file: restored(location),
+        lastSeq: [...admitted.values()].reduce((seq, row) =>
           row.kind === "child_receipt" && childFacts.has(row.content.factKey) && "kind" in row.content.ref
-            ? Math.max(seq, row.content.ref.seq) : seq, -1);
-        spool = { file, lastSeq };
-      }
+            ? Math.max(seq, row.content.ref.seq) : seq, -1),
+      };
       let more = true;
       while (more && !closed) {
-        const input = await read(location, spool?.file);
+        const input = await read(location, spool.file);
         if (input === undefined) break;
-        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, ...(spool === undefined ? {} : { cursor: spool }) });
+        const decoded = decodeSpool({ ...input, pack, child: spec.child, turn: spec.turn, cursor: spool });
         await accept([...reconcile(decoded.observations, [...admitted.values()], decoded.replays), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
         spool = decoded.cursor;
         more = input.more;
@@ -529,16 +536,31 @@ export function childSource(
         more = input.more;
       }
   }
-  async function drain() {
-    if (spec.spool !== undefined) await drainSpool(spec.spool);
-    if (spec.transcript !== undefined) await drainTranscript(spec.transcript);
+  /** Each source drains on its own: a broken spool read must not stop transcript admission. */
+  async function drain(): Promise<Error[]> {
+    const failures: Error[] = [];
+    const isolated = (run: Promise<void>) => run.catch((error: Error) => { failures.push(error); });
+    if (spec.spool !== undefined) await isolated(drainSpool(spec.spool));
+    if (spec.transcript !== undefined) await isolated(drainTranscript(spec.transcript));
+    return failures;
   }
-  let pending = drain();
-  const ready = pending;
+  const report = (failures: readonly Error[]) => {
+    for (const failure of failures) options.failure(failure);
+  };
+  // The first drain settles `ready`: it refuses only when every configured source failed.
+  const ready = drain().then((failures) => {
+    const [first] = failures;
+    if (first !== undefined && failures.length === configured) {
+      report(failures.slice(1));
+      throw first;
+    }
+    report(failures);
+  });
+  let pending = ready;
   return {
     ready,
     observe() {
-      pending = pending.then(() => closed ? undefined : drain()).catch((error: Error) => options.failure(error));
+      pending = pending.then(() => closed ? undefined : drain().then(report)).catch((error: Error) => options.failure(error));
       return pending;
     },
     async close() {

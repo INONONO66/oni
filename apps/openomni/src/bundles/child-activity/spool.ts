@@ -1,21 +1,22 @@
-import { PlainValueSchema, canonicalJson, parseJson, type TranscriptRef } from "@openomni/protocol";
-import { z } from "zod";
+import { canonicalJson, type TranscriptRef } from "@openomni/protocol";
 import { DialectDecodeError, type DialectPack } from "./dialects/pack";
 import { splitLines, transcriptCursor, type Generation, type SourceDiagnostic, type SourceObservation, type TranscriptCursor } from "./transcript";
 
-const SpoolEnvelope = z.object({
-  seq: z.number().int().nonnegative(),
-  receivedAt: z.number().int().nonnegative(),
-  payload: PlainValueSchema,
-  decision: z.enum(["allow", "deny"]).optional(),
-});
-
 export interface SpoolCursor {
-  readonly file: TranscriptCursor;
+  /** Absent until a spool file has been read; the sequence may be restored before that. */
+  readonly file?: TranscriptCursor;
   /** Sequence belongs to the child, not to a particular file generation. */
   readonly lastSeq: number;
 }
 
+/** A refused re-read of a sequence the child already used; the digest tells a replay from changed bytes. */
+export interface SpoolReplay {
+  readonly child: string;
+  readonly seq: number;
+  readonly digest: string;
+}
+
+/** The pack's `live` decoder owns the sequence gate; this adapter consumes its typed refusal. */
 export function decodeSpool(input: {
   readonly pack: DialectPack;
   readonly child: string;
@@ -33,18 +34,13 @@ export function decodeSpool(input: {
   });
   let lastSeq = input.cursor?.lastSeq ?? -1;
   const observations: SourceObservation[] = [];
-  const replays: { readonly child: string; readonly turn: string; readonly seq: number; readonly digest: string }[] = [];
+  const replays: SpoolReplay[] = [];
   const diagnostics: SourceDiagnostic[] = resumed.diagnostics.map((diagnostic) => ({ ref: input.ref, diagnostic }));
   for (const line of split.lines) {
     const ref = { ...input.ref, range: line.range };
     try {
-      const envelope = parseJson(SpoolEnvelope, line.text);
-      if (envelope === undefined) throw new DialectDecodeError("live", "malformed");
-      if (envelope.seq <= lastSeq) {
-        replays.push({ child: input.child, turn: input.turn, seq: envelope.seq, digest: line.digest });
-        throw new DialectDecodeError("live", "stale_seq");
-      }
       const evidence = decode(line.text, { child: input.child, turn: input.turn, lastSeq });
+      if (!("kind" in evidence.ref)) throw new TypeError("live decoder returned a transcript reference");
       observations.push({
         evidence: {
           ...evidence,
@@ -54,11 +50,13 @@ export function decodeSpool(input: {
             { code: "spool_ref", detail: canonicalJson(ref) },
           ],
         },
-        observedAt: envelope.receivedAt,
+        observedAt: evidence.ref.receivedAt,
       });
-      lastSeq = envelope.seq;
+      lastSeq = evidence.ref.seq;
     } catch (error) {
       if (!(error instanceof DialectDecodeError)) throw error;
+      const seq = error.detail?.seq;
+      if (error.code === "stale_seq" && seq !== undefined) replays.push({ child: input.child, seq, digest: line.digest });
       diagnostics.push({ ref, diagnostic: { code: error.code, detail: error.message } });
     }
   }

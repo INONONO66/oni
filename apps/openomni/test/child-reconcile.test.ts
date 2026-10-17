@@ -116,6 +116,19 @@ test("a refused spool replay diagnoses changed bytes without admitting another f
   ]);
 });
 
+test("a replayed sequence matches the child's earlier receipt on another turn", () => {
+  const text = `${fixture("live", "requested")}\n`;
+  const input = { ...identity, pack, ref: reference(text), chunk: Buffer.from(text) };
+  const original = decodeSpool(input);
+  const rows = reconcile(original.observations, []);
+  const changed = decodeSpool({ ...input, turn: "another-turn", chunk: Buffer.from(` ${text}`), cursor: original.cursor });
+  expect(changed.replays).toEqual([{ child: identity.child, seq: original.cursor.lastSeq, digest: changed.replays[0]?.digest ?? "" }]);
+  expect(changed.replays[0]?.digest).not.toBe(rows[1]?.kind === "child_receipt" ? rows[1].content.diagnostics[0]?.detail : undefined);
+  const conflicts = reconcile(changed.observations, rows, changed.replays);
+  expect(conflicts).toMatchObject([{ kind: "child_conflict", content: { code: "idempotency_conflict", key: rows[1]?.key } }]);
+  expect(stateReceipts(rows, identity.child, "another-turn")).toEqual([]);
+});
+
 test("current state chooses hook authority over a later disagreeing transcript", () => {
   const rows = reconcile([...observed("transcript", "terminal"), ...observed("live", "waiting")], []);
   const receipts = stateReceipts(rows, identity.child, identity.turn);
@@ -174,4 +187,19 @@ test("source decoders report malformed records and refuse missing pack capabilit
   const valid = `${fixture("live", "requested")}\n`;
   expect(() => decodeSpool({ ...input, pack: broken, chunk: Buffer.from(valid) })).toThrow(TypeError);
   expect(() => decodeTranscript({ ...input, pack: broken, observedAt: 1 })).toThrow(TypeError);
+  // A live decoder must answer with a hook reference; the spool adapter takes its time and sequence from it.
+  const crossed = {
+    ...pack,
+    live: (line: string, context: { child: string; turn: string }) => {
+      if (pack.transcript === undefined) throw new Error("transcript decoder missing");
+      return pack.transcript(line, { ...context, ref: input.ref });
+    },
+  };
+  const record = `${fixture("transcript", "requested")}\n`;
+  expect(() => decodeSpool({ ...input, pack: crossed, chunk: Buffer.from(record) })).toThrow(TypeError);
+  // A stale refusal without the refused sequence is a diagnostic only, never a replay to match.
+  const terse = { ...pack, live: () => { throw new DialectDecodeError("live", "stale_seq"); } };
+  const unmatched = decodeSpool({ ...input, pack: terse, chunk: Buffer.from(valid) });
+  expect(unmatched.replays).toEqual([]);
+  expect(unmatched.diagnostics.map((entry) => entry.diagnostic.code)).toEqual(["stale_seq"]);
 });

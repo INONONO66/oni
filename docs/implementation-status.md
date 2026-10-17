@@ -9,7 +9,19 @@ per-source receipts through entity Deliver, and exposes an
 authority-ordered read model; the existing watch owner reads verified remote
 locations through daemon filesystem calls and the alarm cadence, with
 fixture-backed real-daemon/entity tests but no live external-child launch
-claimed.
+claimed. r1 (2026-10-17, ruling amendment
+https://github.com/INONONO66/openomni/issues/1511#issuecomment-6233905889):
+a transcript line re-read under a new file generation lands as a new
+`child_receipt` beside the `generation_changed` diagnostic row, never an
+`idempotency_conflict`; the dialect pack's `live` decoder is the one owner of
+the per-child sequence gate and `spool.ts` consumes its typed `stale_seq`
+refusal (`DialectDecodeError.detail.seq`) instead of re-parsing the line;
+spool and transcript drain inside their own failure boundary, every failure
+reaches the watch owner's failure port, `ready` rejects only when every
+configured source failed on the first drain, and a refused spool read never
+stops transcript admission for the same child; a Deliver whose reply was lost
+refreshes the admitted rows before the retry, and the restored sequence and
+replay matching belong to the child, not to one file or turn.
 
 ## #1527 worker dialect packs (epic #1508)
 

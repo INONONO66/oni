@@ -1,5 +1,6 @@
 import { ChildLifecycleEvidence, TranscriptRef, canonicalDigest, canonicalJson, parseJson, type LedgerAction } from "@openomni/protocol";
 import { z } from "zod";
+import type { SpoolReplay } from "./spool";
 import type { SourceDiagnostic, SourceObservation } from "./transcript";
 
 const Fact = ChildLifecycleEvidence.pick({ child: true, turn: true, toolUseId: true, phase: true });
@@ -68,7 +69,7 @@ export function diagnosticRow(
 export function reconcile(
   observations: readonly SourceObservation[],
   admitted: readonly ChildRow[],
-  replays: readonly { readonly child: string; readonly turn: string; readonly seq: number; readonly digest: string }[] = [],
+  replays: readonly SpoolReplay[] = [],
 ): ChildRow[] {
   const known = new Map(admitted.map((row) => [row.key, row]));
   const added: ChildRow[] = [];
@@ -107,7 +108,8 @@ export function reconcile(
     });
   }
   for (const replay of replays) {
-    const previous = stateReceipts([...known.values()], replay.child, replay.turn).find(
+    // A sequence belongs to the child, so the earlier receipt may sit on another turn.
+    const previous = childReceipts([...known.values()], replay.child).find(
       (entry) => "kind" in entry.receipt.ref && entry.receipt.ref.seq === replay.seq,
     );
     const digest = previous?.receipt.diagnostics.find((entry) => entry.code === "source_sha256");
@@ -151,14 +153,16 @@ export function currentState(receipts: readonly StateReceipt[]): StateReceipt | 
   }, undefined);
 }
 
-/** Join persisted receipt references to their source-free facts for one child turn. */
-export function stateReceipts(rows: readonly ChildRow[], child: string, turn: string): StateReceipt[] {
+function childReceipts(rows: readonly ChildRow[], child: string): StateReceipt[] {
   const facts = new Map(rows.flatMap((row) => row.kind === "child_fact" ? [[row.key, row.content] as const] : []));
   return rows.flatMap((row) => {
     if (row.kind !== "child_receipt") return [];
     const fact = facts.get(row.content.factKey);
-    return fact?.child === child && fact.turn === turn
-      ? [{ fact, receipt: row.content, source: source(row.content.ref) }]
-      : [];
+    return fact?.child === child ? [{ fact, receipt: row.content, source: source(row.content.ref) }] : [];
   });
+}
+
+/** Join persisted receipt references to their source-free facts for one child turn. */
+export function stateReceipts(rows: readonly ChildRow[], child: string, turn: string): StateReceipt[] {
+  return childReceipts(rows, child).filter((entry) => entry.fact.turn === turn);
 }

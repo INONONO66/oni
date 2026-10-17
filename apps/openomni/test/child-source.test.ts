@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { MachineRefusalError } from "@openomni/machines";
+import { canonicalJson } from "@openomni/protocol";
 import { childSource, createWatchSources, type ChildSourcePorts } from "../src/composition/watch-sources";
-import { type ChildRow, currentState, stateReceipts } from "../src/bundles/child-activity/reconcile";
+import { type ChildRow, conflictRow, currentState, stateReceipts } from "../src/bundles/child-activity/reconcile";
 import { fixture, fixtures, identity, spec } from "./helpers/child-activity";
 
 function sourceFixture() {
@@ -36,10 +37,9 @@ function sourceFixture() {
     },
   };
   const options = { clock: () => 200, failure: (error: Error) => { errors.push(error); } };
-  const write = (source: "spool" | "transcript", text: string) => {
-    const location = spec[source];
-    if (location === undefined) throw new Error("fixture source missing");
-    files.set(location.path, Buffer.from(text));
+  const write = (source: "spool" | "transcript", text: string, path = spec[source]?.path) => {
+    if (path === undefined) throw new Error("fixture source missing");
+    files.set(path, Buffer.from(text));
   };
   return { ports, options, rows, errors, reads, write };
 }
@@ -104,12 +104,103 @@ test("failed admission retains the cursor so the next observation retries the by
   };
   await source.close();
   const retrying = childSource(spec, flaky, fx.options);
-  await expect(retrying.ready).rejects.toBe(error);
+  // The absent transcript is not a failure, so the refused spool admission settles `ready` as reported.
+  await retrying.ready;
+  expect(fx.errors).toEqual([error]);
+  expect(fx.rows).toEqual([]);
   await retrying.observe();
-  await retrying.observe();
-  expect(fx.rows).toHaveLength(2);
-  expect(fx.errors).toContain(error);
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt"]);
+  expect(fx.errors).toEqual([error]);
   await retrying.close();
+});
+
+test("a refused spool read is reported and does not stop transcript admission", async () => {
+  const fx = sourceFixture();
+  fx.write("transcript", `${fixture("transcript", "requested")}\n`);
+  const fs = fx.ports.machines.get("self").fs;
+  const refusal = new MachineRefusalError({ reason: "disconnected", message: "spool host unreachable" });
+  const ports: ChildSourcePorts = {
+    ...fx.ports,
+    machines: {
+      get: () => ({
+        fs: { ...fs, stat: (path) => path === spec.spool?.path ? Promise.reject(refusal) : fs.stat(path) },
+      }),
+    },
+  };
+  const source = childSource(spec, ports, fx.options);
+  await source.ready;
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt"]);
+  expect(fx.rows[1]).toMatchObject({ kind: "child_receipt", content: { ref: { path: spec.transcript?.path } } });
+  expect(fx.errors).toEqual([refusal]);
+  await source.observe();
+  expect(fx.rows).toHaveLength(2);
+  expect(fx.errors).toEqual([refusal, refusal]);
+  await source.close();
+  // With the spool as the only configured source, the same refusal settles `ready` by rejection.
+  const { transcript: _transcript, ...live } = spec;
+  const alone = childSource(live, ports, fx.options);
+  await expect(alone.ready).rejects.toBe(refusal);
+  expect(fx.errors).toEqual([refusal, refusal]);
+  await expect(alone.close()).rejects.toBe(refusal);
+});
+
+test("a committed Deliver whose reply was lost retries without a conflict", async () => {
+  const fx = sourceFixture();
+  let now = 200;
+  const options = { ...fx.options, clock: () => now++ };
+  const lost = new Error("reply lost");
+  let lose = false;
+  // The entity's view: a committed row answers a changed redelivery with a conflict row.
+  const ports: ChildSourcePorts = {
+    ...fx.ports,
+    admit: async (_sessionId, rows) => {
+      const accepted = rows.map((row) => {
+        const previous = fx.rows.find((entry) => entry.key === row.key);
+        const result = previous !== undefined && canonicalJson(previous) !== canonicalJson(row) ? conflictRow(row) : row;
+        fx.rows.push(result);
+        return result;
+      });
+      if (lose && accepted.some((row) => row.kind === "child_receipt")) {
+        lose = false;
+        throw lost;
+      }
+      return accepted;
+    },
+  };
+  const requested = `${fixture("transcript", "requested")}\n`;
+  fx.write("transcript", requested);
+  const { spool: _spool, ...backfill } = spec;
+  const source = childSource(backfill, ports, options);
+  await source.ready;
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt"]);
+  fx.write("transcript", `${requested}${fixture("transcript", "terminal")}\n`);
+  lose = true;
+  await source.observe();
+  expect(fx.errors).toEqual([lost]);
+  await source.observe();
+  expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_fact", "child_receipt"]);
+  expect(fx.rows.flatMap((row) => row.kind === "child_receipt" ? [row.content.observedAt] : [])).toEqual([200, 201]);
+  expect(fx.errors).toEqual([lost]);
+  await source.close();
+});
+
+test("a relocated spool restores the child's sequence without a checkpoint for the new file", async () => {
+  const fx = sourceFixture();
+  if (spec.spool === undefined) throw new Error("fixture spool missing");
+  const previous = { ...spec, spool: { ...spec.spool, path: "/redacted/spool-previous.jsonl" } };
+  fx.write("spool", `${fixtures.live.map((entry) => entry.line).join("\n")}\n`, previous.spool.path);
+  const first = childSource(previous, fx.ports, fx.options);
+  await first.ready;
+  await first.close();
+  const before = fx.rows.length;
+  expect(fx.rows.filter((row) => row.kind === "child_receipt")).toHaveLength(fixtures.live.length);
+  fx.write("spool", `${fixture("live", "requested")}\n`);
+  const moved = childSource(spec, fx.ports, fx.options);
+  await moved.ready;
+  expect(fx.rows.slice(before)).toMatchObject([{ kind: "child_diagnostic", content: { diagnostic: { code: "stale_seq" } } }]);
+  expect(fx.rows).toHaveLength(before + 1);
+  expect(fx.errors).toEqual([]);
+  await moved.close();
 });
 
 test("the existing watch owner installs, observes, and closes the child adapter", async () => {
@@ -218,15 +309,21 @@ test("restoration does not wait on entity admission and shutdown joins an in-fli
 test("failed source restoration reports the original error and removes its handle", async () => {
   const fx = sourceFixture();
   const error = new Error("attachment unavailable");
-  const reported = Promise.withResolvers<Error>();
+  const reports: Error[] = [];
+  const reported = Promise.withResolvers<void>();
   const fs = fx.ports.machines.get("self").fs;
   const sources = createWatchSources({ deliver: async () => undefined }, {
     clock: fx.options.clock,
     children: { ...fx.ports, machines: { get: () => ({ fs: { ...fs, stat: () => Promise.reject(error) } }) } },
-    failure: (_id, failure) => reported.resolve(failure),
+    failure: (_id, failure) => {
+      reports.push(failure);
+      if (reports.length === 2) reported.resolve();
+    },
   });
   sources.restoreChild?.(spec);
-  expect(await reported.promise).toBe(error);
+  await reported.promise;
+  // Both configured sources refused: one refusal is reported directly, the other through the refused install.
+  expect(reports).toEqual([error, error]);
   expect(sources.observe(spec.sessionId, spec.id)).toBe(false);
   await sources.closeAll();
 });

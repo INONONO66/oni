@@ -97,6 +97,8 @@ export class DialectDecodeError extends Error {
   constructor(
     readonly source: "live" | "transcript",
     readonly code: "malformed" | "stale_seq" | "unsupported",
+    /** A `stale_seq` refusal names the refused sequence so the consumer can match the earlier receipt. */
+    readonly detail?: { readonly seq?: number },
   ) {
     super(`${source}: ${code}`);
     this.name = "DialectDecodeError";
