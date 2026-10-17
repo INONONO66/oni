@@ -32,10 +32,11 @@ the watch owner counts consecutive drains in which every configured source
 failed and after three (`CHILD_FAILURE_LIMIT`) refuses the observation so
 the wake retires the chain `exhausted`, with any progressing drain resetting
 the count and an explicit install starting fresh; a Deliver-side
-`idempotency_conflict` refreshes the adapter's admitted map from the journal
-so the refused key is not re-sent every tick; `currentState` is a total order
-(authority, position, larger generation size, canonical generation text,
-later offset); child admission enters Effect through the one injected
+`idempotency_conflict` reply is retained as the conflict row (the r1c
+paragraph below records why no separate map refresh follows it);
+`currentState` is a total order (authority, position, larger generation
+size, canonical generation text, later offset); child admission enters
+Effect through the one injected
 `WatchSenders` door (`deliver` and `admit`), keeping the #1423 single-entry
 rule; the `off: ["child-activity"]` boot row and the fixture-derived
 `toolUseId` assertion are in the receipts. At `49a4efa87` the complete
@@ -45,6 +46,32 @@ at the r1b tip the same command completed under the watchdog with 1066 pass,
 0 fail across 144 files (73.5 s, exit 0), the only `(fail)` line in its
 output being the inner sub-run `test/cleanup-oracle.test.ts` deliberately
 spawns; the focused files named in the stamp remain the per-finding receipt.
+
+r1c (2026-10-18, PR #1570 r1b verification follow-ups): the admitted-map
+refresh after a Deliver-side `idempotency_conflict` reply was deleted
+rather than tested, because its re-send is unreachable: within one adapter
+the cursor advances past the bytes once `accept` returns, so the refused
+key is re-derived only after a thrown Deliver, and that path already
+refreshes the map from the journal; a new adapter rebuilds the map from the
+journal at construction, `close()` joins the in-flight drain, and
+`watch_conflict` admits one adapter per child, so no second writer can
+place a row under the key between the two. The conflict receipt in
+`test/child-source.test.ts` now reaches the Deliver-side reply through a
+fake entity (a `child_conflict` row for the requested key beside a lost
+reply on the next committed receipt) and asserts the retry re-derives the
+same bytes against the refreshed journal without re-sending the refused
+key or adding a second conflict row; deleting the surviving refresh fails
+it. The empty-anchor receipt pins the adopted generation: every admitted
+`child_receipt` (transcript ref or `spool_ref` diagnostic) carries the
+first non-empty file's byte size and no `generation_changed` row exists.
+The adapter stamps transcript reads strictly monotonic per child
+(`max(clock(), last + 1)`, seeded from the child's persisted transcript
+receipts), so two reads inside one clock millisecond across a generation
+change can never tie in `currentState` and a shrinking rewrite wins over
+the larger stale generation; the total comparator is unchanged. The
+complete `bun test apps/openomni --timeout 15000` run on `0d88e4fa7`
+completed under the #1498 watchdog (1066 pass, 0 fail, 144 files); one
+completion does not retire the #1498 record.
 
 ## #1527 worker dialect packs (epic #1508)
 

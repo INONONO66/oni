@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { MachineRefusalError } from "@openomni/machines";
-import { canonicalJson } from "@openomni/protocol";
+import { TranscriptRef, canonicalJson, parseJson } from "@openomni/protocol";
 import { childSource, createWatchSources, type ChildSourcePorts } from "../src/composition/watch-sources";
 import { type ChildRow, conflictRow, currentState, reconcile, stateReceipts } from "../src/bundles/child-activity/reconcile";
 import { decodeTranscript } from "../src/bundles/child-activity/transcript";
@@ -192,53 +192,112 @@ test("an empty anchor adopts the first non-empty generation without a generation
   const source = childSource(spec, fx.ports, fx.options);
   await source.ready;
   expect(fx.rows).toEqual([]);
-  fx.write("spool", `${fixture("live", "requested")}\n`);
-  fx.write("transcript", `${fixture("transcript", "requested")}\n`);
+  const spool = `${fixture("live", "requested")}\n`;
+  const transcript = `${fixture("transcript", "requested")}\n`;
+  fx.write("spool", spool);
+  fx.write("transcript", transcript);
   await source.observe();
   expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_receipt"]);
   // Still anchored on the non-empty prefix: a further append is the same generation.
-  fx.write("transcript", `${fixture("transcript", "requested")}\n${fixture("transcript", "terminal")}\n`);
+  fx.write("transcript", `${transcript}${fixture("transcript", "terminal")}\n`);
   await source.observe();
   expect(fx.rows.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_receipt", "child_fact", "child_receipt"]);
+  // The adopted generation is the first non-empty content of each file, held across the append.
+  const receipts = fx.rows.flatMap((row) => row.kind === "child_receipt" ? [row.content] : []);
+  const generations = receipts.map((receipt) => "kind" in receipt.ref
+    ? receipt.diagnostics.flatMap((entry) => entry.code === "spool_ref" ? [parseJson(TranscriptRef, entry.detail)?.generation] : [])
+    : [receipt.ref.generation]);
+  expect(generations).toEqual([
+    [{ kind: "size-and-prefix-hash", size: Buffer.byteLength(spool), prefixSha256: expect.any(String) }],
+    [{ kind: "size-and-prefix-hash", size: Buffer.byteLength(transcript), prefixSha256: expect.any(String) }],
+    [{ kind: "size-and-prefix-hash", size: Buffer.byteLength(transcript), prefixSha256: expect.any(String) }],
+  ]);
+  expect(fx.rows.some((row) => row.kind === "child_diagnostic" && row.content.diagnostic.code === "generation_changed")).toBe(false);
   expect(fx.errors).toEqual([]);
   await source.close();
 });
 
-test("a Deliver-side idempotency conflict teaches the adapter the journal's row so the next tick is silent", async () => {
+test("a Deliver-side idempotency conflict is retained and the refreshed retry never re-sends the refused key", async () => {
   const fx = sourceFixture();
   const journal: ChildRow[] = [];
   let admissions = 0;
-  // The entity's view: the journal already holds a row under the same key with other content.
+  const lost = new Error("reply lost");
+  let lose = false;
+  // The entity's view: a row already held under the same key with other content answers with the
+  // conflict row only (admit.ts), and a committed receipt may still lose its reply.
   const ports: ChildSourcePorts = {
     ...fx.ports,
     rows: () => journal,
     admit: async (_sessionId, rows) => {
       admissions += 1;
-      return rows.map((row) => {
+      const accepted = rows.map((row) => {
         const previous = journal.find((entry) => entry.key === row.key);
         if (previous !== undefined && canonicalJson(previous) === canonicalJson(row)) return row;
         const result = previous === undefined ? row : conflictRow(row);
         journal.push(result);
         return result;
       });
+      if (lose && accepted.some((row) => row.kind === "child_receipt")) {
+        lose = false;
+        throw lost;
+      }
+      return accepted;
     },
   };
   const { spool: _spool, ...backfill } = spec;
   const source = childSource(backfill, ports, fx.options);
   await source.ready;
-  const text = `${fixture("transcript", "requested")}\n`;
-  const foreign = reconcile(decodeTranscript({ ...identity, pack, ref: reference(text), chunk: Buffer.from(text), observedAt: 999 }).observations, []);
+  const requested = `${fixture("transcript", "requested")}\n`;
+  const text = `${requested}${fixture("transcript", "terminal")}\n`;
+  // Only the first line is foreign: its receipt sits under the adapter's key with another observedAt.
+  const foreign = reconcile(decodeTranscript({ ...identity, pack, ref: reference(text), chunk: Buffer.from(requested), observedAt: 999 }).observations, []);
   journal.push(...foreign);
   fx.write("transcript", text);
+  lose = true;
   await source.observe();
-  expect(journal.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_conflict"]);
+  expect(journal.map((row) => row.kind)).toEqual(["child_fact", "child_receipt", "child_conflict", "child_fact", "child_receipt"]);
   expect(journal[2]).toMatchObject({ content: { code: "idempotency_conflict", key: foreign[1]?.key } });
-  expect(admissions).toBe(2);
+  expect(admissions).toBe(4);
+  expect(fx.errors).toEqual([lost]);
+  // The retry re-derives the same bytes against the refreshed journal: neither the refused key nor the
+  // committed rows are sent again, so no second conflict row appears.
   await source.observe();
-  expect(admissions).toBe(2);
-  expect(journal).toHaveLength(3);
-  expect(fx.errors).toEqual([]);
+  expect(admissions).toBe(4);
+  expect(journal).toHaveLength(5);
+  expect(fx.errors).toEqual([lost]);
+  fx.write("transcript", `${text}${fixture("transcript", "observed")}\n`);
+  await source.observe();
+  expect(journal.slice(5).map((row) => row.kind)).toEqual(["child_fact", "child_receipt"]);
+  expect(admissions).toBe(6);
   await source.close();
+});
+
+test("transcript reads inside one clock millisecond are stamped strictly later, so a shrinking rewrite wins the state", async () => {
+  const fx = sourceFixture();
+  const terminal = `${fixture("transcript", "terminal")}\n`;
+  fx.write("transcript", terminal.repeat(2));
+  const { spool: _spool, ...backfill } = spec;
+  const source = childSource(backfill, fx.ports, fx.options);
+  await source.ready;
+  // Smaller than the first generation: at an equal observedAt the total order keeps the larger, stale one.
+  const requested = `${fixture("transcript", "requested")}\n`;
+  fx.write("transcript", requested);
+  await source.observe();
+  const observedAt = () => fx.rows.flatMap((row) => row.kind === "child_receipt" ? [row.content.observedAt] : []);
+  expect(observedAt()).toEqual([200, 200, 201]);
+  expect(fx.rows.some((row) => row.kind === "child_diagnostic" && row.content.diagnostic.code === "generation_changed")).toBe(true);
+  expect(currentState(stateReceipts(fx.rows, identity.child, identity.turn))?.fact.phase).toBe("requested");
+  await source.close();
+  // A resumed adapter continues after the persisted stamps rather than restarting at the clock:
+  // its first drain is one read (202), the observation that finds the append is the next (203).
+  const resumed = childSource(backfill, fx.ports, fx.options);
+  await resumed.ready;
+  fx.write("transcript", `${requested}${fixture("transcript", "decided")}\n`);
+  await resumed.observe();
+  expect(observedAt()).toEqual([200, 200, 201, 203]);
+  expect(currentState(stateReceipts(fx.rows, identity.child, identity.turn))?.fact.phase).toBe("decided");
+  expect(fx.errors).toEqual([]);
+  await resumed.close();
 });
 
 test("three consecutive all-source failures retire the child chain and one progressing drain resets the count", async () => {

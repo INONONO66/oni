@@ -466,6 +466,15 @@ export function childSource(
   let spool: SpoolCursor | undefined;
   let transcript: TranscriptCursor | undefined;
   let closed = false;
+  // Transcript reads are stamped strictly later than the previous read of this child, even inside
+  // one clock millisecond: two reads across a generation change must never tie in `currentState`.
+  let lastObservedAt = [...admitted.values()].reduce((last, row) =>
+    row.kind === "child_receipt" && childFacts.has(row.content.factKey) && !("kind" in row.content.ref)
+      ? Math.max(last, row.content.observedAt) : last, -1);
+  const observedAt = () => {
+    lastObservedAt = Math.max(options.clock(), lastObservedAt + 1);
+    return lastObservedAt;
+  };
 
   function restored(location: NonNullable<ChildWatch["spool"]>): TranscriptCursor | undefined {
     const refs: TranscriptRef[] = [];
@@ -526,10 +535,10 @@ export function childSource(
         refresh();
         throw error;
       }
+      // A Deliver-side idempotency conflict answers with the conflict row only. The requested
+      // key is never re-derived without an intervening thrown Deliver (the cursor advances past
+      // the bytes), and that path refreshes above, so no further refresh is needed here.
       for (const entry of accepted) admitted.set(entry.key, entry);
-      // A Deliver-side idempotency conflict answers with the conflict row only: the journal's
-      // real row under the requested key is learned here so the next tick short-circuits in memory.
-      if (accepted.some((entry) => entry.key !== row.key)) refresh();
     }
   }
 
@@ -557,7 +566,7 @@ export function childSource(
       while (more && !closed) {
         const input = await read(location, transcript);
         if (input === undefined) break;
-        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: options.clock(), ...(input.anchor === undefined ? {} : { cursor: input.anchor }) });
+        const decoded = decodeTranscript({ ...input, pack, child: spec.child, turn: spec.turn, observedAt: observedAt(), ...(input.anchor === undefined ? {} : { cursor: input.anchor }) });
         await accept([...reconcile(decoded.observations, [...admitted.values()]), ...decoded.diagnostics.map((diagnostic) => diagnosticRow({ child: spec.child, turn: spec.turn }, diagnostic))]);
         transcript = decoded.cursor;
         more = input.more;
