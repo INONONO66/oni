@@ -12,7 +12,7 @@ import {
 import type { GatewayRouterPorts } from "../message-ports.js";
 import type { KernelDeliveryReceipt } from "../../support/deliver";
 import { authorizeSend } from "./authorize";
-import { activeBudgetFor, admitSend } from "./admission";
+import { activeBudgetFor, admitSend, ownerTarget } from "./admission";
 
 type DeliveryTarget = Gateway.DeliveryTarget;
 type MessageDenialCode = Gateway.MessageDenialCode;
@@ -208,8 +208,13 @@ export function createExistingAgentMessaging(ports: MessagingPorts): ExistingAge
     preflight(input) {
       const checked = authorizeSend(ports.stores, input, ports.grants(), ports.routes?.() ?? new Set());
       if (!checked.ok) return checked.code;
-      // A granted cold send to a target with no active budget is the Owner's to approve (#1569 lane 8).
-      if (ports.budgets !== undefined && input.consented !== true && activeBudgetFor(ports.budgets(), input.target.actorId, input.at) === undefined)
+      // A granted cold send to a target with no active budget is the Owner's to approve (#1569 lane 8) — unless the target is the Owner (#1600 lane R2).
+      if (
+        ports.budgets !== undefined &&
+        input.consented !== true &&
+        !ownerTarget(ports.stores, input.target.actorId) &&
+        activeBudgetFor(ports.budgets(), input.target.actorId, input.at) === undefined
+      )
         return "approval_required";
       return undefined;
     },

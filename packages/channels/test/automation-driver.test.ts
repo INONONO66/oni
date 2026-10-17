@@ -54,7 +54,7 @@ const scenarios = [
   },
   {
     name: "github",
-    channelId: "pr-123",
+    channelId: "owner/repo#123",
     sender: { surface: "github", externalId: "maintainer", workspace: "owner/repo" },
     trigger: { type: "github", event: "pull_request.opened" },
     otherTrigger: { type: "github", event: "pull_request.closed" },

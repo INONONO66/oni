@@ -29,7 +29,8 @@ interface ConformanceCase {
 /** Surfaces whose deliver posts into a conversation (covered by their surface tests). */
 const CONVERSATION_SURFACES = new Set(["discord", "slack", "telegram"]);
 /** Providers whose conversation is the only place a letter can land (a task, an issue): the hint is honored by construction. */
-const CONVERSATION_TARGETS = new Set<string>(["a2a"]);
+// a2a: the conversation is the peer's context; github (#1600 lane R2): the issue the comment lands on.
+const CONVERSATION_TARGETS = new Set<string>(["a2a", "github"]);
 
 /**
  * #1569 lane 7: an Owner-only platform has no bot account — its bot arm

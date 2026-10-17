@@ -265,7 +265,8 @@ export class GitHubAdapter implements Channel.Surface {
         author: { externalId: content.sender, isBot: content.isBot },
         surface: "github",
         workspaceId: content.repo,
-        channelId: `${content.issueKind}-${content.issueNumber}`,
+        // #1600 lane R2: the conversation is the one address a comment can land on, so the reply door posts into it.
+        channelId: `${content.repo}#${content.issueNumber}`,
         addressees: addressees.map((externalId) => ({ externalId })),
         dm: false,
         reply: {
@@ -287,11 +288,26 @@ export class GitHubAdapter implements Channel.Surface {
     return { traceId, deliveryId, dedupeToken, content, inbound };
   }
 
-  /** Awaits the inbound handler; a handler throw releases the in-memory delivery claim and returns 500 so GitHub retries. */
+  /**
+   * Awaits the inbound handler. A perimeter refusal is this surface's own
+   * verdict (#1600 lane R2): answered 200 with the delivery claim kept, so
+   * GitHub never redelivers a message the Owner's policy refused. A failure
+   * releases the claim and answers 500 so a redelivery can land.
+   */
   private async dispatchWebhook(prepared: PreparedWebhook): Promise<Response> {
     try {
       await (this.handler as Channel.MessageHandler)(prepared.inbound);
     } catch (err) {
+      if (err instanceof Error && /refused/i.test(err.name)) {
+        this.publish(Operational.Events.Warn, {
+          traceId: prepared.traceId,
+          time: this.options.now(),
+          component: "server",
+          msg: "github event not ingested",
+          context: { repo: prepared.content.repo, issue: prepared.content.issueNumber, reason: err.message },
+        });
+        return new Response("Not ingested", { status: 200 });
+      }
       this.publish(Operational.Events.Error, {
         traceId: prepared.traceId,
         time: this.options.now(),

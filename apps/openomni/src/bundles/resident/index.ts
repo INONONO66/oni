@@ -15,6 +15,7 @@ type Executor = Core.Executor;
 type SessionRunner = Core.SessionRunner;
 type SessionRuntime = Core.SessionRuntime;
 import {
+  Operational,
   traceIdFromUuid,
   type Gateway,
   type LedgerSession,
@@ -140,12 +141,60 @@ function throughDoor(
   executor: Executor,
   sessionId: string,
   message: Gateway.SendMessage,
-): Effect.Effect<void> {
+): Effect.Effect<Gateway.IngestResult | undefined> {
   return Effect.promise(() =>
     withExecutor(executor, () => door.ingest({ kind: "session", id: sessionId }, message)).then(
-      () => undefined,
+      (result) => result,
       () => undefined,
     ),
+  );
+}
+
+/** The reply door's draft refusal (#1569 lane 7): the surface is reachable only through an Owner account that does not auto-reply. */
+const REPLY_DRAFT = "message.resident.reply_draft";
+
+/** Where a drafted answer goes (#1600 lane R2): the Owner Person on a platform the bot can write to (resolved by `composition/owner-contact.ts`). */
+interface OwnerContact {
+  readonly actorId: string;
+  readonly surface: string;
+}
+
+/**
+ * The draft arm (#1569 P4, #1600 lane R2): an answer the reply door would
+ * only draft — the conversation is reachable through the Owner's account
+ * alone and the declaration does not auto-reply — is delivered to the Owner
+ * as a draft to send, through the bot on a platform the Owner has. The
+ * letter is the Owner's own mail: the gateway asks no budget and no consent
+ * for a letter to the owner-tier Person. With no such platform the draft is
+ * the Owner's to read in the session; the gateway's draft observation
+ * already names it. A draft the door did not carry is reported, never lost
+ * in silence.
+ */
+function draftToOwner(
+  door: GatewayDoor,
+  executor: Executor,
+  sessionId: string,
+  owed: { readonly target: ReplyTarget; readonly text: string },
+  contact: OwnerContact,
+  warn: (msg: string, context: Readonly<Record<string, string>>) => void,
+): Effect.Effect<void> {
+  const where = owed.target.conversation?.channelId ?? owed.target.externalId;
+  return throughDoor(door, executor, sessionId, {
+    to: { kind: "actor", actorId: contact.actorId, surface: contact.surface },
+    type: "message",
+    content: `Draft reply to ${owed.target.externalId} on ${owed.target.surface} (${where}) — your account alone reaches them; say "send it from my account" to answer there as you, or answer yourself:\n\n${owed.text}`,
+  }).pipe(
+    Effect.flatMap((sent) => {
+      if (sent?.status === "executed") return Effect.void;
+      warn("draft reply not delivered to the Owner", {
+        sessionId,
+        surface: owed.target.surface,
+        externalId: owed.target.externalId,
+        contact: `${contact.actorId}@${contact.surface}`,
+        outcome: sent === undefined ? "door failed" : `${sent.status}:${sent.reasonCode}`,
+      });
+      return Effect.void;
+    }),
   );
 }
 
@@ -273,12 +322,20 @@ function reply(
   executor: Executor,
   sessionId: string,
   owed: { readonly target: ReplyTarget; readonly text: string },
+  ownerContact: ResidentOptions["ownerContact"],
+  warn: (msg: string, context: Readonly<Record<string, string>>) => void,
 ): Effect.Effect<void> {
   return throughDoor(door, executor, sessionId, {
     to: { kind: "origin", inReplyTo: owed.target.messageId },
     type: "message",
     content: owed.text,
-  });
+  }).pipe(
+    Effect.flatMap((result) => {
+      if (result?.status !== "blocked_pre" || result.reasonCode !== REPLY_DRAFT) return Effect.void;
+      const contact = ownerContact?.(owed.target.surface);
+      return contact === undefined ? Effect.void : draftToOwner(door, executor, sessionId, owed, contact, warn);
+    }),
+  );
 }
 
 /** The pulse a Resident turn with a channel origin keeps alive while its model runs; none otherwise. */
@@ -344,6 +401,8 @@ export interface ResidentOptions {
   readonly ackReaction?: AckReactionSettings;
   /** The gateway's send door the reply (#1569) and the reactions go through; absent means no surface can carry them. */
   readonly gateway?: GatewayDoor;
+  /** #1600 lane R2: the Owner Person on a platform the bot can write to, for a drafted answer; absent, a draft stays in the session. */
+  readonly ownerContact?: (draftedSurface: string) => OwnerContact | undefined;
 }
 
 /** Resident and child use the same session-owned runner and dispatcher. */
@@ -451,7 +510,8 @@ export function createResident(options: ResidentOptions) {
         // explicit send_message.
         const owed = pendingReply(input, result, replyTarget);
         if (owed !== undefined && options.gateway !== undefined)
-          yield* reply(options.gateway, dispatcher.executor, input.sessionId, owed);
+          yield* reply(options.gateway, dispatcher.executor, input.sessionId, owed, options.ownerContact, (msg, context) =>
+            observation.events.publish(Operational.Events.Warn, { traceId, time: options.clock(), component: "resident", msg, context }));
         return result;
       });
       return yield* acknowledged(

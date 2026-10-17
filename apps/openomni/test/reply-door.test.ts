@@ -64,8 +64,8 @@ function fixtureWithSlack(role: "resident" | "child" = "resident") {
   return { fixture, delivered };
 }
 
-/** The origin the perimeter records for a channel prompt (`router/message-execution.ts`). */
-function slackOrigin(conversation: Conversation) {
+/** The origin the perimeter records for a channel prompt (`router/message-execution.ts`); `receivedBy` names the instance that observed it (#1600 lane R2). */
+function slackOrigin(conversation: Conversation, receivedBy?: "bot" | "owner") {
   return {
     encodingVersion: 1 as const,
     value: {
@@ -75,6 +75,7 @@ function slackOrigin(conversation: Conversation) {
       surface: "slack",
       externalId: "T1:U1",
       actorId: "person:owner",
+      ...(receivedBy === undefined ? {} : { receivedBy }),
       conversation,
     },
   };
@@ -86,7 +87,11 @@ function slackOrigin(conversation: Conversation) {
  * arrivals) so the reply that follows names a prompt this session's own
  * ledger holds.
  */
-function promptFromSlack(fixture: ReturnType<typeof messageFixture>, conversation: Conversation = CHANNEL): Effect.Effect<void> {
+function promptFromSlack(
+  fixture: ReturnType<typeof messageFixture>,
+  conversation: Conversation = CHANNEL,
+  receivedBy?: "bot" | "owner",
+): Effect.Effect<void> {
   return commitReceivedMessage(fixture.plane.openKernel(fixture.sessionId), {
     id: PROMPT_ID,
     sessionId: fixture.sessionId,
@@ -94,7 +99,7 @@ function promptFromSlack(fixture: ReturnType<typeof messageFixture>, conversatio
     content: "ping",
     createdAt: 100,
     parentActionId: null,
-    origin: slackOrigin(conversation),
+    origin: slackOrigin(conversation, receivedBy),
   }).pipe(Effect.asVoid, Effect.orDie);
 }
 
@@ -135,6 +140,23 @@ test.each<[string, Conversation, "dm" | "channel", Gateway.Conversation]>([
     const answered = await fixture.send(REPLY, promptFromSlack(fixture, conversation));
     expect(answered.isError).not.toBe(true);
     expect(delivered).toEqual([{ externalId: "T1:U1", body: "pong", conversation: expected }]);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("#1600 lane R2: a DM the Owner's account received is the Owner's to answer — the app's origin fold carries `receivedBy`, and the reply is a draft, never the bot's send", async () => {
+  const { fixture, delivered } = fixtureWithSlack();
+  try {
+    const dm: Conversation = { channelId: "D1", messageId: "1710.0003", dm: true, workspaceId: "T1" };
+    createSurfaceKeyStore(fixture.plane.channel).claim(
+      Channel.SurfaceKey.fromChannel({ surface: "slack", namespace: "T1", kind: "dm", id: "D1" }),
+      fixture.sessionId,
+    );
+    const drafted = await fixture.send(REPLY, promptFromSlack(fixture, dm, "owner"));
+    expect(drafted.isError).toBe(true);
+    expect(drafted.content).toContain("message.resident.reply_draft");
+    expect(delivered).toEqual([]);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }

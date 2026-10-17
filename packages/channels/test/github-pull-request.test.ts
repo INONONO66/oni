@@ -40,7 +40,7 @@ test("GitHub pull_request opened carries sender bot fact and PR identity", async
     event: "github",
     githubEvent: "pull_request.opened",
     author: { externalId: "ci-bot", isBot: true },
-    channelId: "pr-12",
+    channelId: "owner/repo#12",
     render: "Update dependencies",
   });
 });

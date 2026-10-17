@@ -110,6 +110,7 @@ const CommittedOrigin = z
     surface: z.string().min(1),
     externalId: z.string().min(1),
     actorId: z.string(),
+    receivedBy: z.enum(["bot", "owner"]).optional(),
     conversation: z
       .object({
         channelId: z.string().min(1),
@@ -138,7 +139,7 @@ function originBinding(
   );
   const origin = CommittedOrigin.safeParse(prompt?.origin.value);
   if (!origin.success) return undefined;
-  const { surface, externalId, actorId, conversation } = origin.data;
+  const { surface, externalId, actorId, conversation, receivedBy } = origin.data;
   return {
     surface,
     externalId,
@@ -146,6 +147,7 @@ function originBinding(
     channelId: conversation.channelId,
     messageId: conversation.messageId,
     dm: conversation.dm,
+    ...(receivedBy === undefined ? {} : { receivedBy }),
     ...(conversation.workspaceId === undefined ? {} : { workspaceId: conversation.workspaceId }),
     ...(conversation.threadId === undefined ? {} : { threadId: conversation.threadId }),
   };

@@ -263,6 +263,21 @@ describe("send kernel active-egress gate (#219 seam)", () => {
     expect(deliveries).toEqual(["message:1", "message:3"]);
   });
 
+  test("#1600 lane R2: a letter to the owner-tier Person is never outreach — no budget declared asks no consent and debits nothing; a budget the Owner declared for themselves still governs", async () => {
+    const actors = ledger().stores.actors;
+    actors.registerIdentity({ id: "actor:owner", kind: "human", trustTier: "owner", createdAt: messagingNow, updatedAt: messagingNow });
+    actors.registerEndpoint({ id: "endpoint:owner", actorId: "actor:owner", channel: "qa", externalId: "owner-1", createdAt: messagingNow, updatedAt: messagingNow });
+    grants = [buildGrant("grant:sender->owner", { targetActorId: "actor:owner" })];
+    const toOwner = buildSendInput({ target: { actorId: "actor:owner" } });
+    expect(messaging().preflight(toOwner)).toBeUndefined();
+    expect((await runEffect(messaging().send(toOwner))).kind).toBe("sent");
+    expect(deliveries).toEqual(["message:test"]);
+    expect(inspectDebitState("actor:sender", "actor:owner").countInWindow).toBe(0);
+    budgets = [budget({ id: "budget:owner", targetActorId: "actor:owner", doNotContact: true })];
+    expectDenied(await runEffect(messaging().send(buildSendInput({ messageId: "message:owner-2", target: { actorId: "actor:owner" } }))), "dnc_denied");
+    expect(deliveries).toEqual(["message:test"]);
+  });
+
   test("DNC-deny: a do-not-contact target is denied dnc_denied with nothing delivered", async () => {
     budgets = [budget({ doNotContact: true })];
     const receipt = await runEffect(messaging().send(buildSendInput()));

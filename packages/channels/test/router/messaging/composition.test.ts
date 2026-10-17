@@ -390,6 +390,69 @@ test("a surface reached only through the Owner's account: the reply is a draft u
   expect(ownerDelivered).toEqual(["buyer-external:as the Owner"]);
 });
 
+test("a DM the Owner's account received is answered through the Owner's instance, never the bot (#1600 lane R2)", async () => {
+  const ownerDelivered: string[] = [];
+  const ownerRoute: ChannelDeliveryRoute = async (externalId, payload) => {
+    ownerDelivered.push(`${externalId}:${Outbound.text(payload)}`);
+    return { value: "accepted" };
+  };
+  const routes = new Map([["discord:bot", capturing], ["discord:owner", ownerRoute]]);
+  registerOwnerDm();
+  // The bot cannot reach a DM the Owner's account read: without the declaration's auto-reply the answer is the Owner's draft.
+  const drafting = makeFixtureRouter({ messaging: { deliveryRoutes: routes, grants: () => [] } });
+  const dm = await runEffect(drafting.ingest(ownerSender, { ...ownerFacts, receivedBy: "owner" }));
+  if (dm.status !== "executed") throw new Error(`dm was ${dm.status}`);
+  expect(await replyFrom(drafting, dm.handle.target, dm.handle.messageId)).toMatchObject({
+    status: "blocked_pre",
+    reasonCode: "message.resident.reply_draft",
+  });
+  expect(delivered).toEqual([]);
+  expect(ownerDelivered).toEqual([]);
+  // An inbound-only Owner instance (no outbound grant, so no route) still drafts: the Owner needs no route to answer from their own account.
+  const inboundOnly = makeFixtureRouter({ messaging: { deliveryRoutes: new Map([["discord:bot", capturing]]), grants: () => [] } });
+  expect(await replyFrom(inboundOnly, dm.handle.target, dm.handle.messageId)).toMatchObject({
+    status: "blocked_pre",
+    reasonCode: "message.resident.reply_draft",
+  });
+  expect(delivered).toEqual([]);
+  // With the auto-reply the Owner's instance answers in the DM it read.
+  const answering = makeFixtureRouter({
+    messaging: { deliveryRoutes: routes, grants: () => [], autoReplies: () => new Set(["discord:owner"]) },
+  });
+  expect((await replyFrom(answering, dm.handle.target, dm.handle.messageId, "as the Owner")).status).toBe("executed");
+  expect(ownerDelivered).toEqual([`${ownerSender.externalId}:as the Owner`]);
+  expect(delivered).toEqual([]);
+  // The same DM observed by the bot is the bot's to answer.
+  const seenByBot = await runEffect(answering.ingest(ownerSender, { ...ownerFacts, eventId: "seen-by-bot" }));
+  if (seenByBot.status !== "executed") throw new Error(`bot-seen dm was ${seenByBot.status}`);
+  expect((await replyFrom(answering, seenByBot.handle.target, seenByBot.handle.messageId, "as the bot")).status).toBe("executed");
+  expect(delivered.map((entry) => entry.body)).toEqual(["as the bot"]);
+  expect(ownerDelivered).toHaveLength(1);
+});
+
+test("a button tap is answered on the message the button was on, not the tap's own id (#1600 lane R2)", async () => {
+  const router = makeRouter();
+  const tap = await runEffect(
+    router.ingest(sender, {
+      ...facts,
+      eventId: "tap-1",
+      payload: "Yes",
+      render: "Yes",
+      postback: { id: "choice-yes", label: "Yes", messageRef: "offer-message" },
+    }),
+  );
+  if (tap.status !== "executed") throw new Error(`tap was ${tap.status}`);
+  expect((await replyFrom(router, tap.handle.target, tap.handle.messageId, "noted")).status).toBe("executed");
+  expect(delivered).toEqual([
+    {
+      externalId: "buyer-external",
+      body: "noted",
+      idempotencyKey: delivered[0]?.idempotencyKey ?? "",
+      conversation: { channelId: "market", replyToMessageId: "offer-message" },
+    },
+  ]);
+});
+
 test("a conversation whose surface has no delivery route is refused before transport", async () => {
   const router = makeRouter(new Map());
   const prompt = await admitFirstContact(router);

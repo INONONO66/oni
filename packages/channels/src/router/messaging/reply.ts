@@ -33,6 +33,8 @@ export interface ConversationBinding {
   readonly messageId: string;
   readonly dm: boolean;
   readonly threadId?: string;
+  /** #1600 lane R2: the instance that observed the prompt; a DM the Owner's account received is answered through it. */
+  readonly receivedBy?: Channel.Identity;
 }
 
 /**
@@ -140,15 +142,19 @@ function deliveryTarget(
  * The instance a reply leaves through (#1569 P4): the bot instance of the
  * surface, or the surface's one identity-less route; where the platform is
  * reached only through the Owner's account, that account when its
- * declaration auto-replies.
+ * declaration auto-replies, otherwise the Owner's draft. A DM the Owner's
+ * account received (#1600 lane R2) is that account's to answer whatever
+ * else is mounted: the bot cannot reach it, and the Owner needs no route to
+ * answer from their own account — so an inbound-only Owner instance drafts.
  */
 function replyIdentity(
   ports: Pick<ReplyPorts, "routes" | "autoReplies">,
-  surface: string,
+  binding: Pick<ConversationBinding, "surface" | "dm" | "receivedBy">,
 ): Channel.Identity | "draft" | "no_route" {
   const routes = ports.routes();
-  if (routes.has(Channel.instanceId(surface, "bot")) || routes.has(surface)) return "bot";
-  const owner = Channel.instanceId(surface, "owner");
+  const owner = Channel.instanceId(binding.surface, "owner");
+  if (binding.dm && binding.receivedBy === "owner") return routes.has(owner) && ports.autoReplies().has(owner) ? "owner" : "draft";
+  if (routes.has(Channel.instanceId(binding.surface, "bot")) || routes.has(binding.surface)) return "bot";
   if (!routes.has(owner)) return "no_route";
   return ports.autoReplies().has(owner) ? "owner" : "draft";
 }
@@ -176,12 +182,12 @@ export function createReplyMessaging(ports: ReplyPorts): ReplyMessaging {
         ports.stores.surfaceKeys.lookup(bindingSurfaceKey(binding)) === senderId ||
         automationTarget(ports.stores, inReplyTo) === senderId;
       if (!routedTo) return "not_bound";
-      const identity = replyIdentity(ports, binding.surface);
+      const identity = replyIdentity(ports, binding);
       return identity === "bot" || identity === "owner" ? undefined : identity;
     },
     send: (input) =>
       Effect.gen(function* () {
-        const identity = replyIdentity(ports, input.binding.surface);
+        const identity = replyIdentity(ports, input.binding);
         if (identity !== "bot" && identity !== "owner")
           return yield* Effect.fail(
             new SendAdmissionConflict({ message: `reply admission changed: ${identity}` }),

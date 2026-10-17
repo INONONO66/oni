@@ -198,9 +198,15 @@ ChannelInstance {
   hand it to routing once (`inboundOnce`). Without `grant.outbound` an owner
   instance mounts neither a delivery nor a typing route. `autoReply` (lane
   7, default false) lets the reply door answer a conversation through this
-  account on its own where the platform has no bot instance; without it
-  the Resident's answer is refused `message.resident.reply_draft` and stays
-  a draft the Owner sends. Instagram and KakaoTalk are Owner-only
+  account on its own where the platform has no bot instance — or where the
+  prompt was a DM this account received, which the bot cannot reach
+  (#1600 lane R2); without it (an inbound-only instance included) the
+  Resident's answer is refused `message.resident.reply_draft` and the
+  Resident delivers the draft to the Owner through a messenger bot or the
+  socket on a platform where the Owner holds one endpoint, or leaves it in
+  the session when there is none. The owner-tier Person is always the
+  Resident's to write to: granted without `reach`, and the gateway asks no
+  budget for a letter to the Owner. Instagram and KakaoTalk are Owner-only
   platforms: a bot declaration of them is `identity_unsupported`.
 - The `grant` block is the Owner's per-instance perimeter policy: boot threads
   `grant.defaultTier` into the surface's ChannelGrant row through the channel

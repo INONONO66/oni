@@ -168,6 +168,17 @@ export function activeBudgetFor(
   );
 }
 
+/**
+ * #1600 lane R2: a letter to the owner-tier Person is never outreach — the
+ * Owner declares budgets for the people the Resident may contact, not for
+ * their own mail — so a missing budget for the Owner is no consent question
+ * (a draft, a report, a question are the Owner's own mail). A budget the
+ * Owner did declare for themselves is honored like any other.
+ */
+export function ownerTarget(stores: Pick<ChannelStores, "actors">, actorId: string): boolean {
+  return stores.actors.getIdentity(actorId)?.trustTier === "owner";
+}
+
 /** Runs synchronously inside the caller's ledger transaction, before any physical delivery. */
 export function admitSend(
   stores: ChannelStores,
@@ -192,7 +203,7 @@ export function admitSend(
   // #1569 lane 8: with the gate wired and no budget declared for the target,
   // the send is the Owner's to approve — consented, it goes with no debit;
   // otherwise it is denied `approval_required`, never silently exhausted.
-  if (ports.budgets !== undefined && budget === undefined && input.consented !== true) {
+  if (ports.budgets !== undefined && budget === undefined && input.consented !== true && !ownerTarget(stores, input.target.actorId)) {
     return deny(
       input,
       "approval_required",

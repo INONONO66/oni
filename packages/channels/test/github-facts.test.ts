@@ -47,7 +47,7 @@ for (const text of ["ambient event", "@owner review @bot", "@bot"]) {
         githubEvent: "issue_comment.created",
         author: { externalId: "sender", isBot: true },
         workspaceId: "owner/repo",
-        channelId: "issue-7",
+        channelId: "owner/repo#7",
         dm: false,
         render: text,
       });

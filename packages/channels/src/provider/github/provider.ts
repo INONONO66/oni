@@ -1,5 +1,4 @@
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
-import { DeliveryNotSent } from "../../errors.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
 import { GitHubAdapter } from "./surface.js";
@@ -47,14 +46,9 @@ export const GitHubProvider: ChannelProvider<GitHubCredentials, "github"> = {
     );
     return {
       surface,
-      deliveryRoute: async (externalId, payload, key, conversation) => {
-        if (conversation !== undefined)
-          throw new DeliveryNotSent({
-            operation: "github.deliver",
-            cause: `github cannot post into conversation ${conversation.channelId}; only direct delivery`,
-          });
-        return kernelDeliveryReceipt(await surface.deliver(externalId, payload, key));
-      },
+      // A conversation names the issue (`owner/repo#N`, #1600 lane R2): the answer is a comment there; a cold send keeps the direct address.
+      deliveryRoute: async (externalId, payload, key, conversation) =>
+        kernelDeliveryReceipt(await surface.deliver(conversation?.channelId ?? externalId, payload, key)),
       webhookHandler: (request) => surface.handleWebhook(request),
     };
   },
