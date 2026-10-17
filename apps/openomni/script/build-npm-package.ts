@@ -13,9 +13,15 @@ import { fileURLToPath } from "node:url";
  * - `dist/app/process-entry.js` — the process-transport child, resolved by
  *   the app as a sibling of the running bundle.
  * - `bin/openomni.js` — node-runnable stub that re-executes under bun.
- * - the generated package.json carries NO dependencies: workspace packages
- *   are folded into the bundles and never exist on the npm registry.
+ * - the generated package.json carries no workspace dependency: those
+ *   packages are folded into the bundles and never exist on the npm registry.
+ *   The one exception is `NATIVE_DEPENDENCIES`: a native addon cannot be
+ *   folded (its prebuilt binary is looked up beside its own package at run
+ *   time, so a bundled copy loads the build machine's path on every other
+ *   host), so each stays external and is installed by npm on the target.
  */
+/** Native addons the channels SDK loads: kept out of the bundle, declared for npm to install per platform (#1600 first live run). */
+const NATIVE_DEPENDENCIES: Readonly<Record<string, string>> = { "classic-level": "^3.0.0" };
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const staging = process.argv[2] ?? join(appDir, "dist-npm");
 
@@ -27,6 +33,7 @@ for (const entrypoint of ["src/cli/main.ts", "src/process-entry.ts"]) {
     entrypoints: [join(appDir, entrypoint)],
     outdir: join(staging, "dist", "app"),
     target: "bun",
+    external: Object.keys(NATIVE_DEPENDENCIES),
   });
   if (!result.success) {
     for (const log of result.logs) console.error(String(log));
@@ -47,6 +54,7 @@ const manifest = {
   type: "module",
   bin: { openomni: "bin/openomni.js" },
   files: ["bin", "dist", "README.md"],
+  dependencies: NATIVE_DEPENDENCIES,
   repository: { type: "git", url: "git+https://github.com/INONONO66/openomni.git" },
   engines: { node: ">=20" },
   publishConfig: { access: "public" },

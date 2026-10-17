@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Bus } from "./helpers/bus";
@@ -50,7 +50,16 @@ describe("health endpoint", () => {
 });
 
 describe("npm package staging", () => {
-  test("build stages a dependency-free package whose bundle boots against a fresh ledger", async () => {
+  /** What npm installs beside the package on the target: the workspace's copy of each native addon, linked for the smoke boot. */
+  function linkNativeDependencies(staging: string, dependencies: Readonly<Record<string, string>>): void {
+    const sdkDir = dirname(Bun.resolveSync("agent-messenger/package.json", join(appDir, "..", "..", "packages", "channels")));
+    mkdirSync(join(staging, "node_modules"), { recursive: true });
+    for (const name of Object.keys(dependencies)) {
+      symlinkSync(dirname(Bun.resolveSync(`${name}/package.json`, sdkDir)), join(staging, "node_modules", name), "dir");
+    }
+  }
+
+  test("build stages a package with no workspace dependency — only the native addon npm installs per platform — whose bundle boots against a fresh ledger", async () => {
     const staging = tempDir("openomni-pack-staging-");
     const home = tempDir("openomni-pack-home-");
     const env = {
@@ -86,14 +95,17 @@ describe("npm package staging", () => {
     });
     expect(build.exitCode, build.stderr.toString()).toBe(0);
 
-    // Manifest contract: no workspace deps may leak into the registry artifact.
+    // Manifest contract: no workspace dep may leak into the registry artifact; the
+    // one native addon the channels SDK loads stays external (its prebuilt
+    // binary is found beside its own package on the target, never in a bundle).
     const manifest = JSON.parse(readFileSync(join(staging, "package.json"), "utf-8")) as {
       name: string;
       bin: Record<string, string>;
       dependencies?: Record<string, string>;
     };
     expect(manifest.name).toBe("openomni");
-    expect(manifest.dependencies).toBeUndefined();
+    expect(manifest.dependencies).toEqual({ "classic-level": "^3.0.0" });
+    linkNativeDependencies(staging, manifest.dependencies ?? {});
     expect(existsSync(join(staging, manifest.bin.openomni ?? ""))).toBe(true);
     // W5.2: no migration plane ships; the schema is embedded in the bundle.
     expect(existsSync(join(staging, "migration"))).toBe(false);
