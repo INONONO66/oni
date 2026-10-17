@@ -38,7 +38,17 @@ function identityDenial(
   input: Pick<Gateway.SendInput, "senderId" | "ownerOrigin">,
   routes: ReadonlySet<string>,
 ): { readonly ok: false; readonly code: "identity_not_granted"; readonly reason: string } | undefined {
-  if (target.identity !== "owner") return undefined;
+  if (target.identity !== "owner") {
+    // #1600 lane R3: a platform reached only through the Owner's account has no bot to send as.
+    const bot = routes.has(Channel.instanceId(target.channel, "bot")) || routes.has(target.channel);
+    if (!bot && routes.has(Channel.instanceId(target.channel, "owner")))
+      return {
+        ok: false,
+        code: "identity_not_granted",
+        reason: `${target.channel} is reached only through the Owner's account — send as: owner from an Owner-origin turn`,
+      };
+    return undefined;
+  }
   if (input.ownerOrigin !== true)
     return {
       ok: false,

@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { Effect } from "effect";
 import { newTraceId } from "./helpers/bus";
 import { describe, expect, it } from "bun:test";
@@ -367,6 +368,30 @@ describe("OpenOmni Resident WebSocket", () => {
     expect(response.status).toBe(401);
     expect(await response.text()).toBe("Missing signature");
     expect((await fetch(`http://127.0.0.1:${app.port}/github/webhook`, { method: "POST", body: "{}" })).status).toBe(404);
+  });
+
+  it("#1600 lane R3: serves every declared webhook target under /webhook/<slug> — signed ingress only, an undeclared slug 404", async () => {
+    const declared = suite.config("declared-webhook-", { wsToken: WS_TOKEN });
+    const kek = declareChannel(statePath(declared.catalogPath), "webhook", { id: "hooky", secret: "hook-secret" }, undefined, "hooky");
+    const app = await bootWithConfig({ ...declared, kek });
+
+    const unsigned = await fetch(`http://127.0.0.1:${app.port}/webhook/hooky`, { method: "POST", body: "{}" });
+    expect(unsigned.status).toBe(401);
+    expect(await unsigned.json()).toEqual({ refused: { reason: "missing_signature" } });
+    const body = JSON.stringify({ event: "ping" });
+    // Signed, the delivery reaches the perimeter; at the mount tier, with no grant block declared, the Owner's policy refuses it — the surface's own 200, never a reset connection.
+    const signed = await fetch(`http://127.0.0.1:${app.port}/webhook/hooky`, {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/json", "x-signature": `sha256=${createHmac("sha256", "hook-secret").update(body).digest("hex")}` },
+    });
+    expect(signed.status).toBe(200);
+    expect(await signed.text()).toBe("Not ingested");
+    expect((await fetch(`http://127.0.0.1:${app.port}/webhook/nobody`, { method: "POST", body: "{}" })).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${app.port}/webhook/`, { method: "POST", body: "{}" })).status).toBe(404);
+    // Outside the slug grammar is the same 404: a percent-escape (malformed or not), a capital, a nested path — never decoded, never thrown.
+    for (const path of ["/webhook/%ZZ", "/webhook/%E0%A4%A", "/webhook/hook%79", "/webhook/Hooky", "/webhook/hooky/extra"])
+      expect((await fetch(`http://127.0.0.1:${app.port}${path}`, { method: "POST", body: "{}" })).status).toBe(404);
   });
 
   it("mounts the one A2A door for every declared peer: the card at the well-known path, the JSON-RPC door refusing a stranger and answering a peer through the Resident", async () => {

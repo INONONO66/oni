@@ -69,14 +69,16 @@ const Send = z
   })
   .strict();
 
-// Credential is transient ingress material, never an action payload.
+// Credential is transient ingress material, never an action payload. Empty
+// is a frame too (#1600 lane R3): on a tokenless loopback boot the socket is
+// the evidence and nothing could ever present a token; the rule decides.
 const RequestAnswer = z
   .object({
     kind: z.literal("request_answer"),
     inputId: Id,
     request: SessionTransition.Request,
     decision: z.enum(["approve", "refuse"]),
-    credential: Id,
+    credential: z.string(),
   })
   .strict();
 

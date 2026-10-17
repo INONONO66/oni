@@ -124,7 +124,8 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
       value: "sent",
       externalMessageId: "log-1",
     });
-    await expect(adapter.deliver("2002", Outbound.payload("cold"), "k-2")).rejects.toBeInstanceOf(DeliveryNotSent);
+    // #1600 lane R3: nothing was attempted — the typed receipt, not a thrown failure.
+    expect(await adapter.deliver("2002", Outbound.payload("cold"), "k-2")).toEqual({ value: "not_sent" });
     const dm = next();
     listener.message({ chat_id: "chat-dm", log_id: "log-9", author_id: 2002, message: "hi" });
     await dm;

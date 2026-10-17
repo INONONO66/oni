@@ -184,6 +184,8 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     // Owner listener under its own posture).
     const surfaceId = built.surface.id;
     const platform = row.component.id;
+    // #1600 lane R3: a webhook declaration's handler is keyed by the instance, never shared with the platform's others.
+    const webhookKey = row.component.webhookKey ?? platform;
     const revokeGrant = row.component.listens ? holdGrant(platform, row) : () => undefined;
     if (built.deliveryRoute !== undefined) {
       deps.deliveryRoutes.set(surfaceId, built.deliveryRoute);
@@ -192,12 +194,12 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       deps.typingRoutes.set(surfaceId, built.typingRoute);
     }
     if (built.webhookHandler !== undefined) {
-      deps.webhookHandlers.set(platform, built.webhookHandler);
+      deps.webhookHandlers.set(webhookKey, built.webhookHandler);
     }
     if (built.autoReply === true) deps.autoReplies?.add(surfaceId);
     const unwind = async (stopSurface: boolean) => {
       if (stopSurface) await built.surface.stop(deps.traceId());
-      if (built.webhookHandler !== undefined) deps.webhookHandlers.delete(platform);
+      if (built.webhookHandler !== undefined) deps.webhookHandlers.delete(webhookKey);
       deps.autoReplies?.delete(surfaceId);
       deps.deliveryRoutes.delete(surfaceId);
       deps.typingRoutes.delete(surfaceId);

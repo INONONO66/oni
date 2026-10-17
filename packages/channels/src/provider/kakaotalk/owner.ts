@@ -261,8 +261,8 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
     conversation?: Gateway.Conversation,
   ): Promise<DeliveryReceipt> {
     const chatId = conversation?.channelId ?? this.directChats.get(externalId);
-    if (chatId === undefined)
-      throw new DeliveryNotSent({ operation: "kakaotalk.owner", cause: `no direct chat with ${externalId} yet` });
+    // #1600 lane R3: nothing was attempted — the sender's typed fact, not a thrown failure.
+    if (chatId === undefined) return { value: "not_sent" };
     return await deliverKeyed(
       this.outbound,
       idempotencyKey,

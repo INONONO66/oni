@@ -121,3 +121,33 @@ test("a declaration carrying its secret inline verifies with it and speaks as it
   expect(createWebhookProvider(async () => undefined).credentials.safeParse({ id: "hook-3" }).success).toBe(false);
   expect(createWebhookProvider(async () => undefined).credentials.safeParse({ id: "hook-3", secret: "s", url: "ftp://x" }).success).toBe(false);
 });
+
+test("#1600 lane R3: a perimeter refusal is the surface's own 200 and never redelivered; a handler failure is 500 — neither resets the connection", async () => {
+  const warns: string[] = [];
+  const errors: string[] = [];
+  const runtime = createWebhookProvider(resolver).create(
+    credentials,
+    {},
+    (event, data) => {
+      const msg = typeof data === "object" && data !== null && "msg" in data ? String(data.msg) : "";
+      if (event.name === Operational.Events.Warn.name) warns.push(msg);
+      if (event.name === Operational.Events.Error.name) errors.push(msg);
+    },
+    injectedOptions(),
+  );
+  let attempts = 0;
+  runtime.surface.onMessage(async () => {
+    attempts += 1;
+    if (attempts === 1) throw Object.assign(new Error("message admission refused: message.external.grant_tier"), { name: "MessageAdmissionRefused" });
+    throw new Error("ledger closed");
+  });
+  await runtime.surface.start("trace");
+  const refused = await runtime.webhookHandler?.(request(body, signature));
+  expect(refused?.status).toBe(200);
+  expect(await refused?.text()).toBe("Not ingested");
+  const failed = await runtime.webhookHandler?.(request(body, signature));
+  expect(failed?.status).toBe(500);
+  expect(await failed?.text()).toBe("Processing failed");
+  expect(warns).toEqual(["webhook event not ingested"]);
+  expect(errors).toEqual(["webhook message handler error"]);
+});

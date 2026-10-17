@@ -63,8 +63,30 @@ export class WebhookAdapter implements Channel.Surface {
       },
     };
     if (this.handler === null) return new Response("Handler unavailable", { status: 503 });
-    await this.handler(inbound);
-    return new Response("OK", { status: 200 });
+    return this.dispatch(inbound);
+  }
+
+  /**
+   * Awaits the inbound handler (#1600 lane R3; the first cut let a throw
+   * escape and reset the connection). A perimeter refusal is this surface's
+   * own verdict — answered 200 so the sender never redelivers what the
+   * Owner's policy refused; a failure answers 500 so it can.
+   */
+  private async dispatch(inbound: Channel.InboundMessage): Promise<Response> {
+    try {
+      await (this.handler as Channel.MessageHandler)(inbound);
+      return new Response("OK", { status: 200 });
+    } catch (error) {
+      const refused = error instanceof Error && /refused/i.test(error.name);
+      this.publish(refused ? Operational.Events.Warn : Operational.Events.Error, {
+        traceId: this.options.id(),
+        time: this.options.now(),
+        component: "server",
+        msg: refused ? "webhook event not ingested" : "webhook message handler error",
+        context: { webhookId: this.credentials.id, error: error instanceof Error ? error.message : String(error) },
+      });
+      return refused ? new Response("Not ingested", { status: 200 }) : new Response("Processing failed", { status: 500 });
+    }
   }
 
   private publishRefusal(refusal: WebhookRefusal): void {

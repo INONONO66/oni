@@ -8,6 +8,8 @@ import { automationWire } from "./composition/automation-wire";
 import { channelWire } from "./composition/channel-wire";
 import { a2aContacts } from "./composition/a2a-contacts";
 import { ownerContactFor } from "./composition/owner-contact";
+import { ownerAnswerAuthentication } from "./composition/answer-authentication";
+import { typingRouteFor } from "./composition/typing-route";
 import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
@@ -247,6 +249,8 @@ async function composeMachinePlane(
   return { host, self, defaultMachine: plane.defaultMachine };
 }
 
+/** The path every declared webhook target is served under, by its slug (#1600 lane R3): `/webhook/<slug>`. */
+const WEBHOOK_PREFIX = "/webhook/";
 /** The public webhook paths and the provider whose handler answers each (#1569 lane 9b adds Linear, 9c the A2A door). */
 const WEBHOOK_ROUTES: ReadonlyMap<string, string> = new Map([
   ["/github/webhook", "github"],
@@ -258,14 +262,35 @@ const CARD_PATHS: ReadonlySet<string> = new Set(["/.well-known/agent-card.json",
 
 /**
  * The app's HTTP surface: the ws upgrade seam, unauthenticated liveness (no
- * clock, no version, no state), and — only when a GitHub or Linear channel
- * is composed — its webhook ingress. Everything else is 404. The webhook
- * handler is read live from the supervisor's table so a channel_add landing
- * an instance mid-run is reachable without rebinding the server.
+ * clock, no version, no state), the platform webhook ingresses when their
+ * channel is composed (GitHub, Linear, the A2A door) and every declared
+ * webhook target under `/webhook/<slug>`. Everything else is 404. The
+ * webhook handler is read live from the supervisor's table so a channel_add
+ * landing an instance mid-run is reachable without rebinding the server.
  */
+type WebhookHandler = (request: Request) => Promise<Response>;
+
+/** A declared slug's grammar (`channel:webhook:<slug>`): what the path segment must be, byte for byte, to name a door. */
+const WEBHOOK_SLUG = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * The handler a POST path names: a platform's webhook ingress by its fixed
+ * path, or a declared webhook target by its slug under `/webhook/` (#1600
+ * lane R3); nothing for any other path — an empty slug, a percent-escape or
+ * any byte outside the slug grammar is the same 404 as an undeclared slug,
+ * never decoded, never thrown.
+ */
+function webhookFor(pathname: string, webhookHandler: (key: string) => WebhookHandler | undefined): WebhookHandler | undefined {
+  const provider = WEBHOOK_ROUTES.get(pathname);
+  if (provider !== undefined) return webhookHandler(provider);
+  if (!pathname.startsWith(WEBHOOK_PREFIX)) return undefined;
+  const slug = pathname.slice(WEBHOOK_PREFIX.length);
+  return WEBHOOK_SLUG.test(slug) ? webhookHandler(`webhook:${slug}`) : undefined;
+}
+
 function createHttpRoutes(
   wsHandler: WebSocketHandler,
-  webhookHandler: (provider: string) => ((request: Request) => Promise<Response>) | undefined,
+  webhookHandler: (provider: string) => WebhookHandler | undefined,
 ) {
   return (
     request: Request,
@@ -279,11 +304,8 @@ function createHttpRoutes(
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ ok: true });
     }
-    const provider = WEBHOOK_ROUTES.get(url.pathname);
-    if (request.method === "POST" && provider !== undefined) {
-      const handler = webhookHandler(provider);
-      if (handler !== undefined) return handler(request);
-    }
+    const webhook = request.method === "POST" ? webhookFor(url.pathname, webhookHandler) : undefined;
+    if (webhook !== undefined) return webhook(request);
     if (request.method === "GET" && CARD_PATHS.has(url.pathname)) {
       const handler = webhookHandler("a2a");
       if (handler !== undefined) return handler(request);
@@ -752,10 +774,14 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // Live table: channel components register and revoke their own outbound
     // routes (declared beside the typing routes; the resident's draft arm reads it).
     const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
+    // The Owner instances whose declaration lets the reply door answer through
+    // the account (#1569 lane 7); the supervisor keeps it with the routes, and
+    // the resident's typing pulse reads it.
+    const autoReplies = new Set<string>();
     const resident = createResident({
-      // The turn's pulse rides the bot instance of the platform (#1569); an
-      // identity-less surface keeps its platform key.
-      typingRoute: (surface) => typingRoutes.get(`${surface}:bot`) ?? typingRoutes.get(surface),
+      // The turn's pulse rides the bot instance of the platform (#1569), an
+      // identity-less surface its platform key, an auto-replying Owner account its own (#1600 lane R3).
+      typingRoute: typingRouteFor(typingRoutes, autoReplies),
       // #1600 lane R2: a drafted answer goes to the Owner through the bot on a
       // platform the Owner Person has an endpoint on, ws last (it needs a live socket).
       ownerContact: () => ownerContactFor(plane.stores.persons.list(), deliveryRoutes),
@@ -881,9 +907,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // reconcile and every tool-driven mutation run the SAME diff over
     // declared ChannelInstances, the only source of external channel config.
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
-    // The Owner instances whose declaration lets the reply door answer through
-    // the account (#1569 lane 7); the supervisor keeps it with the routes.
-    const autoReplies = new Set<string>();
     const supervisor = createChannelSupervisor({
       desired: () =>
         desiredChannels(
@@ -1032,11 +1055,9 @@ export async function startOpenOmni(options: StartOptions = {}) {
           judge,
           requests: requestsWithDeadlines,
           stores: channelStores,
-          authenticateAnswer: (_sender, credential, requestId) =>
-            Effect.try({
-              try: () => authenticateOwner(credential, requestId),
-              catch: decodeChannelFailure("answer.authenticate"),
-            }),
+          // #1600 lane R3: on a tokenless loopback boot the Owner's own socket is the
+          // evidence; with a token configured the token is required, as before.
+          authenticateAnswer: ownerAnswerAuthentication({ wsToken: config.wsToken, stores: channelStores, byToken: authenticateOwner }),
           committed: (row) => {
             void wake(row.sessionId);
           },

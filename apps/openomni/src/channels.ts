@@ -58,6 +58,8 @@ export interface ChannelComponent {
   readonly listens: boolean;
   /** Constructs the surface and binds the Resident handler. Called once per boot. */
   build(handler: Channel.MessageHandler): BuiltChannel;
+  /** #1600 lane R3: the key the webhook table holds this instance's handler under; absent, the platform's. */
+  readonly webhookKey?: string;
 }
 
 type RuntimeFactory = (options: Parameters<ChannelProvider<never>["create"]>[3]) => ProviderRuntime;
@@ -416,7 +418,12 @@ export function declaredChannelProfile(
       peers += 1;
       continue;
     }
-    rows.push({ instanceId: instance.id, component: row });
+    // #1600 lane R3: every webhook declaration is its own door, `/webhook/<slug>`, keyed like its outbound contact.
+    const component =
+      instance.provider === "webhook"
+        ? { ...row, webhookKey: `webhook:${instance.id.slice("channel:webhook:".length)}` }
+        : row;
+    rows.push({ instanceId: instance.id, component });
   }
   if (peers > 0) rows.push({ instanceId: A2A_DOOR_ID, component: a2aDoor(roster, deps) });
 

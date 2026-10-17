@@ -273,8 +273,11 @@ describe("Linear as the Owner's own account (#1569 lane 9b): the linear:owner in
       expect(warns).toEqual(["linear api key missing — reply not posted"]);
       const own = envelope({ actor: { id: "user-owner" }, data: { id: "comment-9", body: "mine", issueId: "issue-1", userId: "user-owner" } });
       expect(await (await keyless.runtime.webhookHandler?.(signed(JSON.stringify(own))))?.text()).toBe("Own action");
-      const quiet = await started(DEFAULT_INTAKE, { secret: SECRET });
-      expect(await (await quiet.runtime.webhookHandler?.(signed(JSON.stringify(envelope()))))?.text()).toBe("Not addressed to the Owner");
+      // #1600 lane R3: keyless and nameless under mentions_and_dms nothing could ever name the Owner — the start refuses rather than mounting deaf; under `all` it reads everything.
+      await expect(started(DEFAULT_INTAKE, { secret: SECRET })).rejects.toMatchObject({ _tag: "ChannelsFailure", operation: "linear.owner.start" });
+      const everything = await started(ALL, { secret: SECRET });
+      expect(await (await everything.runtime.webhookHandler?.(signed(JSON.stringify(envelope()))))?.status).toBe(200);
+      expect(everything.received).toHaveLength(1);
     } finally {
       api.restore();
     }
