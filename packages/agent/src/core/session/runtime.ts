@@ -63,6 +63,7 @@ export interface SessionRunnerInput {
     readonly time?: number;
   })[];
   readonly history?: readonly import("@openomni/protocol").Message.WithParts[];
+  readonly hydrated?: import("../../inspect/history").HydratedSessionHistory;
   readonly tools: readonly SessionGeneration.Tool[];
   readonly toolsGeneration: number;
   readonly toolsHash: string;

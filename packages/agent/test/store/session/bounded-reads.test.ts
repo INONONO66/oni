@@ -139,6 +139,51 @@ test("open turns page by original ordinal even when their latest update is beyon
   expect(() => kernel.openTurnsPage("bounded", 0, 257)).toThrow(z.ZodError);
 });
 
+test("open turns resolve their latest update from either persisted turn-id path", () => {
+  turn("intent-path");
+  turn("effect-path");
+  const generation = kernel.latestGenerationFor("bounded");
+  const resumed = append(
+    "intent-resume",
+    "turn",
+    {
+      phase: "resume",
+      turnId: "intent-path",
+      resultId: "intent-path:result",
+      resumeCount: 1,
+      boundaryActionId: null,
+      toolsGeneration: generation.generation,
+      toolsHash: generation.toolsHash,
+      systemHash: generation.systemHash,
+      policyGeneration: generation.policyGeneration,
+    },
+    {},
+    "intent-path",
+  );
+  const checkpoint = append(
+    "effect-checkpoint",
+    "turn",
+    { phase: "checkpoint" },
+    {
+      phase: "checkpoint",
+      turnId: "effect-path",
+      resultId: "effect-path:result",
+      resumeCount: 1,
+      boundaryActionId: "effect-checkpoint",
+      boundary: "after_llm",
+    },
+    "effect-path",
+  );
+  expect(kernel.openTurnsPage("bounded").map(({ turnId, action, resumeCount }) => ({
+    turnId,
+    actionId: action.id,
+    resumeCount,
+  }))).toEqual([
+    { turnId: "intent-path", actionId: resumed.id, resumeCount: 1 },
+    { turnId: "effect-path", actionId: checkpoint.id, resumeCount: 1 },
+  ]);
+});
+
 test("a full open-turn page whose tail intent cannot be re-read is a named invariant", () => {
   for (let index = 0; index < 256; index += 1) turn(`turn-${index}`);
   // A store whose action index lost the row behind an open turn: the read must

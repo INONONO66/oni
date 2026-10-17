@@ -127,6 +127,16 @@ function config(overrides: Partial<LedgerConfig>): LedgerConfig {
   };
 }
 
+/** A file-mode ledger layer over one home: catalog and runner storage on the same file. */
+const fileLayer = ({ catalogPath, sessionsDir }: ReturnType<typeof home>) =>
+  openLedger(
+    config({
+      catalog: { path: catalogPath },
+      sessions: { dir: sessionsDir },
+      cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
+    }),
+  ).pipe(Layer.provide(bunCrypto));
+
 const materialize = (sessionId: string) =>
   Effect.gen(function* () {
     const ledger = yield* Ledger;
@@ -153,13 +163,7 @@ const deliverPrompt = (sessionId: string, key: string) =>
 test("file mode: one scope opens catalog, runner storage and entity; the deliver commits and release closes the catalog", async () => {
   const { catalogPath, sessionsDir } = home("file");
   const sessionId = "file-session";
-  const layer = openLedger(
-    config({
-      catalog: { path: catalogPath },
-      sessions: { dir: sessionsDir },
-      cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
-    }),
-  ).pipe(Layer.provide(bunCrypto));
+  const layer = fileLayer({ catalogPath, sessionsDir });
   const scope = await runAgent(Scope.make());
   const context = await runAgent(Layer.buildWithScope(layer, scope));
   const program = Effect.gen(function* () {
@@ -185,13 +189,7 @@ test("file mode: one scope opens catalog, runner storage and entity; the deliver
 test("file mode: closing the scope releases the catalog exactly once (#1345 M1)", async () => {
   const { catalogPath, sessionsDir } = home("release-once");
   const sessionId = "release-once-session";
-  const layer = openLedger(
-    config({
-      catalog: { path: catalogPath },
-      sessions: { dir: sessionsDir },
-      cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
-    }),
-  ).pipe(Layer.provide(bunCrypto));
+  const layer = fileLayer({ catalogPath, sessionsDir });
   const scope = await runAgent(Scope.make());
   const context = await runAgent(Layer.buildWithScope(layer, scope));
   const catalog = Context.get(context, Ledger).catalog;
@@ -206,6 +204,22 @@ test("file mode: closing the scope releases the catalog exactly once (#1345 M1)"
   await runAgent(Scope.close(scope, Exit.void));
   expect(closes).toHaveBeenCalledTimes(1);
   expect(sessionFileClosed(catalogPath)).toBe(true);
+});
+
+test("file mode: scanning ignores a session file that cannot open", async () => {
+  const { catalogPath, sessionsDir } = home("scan-corrupt");
+  mkdirSync(sessionsDir, { recursive: true });
+  writeFileSync(join(sessionsDir, "corrupt.sqlite"), "not a database");
+  const layer = fileLayer({ catalogPath, sessionsDir });
+  const listed = await runAgent(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const ledger = yield* Ledger;
+        return ledger.listSessions().map((row) => row.id);
+      }).pipe(Effect.provide(layer)),
+    ),
+  );
+  expect(listed).toEqual([]);
 });
 
 test("memory mode: the entity and the plane share one in-memory store per session", async () => {
@@ -390,14 +404,7 @@ const settleOnClock = <A, E, R>(program: Effect.Effect<A, E, R>, label: string) 
 test("file mode: a rebuilt host on the same paths lists the session, verifies its chain and commits a new deliver (#1345 M3a)", async () => {
   const { catalogPath, sessionsDir } = home("reopen");
   const sessionId = "reopen-session";
-  const host = () =>
-    openLedger(
-      config({
-        catalog: { path: catalogPath },
-        sessions: { dir: sessionsDir },
-        cluster: { storagePath: catalogPath, entityIdleMs: 60_000 },
-      }),
-    ).pipe(Layer.provide(bunCrypto));
+  const host = () => fileLayer({ catalogPath, sessionsDir });
   const first = await runAgent(
     Effect.scoped(
       Effect.gen(function* () {
@@ -413,14 +420,16 @@ test("file mode: a rebuilt host on the same paths lists the session, verifies it
       Effect.gen(function* () {
         const ledger = yield* Ledger;
         const listed = ledger.listSessions().map((row) => row.id);
+        const scannedClosed = sessionFileClosed(join(sessionsDir, `${sessionId}.sqlite`));
         const before = ledger.openKernel(sessionId).verifyChain(sessionId);
         const receipt = yield* deliverPrompt(sessionId, "m2");
         const after = ledger.openKernel(sessionId).verifyChain(sessionId);
-        return { listed, before, receipt, after };
+        return { listed, scannedClosed, before, receipt, after };
       }).pipe(Effect.provide(host())),
     ),
   );
   expect(second.listed).toEqual([sessionId]);
+  expect(second.scannedClosed).toBe(true);
   expect(second.before.kind).toBe("intact");
   expect(second.receipt.existed).toBe(false);
   expect(second.after.kind).toBe("intact");

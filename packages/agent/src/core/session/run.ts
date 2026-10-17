@@ -117,6 +117,7 @@ export function createSessionTurn(
           resultId: input.resultId, parentActionId, boundaryActionId,
           messages: hydrated.messages,
           history: hydrated.history,
+          hydrated,
           tools: input.generation.tools, toolsGeneration: input.generation.generation, toolsHash: input.generation.toolsHash,
           system: input.generation.systemValue, systemHash: input.generation.systemHash, policyGeneration: input.generation.policyGeneration,
           resumeCount: input.resumeCount, signal: controller.signal, boundary,
@@ -282,7 +283,7 @@ export function createSessionChatRunner(options: SessionChatRunnerOptions): Sess
     const executor = prepared.config.executor;
     if (executor.recover === undefined || executor.runAttempts === undefined || executor.judgeStop === undefined)
       return yield* Effect.die(new Error("durable chat runner requires session authority"));
-    const captured = hydrateSessionHistory(input.kernel, input.sessionId);
+    const captured = input.hydrated ?? hydrateSessionHistory(input.kernel, input.sessionId);
     yield* executor.recover();
     const refreshed = refreshSessionHistory(input.kernel, input.sessionId, captured);
     const operation = runAgent({

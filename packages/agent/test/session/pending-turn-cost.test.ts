@@ -1,32 +1,16 @@
 import { expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
-import { createSessionChatRunner } from "../../src/core/session/run";
-import { session } from "../../src/testing/registry";
-import { fixtureConfigHead, fixtureTraceContext, prepareChatFixture } from "../helpers/chat-services";
 import { isolated, isolatedLedger } from "../helpers/isolated";
-import { completeModel, mockLlm } from "../helpers/mock-llm";
 import { seedPolicy } from "../helpers/seed-policy";
-import { testTurnDispatcher } from "../helpers/service-layers";
-import { silentRuntime, withSessionServices } from "../helpers/session-services";
+import { completingChatSession } from "../helpers/session-chat";
+import { silentRuntime } from "../helpers/session-services";
 import { sessionTree } from "../helpers/session-tree";
 
 test("one model step commits no empty checkpoints and reads pending once", () =>
   isolated(Effect.gen(function* () {
     seedPolicy();
     const runtime = silentRuntime("pending-turn", "pending-turn");
-    const runner = createSessionChatRunner({
-      prepare: (input) => Effect.gen(function* () {
-        const dispatcher = yield* testTurnDispatcher(input, runtime);
-        return prepareChatFixture({
-          traceContext: fixtureTraceContext(input),
-          config: { ...fixtureConfigHead(dispatcher.executor), llm: mockLlm(completeModel) },
-        });
-      }),
-    });
-    const handle = yield* withSessionServices(
-      session({ id: "S", role: "resident", runner }, runtime),
-      runtime,
-    );
+    const handle = yield* completingChatSession("S", runtime);
     yield* handle.prompt("warm");
     const { kernel, session: store } = isolatedLedger();
     const before = kernel.row("S").revision;
