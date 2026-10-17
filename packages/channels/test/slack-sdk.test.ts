@@ -9,7 +9,7 @@ import {
   slackSdk,
 } from "../src/provider/slack/sdk";
 import { SlackApiError } from "../src/errors";
-import type { SlackBotApi } from "../src/provider/slack/sdk";
+import { CustodySlackBotClient, type InnerWebClient, type SlackBotApi } from "../src/provider/slack/sdk";
 import { FakeSlackClient } from "./helpers/slack-sdk";
 
 /** The runtime shape of the SDK client's private `@slack/web-api` instance, as the tests reach it. */
@@ -74,24 +74,58 @@ describe("agent-messenger slack bot SDK seam", () => {
     );
   });
 
-  test("the seam's socket-url fetch rides the pinned inner client with the app token, never a fresh one", async () => {
+  test("the seam's socket-url fetch builds the app token its own pinned web client — the bot client's Authorization header answered invalid_auth on the first live run (#1600)", async () => {
     const client = slackSdk().client();
     await client.login({ token: "xoxb-offline" });
     singleAttempt(client);
+    if (!(client instanceof CustodySlackBotClient)) throw new Error("the seam builds the custody client");
     const inner = innerOf(client);
-    const opens: object[] = [];
-    inner.apps.connections.open = async (args) => {
-      opens.push(args);
-      return { ok: true, url: "wss://socket.example/one" };
+    // The default seam: the same `@slack/web-api` class as the bot client, the app token as its own token, pinned alike.
+    const app = client.appClient("xapp-offline");
+    expect(app).not.toBe(inner);
+    expect(app).toBeInstanceOf(inner.constructor);
+    expect(app.token).toBe("xapp-offline");
+    expect(app.retryConfig).toEqual({ retries: 0 });
+    expect(app.rejectRateLimitedCalls).toBe(true);
+    expect(inner.retryConfig).toEqual({ retries: 0 });
+  });
+
+  test("the seam's socket-url fetch rides the app token's client, and its refusals carry the Slack error string", async () => {
+    const client = slackSdk().client();
+    await client.login({ token: "xoxb-offline" });
+    singleAttempt(client);
+    if (!(client instanceof CustodySlackBotClient)) throw new Error("the seam builds the custody client");
+    const inner = innerOf(client);
+    const built: string[] = [];
+    const opens: number[] = [];
+    const app: InnerWebClient = {
+      conversations: { open: async () => ({ ok: false, error: "never" }) },
+      apps: {
+        connections: {
+          open: async () => {
+            opens.push(opens.length + 1);
+            return { ok: true, url: "wss://socket.example/one" };
+          },
+        },
+      },
+    };
+    client.appClient = (appToken) => {
+      built.push(appToken);
+      return app;
+    };
+    // The bot client's own `apps.connections.open` is never the one called.
+    inner.apps.connections.open = async () => {
+      throw new Error("the bot client must not fetch the socket url");
     };
     const sdkClient = sdkClientOf(client);
     expect(await sdkClient.appsConnectionsOpen("xapp-offline")).toEqual({
       url: "wss://socket.example/one",
     });
-    expect(opens).toEqual([{ token: "xapp-offline" }]);
+    expect(built).toEqual(["xapp-offline"]);
+    expect(opens).toEqual([1]);
     // `@slack/web-api` throws a platform refusal (it never resolves `ok: false`);
     // the seam forwards the Slack error string as the code the SDK's fatal set reads.
-    inner.apps.connections.open = async () => {
+    app.apps.connections.open = async () => {
       throw Object.assign(new Error("An API error occurred: invalid_auth"), {
         code: "slack_webapi_platform_error",
         data: { ok: false, error: "invalid_auth" },
@@ -105,7 +139,7 @@ describe("agent-messenger slack bot SDK seam", () => {
     });
     expect(isSlackTerminal(refused)).toBe(true);
     // A network failure keeps its web-api code: not fatal, the SDK reopens.
-    inner.apps.connections.open = async () => {
+    app.apps.connections.open = async () => {
       throw Object.assign(new Error("A request error occurred: getaddrinfo ENOTFOUND"), {
         code: "slack_webapi_request_error",
       });
@@ -114,7 +148,7 @@ describe("agent-messenger slack bot SDK seam", () => {
     expect(offline).toMatchObject({ code: "slack_webapi_request_error" });
     expect(isSlackTerminal(offline)).toBe(false);
     // The defensive arm for a resolved refusal.
-    inner.apps.connections.open = async () => ({ ok: false, error: "invalid_auth" });
+    app.apps.connections.open = async () => ({ ok: false, error: "invalid_auth" });
     await expect(sdkClient.appsConnectionsOpen("xapp-offline")).rejects.toMatchObject({
       code: "invalid_auth",
     });
