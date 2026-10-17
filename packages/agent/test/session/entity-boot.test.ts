@@ -6,7 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { L0Write } from "../../src/core/store/session-file";
 import { Effect } from "effect";
-import { clusterTempDir, clusterMessages, readChain, runCluster, sendPrompt, sessionFileFor, verifyChain, waitUntil, } from "../helpers/cluster-runtime";
+import { clusterTempDir, clusterMessages, readChain, runCluster, sendPrompt, sessionFileFor, verifyChain, } from "../helpers/cluster-runtime";
 
 const { dir, sessionsDir, catalogFile } = clusterTempDir("w52-entity-boot-");
 const options = { sessionsDir, catalogFile };
@@ -41,15 +41,13 @@ test("prompts reply with chain receipts; the chain links from genesis and the en
   const [first, second] = await runCluster(
     options,
     Effect.gen(function* () {
+      // Ack evidence: sql storage sets the processed flag in the transaction
+      // that saves the reply, before the reply reaches this caller.
+      const processed = () => clusterMessages(catalogFile, "Session").map((row) => row.processed);
       const a = yield* sendPrompt("s1", "boot-m1", "hello");
+      expect(processed()).toEqual([1]);
       const b = yield* sendPrompt("s1", "boot-m2", "hello again");
-      // Ack evidence: the processed flag lands in cluster_messages (bounded
-      // DB-row wait, the check2-sanctioned pattern).
-      yield* Effect.promise(() =>
-        waitUntil("processed Session envelopes in cluster_messages", () =>
-          clusterMessages(catalogFile, "Session").some((row) => row.processed === 1),
-        ),
-      );
+      expect(processed()).toEqual([1, 1]);
       return [a, b] as const;
     }),
   );

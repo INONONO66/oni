@@ -45,21 +45,22 @@ export function publishUntilDelivered(
   fixture: InterestBus,
   publish: () => void,
 ): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    for (;;) {
-      publish();
-      if (fixture.published.at(-1)?.delivered === true) return;
-      yield* Effect.yieldNow;
-    }
-  });
+  return yieldUntil(() => {
+    publish();
+    return fixture.published.at(-1)?.delivered === true;
+  }, "a delivered publish");
 }
 
-/** Yield until `check()` holds — a state predicate, never an elapsed duration. */
-export function yieldUntil(check: () => boolean): Effect.Effect<void> {
+/** Scheduler turns a predicate may take before the wait fails instead of spinning forever. */
+const MAX_YIELDS = 10_000;
+
+/** Yield until `check()` holds — a state predicate, never an elapsed duration — dying after `MAX_YIELDS` turns. */
+export function yieldUntil(check: () => boolean, label = "the awaited state"): Effect.Effect<void> {
   return Effect.gen(function* () {
-    for (;;) {
+    for (let turn = 0; turn < MAX_YIELDS; turn += 1) {
       if (check()) return;
       yield* Effect.yieldNow;
     }
+    return yield* Effect.die(new Error(`${label} did not hold within ${MAX_YIELDS} scheduler turns`));
   });
 }

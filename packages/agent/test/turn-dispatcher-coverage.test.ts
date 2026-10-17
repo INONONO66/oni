@@ -99,9 +99,9 @@ describe("createTurnDispatcher", () => {
 describe("wave settlement", () => {
   // No injection option — settlement is observable through the real
   // dispatch path. `boom` rejects at once; `ok` parks on a gate the test opens
-  // only on a later macrotask, after every microtask an early-resolving wave
-  // could have queued has drained. The settlement log therefore places the
-  // wave after BOTH bodies only if executeWave actually waited for them.
+  // once both bodies signalled. The wave can carry ok's "fine" result only if
+  // it awaited ok's body, and ok logs before returning, so the counted bodies
+  // at resolution and the log order need no scheduling window.
   it("executeWave resolves only after every model wave body settles", async () => {
     const log: string[] = [];
     let settledWaveBodies = 0;
@@ -129,16 +129,18 @@ describe("wave settlement", () => {
       }),
     ]))));
 
+    let settledAtResolution = 0;
     const wave = isolated(dispatcher.executeWave([call("ok"), call("boom")], context)).then((results) => {
+      settledAtResolution = settledWaveBodies;
       log.push("wave resolved");
       return results;
     });
     await Promise.all([okParked.promise, boomRejected.promise]);
     expect(log).toEqual(["boom settled"]);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     gate.resolve();
     const results = await wave;
 
+    expect(settledAtResolution).toBe(2);
     expect(settledWaveBodies).toBe(2);
     expect(log).toEqual(["boom settled", "ok settled", "wave resolved"]);
     expect(results.map((result) => result.isError)).toEqual([undefined, true]);

@@ -115,7 +115,7 @@ test("concurrent rotateFence from two processes yields distinct consecutive fenc
       const store = openCatalogStore(String(process.env.CATALOG_PATH), { now: () => 1_700_000_000_000 });
       const fence = store.rotateFence("s1");
       store.close();
-      console.log(fence);
+      process.stdout.write(String(fence)); // a plain string never takes color
     `;
     const children = [1, 2].map(() =>
       Bun.spawn([process.execPath, "-e", childSource], {
