@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { createAnthropic, type AnthropicProvider } from "@ai-sdk/anthropic";
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
+import { secretFingerprint } from "../fingerprint";
 import type { Auth } from "../auth/storage";
 import { clientIdentity } from "./identity";
 import { ModelResolutionError } from "../errors";
@@ -42,11 +42,8 @@ const LANGUAGE_CACHE = new Map<string, ResolvedLanguageModel>();
 const PROVIDER_SDK_CACHE_MAX_ENTRIES = 64;
 const PROVIDER_LANGUAGE_CACHE_MAX_ENTRIES = 256;
 
-// Auth material is hashed so credentials never sit in Map keys (heap dumps,
-// logs). SHA-256, not a fast hash: a collision would hand one credential's
-// cached SDK instance to a different credential.
 function authFingerprint(auth: Auth.Info): string {
-  return createHash("sha256").update(JSON.stringify(auth)).digest("hex");
+  return secretFingerprint(JSON.stringify(auth));
 }
 
 /** Two callers whose only difference is a tenant header must not share one SDK instance. */
@@ -57,7 +54,7 @@ function transportFingerprint(transport: Transport | undefined): string {
     headers === undefined
       ? ""
       : JSON.stringify(Object.entries(headers).sort(([a], [b]) => (a < b ? -1 : 1)));
-  return `${transport.baseUrl ?? ""}|${createHash("sha256").update(canonicalHeaders).digest("hex")}`;
+  return `${transport.baseUrl ?? ""}|${secretFingerprint(canonicalHeaders)}`;
 }
 
 function sdkCacheKey(

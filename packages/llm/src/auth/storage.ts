@@ -1,8 +1,8 @@
 import z from "zod";
-import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { Effect, Schedule } from "effect";
+import { secretFingerprint } from "../fingerprint";
 import { parseJson } from "@openomni/protocol";
 import { AuthInvalidFileError, AuthResolutionError, type LlmError } from "../errors";
 import { decodeLlmFailure } from "../error";
@@ -52,7 +52,7 @@ export namespace Auth {
   }
 
   export function reference(info: Info): { readonly type: Info["type"]; readonly fingerprint: string } {
-    const digest = createHash("sha256").update(JSON.stringify(info)).digest("hex");
+    const digest = secretFingerprint(JSON.stringify(info));
     return { type: info.type, fingerprint: digest.slice(0, 16) };
   }
 

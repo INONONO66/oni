@@ -109,9 +109,11 @@ describe("proxy-models", () => {
       const credential = "credential-material-that-must-not-be-exposed";
       const cacheKey = proxyModelsCacheKey("https://credential-safe.example/v1/models", credential);
 
-      expect(cacheKey).toContain(createHash("sha256").update(credential).digest("hex"));
       expect(cacheKey).not.toContain(credential);
       expect(cacheKey).not.toContain(credential.slice(0, 12));
+      expect(cacheKey).not.toContain(createHash("sha256").update(credential).digest("hex"));
+      expect(proxyModelsCacheKey("https://credential-safe.example/v1/models", credential)).toBe(cacheKey);
+      expect(proxyModelsCacheKey("https://credential-safe.example/v1/models", `${credential}-other`)).not.toBe(cacheKey);
     });
 
     it("keeps only the most recently used keys once the cache is full", async () => {

@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { createHash } from "node:crypto";
 import { Deferred, Effect, Exit } from "effect";
 import { decodeLlmFailure } from "../error";
 import { ProxyModelsError, type LlmError } from "../errors";
+import { secretFingerprint } from "../fingerprint";
 import type { Provider } from ".";
 
 /**
@@ -23,7 +23,7 @@ const inFlight = new Map<string, Deferred.Deferred<string[], LlmError>>();
 export function proxyModelsCacheKey(url: string, apiKey?: string): string {
   const credentialFingerprint = apiKey === undefined
     ? null
-    : createHash("sha256").update(apiKey).digest("hex");
+    : secretFingerprint(apiKey);
   return JSON.stringify([url, credentialFingerprint]);
 }
 
