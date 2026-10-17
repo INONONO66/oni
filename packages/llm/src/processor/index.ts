@@ -94,6 +94,10 @@ export namespace Processor {
     let folded: Message.WithParts | undefined;
     const eventState = createStreamEventState();
     const attemptId = `${assistantMessage.id}#1`;
+    const streamAbortFailure = decodeLlmFailure("stream.abort");
+    const streamNextFailure = decodeLlmFailure("stream.next");
+    const streamEventFailure = decodeLlmFailure("stream.event");
+    const streamCloseFailure = decodeLlmFailure("stream.close");
 
     function record(fact: Transcript.Fact): void {
       const outcome = Transcript.fold(folded, fact);
@@ -105,7 +109,7 @@ export namespace Processor {
     function closeStream(iterator: AsyncIterator<StreamEvent>): Effect.Effect<void> {
       return Effect.tryPromise({
         try: () => iterator.return?.() ?? Promise.resolve({ done: true as const, value: undefined }),
-        catch: decodeLlmFailure("stream.close"),
+        catch: streamCloseFailure,
       }).pipe(
         Effect.timeoutOption(STREAM_CLOSE_GRACE_MS),
         Effect.catch((error) => Effect.sync(() => publishInfo(events, sessionID, trace.traceId, now, "stream.close.failed", { error: failureText(error) }))),
@@ -143,18 +147,18 @@ export namespace Processor {
         });
       }
       return Effect.gen(function* () {
-        yield* Effect.try({ try: () => abort.throwIfAborted(), catch: decodeLlmFailure("stream.abort") });
+        yield* Effect.try({ try: () => abort.throwIfAborted(), catch: streamAbortFailure });
         const stream = yield* createStream(streamInput);
         const iterator = stream.fullStream[Symbol.asyncIterator]();
         yield* Effect.gen(function* () {
           for (;;) {
-            const next = yield* Effect.tryPromise({ try: () => iterator.next(), catch: decodeLlmFailure("stream.next") });
+            const next = yield* Effect.tryPromise({ try: () => iterator.next(), catch: streamNextFailure });
             if (next.done) break;
             if (abort.aborted) {
               yield* drainToolSettlements(iterator, next.value, eventState, eventContext);
-              yield* Effect.try({ try: () => abort.throwIfAborted(), catch: decodeLlmFailure("stream.abort") });
+              yield* Effect.try({ try: () => abort.throwIfAborted(), catch: streamAbortFailure });
             }
-            yield* Effect.try({ try: () => handleStreamEvent(next.value, eventState, eventContext), catch: decodeLlmFailure("stream.event") });
+            yield* Effect.try({ try: () => handleStreamEvent(next.value, eventState, eventContext), catch: streamEventFailure });
           }
         }).pipe(Effect.ensuring(closeStream(iterator)));
         settleAttempt(eventState, eventContext, { aborted: false, preserveTools: options.externalTools });

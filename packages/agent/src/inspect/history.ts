@@ -41,10 +41,10 @@ export function foldHistoryState(
         }
       : { budgetState: null, ...structuredClone(seed) };
   const parents = new Map<string, string | null>(state.parents);
-  const messageTurns = new Map<string, string | null>(state.messageTurns);
+  const messageTurns = new Map<string, string | null>(state.messageTurns); const live = new Set<string>();
   for (const action of actions) {
     applyHistoryAction(sessionId, state, parents, messageTurns, action);
-    const live = new Set(state.messages.map((message) => message.info.id));
+    live.clear(); for (const message of state.messages) live.add(message.info.id);
     for (const [id, turnId] of messageTurns) {
       if (!live.has(id) && (turnId === null || !parents.has(turnId))) messageTurns.delete(id);
     }

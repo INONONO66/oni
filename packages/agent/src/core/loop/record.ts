@@ -424,7 +424,18 @@ function* operationRecords(
 }
 
 export function clonePlainValue(value: PlainValue): PlainValue {
-  return JSON.parse(JSON.stringify(value)) as PlainValue;
+  return normalizePlainValue(structuredClone(value));
+}
+
+function normalizePlainValue(value: PlainValue): PlainValue {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (Array.isArray(value)) return value.map(normalizePlainValue);
+  if (value !== null && typeof value === "object") {
+    const normalized: Record<string, PlainValue> = {};
+    for (const [key, entry] of Object.entries(value)) normalized[key] = normalizePlainValue(entry);
+    return normalized;
+  }
+  return value;
 }
 
 export function settlePost(request: ExecutionRequest, post: PolicyEvaluation, value: PlainValue): Effect.Effect<ExecutionResult, ExecutionError> {

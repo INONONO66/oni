@@ -10,6 +10,8 @@ const pageSize = z.number().int().positive().max(256);
 const windowCount = z.number().int().nonnegative();
 const OrdinalRow = z.object({ ordinal: z.number().int().positive() }).nullable();
 const PayloadBytesRow = z.object({ bytes: z.number().int().nonnegative() });
+const PolicyDecisionIntentRow = z.object({ intent: z.string() }).nullable();
+const PolicyDecisionIdentityRow = z.object({ matchedRuleIds: z.array(z.string()) });
 type Reads = Omit<Storage.ActionSubAdapter, "append" | "verifyChain">;
 
 export const PENDING_MESSAGES_SQL = `
@@ -381,10 +383,7 @@ export function createActionReads(db: Database, sink: ObservationSink): Reads {
       return rows.map(decodeAction);
     },
     policyDecisionRuleIds(sessionId, inputHash) {
-      const row = z
-        .object({ intent: z.string() })
-        .nullable()
-        .parse(
+      const row = PolicyDecisionIntentRow.parse(
           db
             .query(
               `SELECT intent FROM action WHERE session_id = ? AND kind = 'policy.decision'
@@ -393,9 +392,7 @@ export function createActionReads(db: Database, sink: ObservationSink): Reads {
             .get(sessionId, inputHash),
         );
       if (row === null) return undefined;
-      const parsed = z
-        .object({ matchedRuleIds: z.array(z.string()) })
-        .safeParse(parsePlainJson(row.intent));
+      const parsed = PolicyDecisionIdentityRow.safeParse(parsePlainJson(row.intent));
       if (!parsed.success)
         throw new LedgerInvariant({
           operation: "policy.decision",

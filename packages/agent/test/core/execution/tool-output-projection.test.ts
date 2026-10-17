@@ -18,7 +18,11 @@ import { isolated } from "../../helpers/isolated";
 import { toolOutput as inspectToolOutput } from "../../../src/inspect";
 
 import { consumptionSettings } from "../../../src/core/journal/delivery";
-import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectToolOutput } from "../../../src/core/ports/tool-output";
+import {
+  DEFAULT_TOOL_OUTPUT_BUDGET_BYTES,
+  projectToolOutput,
+  utf8Prefix,
+} from "../../../src/core/ports/tool-output";
 import type { ExecutionLedger } from "../../../src/core/loop/executor";
 
 const SESSION = "projection-session";
@@ -40,6 +44,64 @@ it("bounds even a marker larger than the configured output budget", () => {
   if (outputId === undefined) throw new Error("missing stored output reference");
   expect(writes).toEqual([outputId]);
   console.log(`A7 tiny output bytes before>8 after=${afterBytes}`);
+});
+
+it("utf8Prefix encodes once and never returns a partial code point", () => {
+  let encodes = 0;
+  const encoder = {
+    encode(text: string): Uint8Array {
+      encodes += 1;
+      return new TextEncoder().encode(text);
+    },
+  };
+  const preview = utf8Prefix("한".repeat(100), 64, encoder);
+
+  expect(encodes).toBe(1);
+  expect(Buffer.byteLength(preview, "utf8")).toBeLessThanOrEqual(64);
+  expect(preview).toBe("한".repeat(21));
+});
+
+it("utf8Prefix keeps a code point that ends exactly at the limit and drops one the limit splits", () => {
+  expect(utf8Prefix("한글abc", 6)).toBe("한글");
+  expect(utf8Prefix("a한b", 4)).toBe("a한");
+  expect(utf8Prefix("😀x", 4)).toBe("😀");
+  expect(utf8Prefix("😀😀", 5)).toBe("😀");
+  expect(utf8Prefix("한", 2)).toBe("");
+  expect(utf8Prefix("abc", 0)).toBe("");
+});
+
+/** The pre-encode-once algorithm, kept verbatim as the identity oracle. */
+function referenceUtf8Prefix(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let kept = Math.max(0, maxBytes);
+  for (;;) {
+    if ((text.codePointAt(kept - 1) ?? 0) > 0xffff) kept -= 1;
+    const prefix = text.slice(0, kept);
+    if (Buffer.byteLength(prefix, "utf8") <= maxBytes) return prefix;
+    kept -= 1;
+  }
+}
+
+const utf8PrefixIdentityVectors: readonly (readonly [string, number])[] = [
+  ["m".repeat(4096), 1024],
+  ["short ascii", 64],
+  ["\u00e9".repeat(300), 255],
+  ["\ud55c".repeat(5000), 1000],
+  ["\ud55c".repeat(5000), 1001],
+  ["\ud83d\ude00".repeat(2000), 1023],
+  ["a\ud55cb\u00e9\ud83d\ude00c".repeat(400), 777],
+  ["\u00e9\ud55c\ud83d\ude00".repeat(50), 9],
+  ["\ud83d\ude00x", 3],
+  ["\ud55c\uae00 mixed \ud83d\ude00 tail".repeat(100), 0],
+];
+
+it("utf8Prefix is byte-identical to the reference algorithm on all ten identity vectors", () => {
+  expect(utf8PrefixIdentityVectors).toHaveLength(10);
+  for (const [text, maxBytes] of utf8PrefixIdentityVectors) {
+    const actual = utf8Prefix(text, maxBytes);
+    expect(Buffer.from(actual, "utf8")).toEqual(Buffer.from(referenceUtf8Prefix(text, maxBytes), "utf8"));
+    expect(Buffer.byteLength(actual, "utf8")).toBeLessThanOrEqual(Math.max(0, maxBytes));
+  }
 });
 
 function kernelLedger(

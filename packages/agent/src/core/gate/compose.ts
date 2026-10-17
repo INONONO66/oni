@@ -41,6 +41,8 @@ interface GateDecideOptions {
    * surfaces `GateOutcome.pending` carrying the value AT THAT ROW'S POSITION.
    */
   readonly pendingAsync?: ReadonlySet<string>;
+  /** Precomputed identity hash for callers that already canonicalized the evaluation input. */
+  readonly inputHash?: string;
 }
 
 export interface PendingConsult {
@@ -152,7 +154,9 @@ export function compileGateRows<Context = never>(
     input: GateDecideInput<Context>,
     decideOptions: GateDecideOptions = {},
   ): GateOutcome {
-    const inputHash = canonicalDigest({ point, when: { ...input.when }, value: input.value });
+    const inputHash =
+      decideOptions.inputHash ??
+      canonicalDigest({ point, when: { ...input.when }, value: input.value });
     const entries = byPoint.get(point) ?? [];
     const recorded = decideOptions.recorded;
     if (recorded !== undefined && replays(point, input, entries, inputHash, recorded)) {

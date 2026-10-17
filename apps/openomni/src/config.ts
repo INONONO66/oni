@@ -391,10 +391,10 @@ function toolOutputBudgetBytesFromEnv(env: Record<string, string | undefined>): 
   const raw = env.OPENOMNI_TOOL_OUTPUT_BUDGET_BYTES?.trim();
   if (raw === undefined || raw.length === 0) return undefined;
   const budget = Number(raw);
-  if (!Number.isInteger(budget) || budget <= 0) {
+  if (!Number.isInteger(budget) || budget < 200 || budget > 1_048_576) {
     throw new ConfigurationError({
       code: "invalid_tool_output_budget_bytes",
-      message: "OPENOMNI_TOOL_OUTPUT_BUDGET_BYTES must be a positive integer of bytes",
+      message: "OPENOMNI_TOOL_OUTPUT_BUDGET_BYTES must be an integer from 200 through 1048576 bytes",
     });
   }
   return budget;

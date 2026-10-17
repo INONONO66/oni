@@ -25,6 +25,7 @@ export function executeCompaction(input: CompactionExecutionInput): Effect.Effec
     return result;
   });
   let result: CompactionResult | undefined;
+  let recorded: PlainValue | undefined;
   if (input.executor === undefined) {
     result = yield* calculate();
   } else {
@@ -43,12 +44,13 @@ export function executeCompaction(input: CompactionExecutionInput): Effect.Effec
       },
       () => Effect.gen(function* () {
         result = yield* calculate();
-        return recordedValue(result);
+        recorded = recordedValue(result);
+        return recorded;
       }),
     );
     if (execution.terminal !== "executed")
       return yield* new CompactionExecutionError({ reason: execution.reason });
-    if (result === undefined || canonicalDigest(execution.value) !== canonicalDigest(recordedValue(result))) {
+    if (result === undefined || recorded === undefined || canonicalDigest(execution.value) !== canonicalDigest(recorded)) {
       return yield* new CompactionExecutionError({ reason: "invalid_output" });
     }
   }
