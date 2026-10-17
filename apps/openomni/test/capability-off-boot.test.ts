@@ -19,7 +19,7 @@
  */
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Core } from "@openomni/agent";
+import { Bundle, Core } from "@openomni/agent";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { ComposedGeneration } from "../src/composition/composed";
 import { runAppEffect } from "../src/gateway";
@@ -233,24 +233,15 @@ test("a bundle and a capability ride one off list: each cascade keeps its own ro
   expect(toolsSeen[0]).not.toContain("monitor");
 }, 40_000);
 
-test("an off name the manifest never declared is ignored: boot succeeds with an empty cascade", async () => {
+test("an off name the manifest never declared refuses the boot typed: no runtime, no model call", async () => {
   const toolsSeen: string[][] = [];
-  const { app, plane } = await bootWithOff("cap-off-unknown-", ["not-a-capability"], toolsSeen);
-  const generation = await runAppEffect(
-    app.runtime,
-    Effect.map(ComposedGeneration, (holder) => holder.current().generation),
+  const refusal = await bootWithOff("cap-off-unknown-", ["not-a-capability"], toolsSeen).then(
+    () => undefined,
+    (error: unknown) => error,
   );
-  expect(generation.disabled).toEqual([]);
-  // An empty cascade adopts at genesis: no compose adoption row, no new fact.
-  const sessionId = residentSessionId(plane);
-  const composeRows = sessionTree(sessionId, plane.sessionStore(sessionId).actions).filter(
-    (row) =>
-      row.kind === "session.configure" &&
-      (row.intent.value as { operation?: string }).operation === "compose",
-  );
-  expect(composeRows).toEqual([]);
-  // Nothing composed out: the monitor bundle's face still reaches the model.
-  expect(toolsSeen[0]).toContain("monitor");
+  expect(refusal).toBeInstanceOf(Bundle.DefineRefused);
+  expect(refusal).toMatchObject({ code: "unknown", name: "manifest", detail: "not-a-capability" });
+  expect(toolsSeen).toEqual([]);
 }, 40_000);
 
 test("golden: the alarm row booted twice from pinned clock and entropy journals identical compose-row bytes", async () => {

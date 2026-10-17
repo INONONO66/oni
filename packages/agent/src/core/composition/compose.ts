@@ -112,17 +112,15 @@ function orderCapabilities(
   return ordered;
 }
 
-/** `because` carries the ROOT off name. */
+/** `because` carries the ROOT off name; `Manifest.define` refused any undeclared root. */
 function cascadeOff(manifest: ManifestDefinition): ReadonlyMap<string, string> {
-  const disabled = new Map<string, string>();
-  const names = new Set([
-    ...manifest.capabilities.map((capability) => capability.name),
-    ...manifest.bundles.map((bundle) => bundle.name),
-  ]);
-  for (const root of manifest.off) if (names.has(root)) disabled.set(root, root);
-  const portOwner = new Map(
-    manifest.capabilities.map((capability) => [capability.port.key, capability.name]),
-  );
+  const disabled = new Map<string, string>(manifest.off.map((root) => [root, root]));
+  const portOwner = new Map<string, string>();
+  for (const capability of manifest.capabilities) {
+    if (portOwner.has(capability.port.key))
+      reject("duplicate", capability.name, `port ${capability.port.key}`);
+    portOwner.set(capability.port.key, capability.name);
+  }
   const provideOwner = new Map(
     manifest.bundles.flatMap((bundle) => bundle.provides.map((tag) => [tag.key, bundle.name] as const)),
   );

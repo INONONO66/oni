@@ -1,5 +1,27 @@
 # Implementation Status
 
+## Audit C12 — an undeclared `off` name and a shared port key fail closed
+
+On `audit/c12-manifest-off-fail-closed` (2026-10-17, base `c7d8edc0f`). Two
+fail-open paths from the agent-core audit (2026-10-14) close in
+`packages/agent`. `Manifest.define` (`src/core/ports/capability.ts`) now
+refuses an `off` name that no capability or bundle declares with the typed
+`DefineRefused` `{ code: "unknown", name: "manifest", detail: <name> }`,
+so a misspelled `OPENOMNI_BUNDLES_OFF` entry fails the boot before any
+listener instead of silently leaving the capability on; `cascadeOff`
+(`src/core/composition/compose.ts`) seeds the disabled map straight from
+`manifest.off` because every root is already declared. Compose also
+rejects two capabilities that declare the same port key as `duplicate`
+(`name` = the later capability, `detail` = `port <key>`) where the
+`portOwner` map used to keep the later owner only. The compose rejection
+set stays at six codes; `DefineRefused` grows from three codes to four.
+Receipts: `packages/agent/test/capability-define.test.ts` (the refusal and
+the declared-name pass), `packages/agent/test/compose-reject.test.ts`
+(the port-key collision), `apps/openomni/test/capability-off-boot.test.ts`
+(the former "ignored" row now asserts the typed boot refusal with no model
+call). The #1306 sentences below that describe compose ignoring undeclared
+names record the pre-C12 behavior.
+
 ## #1600 Messaging readiness — the first live run (lane R4)
 
 On `feat/1600-first-live-run` (2026-10-17, lane R4 of #1600, the last).

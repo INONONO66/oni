@@ -171,6 +171,19 @@ test("Bundle.define refuses duplicate tool names and malformed bundle names type
   expect(() => defineBundle({ name: "Monitor", requires: [] })).toThrow(DefineRefused);
 });
 
+test("Manifest.define refuses an off name nothing declares, typed, never a silent no-op", () => {
+  const alarm = Capability.define({ name: "alarm", requires: [], verbs: {}, port: AlarmPort });
+  try {
+    Manifest.define({ capabilities: [alarm], bundles: [], off: ["alarms"] });
+    throw new Error("unreachable");
+  } catch (refusal) {
+    expect(refusal).toBeInstanceOf(DefineRefused);
+    expect((refusal as DefineRefused).code).toBe("unknown");
+    expect((refusal as DefineRefused).detail).toBe("alarms");
+  }
+  expect(Manifest.define({ capabilities: [alarm], bundles: [], off: ["alarm"] }).off).toEqual(["alarm"]);
+});
+
 test("Manifest.define is plain frozen data and refuses colliding names", () => {
   const capability = defineTestCapability();
   const bundle = defineBundle({ name: "monitor", requires: [TestSeam] });

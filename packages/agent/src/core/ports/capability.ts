@@ -32,7 +32,7 @@ const PORT_KEY = /^@openomni\/[a-z][a-z0-9-]*\/[A-Za-z][\w/-]*$/;
 export class DefineRefused extends Schema.TaggedError<DefineRefused>(
   "@openomni/agent/core/DefineRefused",
 )("DefineRefused", {
-  code: Schema.Literals(["namespace", "capability_declares_tools", "duplicate"]),
+  code: Schema.Literals(["namespace", "capability_declares_tools", "duplicate", "unknown"]),
   name: Schema.String,
   detail: Schema.String,
 }) {}
@@ -275,7 +275,7 @@ export function defineBundle<const Name extends string, Handler = object, Purpos
 export interface ManifestInput {
   readonly capabilities: readonly CapabilityDefinition[];
   readonly bundles: readonly BundleContract[];
-  /** Compose cascades transitively. */
+  /** Every name is a declared capability or bundle; compose cascades transitively. */
   readonly off?: readonly string[];
 }
 
@@ -286,14 +286,17 @@ export interface ManifestDefinition {
 }
 
 function defineManifest(input: ManifestInput): ManifestDefinition {
-  checkUnique(
-    [
-      ...input.capabilities.map((capability) => capability.name),
-      ...input.bundles.map((bundle) => bundle.name),
-    ],
-    "manifest",
-  );
-  checkUnique(input.off ?? [], "manifest");
+  const declared = [
+    ...input.capabilities.map((capability) => capability.name),
+    ...input.bundles.map((bundle) => bundle.name),
+  ];
+  checkUnique(declared, "manifest");
+  const off = input.off ?? [];
+  checkUnique(off, "manifest");
+  // An off name nothing declares is a typed refusal, never a silent no-op:
+  // a misspelled name would otherwise leave the capability on.
+  const names = new Set(declared);
+  for (const name of off) if (!names.has(name)) refuse("unknown", "manifest", name);
   return Object.freeze({
     capabilities: Object.freeze([...input.capabilities]),
     bundles: Object.freeze([...input.bundles]),
