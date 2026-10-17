@@ -1,8 +1,55 @@
 # Implementation Status
 
+## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
+
+On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
+main (PRs #1586–#1597); this section is the one place the shipped state is
+summarized, and the per-lane sections under it are the receipts. Messenger
+I/O is `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per
+messenger provider (Slack, Discord, Telegram, Instagram, KakaoTalk), under
+`support/sdk-listener.ts` custody; GitHub, Linear, webhook and A2A are
+hand-rolled over fetch and webhook ingress. The SDK's own credential store
+is never used — every account session and bot token is a vault row
+declared through `channel_add` or sealed by `openomni login`. **Identity**
+(P1, P2, P5): a mounted messenger channel is one `(platform, identity)`
+instance, `bot` the default on Slack, Discord and Telegram (GitHub, webhook
+and ws stay identity-less platform surfaces reached as the bot), `owner`
+the account instance that sends cross-conversation only on the Owner's
+authenticated instruction (`as: owner` under an Owner-origin turn and the
+declared `outbound` grant) and reads under its declared intake posture
+(`mentions_and_dms` default, `all`, `none`); Instagram, KakaoTalk and
+Linear are Owner-only platforms with a refusing bot arm and a per-instance
+`autoReply` switch. **Doors** (P3, P4): the reply door answers the
+conversation a turn came from, authorized by the conversation binding
+alone — as the bot where a bot instance reaches it, as the Owner where
+only an auto-replying Owner instance does, and otherwise refused as a
+draft (`message.resident.reply_draft`); `send_message` reaches
+every other party — a session, a new child, a Person on a channel (its
+`reach` the Owner's standing grant; a missing social budget takes the
+Owner's consent on the invocation, `approval_required` otherwise), a CLI
+agent (`cli:`), a declared webhook target (`webhook:`, a signed letter) or
+an A2A peer (`a2a:`, one blocking `message/send` with the peer's answer on
+the result). **Inbound from other agents**: the one A2A door at `POST /a2a`
+admits every declared peer at its contact's tier, the context being the
+conversation. **Retired**: the hand-rolled Slack/Discord/Telegram
+transports, the reply-grant machinery and the post-turn `send_message`
+report, `OPENOMNI_ACTORS` and env actors (Person rows are the one
+declaration), the #1110 "only the Owner is public" identity amendment.
+**Not shipped by the epic** (recorded, not implied): the Owner-draft arm
+for conversations only the Owner instance can reach; the Telegram Owner
+instance (no SDK export yet); a contact's later answer delivered as a
+prompt (A2A answers ride the tool result; the inbound door is the
+asynchronous path); A2A streaming, push notifications and durable tasks;
+budgets as Person fields (`OPENOMNI_SOCIAL_BUDGETS` stays env). Dead
+exports: the baseline is empty and `check-dead-exports` passes at this
+commit; SLOP receipts for the epic's deletions are in `docs/SLOP.md`
+(the #1569 table). Suite counts at the epic's close: see each lane's
+section; the last full runs were `packages/channels` 1005, `apps/openomni`
+1024, `packages/protocol` 656, 0 fail.
+
 ## #1569 Perimeter collapse for addressed sends (lane 8)
 
-On `feat/1569-perimeter-collapse` (2026-10-17, PR #1597, reviewed and
+Merged to main as PR #1597 (2026-10-17, reviewed and
 corrected). Who the Resident may write to, and when the Owner is asked, are
 now the Owner's declarations alone. **Person `reach`**:
 `Provisioning.Person` carries `reach?: boolean`
@@ -69,7 +116,7 @@ letter land with no reboot), `test/app-surface.test.ts`,
 
 ## #1569 A2A: the door and the `a2a:` contact (lane 9c)
 
-On `feat/1569-a2a` (2026-10-17, PR #1596, reviewed and corrected). Other
+Merged to main as PR #1596 (2026-10-17, reviewed and corrected). Other
 agents reach the Resident through ordinary ingress with their own actor and
 tier, and the Resident reaches other agents through `send_message` — both
 on the A2A 0.3 JSON-RPC binding (`kind` discriminators; the 1.0 spellings
@@ -177,7 +224,7 @@ pass, 0 fail.
 
 ## #1569 Linear provider (lane 9b)
 
-On `feat/1569-linear-provider` (2026-10-17, stacked on lane 9a). Linear
+Merged to main as PR #1595 (2026-10-16). Linear
 joins the registry as a hand-rolled, Owner-only provider, not an
 agent-messenger module: a personal API key is a person's — the Owner's —
 so there is no bot account; the bot arm refuses every declaration
@@ -248,7 +295,7 @@ conformance case, webhook-fed), `apps/openomni/test/e2e.test.ts` (the
 
 ## #1569 Outbound `webhook:` contact (lane 9a)
 
-On `feat/1569-webhook-contact` (2026-10-17, stacked on lane 5b).
+Merged to main as PR #1594 (2026-10-16).
 `send_message` reaches a declared webhook target as a contact kind,
 `webhook:<id>`: the letter is POSTed to the target's URL as one JSON body
 (`{ id, contact, from, message, replyTo?, sentAt }`) signed with the
@@ -325,7 +372,7 @@ introduced by a rotation), `apps/openomni/test/send-message-contacts.test.ts`
 
 ## #1569 Login helpers and the channel wire: the Owner's own sign-in (lane 5b)
 
-On `feat/1569-login-helpers` (2026-10-17, stacked on lane 7). The Owner's
+Merged to main as PR #1593 (2026-10-16). The Owner's
 own account is signed in through the agent-messenger SDK's flows and
 declared as the `owner` instance without any credential touching disk on
 the CLI side. `packages/channels/src/provider/owner-login.ts` gathers the
@@ -400,7 +447,7 @@ loopback), `test/cli.test.ts`; suites: `packages/channels`
 
 ## #1569 Owner-only platforms: Instagram and KakaoTalk through the Owner's account (lane 7)
 
-On `feat/1569-owner-only-platforms` (2026-10-17, stacked on lane 6). Two
+Merged to main as PR #1592 (2026-10-16). Two
 platforms with no bot account join the registry: their bot arm admits no
 credential and never constructs (a bot declaration is `identity_unsupported`
 naming `identity: owner`), and each is reached through its `owner` arm alone.
@@ -486,7 +533,7 @@ rows, `autoReply` gated by outbound, the supervisor's auto-reply set),
 
 ## #1569 Owner intake: the Owner instance reads what the account sees (lane 6)
 
-On `feat/1569-owner-intake` (2026-10-17, base `db4ac75bd`). An `identity:
+Merged to main as PR #1591 (2026-10-16). An `identity:
 owner` instance now listens as well as sends. The provider contract's
 `OwnerArm` declares `listen` and takes an `OwnerPosture` instead of the empty
 config: the declaration's `settings.intake` is `mentions_and_dms` (default:
@@ -569,7 +616,7 @@ resolved identity, sticky settings on re-declaration); suites:
 
 ## #1569 the identity axis and the Slack Owner instance (PR 5 of the epic)
 
-On `feat/1569-identity-axis` (2026-10-16, stacked on PR 4). A mounted
+Merged to main as PR #1590 (2026-10-16). A mounted
 channel is one `(platform, identity)` instance, `Channel.Identity` being
 `bot | owner`: `Provisioning.ChannelInstance.identity` (default `bot`, so
 every row declared before the axis is a bot instance) names it, and the
@@ -650,7 +697,7 @@ endpoint refused); suites on the stacked tree: `packages/channels` 899 pass,
 
 ## #1569 the reply door (PR 4 of the epic)
 
-On `feat/1569-reply-door` (2026-10-16, stacked on PR 3). The ordinary answer
+Merged to main as PR #1589 (2026-10-16). The ordinary answer
 to the conversation that prompted a Resident turn is no longer a synthesized
 `send_message` dispatch (#1482) but the gateway's own reply door. The wire
 carries one new target kind, `Gateway.OriginTarget` `{kind: "origin",
@@ -731,7 +778,7 @@ schema snapshot and `gateway.test.ts`. Channels suite 866 pass, protocol
 
 ## #1569 messaging on the agent-messenger SDK — Telegram bot long-poll (PR 3 of the epic)
 
-On `feat/1569-sdk-telegram-bot` (2026-10-16, stacked on PR 2). Telegram
+Merged to main as PR #1588 (2026-10-16). Telegram
 ingest is the SDK's `TelegramBotListener` (`agent-messenger/telegrambot`,
 imported only by `packages/channels/src/provider/telegram/sdk.ts`): it runs
 `deleteWebhook` and `getMe`, emits `connected` with the bot user the surface
@@ -777,7 +824,7 @@ listener error on refused start, terminal codes), `telegram-media`/`telegram-mar
 
 ## #1569 messaging on the agent-messenger SDK — Discord bot gateway (PR 2 of the epic)
 
-On `feat/1569-sdk-discord-bot` (2026-10-16, stacked on PR 1). The Discord
+Merged to main as PR #1587 (2026-10-16). The Discord
 gateway is the SDK's `DiscordBotListener` (`agent-messenger/discordbot`, imported
 only by `packages/channels/src/provider/discord/sdk.ts`): identify with the
 consumed intents (`DISCORD_INTENTS`, MESSAGE CONTENT included), resume,
@@ -839,7 +886,7 @@ suite 885 pass.
 
 ## #1569 messaging on the agent-messenger SDK — Slack bot (PR 1 of the epic)
 
-On `feat/1569-sdk-slack-bot` (2026-10-15, base `b74f3c652`). The Slack
+Merged to main as PR #1586 (2026-10-16). The Slack
 provider's transport is `agent-messenger@2.39.0` (`agent-messenger/slackbot`,
 pinned exactly): `packages/channels/src/provider/slack/sdk.ts` names the SDK
 slice the surface speaks (`SlackBotApi`, `SlackBotEvents`, the `SlackSdk`
