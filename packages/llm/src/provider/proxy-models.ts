@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
-import { Effect } from "effect";
+import { createHash } from "node:crypto";
+import { Deferred, Effect, Exit } from "effect";
 import { decodeLlmFailure } from "../error";
 import { ProxyModelsError, type LlmError } from "../errors";
 import type { Provider } from ".";
@@ -16,7 +16,16 @@ type CacheEntry = {
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_ENTRIES = 64;
 const modelCache = new Map<string, CacheEntry>();
+const inFlight = new Map<string, Deferred.Deferred<string[], LlmError>>();
+
+export function proxyModelsCacheKey(url: string, apiKey?: string): string {
+  const credentialFingerprint = apiKey === undefined
+    ? null
+    : createHash("sha256").update(apiKey).digest("hex");
+  return JSON.stringify([url, credentialFingerprint]);
+}
 
 function normalizeModelsURL(baseURL: string): string {
   const trimmed = baseURL.replace(/\/+$/u, "");
@@ -24,22 +33,47 @@ function normalizeModelsURL(baseURL: string): string {
   return `${root}/v1/models`;
 }
 
-function credentialFingerprint(apiKey: string | undefined): string {
-  return createHash("sha256")
-    .update(apiKey === undefined ? "no-api-key" : `api-key:${apiKey}`)
-    .digest("hex");
-}
-
 const ModelEntry = z.object({ id: z.string().min(1) }).loose();
 const ModelListing = z.object({ data: z.array(z.json()) });
 
+/**
+ * Cached lists are served until their TTL; a miss joins the one fetch already
+ * in flight for that key, and the cache keeps only the `MAX_ENTRIES` most
+ * recently used keys.
+ */
 export function fetchProxyModels(baseURL: string, now: () => number, apiKey?: string): Effect.Effect<string[], LlmError> {
-  return Effect.gen(function* () {
-  const url = normalizeModelsURL(baseURL);
-  const cacheKey = `${url}:${credentialFingerprint(apiKey)}`;
-  const cached = modelCache.get(cacheKey);
-  if (cached && cached.expiresAt > now()) return cached.ids;
+  return Effect.suspend(() => {
+    const url = normalizeModelsURL(baseURL);
+    const cacheKey = proxyModelsCacheKey(url, apiKey);
+    const cached = modelCache.get(cacheKey);
+    if (cached !== undefined) {
+      modelCache.delete(cacheKey);
+      if (cached.expiresAt > now()) {
+        modelCache.set(cacheKey, cached);
+        return Effect.succeed(cached.ids);
+      }
+    }
+    const pending = inFlight.get(cacheKey);
+    if (pending !== undefined) return Deferred.await(pending);
+    const leader = Deferred.makeUnsafe<string[], LlmError>();
+    inFlight.set(cacheKey, leader);
+    return loadProxyModels(url, apiKey).pipe(Effect.onExit((exit) => Effect.suspend(() => {
+      inFlight.delete(cacheKey);
+      if (Exit.isSuccess(exit)) remember(cacheKey, { ids: exit.value, expiresAt: now() + CACHE_TTL_MS });
+      return Deferred.done(leader, exit);
+    })));
+  });
+}
 
+function remember(cacheKey: string, entry: CacheEntry): void {
+  modelCache.set(cacheKey, entry);
+  // Each call adds at most one key, so evicting the least recently used one keeps the bound.
+  const [oldest] = modelCache.keys();
+  if (modelCache.size > MAX_ENTRIES && oldest !== undefined) modelCache.delete(oldest);
+}
+
+function loadProxyModels(url: string, apiKey: string | undefined): Effect.Effect<string[], LlmError> {
+  return Effect.gen(function* () {
   const headers: Record<string, string> = {};
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
@@ -65,12 +99,10 @@ export function fetchProxyModels(baseURL: string, now: () => number, apiKey?: st
     message: "proxy model listing returned invalid JSON", url, cause: error,
   })));
 
-  const ids = body.data.flatMap((entry) => {
+  return body.data.flatMap((entry) => {
     const parsed = ModelEntry.safeParse(entry);
     return parsed.success ? [parsed.data.id] : [];
   });
-  modelCache.set(cacheKey, { ids, expiresAt: now() + CACHE_TTL_MS });
-  return ids;
   });
 }
 

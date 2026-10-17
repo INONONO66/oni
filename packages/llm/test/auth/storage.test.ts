@@ -1,8 +1,8 @@
 import { runEffect } from "../helpers/native";
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Auth } from "../../src/auth";
 
 const testAuthRoot = join(tmpdir(), "openomni-auth-storage-");
@@ -64,6 +64,55 @@ describe("Auth Storage", () => {
       expect(await runEffect(Auth.all(filepath))).toEqual({
         anthropic: { type: "api", key: "sk-ant" },
         openai: { type: "api", key: "sk-openai" },
+      });
+    });
+  });
+
+  it("retains every credential when writers in separate processes overlap", async () => {
+    await withTestAuthFile(async (filepath) => {
+      const writers = 96;
+      const storage = resolve(import.meta.dir, "../../src/auth/storage.ts");
+      const script = `import { Effect } from "effect"; import { Auth } from ${JSON.stringify(storage)};
+const key = process.env.AUTH_KEY ?? "";
+await Effect.runPromise(Auth.set(key, { type: "api", key: "sk-" + key }, { id: () => key, authFilePath: process.env.AUTH_FILE ?? "" }));`;
+      const children = Array.from({ length: writers }, (_, index) =>
+        Bun.spawn([process.execPath, "-e", script], {
+          cwd: resolve(import.meta.dir, "../.."),
+          env: { ...process.env, AUTH_KEY: `writer-${index}`, AUTH_FILE: filepath },
+          stdout: "ignore",
+          stderr: "pipe",
+        }));
+      const exits = await Promise.all(children.map(async (child) => ({ code: await child.exited, stderr: await new Response(child.stderr).text() })));
+      expect(exits.filter((exit) => exit.code !== 0)).toEqual([]);
+
+      const stored = await runEffect(Auth.all(filepath));
+      console.log(`auth cross-process writers: ${Object.keys(stored).length}/${writers} keys retained`);
+      expect(stored).toEqual(Object.fromEntries(Array.from({ length: writers }, (_, index) =>
+        [`writer-${index}`, { type: "api", key: `sk-writer-${index}` }])));
+      expect(existsSync(`${filepath}.lock`)).toBe(false);
+    });
+  }, 60_000);
+
+  it("reclaims a lock abandoned by a writer that died while holding it", async () => {
+    await withTestAuthFile(async (filepath) => {
+      mkdirSync(`${filepath}.lock`);
+      const abandoned = new Date(Date.now() - 60_000);
+      utimesSync(`${filepath}.lock`, abandoned, abandoned);
+
+      await runEffect(Auth.set("anthropic", { type: "api", key: "sk-ant" }, { id: () => "tmp-stale", authFilePath: filepath }));
+
+      expect(await runEffect(Auth.all(filepath))).toEqual({ anthropic: { type: "api", key: "sk-ant" } });
+      expect(existsSync(`${filepath}.lock`)).toBe(false);
+    });
+  });
+
+  it("surfaces a lock-directory failure other than contention as a typed write error", async () => {
+    await withTestAuthFile(async (_filepath, dir) => {
+      const blocked = join(dir, "blocker", "auth.json");
+      await Bun.write(join(dir, "blocker"), "a file where the credential directory belongs");
+
+      await expect(runEffect(Auth.set("anthropic", { type: "api", key: "sk-ant" }, { id: () => "tmp-blocked", authFilePath: blocked }))).rejects.toMatchObject({
+        _tag: "TransportFailure",
       });
     });
   });

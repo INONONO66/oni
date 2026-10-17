@@ -39,6 +39,29 @@ describe("classifyFailure header delays", () => {
     expect(classifyError(retryableError(headers))).toMatchObject({ kind: "retryable", afterMs, directed });
   });
 
+  test.each<{ header: string; value: string; afterMs: number | undefined }>([
+    { header: "retry-after", value: "1oops", afterMs: undefined },
+    { header: "retry-after", value: "1e3x", afterMs: undefined },
+    { header: "retry-after", value: "abc", afterMs: undefined },
+    { header: "retry-after", value: "NaN", afterMs: undefined },
+    { header: "retry-after", value: "-5", afterMs: undefined },
+    { header: "retry-after", value: "0x10", afterMs: undefined },
+    { header: "retry-after", value: "1.5", afterMs: undefined },
+    { header: "retry-after", value: " 7", afterMs: undefined },
+    { header: "retry-after", value: "", afterMs: undefined },
+    { header: "retry-after", value: "2026", afterMs: 2_026_000 },
+    { header: "retry-after", value: "0", afterMs: 0 },
+    { header: "retry-after", value: "9007199254741", afterMs: undefined },
+    { header: "retry-after", value: "2026-10-14T00:00:05Z", afterMs: undefined },
+    { header: "retry-after-ms", value: "1.5", afterMs: undefined },
+    { header: "retry-after-ms", value: "-5", afterMs: undefined },
+    { header: "retry-after-ms", value: "1e3x", afterMs: undefined },
+    { header: "retry-after-ms", value: "99999999999999999999", afterMs: undefined },
+    { header: "retry-after-ms", value: "250", afterMs: 250 },
+  ])("strict grammar: $header=\"$value\"", ({ header, value, afterMs }) => {
+    expect(afterMsOf(retryableError({ [header]: value }))).toBe(afterMs);
+  });
+
   test("parses Retry-After as HTTP date if not a number", () => {
     const futureDate = new Date(FIXED_RETRY_NOW + 5000).toUTCString();
     expect(afterMsOf(retryableError({ "retry-after": futureDate }))).toBe(5000);

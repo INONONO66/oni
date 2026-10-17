@@ -1,8 +1,8 @@
 import z from "zod";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
-import { Effect } from "effect";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { Effect, Schedule } from "effect";
 import { parseJson } from "@openomni/protocol";
 import { AuthInvalidFileError, AuthResolutionError, type LlmError } from "../errors";
 import { decodeLlmFailure } from "../error";
@@ -63,18 +63,20 @@ export namespace Auth {
     return Effect.try({ try: () => readAuthFile(authFilePath), catch: decodeLlmFailure("auth.read") });
   }
   /**
-   * One synchronous read/atomic rename boundary so concurrent effects cannot lose credentials; the
-   * temp suffix comes from the injected `id`, never ambient entropy.
+   * The read and the atomic rename run while this process owns `<file>.lock`
+   * (an exclusive `mkdir`), so concurrent writers in other processes merge
+   * instead of overwriting each other; the temp suffix comes from the injected
+   * `id`, never ambient entropy.
    */
   export function set(
     key: string,
     info: Info,
     options: { readonly id: () => string; readonly authFilePath: string },
   ): Effect.Effect<void, LlmError> {
-    return Effect.try({
+    const filepath = options.authFilePath;
+    const lockPath = `${filepath}.lock`;
+    const write = Effect.try({
       try: () => {
-        const filepath = options.authFilePath;
-        mkdirSync(dirname(filepath), { recursive: true });
         const data = readAuthFile(filepath);
         const tmpPath = `${filepath}.${options.id()}.tmp`;
         writeFileSync(tmpPath, JSON.stringify({ ...data, [key]: info }, null, 2), { mode: 0o600 });
@@ -84,5 +86,32 @@ export namespace Auth {
       },
       catch: decodeLlmFailure("auth.write"),
     });
+    return Effect.acquireUseRelease(
+      Effect.try({ try: () => acquireLock(filepath, lockPath), catch: (error) => error }).pipe(
+        Effect.retry({ while: (error) => error === LOCK_BUSY, times: LOCK_ATTEMPTS, schedule: Schedule.spaced("5 millis") }),
+        Effect.mapError(decodeLlmFailure("auth.write")),
+      ),
+      () => write,
+      () => Effect.sync(() => rmSync(lockPath, { recursive: true, force: true })),
+    );
   }
+}
+
+/** About ten seconds of 5 ms polls; a writer holds the lock for one read and one rename. */
+const LOCK_ATTEMPTS = 2000;
+/** A lock this old belongs to a writer that died between mkdir and release. */
+const LOCK_STALE_MS = 30_000;
+const LOCK_BUSY = new Error("auth file lock is held by another writer");
+
+function acquireLock(filepath: string, lockPath: string): void {
+  mkdirSync(dirname(filepath), { recursive: true });
+  try {
+    mkdirSync(lockPath, { mode: 0o700 });
+    return;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+  }
+  const lock = statSync(lockPath, { throwIfNoEntry: false });
+  if (lock !== undefined && Date.now() - lock.mtimeMs > LOCK_STALE_MS) rmSync(lockPath, { recursive: true, force: true });
+  throw LOCK_BUSY;
 }
