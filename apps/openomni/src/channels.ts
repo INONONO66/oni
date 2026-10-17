@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
+import type { AccountIdentity, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@openomni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@openomni/protocol";
 import { Result } from "effect";
@@ -42,6 +42,8 @@ export interface BuiltChannel {
   readonly typingRoute?: ProviderTypingRoute;
   /** Ingress seam: present only for webhook-fed channels. */
   readonly webhookHandler?: (request: Request) => Promise<Response>;
+  /** #1600: the account the runtime speaks as, known after start; an Owner instance's becomes the Owner Person's endpoint. */
+  readonly account?: () => AccountIdentity | undefined;
 }
 
 export interface ChannelComponent {
@@ -96,6 +98,7 @@ function providerRow(
         ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
         ...(runtime.typingRoute === undefined || !outbound ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
+        ...(runtime.account === undefined ? {} : { account: runtime.account }),
       };
     },
   };

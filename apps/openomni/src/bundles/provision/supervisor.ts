@@ -1,4 +1,4 @@
-import type { ChannelDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
+import type { AccountIdentity, ChannelDeliveryRoute, ProviderTypingRoute } from "@openomni/channels";
 import { ThrownError } from "../../thrown";
 import { Actor } from "@openomni/protocol";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
@@ -30,6 +30,16 @@ export interface DesiredChannelRow {
    * mount tier. Mounting never synthesizes authority on its own.
    */
   readonly defaultTier: Actor.TrustTier;
+  /** #1600: the declaration's allowlist — the surface admits these platform ids alone. */
+  readonly allowedSenders?: readonly string[];
+  /** #1600: channel messages route only when they address the Resident. */
+  readonly mentionOnly?: boolean;
+}
+
+/** #1600: the part of a surface's grant its readers declare beyond the tier. */
+interface GrantPolicyFacts {
+  readonly allowedSenders?: readonly string[];
+  readonly mentionOnly?: boolean;
 }
 
 export interface DesiredChannels {
@@ -59,7 +69,15 @@ export interface SupervisorDeps {
    * Registers the platform's trusted grant at a tier, naming whether an
    * Owner instance reads under it (#1569 lane 6); returns its revoker.
    */
-  readonly grant: (surfaceId: string, defaultTier: Actor.TrustTier, ownerIntake?: boolean) => () => void;
+  readonly grant: (
+    surfaceId: string,
+    defaultTier: Actor.TrustTier,
+    ownerIntake?: boolean,
+    /** #1600: the allowlist and mention-only posture the declarations carry. */
+    policy?: { readonly allowedSenders?: readonly string[]; readonly mentionOnly?: boolean },
+  ) => () => void;
+  /** #1600: an Owner instance named its account; the app binds it to the Owner Person. */
+  readonly bindAccount?: (platform: string, account: AccountIdentity) => void;
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
   readonly typingRoutes: Map<string, ProviderTypingRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
@@ -78,7 +96,7 @@ interface MountedRow {
 
 /** The one grant row of a platform and the reading instances holding it. */
 interface PlatformGrant {
-  readonly readers: Map<string, { readonly tier: Actor.TrustTier; readonly owner: boolean }>;
+  readonly readers: Map<string, { readonly tier: Actor.TrustTier; readonly owner: boolean; readonly policy: GrantPolicyFacts }>;
   /** `<tier>:<ownerIntake>` the row is registered at; re-registered when it changes. */
   registered: string | undefined;
   revoke: () => void;
@@ -117,7 +135,14 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
   const grants = new Map<string, PlatformGrant>();
   const holdGrant = (platform: string, row: DesiredChannelRow): (() => void) => {
     const held = grants.get(platform) ?? { readers: new Map(), registered: undefined, revoke: () => undefined };
-    held.readers.set(row.instanceId, { tier: row.defaultTier, owner: row.component.identity === "owner" });
+    held.readers.set(row.instanceId, {
+      tier: row.defaultTier,
+      owner: row.component.identity === "owner",
+      policy: {
+        ...(row.allowedSenders === undefined ? {} : { allowedSenders: row.allowedSenders }),
+        ...(row.mentionOnly === undefined ? {} : { mentionOnly: row.mentionOnly }),
+      },
+    });
     grants.set(platform, held);
     settleGrant(platform, held);
     let released = false;
@@ -139,11 +164,14 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     const tier = readers.map((reader) => reader.tier).sort((a, b) => tierRank(b) - tierRank(a))[0];
     if (tier === undefined) return;
     const ownerIntake = readers.some((reader) => reader.owner);
-    const wanted = `${tier}:${ownerIntake}`;
+    // #1600: the bot instance's declaration is the platform's posture; an Owner
+    // instance's grant block speaks only where the platform has no bot reader.
+    const policy = (readers.find((reader) => !reader.owner) ?? readers.find((reader) => reader.owner))?.policy ?? {};
+    const wanted = `${tier}:${ownerIntake}:${JSON.stringify(policy)}`;
     if (held.registered === wanted) return;
     held.revoke();
     held.registered = wanted;
-    held.revoke = deps.grant(platform, tier, ownerIntake);
+    held.revoke = deps.grant(platform, tier, ownerIntake, policy);
   }
   let lastStatuses: ChannelRuntimeStatus[] = [];
   let lastSource: DesiredChannels["source"] = "declared";
@@ -180,6 +208,18 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       // Fail-closed: a stage that did not start owns nothing.
       await unwind(false);
       throw failure;
+    }
+    // #1600: a started Owner instance names its account; the Owner Person gets the
+    // endpoint. A binding that throws unwinds the stage like a failed start.
+    const account = row.component.identity === "owner" ? built.account?.() : undefined;
+    if (account !== undefined) {
+      const bound = await Promise.resolve()
+        .then(() => deps.bindAccount?.(platform, account))
+        .then(() => undefined, ThrownError.parse);
+      if (bound !== undefined) {
+        await unwind(true);
+        throw bound;
+      }
     }
     mounted.set(row.instanceId, {
       key: row.key,

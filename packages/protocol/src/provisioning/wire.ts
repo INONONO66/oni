@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Channel } from "../channel/index.js";
+import { ChannelGrantDeclaration } from "./schema.js";
 
 const Id = z.string().min(1);
 const Correlation = z.object({ requestId: Id });
@@ -19,6 +20,8 @@ export const ChannelDeclareRequest = Correlation.extend({
   enabled: z.boolean().optional(),
   settings: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   outbound: z.boolean().optional(),
+  /** #1600: who the surface admits and at what tier; the Owner's socket consents by the call itself. */
+  grant: ChannelGrantDeclaration.optional(),
   credential: z.record(z.string(), z.string()).optional(),
 }).strict();
 export type ChannelDeclareRequest = z.infer<typeof ChannelDeclareRequest>;

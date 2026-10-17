@@ -65,6 +65,8 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       infos.push(context === undefined ? { msg } : { msg, context });
     });
     expect(adapter.id).toBe("slack:owner");
+    // #1600: the account is the Owner's Slack endpoint, TEAM:USER in workspace TEAM.
+    expect(adapter.account()).toEqual({ externalId: "T1:U-owner", workspace: "T1" });
     expect(client.calls.map((call) => call.method)).toEqual(["login", "testAuth"]);
     expect(client.calls[0]?.args).toEqual(["xoxc-1", "d-cookie"]);
     expect(client.client).toEqual({ retryConfig: { retries: 0 }, rejectRateLimitedCalls: true });
@@ -307,4 +309,10 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     expect(runtime?.webhookHandler).toBeUndefined();
     expect(runtime?.typingRoute).toBeUndefined();
   });
+});
+
+it("#1600: a Slack Owner instance names no account before it started", () => {
+  const fake = fakeSlackOwnerSdk({});
+  const adapter = new SlackOwnerAdapter(CREDENTIALS, DEFAULT_INTAKE, noopPublish, injectedOptions(), fake.sdk);
+  expect(adapter.account()).toBeUndefined();
 });

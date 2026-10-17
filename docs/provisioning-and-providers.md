@@ -139,6 +139,20 @@ ChannelInstance {
   Naming a url is an outbound destination, so the declaration takes Owner
   consent like an Owner instance or an outbound grant, and a rotation never
   introduces one.
+- A declaration's grant block (#1600 lane R1) is written by `channel_add`:
+  `grant.defaultTier` is the tier every sender on the surface gets who is
+  not a declared Person, `allowedSenders` the platform ids it admits alone,
+  `mentionOnly` the posture. The block is the Owner's: any declaration
+  carrying one takes Owner consent bound to the row, a consented block
+  replaces the stored one (a field left out is cleared), and a declaration
+  without one keeps it. The bot instance's block is the platform's posture;
+  an Owner instance's speaks only where the platform has no bot. An Owner
+  instance's account becomes an endpoint of the owner-tier Person when the
+  instance mounts (`person:owner` is created when none exists; an address
+  another Person holds is never re-homed), so the Owner is owner-tier on
+  that platform without a `contact_add` — which is why rotating that
+  instance's session takes Owner consent. A Person endpoint declared
+  without a workspace is recognized in every workspace of its platform.
 - An A2A peer (#1569 lane 9c) is a `channel:a2a:<id>` declaration whose
   credential carries the shared bearer `token` and, for a peer the Resident
   may write to, its `url` — an outbound destination, so the declaration

@@ -27,7 +27,9 @@ const MANIFEST_INPUT = z
           })
           .strict(),
       )
-      .describe("Platform identities this Person speaks through."),
+      .describe(
+        "Platform identities this Person speaks through. externalId by channel: slack TEAM:USER (workspace TEAM), discord the user id, telegram the user id, instagram the user pk, kakaotalk the user id, github the login, linear the user id (workspace the organization id), ws the ?actor= name. A workspace-less endpoint matches in every workspace of the platform.",
+      ),
     reach: z
       .boolean()
       .optional()

@@ -107,11 +107,19 @@ interface ProviderCapabilities {
  * `webhookHandler`, and one declaring neither returns neither. The provider
  * conformance suite enforces the correspondence.
  */
+/** The platform identity of the account a runtime speaks as (#1600): what the Owner Person's endpoint on that platform is. */
+export interface AccountIdentity {
+  readonly externalId: string;
+  readonly workspace?: string;
+}
+
 export interface ProviderRuntime {
   readonly surface: Channel.Surface;
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
   readonly webhookHandler?: (request: Request) => Promise<Response>;
+  /** #1600: the account this runtime speaks as, known once the surface started; an Owner instance's is bound to the Owner Person. */
+  readonly account?: () => AccountIdentity | undefined;
 }
 
 /**

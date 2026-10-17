@@ -627,14 +627,21 @@ export function createMountedChannelGrantRegistrar(
   grants: ChannelGrantStore,
   allowedSendersBySurface: Readonly<Record<string, readonly string[]>> | undefined,
   mentionOnlySurfaces: readonly string[] | undefined = undefined,
-): (surfaceId: string, defaultTier: Actor.TrustTier, ownerIntake?: boolean) => () => void {
-  return (surfaceId, defaultTier, ownerIntake) => {
-    const allowedSenders = allowedSendersBySurface?.[surfaceId];
+): (
+  surfaceId: string,
+  defaultTier: Actor.TrustTier,
+  ownerIntake?: boolean,
+  /** #1600: what the declarations themselves say; an env list stands only where no declaration speaks. */
+  policy?: { readonly allowedSenders?: readonly string[]; readonly mentionOnly?: boolean },
+) => () => void {
+  return (surfaceId, defaultTier, ownerIntake, policy) => {
+    const allowedSenders = policy?.allowedSenders ?? allowedSendersBySurface?.[surfaceId];
+    const mentionOnly = policy?.mentionOnly ?? (mentionOnlySurfaces?.includes(surfaceId) === true ? true : undefined);
     return registerTrustedChannelGrant(grants, {
       surface: surfaceId,
       defaultTier,
       ...(allowedSenders === undefined ? {} : { allowedSenders }),
-      ...(mentionOnlySurfaces?.includes(surfaceId) === true ? { mentionOnly: true } : {}),
+      ...(mentionOnly === true ? { mentionOnly: true } : {}),
       ...(ownerIntake === true ? { ownerIntake: true } : {}),
     });
   };

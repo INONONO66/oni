@@ -74,7 +74,7 @@ import {
   selfEnrollment,
   type SelfMachine,
 } from "./composition/self-machine";
-import { desiredChannels, materializePersons, vaultCredentialReader } from "./bundles/provision/declared";
+import { desiredChannels, materializePersons, ownerAccountBinder, vaultCredentialReader } from "./bundles/provision/declared";
 import { type ChannelSupervisor, createChannelSupervisor } from "./bundles/provision/supervisor";
 import type { ProvisionPort } from "./bundles/provision/channels";
 import {
@@ -448,6 +448,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
       automations,
       actors: plane.stores.actors,
       persons: plane.stores.persons,
+      instances: plane.stores.instances,
     });
     // Live entity turns publish their approval gate + boundary drain here;
     // request readiness and the session facade reach running turns through it.
@@ -903,6 +904,21 @@ export async function startOpenOmni(options: StartOptions = {}) {
       typingRoutes,
       webhookHandlers,
       autoReplies,
+      // #1600: an Owner instance's account is the Owner — its platform id joins the
+      // Owner Person's endpoints; what goes wrong is the Owner's to hear.
+      bindAccount: ownerAccountBinder({
+        persons: plane.stores.persons,
+        now: services.now,
+        rebuildActors: materializeDeclaredPersons,
+        warn: (msg, context) =>
+          services.observations.publish(Operational.Events.Warn, {
+            traceId: traceIdFromUuid(services.entropy.id()),
+            time: services.now(),
+            component: "server",
+            msg,
+            context,
+          }),
+      }),
       traceId: () => traceIdFromUuid(services.entropy.id()),
     });
     channelSupervisor = supervisor;

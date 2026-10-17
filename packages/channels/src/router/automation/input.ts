@@ -31,8 +31,12 @@ export function ingressInput(stores: ChannelStores,
   // `ownerIntake`), a mention of the Owner addresses the Resident the way a
   // mention of the bot does — a fact of the message, whichever instance
   // observed it, so the two copies of one message carry one verdict.
+  // The surface's own classification counts (#1600): a driver that saw the
+  // bot mentioned says `event: mention`, whether or not the bot's account is
+  // a registered identity here.
   const addressed =
     facts.dm ||
+    facts.event === "mention" ||
     identities.some((identity) => identity.kind === "resident") ||
     (channel?.grant.ownerIntake === true && identities.some((identity) => identity.trustTier === "owner"));
   const input = Ingress.Input.parse({

@@ -9,7 +9,7 @@ import { type ListenerCustody, listenerCustody } from "../../support/sdk-listene
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
-import type { OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
 import { KAKAOTALK_RENDER } from "./format";
 import {
   type KakaoTalkDeviceType,
@@ -108,6 +108,11 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
    * mention of the Owner carries; under an intake posture the push
    * listener then opens, settling on the session's `connected`.
    */
+  /** The account's KakaoTalk user id (#1600), the shape a KakaoTalk endpoint takes; known from the declaration itself. */
+  account(): AccountIdentity | undefined {
+    return { externalId: String(this.credentials.userId) };
+  }
+
   async start(traceId: string): Promise<void> {
     this.stopped = false;
     await this.client.login({

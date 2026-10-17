@@ -8,7 +8,7 @@ import { type ListenerCustody, listenerCustody } from "../../support/sdk-listene
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import type { PublishPort } from "../../types";
-import type { OwnerPosture, ProviderOptions } from "../contract";
+import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
 import { slackEmojiName } from "./emoji";
 import { SLACK_RENDER } from "./format";
 import { SlackNormalizer } from "./normalizer";
@@ -67,6 +67,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
 
   /** The workspace the authenticated session belongs to; every endpoint this instance delivers to must name it. */
   private team: string | null = null;
+  private userId: string | null = null;
 
   /**
    * The account identity is verified before the instance counts as mounted;
@@ -79,6 +80,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     singleAttempt(this.client);
     const identity = await this.client.testAuth();
     this.team = identity.team_id;
+    this.userId = identity.user_id;
     this.normalizer = new SlackNormalizer({ botUserId: identity.user_id, team: identity.team_id });
     const listens = this.posture.intake !== "none" && this.handler !== null;
     if (listens) await this.listen();
@@ -93,6 +95,12 @@ export class SlackOwnerAdapter implements Channel.Surface {
         listener: listens ? this.posture.intake : "none",
       },
     });
+  }
+
+  /** The account's Slack identity (#1600), the shape a Slack endpoint takes: `TEAM:USER` in workspace `TEAM`. */
+  account(): AccountIdentity | undefined {
+    if (this.team === null || this.userId === null) return undefined;
+    return { externalId: `${this.team}:${this.userId}`, workspace: this.team };
   }
 
   private async listen(): Promise<void> {

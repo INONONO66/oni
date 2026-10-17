@@ -231,3 +231,8 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     expect(existsSync(scratch)).toBe(false);
   });
 });
+
+it("#1600: an Instagram Owner instance names its account once the session is restored", async () => {
+  const { adapter } = await started();
+  expect(adapter.account()).toEqual({ externalId: INSTAGRAM_OWNER_ID });
+});

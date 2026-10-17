@@ -479,7 +479,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     ).toMatchObject({ required: false });
     // The direct path (no consent on the invocation) refuses before anything lands or reconciles.
     await expect(tool.execute({ operation: { op: "channel_add", args } }, context)).rejects.toThrow(
-      "channel:slack:owner: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent",
+      "channel:slack:owner: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent",
     );
     // A webhook declaration naming a url is an outbound destination: the Owner's call, never the Resident's own.
     const target = {
@@ -500,7 +500,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       ),
     ).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: target } }, context)).rejects.toThrow(
-      "channel:webhook:out: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent",
+      "channel:webhook:out: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent",
     );
     expect(plane().stores.instances.get("channel:webhook:out")).toBeUndefined();
     expect(plane().stores.instances.get("channel:slack:owner")).toBeUndefined();
@@ -567,7 +567,7 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
     });
     expect(approval({ operation: { op: "channel_add", args: { ...peer, credential: { token: "scout-token" } } } }, context)).toMatchObject({ required: false });
     await expect(tool.execute({ operation: { op: "channel_add", args: peer } }, context)).rejects.toThrow(
-      "channel:a2a:scout: an Owner instance, its outbound grant and a webhook target's or a2a peer's url require Owner consent",
+      "channel:a2a:scout: an Owner instance, its outbound grant, a grant block and a webhook target's or a2a peer's url require Owner consent",
     );
     expect(plane().stores.instances.get("channel:a2a:scout")).toBeUndefined();
     expect(
@@ -652,17 +652,24 @@ describe("channel administration ends in reconcile (§5, §8.7)", () => {
       },
       context,
     );
-    const botTokens = await secretRotate(
-      port,
-      () => NOW + 10,
-    )({ secretId: "secret:channel-slack-owner", credential: { botToken: "xoxb-1", appToken: "xapp-1" } });
-    expect(botTokens).toContain("secret_rotate refused: channel:slack:owner:");
+    // An Owner instance's rotation is consented (#1600 lane R1); the payload is still judged under the Owner arm's schema.
+    const consented = { ...context, domainRevisions: { "channel:slack:owner": 0 } };
+    const later = createProvisionTool(port, () => NOW + 10);
+    await expect(
+      later.execute({ operation: { op: "secret_rotate", args: { secretId: "secret:channel-slack-owner", credential: { botToken: "xoxb-1", appToken: "xapp-1" } } } }, consented),
+    ).rejects.toThrow("secret_rotate refused: channel:slack:owner:");
     expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBeUndefined();
-    const rotated = await secretRotate(
-      port,
-      () => NOW + 10,
-    )({ secretId: "secret:channel-slack-owner", credential: { token: "xoxc-new", cookie: "d-new" } });
-    expect(rotated).toContain("rotated");
+    // #1600 lane R1: without the Owner's consent bound to the row the session is not rotated.
+    const { domainRevisions: _unused, ...bare } = context;
+    await expect(
+      later.execute({ operation: { op: "secret_rotate", args: { secretId: "secret:channel-slack-owner", credential: { token: "xoxc-new", cookie: "d-new" } } } }, bare),
+    ).rejects.toThrow("an Owner instance's session is rotated only with Owner consent");
+    expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBeUndefined();
+    const rotated = await later.execute(
+      { operation: { op: "secret_rotate", args: { secretId: "secret:channel-slack-owner", credential: { token: "xoxc-new", cookie: "d-new" } } } },
+      consented,
+    );
+    expect(rotated).toMatchObject({ op: "secret_rotate", id: "secret:channel-slack-owner" });
     expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBe(NOW + 10);
   });
 
@@ -897,4 +904,68 @@ test("#1569 lane 8: a Person's `reach` is the Owner's standing grant — contact
     await tool.execute({ operation: { op: "contact_add", args: { manifest: { ...scout, id: "person:ranger", endpoints: [{ channel: "a2a", externalId: "ranger" }] } } } }, context),
   ).toMatchObject({ result: { kind: "declared", id: "person:ranger" } });
   expect(plane().stores.persons.get("person:ranger")?.reach).toBeUndefined();
+});
+
+test("#1600: the grant block is the Owner's — any block suspends for consent bound to the row, a consented block replaces the stored one, a declaration without one keeps it, and an empty allowlist is refused", async () => {
+  const { port } = portWith();
+  const tool = createProvisionTool(port, () => NOW);
+  const approval = tool.approval;
+  if (approval === undefined) throw new Error("provision declares no approval hook");
+  const context = { sessionId: "provision-session", turnId: "provision-turn", callId: "grant-declare", signal: new AbortController().signal };
+  const base = { id: "channel:telegram:main", provider: "telegram", enabled: true, credential: { token: "tg-token" } };
+  // Even a narrowing block is the Owner's perimeter decision.
+  expect(approval({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, context)).toEqual({
+    required: true,
+    domainRevisions: { "channel:telegram:main": -1 },
+  });
+  await expect(tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, context)).rejects.toThrow(
+    "a grant block and a webhook target's or a2a peer's url require Owner consent",
+  );
+  expect(plane().stores.instances.get("channel:telegram:main")).toBeUndefined();
+  expect(
+    await tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7"], mentionOnly: true } } } }, { ...context, domainRevisions: { "channel:telegram:main": -1 } }),
+  ).toMatchObject({ action: "declared" });
+  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ allowedSenders: ["7"], mentionOnly: true });
+  // A declaration without a block is the Resident's own re-declaration: the consented block stays.
+  expect(approval({ operation: { op: "channel_add", args: { id: base.id, provider: base.provider, enabled: true } } }, context)).toMatchObject({ required: false });
+  await tool.execute({ operation: { op: "channel_add", args: { id: base.id, provider: base.provider, enabled: true } } }, context);
+  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ allowedSenders: ["7"], mentionOnly: true });
+  // A consented block replaces the stored one: the tier lands, the list and the posture are cleared.
+  expect(approval({ operation: { op: "channel_add", args: { ...base, grant: { defaultTier: "manager" } } } }, context)).toEqual({
+    required: true,
+    domainRevisions: { "channel:telegram:main": 1 },
+  });
+  expect(
+    await tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { defaultTier: "manager" } } } }, { ...context, domainRevisions: { "channel:telegram:main": 1 } }),
+  ).toMatchObject({ action: "declared" });
+  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ defaultTier: "manager" });
+  // Widening by re-declaring the list is the same consent, bound to the new revision; an empty list admits nobody and is refused.
+  expect(approval({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: ["7", "8"] } } } }, context)).toEqual({
+    required: true,
+    domainRevisions: { "channel:telegram:main": 2 },
+  });
+  await expect(tool.execute({ operation: { op: "channel_add", args: { ...base, grant: { allowedSenders: [] } } } }, { ...context, domainRevisions: { "channel:telegram:main": 2 } })).rejects.toThrow();
+  expect(plane().stores.instances.get("channel:telegram:main")?.grant).toEqual({ defaultTier: "manager" });
+});
+
+test("#1600: rotating the session an Owner instance speaks as re-points who the Owner is — the Owner's call, bound to those rows", async () => {
+  const { port } = portWith();
+  const tool = createProvisionTool(port, () => NOW);
+  const approval = tool.approval;
+  if (approval === undefined) throw new Error("provision declares no approval hook");
+  const context = { sessionId: "provision-session", turnId: "provision-turn", callId: "rotate-owner", signal: new AbortController().signal };
+  const owner = { id: "channel:slack:owner", provider: "slack", identity: "owner" as const, enabled: true, settings: { intake: "none" }, credential: { token: "xoxc-1", cookie: "d" } };
+  expect(await tool.execute({ operation: { op: "channel_add", args: owner } }, { ...context, domainRevisions: { "channel:slack:owner": -1 } })).toMatchObject({ action: "declared" });
+  const rotate = { secretId: "secret:channel-slack-owner", credential: { token: "xoxc-2", cookie: "e" } };
+  expect(approval({ operation: { op: "secret_rotate", args: rotate } }, context)).toEqual({ required: true, domainRevisions: { "channel:slack:owner": 0 } });
+  await expect(tool.execute({ operation: { op: "secret_rotate", args: rotate } }, context)).rejects.toThrow(
+    "an Owner instance's session is rotated only with Owner consent",
+  );
+  await expect(tool.execute({ operation: { op: "secret_rotate", args: rotate } }, { ...context, domainRevisions: { "channel:slack:owner": 3 } })).rejects.toThrow("domain revision changed");
+  expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBeUndefined();
+  expect(await tool.execute({ operation: { op: "secret_rotate", args: rotate } }, { ...context, domainRevisions: { "channel:slack:owner": 0 } })).toMatchObject({ op: "secret_rotate" });
+  expect(plane().stores.secrets.get("secret:channel-slack-owner")?.rotatedAt).toBe(NOW);
+  // A bot instance's secret stays the Resident's to rotate.
+  await tool.execute({ operation: { op: "channel_add", args: { id: "channel:telegram:main", provider: "telegram", enabled: true, credential: { token: "tg" } } } }, context);
+  expect(approval({ operation: { op: "secret_rotate", args: { secretId: "secret:channel-telegram-main", credential: { token: "tg-2" } } } }, context)).toEqual({ required: false, domainRevisions: {} });
 });

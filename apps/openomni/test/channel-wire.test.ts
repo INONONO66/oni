@@ -80,6 +80,7 @@ test("the Owner's socket declares a channel, seals its credential, and reads bac
       enabled: false,
       settings: { intake: "none", autoReply: false },
       outbound: true,
+      grant: { allowedSenders: ["T1:U-friend"] },
       credential: { token: "xoxc-1", cookie: "d" },
     }),
   ).toMatchObject({
@@ -93,7 +94,7 @@ test("the Owner's socket declares a channel, seals its credential, and reads bac
     identity: "owner",
     enabled: false,
     settings: { intake: "none", autoReply: false },
-    grant: { outbound: true },
+    grant: { outbound: true, allowedSenders: ["T1:U-friend"] },
     createdBy: "owner",
   });
   if (instance?.credentialRef === undefined) throw new Error("the declared credential was not sealed");

@@ -26,6 +26,11 @@ test("actor endpoint filters distinguish no filter from the empty workspace", ()
     expect(store.listEndpoints(undefined, "guild").map((row) => row.id)).toEqual(["2", "3"]);
     expect(store.listEndpoints("b", "guild").map((row) => row.id)).toEqual(["3"]);
     expect(store.listEndpoints(undefined, "").map((row) => row.id)).toEqual(["1"]);
+    // #1600: an exact workspace match first; a workspace-less row answers for every workspace of the platform.
+    expect(store.findEndpoint("discord", "2", "guild")?.id).toBe("2");
+    expect(store.findEndpoint("discord", "1", "guild")?.id).toBe("1");
+    expect(store.findEndpoint("discord", "1", undefined)?.id).toBe("1");
+    expect(store.findEndpoint("discord", "3", "elsewhere")).toBeUndefined();
     opened.db.query("UPDATE actor_endpoint SET data = ? WHERE id = '2'").run('{"id":"2"}');
     expect(() => store.getEndpoint("2")).toThrow();
     expect(() => store.findEndpoint("discord", "2", "guild")).toThrow();
