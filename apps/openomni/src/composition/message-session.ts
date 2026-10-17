@@ -18,6 +18,8 @@ const ExternalOrigin = z
     surface: z.string().min(1),
     externalId: z.string().min(1),
     actorId: z.string(),
+    /** #1600 lane R2: the instance that observed the prompt. */
+    receivedBy: z.enum(["bot", "owner"]).optional(),
     conversation: z
       .object({
         channelId: z.string().min(1),
@@ -43,7 +45,7 @@ function originBinding(
   if (send.to.kind !== "origin") return undefined;
   const origin = ExternalOrigin.safeParse(kernel.actionById(send.to.inReplyTo)?.intent.value);
   if (!origin.success || origin.data.surface === "ws") return undefined;
-  const { surface, externalId, actorId, conversation } = origin.data;
+  const { surface, externalId, actorId, conversation, receivedBy } = origin.data;
   return {
     surface,
     externalId,
@@ -51,6 +53,7 @@ function originBinding(
     channelId: conversation.channelId,
     messageId: conversation.messageId,
     dm: conversation.dm,
+    ...(receivedBy === undefined ? {} : { receivedBy }),
     ...(conversation.workspaceId === undefined ? {} : { workspaceId: conversation.workspaceId }),
     ...(conversation.threadId === undefined ? {} : { threadId: conversation.threadId }),
   };

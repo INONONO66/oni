@@ -78,15 +78,19 @@ function transformedContent(
 }
 
 /** The conversation a person wrote in, kept on the prompt origin so the answer can go back there. */
+/** The external origin's channel facts: the instance that observed the message and the conversation it came from. */
 function originConversation(
   external: MessageContext["external"],
-): { readonly conversation?: PlainValue } {
+): { readonly receivedBy?: "bot" | "owner"; readonly conversation?: PlainValue } {
   if (external === undefined) return {};
   const { facts } = external;
   return {
+    // #1600 lane R2: which instance observed the message decides which one answers a DM.
+    ...(facts.receivedBy === undefined ? {} : { receivedBy: facts.receivedBy }),
     conversation: {
       channelId: facts.channelId,
-      messageId: facts.eventId,
+      // #1600 lane R2: a button tap answers the message the button was on, not the tap's own id.
+      messageId: facts.postback?.messageRef ?? facts.eventId,
       dm: facts.dm,
       ...(facts.workspaceId === undefined ? {} : { workspaceId: facts.workspaceId }),
       ...(facts.reply?.threadId === undefined ? {} : { threadId: facts.reply.threadId }),

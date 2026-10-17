@@ -125,6 +125,34 @@ test("an explicit model send_message routes through MessagePort.ingest to the ex
   ]);
 });
 
+test("#1600 lane R2: the Owner is always the Resident's to write to — an owner-tier Person declared without `reach`, with no budget, takes the letter and no consent is asked", async () => {
+  const ownerMail = suite.config("owner-mail-", { wsToken: "token" });
+  declarePerson(ownerMail.catalogPath, { id: "person:owner", displayName: "Owner", kind: "human", trustTier: "owner", endpoints: [{ channel: "ws", externalId: "owner" }] });
+  const app = await suite.boot({
+    config: ownerMail,
+    llm: {
+      resolveModel: fakeProviderModel,
+      run: (input, sink) => Effect.sync(() => {
+        const result = requestToolStep(input, sink, {
+          id: "owner-mail", tool: "send_message",
+          input: { to: { kind: "contact", id: "person:owner" }, message: "OWNER_MAIL_SENTINEL" },
+        });
+        if (result === undefined) return { type: "stop" };
+        expect(result.isError).not.toBe(true);
+        sink.onMessage(assistantMessage(input, { text: "OWNER_MAIL_DONE" }));
+        return { type: "stop" };
+      }),
+    },
+  });
+  const plane = await planeOf(app.runtime);
+  const ws = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws?actor=owner`, ["auth", "token"]);
+  const delivered = nextFrame(ws, (frame) => frame.type === "message");
+  const terminal = nextResidentTurn(plane);
+  ws.send(JSON.stringify({ eventId: newTraceId(), text: "write to me" }));
+  expect(await delivered).toMatchObject({ text: "OWNER_MAIL_SENTINEL" });
+  expect((await terminal).text).toBe("OWNER_MAIL_DONE");
+});
+
 test("#1569 lane 8: a Person the Owner named without `reach` is an inbound identity only — the Resident's letter to it is ungranted; `reach` set on the row makes the next letter land, no reboot", async () => {
   const stranger = suite.config("ungranted-message-", {
     wsToken: "token",

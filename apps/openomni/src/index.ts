@@ -7,6 +7,7 @@ import { automationClock } from "./composition/automation-clock";
 import { automationWire } from "./composition/automation-wire";
 import { channelWire } from "./composition/channel-wire";
 import { a2aContacts } from "./composition/a2a-contacts";
+import { ownerContactFor } from "./composition/owner-contact";
 import { webhookContacts } from "./composition/webhook-contacts";
 import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
@@ -748,10 +749,16 @@ export async function startOpenOmni(options: StartOptions = {}) {
     // declaration executes against — injected holders (tests) bind here too.
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
     const typingRoutes = new Map<string, ProviderTypingRoute>();
+    // Live table: channel components register and revoke their own outbound
+    // routes (declared beside the typing routes; the resident's draft arm reads it).
+    const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
     const resident = createResident({
       // The turn's pulse rides the bot instance of the platform (#1569); an
       // identity-less surface keeps its platform key.
       typingRoute: (surface) => typingRoutes.get(`${surface}:bot`) ?? typingRoutes.get(surface),
+      // #1600 lane R2: a drafted answer goes to the Owner through the bot on a
+      // platform the Owner Person has an endpoint on, ws last (it needs a live socket).
+      ownerContact: () => ownerContactFor(plane.stores.persons.list(), deliveryRoutes),
       prompts: config.prompts,
       // #1257: the app's resolved cap is the input the composition writes
       // into every new session's genesis generation settings.
@@ -869,7 +876,6 @@ export async function startOpenOmni(options: StartOptions = {}) {
     };
     // Live table: channel components register and revoke their own outbound
     // routes while the gateway keeps reading it per delivery.
-    const deliveryRoutes = new Map<string, ChannelDeliveryRoute>();
     deliveryRoutes.set("ws", wsRoute);
     // One runtime owner for external channels (provisioning §5): boot
     // reconcile and every tool-driven mutation run the SAME diff over
@@ -1043,6 +1049,8 @@ export async function startOpenOmni(options: StartOptions = {}) {
           // #1569 lane 8: the standing grant is the Owner's `reach` on a Person
           // (`contact_add`), read from the store at each send so a contact named
           // mid-run is reachable at once; a Person without it is inbound-only.
+          // #1600 lane R2: the Owner is always reachable by the Resident — a
+          // drafted answer, a report, a question are the Owner's own mail.
           grants: () =>
             plane
               .listSessions()
@@ -1050,7 +1058,7 @@ export async function startOpenOmni(options: StartOptions = {}) {
               .flatMap((row) =>
                 plane.stores.persons
                   .list()
-                  .filter((person) => person.reach === true)
+                  .filter((person) => person.reach === true || person.trustTier === "owner")
                   .map((person) => ({
                     id: `${row.id}->${person.id}`,
                     senderId: row.id,

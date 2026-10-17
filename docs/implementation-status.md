@@ -1,5 +1,82 @@
 # Implementation Status
 
+## #1600 Messaging readiness — the reply door (lane R2)
+
+On `feat/1600-reply-door` (2026-10-17, lane R2 of #1600). The readiness
+sweep after #1569 found four answers that never reached the person who
+wrote: **a GitHub reply never landed** — the inbound conversation was
+`issue-7`/`pr-12`, no address a comment can be posted to, and the provider
+refused every conversation hint, so the reply door's comment died at
+transport. Now the inbound `channelId` is the issue itself
+(`owner/repo#N`, `provider/github/surface.ts`) and the delivery route posts
+into the conversation it is given (`provider.ts`; a cold send keeps the
+direct `owner/repo#N` address), and the perimeter's refusal is answered
+200 with the delivery claim kept (`dispatchWebhook`), as Linear already
+did, so GitHub never redelivers a message the Owner's policy refused.
+**A DM the Owner's account received was answered by the bot**, which
+cannot reach that chat: the committed origin now records which instance
+observed the prompt (`receivedBy` on the external origin,
+`router/message-execution.ts`; the app's `CommittedOrigin` fold carries it
+onto the binding, `composition/message-session.ts`), and `replyIdentity`
+answers an Owner-received DM through the Owner's instance whatever else is
+mounted — as the Owner where the declaration auto-replies, otherwise the
+draft refusal, an inbound-only Owner instance (no outbound grant, so no
+route) included, since the Owner needs no route to answer from their own
+account (`router/messaging/reply.ts`; the review found the first cut
+refused that default posture `reply_unbound`). A channel mention only the
+Owner's account observed is still the bot's to answer (recorded limit: a
+bot absent from that channel is rejected at transport). **A drafted
+answer stayed invisible**: the Owner-draft arm the epic recorded as not
+shipped is now the Resident's: when the reply door refuses
+`message.resident.reply_draft`, the Resident delivers the draft to the
+Owner — who, where, the words, and how to send it as the Owner — through
+`send_message`'s actor door to the owner-tier Person (`ownerContactFor` in
+`composition/owner-contact.ts`: a platform whose bot writes a person cold —
+a messenger bot route, or the loopback socket; GitHub, a webhook target and
+the Owner-only platforms address no person — where the Owner holds one
+endpoint, two being ambiguous for a surface-named target; a live platform
+before `ws`; the draft stays in the session when there is none), and a
+draft the door did not carry is a Warn naming the conversation, never
+silence. **The Owner is always the Resident's to write to**, in one layer:
+the standing grants include the owner-tier Person whether or not `reach`
+was declared (`grants` in `index.ts`), and the gateway asks no budget for a
+letter to the owner-tier actor — a missing budget for the Owner is no
+consent question (`ownerTarget` in `router/messaging/admission.ts`, read
+by `admitSend` and the `preflight`; a budget the Owner declared for
+themselves still governs) — so neither the draft arm nor the model's
+`send_message` to the Owner mints a consent fact (the review found the
+first cut asserting `consented: true` from the Resident itself). **A
+button tap was answered on the tap**: the origin's `messageId` is the
+postback's `messageRef` when the platform names the message the button
+was on (Telegram does), so the reply quotes that message. The GitHub
+`channelId` form is a key change: an automation condition, a
+`trusted_channel` grant or a surface-key claim written against `issue-N`
+or `pr-N` before this lane names nothing now and is re-declared or
+re-claimed on the next comment (pre-release; no migration).
+
+Receipts: `packages/channels/test/github-facts.test.ts`,
+`github-pull-request.test.ts`, `automation-driver.test.ts` (the issue is
+the conversation), `github-conversation.test.ts` (a conversation hint is
+the comment's issue; a cold send keeps the direct address),
+`github-retry.test.ts` (a refusal is 200 and never redelivered),
+`provider-contract.test.ts` (GitHub joins the conversation targets),
+`test/router/messaging/composition.test.ts` (an Owner-received DM is the
+Owner's to answer — draft without auto-reply, draft through an inbound-only
+Owner instance, the Owner's instance with auto-reply, the bot when the bot
+saw it; a button tap answers the button's message),
+`test/router/messaging/social-budget.test.ts` (a letter to the owner-tier
+actor asks no budget and debits nothing; a declared one still governs),
+`apps/openomni/test/resident-reply-to-origin.test.ts` (the draft reaches
+the Owner through the bot, unconsented, naming the conversation; with no
+platform it stays in the session; another refusal is never a draft),
+`test/reply-door.test.ts` (the app's origin fold carries `receivedBy`: an
+Owner-received DM is a draft through the real gateway),
+`test/send-message-e2e.test.ts` (an owner-tier Person without `reach` and
+without a budget takes the letter, no consent asked),
+`test/owner-contact.test.ts` (the contact's choice: a messenger bot or the
+socket, one endpoint, never GitHub or an Owner-only platform). Suites:
+`packages/channels` 1015 pass, `apps/openomni` 1039 pass, 0 fail.
+
 ## #1600 Messaging readiness — admission: a declared instance can admit people (lane R1)
 
 On `feat/1600-admission` (2026-10-17, PR #1601). The per-platform trace
@@ -74,6 +151,7 @@ suites: `packages/channels` 1010 pass, `apps/openomni` 1032 pass,
 0 fail. Not in this lane: the remaining #1600 lanes (reply door, dead
 paths, the first live run).
 
+||||||| parent of 461d0d0f3 (wip: #1600 lane R2 reply door (to be amended))
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
@@ -110,7 +188,8 @@ transports, the reply-grant machinery and the post-turn `send_message`
 report, `OPENOMNI_ACTORS` and env actors (Person rows are the one
 declaration), the #1110 "only the Owner is public" identity amendment.
 **Not shipped by the epic** (recorded, not implied): the Owner-draft arm
-for conversations only the Owner instance can reach; the Telegram Owner
+for conversations only the Owner instance can reach (shipped by #1600 lane
+R2, the section above); the Telegram Owner
 instance (no SDK export yet); a contact's later answer delivered as a
 prompt (A2A answers ride the tool result; the inbound door is the
 asynchronous path); A2A streaming, push notifications and durable tasks;

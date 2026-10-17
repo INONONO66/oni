@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { Core } from "@openomni/agent";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;
-import { Outbound, type Gateway } from "@openomni/protocol";
+import { Operational, Outbound, type Gateway } from "@openomni/protocol";
 import type { MessagePort } from "../src/bundles/messaging/send-message/index";
 import { residentRunner } from "./helpers/resident-runner";
 import { requestToolStep, assistantMessage } from "./helpers/assistant-message";
@@ -245,6 +245,100 @@ test("a turn answering an approved person on a channel replies through the reply
       content: Outbound.payload("pong"),
     },
   ]);
+});
+
+test("a drafted answer reaches the Owner through the bot on a platform the Owner has; with none it stays in the session (#1600 lane R2)", async () => {
+  const sends: Gateway.SendMessage[] = [];
+  const drafting: MessagePort = {
+    ingest: async (_sender, message) => {
+      const send = message as Gateway.SendMessage;
+      sends.push(send);
+      if (send.to.kind === "origin")
+        return { status: "blocked_pre", reasonCode: "message.resident.reply_draft" } satisfies Gateway.IngestResult;
+      return {
+        status: "executed",
+        handle: { messageId: `m-${sends.length}`, target: "person:owner" },
+        delivery: { kind: "actor", value: "accepted" },
+      } satisfies Gateway.IngestResult;
+    },
+  };
+  const buyer = { surface: "instagram", externalId: "buyer-9", actorId: "person:buyer", messageId: "instagram::buyer-9:1" };
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: drafting },
+    ownerContact: () => ({ actorId: "person:owner", surface: "slack" }),
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  expect((await deliverExternal(resident, "reply-origin-draft", buyer, "price?")).kind).toBe("result");
+  expect(sends.map((send) => send.to)).toEqual([
+    { kind: "origin", inReplyTo: buyer.messageId },
+    { kind: "actor", actorId: "person:owner", surface: "slack" },
+  ]);
+  // The Owner's own mail: no consent asserted (the gateway asks none for a letter to the Owner), naming who, where, and the words.
+  expect(sends[1]).toMatchObject({ type: "message" });
+  expect(sends[1]).not.toHaveProperty("consented");
+  expect(sends[1]?.content).toEqual(expect.stringContaining("Draft reply to buyer-9 on instagram (buyer-9)"));
+  expect(sends[1]?.content).toEqual(expect.stringMatching(/\n\npong$/));
+  // No platform the bot can write to the Owner on: the draft is the Owner's to read in the session.
+  sends.length = 0;
+  const unsent = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: drafting },
+    ownerContact: () => undefined,
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  expect((await deliverExternal(unsent, "reply-origin-draft-unsent", buyer, "price?")).kind).toBe("result");
+  expect(sends.map((send) => send.to)).toEqual([{ kind: "origin", inReplyTo: buyer.messageId }]);
+  // Any other refusal of the reply is not a draft: nothing goes to the Owner even with a contact at hand.
+  const refused: Ingested[] = [];
+  const refusing = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: capturingPort(refused, () => false) },
+    ownerContact: () => ({ actorId: "person:owner", surface: "slack" }),
+    sessionRuntime: { clock: () => 10 },
+    llm: replyingLlm("pong"),
+  });
+  expect((await deliverExternal(refusing, "reply-origin-refused-not-draft", buyer, "price?")).kind).toBe("result");
+  expect(refused.map((entry) => entry.to)).toEqual([{ kind: "origin", inReplyTo: buyer.messageId }]);
+});
+
+test("a draft the door does not carry is reported to the Owner's ear, never lost in silence (#1600 lane R2)", async () => {
+  const warns: string[] = [];
+  const blockedDoor: MessagePort = {
+    ingest: async (_sender, message) => {
+      const send = message as Gateway.SendMessage;
+      return {
+        status: "blocked_pre",
+        reasonCode: send.to.kind === "origin" ? "message.resident.reply_draft" : "message.resident.actor_grant",
+      } satisfies Gateway.IngestResult;
+    },
+  };
+  const resident = residentRunner({
+    model: { provider: "fake", id: "resident-test" },
+    apiKey: "test-key",
+    tools: { messages: blockedDoor },
+    ownerContact: () => ({ actorId: "person:owner", surface: "slack" }),
+    sessionRuntime: {
+      clock: () => 10,
+      observations: {
+        publish: (event, data) => {
+          if (event.name === Operational.Events.Warn.name) warns.push(JSON.stringify(data));
+        },
+      },
+    },
+    llm: replyingLlm("pong"),
+  });
+  const buyer = { surface: "instagram", externalId: "buyer-9", actorId: "person:buyer", messageId: "instagram::buyer-9:1" };
+  expect((await deliverExternal(resident, "reply-origin-draft-blocked", buyer, "price?")).kind).toBe("result");
+  const reported = warns.filter((entry) => entry.includes("draft reply not delivered to the Owner"));
+  expect(reported).toHaveLength(1);
+  expect(reported[0]).toContain("blocked_pre:message.resident.actor_grant");
+  expect(reported[0]).toContain("person:owner@slack");
 });
 
 test("a refused or failed reply never fails the turn: the result is recorded either way", async () => {
