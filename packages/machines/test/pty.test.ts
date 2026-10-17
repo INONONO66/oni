@@ -9,6 +9,7 @@ import { systemCommandRunner } from "../src/commands";
 import { MachinesFailure } from "../src/errors";
 import { createPtyAdapter, type PtyAdapter } from "../src/pty";
 import { startPtyControl, type PtyControl, type PtyControlFactory } from "../src/pty-control";
+import { scriptedTmux } from "./helpers/scripted-tmux";
 import { run } from "./ipc/helpers/effects";
 
 /**
@@ -328,46 +329,18 @@ describe("pty.session over real tmux", () => {
 });
 
 /**
- * Scripted tmux control server for the fault and #1510 snapshot suites below:
- * `facts` answers `display-message` (the pane facts), `now` is the snapshot clock.
+ * Scripted tmux control server for the fault and #1510 snapshot suites below
+ * (`helpers/scripted-tmux.ts`): `facts` answers `display-message` (the pane
+ * facts), `now` is the snapshot clock.
  */
 function scripted(screen: { readonly facts: string[]; readonly now?: () => number } = { facts: [] }) {
-  const names: string[] = [];
-  const lines: string[] = [];
-  let hooks: Parameters<PtyControlFactory>[0] | undefined;
-  const control: PtyControl = {
-    command: (line) =>
-      Effect.sync(() => {
-        lines.push(line);
-        if (line.startsWith("list-sessions")) return [...names];
-        if (line.startsWith("new-session")) {
-          names.push(line.split(" ")[3] ?? "");
-          return [];
-        }
-        if (line.startsWith("list-panes")) return ["@9 %9"];
-        if (line.startsWith("capture-pane")) return ["snapshot"];
-        if (line.startsWith("display-message")) return [...screen.facts];
-        if (line.startsWith("kill-session")) {
-          names.length = 0;
-          return [];
-        }
-        return [];
-      }),
-    close: () => Effect.void,
-  };
+  const { control, runner, lines, faults } = scriptedTmux(screen.facts);
   const adapter = createPtyAdapter({
     id: () => "gen-scripted",
-    runner: { run: () => Effect.succeed({ exitCode: 0, stdout: "tmux 3.7c", stderr: "" }) },
-    control: (options) => {
-      hooks = options;
-      return Effect.succeed(control);
-    },
+    runner,
+    control,
     ...(screen.now === undefined ? {} : { now: screen.now }),
   });
-  const faults = () => {
-    if (hooks === undefined) throw new Error("control client never started");
-    return hooks;
-  };
   return { adapter, faults, lines };
 }
 

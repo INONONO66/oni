@@ -121,7 +121,9 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     const configured = yield* Effect.try({ try: () => Machine.Offer.parse(options.offer), catch: decodeMachineFailure("daemon.offer") });
     const commands = options.commands ?? systemCommandRunner();
     const computer = createComputerUse({ runner: commands, id: options.id });
-    const pty = createPtyAdapter({ runner: commands, id: options.id, now: options.report?.now, ...options.pty });
+    // Clock precedence resolved AFTER the spread (#1603 r1): an explicit
+    // `pty: { now: undefined }` must still fall back to the heartbeat clock.
+    const pty = createPtyAdapter({ runner: commands, id: options.id, ...options.pty, now: options.pty?.now ?? options.report?.now });
     // Attach-time probes: computer-use needs complete prerequisites (#1274),
     // pty.session needs tmux resolving on PATH (#1273).
     const report = options.report === undefined ? undefined : { ...options.report, intervalMs: Math.max(REPORT_INTERVAL_FLOOR_MS, options.report.intervalMs ?? REPORT_INTERVAL_MS), probe: options.report.probe ?? systemLoadProbe() };

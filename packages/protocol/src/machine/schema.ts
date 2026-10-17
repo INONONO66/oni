@@ -897,10 +897,17 @@ export type PtyReadResult = z.infer<typeof PtyReadResult>;
  * Answer to a `source: "screen"` read (#1510): `rows` are the pane's visible
  * lines top to bottom with their escape sequences (one per pane row, so the
  * count is the pane height, bounded by {@link PTY_MAX_ROWS}); `cursor` is the
- * pane cursor in cells; `occupant` is the pane's foreground process as tmux
- * reports it, `null` when the pane holds no live process. The pid is a fact
- * for the caller's correlation, never the terminal's identity; `observedAt`
- * is the daemon clock at capture. Idle/working/blocked are not decided here.
+ * pane cursor in cells; `occupant` pairs two distinct tmux pane facts and must
+ * be read as such: `pid` is tmux's `#{pane_pid}`, the pid of the pane's
+ * initial process (the shell tmux started, the pane's root), and `command` is
+ * tmux's `#{pane_current_command}`, the name of the process currently in the
+ * foreground of the pane as tmux reports it. So occupant is {pid of the
+ * pane's root process, name of the foreground command}; `pid` is NOT the
+ * foreground process's pid (a shell running `vim` reports the shell's pid
+ * with command `vim`). `null` when the pane is dead or tmux reports no pid.
+ * The pid is a fact for the caller's correlation, never the terminal's
+ * identity; `observedAt` is the daemon clock at capture. Idle/working/blocked
+ * are not decided here.
  */
 export const PtyScreenResult = z.discriminatedUnion("status", [
   z

@@ -2,6 +2,7 @@ import { Machine, type Ipc } from "@openomni/protocol";
 import { Effect } from "effect";
 import type { MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
+import { COMMAND_TIMEOUT_MS } from "./pty-control";
 
 /**
  * Host-side pty surface (#1273), kept out of host.ts so the attachment
@@ -41,8 +42,21 @@ export interface PtyHandle {
   list(): Effect.Effect<Machine.PtyListResult, MachineError>;
 }
 
-/** Room on top of the daemon-side bound so the daemon times out first. */
+/**
+ * Host-side room on top of the daemon's per-command deadline
+ * ({@link COMMAND_TIMEOUT_MS}, owned by `pty-control.ts`). Operations that
+ * issue a known number of bounded control commands budget
+ * `commands * COMMAND_TIMEOUT_MS + margin` through {@link controlBudget}, so
+ * the daemon's typed deadline failure reaches the host before the host's own
+ * transport timeout. The remaining calls (open, write, close, list, and the
+ * stream read on top of its `waitMs`) keep the bare margin as #1273 shipped
+ * them: that margin equals one command deadline, so for those the daemon is
+ * not guaranteed to time out first.
+ */
 const PTY_CALL_MARGIN_MS = 10_000;
+const controlBudget = (commands: number): number => commands * COMMAND_TIMEOUT_MS + PTY_CALL_MARGIN_MS;
+/** `screen` (capture-pane, display-message) and `resize` (set-option, resize-window) each run two commands. */
+const TWO_COMMAND_BUDGET_MS = controlBudget(2);
 
 export function createPtyHandle(call: PtyWireCall, closed: (name: string) => void): PtyHandle {
   function wire<Request extends object, Result>(
@@ -83,10 +97,10 @@ export function createPtyHandle(call: PtyWireCall, closed: (name: string) => voi
         Machine.WireMethod.PtyRead,
         { request: Machine.PtyReadScreenRequest, result: Machine.PtyScreenResult },
         { name, source: "screen" },
-        PTY_CALL_MARGIN_MS,
+        TWO_COMMAND_BUDGET_MS,
       ),
     resize: (name, cols, rows) =>
-      wire("pty.resize", Machine.WireMethod.PtyResize, { request: Machine.PtyResizeRequest, result: Machine.PtyResizeResult }, { name, cols, rows }, PTY_CALL_MARGIN_MS),
+      wire("pty.resize", Machine.WireMethod.PtyResize, { request: Machine.PtyResizeRequest, result: Machine.PtyResizeResult }, { name, cols, rows }, TWO_COMMAND_BUDGET_MS),
     close: (name) =>
       wire("pty.close", Machine.WireMethod.PtyClose, { request: Machine.PtyCloseRequest, result: Machine.PtyCloseResult }, { name }, PTY_CALL_MARGIN_MS).pipe(
         Effect.tap((result) => Effect.sync(() => {

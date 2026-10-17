@@ -61,13 +61,20 @@ const quote = (value: string): string => `"${value.replaceAll("\\", "\\\\").repl
 
 /**
  * One `display-message -p` line answers every pane fact the snapshot needs:
- * cursor cell, dead flag, foreground pid, then the process name (which may
+ * cursor cell, dead flag, then two facts about different processes that the
+ * result pairs as `occupant` — `#{pane_pid}`, the pid of the pane's initial
+ * process (the shell tmux started, the pane's root; it does not follow the
+ * foreground), and `#{pane_current_command}`, the name of the process
+ * currently in the foreground of the pane as tmux reports it (which may
  * itself contain spaces, so it takes the rest of the line).
  */
 const PANE_FACTS_FORMAT = '"#{cursor_x} #{cursor_y} #{pane_dead} #{pane_pid} #{pane_current_command}"';
 const PANE_FACTS = /^(\d+) (\d+) ([01]) (\d*) ?(.*)$/;
 type ScreenOk = Extract<Machine.PtyScreenResult, { status: "ok" }>;
-/** Structural facts only: a dead pane or no pid is `occupant: null`, never a guess. */
+/**
+ * Structural facts only: a dead pane or no pid is `occupant: null`, never a
+ * guess; `pid` is the pane's root process, `command` the foreground name.
+ */
 function paneFacts(lines: readonly string[]): Pick<ScreenOk, "cursor" | "occupant"> | undefined {
   const match = lines.length === 1 ? (lines[0] ?? "").match(PANE_FACTS) : null;
   if (match === null) return undefined;
