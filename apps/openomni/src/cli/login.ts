@@ -159,7 +159,7 @@ async function signInFor(
 }
 
 /** The declared instance's own status decides the exit; the daemon answers with every instance's. */
-function reportDeclared(
+export function reportDeclared(
   response: Extract<Provisioning.ChannelDeclareResponse, { readonly type: "channel_declared" }>,
   instanceId: string,
   io: LoginReport,

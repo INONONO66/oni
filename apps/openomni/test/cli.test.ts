@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -40,7 +41,9 @@ import { parseWsPort } from "../src/config";
 import { runDoctor } from "../src/cli/doctor";
 import { processEntryPath } from "../src/process-entry-path";
 import type { DoctorPorts } from "../src/cli/doctor";
-import { main } from "../src/cli/main";
+import { createCliDeps, main } from "../src/cli/main";
+import { createAppLedger } from "./helpers/ledger";
+import { testClock } from "./helpers/test-entropy";
 import { gatherOnboarding } from "../src/cli/onboard";
 import { doctorStatuses, failedSystemdStop } from "./helpers/cli-fixtures";
 
@@ -660,6 +663,66 @@ describe("doctor", () => {
   });
 });
 
+describe("openomni messaging (#1600 lane R4)", () => {
+  test("reads the catalog the env file names: no catalog is a plain refusal, a declared row is reported with its sealed credential", async () => {
+    const home = tempDir();
+    const deps = createCliDeps(home);
+    await expect(deps.messagingFacts()).rejects.toThrow("no catalog at");
+    const out: string[] = [];
+    const err: string[] = [];
+    const cli: CliDeps = { ...deps, stdout: (line) => out.push(line), stderr: (line) => err.push(line) };
+    expect(await runCli(["messaging"], cli)).toBe(1);
+    expect(err[0]).toContain("nothing is declared yet");
+    const catalogPath = join(home, ".openomni", "catalog.sqlite");
+    mkdirSync(join(home, ".openomni"), { recursive: true });
+    writeFileSync(join(home, ".openomni", "env"), `OPENOMNI_CATALOG_PATH=${catalogPath}\n`);
+    const plane = createAppLedger({ now: testClock(), catalogPath });
+    try {
+      plane.stores.instances.put({
+        id: "channel:telegram:main",
+        provider: "telegram",
+        identity: "bot",
+        enabled: true,
+        settings: {},
+        credentialRef: "secret:telegram-main",
+        grant: { defaultTier: "manager" },
+        revision: 0,
+        createdBy: "owner",
+        updatedAt: 1,
+      });
+    } finally {
+      plane.close();
+    }
+    const before = statSync(catalogPath).mtimeMs;
+    const facts = await deps.messagingFacts();
+    // Read-only: the daemon's catalog file is not touched by the report.
+    expect(statSync(catalogPath).mtimeMs).toBe(before);
+    expect(facts.instances.map((instance) => instance.id)).toEqual(["channel:telegram:main"]);
+    expect(facts.persons).toEqual([]);
+    // No vault row was sealed for the credential ref: the report says so and exits 1.
+    expect([...facts.sealed]).toEqual([]);
+    expect(await runCli(["messaging"], cli)).toBe(1);
+    expect(out).toContain("  channel:telegram:main [bot] enabled, credential secret:telegram-main MISSING from the vault, tier manager");
+    expect(out).toContain("  READ  every sender on telegram reaches the Resident at tier manager");
+  });
+
+  test("channel add dispatches through the command table: the verb alone is the usage, --print shows the declaration the prompts built", async () => {
+    const home = tempDir();
+    const out: string[] = [];
+    const err: string[] = [];
+    const cli: CliDeps = { ...createCliDeps(home), stdout: (line) => out.push(line), stderr: (line) => err.push(line), ask: () => Promise.resolve("tg-token") };
+    expect(await runCli(["channel"], cli)).toBe(1);
+    expect(err).toEqual(["usage: openomni channel add <platform> [flags]"]);
+    expect(await runCli(["channel", "add", "telegram", "--tier", "manager", "--print"], cli)).toBe(0);
+    expect(out).toEqual([JSON.stringify({ id: "channel:telegram:main", provider: "telegram", identity: "bot", grant: { defaultTier: "manager" }, credential: { token: "tg-token" } })]);
+    expect(await runCli(["channel", "add"], cli)).toBe(1);
+    expect(err.at(-1)).toContain("usage: openomni channel add");
+    // Through the dispatch, the login deps' socket is the one that declares; no daemon is reported as such.
+    expect(await runCli(["channel", "add", "telegram"], { ...cli, login: { ...cli.login, declare: () => Promise.reject(new CliError("no daemon at ws://127.0.0.1:3000/ws")) } })).toBe(1);
+    expect(err.slice(-2)).toEqual(["no daemon at ws://127.0.0.1:3000/ws", "nothing was sealed; start the daemon and run channel add again"]);
+  });
+});
+
 describe("cli entry point", () => {
   test("returns the dispatch exit status without terminating an importer", async () => {
     const stdout = spyOn(console, "log").mockImplementation(() => undefined);
@@ -705,6 +768,7 @@ describe("cli dispatch", () => {
           declare: () => Promise.reject(new Error("no daemon in this test")),
           id: () => "request-1",
         },
+        messagingFacts: () => Promise.reject(new Error("no catalog in this test")),
         doctorPorts: () =>
           Promise.resolve({
             bunVersion: "1.3.0",

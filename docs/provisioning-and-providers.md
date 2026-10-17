@@ -139,6 +139,10 @@ ChannelInstance {
   Naming a url is an outbound destination, so the declaration takes Owner
   consent like an Owner instance or an outbound grant, and a rotation never
   introduces one.
+- The first live run is `docs/first-live-run.md` (#1600 lane R4):
+  `openomni channel add <platform>` declares a bot or Linear with its grant
+  block at the prompt, `openomni messaging` reports who reads, how the
+  Resident writes and where the Owner is known, per declared platform.
 - A declared webhook target is its own inbound door at `/webhook/<slug>`
   (#1600 lane R3), verified by its `X-Signature` HMAC under the declared
   secret; a perimeter refusal is answered 200 (never redelivered), a
