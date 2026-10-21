@@ -22,20 +22,51 @@ function fixtures(kind: "valid" | "invalid"): string[] {
     .sort();
 }
 
-async function parseFixture(kind: "valid" | "invalid", file: string): Promise<boolean> {
+async function parseFixture(kind: "valid" | "invalid", file: string) {
   const name = file.slice(0, file.indexOf("."));
   const schema = schemas.get(name);
   if (schema === undefined) throw new Error(`fixture ${kind}/${file} names no machine schema`);
-  return schema.safeParse(await Bun.file(join(fixtureDir, kind, file)).json()).success;
+  return schema.safeParse(await Bun.file(join(fixtureDir, kind, file)).json());
 }
 
 describe("machine wire contract fixtures", () => {
   test.each(fixtures("valid"))("valid/%s parses", async (file) => {
-    expect(await parseFixture("valid", file)).toBe(true);
+    const parsed = await parseFixture("valid", file);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const fixture = await Bun.file(join(fixtureDir, "valid", file)).json();
+    expect(JSON.parse(JSON.stringify(parsed.data))).toEqual(fixture);
   });
 
   test.each(fixtures("invalid"))("invalid/%s is refused", async (file) => {
-    expect(await parseFixture("invalid", file)).toBe(false);
+    const parsed = await parseFixture("invalid", file);
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    const issue = parsed.error.issues[0];
+    expect(issue?.code.length).toBeGreaterThan(0);
+    // Zod reports root-level schemas and object-level refinements at [].
+    const rootFailures = [
+      "AbsolutePath.wrong-type.json",
+      "CancelResult.positional-array.json",
+      "CapabilityId.wrong-type.json",
+      "ExecRequest.positional-array.json",
+      "ExportName.wrong-type.json",
+      "KeyFingerprint.wrong-type.json",
+      "MachineId.wrong-type.json",
+      "PtySessionName.wrong-type.json",
+      "CapacityRow.missing-selector.json",
+      "CapacityRow.wrong-type.json",
+      "CapacityRows.wrong-type.json",
+      "InputAction.unknown-action.json",
+      "InputAction.wrong-type.json",
+      "PeekAnswer.wrong-type.json",
+      "PtyCursor.wrong-type.json",
+      "PtyListRequest.wrong-type.json",
+      "PtyReadParams.missing-name.json",
+      "WireMethod.unknown-method.json",
+    ];
+    const rootFailure = rootFailures.includes(file);
+    expect(issue?.path.length).toBeGreaterThan(rootFailure ? -1 : 0);
   });
 
   test("every schema has at least one valid and one invalid fixture", () => {
