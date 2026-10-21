@@ -96,7 +96,8 @@
       "!**/.omx",
       "!.omx",
       "!bun.lock",
-      "!**/*.lock"
+      "!**/*.lock",
+      "!packages/protocol/schema/machine"
     ]
   },
   "overrides": [

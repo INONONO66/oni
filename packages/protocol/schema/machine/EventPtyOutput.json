@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cursor": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "machineId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "type": "string"
+    },
+    "time": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "machineId",
+    "time",
+    "name",
+    "bytes",
+    "cursor"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,293 @@
+{
+  "contractVersion": 1,
+  "schemas": [
+    {
+      "file": "AbsolutePath.json",
+      "name": "AbsolutePath"
+    },
+    {
+      "file": "AttachResult.json",
+      "name": "AttachResult"
+    },
+    {
+      "file": "CancelCode.json",
+      "name": "CancelCode"
+    },
+    {
+      "file": "CancelResult.json",
+      "name": "CancelResult"
+    },
+    {
+      "file": "CapabilityId.json",
+      "name": "CapabilityId"
+    },
+    {
+      "file": "CapacityRow.json",
+      "name": "CapacityRow"
+    },
+    {
+      "file": "CapacityRows.json",
+      "name": "CapacityRows"
+    },
+    {
+      "file": "CellOutput.json",
+      "name": "CellOutput"
+    },
+    {
+      "file": "CellRequest.json",
+      "name": "CellRequest"
+    },
+    {
+      "file": "CellResult.json",
+      "name": "CellResult"
+    },
+    {
+      "file": "CellState.json",
+      "name": "CellState"
+    },
+    {
+      "file": "CompletionRequest.json",
+      "name": "CompletionRequest"
+    },
+    {
+      "file": "Enrollment.json",
+      "name": "Enrollment"
+    },
+    {
+      "file": "EventAttached.json",
+      "name": "EventAttached"
+    },
+    {
+      "file": "EventDetached.json",
+      "name": "EventDetached"
+    },
+    {
+      "file": "EventEnrolled.json",
+      "name": "EventEnrolled"
+    },
+    {
+      "file": "EventLeaseRefused.json",
+      "name": "EventLeaseRefused"
+    },
+    {
+      "file": "EventPtyOutput.json",
+      "name": "EventPtyOutput"
+    },
+    {
+      "file": "EventReported.json",
+      "name": "EventReported"
+    },
+    {
+      "file": "EventUnenrolled.json",
+      "name": "EventUnenrolled"
+    },
+    {
+      "file": "ExecRequest.json",
+      "name": "ExecRequest"
+    },
+    {
+      "file": "ExecResult.json",
+      "name": "ExecResult"
+    },
+    {
+      "file": "ExportName.json",
+      "name": "ExportName"
+    },
+    {
+      "file": "FsRequest.json",
+      "name": "FsRequest"
+    },
+    {
+      "file": "FsResult.json",
+      "name": "FsResult"
+    },
+    {
+      "file": "FsStreamRequest.json",
+      "name": "FsStreamRequest"
+    },
+    {
+      "file": "FsStreamResult.json",
+      "name": "FsStreamResult"
+    },
+    {
+      "file": "Info.json",
+      "name": "Info"
+    },
+    {
+      "file": "InputAction.json",
+      "name": "InputAction"
+    },
+    {
+      "file": "InputWriteRequest.json",
+      "name": "InputWriteRequest"
+    },
+    {
+      "file": "InputWriteResult.json",
+      "name": "InputWriteResult"
+    },
+    {
+      "file": "KeyFingerprint.json",
+      "name": "KeyFingerprint"
+    },
+    {
+      "file": "LeaseRefusal.json",
+      "name": "LeaseRefusal"
+    },
+    {
+      "file": "Load.json",
+      "name": "Load"
+    },
+    {
+      "file": "MachineId.json",
+      "name": "MachineId"
+    },
+    {
+      "file": "Offer.json",
+      "name": "Offer"
+    },
+    {
+      "file": "PeekAnswer.json",
+      "name": "PeekAnswer"
+    },
+    {
+      "file": "PeekCode.json",
+      "name": "PeekCode"
+    },
+    {
+      "file": "PeekRefused.json",
+      "name": "PeekRefused"
+    },
+    {
+      "file": "PeekResult.json",
+      "name": "PeekResult"
+    },
+    {
+      "file": "PlacementOutcome.json",
+      "name": "PlacementOutcome"
+    },
+    {
+      "file": "PlacementRequest.json",
+      "name": "PlacementRequest"
+    },
+    {
+      "file": "PtyCloseRequest.json",
+      "name": "PtyCloseRequest"
+    },
+    {
+      "file": "PtyCloseResult.json",
+      "name": "PtyCloseResult"
+    },
+    {
+      "file": "PtyCursor.json",
+      "name": "PtyCursor"
+    },
+    {
+      "file": "PtyListRequest.json",
+      "name": "PtyListRequest"
+    },
+    {
+      "file": "PtyListResult.json",
+      "name": "PtyListResult"
+    },
+    {
+      "file": "PtyOpenRequest.json",
+      "name": "PtyOpenRequest"
+    },
+    {
+      "file": "PtyOpenResult.json",
+      "name": "PtyOpenResult"
+    },
+    {
+      "file": "PtyOutput.json",
+      "name": "PtyOutput"
+    },
+    {
+      "file": "PtyReadParams.json",
+      "name": "PtyReadParams"
+    },
+    {
+      "file": "PtyReadRequest.json",
+      "name": "PtyReadRequest"
+    },
+    {
+      "file": "PtyReadResult.json",
+      "name": "PtyReadResult"
+    },
+    {
+      "file": "PtyReadScreenRequest.json",
+      "name": "PtyReadScreenRequest"
+    },
+    {
+      "file": "PtyResizeRequest.json",
+      "name": "PtyResizeRequest"
+    },
+    {
+      "file": "PtyResizeResult.json",
+      "name": "PtyResizeResult"
+    },
+    {
+      "file": "PtyScreenResult.json",
+      "name": "PtyScreenResult"
+    },
+    {
+      "file": "PtySessionInfo.json",
+      "name": "PtySessionInfo"
+    },
+    {
+      "file": "PtySessionName.json",
+      "name": "PtySessionName"
+    },
+    {
+      "file": "PtyWriteRequest.json",
+      "name": "PtyWriteRequest"
+    },
+    {
+      "file": "PtyWriteResult.json",
+      "name": "PtyWriteResult"
+    },
+    {
+      "file": "Report.json",
+      "name": "Report"
+    },
+    {
+      "file": "ReportResult.json",
+      "name": "ReportResult"
+    },
+    {
+      "file": "Request.json",
+      "name": "Request"
+    },
+    {
+      "file": "Resources.json",
+      "name": "Resources"
+    },
+    {
+      "file": "Response.json",
+      "name": "Response"
+    },
+    {
+      "file": "ScreenReadRequest.json",
+      "name": "ScreenReadRequest"
+    },
+    {
+      "file": "ScreenReadResult.json",
+      "name": "ScreenReadResult"
+    },
+    {
+      "file": "ScreenRegion.json",
+      "name": "ScreenRegion"
+    },
+    {
+      "file": "ToolCall.json",
+      "name": "ToolCall"
+    },
+    {
+      "file": "ToolCallResult.json",
+      "name": "ToolCallResult"
+    },
+    {
+      "file": "WireMethod.json",
+      "name": "WireMethod"
+    }
+  ]
+}

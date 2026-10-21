@@ -1,0 +1,8 @@
+{
+  "op": "write",
+  "transferId": "t1",
+  "seq": 0,
+  "data": "aGk=",
+  "last": true,
+  "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

@@ -1,0 +1,17 @@
+{
+  "captureId": "cap-1",
+  "actions": [
+    {
+      "click": {
+        "x": 1,
+        "y": 2,
+        "button": "left"
+      }
+    },
+    {
+      "type": {
+        "text": "hi"
+      }
+    }
+  ]
+}

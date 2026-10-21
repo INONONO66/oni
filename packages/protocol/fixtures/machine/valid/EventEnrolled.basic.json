@@ -1,0 +1,11 @@
+{
+  "machineId": "mac-0",
+  "time": 1,
+  "enrollment": {
+    "machineId": "mac-0",
+    "name": "brain-mac",
+    "allowedCapabilities": ["fs.read"],
+    "publicKey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "enrolledAt": 1
+  }
+}

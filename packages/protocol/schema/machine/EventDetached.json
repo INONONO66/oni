@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "machineId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "connection_closed",
+        "superseded_by_reattach",
+        "host_closed",
+        "enrollment_removed",
+        "enrollment_replaced"
+      ],
+      "type": "string"
+    },
+    "time": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "machineId",
+    "time",
+    "reason"
+  ],
+  "type": "object"
+}

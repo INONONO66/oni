@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "effectiveCapabilities": {
+          "items": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effectiveExports": {
+          "items": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "const": "attached",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "effectiveCapabilities",
+        "effectiveExports"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "machine_not_enrolled",
+            "machine_mismatch",
+            "peer_key_mismatch",
+            "disconnected",
+            "already_attached"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

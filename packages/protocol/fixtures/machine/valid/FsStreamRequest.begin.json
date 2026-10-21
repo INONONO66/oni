@@ -1,0 +1,9 @@
+{
+  "op": "begin",
+  "transferId": "t1",
+  "mode": "read",
+  "export": "notes",
+  "path": "a.bin",
+  "offset": 0,
+  "limit": 1024
+}

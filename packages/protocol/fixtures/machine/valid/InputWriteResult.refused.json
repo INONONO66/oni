@@ -1,0 +1,5 @@
+{
+  "status": "refused",
+  "reason": "stale_capture",
+  "message": "capture cap-0 is not the latest"
+}

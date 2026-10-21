@@ -1,0 +1,9 @@
+{
+  "prompt": "Classify.",
+  "model": "small",
+  "system": "Answer in JSON.",
+  "schema": {
+    "type": "object",
+    "required": ["label"]
+  }
+}

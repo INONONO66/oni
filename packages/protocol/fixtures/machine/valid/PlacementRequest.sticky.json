@@ -1,0 +1,7 @@
+{
+  "tag": "gpu",
+  "requires": ["fs.read"],
+  "prefer": {
+    "sticky": "session-1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "machineId": "mac-0",
+  "offeredCapabilities": ["fs.read", "pty.session"],
+  "resources": {
+    "cpus": 4,
+    "memoryBytes": 8589934592
+  },
+  "exports": [
+    {
+      "name": "notes",
+      "path": "/home/owner/notes"
+    }
+  ],
+  "daemonVersion": "0.1.0",
+  "platform": "darwin-arm64",
+  "offeredAt": 1
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "load": {
+      "additionalProperties": false,
+      "properties": {
+        "inFlight": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "loadAvg1": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "memoryAvailableBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "loadAvg1",
+        "memoryAvailableBytes",
+        "inFlight"
+      ],
+      "type": "object"
+    },
+    "machineId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reportedAt": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "machineId",
+    "reportedAt",
+    "load"
+  ],
+  "type": "object"
+}

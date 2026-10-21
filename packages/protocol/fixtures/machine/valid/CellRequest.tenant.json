@@ -1,0 +1,6 @@
+{
+  "cellId": "c1",
+  "code": "1 + 1",
+  "timeoutMs": 1000,
+  "tenant": "session-1"
+}

@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "value": {
+    "op": "stat",
+    "kind": "symlink",
+    "size": 0,
+    "mtimeMs": 1.5
+  }
+}

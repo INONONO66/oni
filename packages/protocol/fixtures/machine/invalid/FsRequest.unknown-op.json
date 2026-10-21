@@ -1,0 +1,5 @@
+{
+  "op": "delete",
+  "export": "notes",
+  "path": "a.txt"
+}

@@ -1,0 +1,6 @@
+{
+  "type": "machine_list_refused",
+  "requestId": "r1",
+  "reason": "unavailable",
+  "detail": "host is starting"
+}
