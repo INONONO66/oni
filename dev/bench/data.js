@@ -1,8 +1,8 @@
 window.BENCHMARK_DATA = {
   "lastUpdate": 1791491012274,
-  "repoUrl": "https://github.com/INONONO66/openomni",
+  "repoUrl": "https://github.com/INONONO66/oni",
   "entries": {
-    "OpenOmni Benchmarks": [
+    "Oni Benchmarks": [
       {
         "commit": {
           "author": {
