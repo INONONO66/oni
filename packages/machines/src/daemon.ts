@@ -5,7 +5,7 @@ import { isContained, normalizeExportRoot } from "./contained";
 import { type IpcClient, connectIpcClient, connectIpcTcpClient } from "./ipc";
 import { makeDispatcher } from "./ipc/callbacks";
 import { typedCall } from "./typed-call";
-import { type Ipc, Machine } from "@openomni/protocol";
+import { type Ipc, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Scope } from "effect";
 import type { z } from "zod";
 import { MachinesFailure, MachineRefusalError, TransportFailure, type MachineError } from "./errors";

@@ -6,7 +6,7 @@ import {
   Message,
   PlainValueSchema,
   SessionTurn,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { z } from "zod";
 import { Effect } from "effect";
 import { runAgent } from "./executor";

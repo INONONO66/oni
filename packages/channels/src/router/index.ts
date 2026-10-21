@@ -1,6 +1,6 @@
 import { Effect, Semaphore } from "effect";
 import { ChannelsFailure, DeliveryNotSent } from "../errors";
-import { Channel, Gateway, Outbound } from "@openomni/protocol";
+import { Channel, Gateway, Outbound } from "@oni/protocol";
 import { advanceAutomationGroups } from "./automation/groups.js";
 import { ingressInput } from "./automation/input.js";
 import { inboundIdOf } from "./inbound-id.js";

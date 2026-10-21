@@ -10,7 +10,7 @@ import type { SessionKernel } from "../../src/core/session/entity";
 import type { ExecutionLedger } from "../../src/core/loop/executor";
 import { commitSessionRequest } from "../../src/core/session/request";
 import { commitFoldBatch } from "../../src/core/journal/compaction";
-import type { LedgerAction, LedgerSession, SessionTransition } from "@openomni/protocol";
+import type { LedgerAction, LedgerSession, SessionTransition } from "@oni/protocol";
 import { collector } from "./observation-collector";
 import { fixtureCompactionPort } from "./fixture-compaction";
 export { bounded } from "./bounded";

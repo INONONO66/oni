@@ -1,4 +1,4 @@
-import { MachinesFailure } from "@openomni/machines";
+import { MachinesFailure } from "@oni/machines";
 import { CodemodeError, DriverFailure, type CodeError } from "./errors";
 
 /** Dispatches a caught value to its typed error; anything untyped becomes `MachinesFailure`. */

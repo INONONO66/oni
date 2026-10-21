@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { ChannelsFailure } from "../src/errors";
 import { testWebSocketId, websocketCallbacks } from "./helpers/websocket-server";
 import { runEffect } from "./helpers/effect";
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 import { z } from "zod";
 import type { ChannelAuthnDecisionObserver } from "../src/authn/types";
 import type { PublishPort } from "../src/types";

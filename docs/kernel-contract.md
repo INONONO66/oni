@@ -1,6 +1,6 @@
 # Kernel Contract
 
-This document carries the normative contract detail behind [Core Model](core-model.md): the guarantee split, authority evaluation, durable session contract, and Governor operating rules. It absorbs ADR-009 through ADR-013, which are retired; git history preserves the originals. Like all design docs, it describes targets — implementation truth lives in [Implementation Status](implementation-status.md). It does not sequence delivery or report live issue state; [epic #930](https://github.com/INONONO66/openomni/issues/930) is authoritative for that.
+This document carries the normative contract detail behind [Core Model](core-model.md): the guarantee split, authority evaluation, durable session contract, and Governor operating rules. It absorbs ADR-009 through ADR-013, which are retired; git history preserves the originals. Like all design docs, it describes targets — implementation truth lives in [Implementation Status](implementation-status.md). It does not sequence delivery or report live issue state; [epic #930](https://github.com/INONONO66/oni/issues/930) is authoritative for that.
 
 Deletion reconciliation: verified against merged `c4fb7748` on 2026-09-06; policy/ledger rows (`Policy.EffectiveDecision`, ledger-core stream tables) re-verified on `kernel/s1-authority-cut-2` (G002), 2026-09-18 — other normative targets were not re-verified there. The retired task-ticket/completion, built-in memory, blob-store, and dialogue-store contracts are withdrawn, not future kernel obligations. Historical text remains in git history; [SLOP receipts](SLOP.md) distinguish deletion evidence from pending campaign gates. Surviving target sections below do not predeclare unmerged I04-I08/I05 behavior.
 
@@ -9,7 +9,7 @@ Deletion reconciliation: verified against merged `c4fb7748` on 2026-09-06; polic
 Every behavioral claim in this project is classified as exactly one of:
 
 - **Kernel (structural guarantee)** — enforced by code; cannot be bypassed by any prompt. Violations are impossible, not discouraged.
-- **Userland (convention)** — guided by prompts, skills, and actor profiles. May be violated; violations are observable in the ledger and become Governor evidence. Prompts and skills are data files, not code: role presets ship as markdown under `apps/openomni/prompts/roles/`, and the Owner's skills and prompt templates are read from configured directories at boot.
+- **Userland (convention)** — guided by prompts, skills, and actor profiles. May be violated; violations are observable in the ledger and become Governor evidence. Prompts and skills are data files, not code: role presets ship as markdown under `apps/oni/prompts/roles/`, and the Owner's skills and prompt templates are read from configured directories at boot.
 
 These are target guarantees. [Implementation Status](implementation-status.md) alone records which mechanisms are currently wired.
 
@@ -22,7 +22,7 @@ What separates a plain tool from dispatch is the **radius of the effect**:
 - **Tool = sandbox-local effect.** Confined to the executor's own workspace and run (read/grep in its worktree, run its own tests). Guarded by fail-closed tool permission; legitimately invisible to the rest of the system, because nothing outside the sandbox can be affected.
 - **Dispatch = boundary-crossing effect.** Anything touching shared state or other actors: other sessions, humans, schedules, devices, the physical world. Must pass the gate (authorize → route → audit). A living-room light is shared world state; a file in your own worktree is not.
 
-Consequently, mutating custom tools require boundary authorization; read-only tools (search, lookups) may remain directly attached. The dormant runtime integration client was deleted, so this target is not a claim of a shipped integration host. A device driver, like a channel adapter, is registered in `apps/openomni` behind a protocol port; core packages stay unchanged.
+Consequently, mutating custom tools require boundary authorization; read-only tools (search, lookups) may remain directly attached. The dormant runtime integration client was deleted, so this target is not a claim of a shipped integration host. A device driver, like a channel adapter, is registered in `apps/oni` behind a protocol port; core packages stay unchanged.
 
 Subagent vs Worker are different species, not tiers of one thing:
 
@@ -72,10 +72,10 @@ authority explicit. A bundle has exactly four extension points:
 
 | Extension point | Contract | Source |
 | --- | --- | --- |
-| Tool catalog and system configuration | Every tool is bundle-owned: a generation's `ToolCatalog` is exactly the composed bundles' tools, so `provision{bundle_disable}` drops a tool from the next generation and a second bundle declaring the same name is the typed `duplicate` compose refusal. Recorded `session.configure` operations `tools.add`, `tools.remove` and `system.blocks.set` select the next generation, never replace an in-flight catalog. | `packages/agent/src/core/ports/ports.ts`, `packages/agent/src/core/session/run.ts`, `apps/openomni/src/manifest.ts` |
+| Tool catalog and system configuration | Every tool is bundle-owned: a generation's `ToolCatalog` is exactly the composed bundles' tools, so `provision{bundle_disable}` drops a tool from the next generation and a second bundle declaring the same name is the typed `duplicate` compose refusal. Recorded `session.configure` operations `tools.add`, `tools.remove` and `system.blocks.set` select the next generation, never replace an in-flight catalog. | `packages/agent/src/core/ports/ports.ts`, `packages/agent/src/core/session/run.ts`, `apps/oni/src/manifest.ts` |
 | Policy rows | Data-only pre/post verdicts are `allow`, `deny`, `require_approval`, `transform` or `obligation`. Named implementations come from the captured bundle Layer, not a callback-registration API. | `packages/agent/src/core/gate/compile.ts`, `packages/agent/src/core/bundle.ts` |
-| Observation subscriptions | `ObservationSink.subscribe` observes committed execution; it never decides admission or writes durable truth. Subscriptions belong to their Scope. | `packages/agent/src/core/observation/bus.ts`, `apps/openomni/src/composition/generation-layers.ts` |
-| Entity mailbox messages | A bundle addresses a session through `send_message` / gateway ingestion and entity-owned mailbox admission at a step boundary, not an injected executor or direct ledger writer. | `apps/openomni/src/bundles/messaging/send-message/index.ts`, `apps/openomni/src/gateway.ts`, `packages/agent/src/core/session/entity.ts` |
+| Observation subscriptions | `ObservationSink.subscribe` observes committed execution; it never decides admission or writes durable truth. Subscriptions belong to their Scope. | `packages/agent/src/core/observation/bus.ts`, `apps/oni/src/composition/generation-layers.ts` |
+| Entity mailbox messages | A bundle addresses a session through `send_message` / gateway ingestion and entity-owned mailbox admission at a step boundary, not an injected executor or direct ledger writer. | `apps/oni/src/bundles/messaging/send-message/index.ts`, `apps/oni/src/gateway.ts`, `packages/agent/src/core/session/entity.ts` |
 
 Anything else requires a kernel change. No arbitrary code-callback registration,
 middleware registry, custom action writer, or raw ledger/control service is a
@@ -89,19 +89,19 @@ service APIs are not the floor. The executor consumes `Clock`, `Entropy`,
 (`packages/agent/src/core/loop/executor.ts`, `packages/agent/src/core/loop/tool.ts`).
 LLM work consumes `Llm` (`packages/agent/src/core/loop/turn.ts`); app
 write consumers receive ledger handles explicitly from the composition plane
-(`apps/openomni/src/composition/cluster-runtime.ts`).
+(`apps/oni/src/composition/cluster-runtime.ts`).
 
 Resource-owning Layers use scoped acquisition and release: the generation
 observation bus is an `Effect.acquireRelease`-scoped PubSub built inside its
 generation Layer (#1249), as are bundle-owned subscriptions/files. The composition root's `createAppLedger`
-(`apps/openomni/src/composition/cluster-runtime.ts`) owns the real storage
+(`apps/oni/src/composition/cluster-runtime.ts`) owns the real storage
 open/close. Pure Clock/Entropy values, immutable session
 snapshots and definition-only catalogs may use `Layer.succeed`; a synthetic
 no-op finalizer is not resource ownership.
 
 `AppLive` is one final `Layer.mergeAll` over already-wired package Layers,
 `AppScope`, bundle definitions and generation management
-(`apps/openomni/src/runtime.ts`). Dependency provision, not merge argument
+(`apps/oni/src/runtime.ts`). Dependency provision, not merge argument
 order, determines resource lifetime. L0-L2 infrastructure is process-owned;
 L4 bundle resources, tools, system and policy snapshots are generation-owned;
 LLM/tool execution fibers are turn/action-owned. Protocol remains Effect-free:
@@ -122,15 +122,15 @@ earlier acquired outputs actually provide later Layers, rather than merely
 passing metadata checks beside sibling `mergeAll` inputs. An observer may have
 `provides: []` and use a scoped discard Layer.
 
-- Namespace: `[a-z][a-z0-9-]*`; tool: `<ns>__<tool>`; event: `<ns>.<kind>` with a positive version; provided Tag: `@openomni/bundle/<ns>/<Service>`; policy reference: `<ns>/<verb>`.
+- Namespace: `[a-z][a-z0-9-]*`; tool: `<ns>__<tool>`; event: `<ns>.<kind>` with a positive version; provided Tag: `@oni/bundle/<ns>/<Service>`; policy reference: `<ns>/<verb>`.
 - The acquisition seed is exactly Clock, Entropy, generation-local ObservationSink and immutable ToolCatalog. SessionLayer is assembled after policy contributions, not required during their acquisition.
-- `bundlePolicyTag(ns)` supplies the reserved `@openomni/bundle/<ns>/Policy` service containing immutable `transformers` and `obligations`. Pure transformer `apply(args, config)` implementations are named; rows store `ref` and optional JSON config (default `null`), never closures. There is no `registerTransformer(callback)`.
+- `bundlePolicyTag(ns)` supplies the reserved `@oni/bundle/<ns>/Policy` service containing immutable `transformers` and `obligations`. Pure transformer `apply(args, config)` implementations are named; rows store `ref` and optional JSON config (default `null`), never closures. There is no `registerTransformer(callback)`.
 - Missing transformer/obligation references fail compilation before execution. Decisions retain ordered `{ruleId, ref}` transforms and singular `ref` only for one transform. A pre-transform preserves `originalArgs` beside committed transformed arguments; dispatch validates and executes those admitted arguments. Approval retains original-input identity and recovery does not reapply a current transformer (`packages/agent/src/core/loop/executor.ts`, `packages/agent/src/core/loop/tool.ts`).
 - Bundle modules may not import sibling bundle implementation modules; `script/check-deps.ts` guards that band. W0.5 adds no concrete production bundle.
 
 **Generation LayerMap.** `SessionGeneration.Id` is `{sessionId, generation}`
 (`packages/protocol/src/ledger/l0.ts`). The app's
-`apps/openomni/src/composition/generation-layers.ts` owns a session-keyed map of
+`apps/oni/src/composition/generation-layers.ts` owns a session-keyed map of
 retained managers; `makeSessionGenerations` in
 `packages/agent/src/core/session/run.ts` owns each manager's numeric entries,
 acquired contexts, capture/configure, retirement and close (the
@@ -147,8 +147,8 @@ sessions record installed names, and existing configure operations preserve
 them. Bundle rows enter the existing durable policy generation before capture,
 not an unrecorded compiler overlay. Installing definitions affects new sessions;
 tools still require recorded catalog selection. W0.5 adds no membership setter
-or unmount operation (`apps/openomni/src/index.ts`,
-`apps/openomni/src/bundles/core-policy/index.ts`, `createSessionConfiguration` in `packages/agent/src/core/session/run.ts`).
+or unmount operation (`apps/oni/src/index.ts`,
+`apps/oni/src/bundles/core-policy/index.ts`, `createSessionConfiguration` in `packages/agent/src/core/session/run.ts`).
 
 Capture pins one context, policy, catalog, named registry and local observation
 bus. Same-session acquisition/configure is serialized; the same Id cannot
@@ -317,7 +317,7 @@ Every native `prompt`, `turn`, `llm`, and `tool` operation crosses the session-p
 
 Who owns the action record differs by kind. `llm` and `tool` operations are executor-owned: the executor commits an intent before invoking the body and exactly one linked terminal result (`executed`, `blocked_post`, or typed `failed`); a retried model call adds a child `attempt` intent/result pair per attempt. `prompt` and `turn` are decided over records the session machine already owns, the durable mailbox action and the turn envelope, so the executor adds policy decisions and a verdict, never a duplicate intent or result. A pre denial never invokes the body, and for the executor-owned kinds it commits no intent. Post denial records `reverted` when a reverter exists and `irreversible` otherwise. Tool lifecycle observations are projections emitted only after the corresponding intent/result commit; observations are never authority or truth.
 
-Policy authority is the immutable compiled row snapshot pinned by the durable session generation. There is no caller-owned callback policy engine. The target forbids arbitrary callback registration; retained configure-authority and approval-binding seams are explicitly tracked by [SLOP B6](SLOP.md#w05-consumed-layer-floor-1184), not declared deleted here. The OpenOmni boot composition seeds the kernel's mandatory policy rows into durable storage before sessions are materialized; a generation without the mandatory row compiles to a fail-closed snapshot and refuses the turn.
+Policy authority is the immutable compiled row snapshot pinned by the durable session generation. There is no caller-owned callback policy engine. The target forbids arbitrary callback registration; retained configure-authority and approval-binding seams are explicitly tracked by [SLOP B6](SLOP.md#w05-consumed-layer-floor-1184), not declared deleted here. The Oni boot composition seeds the kernel's mandatory policy rows into durable storage before sessions are materialized; a generation without the mandatory row compiles to a fail-closed snapshot and refuses the turn.
 
 The live policy contract is compiled-row evaluation, not general effect composition. PR #1030 removes the unconsumed `composeEffects` subsystem and its 29 tests without a successor. Its deny/pending/allow composition, safe-effect ceiling on deny, conflict fail-closed merging, effect deduplication and retry-ceiling merging are not active kernel capabilities. Rows retain descending-priority evaluation and stop at the first matched deny or approval requirement; captured budget-obligation limits and channel ceilings are separate, unchanged controls. `Policy.EffectiveDecision` was deleted in G002 (#930); no replacement composition surface was introduced.
 
@@ -369,7 +369,7 @@ configured provider (never another credential), `system` is system text, and
 `schema` is a JSON Schema the answer must satisfy: the host validates the
 answer and returns canonical JSON text, or refuses. Names are lowercase
 snake_case and follow the file-tool vocabulary; the file is the tool
-(`apps/openomni/src/bundles/tools/<name>/index.ts`, with `_` written `-` in the directory name
+(`apps/oni/src/bundles/tools/<name>/index.ts`, with `_` written `-` in the directory name
 because the repo-wide kebab-case file rule applies; `lint:tools` checks the
 correspondence). Every multi-operation tool takes `operation: { op, ... }`
 with one discriminator named `op`: `eval.op = run | peek | stop`,

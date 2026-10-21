@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createComputerUse } from "../src/computer-use";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
 import { run } from "./ipc/helpers/effects";

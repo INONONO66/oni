@@ -1,4 +1,4 @@
-import { PlainObjectSchema } from "@openomni/protocol";
+import { PlainObjectSchema } from "@oni/protocol";
 import { z } from "zod";
 import type { SDKToolValue } from "../message";
 import { Reported } from "../token/schema";

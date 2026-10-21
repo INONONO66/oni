@@ -11,7 +11,7 @@ import {
   SEEDED_POLICY_ROWS,
 } from "../../../src/core/gate/compile";
 import type { NamedTransformer } from "../../../src/core/gate/registry";
-import type { PolicyRow } from "@openomni/protocol";
+import type { PolicyRow } from "@oni/protocol";
 
 /** One compiled generation: seeded kernel rows plus the given prompt.pre rows. */
 function compiledWith(

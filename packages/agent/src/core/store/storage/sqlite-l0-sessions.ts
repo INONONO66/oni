@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { LedgerSession, type ObservationSink } from "@openomni/protocol";
+import { LedgerSession, type ObservationSink } from "@oni/protocol";
 import {
   CommitRefused,
   LedgerInvariant,

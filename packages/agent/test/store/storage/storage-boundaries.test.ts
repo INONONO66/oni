@@ -1,7 +1,7 @@
 import { generationSnapshot, configureAction } from "../../../src/core/store/configure";
 import { Effect, Result } from "effect";
 import { expect, test } from "bun:test";
-import type { LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { LedgerAction, LedgerSession } from "@oni/protocol";
 import { createDecisionFactPort } from "../../../src/core/store/decision";
 
 import { runLedgerSync } from "../helpers/effect";

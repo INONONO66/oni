@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LedgerAction, SessionHistory } from "@openomni/protocol";
+import { LedgerAction, SessionHistory } from "@oni/protocol";
 import { armAction, firedAction } from "../src/core/ports/alarm";
 import { foldAlarmChains, openAlarmIds } from "../src/core/session/alarm-read";
 import type { SessionKernel } from "../src/core/session/entity";

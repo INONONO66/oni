@@ -5,7 +5,7 @@ import {
   type Message,
   PlainValueSchema,
   type PlainValue,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { foldSessionHistory } from "../src/inspect/history";
 

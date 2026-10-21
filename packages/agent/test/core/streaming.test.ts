@@ -1,11 +1,11 @@
 import type { RunInput } from "../../src/core/ports/llm";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { Effect } from "effect";
 import { isolated } from "../helpers/isolated";
 import { createTestAgent } from "../helpers/g0-effect";
 import { describe, expect, it } from "bun:test";
 import type { LlmSink as Sink } from "../../src/core/ports/llm";
-import type { Tool } from "@openomni/protocol";
+import type { Tool } from "@oni/protocol";
 import { createStopOutcome, type MockLlmFn, mockLlm as portFake } from "../helpers/mock-llm";
 import { runInput } from "../helpers/run-input";
 import { Bus } from "../helpers/bus";

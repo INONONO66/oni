@@ -7,7 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation } from "@oni/protocol";
 import { Effect } from "effect";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";

@@ -6,7 +6,7 @@ import {
   LedgerSession,
   type ObservationSink,
   type Storage,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { bootstrapStoreDatabase } from "../../../src/core/store/session-file";
 import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 import { createActions } from "../../../src/core/store/session-file/actions";

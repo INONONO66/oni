@@ -1,4 +1,4 @@
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 import { ChannelsFailure } from "../errors";
 
 export function requireHandler(

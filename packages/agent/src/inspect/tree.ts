@@ -4,7 +4,7 @@
  * folds never read `session.configure` intents — unless a composition opts
  * in through the `FORK_ASIDE_REF` transformer and a matching `prompt.pre` row.
  */
-import { SessionGeneration } from "@openomni/protocol";
+import { SessionGeneration } from "@oni/protocol";
 import type { SessionKernel } from "../core/session/entity";
 
 /** Reads the fork pin off a session's genesis configure; null for a root. */

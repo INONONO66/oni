@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@openomni/machines": ["./src/index.ts"]
+      "@oni/machines": ["./src/index.ts"]
     }
   },
   "include": ["src", "test"],

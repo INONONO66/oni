@@ -10,16 +10,16 @@ import { resolveAuthFilePath } from "../src/model/loader";
  */
 describe("resolveAuthFilePath", () => {
   test("Given an override, When resolved, Then it is absolute even from a relative value", () => {
-    const path = resolveAuthFilePath({ OPENOMNI_AUTH_FILE: "relative/auth.json" });
+    const path = resolveAuthFilePath({ ONI_AUTH_FILE: "relative/auth.json" });
     expect(path).toBe(resolve("relative/auth.json"));
     expect(isAbsolute(path)).toBe(true);
   });
 
   test("Given no override, When resolved, Then the home default applies", () => {
-    expect(resolveAuthFilePath({})).toBe(join(homedir(), ".openomni", "auth.json"));
+    expect(resolveAuthFilePath({})).toBe(join(homedir(), ".oni", "auth.json"));
     // An exported-but-empty variable is not a path; the default still applies.
-    expect(resolveAuthFilePath({ OPENOMNI_AUTH_FILE: "" })).toBe(
-      join(homedir(), ".openomni", "auth.json"),
+    expect(resolveAuthFilePath({ ONI_AUTH_FILE: "" })).toBe(
+      join(homedir(), ".oni", "auth.json"),
     );
   });
 });

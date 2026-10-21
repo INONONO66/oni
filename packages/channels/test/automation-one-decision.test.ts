@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { match } from "../src/automation/matcher.js";
 
 test("an event held by a grouping window cannot also fire another trigger", () => {

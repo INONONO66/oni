@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
 
 export const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py"];

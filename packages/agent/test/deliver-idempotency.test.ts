@@ -7,7 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation } from "@oni/protocol";
 import {
   boundedAwait,
   clusterTempDir,

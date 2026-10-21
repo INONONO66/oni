@@ -22,8 +22,8 @@ describe("ModelsDev", () => {
     originalEnv = { ...process.env };
     originalFetch = globalThis.fetch;
     directory = mkdtempSync(join(tmpdir(), "models-test-"));
-    process.env.OPENOMNI_MODELS_PATH = join(directory, "models.json");
-    process.env.OPENOMNI_DISABLE_MODELS_FETCH = "1";
+    process.env.ONI_MODELS_PATH = join(directory, "models.json");
+    process.env.ONI_DISABLE_MODELS_FETCH = "1";
     network.mockClear();
     globalThis.fetch = Object.assign(network, { preconnect: originalFetch.preconnect });
     resetCatalog();
@@ -81,30 +81,30 @@ describe("ModelsDev", () => {
     expect(await runEffect(ModelsDev.get())).toEqual(expectedSnapshot);
   });
 
-  it("uses OPENOMNI_MODELS_PATH for cache location", async () => {
-    process.env.OPENOMNI_MODELS_PATH = join(directory, "custom.json");
+  it("uses ONI_MODELS_PATH for cache location", async () => {
+    process.env.ONI_MODELS_PATH = join(directory, "custom.json");
     const cached = {
       custom: { id: "custom", name: "Custom", env: [], npm: "@ai-sdk/openai", models: {} },
     };
-    await Bun.write(process.env.OPENOMNI_MODELS_PATH, JSON.stringify(cached));
+    await Bun.write(process.env.ONI_MODELS_PATH, JSON.stringify(cached));
     expect(await runEffect(ModelsDev.get())).toEqual(cached);
     expect(network).not.toHaveBeenCalled();
   });
 
-  it("skips fetch when OPENOMNI_DISABLE_MODELS_FETCH is set", async () => {
+  it("skips fetch when ONI_DISABLE_MODELS_FETCH is set", async () => {
     expect(await runEffect(ModelsDev.get())).toEqual(expectedSnapshot);
     expect(network).not.toHaveBeenCalled();
   });
 
   it("returns the snapshot when fetch and cache fail", async () => {
-    delete process.env.OPENOMNI_DISABLE_MODELS_FETCH;
+    delete process.env.ONI_DISABLE_MODELS_FETCH;
     expect(await runEffect(ModelsDev.get())).toEqual(expectedSnapshot);
     expect(network).toHaveBeenCalledTimes(1);
   });
 
   it("reports a cache that cannot be written as a typed cache_write refusal", async () => {
-    delete process.env.OPENOMNI_DISABLE_MODELS_FETCH;
-    process.env.OPENOMNI_MODELS_PATH = directory;
+    delete process.env.ONI_DISABLE_MODELS_FETCH;
+    process.env.ONI_MODELS_PATH = directory;
     const remote = {
       openai: { id: "openai", name: "OpenAI", env: [], npm: "@ai-sdk/openai", models: {} },
     };

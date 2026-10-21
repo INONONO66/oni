@@ -5,7 +5,7 @@
  * because the stored ref duplicates it, so the projected row stays under budget.
  */
 import { Buffer } from "node:buffer";
-import { canonicalDigest, canonicalJson, type PlainValue, type ToolOutputRef } from "@openomni/protocol";
+import { canonicalDigest, canonicalJson, type PlainValue, type ToolOutputRef } from "@oni/protocol";
 
 /** Applies when no `session.configure{settings.toolOutputBudgetBytes}` row pins one. */
 export const DEFAULT_TOOL_OUTPUT_BUDGET_BYTES = 32_768;

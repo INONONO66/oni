@@ -48,7 +48,7 @@ body:
         - session
         - llm
         - agent
-        - openomni
+        - oni
         - coordinator
         - server
         - infra (CI, scripts, config)

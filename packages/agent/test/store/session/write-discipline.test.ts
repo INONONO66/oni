@@ -1,6 +1,6 @@
 import { Effect, Result } from "effect";
 import { describe, expect, test } from "bun:test";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import type { LedgerError } from "../../../src/core/store/errors";
 import { runLedgerSync } from "../helpers/effect";
 import { materializeRow, residentRow } from "../helpers/ledger";

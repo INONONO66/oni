@@ -1,5 +1,5 @@
-import { Provisioning } from "@openomni/protocol";
-import type { Storage as ProtocolStorage } from "@openomni/protocol";
+import { Provisioning } from "@oni/protocol";
+import type { Storage as ProtocolStorage } from "@oni/protocol";
 
 export { Vault } from "./vault";
 

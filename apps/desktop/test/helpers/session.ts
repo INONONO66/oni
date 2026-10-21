@@ -1,5 +1,5 @@
 import type { Session } from "../../src/renderer/state/store";
-import { SessionRead } from "@openomni/protocol";
+import { SessionRead } from "@oni/protocol";
 import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../src/renderer/state/queries";
 import { bindDurableSession } from "../../src/renderer/state/session-actions";

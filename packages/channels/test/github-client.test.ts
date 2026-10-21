@@ -41,8 +41,8 @@ describe("GitHubClient", () => {
         externalMessageId: "2",
       });
       expect(posted).toEqual([
-        "answer\n\n<!-- openomni-delivery:id%3Along -->",
-        "answer\n\n<!-- openomni-delivery:id -->",
+        "answer\n\n<!-- oni-delivery:id%3Along -->",
+        "answer\n\n<!-- oni-delivery:id -->",
       ]);
       expect(pages).toEqual([1, 2, 1, 2, 1, 2]);
     } finally {
@@ -60,14 +60,14 @@ describe("GitHubClient", () => {
       published.push({ name: descriptor.name, data: schema.parse(data) });
     }, () => FIXED_NOW, testRun);
 
-    await client.postComment("openomni/project", 7, "the answer", "trace-github-test", "delivery");
+    await client.postComment("oni/project", 7, "the answer", "trace-github-test", "delivery");
 
     expect(published).toEqual([
       {
         name: "operational.warn",
         data: {
           traceId: "trace-github-test",
-          context: { repo: "openomni/project", issueNumber: 7 },
+          context: { repo: "oni/project", issueNumber: 7 },
         },
       },
     ]);

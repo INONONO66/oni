@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, Operational } from "@oni/protocol";
 import type { PublishPort } from "../../types";
 import type { SecretRefPort, WebhookCredentials, WebhookRefusal } from "./types";
 import { verifyWebhook } from "./verify";

@@ -5,7 +5,7 @@ import type {
   LedgerAction,
   Message,
   PlainValue,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { port, type PortTag } from "./capability";
 import type { SessionKernel } from "../session/entity";
 import type { AgentFailure, ContextRestoreError, ExecutionError } from "./failure";
@@ -17,7 +17,7 @@ import type { RunState } from "../loop/turn";
  * The ONE core-owned contract to the removable compaction plugin; with no service wired the kernel
  * skips compaction and records nothing — no built-in fallback.
  */
-export const CompactionPort: PortTag = port("@openomni/compaction/Compaction");
+export const CompactionPort: PortTag = port("@oni/compaction/Compaction");
 
 export interface CompactionYield {
   readonly savedTokens: number;

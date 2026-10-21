@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Outbound } from "@openomni/protocol";
+import type { Outbound } from "@oni/protocol";
 import { TelegramProvider } from "../src/provider/telegram/provider";
 import { injectedOptions } from "./helpers/injected";
 

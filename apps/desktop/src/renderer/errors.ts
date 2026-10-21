@@ -1,4 +1,4 @@
-import type { Ingress } from "@openomni/protocol";
+import type { Ingress } from "@oni/protocol";
 
 /**
  * The renderer's named failures (#1244). The desktop app is not an Effect

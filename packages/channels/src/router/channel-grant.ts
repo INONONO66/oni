@@ -1,4 +1,4 @@
-import type { Actor } from "@openomni/protocol";
+import type { Actor } from "@oni/protocol";
 import type { ChannelStores } from "./stores.js";
 
 interface ChannelGrantMatchInput {

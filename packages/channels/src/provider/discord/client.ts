@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";
 import { DiscordApiError } from "../../errors";
-import type { Gateway, PlainValue } from "@openomni/protocol";
+import type { Gateway, PlainValue } from "@oni/protocol";
 
 const BASE_URL = "https://discord.com/api/v10";
 

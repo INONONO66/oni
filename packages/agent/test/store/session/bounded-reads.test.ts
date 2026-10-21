@@ -1,7 +1,7 @@
 import { turnTerminal } from "../../../src/core/store/session-reads";
 import { beforeEach, expect, test } from "bun:test";
 import { z } from "zod";
-import { canonicalDigest, type LedgerAction, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type PlainValue } from "@oni/protocol";
 import { LedgerInvariant } from "../../../src/core/store/errors";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 import { materializeSession } from "../helpers/session";

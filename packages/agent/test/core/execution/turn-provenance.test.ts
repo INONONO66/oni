@@ -1,6 +1,6 @@
 import { isolated } from "../../helpers/isolated";
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { runTestAgent } from "../../helpers/effect-g2";
 import { Bus } from "../../helpers/bus";
 import { mockLlm, completeModel } from "../../helpers/mock-llm";

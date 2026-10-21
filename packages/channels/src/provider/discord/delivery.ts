@@ -1,4 +1,4 @@
-import type { Gateway, Outbound } from "@openomni/protocol";
+import type { Gateway, Outbound } from "@oni/protocol";
 import { DeliveryNotSent, DiscordApiError, RateLimited } from "../../errors";
 import { type DeliveryReceipt, type DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import { translate } from "../../support/translate";

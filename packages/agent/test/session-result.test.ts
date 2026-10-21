@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import type { SessionRunnerResult } from "../src/core/session/run";
 import { sessionRunnerResultFromValue, sessionRunnerResultValue } from "../src/core/journal/commit";
 

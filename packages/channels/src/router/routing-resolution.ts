@@ -6,7 +6,7 @@ import {
   resolveTarget,
   targetKey,
   type BusEvent,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { ChannelStores } from "./stores.js";
 import { claimGrantedDirect, grantedDirectSession } from "./automation/granted-direct.js";
 import { recordRouteDecided } from "./route-record";

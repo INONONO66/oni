@@ -1,7 +1,7 @@
 import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
 import { describe, expect, test } from "bun:test";
-import type { LedgerSession, SessionTransition } from "@openomni/protocol";
+import type { LedgerSession, SessionTransition } from "@oni/protocol";
 import { runLedgerSync } from "../helpers/effect";
 import { adoptWriter, materializeSession } from "../helpers/session";
 import { expectCommitted, requestFixture, requestStateAction } from "../helpers/request";

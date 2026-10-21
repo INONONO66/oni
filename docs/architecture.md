@@ -1,6 +1,6 @@
 # Architecture - Core Packages and One App
 
-This document maps [Core Model](core-model.md) onto the post-#792 codebase. [Implementation Status](implementation-status.md) is authoritative for what is wired; [#930](https://github.com/INONONO66/openomni/issues/930) owns kernel delivery ordering.
+This document maps [Core Model](core-model.md) onto the post-#792 codebase. [Implementation Status](implementation-status.md) is authoritative for what is wired; [#930](https://github.com/INONONO66/oni/issues/930) owns kernel delivery ordering.
 
 ## Communication
 
@@ -18,33 +18,33 @@ The `alarm` journal kind has one core writer (`packages/agent/src/core/ports/ala
 
 ## Policy
 
-The policy gate inside `packages/agent` (`src/core/gate/`) is the generic actor-agnostic engine, and the agent dispatches the loop points it consumes. `packages/channels` owns perimeter policy. `apps/openomni` owns product composition and may select registrations without moving product semantics into the engine.
+The policy gate inside `packages/agent` (`src/core/gate/`) is the generic actor-agnostic engine, and the agent dispatches the loop points it consumes. `packages/channels` owns perimeter policy. `apps/oni` owns product composition and may select registrations without moving product semantics into the engine.
 
 The old product-specific dispatch registrations and completion service were removed with their only implementation. Their protocol points remain contracts, not proof of a live consumer.
 
 ## Package Rings
 
 ```text
-ring 0  @openomni/protocol        schemas and pure folds
-ring 1  @openomni/agent           generic durable-session mechanics and the stateless
+ring 0  @oni/protocol        schemas and pure folds
+ring 1  @oni/agent           generic durable-session mechanics and the stateless
                                   LLM loop, with the durable stores (src/core/store/),
                                   the pure policy gate (src/core/gate/), and model
                                   access (src/model/) folded in (#1246, one core/ since
                                   #1276)
 
 lateral driver/gateway band:
-        @openomni/machines        raw machine WHERE endpoints and the thin transport
+        @oni/machines        raw machine WHERE endpoints and the thin transport
                                   (src/ipc/)
-        @openomni/codemode        the code facade with its injected interpreter
+        @oni/codemode        the code facade with its injected interpreter
                                   runner, over protocol and the machines port (#1272)
-        @openomni/channels        platform drivers, perimeter router, and the
+        @oni/channels        platform drivers, perimeter router, and the
                                   channel-facing stores (src/store/)
 
 presentation:
-        @openomni/ui              data-blind design system
+        @oni/ui              data-blind design system
 
 composition:
-        apps/openomni             the only product app and deployable host
+        apps/oni             the only product app and deployable host
         apps/desktop              desktop shell over protocol + ui
 ```
 
@@ -52,17 +52,17 @@ Each package depends only on the allowlist in `script/check-deps.ts`. The app co
 
 ## Execution Targets and Driver Band
 
-A machine is WHERE execution happens, never WHO is delegated to. `packages/machines` exposes list/get and raw fs/exec/runCode handles over protocol/IPC contracts. `packages/codemode` consumes only the structural machines port and protocol, owning machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the brain facade does not spawn Python. Authorization occurs at kernel `tool.pre` and daemon offered/negotiated capability and export enforcement, not in an app VFS. The retained `run_code` adapter calls `cell.run` once. `openomni machine attach` supplies the production daemon composition.
+A machine is WHERE execution happens, never WHO is delegated to. `packages/machines` exposes list/get and raw fs/exec/runCode handles over protocol/IPC contracts. `packages/codemode` consumes only the structural machines port and protocol, owning machine object handles and per-tenant interpreters. The composition root injects the returned runner into a machine daemon; the brain facade does not spawn Python. Authorization occurs at kernel `tool.pre` and daemon offered/negotiated capability and export enforcement, not in an app VFS. The retained `run_code` adapter calls `cell.run` once. `oni machine attach` supplies the production daemon composition.
 
 Messages address WHO: an existing session, a new parent-linked child session, or a registered external actor. Native and process are session runner choices, not parallel message lifecycles. A send returns a handle; there is no synchronous child-join tool.
 
-The removed local worker manager is not part of the final topology. Process session execution enters `apps/openomni/src/process-entry.ts`. Native Resident and child-session execution is assembled once behind `@openomni/agent` session handles; app adapters provide role-specific tools, system text, and runner configuration.
+The removed local worker manager is not part of the final topology. Process session execution enters `apps/oni/src/process-entry.ts`. Native Resident and child-session execution is assembled once behind `@oni/agent` session handles; app adapters provide role-specific tools, system text, and runner configuration.
 
 Band rules:
 
 1. `machines` depends only on protocol and IPC; `codemode` depends on protocol and the machines port, never the reverse.
 2. `channels` driver code depends only on protocol; its judgment sub-band may additionally consume policy and perimeter store surfaces.
-3. Registration happens in `apps/openomni`.
+3. Registration happens in `apps/oni`.
 4. Drivers expose effects behind interfaces and never decide product admission.
 
 ## Perimeter Gateway
@@ -76,7 +76,7 @@ Band rules:
 - record-before-delivery route decisions;
 - outbound grants and social-budget enforcement.
 
-`apps/openomni` owns:
+`apps/oni` owns:
 
 - Resident and child-session configuration;
 - message policy rows, authenticated session projections and runner selection;
@@ -97,12 +97,12 @@ The repository previously split product behavior across a reusable-looking produ
 
 Historical design decisions still explain the surviving extractions:
 
-- Policy evaluation was extracted, then folded into `packages/agent/src/core/gate/` (#1246); `@openomni/agent` owns the single executor that applies pre/post verdicts.
+- Policy evaluation was extracted, then folded into `packages/agent/src/core/gate/` (#1246); `@oni/agent` owns the single executor that applies pre/post verdicts.
 - The bus became volatile observation in `packages/agent` (`src/core/observation/bus.ts`); reverse persistence was removed. L0 observation sink contracts live in protocol.
 - IPC became a standalone transport, now `packages/machines/src/ipc/`.
 - Channel drivers and perimeter judgment consolidated in `packages/channels`.
 - Machine execution became the lateral `packages/machines` band.
-- Product composition converged in `apps/openomni`.
+- Product composition converged in `apps/oni`.
 
 Projection/export #766, old dispatch/evidence/effect services, local worker supervision, connector host plumbing, and the old distribution CLI were not ported without a live consumer. They may be re-filed only when the final app earns that behavior.
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LlmCall, Operational, type BusEvent, type Message, type Tool } from "@openomni/protocol";
+import { LlmCall, Operational, type BusEvent, type Message, type Tool } from "@oni/protocol";
 import { z } from "zod";
 import type { Sink } from "../../src/sink";
 import { apiError } from "../helpers/retry";

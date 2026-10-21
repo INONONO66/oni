@@ -10,7 +10,7 @@ import { LlmRunFailure } from "../../../src/core/ports/llm";
 import { fakeClassifyFailure, FakeProviderError } from "../../helpers/fake-llm";
 import { runChatAttempts } from "../../helpers/effect-g1";
 import { compiledPolicy } from "../../helpers/compiled-policy";
-import { LedgerAction, type PlainObject, type PlainValue, type SessionTransition } from "@openomni/protocol";
+import { LedgerAction, type PlainObject, type PlainValue, type SessionTransition } from "@oni/protocol";
 
 const usage = {
   inputTokens: 17,

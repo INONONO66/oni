@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 
 import type { LedgerError } from "../src/core/store/errors";
 import { KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
-import type { AnyToolDefinition, LedgerAction, PlainValue, ToolExecutionContext } from "@openomni/protocol";
+import type { AnyToolDefinition, LedgerAction, PlainValue, ToolExecutionContext } from "@oni/protocol";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Scope } from "effect";
 import { z } from "zod";
 import { GenerationHandlers } from "../src/core/composition/compose";

@@ -1,6 +1,6 @@
 import { setSessionTitleIfPlaceholder } from "../src/renderer/state/session-actions";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { SIDEBAR_WIDTH } from "@openomni/ui";
+import { SIDEBAR_WIDTH } from "@oni/ui";
 import {
   activeTab,
   back,

@@ -1,5 +1,5 @@
-import type { BusEvent, Message, PlainObject, Tool } from "@openomni/protocol";
-import { LlmCall, type Transcript } from "@openomni/protocol";
+import type { BusEvent, Message, PlainObject, Tool } from "@oni/protocol";
+import { LlmCall, type Transcript } from "@oni/protocol";
 import { Effect } from "effect";
 import { streamText } from "ai";
 import { LlmRunFailure, InvalidProviderData, type LlmError } from "./errors";

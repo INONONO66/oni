@@ -1,4 +1,4 @@
-import type { Channel, BusEvent, Outbound } from "@openomni/protocol";
+import type { Channel, BusEvent, Outbound } from "@oni/protocol";
 import type { Effect } from "effect";
 
 /**

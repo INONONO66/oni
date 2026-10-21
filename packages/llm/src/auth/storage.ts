@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { Effect, Schedule } from "effect";
 import { secretFingerprint } from "../fingerprint";
-import { parseJson } from "@openomni/protocol";
+import { parseJson } from "@oni/protocol";
 import { AuthInvalidFileError, AuthResolutionError, type LlmError } from "../errors";
 import { decodeLlmFailure } from "../error";
 

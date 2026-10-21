@@ -5,7 +5,7 @@
  * rung 16 measures with. Wildcard `observations` counts for every name.
  */
 import { describe, expect, it } from "bun:test";
-import { BusEvent } from "@openomni/protocol";
+import { BusEvent } from "@oni/protocol";
 import { Deferred, Effect, Exit, Scope, Stream } from "effect";
 import { z } from "zod";
 import { interestBus, publishUntilDelivered, yieldUntil, type InterestBus } from "../helpers/bus-fixture";

@@ -80,7 +80,7 @@ test("session deadline is one deadline arm inside the request commit, never a se
   const requestId = requests[0]?.requestId;
   expect(
     sessionTree("sender", ledger().sessions.actions)
-      .filter((action: import("@openomni/protocol").LedgerAction.Node) => action.kind === "alarm")
+      .filter((action: import("@oni/protocol").LedgerAction.Node) => action.kind === "alarm")
       .map((action) => ({ id: action.id, intent: action.intent.value })),
   ).toMatchObject([
     {

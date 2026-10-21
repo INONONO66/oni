@@ -21,7 +21,7 @@ const Statistics = z.array(Statistic)
   .refine(completeMetricSet, "Current benchmark metric set is incomplete, unexpected or duplicated");
 const ReferenceStatistics = z.array(Statistic).refine(referenceMetricSet, "Reference benchmark metric set is empty, unexpected or duplicated");
 const ReferenceMetrics = z.array(Metric).refine(referenceMetricSet, "Reference benchmark metric set is empty, unexpected or duplicated");
-const History = z.object({ entries: z.object({ "OpenOmni Benchmarks": z.array(z.object({
+const History = z.object({ entries: z.object({ "Oni Benchmarks": z.array(z.object({
   commit: z.object({ id: Commit }),
   tool: z.literal("customSmallerIsBetter"),
   benches: z.array(Metric),
@@ -60,7 +60,7 @@ function compareMetric(metric: z.infer<typeof Statistic>, reference: z.infer<typ
 export function compareBenchmarks(statistics: Json, history: Json, threshold = 20) {
   const percent = regressionThreshold(String(threshold));
   const current = Statistics.parse(statistics);
-  const accepted = History.parse(history).entries["OpenOmni Benchmarks"].slice(-20);
+  const accepted = History.parse(history).entries["Oni Benchmarks"].slice(-20);
   const latest = accepted[accepted.length - 1];
   if (!latest) throw new Error("Missing accepted main benchmark reference");
   ReferenceMetrics.parse(latest.benches);
@@ -87,7 +87,7 @@ async function prepareReference(args: string[]): Promise<void> {
   if (metricNames(statistics) !== expectedNames) throw new Error("Measured reference metrics do not match accepted history");
   if (measuredCommit !== referenceCommit) throw new Error("Measured reference commit does not match accepted history");
   const reference = {
-    entries: { "OpenOmni Benchmarks": [{
+    entries: { "Oni Benchmarks": [{
       commit: { id: referenceCommit }, tool: "customSmallerIsBetter",
       benches: statistics.map(({ name, unit, p50 }) => ({ name, unit, value: p50 })),
     }] },
@@ -101,7 +101,7 @@ function metricNames(metrics: readonly { readonly name: string }[]): string {
 }
 
 function acceptedReference(history: Json) {
-  const latest = History.parse(history).entries["OpenOmni Benchmarks"].at(-1);
+  const latest = History.parse(history).entries["Oni Benchmarks"].at(-1);
   if (!latest) throw new Error("Missing accepted main benchmark reference");
   ReferenceMetrics.parse(latest.benches);
   return latest;

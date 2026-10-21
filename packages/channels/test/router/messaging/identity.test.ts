@@ -2,7 +2,7 @@ import { ledger } from "../../helpers/ledger";
 import { beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { runEffect } from "../../helpers/effect";
-import { type Gateway, MessagingEvents, Outbound } from "@openomni/protocol";
+import { type Gateway, MessagingEvents, Outbound } from "@oni/protocol";
 import type { ChannelDeliveryRoute } from "../../../src/router";
 import { Bus } from "../../helpers/observation";
 import { bounded } from "../../helpers/bounded";

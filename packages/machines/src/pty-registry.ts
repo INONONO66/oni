@@ -1,4 +1,4 @@
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 
 /**
  * Per-session output streams and cursor bookkeeping (#1273). One session's

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { Message, Tool } from "@openomni/protocol";
+import type { Message, Tool } from "@oni/protocol";
 import type { Sink } from "../../src/sink";
 import { Bus } from "../helpers/observation";
 import { useProcessor, capturingSink } from "../helpers/processor";

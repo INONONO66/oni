@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
-import { Operational, Outbound } from "@openomni/protocol";
+import { Operational, Outbound } from "@oni/protocol";
 import { DiscordClient } from "../src/provider/discord/client";
 import { createDiscordProvider, DiscordProvider } from "../src/provider/discord/provider";
 import { fakeDiscordSdk } from "./helpers/discord-sdk";

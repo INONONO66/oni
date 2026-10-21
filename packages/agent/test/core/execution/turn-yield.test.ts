@@ -3,7 +3,7 @@ import { isolated } from "../../helpers/isolated";
 import { failure } from "../../helpers/effect-g3";
 import { describe, expect, it } from "bun:test";
 import type { RunInput, RunResult, LlmSink as Sink } from "../../../src/core/ports/llm";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { runTestAgent } from "../../helpers/effect-g3";
 import { collector } from "../../helpers/observation-collector";
 import { runInput } from "../../helpers/run-input";

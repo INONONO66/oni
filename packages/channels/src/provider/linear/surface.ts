@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { type Channel, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { ChannelsFailure, RateLimited } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, isNotSent } from "../../support/deliver";

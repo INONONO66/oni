@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { IdSource, Ipc } from "@openomni/protocol";
+import type { IdSource, Ipc } from "@oni/protocol";
 import { connectIpcClient as connect, connectIpcTcpClient as connectTcp, createIpcServer as listen, createIpcTcpServer as listenTcp, typedCall as nativeCall } from "../../../src";
 import type { IpcTcpConnectSpec, IpcTcpListenSpec } from "../../../src";
 import { PeerRequestTable as NativeTable } from "../../../src/ipc/peer-request-table";

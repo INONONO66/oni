@@ -1,4 +1,4 @@
-import type { Actor } from "@openomni/protocol";
+import type { Actor } from "@oni/protocol";
 import { ledger, resetLedger } from "./ledger";
 
 export function resetGrantStore(): void {

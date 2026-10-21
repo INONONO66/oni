@@ -2,7 +2,7 @@ import { expect, it } from "bun:test";
 import { scopeObservation } from "../../../src/core/observation/bus";
 import { testBus } from "../../helpers/bus";
 
-import { BusEvent } from "@openomni/protocol";
+import { BusEvent } from "@oni/protocol";
 import { z } from "zod";
 
 const Event = BusEvent.define(

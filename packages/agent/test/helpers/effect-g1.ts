@@ -4,7 +4,7 @@ import { testExecutor } from "./executor";
 import { allowConfigure, kernelRuntime, type SessionFixture as SessionRuntime, } from "./session-services";
 import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
 import { Cause, Effect, Exit } from "effect";
-import type { LedgerAction, SessionTransition } from "@openomni/protocol";
+import type { LedgerAction, SessionTransition } from "@oni/protocol";
 import type { SessionKernel } from "../../src/core/session/entity";
 import type { ExecutorOptions, ExecutionLedger } from "../../src/core/loop/executor";
 import type {} from "../../src/core/session/run";

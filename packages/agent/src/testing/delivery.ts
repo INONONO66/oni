@@ -1,4 +1,4 @@
-import type { Delivery } from "@openomni/protocol";
+import type { Delivery } from "@oni/protocol";
 import { Effect } from "effect";
 import { receivedMessageAction } from "../core/journal/delivery";
 import type { SessionKernel } from "../core/session/entity";

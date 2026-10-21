@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Outbound, type PlainValue } from "@openomni/protocol";
+import { Outbound, type PlainValue } from "@oni/protocol";
 import { injectedOptions } from "./helpers/injected";
 import type { OwnerArm, ProviderRuntime } from "../src/provider/contract";
 import { ChannelProviders } from "../src/provider/registry";

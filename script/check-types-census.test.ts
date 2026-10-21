@@ -6,7 +6,7 @@ import { buildInventory, decodeJson, inventorySchema, readContract } from "./qua
 import { census, resultSchema } from "./check-types-census";
 
 function run(files: Record<string, string>, mutate?: (root: string) => void) {
-  const root = mkdtempSync(join(tmpdir(), "openomni-census-"));
+  const root = mkdtempSync(join(tmpdir(), "oni-census-"));
   try {
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(join(root, path, ".."), { recursive: true });
@@ -534,7 +534,7 @@ test("native TypeScript projects accept JSONC without weakening strict receipt J
 // In-process census: the same fixture layout as `run`, measured directly so
 // origin attribution is exercised by this lane's own native coverage.
 function measure(files: Record<string, string>, complete = true) {
-  const root = mkdtempSync(join(tmpdir(), "openomni-census-origin-"));
+  const root = mkdtempSync(join(tmpdir(), "oni-census-origin-"));
   try {
     for (const [path, text] of Object.entries({
       "tsconfig.json": JSON.stringify({

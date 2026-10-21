@@ -5,7 +5,7 @@
  * opens its own port over its own SQLite file.
  */
 import { Effect } from "effect";
-import { canonicalDigest, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, type PlainValue } from "@oni/protocol";
 import { createSessionRequests } from "../../src/core/session/request";
 import { isolatedLedger } from "./isolated";
 import { allowConfigure, isolatedRuntime, type SessionFixture, withSessionServices } from "./session-services";

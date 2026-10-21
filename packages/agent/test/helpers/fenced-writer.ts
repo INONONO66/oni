@@ -1,6 +1,6 @@
 import type { CommitReceipt } from "../../src/core/store/services";
 import type { LedgerError } from "../../src/core/store/errors";
-import type { LedgerSession, SessionGeneration } from "@openomni/protocol";
+import type { LedgerSession, SessionGeneration } from "@oni/protocol";
 import { Effect } from "effect";
 import type { SessionKernel } from "../../src/core/session/entity";
 import { sessionTree } from "./session-tree";

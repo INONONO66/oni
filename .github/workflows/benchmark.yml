@@ -60,7 +60,7 @@ jobs:
         run: |
           bun run script/summarize-benchmark-runs.ts --validate-input
           bun run script/check-benchmark-regression.ts --validate-input
-      - run: bunx turbo run build --filter=@openomni/protocol
+      - run: bunx turbo run build --filter=@oni/protocol
 
       # Accepted history is data only. Both revisions use the head-pinned Bun,
       # but install their own frozen dependency graphs in separate worktrees.
@@ -83,7 +83,7 @@ jobs:
           (
             cd "$REFERENCE_WORKTREE"
             bun install --frozen-lockfile
-            bunx turbo run build --filter=@openomni/protocol
+            bunx turbo run build --filter=@oni/protocol
           )
 
       - name: Run repeated paired benchmarks
@@ -158,7 +158,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      - run: bunx turbo run build --filter=@openomni/protocol
+      - run: bunx turbo run build --filter=@oni/protocol
       - run: bun test ./packages/agent/test/store/bench/memory-regression.bench.ts
 
   publish:
@@ -185,7 +185,7 @@ jobs:
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
         with:
-          name: OpenOmni Benchmarks
+          name: Oni Benchmarks
           tool: customSmallerIsBetter
           output-file-path: bench-results/combined.json
           github-token: ${{ secrets.GITHUB_TOKEN }}

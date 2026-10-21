@@ -1,5 +1,5 @@
 {
-  "name": "@openomni/agent",
+  "name": "@oni/agent",
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@effect/sql-sqlite-bun": "4.0.0-rc.118",
-    "@openomni/protocol": "workspace:*",
+    "@oni/protocol": "workspace:*",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"
   },

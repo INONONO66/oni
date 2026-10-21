@@ -32,5 +32,5 @@ test("composed on, the plugin owns the action kind, input, point and seam", asyn
   expect(Object.keys(generation.kinds)).toEqual(["action"]);
   const capability = actionCapability();
   expect(capability.port).toBe(ActionPort);
-  expect(ActionPort.key).toBe("@openomni/action/Action");
+  expect(ActionPort.key).toBe("@oni/action/Action");
 });

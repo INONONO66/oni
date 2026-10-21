@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { canonicalDigest, PlainValueSchema, type Message, type LedgerAction, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, PlainValueSchema, type Message, type LedgerAction, type PlainValue } from "@oni/protocol";
 import {
   AgentFailure,
   ContextRestoreError,

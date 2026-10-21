@@ -1,5 +1,5 @@
 {
-  "name": "@openomni/codemode",
+  "name": "@oni/codemode",
   "version": "0.0.1",
   "type": "module",
   "main": "./src/index.ts",
@@ -10,8 +10,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@openomni/machines": "workspace:*",
-    "@openomni/protocol": "workspace:*",
+    "@oni/machines": "workspace:*",
+    "@oni/protocol": "workspace:*",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"
   },

@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LedgerAction, type SessionGeneration, SessionTurn } from "@openomni/protocol";
+import { type LedgerAction, type SessionGeneration, SessionTurn } from "@oni/protocol";
 import { createSessionKernel } from "../../../src/core/store/fence";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 import { actionPayloadBytes } from "../../../src/core/store/action-hash";

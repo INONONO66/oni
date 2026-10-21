@@ -2,7 +2,7 @@ import { messageSource } from "../../helpers/message-source";
 import { bounded } from "../../helpers/bounded";
 import { isolated } from "../../helpers/isolated";
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { RunEvents } from "../../../src/core/loop/turn";
 import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { runTestAgent } from "../../helpers/effect-g1";

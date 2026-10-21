@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import * as childProcess from "node:child_process";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { z } from "zod";
 import { createIpcServer } from "../src/ipc/server";

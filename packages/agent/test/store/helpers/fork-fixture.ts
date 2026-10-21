@@ -1,7 +1,7 @@
 import { configureAction } from "../../../src/core/store/configure";
 import { Effect, Result } from "effect";
 import { afterEach, beforeEach } from "bun:test";
-import type { Delivery, LedgerAction } from "@openomni/protocol";
+import type { Delivery, LedgerAction } from "@oni/protocol";
 import { runLedgerSync } from "./effect";
 import { type LedgerStores, testNow, useMemoryStores } from "./storage";
 import { adoptWriter, materializeSession } from "./session";

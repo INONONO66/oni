@@ -13,7 +13,7 @@ describe("systemCommandRunner", () => {
   });
 
   test("a missing binary fails with SpawnFailure", async () => {
-    const outcome = await runExit(systemCommandRunner().run(["/nonexistent/openomni-binary"]));
+    const outcome = await runExit(systemCommandRunner().run(["/nonexistent/oni-binary"]));
     expect(Exit.isFailure(outcome)).toBe(true);
     expect(JSON.stringify(outcome)).toContain("SpawnFailure");
   });

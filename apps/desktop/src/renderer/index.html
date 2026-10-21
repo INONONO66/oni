@@ -6,7 +6,7 @@
          admitted by scheme and nothing is admitted by host.
 
          connect-src ws: wss: - the gateway is a websocket to a loopback port or
-         to whatever OPENOMNI_WS_URL names, and `default-src 'self'` covers
+         to whatever ONI_WS_URL names, and `default-src 'self'` covers
          neither: a socket from a file:// document is cross-origin under every
          rule the browser applies. A host allowlist is impossible here because
          the endpoint is the operator's to configure.
@@ -21,7 +21,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ws: wss:"
     >
-    <title>OpenOmni Desktop</title>
+    <title>Oni Desktop</title>
   </head>
   <body>
     <div id="root"></div>

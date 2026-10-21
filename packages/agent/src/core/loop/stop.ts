@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { canonicalDigest, type LedgerAction, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type PlainValue } from "@oni/protocol";
 
 import { type ExecutionError, AgentFailure } from "../ports/failure";
 

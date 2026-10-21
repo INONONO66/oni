@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Alarm, canonicalDigest, type LedgerAction, type SessionTransition } from "@openomni/protocol";
+import { Alarm, canonicalDigest, type LedgerAction, type SessionTransition } from "@oni/protocol";
 import { armAction } from "../../src/core/ports/alarm";
 import { decideRequestTransition } from "../../src/core/session/request";
 import { openRequest } from "./open-request";

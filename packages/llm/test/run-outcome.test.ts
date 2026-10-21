@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { run, runEffect, LlmRunFailure } from "./helpers/native";
 import { fixedNow, sequentialIds } from "./helpers/fixtures";
 import { Auth } from "../src/auth";
@@ -11,7 +11,7 @@ const input = {
   messages: [],
   tools: [],
   model: { id: "model", name: "model", providerID: "provider" },
-  authFilePath: "/nonexistent/openomni-run-outcome/auth.json",
+  authFilePath: "/nonexistent/oni-run-outcome/auth.json",
   now: fixedNow,
   id: sequentialIds(),
   trace: { traceId: "trace", sessionId: "session", runId: "run" },

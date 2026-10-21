@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type Channel, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent } from "../src/errors";
 import type { OwnerPosture } from "../src/provider/contract";

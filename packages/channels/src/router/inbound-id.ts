@@ -1,4 +1,4 @@
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 
 /**
  * The one inbound-id construction: surface, workspace, channel and eventId,

@@ -20,7 +20,7 @@ export function testBudget(overrides?: AgentBudget): ResolvedAgentBudget {
 /**
  * The fixture approval policy: the shipped product values the core
  * used to hard-code (owner responder, 8 open approvals per hour, 24h expiry).
- * Production reads these from `apps/openomni/src/bundles/approval-policy`.
+ * Production reads these from `apps/oni/src/bundles/approval-policy`.
  */
 export const TEST_APPROVAL_POLICY: ApprovalPolicy = {
   responders: ["owner"],

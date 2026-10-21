@@ -1,5 +1,5 @@
 import { turnIntent } from "../store/session-reads";
-import { canonicalDigest, type SessionTransition, type Delivery, type PlainValue, type SessionGeneration, type PlainObject } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition, type Delivery, type PlainValue, type SessionGeneration, type PlainObject } from "@oni/protocol";
 import { Clock, Effect, Option } from "effect";
 import { AgentFailure, CommitFailed, type ExecutionError } from "../ports/failure";
 import { receivedMessageAction } from "../journal/delivery";

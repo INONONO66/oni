@@ -1,4 +1,4 @@
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
 
 /** Existing surface labels are migrated to records without changing their session id. */

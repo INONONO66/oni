@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Context, Deferred, Effect, Fiber } from "effect";
 import { z } from "zod";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import { Capability, defineBundle, Manifest, type BundleTool, type PortTag } from "../src/core/ports/capability";
 import { compose } from "../src/core/composition/compose";
 import { composedManifest, type ComposedManifest, type SessionRunnerInput } from "../src/core/session/run";
@@ -18,7 +18,7 @@ import { allowConfigure, isolatedRuntime, withSessionServices, type SessionFixtu
  * `session.configure{operation: "compose"}` at its NEXT turn start and only then adopts the new tables.
  */
 
-class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/rotation/A") {}
+class SeamA extends Context.Service<SeamA, object>()("@oni/agent/test/rotation/A") {}
 
 const alpha = Capability.define({ name: "alpha", requires: [], verbs: {}, port: SeamA as PortTag });
 

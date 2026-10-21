@@ -1,4 +1,4 @@
-import type { PolicyRow, Storage as ProtocolStorage } from "@openomni/protocol";
+import type { PolicyRow, Storage as ProtocolStorage } from "@oni/protocol";
 import { SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
 import { isolatedLedger } from "./isolated";
 

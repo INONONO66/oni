@@ -1,5 +1,5 @@
 import type { OpenTurn } from "../store/session-reads";
-import { SessionGeneration, type PlainValue } from "@openomni/protocol";
+import { SessionGeneration, type PlainValue } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { GenerationUnavailable } from "../ports/failure";

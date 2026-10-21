@@ -30,7 +30,7 @@ describe("channel normalizers", () => {
   it("maps Telegram replies into ingress facts", () => {
     const message = new TelegramNormalizer({
       botId: "bot-1",
-      botUsername: "openomni_bot",
+      botUsername: "oni_bot",
     }).normalize(telegramReply());
 
     expect(message?.facts.payload).not.toHaveProperty("from.username");

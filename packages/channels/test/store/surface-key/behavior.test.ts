@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Channel } from "@openomni/protocol";
+import { Channel } from "@oni/protocol";
 import { createSurfaceKeyStore } from "../../../src/store/surface-key/index.js";
 import { useMemoryChannelStore } from "../helpers/sqlite";
 
@@ -150,7 +150,7 @@ describe("SurfaceKey", () => {
     });
 
     test("existing keys without explicit kind still claim/lookup", () => {
-      const legacyKey = "tui:/Users/ino/Develop/OpenOmni";
+      const legacyKey = "tui:/Users/ino/Develop/Oni";
       surfaceKeys().claim(legacyKey, "session-tui");
       expect(surfaceKeys().lookup(legacyKey)).toBe("session-tui");
     });

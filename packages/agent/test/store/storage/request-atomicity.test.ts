@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BusEvent, L0Observation, type ObservationSink } from "@openomni/protocol";
+import { type BusEvent, L0Observation, type ObservationSink } from "@oni/protocol";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 import { openSessionStore } from "../../../src/core/store/session-file";
 import * as SessionHandleStore from "../../../src/core/store/fence";

@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { port } from "./capability";
 import { interruptOn } from "./ports";
-import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@openomni/protocol";
+import { Alarm, canonicalJson, RESERVED_ALARM_PURPOSES, type LedgerAction, type PlainObject } from "@oni/protocol";
 import type { CommitFailed } from "./failure";
 import type { AdmissionFailure, DeliverReceipt, DeliverRefused } from "../journal/messages";
 
@@ -215,7 +215,7 @@ export interface AlarmFired {
 
 /** Typed `arm` refusal (): the body's `deny{reason: alarm_budget}` is */
 export class ArmRefused extends Schema.TaggedError<ArmRefused>(
-  "@openomni/agent/core/ArmRefused",
+  "@oni/agent/core/ArmRefused",
 )("ArmRefused", {
   code: Schema.Literals([
     "alarm_budget",
@@ -243,7 +243,7 @@ export type ArmVerb = (input: {
 
 /** Typed send refusal ( H2): the composed send door reports a PERMANENT */
 export class AlarmSendRefused extends Schema.TaggedError<AlarmSendRefused>(
-  "@openomni/agent/core/AlarmSendRefused",
+  "@oni/agent/core/AlarmSendRefused",
 )("AlarmSendRefused", {
   reason: Schema.String,
 }) {}
@@ -281,7 +281,7 @@ interface AlarmQuiet {
 
 /** Typed wake failure a capability's purpose handler reports. */
 export class AlarmWakeError extends Schema.TaggedError<AlarmWakeError>(
-  "@openomni/agent/core/AlarmWakeError",
+  "@oni/agent/core/AlarmWakeError",
 )("AlarmWakeError", {
   purpose: Schema.String,
   reason: Schema.String,
@@ -391,4 +391,4 @@ export function createRetryAlarmPort(deps: RetryAlarmDeps): RetryAlarmPort {
  * The alarm capability's tag: the identity a declaration requiring
  * `"alarm"` resolves against at compose.
  */
-export const AlarmPort = port("@openomni/agent/capability/alarm");
+export const AlarmPort = port("@oni/agent/capability/alarm");

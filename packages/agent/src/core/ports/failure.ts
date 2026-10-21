@@ -2,11 +2,11 @@ import { Data, Cause, Option, Schema } from "effect";
 import type { StopVerdict } from "../loop/turn";
 import type { LedgerError } from "../store/errors";
 import { LlmRunFailure } from "./llm";
-import type { LedgerSession } from "@openomni/protocol";
+import type { LedgerSession } from "@oni/protocol";
 
 /** Each code refuses THIS delivery attempt only — the persisted envelope redelivers. */
 export class AdmissionFailure extends Schema.TaggedError<AdmissionFailure>(
-  "@openomni/agent/cluster/AdmissionFailure",
+  "@oni/agent/cluster/AdmissionFailure",
 )("AdmissionFailure", {
   code: Schema.Literals(["revision", "shutdown", "activation"]),
 }) {}

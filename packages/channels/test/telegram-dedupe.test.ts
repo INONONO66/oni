@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { FIXED_NOW, injectedOptions } from "./helpers/injected";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { TelegramAdapter } from "../src/provider/telegram/surface";
 import { Dedupe } from "../src/support/dedupe";

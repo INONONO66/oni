@@ -1,0 +1,173 @@
+import { Core } from "@oni/agent";
+import { canonicalDigest, type Ingress, type ToolExecutionContext } from "@oni/protocol";
+import { AutomationConfigurationError, AutomationEnableRefused, type createAutomationStore } from "@oni/channels";
+import { Result } from "effect";
+import { ThrownError } from "../../thrown";
+import type { AutomationOperation, AutomationResult, AutomationRefusal } from "./automation-schema";
+
+class AutomationRefused extends Core.ToolRefused {
+  constructor(readonly refusal: AutomationRefusal) {
+    super("provision", refusal.reason);
+  }
+}
+
+/** The one mapping from a channels store failure to an automation refusal reason. */
+function storeRefusal(error: Error, id: string | undefined): AutomationRefusal {
+  if (error instanceof AutomationEnableRefused)
+    return { type: "error", reason: error.reason === "not_found" ? "not_found" : "require_approval", id: error.id };
+  if (error instanceof AutomationConfigurationError && error.reason === "store_unconfigured")
+    return { type: "error", reason: "store_unconfigured", id };
+  return { type: "error", reason: "invalid_record", id };
+}
+
+/** The channels store reports failures by throwing; this is the single boundary that turns them into values. */
+function storeCall<A>(id: string | undefined, call: () => A): A | AutomationRefusal {
+  const result = Result.try({ try: call, catch: ThrownError.parse });
+  return Result.isSuccess(result) ? result.success : storeRefusal(result.failure, id);
+}
+
+export interface AutomationPort {
+  readonly store: ReturnType<typeof createAutomationStore>;
+  readonly id: () => string;
+}
+
+function ownerEnable(store: AutomationPort["store"], id: string) {
+  store.approve(id);
+  return { record: store.enable(id).record };
+}
+
+function addAutomation(
+  port: AutomationPort,
+  operation: Extract<AutomationOperation, { op: "automation_add" }>,
+  caller: "owner" | `session:${string}`,
+): AutomationResult | AutomationRefusal {
+  const record = {
+    ...operation.args.record,
+    id: operation.args.record.id ?? port.id(),
+    createdBy: caller,
+    enabled: caller === "owner" && operation.args.record.enabled,
+  };
+  // Session callers cannot replace an approved record with their own bytes.
+  const existing = port.store.get(record.id);
+  if (caller !== "owner" && existing !== undefined) {
+    if (canonicalDigest(existing.record) !== canonicalDigest(record))
+      return { type: "error", reason: "invalid_record", id: record.id };
+    return { op: operation.op, result: { type: "require_approval", id: record.id } };
+  }
+  const stored = storeCall(record.id, () => port.store.add(record, caller === "owner"));
+  if ("type" in stored) return stored;
+  return { op: operation.op, result: caller === "owner"
+    ? { record } : { type: "require_approval", id: record.id } };
+}
+
+/** Both gateway and tool callers enter here; creator and approval are never caller data. */
+export function executeAutomation(
+  port: AutomationPort | undefined,
+  operation: AutomationOperation,
+  caller: "owner" | `session:${string}`,
+): AutomationResult | AutomationRefusal {
+  if (port === undefined)
+    return { type: "error", reason: "store_unconfigured" };
+  return storeCall(operation.op === "automation_add" ? operation.args.record.id
+    : operation.op === "automation_list" ? undefined : operation.args.id,
+  () => dispatchAutomation(port, operation, caller));
+}
+
+/** Rows of the channels-owned automation ledger, read through the same failure mapping. */
+export function automationLedger(port: AutomationPort | undefined, query: Ingress.AutomationLedgerFilter) {
+  if (port === undefined) return { type: "error" as const, reason: "store_unconfigured" as const };
+  return storeCall(undefined, () => port.store.ledger(query));
+}
+
+function dispatchAutomation(
+  port: AutomationPort,
+  operation: AutomationOperation,
+  caller: "owner" | `session:${string}`,
+): AutomationResult | AutomationRefusal {
+  const { store } = port;
+  switch (operation.op) {
+    case "automation_add":
+      return addAutomation(port, operation, caller);
+    case "automation_list":
+      return { op: operation.op, result: { records: store.list().map((entry) => entry.record) } };
+    case "automation_remove":
+    case "automation_enable":
+    case "automation_disable": {
+      const { id } = operation.args;
+      if (store.get(id) === undefined)
+        return { type: "error", reason: "not_found", id };
+      if (operation.op === "automation_remove") {
+        store.remove(id);
+        return { op: operation.op, result: { id } };
+      }
+      if (operation.op === "automation_disable")
+        return { op: operation.op, result: { record: store.disable(id).record } };
+      if (caller !== "owner")
+        return { op: operation.op, result: { type: "require_approval", id } };
+      return { op: operation.op, result: ownerEnable(store, id) };
+    }
+  }
+}
+
+/** Tool failures are thrown only at the tool boundary; wire callers retain refusal values. */
+export function executeAutomationTool(
+  port: AutomationPort | undefined,
+  operation: AutomationOperation,
+  caller: "owner" | `session:${string}`,
+): AutomationResult {
+  const result = executeAutomation(port, operation, caller);
+  if ("type" in result) throw new AutomationRefused(result);
+  return result;
+}
+
+/** A session proposal's id survives approval recovery without minting another draft. */
+export function automationId(operation: AutomationOperation, context: {
+  readonly sessionId: string; readonly turnId: string | null; readonly callId: string;
+}): string {
+  switch (operation.op) {
+    case "automation_add":
+      return operation.args.record.id ?? `automation:${canonicalDigest([context.sessionId, context.turnId, context.callId])}`;
+    case "automation_list":
+      return "";
+    default:
+      return operation.args.id;
+  }
+}
+
+export function automationDomainRevisions(port: AutomationPort | undefined, id: string): Record<string, number> {
+  return { [`automation:${id}:${canonicalDigest(port?.store.get(id) ?? null)}`]: 0 };
+}
+
+/** Prepare a disabled draft once, then bind consent to its exact stored revision. */
+export function automationApproval(port: AutomationPort | undefined) {
+  return (
+    operation: Extract<AutomationOperation, { op: "automation_add" | "automation_enable" }>,
+    context: ToolExecutionContext,
+    prepare: boolean,
+  ) => {
+    const id = automationId(operation, context);
+    if (prepare)
+      executeAutomationTool(port, operation.op === "automation_add"
+        ? { ...operation, args: { record: { ...operation.args.record, id } } }
+        : operation, `session:${context.sessionId}`);
+    return { required: true, domainRevisions: automationDomainRevisions(port, id) };
+  };
+}
+
+/** Consent only spends the exact record the Owner saw, never a subsequently edited one. */
+export function executeApprovedAutomation(
+  port: AutomationPort | undefined,
+  operation: Extract<AutomationOperation, { op: "automation_add" | "automation_enable" }>,
+  context: ToolExecutionContext,
+): AutomationResult {
+  const id = automationId(operation, context);
+  const scoped = operation.op === "automation_add"
+    ? { ...operation, args: { record: { ...operation.args.record, id } } } : operation;
+  if (context.domainRevisions === undefined)
+    return executeAutomationTool(port, scoped, `session:${context.sessionId}`);
+  if (port === undefined)
+    throw new AutomationRefused({ type: "error", reason: "store_unconfigured" });
+  if (canonicalDigest({ ...context.domainRevisions }) !== canonicalDigest(automationDomainRevisions(port, id)))
+    throw new Core.ToolRefused(operation.op, "domain revision changed");
+  return { op: operation.op, result: ownerEnable(port.store, id) };
+}

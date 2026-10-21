@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SIDEBAR_WIDTH } from "@openomni/ui";
+import { SIDEBAR_WIDTH } from "@oni/ui";
 import {
   readShellPreferences,
   SIDEBAR_OPEN_KEY,

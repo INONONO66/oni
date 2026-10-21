@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmdirSync, statSync } from "node:fs";
 import net from "node:net";
-import { Ipc } from "@openomni/protocol";
+import { Ipc } from "@oni/protocol";
 import { connectIpcClient } from "./helpers/native";
 import { IpcConnectionError, IpcTimeoutError } from "../../src/ipc/errors";
 import { MachinesFailure } from "../../src/errors";

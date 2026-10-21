@@ -8,7 +8,7 @@ import { runEffect } from "../helpers/effect";
 import { openRequest, requestPort, seededRequests } from "../helpers/requests";
 import { replaceDecisionFacts } from "../helpers/ledger";
 import { beforeEach, expect, test } from "bun:test";
-import { Channel, Ingress, type Gateway, Outbound, type SessionTransition } from "@openomni/protocol";
+import { Channel, Ingress, type Gateway, Outbound, type SessionTransition } from "@oni/protocol";
 import { Bus } from "../helpers/observation";
 import { createExistingAgentMessaging } from "../../src/router/messaging/send";
 import { commits, kernelRouter, makeRouter, resetRouterState, routingDecisions, } from "./_router-fixture";

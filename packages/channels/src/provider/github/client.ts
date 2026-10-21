@@ -1,5 +1,5 @@
 import { DeliveryNotSent } from "../../errors";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { EffectRunner, PublishPort } from "../../types";
@@ -42,9 +42,9 @@ export class GitHubClient {
       Authorization: `Bearer ${this.token}`,
       Accept: "application/vnd.github.v3+json",
       "Content-Type": "application/json",
-      "User-Agent": "openomni-server",
+      "User-Agent": "oni-server",
     };
-    const marker = `<!-- openomni-delivery:${encodeURIComponent(deliveryId)} -->`;
+    const marker = `<!-- oni-delivery:${encodeURIComponent(deliveryId)} -->`;
     const posted = await this.hasComment(url, headers, marker, traceId).catch((error) => {
       if (error instanceof DeliveryNotSent) throw error;
       throw new DeliveryNotSent({ operation: "github.listComments", cause: String(error) });

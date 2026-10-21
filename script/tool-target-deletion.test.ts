@@ -13,7 +13,7 @@ test("retired target-selection workspace and executor are absent repository-wide
       "grep",
       "-n",
       "-E",
-      `@openomni/${retired}|packages/${retired}|${retired}GatedExecutor`,
+      `@oni/${retired}|packages/${retired}|${retired}GatedExecutor`,
       "--",
       ".",
       ":!**/dist/**",

@@ -1,6 +1,6 @@
 import { Effect, Result } from "effect";
 import { decodeChannelFailure, type ChannelError } from "../../errors";
-import { canonicalDigest, Gateway, SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, Gateway, SessionTransition } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { matchBlacklist } from "../blacklist";
 import type { GatewayRouterPorts } from "../message-ports";

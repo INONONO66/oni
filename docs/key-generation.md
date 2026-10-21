@@ -16,7 +16,7 @@ enforced by chain validation, so give it a long validity.
 
 ```sh
 openssl ecparam -name prime256v1 -genkey -noout -out host-key.pem
-openssl req -new -x509 -key host-key.pem -out host-cert.pem -days 3650 -subj "/CN=openomni-host"
+openssl req -new -x509 -key host-key.pem -out host-cert.pem -days 3650 -subj "/CN=oni-host"
 ```
 
 Repeat with `daemon-key.pem` / `daemon-cert.pem` (any CN) on the machine that
@@ -40,15 +40,15 @@ Set the full tuple or none of it — a partial tuple refuses boot
 (`invalid_machines_tcp`) rather than binding unencrypted:
 
 ```sh
-OPENOMNI_MACHINES_TCP_HOST=0.0.0.0     # or a tailnet/LAN interface address
-OPENOMNI_MACHINES_TCP_PORT=7643
-OPENOMNI_MACHINES_TLS_CERT=/path/host-cert.pem
-OPENOMNI_MACHINES_TLS_KEY=/path/host-key.pem
+ONI_MACHINES_TCP_HOST=0.0.0.0     # or a tailnet/LAN interface address
+ONI_MACHINES_TCP_PORT=7643
+ONI_MACHINES_TLS_CERT=/path/host-cert.pem
+ONI_MACHINES_TLS_KEY=/path/host-key.pem
 ```
 
 The unix socket stays bound regardless; same-box daemons keep zero config.
 
-## Daemon config (`openomni machine attach <config.json>`)
+## Daemon config (`oni machine attach <config.json>`)
 
 ```json
 {
@@ -87,10 +87,10 @@ with `peer_key_mismatch`; nothing downgrades.
 openssl ecparam -name prime256v1 -genkey -noout -out /tmp/hk.pem && openssl req -new -x509 -key /tmp/hk.pem -out /tmp/hc.pem -days 30 -subj "/CN=h"
 openssl ecparam -name prime256v1 -genkey -noout -out /tmp/dk.pem && openssl req -new -x509 -key /tmp/dk.pem -out /tmp/dc.pem -days 30 -subj "/CN=d"
 DF=$(openssl x509 -in /tmp/dc.pem -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -r | cut -d' ' -f1)
-export OPENOMNI_MACHINES_TCP_HOST=127.0.0.1 OPENOMNI_MACHINES_TCP_PORT=7643 OPENOMNI_MACHINES_TLS_CERT=/tmp/hc.pem OPENOMNI_MACHINES_TLS_KEY=/tmp/hk.pem
-export OPENOMNI_MACHINES_ENROLLED="[{\"machineId\":\"qa\",\"name\":\"qa\",\"allowedCapabilities\":[\"kernel.py\"],\"publicKey\":\"$DF\",\"enrolledAt\":0}]"
-bun apps/openomni/src/cli/main.ts start &   # host side, with the rest of your env
+export ONI_MACHINES_TCP_HOST=127.0.0.1 ONI_MACHINES_TCP_PORT=7643 ONI_MACHINES_TLS_CERT=/tmp/hc.pem ONI_MACHINES_TLS_KEY=/tmp/hk.pem
+export ONI_MACHINES_ENROLLED="[{\"machineId\":\"qa\",\"name\":\"qa\",\"allowedCapabilities\":[\"kernel.py\"],\"publicKey\":\"$DF\",\"enrolledAt\":0}]"
+bun apps/oni/src/cli/main.ts start &   # host side, with the rest of your env
 printf '{"tcp":{"host":"127.0.0.1","port":7643},"hostCertificate":"/tmp/hc.pem","tlsCertificate":"/tmp/dc.pem","tlsPrivateKey":"/tmp/dk.pem","offer":{"machineId":"qa","offeredCapabilities":["kernel.py"],"daemonVersion":"qa","platform":"qa","offeredAt":0}}' > /tmp/machine.json
-bun apps/openomni/src/cli/main.ts machine attach /tmp/machine.json   # prints {"status":"attached",...}
+bun apps/oni/src/cli/main.ts machine attach /tmp/machine.json   # prints {"status":"attached",...}
 # kill the host: the daemon stays up, retrying with jittered backoff (capped 30s); restart the host and the machine serves again under the same identity
 ```

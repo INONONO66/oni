@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 import { TelegramNormalizer } from "../src/provider/telegram/normalizer";
 
 test("Telegram addressees preserve explicit users and resolve the configured bot mention", () => {
-  const message = new TelegramNormalizer({ botId: "42", botUsername: "openomni" }).normalize({
+  const message = new TelegramNormalizer({ botId: "42", botUsername: "oni" }).normalize({
     message_id: 1,
     date: 1,
     chat: { id: 2, type: "group" },
     from: { id: 3, is_bot: false, first_name: "Sender" },
-    text: "@OpenOmni @other user",
+    text: "@Oni @other user",
     entities: [
       { type: "mention", offset: 0, length: 9 },
       { type: "mention", offset: 10, length: 6 },

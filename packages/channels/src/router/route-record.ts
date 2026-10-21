@@ -1,4 +1,4 @@
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import type { ChannelStores } from "./stores.js";
 import { endpointFromFacts } from "./endpoint-facts";
 import { IngressRoutingError } from "../errors";

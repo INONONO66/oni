@@ -1,7 +1,7 @@
 // Run with: bun run bench/index.ts
 import { mkdirSync, writeFileSync } from "node:fs";
 import { Bench } from "tinybench";
-import type { Message, ObservationSink } from "@openomni/protocol";
+import type { Message, ObservationSink } from "@oni/protocol";
 import { Effect } from "effect";
 import { Compaction } from "../src/plugins/compaction/compact";
 import { Entropy } from "../src/core/ports/ports";
@@ -112,7 +112,7 @@ function buildMessages(count: number): Message.WithParts[] {
         modelID: "synthetic",
         providerID: "bench",
         agent: "bench-agent",
-        path: { cwd: "/tmp/openomni", root: "/tmp/openomni" },
+        path: { cwd: "/tmp/oni", root: "/tmp/oni" },
         tokens: {
           input: 320,
           output: 180,

@@ -5,7 +5,7 @@ import { createRawSlots } from "../loop/executor";
 import { GenerationRawSlots } from "../loop/executor";
 
 import type { SessionKernel } from "./entity";
-import { type LedgerSession, type SessionGeneration, canonicalDigest, PlainValueSchema } from "@openomni/protocol";
+import { type LedgerSession, type SessionGeneration, canonicalDigest, PlainValueSchema } from "@oni/protocol";
 import { GenerationOwnership, type CapturedGeneration, type GenerationServices } from "../ports/ports";
 import { commitFoldBatch } from "../journal/compaction";
 import type { ResolvedSessionRuntime, SessionControllerState, SessionSystem } from "./runtime";

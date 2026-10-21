@@ -1,5 +1,5 @@
 {
-  "name": "@openomni/machines",
+  "name": "@oni/machines",
   "version": "0.0.1",
   "type": "module",
   "main": "./src/index.ts",
@@ -10,7 +10,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@openomni/protocol": "workspace:*",
+    "@oni/protocol": "workspace:*",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"
   },

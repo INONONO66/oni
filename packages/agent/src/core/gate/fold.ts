@@ -7,7 +7,7 @@ import {
   type PlainValue,
   canonicalDigest,
   emittedRowKey,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { z } from "zod";
 import { clonePlain } from "./match";
 

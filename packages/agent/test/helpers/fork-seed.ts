@@ -5,7 +5,7 @@
  * is released with the enclosing scope.
  */
 import { Effect, type Scope } from "effect";
-import type { Delivery } from "@openomni/protocol";
+import type { Delivery } from "@oni/protocol";
 import { turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { forkSession, type ForkReceipt, type ForkRefused } from "../../src/core/session/fork";
 import type { LedgerError } from "../../src/core/store/errors";

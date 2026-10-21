@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { createSessionRequests } from "../../src/core/session/request";
 import type { RunnerServices } from "../../src/core/ports/ports";
 import { openCrashStores } from "./crash-stores";

@@ -15,12 +15,12 @@ export function usePrivateCatalog(): void {
     savedEnv = { ...process.env };
     savedFetch = globalThis.fetch;
     directory = mkdtempSync(join(tmpdir(), "provider-catalog-"));
-    process.env.OPENOMNI_MODELS_PATH = join(directory, "models.json");
-    process.env.OPENOMNI_AUTH_FILE = join(directory, "auth.json");
-    process.env.OPENOMNI_DISABLE_MODELS_FETCH = "1";
-    writeFileSync(process.env.OPENOMNI_AUTH_FILE, "{}");
+    process.env.ONI_MODELS_PATH = join(directory, "models.json");
+    process.env.ONI_AUTH_FILE = join(directory, "auth.json");
+    process.env.ONI_DISABLE_MODELS_FETCH = "1";
+    writeFileSync(process.env.ONI_AUTH_FILE, "{}");
     writeFileSync(
-      process.env.OPENOMNI_MODELS_PATH,
+      process.env.ONI_MODELS_PATH,
       JSON.stringify({
         anthropic: {
           id: "anthropic",

@@ -13,7 +13,7 @@ import { session } from "../src/testing/registry";
 import { resolveSessionRuntime } from "../src/core/session/run";
 import { createController } from "../src/testing/controller";
 import { reopenableLedger } from "./helpers/reopenable-ledger";
-import { canonicalDigest } from "@openomni/protocol";
+import { canonicalDigest } from "@oni/protocol";
 import { createSessionRequests } from "../src/core/session/request";
 import { fileRequest, planeAnswer } from "./helpers/session-request-plane";
 
@@ -147,7 +147,7 @@ test("a dropped receiving consumer leaves a sealed source obligation without mut
         const source = sessionTree(kernel, "child");
         expect(
           source.filter(
-            (action: import("@openomni/protocol").LedgerAction.Node) =>
+            (action: import("@oni/protocol").LedgerAction.Node) =>
               turnTerminal(action) !== undefined,
           ),
         ).toHaveLength(1);
@@ -346,7 +346,7 @@ test("a destination receipt for different bytes is refused and the obligation st
         expect(
           kernel
             .pendingMessages("parent")
-            .map((row: import("@openomni/protocol").Delivery.Row) => row.content),
+            .map((row: import("@oni/protocol").Delivery.Row) => row.content),
         ).toEqual(["tampered answer"]);
       }),
     ),

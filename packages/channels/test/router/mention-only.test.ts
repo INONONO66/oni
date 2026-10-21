@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { Channel, type Gateway } from "@openomni/protocol";
+import { Channel, type Gateway } from "@oni/protocol";
 import { ledger } from "../helpers/ledger";
 import { runEffect } from "../helpers/effect";
 import { commits, makeRouter, resetRouterState, routingDecisions } from "./_router-fixture";

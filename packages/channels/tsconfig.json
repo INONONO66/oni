@@ -8,7 +8,7 @@
     "rootDir": "..",
     "baseUrl": ".",
     "paths": {
-      "@openomni/channels": ["./src/index.ts"]
+      "@oni/channels": ["./src/index.ts"]
     }
   },
   "include": ["src", "test"],

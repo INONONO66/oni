@@ -1,4 +1,4 @@
-import type { LedgerAction, Storage as ProtocolStorage } from "@openomni/protocol";
+import type { LedgerAction, Storage as ProtocolStorage } from "@oni/protocol";
 
 /** Independent unbounded audit oracle for tests; never exported by the runtime barrel. */
 export function sessionTree(

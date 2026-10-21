@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { CORE_POINT_RECORDS } from "@openomni/protocol";
+import { CORE_POINT_RECORDS } from "@oni/protocol";
 import { compileGateRows } from "../src/core/gate/compose";
 import {
   composePointTable,

@@ -1,4 +1,4 @@
-import { isOriginSurface, OriginMark } from "@openomni/ui";
+import { isOriginSurface, OriginMark } from "@oni/ui";
 import { hasActiveState, sessionReason } from "../attention/reason";
 import type { Session } from "../state/store";
 

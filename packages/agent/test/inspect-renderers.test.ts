@@ -6,7 +6,7 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction } from "@oni/protocol";
 import { READ_MODELS, renderReadModel, type ReadModel } from "../src/core/session/read";
 import { clusterTempDir, runCluster, sendDeliver, sendRead } from "./helpers/cluster-runtime";
 

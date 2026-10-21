@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { expect, it } from "bun:test";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import type { ExecutionApprovalRequest, ExecutionApprovals } from "../src/core/loop/executor";
 import { sessionStopEvidence } from "../src/core/session/run";
 import { armAction, firedAction } from "../src/core/ports/alarm";

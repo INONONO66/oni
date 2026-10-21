@@ -22,8 +22,8 @@ type PackageRule = {
 };
 
 /** Barrel-only cross-package import specifier, shared by both direction checks. */
-const openomniBarrelImportPattern = () =>
-  /(?:from\s+|import\s+|import\s*\(\s*)["'](@openomni\/[^"'/]+)(?:\/[^"']*)?["']/g;
+const oniBarrelImportPattern = () =>
+  /(?:from\s+|import\s+|import\s*\(\s*)["'](@oni\/[^"'/]+)(?:\/[^"']*)?["']/g;
 
 const RULES = Object.fromEntries(
   TOPOLOGY.map((workspace: WorkspaceTopology) => [
@@ -60,7 +60,7 @@ type Manifest = z.infer<typeof Manifest>;
 
 /** The layer check for `<pkg>/src/`, which may be stricter than the manifest's. */
 function isAllowedSourceDep(rule: PackageRule, dep: string): boolean {
-  if (!dep.startsWith("@openomni/")) return true;
+  if (!dep.startsWith("@oni/")) return true;
   return rule.srcAllowedDeps === undefined ? isAllowedDep(rule, dep) : rule.srcAllowedDeps.has(dep);
 }
 
@@ -88,7 +88,7 @@ async function readJson(path: string): Promise<Manifest> {
   return Manifest.parse(JSON.parse(text));
 }
 
-function collectOpenOmniDeps(pkg: Manifest): string[] {
+function collectOniDeps(pkg: Manifest): string[] {
   const deps = new Set<string>();
 
   for (const field of DEP_FIELDS) {
@@ -99,7 +99,7 @@ function collectOpenOmniDeps(pkg: Manifest): string[] {
     }
 
     for (const depName of Object.keys(value)) {
-      if (depName.startsWith("@openomni/")) {
+      if (depName.startsWith("@oni/")) {
         deps.add(depName);
       }
     }
@@ -151,7 +151,7 @@ function lineNumberForOffset(source: string, offset: number): number {
 }
 
 function suggestBarrelImport(importPath: string): string {
-  const packageName = importPath.match(/^(@openomni\/[^/]+)/)?.[1];
+  const packageName = importPath.match(/^(@oni\/[^/]+)/)?.[1];
   return packageName ?? importPath;
 }
 
@@ -191,9 +191,9 @@ async function* scanRepositorySources(pattern: string, root = "."): AsyncGenerat
   }
 }
 
-const BUNDLE_PREFIX = "apps/openomni/src/bundles/";
+const BUNDLE_PREFIX = "apps/oni/src/bundles/";
 const BUNDLE_CORE_IMPORTS = new Set<string>(
-  TOPOLOGY.flatMap((workspace) => (workspace.key === "openomniApp" ? workspace.allowedDeps : [])),
+  TOPOLOGY.flatMap((workspace) => (workspace.key === "oniApp" ? workspace.allowedDeps : [])),
 );
 
 function bundleNamespace(file: string): string | undefined {
@@ -356,7 +356,7 @@ function bundleCompilerOptions(root: string, findings: BundleImportFinding[]): t
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     allowJs: true,
   };
-  const config = ts.findConfigFile(join(root, "apps/openomni"), ts.sys.fileExists);
+  const config = ts.findConfigFile(join(root, "apps/oni"), ts.sys.fileExists);
   if (!config) return defaults;
   const parsed = ts.getParsedCommandLineOfConfigFile(
     config,
@@ -418,7 +418,7 @@ export async function checkBundleImports(
       findings.push({ code: "BUNDLE_COMPUTED_IMPORT", ...location });
       return;
     }
-    if (edge.specifier.startsWith("@openomni/") && !BUNDLE_CORE_IMPORTS.has(edge.specifier)) {
+    if (edge.specifier.startsWith("@oni/") && !BUNDLE_CORE_IMPORTS.has(edge.specifier)) {
       findings.push({ code: "BUNDLE_IMPORT_NOT_ALLOWED", ...location });
       return;
     }
@@ -436,9 +436,9 @@ export async function checkBundleImports(
       findings.push({ code: "BUNDLE_CROSS_NAMESPACE", ...location, specifier: edge.specifier });
     } else if (
       bundleNamespace(location.file) &&
-      targetPath.startsWith("apps/openomni/src/") &&
-      !targetPath.startsWith("apps/openomni/src/bundles/") &&
-      targetPath !== "apps/openomni/src/bundles/seams.ts"
+      targetPath.startsWith("apps/oni/src/") &&
+      !targetPath.startsWith("apps/oni/src/bundles/") &&
+      targetPath !== "apps/oni/src/bundles/seams.ts"
     ) {
       findings.push({ code: "BUNDLE_APP_IMPORT", ...location, specifier: edge.specifier });
     } else if (!targetPath.includes("node_modules/") && !targetPath.startsWith("../")) {
@@ -480,17 +480,17 @@ export async function checkBundleImports(
 /** #1454: no sibling bundle imports remain; the exact ratchet admits none. */
 const BUNDLE_SIBLING_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 const BUNDLE_APP_PINS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["apps/openomni/src/bundles/hooks-json/index.ts", new Set(["../../invariant"])],
-  ["apps/openomni/src/bundles/compaction/summarizer.ts", new Set(["../../composition/completion"])],
-  ["apps/openomni/src/bundles/compaction/index.ts", new Set(["../../config"])],
-  ["apps/openomni/src/bundles/core-policy/index.ts", new Set(["../../invariant"])],
-  ["apps/openomni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
-  ["apps/openomni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component"])],
-  ["apps/openomni/src/bundles/provision/status.ts", new Set(["../../channels"])],
-  ["apps/openomni/src/bundles/provision/channels.ts", new Set(["../../channels"])],
-  ["apps/openomni/src/bundles/provision/supervisor.ts", new Set(["../../thrown", "../../channels"])],
-  ["apps/openomni/src/bundles/provision/automation.ts", new Set(["../../thrown"])],
-  ["apps/openomni/src/bundles/provision/declared.ts", new Set(["../../channels", "../../gateway"])],
+  ["apps/oni/src/bundles/hooks-json/index.ts", new Set(["../../invariant"])],
+  ["apps/oni/src/bundles/compaction/summarizer.ts", new Set(["../../composition/completion"])],
+  ["apps/oni/src/bundles/compaction/index.ts", new Set(["../../config"])],
+  ["apps/oni/src/bundles/core-policy/index.ts", new Set(["../../invariant"])],
+  ["apps/oni/src/bundles/alarms/index.ts", new Set(["../../composition/cluster-runtime"])],
+  ["apps/oni/src/bundles/resident/index.ts", new Set(["../../invariant", "../../composition/chat-provider", "../../composition/composed", "../../composition/model-selection", "../../composition/message-session", "../../observation/llm-failure", "../../observation/component"])],
+  ["apps/oni/src/bundles/provision/status.ts", new Set(["../../channels"])],
+  ["apps/oni/src/bundles/provision/channels.ts", new Set(["../../channels"])],
+  ["apps/oni/src/bundles/provision/supervisor.ts", new Set(["../../thrown", "../../channels"])],
+  ["apps/oni/src/bundles/provision/automation.ts", new Set(["../../thrown"])],
+  ["apps/oni/src/bundles/provision/declared.ts", new Set(["../../channels", "../../gateway"])],
 ]);
 
 type BundlePinCode = "BUNDLE_CROSS_NAMESPACE" | "BUNDLE_APP_IMPORT";
@@ -570,7 +570,7 @@ async function validateDependencyDirection(): Promise<string[]> {
 
   for (const rule of Object.values(RULES)) {
     const pkgJson = await readJson(rule.packageJsonPath);
-    const deps = collectOpenOmniDeps(pkgJson);
+    const deps = collectOniDeps(pkgJson);
 
     for (const dep of deps) {
       if (!isAllowedDep(rule, dep)) {
@@ -590,7 +590,7 @@ function packageDirOf(rule: PackageRule): string {
 
 /**
  * Layer-order check at the source level. package.json manifests cannot see
- * phantom imports (a bare `import "@openomni/agent"` resolves through the
+ * phantom imports (a bare `import "@oni/agent"` resolves through the
  * hoisted node_modules even when the manifest never declares it), so the
  * dependency-direction rules are enforced against actual import specifiers.
  */
@@ -600,7 +600,7 @@ async function validateSourceImportDirection(): Promise<string[]> {
     rule,
     srcPrefix: `${packageDirOf(rule)}/src/`,
   }));
-  const importPattern = openomniBarrelImportPattern();
+  const importPattern = oniBarrelImportPattern();
 
   for await (const { filePath, source } of scanRepositorySources("**/*.{ts,tsx}")) {
     const owner = owners.find(({ srcPrefix }) => filePath.startsWith(srcPrefix));
@@ -627,11 +627,11 @@ const CHANNELS_JUDGMENT_PREFIXES = [
   "packages/channels/src/authn/",
 ] as const;
 const CHANNELS_STORE_PREFIX = "packages/channels/src/store/";
-const CHANNELS_BANDED_DEP = "@openomni/agent";
+const CHANNELS_BANDED_DEP = "@oni/agent";
 
 /**
  * The agent-gate surfaces the channels judgment band may name from
- * @openomni/agent (#1246 — the former policy engine and the scoped
+ * @oni/agent (#1246 — the former policy engine and the scoped
  * ledger ports live in the agent package now): permission evaluation plus the
  * handle-scoped decision-fact perimeter port (#1317 moved the surface-key
  * store into channels).
@@ -653,7 +653,7 @@ const CHANNELS_JUDGMENT_AGENT_SURFACES = new Set([
 /**
  * The persistence seams the channels store band (`src/store/`, the perimeter
  * stores absorbed from the old ledger in #1246) may name from
- * @openomni/agent: the sub-adapter guard and the timestamp wrapper (#1317
+ * @oni/agent: the sub-adapter guard and the timestamp wrapper (#1317
  * moved the stored-identity schemas and the surface-key store into channels).
  * Never a session, catalog, gate, or model surface.
  */
@@ -675,7 +675,7 @@ function channelsAgentBand(filePath: string): ReadonlySet<string> | undefined {
 /**
  * S8 intra-package banding for the channels gateway (docs/gateway-design.md
  * §7 S8; five-package shape, #1246). The package-level whitelist admits
- * @openomni/agent, but only the perimeter JUDGMENT band — `src/router/`
+ * @oni/agent, but only the perimeter JUDGMENT band — `src/router/`
  * (routing, physical correlation, send kernel) and `src/authn/` (channel
  * authn) — and the STORE band (`src/store/`, the perimeter stores) may use
  * it. The driver sub-band (discord/, github/, telegram/, support/,
@@ -700,7 +700,7 @@ function isChannelsDriverRouterEdge(filePath: string, importPath: string): boole
   if (!filePath.startsWith(CHANNELS_SRC_PREFIX)) return false;
   if (isChannelsJudgmentPath(filePath)) return false;
   // The package barrel is the composition root's export surface, not a
-  // driver — it is how apps/openomni reaches createGatewayRouter.
+  // driver — it is how apps/oni reaches createGatewayRouter.
   if (filePath === "packages/channels/src/index.ts") return false;
   if (!importPath.startsWith(".")) return false;
   const baseDir = filePath.split("/").slice(0, -1);
@@ -718,7 +718,7 @@ function isChannelsDriverRouterEdge(filePath: string, importPath: string): boole
 
 /**
  * S8 channels↔agent surface pin (#707 shape, #1246 vocabulary): a banded
- * channels file importing @openomni/agent may name ONLY its band's perimeter
+ * channels file importing @oni/agent may name ONLY its band's perimeter
  * surfaces, through static named `import`/`export … from` clauses. Everything
  * else is refused outright — namespace/default imports, `export *`
  * re-exports, dynamic `import(...)`, and `require(...)` would all reach (or
@@ -730,12 +730,12 @@ function channelsAgentSurfaceViolations(filePath: string, source: string): strin
   if (band === undefined) return [];
   const violations: string[] = [];
   const namedPattern =
-    /(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']@openomni\/agent["']/g;
+    /(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']@oni\/agent["']/g;
   const broadPattern =
-    /import\s+(?:type\s+)?(?:\*\s+as\s+\w+|\w+)\s*(?:,\s*\{[^}]*\})?\s*from\s*["']@openomni\/agent["']/g;
-  const exportStarPattern = /export\s*\*\s*(?:as\s+\w+\s*)?from\s*["']@openomni\/agent["']/g;
+    /import\s+(?:type\s+)?(?:\*\s+as\s+\w+|\w+)\s*(?:,\s*\{[^}]*\})?\s*from\s*["']@oni\/agent["']/g;
+  const exportStarPattern = /export\s*\*\s*(?:as\s+\w+\s*)?from\s*["']@oni\/agent["']/g;
   const dynamicPattern =
-    /(?:import\s*\(\s*|require\s*\(\s*)["'`]@openomni\/agent(?:\/[^"'`]*)?["'`]/g;
+    /(?:import\s*\(\s*|require\s*\(\s*)["'`]@oni\/agent(?:\/[^"'`]*)?["'`]/g;
   for (const match of source.matchAll(namedPattern)) {
     const names = (match[1] ?? "")
       .split(",")
@@ -760,19 +760,19 @@ function channelsAgentSurfaceViolations(filePath: string, source: string): strin
   for (const match of source.matchAll(broadPattern)) {
     const line = lineNumberForOffset(source, match.index);
     violations.push(
-      `VIOLATION: ${filePath}:${line} uses a namespace/default import of @openomni/agent — S8: the channels perimeter must name the agent surfaces explicitly`,
+      `VIOLATION: ${filePath}:${line} uses a namespace/default import of @oni/agent — S8: the channels perimeter must name the agent surfaces explicitly`,
     );
   }
   for (const match of source.matchAll(exportStarPattern)) {
     const line = lineNumberForOffset(source, match.index);
     violations.push(
-      `VIOLATION: ${filePath}:${line} re-exports @openomni/agent wholesale — S8: a channels barrel may not launder brain surfaces to relative importers`,
+      `VIOLATION: ${filePath}:${line} re-exports @oni/agent wholesale — S8: a channels barrel may not launder brain surfaces to relative importers`,
     );
   }
   for (const match of source.matchAll(dynamicPattern)) {
     const line = lineNumberForOffset(source, match.index);
     violations.push(
-      `VIOLATION: ${filePath}:${line} loads @openomni/agent dynamically — S8: the static named-import pin is the only road to the agent from the channels perimeter`,
+      `VIOLATION: ${filePath}:${line} loads @oni/agent dynamically — S8: the static named-import pin is the only road to the agent from the channels perimeter`,
     );
   }
   return violations;
@@ -780,7 +780,7 @@ function channelsAgentSurfaceViolations(filePath: string, source: string): strin
 
 async function validateChannelsIntraPackageBanding(): Promise<string[]> {
   const violations: string[] = [];
-  const importPattern = openomniBarrelImportPattern();
+  const importPattern = oniBarrelImportPattern();
   const relativeImportPattern = /(?:from\s+|import\s+|import\s*\(\s*)["'](\.{1,2}\/[^"']*)["']/g;
 
   for await (const { filePath, source } of scanRepositorySources(
@@ -791,7 +791,7 @@ async function validateChannelsIntraPackageBanding(): Promise<string[]> {
       if (dep && isChannelsBandingViolation(filePath, dep)) {
         const line = lineNumberForOffset(source, match.index);
         violations.push(
-          `VIOLATION: ${filePath}:${line} imports ${dep} — S8 banding: only the channels judgment band (src/router/, src/authn/) and store band (src/store/) may import @openomni/agent; drivers stay on {protocol}`,
+          `VIOLATION: ${filePath}:${line} imports ${dep} — S8 banding: only the channels judgment band (src/router/, src/authn/) and store band (src/store/) may import @oni/agent; drivers stay on {protocol}`,
         );
       }
     }
@@ -860,7 +860,7 @@ export async function validateAgentCoreLayout(root = "."): Promise<string[]> {
 
 /**
  * #1276 agent responsibility bands (four bands since #1352 moved `model/`
- * out to `@openomni/llm`; the core declares the llm port itself). Key =
+ * out to `@oni/llm`; the core declares the llm port itself). Key =
  * directory under packages/agent/src; `internal` = sibling bands a file may
  * relative-import; `externalBans` = module-specifier prefixes refused
  * outright; `tokenBans` = ambient authority tokens the band may not name.
@@ -1128,11 +1128,11 @@ export async function validateAgentBands(root = "."): Promise<string[]> {
   return violations;
 }
 
-// ─── #1276: apps import only the @openomni/agent barrel ────────────────────
+// ─── #1276: apps import only the @oni/agent barrel ────────────────────
 
 /**
  * #1276 check (c): a file under `apps/` importing a path inside
- * `packages/agent/src/` — either a deep `@openomni/agent/...` specifier or a
+ * `packages/agent/src/` — either a deep `@oni/agent/...` specifier or a
  * relative path that resolves into the agent package — fails. Apps compose
  * through the barrel only.
  */
@@ -1143,13 +1143,13 @@ export function appsAgentInternalViolations(filePath: string, source: string): s
   for (const match of source.matchAll(importPattern)) {
     const spec = match[1];
     if (spec === undefined) continue;
-    const deep = spec.startsWith("@openomni/agent/");
+    const deep = spec.startsWith("@oni/agent/");
     const relative = spec.startsWith(".") &&
       resolveAgentRelative(filePath, spec).startsWith("packages/agent/src");
     if (!deep && !relative) continue;
     const line = lineNumberForOffset(source, match.index);
     violations.push(
-      `VIOLATION: ${filePath}:${line} imports ${spec} — #1276 bands: apps import only the @openomni/agent barrel, never agent internals`,
+      `VIOLATION: ${filePath}:${line} imports ${spec} — #1276 bands: apps import only the @oni/agent barrel, never agent internals`,
     );
   }
   return violations;
@@ -1310,7 +1310,7 @@ export async function validateAppsAgentTokens(
   }
   // Slack fails closed against a checkout only: the pins are measured at a
   // commit. The scratch gate fixtures are plain directories that stub every
-  // workspace entry (`apps/openomni/src/index.ts` included) at zero tokens,
+  // workspace entry (`apps/oni/src/index.ts` included) at zero tokens,
   // so presence of a pinned path cannot scope this rule. CI (actions/checkout)
   // and every local gate run inside a checkout; outside one the skip is loud.
   // A pinned file deleted from the checkout still fails here (actual 0 < pin).
@@ -1367,13 +1367,13 @@ interface AppsSessionWriteSite {
  * Moving either line re-pins it here; any other write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/openomni/src/index.ts", line: 1485, receiver: "kernel", member: "commit" },
-  { file: "apps/openomni/src/composition/ingress-executor.ts", line: 62, receiver: "Core", member: "adoptedExecutor" },
+  { file: "apps/oni/src/index.ts", line: 1485, receiver: "kernel", member: "commit" },
+  { file: "apps/oni/src/composition/ingress-executor.ts", line: 62, receiver: "Core", member: "adoptedExecutor" },
 ];
 
 /** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
 const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [
-  { file: "apps/openomni/src/bundles/provision/contacts.ts", receiver: "port", member: "materialize" },
+  { file: "apps/oni/src/bundles/provision/contacts.ts", receiver: "port", member: "materialize" },
 ];
 
 /** The banned member a property or element access names, if any (`create` only off `sessionStore(...)`). */
@@ -1669,9 +1669,9 @@ export async function validateAgentIndexPerimeter(root = "."): Promise<string[]>
 
 async function validateDeepImports(): Promise<string[]> {
   const violations: string[] = [];
-  // Matches both `from "@openomni/.../src/..."` and side-effect `import "@openomni/.../src/..."`
+  // Matches both `from "@oni/.../src/..."` and side-effect `import "@oni/.../src/..."`
   const importPattern =
-    /(?:from\s+|import\s+|import\s*\(\s*)["'](@openomni\/[^"']+\/src\/[^"']*)["']/g;
+    /(?:from\s+|import\s+|import\s*\(\s*)["'](@oni\/[^"']+\/src\/[^"']*)["']/g;
 
   for await (const { filePath, importPath, line } of scannedImports(importPattern)) {
     const base = `VIOLATION: ${filePath}:${line} imports ${importPath} — use package barrel instead`;
@@ -1849,56 +1849,56 @@ function selfTest(): number {
   const twoTier: PackageRule = {
     displayName: "self-test",
     packageJsonPath: "",
-    packageName: "@openomni/self-test",
-    allowedDeps: new Set(["@openomni/protocol", "@openomni/agent"]),
-    srcAllowedDeps: new Set(["@openomni/protocol"]),
+    packageName: "@oni/self-test",
+    allowedDeps: new Set(["@oni/protocol", "@oni/agent"]),
+    srcAllowedDeps: new Set(["@oni/protocol"]),
   };
   const oneTier: PackageRule = { ...twoTier, srcAllowedDeps: undefined };
   const anyExceptSelf: PackageRule = { ...twoTier, allowedDeps: "any-except-self" };
   const cases: Array<[string, boolean]> = [
-    ["manifest permits what the manifest lists", isAllowedDep(twoTier, "@openomni/agent")],
-    ["open workspace band rejects its own package", !isAllowedDep(anyExceptSelf, "@openomni/self-test")],
-    ["open workspace band permits another package", isAllowedDep(anyExceptSelf, "@openomni/agent")],
-    ["src refuses what only the manifest lists", !isAllowedSourceDep(twoTier, "@openomni/agent")],
-    ["src permits its own narrower set", isAllowedSourceDep(twoTier, "@openomni/protocol")],
-    ["src refuses what neither lists", !isAllowedSourceDep(twoTier, "@openomni/machines")],
+    ["manifest permits what the manifest lists", isAllowedDep(twoTier, "@oni/agent")],
+    ["open workspace band rejects its own package", !isAllowedDep(anyExceptSelf, "@oni/self-test")],
+    ["open workspace band permits another package", isAllowedDep(anyExceptSelf, "@oni/agent")],
+    ["src refuses what only the manifest lists", !isAllowedSourceDep(twoTier, "@oni/agent")],
+    ["src permits its own narrower set", isAllowedSourceDep(twoTier, "@oni/protocol")],
+    ["src refuses what neither lists", !isAllowedSourceDep(twoTier, "@oni/machines")],
     [
       "no srcAllowedDeps falls back to the manifest",
-      isAllowedSourceDep(oneTier, "@openomni/agent"),
+      isAllowedSourceDep(oneTier, "@oni/agent"),
     ],
     ["external packages are never layered", isAllowedSourceDep(twoTier, "zod")],
     [
       "S8: a channels driver may not import the agent",
       isChannelsBandingViolation(
         "packages/channels/src/provider/discord/surface.ts",
-        "@openomni/agent",
+        "@oni/agent",
       ),
     ],
     [
       "S8: channels authn (perimeter judgment) may import the agent gate",
-      !isChannelsBandingViolation("packages/channels/src/authn/decision.ts", "@openomni/agent"),
+      !isChannelsBandingViolation("packages/channels/src/authn/decision.ts", "@oni/agent"),
     ],
     [
       "S8: drivers keep the whitelisted contract deps",
       !isChannelsBandingViolation(
         "packages/channels/src/provider/discord/surface.ts",
-        "@openomni/protocol",
+        "@oni/protocol",
       ),
     ],
     [
       "S8: the banding rule scopes to the channels package only",
-      !isChannelsBandingViolation("apps/openomni/src/gateway.ts", "@openomni/agent"),
+      !isChannelsBandingViolation("apps/oni/src/gateway.ts", "@oni/agent"),
     ],
     [
       "S8: the gateway router may import the agent",
       !isChannelsBandingViolation(
         "packages/channels/src/router/routing-resolution.ts",
-        "@openomni/agent",
+        "@oni/agent",
       ),
     ],
     [
       "S8: the channel store band may import the agent persistence seams",
-      !isChannelsBandingViolation("packages/channels/src/store/actor/index.ts", "@openomni/agent"),
+      !isChannelsBandingViolation("packages/channels/src/store/actor/index.ts", "@oni/agent"),
     ],
     [
       "S8: a driver may not relative-import into src/router/",
@@ -1933,105 +1933,105 @@ function selfTest(): number {
       "S8: the router may name the permission evaluator",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/authority.ts",
-        'import { evaluatePermission } from "@openomni/agent";',
+        'import { evaluatePermission } from "@oni/agent";',
       ).length === 0,
     ],
     [
       "S8: the router may name the scoped decision-fact port (#930)",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/stores.ts",
-        'import { createDecisionFactPort } from "@openomni/agent";',
+        'import { createDecisionFactPort } from "@oni/agent";',
       ).length === 0,
     ],
     [
       "S8: the router may not name a brain agent surface",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/routing-resolution.ts",
-        'import { openSessionStore, PolicyEvaluationInput } from "@openomni/agent";',
+        'import { openSessionStore, PolicyEvaluationInput } from "@oni/agent";',
       ).length === 1,
     ],
     [
       "S8: the store band may name the persistence seams",
       channelsAgentSurfaceViolations(
         "packages/channels/src/store/actor/index.ts",
-        'import { requireSubAdapter, withStoreTimestamps } from "@openomni/agent";',
+        'import { requireSubAdapter, withStoreTimestamps } from "@oni/agent";',
       ).length === 0,
     ],
     [
       "S8: the store band may not name the gate",
       channelsAgentSurfaceViolations(
         "packages/channels/src/store/actor/index.ts",
-        'import { evaluatePermission } from "@openomni/agent";',
+        'import { evaluatePermission } from "@oni/agent";',
       ).length === 1,
     ],
     [
       "S8: a type-only brain-surface import is still pinned",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/authority.ts",
-        `import type { ${["Catalog", "Store"].join("")} } from "@openomni/agent";`,
+        `import type { ${["Catalog", "Store"].join("")} } from "@oni/agent";`,
       ).length === 1,
     ],
     [
       "S8: a namespace agent import cannot bypass the surface pin",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/actor-resolver.ts",
-        'import * as Agent from "@openomni/agent";',
+        'import * as Agent from "@oni/agent";',
       ).length === 1,
     ],
     [
       "S8: the agent surface pin scopes to the channels bands",
       channelsAgentSurfaceViolations(
-        "apps/openomni/src/gateway.ts",
-        'import { openSessionStore } from "@openomni/agent";',
+        "apps/oni/src/gateway.ts",
+        'import { openSessionStore } from "@oni/agent";',
       ).length === 0,
     ],
     [
       "S8: a dynamic agent import cannot bypass the surface pin",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/routing-resolution.ts",
-        'const agent = await import("@openomni/agent");',
+        'const agent = await import("@oni/agent");',
       ).length === 1,
     ],
     [
       "S8: a require of the agent cannot bypass the surface pin",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/actor-resolver.ts",
-        'const agent = require("@openomni/agent");',
+        'const agent = require("@oni/agent");',
       ).length === 1,
     ],
     [
       "S8: a dynamic agent SUBPATH import is pinned too",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/index.ts",
-        'const s = await import("@openomni/agent/store");',
+        'const s = await import("@oni/agent/store");',
       ).length === 1,
     ],
     [
       "S8: a brain-surface re-export cannot launder past the pin",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/index.ts",
-        'export { openCatalogStore } from "@openomni/agent";',
+        'export { openCatalogStore } from "@oni/agent";',
       ).length === 1,
     ],
     [
       "S8: a perimeter-surface re-export stays legal",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/index.ts",
-        'export { createDecisionFactPort } from "@openomni/agent";',
+        'export { createDecisionFactPort } from "@oni/agent";',
       ).length === 0,
     ],
     [
       "S8: retired independent authority cannot regain a perimeter allowance",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/index.ts",
-        `import { ${["Wait", "Store"].join("")} } from "@openomni/agent";`,
+        `import { ${["Wait", "Store"].join("")} } from "@oni/agent";`,
       ).length === 1,
     ],
     [
       "S8: the channels judgment band may not name the Journal ports",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/index.ts",
-        'import { Journal } from "@openomni/agent";',
+        'import { Journal } from "@oni/agent";',
       ).length === 1,
     ],
     [
@@ -2111,34 +2111,34 @@ function selfTest(): number {
     ],
     [
       "#1276: the band rules scope to packages/agent/src",
-      agentBandViolations("apps/openomni/src/runtime.ts", "const t = Date.now();").length === 0,
+      agentBandViolations("apps/oni/src/runtime.ts", "const t = Date.now();").length === 0,
     ],
     [
-      "#1276: an app may not deep-import @openomni/agent (check c)",
+      "#1276: an app may not deep-import @oni/agent (check c)",
       appsAgentInternalViolations(
-        "apps/openomni/src/runtime.ts",
-        'import { x } from "@openomni/agent/core/turn";',
+        "apps/oni/src/runtime.ts",
+        'import { x } from "@oni/agent/core/turn";',
       ).length === 1,
     ],
     [
       "#1276: an app may not relative-import into packages/agent/src (check c)",
       appsAgentInternalViolations(
-        "apps/openomni/src/runtime.ts",
+        "apps/oni/src/runtime.ts",
         'import { x } from "../../../packages/agent/src/core/turn";',
       ).length === 1,
     ],
     [
       "#1276: the app keeps the barrel and its own relative imports (check c)",
       appsAgentInternalViolations(
-        "apps/openomni/src/runtime.ts",
-        'import { Core } from "@openomni/agent";\nimport { x } from "./composition/model-selection";',
+        "apps/oni/src/runtime.ts",
+        'import { Core } from "@oni/agent";\nimport { x } from "./composition/model-selection";',
       ).length === 0,
     ],
     [
       "S8: a wholesale agent re-export is refused",
       channelsAgentSurfaceViolations(
         "packages/channels/src/router/index.ts",
-        'export * from "@openomni/agent";',
+        'export * from "@oni/agent";',
       ).length === 1,
     ],
   ];

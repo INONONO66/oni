@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { Alarm } from "@openomni/protocol";
+import { Alarm } from "@oni/protocol";
 import { runLedgerSync } from "../helpers/effect";
 import { adoptWriter } from "../helpers/session";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";

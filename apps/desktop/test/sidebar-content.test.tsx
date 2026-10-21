@@ -238,7 +238,7 @@ describe("the footer says where the gateway is", () => {
     const { row, glyph, title, detail } = workspaceRow(document);
     expect(glyph.getAttribute("data-tone")).toBe("destructive");
     expect(title.textContent).toBe("Gateway");
-    expect(detail.textContent).toContain("OPENOMNI_WS_TOKEN");
+    expect(detail.textContent).toContain("ONI_WS_TOKEN");
     expect(row.textContent).not.toContain("not a token");
   });
 

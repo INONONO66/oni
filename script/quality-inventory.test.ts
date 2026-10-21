@@ -68,7 +68,7 @@ test("JSON boundary retains native syntax errors and validates finite structural
 });
 
 test("inventory includes declarations, TSX, tests, checked-in fixtures, benchmarks, gates, JS and SQL", () => {
-  const root = mkdtempSync(join(tmpdir(), "openomni-inventory-"));
+  const root = mkdtempSync(join(tmpdir(), "oni-inventory-"));
   try {
     const sources = [
       "a.d.ts",
@@ -115,7 +115,7 @@ test("inventory includes declarations, TSX, tests, checked-in fixtures, benchmar
 });
 
 test("inventory fails closed for missing roots and overlapping membership", () => {
-  const root = mkdtempSync(join(tmpdir(), "openomni-inventory-"));
+  const root = mkdtempSync(join(tmpdir(), "oni-inventory-"));
   try {
     writeFileSync(join(root, "a.ts"), "export const value = 1;");
     expect(() => buildInventory(root, { ...contract, roots: ["absent"] })).toThrow();

@@ -5,7 +5,7 @@ const END_MARKER = "<!-- END GENERATED TOPOLOGY -->";
 const AGENTS_PATH = new URL("../AGENTS.md", import.meta.url);
 
 function shortPackageName(packageName: string): string {
-  return packageName.replace("@openomni/", "");
+  return packageName.replace("@oni/", "");
 }
 
 function renderDependencies(dependencies: DependencyBand): string {

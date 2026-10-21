@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { Bus } from "./helpers/observation";
 import { useStreamCapture } from "./helpers/stream-capture";
 

@@ -6,7 +6,7 @@ import {
   type Policy,
   type PolicyRow,
   type RowVerdict,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { Effect } from "effect";
 import type { z } from "zod";
 import { clonePlain, type MessagePolicyContext } from "./match";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "../../src/core/loop/tool";
 import type { ExecutionRequest } from "../../src/core/loop/executor";
-import type { ToolExecutionContext } from "@openomni/protocol";
+import type { ToolExecutionContext } from "@oni/protocol";
 
 export function timedQueryTool(description: string, execute: (input: Record<string, never>, context: ToolExecutionContext) => Promise<string>) {
   return defineTool({

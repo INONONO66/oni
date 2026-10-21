@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
 import { Effect } from "effect";
-import { Alarm } from "@openomni/protocol";
+import { Alarm } from "@oni/protocol";
 import {
   alarmDisposition,
   armAction,

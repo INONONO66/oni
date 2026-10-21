@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type BusEvent, Machine } from "@openomni/protocol";
+import { type BusEvent, Machine } from "@oni/protocol";
 import { attachMachineDaemon } from "../../../machines/test/helpers/native";
 import { type MachineHost, createMachineHost } from "../../../machines/test/helpers/native";
 import { PythonKernel } from "./helpers/native";
@@ -258,9 +258,9 @@ describe("code-mode kernel substrate", () => {
         cell(
           [
             "import __main__",
-            "c = __main__.BrowserClient('m-1', '/tmp/openomni-cleanup-test', True)",
+            "c = __main__.BrowserClient('m-1', '/tmp/oni-cleanup-test', True)",
             "c._transcript = __main__._BROWSER_MARK + ' chromium-pid 4194304'",
-            "__main__._browser_clients[('m-1', '/tmp/openomni-cleanup-test')] = c",
+            "__main__._browser_clients[('m-1', '/tmp/oni-cleanup-test')] = c",
           ].join("\n"),
         ),
         noTools,

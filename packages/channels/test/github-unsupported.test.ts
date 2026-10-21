@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { injectedOptions } from "./helpers/injected";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface";
 import { signedWebhook } from "./helpers/github";
 

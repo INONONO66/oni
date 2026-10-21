@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import type { AutomationAdapter, StoredAutomation } from "../automation/index.js";
 import { StoredGroup } from "../automation/group.js";
 import { Route } from "../../automation/matcher.js";

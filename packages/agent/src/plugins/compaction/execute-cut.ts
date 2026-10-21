@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { CompactionExecutionError, type ExecutionError, RunEvents, type Entropy } from "../../core/api";
 import type { CompactionExecutionInput, CompactionResult } from "./contract";
-import { canonicalDigest, PlainValueSchema, type BusEvent, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, PlainValueSchema, type BusEvent, type PlainValue } from "@oni/protocol";
 import { Compaction } from "./compact";
 
 /** Execute the existing strategy under admission; only the receipt releases observations. */

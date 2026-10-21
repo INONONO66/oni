@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { controlledTimeouts } from "./helpers/timeouts";
-import { Operational, Outbound } from "@openomni/protocol";
+import { Operational, Outbound } from "@oni/protocol";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 import type { PublishPort } from "../src/types";
 

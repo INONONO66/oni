@@ -9,7 +9,7 @@ body:
       options:
         - label: I searched existing issues and feature requests
           required: true
-        - label: This aligns with OpenOmni's design goals (orchestration, multi-agent, LLM-first)
+        - label: This aligns with Oni's design goals (orchestration, multi-agent, LLM-first)
           required: true
 
   - type: textarea
@@ -56,7 +56,7 @@ body:
         - session
         - llm
         - agent
-        - openomni
+        - oni
         - coordinator
         - server
         - New package

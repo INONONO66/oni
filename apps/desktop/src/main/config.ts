@@ -10,19 +10,19 @@ interface GatewayEndpoint {
   readonly token?: string;
 }
 
-// Copied literal from apps/openomni/src/config.ts (`parseWsPort` default):
+// Copied literal from apps/oni/src/config.ts (`parseWsPort` default):
 // the console must not import the kernel app, so the default port lives here
 // as a named copy of its source.
 const DEFAULT_WS_PORT = 3000;
 
-// Copied literal from apps/openomni/src/index.ts (the daemon's websocket
+// Copied literal from apps/oni/src/index.ts (the daemon's websocket
 // upgrade path): same no-kernel-import reason as the port default above.
 const GATEWAY_PATH = "/ws";
 
 /**
  * The env this reads, as a plain record (the ambient environment's shape), so
- * a test needs no ambient process. Consumed keys: OPENOMNI_WS_URL,
- * OPENOMNI_WS_PORT, OPENOMNI_WS_TOKEN, ELECTRON_RENDERER_URL.
+ * a test needs no ambient process. Consumed keys: ONI_WS_URL,
+ * ONI_WS_PORT, ONI_WS_TOKEN, ELECTRON_RENDERER_URL.
  */
 export type DesktopEnv = Readonly<Record<string, string | undefined>>;
 
@@ -39,7 +39,7 @@ function read(value: string | undefined): string | undefined {
  */
 export interface DesktopConfigError {
   readonly kind: "desktop_config_error";
-  readonly variable: "OPENOMNI_WS_PORT";
+  readonly variable: "ONI_WS_PORT";
   readonly value: string;
   readonly message: string;
 }
@@ -47,7 +47,7 @@ export interface DesktopConfigError {
 /**
  * An unset (or blank) port still means the daemon default; a PRESENT invalid
  * value is a typed error, never a silent 3000 (#1312) — a typo in
- * `OPENOMNI_WS_PORT` must fail at the variable, not connect somewhere else.
+ * `ONI_WS_PORT` must fail at the variable, not connect somewhere else.
  */
 function port(raw: string | undefined): number | DesktopConfigError {
   const value = read(raw);
@@ -56,19 +56,19 @@ function port(raw: string | undefined): number | DesktopConfigError {
   if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535) {
     return {
       kind: "desktop_config_error",
-      variable: "OPENOMNI_WS_PORT",
+      variable: "ONI_WS_PORT",
       value,
-      message: `OPENOMNI_WS_PORT is not a port: "${value}" (expected an integer in 0..65535; unset means ${DEFAULT_WS_PORT})`,
+      message: `ONI_WS_PORT is not a port: "${value}" (expected an integer in 0..65535; unset means ${DEFAULT_WS_PORT})`,
     };
   }
   return parsed;
 }
 
 export function resolveGatewayEndpoint(env: DesktopEnv): GatewayEndpoint | DesktopConfigError {
-  const explicit = read(env.OPENOMNI_WS_URL);
+  const explicit = read(env.ONI_WS_URL);
   let url: string;
   if (explicit === undefined) {
-    const resolved = port(env.OPENOMNI_WS_PORT);
+    const resolved = port(env.ONI_WS_PORT);
     if (typeof resolved !== "number") return resolved;
     url = `ws://127.0.0.1:${resolved}${GATEWAY_PATH}`;
   } else {
@@ -76,7 +76,7 @@ export function resolveGatewayEndpoint(env: DesktopEnv): GatewayEndpoint | Deskt
     // invalid value next to a good URL is not an error.
     url = explicit;
   }
-  const token = read(env.OPENOMNI_WS_TOKEN);
+  const token = read(env.ONI_WS_TOKEN);
   return token === undefined ? { url } : { url, token };
 }
 

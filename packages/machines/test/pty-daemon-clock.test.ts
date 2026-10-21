@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
 import { scriptedTmux } from "./helpers/scripted-tmux";
 import { socketPath } from "./helpers/socket-path";

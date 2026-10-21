@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { canonicalDigest, emittedRowKey } from "@openomni/protocol";
+import { canonicalDigest, emittedRowKey } from "@oni/protocol";
 import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
 import { GateComposeError } from "../src/core/gate/points";
 import {

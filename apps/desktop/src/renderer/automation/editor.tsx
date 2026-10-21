@@ -1,5 +1,5 @@
-import { Ingress } from "@openomni/protocol";
-import { ActionButton, Field, Input, Select, Textarea } from "@openomni/ui";
+import { Ingress } from "@oni/protocol";
+import { ActionButton, Field, Input, Select, Textarea } from "@oni/ui";
 import { useState } from "react";
 import type { LocalSession } from "../state/store";
 import { Conditions } from "./conditions";

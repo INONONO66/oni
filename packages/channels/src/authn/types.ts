@@ -1,4 +1,4 @@
-import type { Policy } from "@openomni/protocol";
+import type { Policy } from "@oni/protocol";
 
 interface ChannelAuthnDecision {
   /** The one timing the channel authn seam evaluates at (perimeter admission). */

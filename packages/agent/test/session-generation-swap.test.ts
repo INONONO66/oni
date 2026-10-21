@@ -5,7 +5,7 @@ import { testExecutor } from "./helpers/executor";
 import { expect, test } from "bun:test";
 
 import type { LedgerError } from "../src/core/store/errors";
-import type { AnyToolDefinition, LedgerAction, PlainValue, SessionGeneration } from "@openomni/protocol";
+import type { AnyToolDefinition, LedgerAction, PlainValue, SessionGeneration } from "@oni/protocol";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { z } from "zod";
 import { CommitFailed, AgentFailure, GenerationUnavailable } from "../src/core/ports/failure";

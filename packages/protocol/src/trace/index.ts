@@ -9,7 +9,7 @@ export function traceIdFromUuid(uuid: string): TraceId {
 /**
  * #499: the correlation-header field set. `traceId`/`parentSpanId` correspond
  * to the W3C `traceparent` trace-id / parent-id fields; `sessionId`, `runId`,
- * and `agentName` are OpenOmni correlation dimensions (agentName is
+ * and `agentName` are Oni correlation dimensions (agentName is
  * load-bearing at the ingress/dispatch/run seams). This is protocol-owned and
  * deliberately NOT merged with telemetry's TraceScope (different owner
  * package); the two must stay field-compatible on the traceparent pair.

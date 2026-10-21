@@ -1,5 +1,5 @@
 import { Chat } from "@ai-sdk/react";
-import { SessionRead } from "@openomni/protocol";
+import { SessionRead } from "@oni/protocol";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ServerWebSocket, Server } from "bun";
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -15,7 +15,7 @@ import { testId } from "./helpers/platform";
 
 /**
  * The wire is asserted against a REAL socket, not a stubbed WebSocket. What
- * this file has to prove is that the openomni frames (`receipt`, `message`,
+ * this file has to prove is that the oni frames (`receipt`, `message`,
  * `error`) reduce to the exact chunk sequence the AI SDK reads — and a fake
  * wire would let a wrong sequence pass because it would mirror the
  * implementation. The lifecycle tests inject a controllable socket solely to
@@ -340,12 +340,12 @@ describe("createGatewayChatTransport", () => {
     const transport = createGatewayChatTransport({
     id: testId,
       url,
-      protocols: ["openomni", "bearer.test-token"],
+      protocols: ["oni", "bearer.test-token"],
     });
 
     await collect(await send(transport, [userMessage("connect")]));
 
-    expect(protocols).toEqual(["openomni, bearer.test-token"]);
+    expect(protocols).toEqual(["oni, bearer.test-token"]);
   });
 
   test("ignores malformed frames and retains unsolicited reply correlation", async () => {

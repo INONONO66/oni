@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
-import * as Protocol from "@openomni/protocol";
+import * as Protocol from "@oni/protocol";
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
 import { compileGateRows } from "../../../src/core/gate/compose";
 import { fullPointTable, gateRow } from "../../helpers/gate-rows";

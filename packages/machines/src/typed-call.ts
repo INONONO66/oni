@@ -1,4 +1,4 @@
-import type { Ipc } from "@openomni/protocol";
+import type { Ipc } from "@oni/protocol";
 import type { Effect } from "effect";
 import type { IpcError } from "./ipc/errors";
 import type { IpcClient } from "./ipc/client";

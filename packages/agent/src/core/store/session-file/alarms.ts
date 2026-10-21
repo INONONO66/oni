@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { canonicalJson, PlainObjectSchema } from "@openomni/protocol";
+import { canonicalJson, PlainObjectSchema } from "@oni/protocol";
 import { z } from "zod";
 import { LedgerInvariant } from "../errors";
 import { parsePlainJson } from "../storage/sqlite-l0-rows";

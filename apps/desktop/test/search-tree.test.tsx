@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Highlight } from "@openomni/ui";
+import { Highlight } from "@oni/ui";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
 import { ATTENTION_LABEL, orderByAttention } from "../src/renderer/attention/order";

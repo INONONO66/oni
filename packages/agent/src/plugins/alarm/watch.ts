@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { parsePlainJson } from "../../core/api";
-import { Alarm } from "@openomni/protocol";
+import { Alarm } from "@oni/protocol";
 import { z } from "zod";
 import {
   AlarmWakeError,
@@ -52,7 +52,7 @@ export type WatchHitPayload = z.infer<typeof WatchHitPayload>;
 const WatchTimeoutPayload = z.object({ watchId: z.string().min(1) }).strict();
 
 export class WatchRefused extends Schema.TaggedError<WatchRefused>(
-  "@openomni/agent/plugins/alarm/WatchRefused",
+  "@oni/agent/plugins/alarm/WatchRefused",
 )("WatchRefused", {
   reason: Schema.String,
 }) {}

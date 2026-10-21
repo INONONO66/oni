@@ -1,6 +1,6 @@
 import { beforeEach } from "bun:test";
 import type { ModelMessage, ToolSet } from "ai";
-import type { PlainObject } from "@openomni/protocol";
+import type { PlainObject } from "@oni/protocol";
 import { run, type RunInput } from "./native";
 import type { StreamEvent } from "../../src/processor/stream-events";
 import type { Sink } from "../../src/sink";
@@ -63,7 +63,7 @@ export function useStreamCapture() {
     run(overrides: Partial<RunInput> = {}, output: Sink = capturingSink().sink) {
       return run(
         {
-          authFilePath: "/nonexistent/openomni-test/auth.json",
+          authFilePath: "/nonexistent/oni-test/auth.json",
           trace: {
             traceId: "trace-stream-capture",
             sessionId: "session-stream-capture",

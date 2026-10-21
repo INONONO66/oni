@@ -2,7 +2,7 @@
 
 Created 2026-10-03 (#1272, branch `machines/1272-codemode-package`).
 
-Code-mode package (`@openomni/codemode`): the reusable Python-backed cell runtime shared by the application host and the machine daemon. Owns the code facade (`createCodemode`), machine object handles (`read/write/ls/bash/eval`), one lazy `PythonKernel` per tenant, the cell registry and `cell.run/peek/stop` lifecycle, the Python prelude (machine handles, `parallel`, `completion`, `tool.<name>()` proxies, `browser()`/`BrowserClient` Chromium-over-CDP automation in a `pty.session`, #1275), `listMachines`/`machine`, codemode errors, callback routing, cancellation, and interpreter cleanup. Extracted from `packages/machines/src/codemode/` (#1246 fold reversed by #1272). It must NOT own kernel policy, ledger state, or model-facing rendering — those stay in `packages/agent` and `apps/openomni`.
+Code-mode package (`@oni/codemode`): the reusable Python-backed cell runtime shared by the application host and the machine daemon. Owns the code facade (`createCodemode`), machine object handles (`read/write/ls/bash/eval`), one lazy `PythonKernel` per tenant, the cell registry and `cell.run/peek/stop` lifecycle, the Python prelude (machine handles, `parallel`, `completion`, `tool.<name>()` proxies, `browser()`/`BrowserClient` Chromium-over-CDP automation in a `pty.session`, #1275), `listMachines`/`machine`, codemode errors, callback routing, cancellation, and interpreter cleanup. Extracted from `packages/machines/src/codemode/` (#1246 fold reversed by #1272). It must NOT own kernel policy, ledger state, or model-facing rendering — those stay in `packages/agent` and `apps/oni`.
 
 ## STRUCTURE
 
@@ -16,7 +16,7 @@ src/
 
 ## DEPENDENCIES
 
-`@openomni/protocol` and `@openomni/machines` (the structural host/daemon contracts: `CodeRunner`, `MachineHost`, `MachineHandle`, `MachineInfo`, `MachinesFailure`, `onAbort`), plus `effect@4.0.0-rc.118` (exact pin) and `zod` — enforced by `script/check-deps.ts`. Consumers: `apps/openomni` only.
+`@oni/protocol` and `@oni/machines` (the structural host/daemon contracts: `CodeRunner`, `MachineHost`, `MachineHandle`, `MachineInfo`, `MachinesFailure`, `onAbort`), plus `effect@4.0.0-rc.118` (exact pin) and `zod` — enforced by `script/check-deps.ts`. Consumers: `apps/oni` only.
 
 ## KEY PATTERNS
 
@@ -32,8 +32,8 @@ src/
 
 ## ANTI-PATTERNS
 
-- Do NOT add kernel/ledger/policy, model rendering, or product-app imports — the dependency band is `@openomni/protocol` + `@openomni/machines` only.
+- Do NOT add kernel/ledger/policy, model rendering, or product-app imports — the dependency band is `@oni/protocol` + `@oni/machines` only.
 - Do NOT put message schemas here; they belong in `packages/protocol`.
-- Do NOT deep-import `@openomni/machines/src/*`; use the package barrel.
+- Do NOT deep-import `@oni/machines/src/*`; use the package barrel.
 - Do NOT add per-domain untyped-fallback error classes; `MachinesFailure` stays the single fallback (`src/failure.ts`).
 - Do NOT call `Effect.run*` in package tests outside the machines runner-owner helpers, and never in `src/` — the boundary checker owns both rules.

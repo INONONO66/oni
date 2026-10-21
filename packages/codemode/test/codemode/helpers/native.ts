@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import { createCodemode as create } from "../../../src";
 import { PythonKernel as NativeKernel } from "../../../src/kernel";
 import { decodeCodeFailure } from "../../../src/failure";

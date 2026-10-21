@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { expect, test } from "bun:test";
-import { type Channel, Gateway, Operational } from "@openomni/protocol";
+import { type Channel, Gateway, Operational } from "@oni/protocol";
 import { createWebhookProvider } from "../src/provider/webhook/provider";
 import { verifyWebhook } from "../src/provider/webhook/verify";
 import { injectedOptions } from "./helpers/injected";

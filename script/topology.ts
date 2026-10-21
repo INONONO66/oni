@@ -44,20 +44,20 @@ export interface WorkspaceTopology {
  * #1246 merged ten packages into five: ipc and codemode folded into machines,
  * policy/ledger/llm folded into agent, and the channel-facing stores moved
  * into channels. #1272 extracted code mode back out as the sixth package.
- * #1352 extracted the model-call layer as `@openomni/llm`; the agent core
+ * #1352 extracted the model-call layer as `@oni/llm`; the agent core
  * declares the port and only the app binds the package. The import direction
  * (right imports left) is:
- * protocol <- agent, llm, machines, channels, apps/openomni, apps/desktop;
- * agent <- channels, apps/openomni; llm <- apps/openomni;
- * machines <- codemode, apps/openomni; codemode <- apps/openomni;
- * channels <- apps/openomni; ui <- apps/desktop.
+ * protocol <- agent, llm, machines, channels, apps/oni, apps/desktop;
+ * agent <- channels, apps/oni; llm <- apps/oni;
+ * machines <- codemode, apps/oni; codemode <- apps/oni;
+ * channels <- apps/oni; ui <- apps/desktop.
  */
 export const TOPOLOGY = [
   {
     key: "protocol",
     displayName: "protocol",
     dir: "packages/protocol",
-    packageName: "@openomni/protocol",
+    packageName: "@oni/protocol",
     allowedDeps: "none",
     testLane: true,
     coverageLane: true,
@@ -68,8 +68,8 @@ export const TOPOLOGY = [
     key: "agent",
     displayName: "agent",
     dir: "packages/agent",
-    packageName: "@openomni/agent",
-    allowedDeps: ["@openomni/protocol"],
+    packageName: "@oni/agent",
+    allowedDeps: ["@oni/protocol"],
     testLane: true,
     coverageLane: true,
     knipWorkspace: true,
@@ -81,11 +81,11 @@ export const TOPOLOGY = [
     key: "llm",
     displayName: "llm",
     dir: "packages/llm",
-    packageName: "@openomni/llm",
+    packageName: "@oni/llm",
     // The model-call layer (#1352): provider adapters, stream processing and
     // accounting over the ai SDK. It knows protocol only; the agent core
     // declares the port it satisfies and never imports it.
-    allowedDeps: ["@openomni/protocol"],
+    allowedDeps: ["@oni/protocol"],
     testLane: true,
     coverageLane: true,
     knipWorkspace: true,
@@ -95,8 +95,8 @@ export const TOPOLOGY = [
     key: "machines",
     displayName: "machines",
     dir: "packages/machines",
-    packageName: "@openomni/machines",
-    allowedDeps: ["@openomni/protocol"],
+    packageName: "@oni/machines",
+    allowedDeps: ["@oni/protocol"],
     testLane: true,
     // #945 adds the first measured, shrink-only coverage floor.
     coverageLane: true,
@@ -107,10 +107,10 @@ export const TOPOLOGY = [
     key: "codemode",
     displayName: "codemode",
     dir: "packages/codemode",
-    packageName: "@openomni/codemode",
+    packageName: "@oni/codemode",
     // The shared Python-backed cell runtime (#1272): it consumes the machines
     // structural host/daemon contracts and protocol schemas, nothing else.
-    allowedDeps: ["@openomni/protocol", "@openomni/machines"],
+    allowedDeps: ["@oni/protocol", "@oni/machines"],
     testLane: true,
     coverageLane: true,
     knipWorkspace: true,
@@ -120,27 +120,27 @@ export const TOPOLOGY = [
     key: "channels",
     displayName: "channels",
     dir: "packages/channels",
-    packageName: "@openomni/channels",
+    packageName: "@oni/channels",
     // Agent carries the policy gate and persistence seams absorbed in #1246;
     // the channels judgment and store bands consume them through the barrel.
-    allowedDeps: ["@openomni/protocol", "@openomni/agent"],
+    allowedDeps: ["@oni/protocol", "@oni/agent"],
     testLane: true,
     coverageLane: true,
     knipWorkspace: true,
     tsconfigVerify: true,
   },
   {
-    key: "openomniApp",
-    displayName: "openomni app",
-    dir: "apps/openomni",
-    packageName: "@openomni/app",
+    key: "oniApp",
+    displayName: "oni app",
+    dir: "apps/oni",
+    packageName: "@oni/app",
     allowedDeps: [
-      "@openomni/protocol",
-      "@openomni/channels",
-      "@openomni/agent",
-      "@openomni/llm",
-      "@openomni/machines",
-      "@openomni/codemode",
+      "@oni/protocol",
+      "@oni/channels",
+      "@oni/agent",
+      "@oni/llm",
+      "@oni/machines",
+      "@oni/codemode",
     ],
     testLane: true,
     coverageLane: true,
@@ -152,7 +152,7 @@ export const TOPOLOGY = [
     key: "ui",
     displayName: "ui design system",
     dir: "packages/ui",
-    packageName: "@openomni/ui",
+    packageName: "@oni/ui",
     // None, and that is the whole rule: the design system may not depend on the
     // app it dresses, nor on any kernel package. It owns tokens, primitives,
     // window chrome, the transcript's presentation, and the one `Console`
@@ -168,10 +168,10 @@ export const TOPOLOGY = [
     key: "desktopApp",
     displayName: "desktop app",
     dir: "apps/desktop",
-    packageName: "@openomni/desktop",
-    // `@openomni/ui` is the renderer's design system: it renders `Console` and
+    packageName: "@oni/desktop",
+    // `@oni/ui` is the renderer's design system: it renders `Console` and
     // composes primitives, and names no color of its own.
-    allowedDeps: ["@openomni/protocol", "@openomni/ui"],
+    allowedDeps: ["@oni/protocol", "@oni/ui"],
     testLane: true,
     // #945 adds the first measured source floor for the desktop lane.
     coverageLane: true,

@@ -1,6 +1,6 @@
 import { ledger, resetLedger } from "../helpers/ledger";
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { Ingress, SessionTransition } from "@openomni/protocol";
+import type { Ingress, SessionTransition } from "@oni/protocol";
 import * as Matcher from "../../src/router/request/matcher";
 
 type ResponderTarget = Parameters<typeof Matcher.responderCandidates>[0][number];

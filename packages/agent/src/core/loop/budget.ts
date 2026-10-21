@@ -1,5 +1,5 @@
-import type { BusEvent, FoldCheckpoint } from "@openomni/protocol";
-import { Actor, Operational } from "@openomni/protocol";
+import type { BusEvent, FoldCheckpoint } from "@oni/protocol";
+import { Actor, Operational } from "@oni/protocol";
 import type { AgentBudget, ResolvedAgentBudget } from "../ports/types";
 
 export interface BudgetState {

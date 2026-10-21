@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { Actor, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { Actor, type Storage as ProtocolStorage } from "@oni/protocol";
 import { sqliteJsonData } from "./json";
 
 const BlacklistRow = sqliteJsonData(Actor.BlacklistEntry);

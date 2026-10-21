@@ -24,7 +24,7 @@ import { Database } from "bun:sqlite";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { L0Write } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
-import type { Delivery, ObservationSink } from "@openomni/protocol";
+import type { Delivery, ObservationSink } from "@oni/protocol";
 import { Clock, Context, Crypto, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { openCatalogStore } from "../../src/core/store/catalog";
@@ -165,7 +165,7 @@ export function blockingRunner(onEnter: (turnId: string) => void): TestTurnRunne
 
 /** The options handle send helpers resolve for on-demand session provisioning. */
 class TestClusterEnv extends Context.Service<TestClusterEnv, TestClusterOptions>()(
-  "@openomni/agent-test/TestClusterEnv",
+  "@oni/agent-test/TestClusterEnv",
 ) {}
 
 /** Bun webcrypto-backed Crypto service (platform-bun is not a workspace dep). */

@@ -1,10 +1,10 @@
 {
-  "name": "openomni",
+  "name": "oni",
   "version": "0.1.0",
   "description": "Single-Owner Agent OS — one Resident, isolated Workers, one ledger",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/INONONO66/openomni.git"
+    "url": "git+https://github.com/INONONO66/oni.git"
   },
   "scripts": {
     "build": "turbo run build",

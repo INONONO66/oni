@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { z } from "zod";
 import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import { ActionSqlRowSafeIntegers } from "../storage/sqlite-l0-rows.js";

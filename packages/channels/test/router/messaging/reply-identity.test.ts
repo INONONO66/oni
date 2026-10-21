@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { type ConversationBinding, createReplyMessaging } from "../../../src/router/messaging/reply";
 import { unconfiguredChannelStores } from "../../../src/router/stores";
 import { effectFailure } from "../../helpers/effect-failure";

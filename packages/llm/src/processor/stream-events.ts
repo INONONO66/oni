@@ -1,4 +1,4 @@
-import type { Message, PlainObject, Transcript } from "@openomni/protocol";
+import type { Message, PlainObject, Transcript } from "@oni/protocol";
 import type { Sink } from "../sink";
 import { appendPart, advancePart, handleToolCall, handleToolResult } from "./tool-events";
 import { TokenTracker, type EstimateUsage } from "../token";

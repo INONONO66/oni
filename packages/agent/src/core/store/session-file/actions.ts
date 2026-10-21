@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { LedgerAction, type ObservationSink, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { LedgerAction, type ObservationSink, type Storage as ProtocolStorage } from "@oni/protocol";
 import { appendAction, type AppendLimits } from "../storage/sqlite-l0-write.js";
 import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
 import { createActionReads } from "./reads";

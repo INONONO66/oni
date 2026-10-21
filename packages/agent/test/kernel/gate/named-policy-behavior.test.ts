@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import { compilePolicySnapshot } from "../../../src/core/gate/compile";
 import { atGeneration, compaction, draft } from "./row-fixtures";
 

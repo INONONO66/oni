@@ -1,4 +1,4 @@
-import { Operational, PlainObjectSchema, type Tool } from "@openomni/protocol";
+import { Operational, PlainObjectSchema, type Tool } from "@oni/protocol";
 import {
   jsonSchema,
   isStepCount,

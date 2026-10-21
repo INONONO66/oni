@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 import { WebSocketHandler } from "../src/websocket";
 import { runEffect } from "./helpers/effect";
 import { testWebSocketId } from "./helpers/websocket-server";

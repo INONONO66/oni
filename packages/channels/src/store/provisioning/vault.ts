@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, type DecipherGCM } from "node:crypto";
 import { inspect } from "node:util";
-import { Provisioning } from "@openomni/protocol";
+import { Provisioning } from "@oni/protocol";
 
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;

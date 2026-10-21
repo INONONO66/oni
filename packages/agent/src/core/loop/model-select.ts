@@ -1,4 +1,4 @@
-import type { Model } from "@openomni/protocol";
+import type { Model } from "@oni/protocol";
 
 const ADVANCING_FAILURES: ReadonlySet<string> = new Set([
   "timeout",

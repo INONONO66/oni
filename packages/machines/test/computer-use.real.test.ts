@@ -7,9 +7,9 @@ import { run } from "./ipc/helpers/effects";
 /**
  * Opt-in real-surface check (#1274): exercises the actual screencapture/sips
  * pipeline, so it needs Screen Recording permission for the test terminal.
- * Enable with OPENOMNI_REAL_SCREEN=1; CI never sets it.
+ * Enable with ONI_REAL_SCREEN=1; CI never sets it.
  */
-const enabled = process.env.OPENOMNI_REAL_SCREEN === "1";
+const enabled = process.env.ONI_REAL_SCREEN === "1";
 
 test.skipIf(!enabled)("captures the real screen within the byte cap", async () => {
   let n = 0;

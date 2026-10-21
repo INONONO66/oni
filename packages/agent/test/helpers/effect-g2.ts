@@ -10,12 +10,12 @@ import { type ChatFixture as ChatAgentConfig, fixtureConfigHead, fixtureTraceCon
 import type { SessionFixture as SessionRuntime } from "./session-services";
 import { createSessionChatRunner } from "../../src/core/session/run";
 import { createTurnDispatcher } from "../../src/plugins/tool";
-import type { AnyToolDefinition } from "@openomni/protocol";
+import type { AnyToolDefinition } from "@oni/protocol";
 import type { RunInput, RunResult } from "../../src/core/ports/llm";
 import type {} from "../../src/core/session/run";
 import type { SessionRunnerInput, SessionRunnerResult } from "../../src/core/session/run";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import type { LedgerAction, SessionTransition } from "@openomni/protocol";
+import type { LedgerAction, SessionTransition } from "@oni/protocol";
 import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
 import type { ChatAgentInput } from "../../src/core/ports/types";
 import type { LlmSink as Sink } from "../../src/core/ports/llm";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { canonicalDigest, type PlainValue, RowVerdict, RowVerdictRead, PolicyRow, type Storage } from "@openomni/protocol";
+import { canonicalDigest, type PlainValue, RowVerdict, RowVerdictRead, PolicyRow, type Storage } from "@oni/protocol";
 import { compilePolicySnapshot, createHandlerTable, KERNEL_POLICY_REGISTRY, HandlerTableError, SEEDED_POLICY_ROWS, type ConsultInput } from "../../../src/core/gate/compile";
 import { atGeneration, compaction, draft, withPolicyRows, type PolicyRowDraft } from "./row-fixtures";
 import { runTestPromise } from "../../helpers/isolated";

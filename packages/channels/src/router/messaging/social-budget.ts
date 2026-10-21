@@ -1,4 +1,4 @@
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 
 /**
  * Active-egress budget evaluation (#219, gateway router perimeter). A PURE fold

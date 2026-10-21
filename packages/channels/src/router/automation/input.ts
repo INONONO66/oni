@@ -1,4 +1,4 @@
-import { Channel, type Gateway, Ingress } from "@openomni/protocol";
+import { Channel, type Gateway, Ingress } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { resolveChannelGrant } from "../channel-grant.js";
 import { inboundIdOf } from "../inbound-id.js";

@@ -1,7 +1,7 @@
 import { isolated } from "../../helpers/isolated";
 import { providerFailure } from "../../helpers/mock-llm";
 import { describe, expect, it } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { RunEvents } from "../../../src/core/loop/turn";
 import { runTestAgent } from "../../helpers/effect-g2";
 import { bounded } from "../../helpers/bounded";

@@ -1,16 +1,16 @@
 import { Database, SQLiteError } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ObservationSink, Storage as ProtocolStorage } from "@openomni/protocol";
+import type { ObservationSink, Storage as ProtocolStorage } from "@oni/protocol";
 import { z } from "zod";
-import { LedgerSession } from "@openomni/protocol";
+import { LedgerSession } from "@oni/protocol";
 import { CatalogUpgradeRefused, CatalogVersionRefused, SessionNotFound } from "./errors";
 import { bootstrapStoreDatabase, SILENT_OBSERVATION_SINK, StoreHandle } from "./session-file/index.js";
 import { createPolicies } from "./storage/sqlite-l0-policies.js";
 
 /**
  * The only catalog schema owner: the session index with its CAS-rotated fence
- * plus policy rows. Channel-facing tables are owned by `@openomni/channels`
+ * plus policy rows. Channel-facing tables are owned by `@oni/channels`
  * and attach to the same handle; the `cluster_*` tables are effect/cluster's.
  * There is no migration plane and the legacy `catalog.db` is never read.
  */

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ActionButton } from "@openomni/ui";
+import { ActionButton } from "@oni/ui";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AutomationView } from "../src/renderer/automation/view";

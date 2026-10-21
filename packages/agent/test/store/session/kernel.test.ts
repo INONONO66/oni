@@ -7,10 +7,10 @@ import { Effect, Result } from "effect";
 import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { type BusEvent, type LedgerAction, type LedgerSession, L0Observation, type SessionGeneration, SessionTurn, } from "@openomni/protocol";
+import { type BusEvent, type LedgerAction, type LedgerSession, L0Observation, type SessionGeneration, SessionTurn, } from "@oni/protocol";
 import { Bus } from "../helpers/observation";
 
-import type { ObservationSink } from "@openomni/protocol";
+import type { ObservationSink } from "@oni/protocol";
 import { useMemoryStores } from "../helpers/storage";
 import { adoptWriter } from "../helpers/session";
 

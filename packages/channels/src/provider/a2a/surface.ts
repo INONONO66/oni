@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { type Channel, type Gateway, Operational, Outbound, type PlainValue } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, Outbound, type PlainValue } from "@oni/protocol";
 import { Duration, Effect } from "effect";
 import type { DeliveryReceipt } from "../../support/deliver";
 import { requireHandler } from "../../support/handler-frame";

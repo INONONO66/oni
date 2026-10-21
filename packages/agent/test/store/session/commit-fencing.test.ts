@@ -1,7 +1,7 @@
 import { sessionTree } from "../helpers/session-tree";
 import { Effect, Result } from "effect";
 import { expect, test } from "bun:test";
-import type { LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { LedgerAction, LedgerSession } from "@oni/protocol";
 import { runLedgerSync } from "../helpers/effect";
 import { materializeRow, residentRow } from "../helpers/ledger";
 import { useMemoryStores } from "../helpers/storage";

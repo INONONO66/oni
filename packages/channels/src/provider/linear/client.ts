@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Operational, type PlainValue } from "@openomni/protocol";
+import { Operational, type PlainValue } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent } from "../../errors";
 import type { DeliveryReceipt } from "../../support/deliver";
@@ -209,7 +209,7 @@ export class LinearClient {
         headers: {
           Authorization: this.token,
           "Content-Type": "application/json",
-          "User-Agent": "openomni-server",
+          "User-Agent": "oni-server",
         },
         body: JSON.stringify({ query, variables }),
       },

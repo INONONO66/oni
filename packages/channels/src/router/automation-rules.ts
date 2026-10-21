@@ -1,4 +1,4 @@
-import { type Gateway, Ingress } from "@openomni/protocol";
+import { type Gateway, Ingress } from "@oni/protocol";
 import { matchPerimeterRules, type PerimeterPosture } from "../automation/rules.js";
 import type { ChannelStores } from "./stores.js";
 import type { GatewayRouterPorts } from "./message-ports.js";

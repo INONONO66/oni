@@ -28,13 +28,13 @@ test("store write receipts are the ok arms of the protocol results", () => {
 test("every production Tag is consumed or has an exact existing-debt receipt", () => {
   const inventory = effectServiceInventory();
   expect(inventory.map((service: ServiceUsage) => service.key)).toEqual(expect.arrayContaining([
-    "@openomni/agent/Entropy", "@openomni/agent/ObservationSink",
-    "@openomni/agent/SessionLayer", "@openomni/agent/ToolCatalog",
-    "@openomni/agent/Llm",
+    "@oni/agent/Entropy", "@oni/agent/ObservationSink",
+    "@oni/agent/SessionLayer", "@oni/agent/ToolCatalog",
+    "@oni/agent/Llm",
   ]));
   expect(inventory.map((service: ServiceUsage) => service.key)).not.toEqual(expect.arrayContaining([
-    "@openomni/machines/Ipc", "@openomni/machines/Machines", "@openomni/machines/Codemode", "@openomni/channels/WebSocketFrames",
-    "@openomni/agent/LedgerWrites",
+    "@oni/machines/Ipc", "@oni/machines/Machines", "@oni/machines/Codemode", "@oni/channels/WebSocketFrames",
+    "@oni/agent/LedgerWrites",
   ]));
   const debt = checkEffectBoundaryFindings().filter((entry: BoundaryFinding) => entry.code === "R9_UNUSED_TAG");
   expect(debt.filter((entry: BoundaryFinding) => entry.failing)).toEqual([]);

@@ -189,7 +189,7 @@ test("complexity parses the pinned Biome JSON diagnostic shape", () => {
 });
 
 const metricContract: TypescriptMetricContract = {
-  algorithm: "openomni-typescript-function-metrics-v1",
+  algorithm: "oni-typescript-function-metrics-v1",
   tool: "typescript",
   version: "5.9.2",
   coverage: "lcov-da-line-fraction-v1",
@@ -371,7 +371,7 @@ test("collector combines typed census and isolated lane receipts, preserving mis
   expect(partial.missingLanes).toHaveLength(auditLanes().length);
   expect(partial.complete).toBe(false);
   expect(partial.totals.types).toBe(1);
-  expect(partial.runUrl).toBe(`https://github.com/INONONO66/openomni/commit/${"a".repeat(40)}`);
+  expect(partial.runUrl).toBe(`https://github.com/INONONO66/oni/commit/${"a".repeat(40)}`);
   for (const lane of auditLanes()) {
     await Bun.write(
       join(root, `coverage-${lane.key}`, "lcov.info"),

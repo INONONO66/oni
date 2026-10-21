@@ -11,7 +11,7 @@ import {
   type RunInput,
   type LlmSink,
 } from "../../src/core/ports/llm";
-import type { Model } from "@openomni/protocol";
+import type { Model } from "@oni/protocol";
 import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";
 import { runInput } from "../helpers/run-input";
@@ -98,7 +98,7 @@ function run(port: LlmPort, observed: Scripted) {
 
 describe("the core llm port", () => {
   it("keeps the binding key the composition root has always bound", () => {
-    expect(Llm.key).toBe("@openomni/agent/Llm");
+    expect(Llm.key).toBe("@oni/agent/Llm");
   });
 
   it("hands the port the attempt's own facts: the failure, its billed usage, the resolved window and the clock", async () => {

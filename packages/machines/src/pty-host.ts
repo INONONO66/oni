@@ -1,4 +1,4 @@
-import { Machine, type Ipc } from "@openomni/protocol";
+import { Machine, type Ipc } from "@oni/protocol";
 import { Effect } from "effect";
 import type { MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";

@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { Effect } from "effect";
-import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { defineBundle, Manifest } from "../src/core/ports/capability";
 import { compose, ComposeRefused } from "../src/core/composition/compose";
 import { ApprovalPolicyPort } from "../src/core/composition/approval-policy";
@@ -89,5 +89,5 @@ it("a manifest whose bundles require the approval-policy seam with no provider r
   const refused = await runTestPromise(Effect.flip(compose(manifest)));
   expect(refused).toBeInstanceOf(ComposeRefused);
   expect(refused.code).toBe("seam_missing");
-  expect(refused.detail).toBe("@openomni/approval/ApprovalPolicy");
+  expect(refused.detail).toBe("@oni/approval/ApprovalPolicy");
 });

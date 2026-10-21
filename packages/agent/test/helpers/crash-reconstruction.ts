@@ -7,7 +7,7 @@ import { GenerationHandlers } from "../../src/core/composition/compose";
 import { AgentGenerationLive } from "./generation-layer";
 import { makeSessionGenerations } from "../../src/core/session/run";
 
-import { canonicalDigest, FoldCheckpoint, Message, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@openomni/protocol";
+import { canonicalDigest, FoldCheckpoint, Message, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@oni/protocol";
 import { z } from "zod";
 import { computeActionHash, GENESIS_PREV_HASH } from "../../src/core/store/session-file";
 import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
@@ -273,11 +273,11 @@ function restartGenerations(captures: number[], missing: boolean) {
         settle: owner.settle,
         drain: owner.drain,
         configure: <A>(
-          _id: import("@openomni/protocol").SessionGeneration.Id,
-          _snapshot: import("@openomni/protocol").SessionGeneration.Snapshot,
+          _id: import("@oni/protocol").SessionGeneration.Id,
+          _snapshot: import("@oni/protocol").SessionGeneration.Snapshot,
           commit: Effect.Effect<A, import("../../src/core/ports/failure").SessionError>,
         ) => commit,
-        capture: (id: import("@openomni/protocol").SessionGeneration.Id) => {
+        capture: (id: import("@oni/protocol").SessionGeneration.Id) => {
           captures.push(id.generation);
           return id.generation === snapshot.generation
             ? owner.capture()

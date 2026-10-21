@@ -1,5 +1,5 @@
 import { messageSource } from "./message-source";
-import type { Message, PlainObject } from "@openomni/protocol";
+import type { Message, PlainObject } from "@oni/protocol";
 import { createAssistantMessage } from "../../src/core/journal/message-factory";
 
 export function assistantTextSnapshot(text: string, input: number, output: number): Message.WithParts {

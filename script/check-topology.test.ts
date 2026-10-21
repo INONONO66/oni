@@ -26,8 +26,8 @@ const phantom: WorkspaceTopology = {
   key: "phantom",
   displayName: "phantom",
   dir: "packages/phantom",
-  packageName: "@openomni/phantom",
-  allowedDeps: ["@openomni/protocol"],
+  packageName: "@oni/phantom",
+  allowedDeps: ["@oni/protocol"],
   testLane: true,
   // Explicitly skipped just like machines: coverage still has to account for
   // the workspace and reject its missing package boundary.
@@ -98,7 +98,7 @@ const damagedConsumers: readonly {
     name: "dependency target",
     affected: ["dependency-bands"],
     damage(_root, workspace) {
-      return { ...workspace, allowedDeps: ["@openomni/missing"] };
+      return { ...workspace, allowedDeps: ["@oni/missing"] };
     },
   },
   {
@@ -165,11 +165,11 @@ describe("topology conformance", () => {
 
   test("the app lane alone has a bounded test step", () => {
     const steps = ciTestSteps(TOPOLOGY);
-    expect(steps).toContain("name: Test (openomni app)\n        if: matrix.key == 'openomniApp'\n        timeout-minutes: 10\n");
+    expect(steps).toContain("name: Test (oni app)\n        if: matrix.key == 'oniApp'\n        timeout-minutes: 10\n");
     // Exactly one bounded step: the app lane. Every other workspace declares no deadline.
     expect(steps.match(/timeout-minutes:/g)).toHaveLength(1);
     const bounded: readonly WorkspaceTopology[] = TOPOLOGY;
-    expect(bounded.filter((workspace) => workspace.ciTestTimeoutMinutes !== undefined).map((workspace) => workspace.key)).toEqual(["openomniApp"]);
+    expect(bounded.filter((workspace) => workspace.ciTestTimeoutMinutes !== undefined).map((workspace) => workspace.key)).toEqual(["oniApp"]);
   });
 
   test("generated dependency rows preserve manifest and source bands", () => {
@@ -178,7 +178,7 @@ describe("topology conformance", () => {
       ...phantom,
       key: "consumer",
       dir: "apps/consumer",
-      packageName: "@openomni/consumer",
+      packageName: "@oni/consumer",
       allowedDeps: [base.packageName],
       srcAllowedDeps: [],
     };

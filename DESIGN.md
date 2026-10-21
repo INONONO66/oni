@@ -384,7 +384,7 @@ tests; the corrected explicit-path command ran once and passed.
 All commands above use the pinned mise Bun invocation. I initially ran tsc
 and lint concurrently with rebuilding, which was incorrect: build deletes
 workspace `dist` before recreating it and emits a temporary Electron config.
-Tsc then reported missing `@openomni/protocol` declarations, and lint reported
+Tsc then reported missing `@oni/protocol` declarations, and lint reported
 `noVar` on `apps/desktop/electron.vite.config.1789190744678.mjs:5`. These were
 verification scheduling failures, not pre-existing source defects. No source
 was changed or warning suppressed; both validators passed after build had

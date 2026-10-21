@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
-import { PlainValueSchema } from "@openomni/protocol";
+import { PlainValueSchema } from "@oni/protocol";
 import { clusterTempDir, runCluster, sendRead } from "./helpers/cluster-runtime";
 import { runAgent } from "./helpers/executor";
 import { fencedSession } from "./helpers/seeded-session";

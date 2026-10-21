@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { isolated } from "../../helpers/isolated";
 import { createTestAgent } from "../../helpers/effect-g1";
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { Tool } from "@openomni/protocol";
+import type { Tool } from "@oni/protocol";
 import { defineTool } from "../../../src/core/loop/tool";
 import { createDispatcher } from "../../../src/plugins/tool";
 import { Bus } from "../../helpers/bus";

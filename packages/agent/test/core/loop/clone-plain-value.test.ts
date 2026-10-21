@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import { clonePlainValue } from "../../../src/core/loop/record";
 
 const vectors: readonly PlainValue[] = [

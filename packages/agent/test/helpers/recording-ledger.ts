@@ -1,4 +1,4 @@
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { Effect } from "effect";
 import { fixtureHashes } from "./compiled-policy";
 

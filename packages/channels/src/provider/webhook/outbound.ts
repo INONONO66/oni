@@ -106,7 +106,7 @@ export function createWebhookSender(deps: {
             headers: {
               "content-type": "application/json",
               "x-signature": signWebhookBody(input.body, input.secret),
-              "x-openomni-delivery": input.idempotencyKey,
+              "x-oni-delivery": input.idempotencyKey,
             },
             body: input.body,
             signal: AbortSignal.timeout(timeoutMs),

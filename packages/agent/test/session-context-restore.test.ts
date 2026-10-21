@@ -7,7 +7,7 @@ import { nth } from "./helpers/nth";
 import { answerThenCompact } from "./helpers/effect-g2";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 
-import type { LedgerAction, Message, PlainObject } from "@openomni/protocol";
+import type { LedgerAction, Message, PlainObject } from "@oni/protocol";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import type { SessionRunner } from "../src/core/session/run";
 import { Bus } from "./helpers/bus";

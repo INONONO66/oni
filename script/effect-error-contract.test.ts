@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect, Result } from "effect";
 import ts from "typescript";
-import { runSyncEffect } from "../apps/openomni/test/helpers/effect";
+import { runSyncEffect } from "../apps/oni/test/helpers/effect";
 import * as Agent from "../packages/agent/src/core/ports/failure";
 import * as Llm from "../packages/llm/src/errors";
 import * as CoreLlm from "../packages/agent/src/core/ports/llm";

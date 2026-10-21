@@ -2,9 +2,9 @@
 
 ## Root Claim
 
-**OpenOmni is a single-Owner Agent OS.** The Owner talks to one shell — the Resident, a judgment partner, not a command prompt — may attach directly to any process (Worker) when useful, and the kernel isolates, observes, and verifies everything that runs.
+**Oni is a single-Owner Agent OS.** The Owner talks to one shell — the Resident, a judgment partner, not a command prompt — may attach directly to any process (Worker) when useful, and the kernel isolates, observes, and verifies everything that runs.
 
-The OS framing is not a metaphor; it is the structure. Where the metaphor breaks is deliberate: a real shell never talks back. OpenOmni's shell challenges the Owner with evidence. The OS half targets isolation, observation, and evidence-backed verification; the Resident half supplies judgment and dissent. [Implementation Status](implementation-status.md) alone records current enforcement.
+The OS framing is not a metaphor; it is the structure. Where the metaphor breaks is deliberate: a real shell never talks back. Oni's shell challenges the Owner with evidence. The OS half targets isolation, observation, and evidence-backed verification; the Resident half supplies judgment and dissent. [Implementation Status](implementation-status.md) alone records current enforcement.
 
 ## The Kernel — Three Primitives
 
@@ -47,13 +47,13 @@ One consequence worth stating plainly: **hidden work is forbidden; isolated work
 
 ## Why Not an Existing Agent
 
-OpenClaw-class companions execute when told; Hermes-class companions self-improve through agent-curated memory. OpenOmni is neither's competitor — it is the layer beneath them. Both make excellent Workers *inside* OpenOmni. What neither can be retrofitted into:
+OpenClaw-class companions execute when told; Hermes-class companions self-improve through agent-curated memory. Oni is neither's competitor — it is the layer beneath them. Both make excellent Workers *inside* Oni. What neither can be retrofitted into:
 
 1. **Executor and judge share one context there.** "It's done" is a self-report from the same context that did the work. An evidence gate requires a judging context outside the executing session — an architecture, not a prompt.
 2. **Self-improvement compounds self-report bias.** An agent grading its own work and writing the grade into its own memory turns bias into operational knowledge. The empirical result behind our Governor design (Meta-Harness, arXiv:2603.28052) shows summary-fed improvement loops are the losing ablation; independent proposers reading raw traces win decisively.
 3. **No accounting layer.** The moment agents spend money, message people, and speak in your name, the binding need is not execution but a process table, an audit log, and an authority model over arbitrary actors — humans included.
 
-The honest caveat: these advantages are structural claims, and structure only pays off when stakes are real. The falsifiable version of this section — including the criterion under which we would abandon OpenOmni and adopt an off-the-shelf companion — lives in [Bets and Kill Criteria](bets-and-kill-criteria.md).
+The honest caveat: these advantages are structural claims, and structure only pays off when stakes are real. The falsifiable version of this section — including the criterion under which we would abandon Oni and adopt an off-the-shelf companion — lives in [Bets and Kill Criteria](bets-and-kill-criteria.md).
 
 ## What This Is Not
 

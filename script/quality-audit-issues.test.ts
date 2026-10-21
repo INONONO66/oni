@@ -211,7 +211,7 @@ test("CI dispatcher fails the build and type gates when their subprocess fails",
     expect(() => ciMain(["check-types"])).toThrow("CI failed: bunx turbo run check-types");
     expect(calls).toEqual([
       [process.execPath, "run", "build"],
-      [process.execPath, "x", "turbo", "run", "check-types", "--only", "--filter=@openomni/ui", "--filter=@openomni/desktop"],
+      [process.execPath, "x", "turbo", "run", "check-types", "--only", "--filter=@oni/ui", "--filter=@oni/desktop"],
     ]);
   } finally {
     spawn.mockRestore();
@@ -298,8 +298,8 @@ test("CI planner rejects invalid workspace boundaries and undeclared dependencie
     { ...workspace, key: "bad key" },
   ])).toThrow("invalid topology workspace boundary");
   expect(() => planChanges(["README.md"], false, [
-    { ...workspace, key: "valid", allowedDeps: ["@openomni/missing"] },
-  ])).toThrow("unknown topology dependency: @openomni/missing");
+    { ...workspace, key: "valid", allowedDeps: ["@oni/missing"] },
+  ])).toThrow("unknown topology dependency: @oni/missing");
   expect(() => planChanges(["README.md"], false, [
     workspace, { ...workspace, key: "another", dir: "packages/other" },
   ])).toThrow("topology workspace names, keys and directories must be unique");

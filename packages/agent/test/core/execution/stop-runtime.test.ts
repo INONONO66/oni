@@ -6,7 +6,7 @@ import { Effect, Queue } from "effect";
 import { expect, test } from "bun:test";
 import { SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
 import { z } from "zod";
-import type { PolicyRow } from "@openomni/protocol";
+import type { PolicyRow } from "@oni/protocol";
 import { closeSessions } from "../../../src/core/session/run";
 import { session } from "../../../src/testing/registry";
 import { defineTool, eraseTool, projectTools, } from "../../../src/core/loop/tool";

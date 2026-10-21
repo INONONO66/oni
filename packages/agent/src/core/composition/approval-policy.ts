@@ -19,4 +19,4 @@ export interface ApprovalRecentOpen {
   readonly windowMs: number;
 }
 
-export const ApprovalPolicyPort: PortTag = port("@openomni/approval/ApprovalPolicy");
+export const ApprovalPolicyPort: PortTag = port("@oni/approval/ApprovalPolicy");

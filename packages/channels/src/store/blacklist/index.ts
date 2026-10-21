@@ -1,5 +1,5 @@
-import { Actor, type Storage as ProtocolStorage } from "@openomni/protocol";
-import { requireSubAdapter, withStoreTimestamps } from "@openomni/agent";
+import { Actor, type Storage as ProtocolStorage } from "@oni/protocol";
+import { requireSubAdapter, withStoreTimestamps } from "@oni/agent";
 
 /** Raw blacklist fact storage over one catalog handle. Active-pattern matching belongs to channels. */
 export function createBlacklistStore(source: {

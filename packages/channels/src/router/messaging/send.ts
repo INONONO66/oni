@@ -8,7 +8,7 @@ import {
   type BusEvent,
   type Outbound,
   type SessionTransition,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { GatewayRouterPorts } from "../message-ports.js";
 import type { KernelDeliveryReceipt } from "../../support/deliver";
 import { authorizeSend } from "./authorize";

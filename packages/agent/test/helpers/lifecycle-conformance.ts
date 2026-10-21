@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, type Exit, Fiber, Scope } from "effect";
 import { z } from "zod";
-import { type BusEvent, canonicalDigest, type Delivery, type LedgerAction, type LedgerSession, L0Observation, type ObservationSink, type PlainValue, type PolicyRow, type SessionTransition, type SessionTurn, } from "@openomni/protocol";
+import { type BusEvent, canonicalDigest, type Delivery, type LedgerAction, type LedgerSession, L0Observation, type ObservationSink, type PlainValue, type PolicyRow, type SessionTransition, type SessionTurn, } from "@oni/protocol";
 import { AgentFailure, type ExecutionError, type SessionError } from "../../src/core/ports/failure";
 import type { SessionHandle } from "../../src/core/session/run";
 import { openCatalogStore } from "../../src/core/store/catalog";

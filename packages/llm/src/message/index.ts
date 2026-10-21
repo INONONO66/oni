@@ -1,4 +1,4 @@
-import type { Message, PlainObject } from "@openomni/protocol";
+import type { Message, PlainObject } from "@oni/protocol";
 import type { ModelMessage } from "ai";
 import type { Provider } from "../provider";
 import { ProviderTransform } from "../provider/transform";

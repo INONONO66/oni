@@ -28,6 +28,6 @@ describe("DesktopApi contract", () => {
     // `ipcMain.handle` and `ipcRenderer.invoke` are in two different bundles and
     // two different processes; a typo in either is a promise that never
     // settles, so the string is declared once in the leaf both import.
-    expect(GATEWAY_CHANNEL).toBe("openomni:gateway");
+    expect(GATEWAY_CHANNEL).toBe("oni:gateway");
   });
 });

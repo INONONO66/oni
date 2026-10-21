@@ -2,7 +2,7 @@ import { attemptIntentIds, isAttemptRow } from "./helpers/llm-rows";
 import { expect, test } from "bun:test";
 import { LlmRunFailure, type RunInput, type LlmSink } from "../src/core/ports/llm";
 import { RETRY_HEADER_DELAY_CAP } from "../src/core/loop/retry";
-import { PlainObjectSchema, type LedgerAction, type Model } from "@openomni/protocol";
+import { PlainObjectSchema, type LedgerAction, type Model } from "@oni/protocol";
 import { Effect } from "effect";
 import { runAgent } from "../src/core/loop/turn";
 import { AgentFailure } from "../src/core/store/errors";

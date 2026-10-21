@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Effect } from "effect";
 import { decodeChannelFailure, DeliveryNotSent, InvalidInbound, type ChannelError } from "./errors";
 import { newTraceId } from "./support/trace";
-import { Channel, Gateway, Ingress, Operational, Provisioning, SessionFork, SessionRead } from "@openomni/protocol";
+import { Channel, Gateway, Ingress, Operational, Provisioning, SessionFork, SessionRead } from "@oni/protocol";
 import { authenticateWebSocketUpgrade } from "./authn/websocket";
 import type { ChannelAuthnDecisionObserver } from "./authn/types";
 import type { PublishPort } from "./types";

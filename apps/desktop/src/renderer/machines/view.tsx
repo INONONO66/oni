@@ -1,5 +1,5 @@
-import type { Machine } from "@openomni/protocol";
-import { ActionButton, ConsoleContent, Text } from "@openomni/ui";
+import type { Machine } from "@oni/protocol";
+import { ActionButton, ConsoleContent, Text } from "@oni/ui";
 import { useQuery } from "@tanstack/react-query";
 import type { GatewayChatTransport } from "../chat/gateway-transport";
 import { machineListOptions } from "../state/queries";

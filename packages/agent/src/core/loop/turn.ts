@@ -1,4 +1,4 @@
-import { type BusEvent, Message, PlainValueSchema, type PlainValue } from "@openomni/protocol";
+import { type BusEvent, Message, PlainValueSchema, type PlainValue } from "@oni/protocol";
 import { Effect, Clock, Scope, Cause, Context } from "effect";
 import type { StopVerdict } from "./stop";
 import { type LlmSink as Sink, type LlmFailure, Llm, type LlmPort, isLlmRunFailure, LlmRunFailure, type AttemptEvidence, type ResolvedModel, type RunResult } from "../ports/llm";
@@ -313,7 +313,7 @@ function runModelStep(
       intent: initial.request.intent,
       effect: {},
     },
-    (parent: import("@openomni/protocol").LedgerAction.Receipt) =>
+    (parent: import("@oni/protocol").LedgerAction.Receipt) =>
       execution.runAttempts(parent, {
         prepare: (attempt, failures) =>
           attempt === 1 ? Effect.succeed(initial) : prepareAttempt(attempt, failures),

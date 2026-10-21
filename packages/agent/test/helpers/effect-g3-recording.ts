@@ -1,6 +1,6 @@
 import { testExecutor } from "./executor";
 import { Effect } from "effect";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
 import { allowAllPolicy } from "./compiled-policy";
 import { recordingLedger } from "./recording-ledger";

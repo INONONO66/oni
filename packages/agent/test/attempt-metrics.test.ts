@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LedgerAction, PlainValueSchema } from "@openomni/protocol";
+import { LedgerAction, PlainValueSchema } from "@oni/protocol";
 import { type AttemptEvidence, LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
 import { Effect } from "effect";

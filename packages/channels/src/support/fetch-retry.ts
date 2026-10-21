@@ -1,6 +1,6 @@
 import { Clock, Data, Effect, Result } from "effect";
 import { RateLimited } from "../errors";
-import { Operational, parseJson } from "@openomni/protocol";
+import { Operational, parseJson } from "@oni/protocol";
 import type { z } from "zod";
 import { ThrownError } from "./thrown";
 import type { EffectRunner, PublishPort } from "../types";

@@ -230,12 +230,12 @@ describe("Tool.Call", () => {
     const call = Tool.Call.parse({
       id: "call-1",
       tool: "search",
-      input: { query: "openomni" },
+      input: { query: "oni" },
     });
 
     expect(call.id).toBe("call-1");
     expect(call.tool).toBe("search");
-    expect(call.input).toEqual({ query: "openomni" });
+    expect(call.input).toEqual({ query: "oni" });
   });
 
   test("rejects missing id", () => {

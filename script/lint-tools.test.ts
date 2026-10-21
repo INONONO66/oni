@@ -49,7 +49,7 @@ function definition(
 function located(item: AnyToolDefinition, directory = item.category): LocatedDefinition {
   return {
     definition: item,
-    filePath: `apps/openomni/src/bundles/tools/${directory}/${item.name.replaceAll("_", "-")}.ts`,
+    filePath: `apps/oni/src/bundles/tools/${directory}/${item.name.replaceAll("_", "-")}.ts`,
   };
 }
 
@@ -160,7 +160,7 @@ describe("deleted surface census", () => {
 
   // Two Knip subprocesses may exceed Bun's default timeout on a cold install.
   test("Knip detects a synthetic unused package-root export and clears after removal", async () => {
-    const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-"));
+    const fixture = await mkdtemp(join(tmpdir(), "oni-knip-"));
     knipFixtures.push(fixture);
     await writeFile(
       join(fixture, "package.json"),
@@ -189,7 +189,7 @@ describe("lint-tools definition invariants", () => {
     expect(
       definitionInvariantViolations(
         [item],
-        [{ definition: item, filePath: "apps/openomni/src/bundles/tools/fs/read.ts" }],
+        [{ definition: item, filePath: "apps/oni/src/bundles/tools/fs/read.ts" }],
       ),
     ).toEqual([]);
   });
@@ -199,14 +199,14 @@ describe("lint-tools definition invariants", () => {
     expect(
       definitionInvariantViolations(
         [item],
-        [{ definition: item, filePath: "apps/openomni/src/bundles/tools/send-message.ts" }],
+        [{ definition: item, filePath: "apps/oni/src/bundles/tools/send-message.ts" }],
       ),
     ).toEqual([]);
     for (const filePath of [
-      "apps/openomni/src/bundles/tools/send_message.ts",
-      "apps/openomni/src/bundles/tools/messaging.ts",
-      "apps/openomni/src/bundles/tools/messaging/index.ts",
-      "apps/openomni/src/bundles/tools/a/b/send-message/index.ts",
+      "apps/oni/src/bundles/tools/send_message.ts",
+      "apps/oni/src/bundles/tools/messaging.ts",
+      "apps/oni/src/bundles/tools/messaging/index.ts",
+      "apps/oni/src/bundles/tools/a/b/send-message/index.ts",
     ]) {
       expect(messages([item], [{ definition: item, filePath }])).toContainEqual(
         expect.stringContaining("[tool-file-name]"),

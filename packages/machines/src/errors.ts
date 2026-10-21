@@ -1,4 +1,4 @@
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { Data } from "effect";
 import { z } from "zod";
 

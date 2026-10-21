@@ -5,7 +5,7 @@ import { boundedSignal } from "../../helpers/g0-signals";
 import { isolated } from "../../helpers/isolated";
 import { describe, expect, it } from "bun:test";
 import { stringQueryTool } from "../../helpers/query-tool";
-import type { ToolExecutionContext } from "@openomni/protocol";
+import type { ToolExecutionContext } from "@oni/protocol";
 import { z } from "zod";
 import { defineTool, eraseTool } from "../../../src/core/loop/tool";
 import { createDispatcher } from "../../../src/plugins/tool";

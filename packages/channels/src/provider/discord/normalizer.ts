@@ -1,4 +1,4 @@
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 import type { InboundNormalizer } from "../../types";
 import type { DiscordInteraction, DiscordMessage, DiscordReaction } from "./types";
 

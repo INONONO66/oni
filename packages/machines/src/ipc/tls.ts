@@ -1,5 +1,5 @@
 import { X509Certificate } from "node:crypto";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 
 /**
  * The PEM identity one peer presents during the mutual-TLS handshake (#1270).

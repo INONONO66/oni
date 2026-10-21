@@ -8,7 +8,7 @@ import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { openSessionStore } from "../../src/core/store/session-file";
 import { runTestPromise } from "../helpers/isolated";
 import { createHash } from "node:crypto";
-import { DecisionFact } from "@openomni/protocol";
+import { DecisionFact } from "@oni/protocol";
 import { createDecisionFactPort } from "../../src/core/store/decision";
 import { computeDecisionFactHash } from "../../src/core/store/decision";
 import { testNow, useMemoryStores } from "./helpers/storage";

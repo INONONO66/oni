@@ -7,7 +7,7 @@ import { providerFailure } from "../../helpers/mock-llm";
 import { createTestAgent } from "../../helpers/effect-g1";
 import { describe, expect, it } from "bun:test";
 import type { LlmSink as Sink, ResolvedModel } from "../../../src/core/ports/llm";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { RunEvents } from "../../../src/core/loop/turn";
 import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { Bus } from "../../helpers/bus";

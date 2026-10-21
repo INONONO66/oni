@@ -9,10 +9,10 @@ what it records becomes the first live evidence. Shipped state is in
 
 ## 0. Before anything
 
-- `openomni onboard` writes `~/.openomni/env` (model provider, id and API
-  key; `OPENOMNI_WS_TOKEN` when the socket is reachable off loopback).
-- `openomni daemon install` (or `openomni start` in a terminal), then
-  `openomni doctor`: every check `PASS`, `health` answering.
+- `oni onboard` writes `~/.oni/env` (model provider, id and API
+  key; `ONI_WS_TOKEN` when the socket is reachable off loopback).
+- `oni daemon install` (or `oni start` in a terminal), then
+  `oni doctor`: every check `PASS`, `health` answering.
 - The daemon's socket stays on loopback for every step below: a login and a
   channel declaration carry a credential across it in clear.
 
@@ -23,7 +23,7 @@ prompt and sealed into the vault by the daemon; nothing is written on the
 CLI side.
 
 - Your own account (Slack, Discord, Instagram, KakaoTalk):
-  `openomni login <platform> [--intake mentions_and_dms|all|none] [--outbound] [--auto-reply]`.
+  `oni login <platform> [--intake mentions_and_dms|all|none] [--outbound] [--auto-reply]`.
   Without `--outbound` the account only reads: a DM to you, or a mention of
   you, reaches the Resident as `receivedBy: owner`, and an answer only your
   account could carry is delivered to you as a draft. With `--outbound
@@ -31,7 +31,7 @@ CLI side.
   `as: owner` when you say so from an Owner-origin turn.
 - A bot (Slack, Discord, Telegram, GitHub, a webhook target, an A2A peer) or
   Linear (a personal API key, so the Owner instance):
-  `openomni channel add <platform> [--tier manager] [--allow <id>,<id>] [--mention-only]`.
+  `oni channel add <platform> [--tier manager] [--allow <id>,<id>] [--mention-only]`.
   The grant block is yours by the call: `--tier` is what every sender on the
   surface gets who is not a declared Person (the mount tier admits nobody
   the owner policy passes — a bot nobody may write to is the default),
@@ -49,7 +49,7 @@ CLI side.
 
 ## 2. Read the readiness report
 
-`openomni messaging` reads the catalog and says, per platform: the rows
+`oni messaging` reads the catalog and says, per platform: the rows
 and their postures, who reaches the Resident (READ), how the Resident
 answers and writes (WRITE), whether you are known there (OWNER), and who
 is reachable cold. Fix every line that names a missing tier, a missing
@@ -59,7 +59,7 @@ enabled row is sealed.
 ## 3. The live checks
 
 Run them in this order on one platform, then the next. Watch
-`openomni logs` beside each step; every arrival and refusal is an
+`oni logs` beside each step; every arrival and refusal is an
 observation there.
 
 1. **Inbound, as you.** From your account, DM the bot (bot platforms) or

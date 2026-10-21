@@ -1,6 +1,6 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
 import { expect, test } from "bun:test";
-import { Gateway } from "@openomni/protocol";
+import { Gateway } from "@oni/protocol";
 import { compilePolicySnapshot, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
 import { atGeneration, compaction, draft } from "./row-fixtures";
 

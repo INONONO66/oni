@@ -1,5 +1,5 @@
 import { ChannelsFailure, SendAdmissionConflict } from "../../errors";
-import { Gateway, type DecisionFact, type Outbound } from "@openomni/protocol";
+import { Gateway, type DecisionFact, type Outbound } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { z } from "zod";
 import type { GatewayRouterPorts } from "../message-ports";

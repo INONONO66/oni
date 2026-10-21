@@ -1,4 +1,4 @@
-import type { SessionTransition } from "@openomni/protocol";
+import type { SessionTransition } from "@oni/protocol";
 export function requestFixture(
   overrides: Partial<SessionTransition.Request> = {},
 ): SessionTransition.Request {

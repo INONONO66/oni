@@ -1,7 +1,7 @@
 import type { LedgerError } from "../store/errors";
 import { Effect, type Scope, Context, Deferred, Exit, Option } from "effect";
 import { type ExecutionError, GenerationUnavailable, InvocationClosed } from "../ports/failure";
-import type { BusEvent, LedgerAction, LedgerSession, ObservationSink as ObservationPort, PlainValue, SessionTransition, Tool } from "@openomni/protocol";
+import type { BusEvent, LedgerAction, LedgerSession, ObservationSink as ObservationPort, PlainValue, SessionTransition, Tool } from "@oni/protocol";
 import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "../gate/compile";
 import type { RetryAlarmPort } from "../ports/alarm";
 import type { WaveControl, Dispatcher } from "./tool";
@@ -159,7 +159,7 @@ export interface ResolvedExecutorOptions extends ExecutorOptions {
 export class RawToolSlots extends Context.Service<
   RawToolSlots,
   ReturnType<typeof createRawSlots>
->()("@openomni/agent/RawToolSlots") {}
+>()("@oni/agent/RawToolSlots") {}
 
 export function createRawSlots(retain?: (settlement: Promise<void>) => void) {
   const pending = new Map<symbol, Deferred.Deferred<void>>();
@@ -182,7 +182,7 @@ export function createRawSlots(retain?: (settlement: Promise<void>) => void) {
 
 export class GenerationRawSlots extends Context.Service<
   GenerationRawSlots, ReturnType<typeof createRawSlots>
->()("@openomni/agent/GenerationRawSlots") {}
+>()("@oni/agent/GenerationRawSlots") {}
 
 const invocationLifetime = Symbol("invocationLifetime");
 
@@ -201,7 +201,7 @@ export interface InvocationFrame {
 
 export const activeInvocation = new AsyncLocalStorage<{ readonly executor: Executor; readonly captured?: InvocationFrame }>();
 
-export class ExecutorContext extends Context.Service<ExecutorContext, Executor>()("@openomni/agent/ExecutorContext") {}
+export class ExecutorContext extends Context.Service<ExecutorContext, Executor>()("@oni/agent/ExecutorContext") {}
 
 export const executorContext = Effect.serviceOption(ExecutorContext).pipe(
   Effect.map((native) => Option.getOrElse(native, currentExecutor)),

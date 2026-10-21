@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { measuredContextTokens } from "../../src/core/ports/measure";
 import { assistantWithParts } from "../helpers/messages";
 

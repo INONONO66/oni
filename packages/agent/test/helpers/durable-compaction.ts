@@ -1,6 +1,6 @@
 /** #1348: one executed assistant answer followed by a durable threshold compaction over it. */
 import { Effect } from "effect";
-import { PlainValueSchema } from "@openomni/protocol";
+import { PlainValueSchema } from "@oni/protocol";
 import type { ExecutionError } from "../../src/core/ports/failure";
 import type { Executor } from "../../src/core/loop/executor";
 import { createAssistantMessage } from "../../src/core/journal/message-factory";

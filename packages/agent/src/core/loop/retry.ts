@@ -1,4 +1,4 @@
-import { LlmCall, Operational, type BusEvent, LedgerAction } from "@openomni/protocol";
+import { LlmCall, Operational, type BusEvent, LedgerAction } from "@oni/protocol";
 
 import { z } from "zod";
 
@@ -43,7 +43,7 @@ const AgentFailureFacts = z.object({
 type AgentFailureFacts = z.infer<typeof AgentFailureFacts>;
 
 /** Carried on the error itself (wrapping changes the identity catchers read); symbol = hidden. */
-const FAILURE_FACTS = Symbol.for("openomni.agent.failureFacts");
+const FAILURE_FACTS = Symbol.for("oni.agent.failureFacts");
 
 /** Stamps the decided facts onto the error the run is raising. */
 function attachFailureFacts(error: object, facts: AgentFailureFacts): void {

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEgressBudgetStore } from "../../../src/index.js";
 import { openTestChannelStore, useMemoryChannelStore } from "../helpers/sqlite";
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 
 /** #219 active-egress debit ledger: atomic, idempotent counted-window claims. */
 describe("EgressBudgetStore", () => {

@@ -1,4 +1,4 @@
-import { parseJson } from "@openomni/protocol";
+import { parseJson } from "@oni/protocol";
 import { z } from "zod";
 
 /**

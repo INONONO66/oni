@@ -9,7 +9,7 @@ import {
   type SessionGeneration,
   type AnyToolDefinition, type LedgerAction, type LedgerSession, type PlainValue,
   type Tool, type ToolExecutionContext,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import {
   activeInvocation, AgentFailure, AgentInvariantViolation, createExecutor,
   executeToolBody, GenerationOwnership, immutableInput, projectTools,

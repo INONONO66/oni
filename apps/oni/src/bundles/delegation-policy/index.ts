@@ -1,0 +1,424 @@
+import { Bundle, type Core } from "@oni/agent";
+import {
+  canonicalDigest,
+  Gateway,
+  Delivery,
+  SessionTransition,
+  type LedgerAction,
+  type LedgerSession,
+  type PlainValue,
+} from "@oni/protocol";
+import { Effect } from "effect";
+import { z } from "zod";
+import { ToolCapabilityPort } from "../seams";
+
+/**
+ * The `delegation-policy` bundle (#1258): the caps on child-session creation
+ * as consulted guard rows at `tool.pre`, the `delegation.deadline` alarm
+ * purpose, and the settleChild fold (#1311: a child settles exactly once,
+ * only on `result` or `failed`, through the bounded `DelegationResult`
+ * envelope). It requires the action capability, so turning `action` off
+ * cascades delegation policy off with it.
+ */
+
+/**
+ * The guard counts root = 0 and denies at >= maxDepth; admission counts root = 1
+ * and denies above its inclusive max, so both use the same number.
+ */
+export const ADMISSION_DEPTH_MAX = Gateway.DelegationCaps.maxDepth;
+
+/** Catalog reads the guards consult per decision; `undefined` denies (fail closed). */
+export interface DelegationReads {
+  /** Parent-link depth of the session (root = 0). */
+  depth(sessionId: string): number | undefined;
+  /** Count of this session's live (non-closed) children. */
+  activeChildren(sessionId: string): number | undefined;
+}
+
+function record(value: PlainValue): Readonly<Record<string, PlainValue>> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value;
+}
+
+/** True when the decided tool args create a child session. */
+function createsChild(value: PlainValue): boolean {
+  const to = record(record(value)?.to ?? null);
+  return to?.kind === "new_session";
+}
+
+function limitParam(params: PlainValue, fallback: number): number {
+  const limit = record(params)?.limit;
+  return typeof limit === "number" ? limit : fallback;
+}
+
+type GuardResult = ReturnType<Core.NamedGuard["decide"]>;
+
+const skipped = (cap: string): GuardResult => ({
+  verdict: "allow",
+  payload: { cap, skipped: true },
+});
+
+/**
+ * The typed cap refusal (#1311): `send_message` surfaces a cap-denied child
+ * creation as `ToolRefused` whose reason is this envelope's canonical JSON,
+ * so the model sees the cap, the limit and the observed count — never a
+ * generic denial.
+ */
+export const DelegationRefusal = z
+  .object({
+    code: z.literal("delegation_refused"),
+    cap: z.string(),
+    limit: z.number(),
+    observed: z.number().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+export type DelegationRefusal = z.infer<typeof DelegationRefusal>;
+
+function capVerdict(
+  cap: string,
+  limit: number,
+  observed: number | undefined,
+): GuardResult {
+  if (observed === undefined) {
+    const refusal: DelegationRefusal = {
+      code: "delegation_refused",
+      cap,
+      limit,
+      reason: "catalog read unavailable",
+    };
+    return {
+      verdict: "deny",
+      payload: { cap, limit, reason: JSON.stringify(refusal) },
+    };
+  }
+  if (observed < limit) return { verdict: "allow", payload: { cap, limit, observed } };
+  const refusal: DelegationRefusal = { code: "delegation_refused", cap, limit, observed };
+  // `reason` is the ONLY carrier: its canonical JSON rides the
+  // consulted-guard seam into the caller's ToolRefused, where the model (and
+  // the tests) parse it back through `DelegationRefusal`.
+  return {
+    verdict: "deny",
+    payload: { cap, limit, observed, reason: JSON.stringify(refusal) },
+  };
+}
+
+/** Caps how deep the delegation tree may grow: a session at depth >= limit spawns nothing. */
+export function spawnDepthGuard(reads: DelegationReads): { decide: Core.NamedGuard["decide"] } {
+  return {
+    decide: ({ value, params, when }) => {
+      if (!createsChild(value)) return skipped("spawn_depth");
+      const sessionId = typeof when.sessionId === "string" ? when.sessionId : undefined;
+      const depth = sessionId === undefined ? undefined : reads.depth(sessionId);
+      return capVerdict("spawn_depth", limitParam(params, Gateway.DelegationCaps.maxDepth), depth);
+    },
+  };
+}
+
+/** Caps concurrent live children per parent. */
+export function spawnChildrenGuard(reads: DelegationReads): { decide: Core.NamedGuard["decide"] } {
+  return {
+    decide: ({ value, params, when }) => {
+      if (!createsChild(value)) return skipped("spawn_children");
+      const sessionId = typeof when.sessionId === "string" ? when.sessionId : undefined;
+      const children = sessionId === undefined ? undefined : reads.activeChildren(sessionId);
+      return capVerdict(
+        "spawn_children",
+        limitParam(params, Gateway.DelegationCaps.maxActiveChildren),
+        children,
+      );
+    },
+  };
+}
+
+/** A child is only created with an explicit positive spend cap on the send. */
+export function spendCapGuard(): { decide: Core.NamedGuard["decide"] } {
+  return {
+    decide: ({ value }): GuardResult => {
+      if (!createsChild(value)) return skipped("spend_cap");
+      const cap = record(value)?.spend_cap;
+      if (typeof cap === "number" && cap > 0)
+        return { verdict: "allow", payload: { cap: "spend_cap", granted: cap } };
+      return {
+        verdict: "deny",
+        payload: { cap: "spend_cap", reason: "new session requires spend_cap" },
+      };
+    },
+  };
+}
+
+/**
+ * The named guards this bundle implements (#1572): the Owner policy file's
+ * handler rows may name exactly these; the rows themselves are data.
+ */
+export const SPAWN_DEPTH_REF = "delegation-policy/spawn-depth";
+export const DELEGATION_GUARD_REFS: readonly string[] = [
+  SPAWN_DEPTH_REF,
+  "delegation-policy/spawn-children",
+  "delegation-policy/spend-cap",
+];
+
+// ─── delegation.deadline ───
+
+export const DELEGATION_DEADLINE = "delegation.deadline";
+
+/**
+ * The chain one cli child's deadline rides (#1512 r2 M2):
+ * `<session>:delegation.deadline:<child>`. One chain per child, so retiring
+ * child A's deadline (`at: null`) never supersedes the occurrence armed for
+ * child B in the same sender session — the deadline bounds THAT child. A
+ * `to.new` session child keeps the #1258 session chain
+ * (`<session>:delegation.deadline`), where a second arm supersedes the first.
+ */
+export function cliDeadlineChain(sessionId: string, child: string): string {
+  return `${sessionId}:${DELEGATION_DEADLINE}:${child}`;
+}
+
+/** One arm of the deadline purpose for a created child session or a cli child. */
+export interface DeadlineArmInput {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly child: string;
+  /** `session:<id>` or `cli:<id>`: tells the cancel door which interrupt the fire takes, and names the chain. */
+  readonly contact: string;
+  readonly at: number;
+}
+
+export interface DeadlineArmRefused {
+  readonly reason: string;
+}
+
+/** An armed deadline and its retire door: the same chain and source key armed `at: null` once the turn has ended (#1512 r1 L1). */
+export interface DeadlineArm {
+  readonly retire: Effect.Effect<void, DeadlineArmRefused>;
+}
+
+/**
+ * Arms `delegation.deadline` through the caller's ONE arm verb — minted
+ * before the first await, never re-resolved (#1254 r5 H1) — and answers with
+ * the retire door on the chain the arm landed on. A cli child gets its own
+ * chain (`cliDeadlineChain`); a session child the session's shared one.
+ */
+export function armDelegationDeadline(arm: Core.ArmVerb, input: DeadlineArmInput): Effect.Effect<DeadlineArm, DeadlineArmRefused> {
+  const payload = { child: input.child, contact: input.contact };
+  const sourceKey = `delegation:${input.child}`;
+  const chain = input.contact.startsWith("cli:") ? { alarmId: cliDeadlineChain(input.sessionId, input.child) } : {};
+  const refused = (error: Core.ArmRefused): DeadlineArmRefused => ({ reason: error.code });
+  return arm({ purpose: DELEGATION_DEADLINE, at: input.at, payload, sourceKey, ...chain }).pipe(
+    Effect.map((armed) => ({
+      retire: arm({ purpose: DELEGATION_DEADLINE, at: null, alarmId: armed.alarmId, supersedes: armed.occurrenceId, payload, sourceKey }).pipe(
+        Effect.asVoid,
+        Effect.mapError(refused),
+      ),
+    })),
+    Effect.mapError(refused),
+  );
+}
+
+/** Armed alongside a `to.new` send carrying `deadline_ms`. */
+const DeadlinePayload = z
+  .object({
+    /** The child session the deadline bounds. */
+    child: z.string().min(1),
+    /** The contact name shown to the parent (`session:<id>` for children). */
+    contact: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * What the cancel door did: `cancelled` interrupted a running child;
+ * `already_ended` found the child's turn over before the fire reached it
+ * (#1512: a cli turn that resolved while its deadline was still armed), so
+ * nothing was interrupted and the parent is not told of an expiry.
+ */
+type DeadlineCancelOutcome = "cancelled" | "already_ended";
+
+/**
+ * Composition wires this to the outbound cancel door: `signal{control:
+ * cancel}` to a child session, or (#1512) the pty interrupt for a `cli:`
+ * child — the armed `contact` tells the door which.
+ */
+export interface DelegationDeadlineDeps {
+  cancel(input: {
+    readonly child: string;
+    /** The contact the deadline was armed for: `session:<id>` or `cli:<id>`. */
+    readonly contact: string;
+    readonly occurrenceId: string;
+  }): Effect.Effect<DeadlineCancelOutcome, { readonly reason: string }>;
+}
+
+/**
+ * On fire: cancel the silent child through the injected outbound door, then
+ * prompt the parent with the expiry fact — no reply counts as unknown, and
+ * the parent decides what happens next. A door that finds the turn already
+ * ended makes the fire a no-op: no prompt, the chain lapses `exhausted`.
+ */
+function deadlineWake(deps: DelegationDeadlineDeps): Bundle.AlarmPurposeHandler {
+  return ({ fired, ctx }) =>
+    Effect.gen(function* () {
+      const payload = yield* Effect.try({
+        try: () => DeadlinePayload.parse(JSON.parse(fired.payload)),
+        catch: () => new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: "payload" }),
+      });
+      const cancelled = yield* deps.cancel({ child: payload.child, contact: payload.contact, occurrenceId: fired.occurrenceId }).pipe(
+        Effect.mapError(
+          (refused) =>
+            new Bundle.AlarmWakeError({ purpose: fired.purpose, reason: refused.reason }),
+        ),
+      );
+      if (cancelled === "already_ended") return "exhausted" as const;
+      yield* ctx.prompt({
+        content: JSON.stringify({
+          kind: DELEGATION_DEADLINE,
+          contact: payload.contact,
+          child: payload.child,
+          firedAt: fired.fireAt,
+          note: "deadline expired with no reply; the child was cancelled",
+        }),
+        payload: { child: payload.child, contact: payload.contact },
+      });
+      return "delivered" as const;
+    });
+}
+
+/** The purpose declaration for the live alarm capability composition. */
+export function delegationPurposes(deps: DelegationDeadlineDeps): Bundle.AlarmBundlePurposes {
+  return {
+    bundle: "delegation-policy",
+    purposes: [{ name: DELEGATION_DEADLINE, handler: deadlineWake(deps) }],
+  };
+}
+
+// ─── child settlement ───
+
+/**
+ * A child seals its own obligation; only the receiving executor changes the
+ * parent. #1311: the settlement fold — a child settles toward its parent
+ * exactly once, only when its turn result is `result` or `error` (a `waiting`
+ * or `interrupted` seal writes nothing), through the bounded
+ * `Gateway.DelegationResult` envelope. The row rides `delivery: "followUp"`
+ * explicitly, so the parent folds it only at `turn_end`.
+ */
+export function settleChild(
+  kernel: Core.SessionKernel,
+  row: LedgerSession.Row,
+  terminal: LedgerAction.Append,
+  result: Core.SessionRunnerResult,
+): SessionTransition.OutboundMessage | undefined {
+  if (row.parentId === null) return undefined;
+  if (result.kind !== "result" && result.kind !== "error") return undefined;
+  const original = kernel
+    .inputMessages(row.id)
+    .map((item) => Delivery.MessageOrigin.safeParse(item.origin.value))
+    .find((origin) => origin.success && origin.data.senderSessionId === row.parentId);
+  if (original === undefined || !original.success) return undefined;
+  const settlement = Gateway.DelegationResult.parse({
+    status: result.kind === "result" ? "completed" : "failed",
+    preview: (result.text ?? "").slice(0, 4096),
+    pointer: { session: row.id, action: terminal.id },
+  });
+  const message = {
+    messageId: `${terminal.id}:reply`,
+    sourceSessionId: row.id,
+    sourceActionId: terminal.id,
+    destinationSessionId: row.parentId,
+    requestId: original.data.sourceActionId,
+    replyTo: original.data.replyTo ?? original.data.messageId,
+    terminal: result.kind === "result" ? ("completed" as const) : ("error" as const),
+    content: JSON.stringify(settlement),
+    delivery: "followUp" as const,
+  };
+  return SessionTransition.OutboundMessage.parse({ ...message, digest: canonicalDigest(message) });
+}
+
+/**
+ * Catalog-backed reads over the ledger's session rows (parent links = depth,
+ * children = live rows). `isActiveChild` is the composition-bound liveness
+ * fact (#1258 M-4): a child counts against `spawn_children` only while it
+ * still has work in flight — an open turn or an undelivered input.
+ * When the read is absent or throws, the child counts (conservative: the cap
+ * stays tight rather than leaking).
+ */
+export function catalogDelegationReads(
+  listSessions: () => readonly { readonly id: string; readonly parentId: string | null }[],
+  isActiveChild?: (childId: string) => boolean,
+): DelegationReads {
+  const active = (childId: string): boolean => {
+    if (isActiveChild === undefined) return true;
+    try {
+      return isActiveChild(childId);
+    } catch {
+      return true;
+    }
+  };
+  return {
+    depth: (id) => {
+      const rows = listSessions();
+      if (!rows.some((row) => row.id === id)) return undefined;
+      let depth = 0;
+      let parent = rows.find((row) => row.id === id)?.parentId ?? null;
+      while (parent !== null) {
+        depth += 1;
+        parent = rows.find((row) => row.id === parent)?.parentId ?? null;
+      }
+      return depth;
+    },
+    activeChildren: (id) => {
+      const rows = listSessions();
+      if (!rows.some((row) => row.id === id)) return undefined;
+      return rows.filter((row) => row.parentId === id && active(row.id)).length;
+    },
+  };
+}
+
+/** Fail-closed defaults when composition has not bound the catalog reads yet. */
+const UNBOUND_READS: DelegationReads = {
+  depth: () => undefined,
+  activeChildren: () => undefined,
+};
+
+/**
+ * The bundle contract (#1255 `Bundle.define`): the Owner policy file's guard
+ * rows (#1572), their guard handlers, and the deadline purpose. The contract's handler and purpose
+ * faces are declarations with fail-closed doors; composition rebinds them —
+ * `generation-layers` binds the guards to the live catalog reads and the
+ * watch plane binds the deadline cancel door — the same pattern as bundle
+ * tool faces deferring to the ported catalog definitions.
+ */
+export function delegationPolicyBundle(
+  rows: readonly Bundle.BundleGateRow[],
+): Bundle.BundleContract<
+  "delegation-policy",
+  object,
+  Bundle.AlarmPurposeHandler
+> {
+  return Bundle.define({
+    name: "delegation-policy",
+    // #1316: the shipped rows target `tool.pre`, so the bundle requires
+    // the tool capability's seam — `off: ["tool"]` cascades it off instead of
+    // rejecting the rows as `unknown_point`.
+    requires: [Bundle.ActionPort, Bundle.AlarmPort, ToolCapabilityPort],
+    rows,
+    handlers: {
+      [SPAWN_DEPTH_REF]: spawnDepthGuard(UNBOUND_READS),
+      "delegation-policy/spawn-children": spawnChildrenGuard(UNBOUND_READS),
+      "delegation-policy/spend-cap": spendCapGuard(),
+    },
+    purposes: {
+      [DELEGATION_DEADLINE]: deadlineWake({
+        cancel: () => Effect.fail({ reason: "outbound cancel door is not composed" }),
+      }),
+    },
+  });
+}
+
+/** The live guard handlers composition binds over the contract's fail-closed faces. */
+export function delegationGuardHandlers(
+  reads: DelegationReads,
+): Readonly<Record<string, { decide: Core.NamedGuard["decide"] }>> {
+  return {
+    [SPAWN_DEPTH_REF]: spawnDepthGuard(reads),
+    "delegation-policy/spawn-children": spawnChildrenGuard(reads),
+    "delegation-policy/spend-cap": spendCapGuard(),
+  };
+}

@@ -2,7 +2,7 @@ import { generationSnapshot } from "../../src/core/store/configure";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
-import type { LedgerSession, ObservationSink as ObservationSinkShape } from "@openomni/protocol";
+import type { LedgerSession, ObservationSink as ObservationSinkShape } from "@oni/protocol";
 import { Cause, Context, Effect, Exit, FiberSet, Layer, Scope, Stream } from "effect";
 import {
   type ObservationBusOptions,

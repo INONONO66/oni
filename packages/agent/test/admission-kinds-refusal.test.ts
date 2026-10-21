@@ -7,7 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
-import { Delivery } from "@openomni/protocol";
+import { Delivery } from "@oni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
 import { decideSessionAdmission } from "../src/core/session/admission";
 import type { DeliverRefused } from "../src/core/journal/messages";

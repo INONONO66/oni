@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import net from "node:net";
-import { type IdSource, Ipc, type PlainValue } from "@openomni/protocol";
+import { type IdSource, Ipc, type PlainValue } from "@oni/protocol";
 
 import { Effect, type Scope } from "effect";
 import { IpcConnectionError, type IpcError } from "./errors";

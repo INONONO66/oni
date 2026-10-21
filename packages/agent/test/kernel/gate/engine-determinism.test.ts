@@ -1,7 +1,7 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
 import { describe, expect, it } from "bun:test";
 import { compilePolicySnapshot, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
-import type { PolicyRow, Storage } from "@openomni/protocol";
+import type { PolicyRow, Storage } from "@oni/protocol";
 import { atGeneration, compaction, draft, MemoryPolicyRows, unrelatedRows, withPolicyRows } from "./row-fixtures";
 
 const request: PolicyEvaluationInput = {

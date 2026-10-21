@@ -2,7 +2,7 @@ import { type OpenTurn, turnIntent, turnTerminal } from "../src/core/store/sessi
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import * as SessionHandleStore from "../src/core/store/fence";
-import { canonicalDigest, PlainObjectSchema, type Delivery, type LedgerAction, type LedgerSession, type SessionTransition, } from "@openomni/protocol";
+import { canonicalDigest, PlainObjectSchema, type Delivery, type LedgerAction, type LedgerSession, type SessionTransition, } from "@oni/protocol";
 import { sessionTree } from "./helpers/session-tree";
 import { decideSessionAdmission } from "../src/core/session/admission";
 import { decideRequestTransition } from "../src/core/session/request";

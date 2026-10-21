@@ -1,4 +1,4 @@
-# Usage Model — Operating OpenOmni as the Owner
+# Usage Model — Operating Oni as the Owner
 
 Every other document describes the system from the inside. This one describes the target experience from your seat. Architecture behind these behaviors: [Core Model](core-model.md). [Implementation Status](implementation-status.md) alone records what is currently wired.
 

@@ -8,7 +8,7 @@ import {
   type FoldCheckpoint,
   type LedgerAction,
   type PlainObject,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { z } from "zod";
 
 /** The plugin band may not import inspect's history module; composition wires fold/hydrate in. */

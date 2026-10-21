@@ -1,4 +1,4 @@
-import type { Actor, Gateway } from "@openomni/protocol";
+import type { Actor, Gateway } from "@oni/protocol";
 
 import { actorTrustTier, getActor } from "./authority-actor";
 import { effectiveTrustTier } from "./effective-tier.js";

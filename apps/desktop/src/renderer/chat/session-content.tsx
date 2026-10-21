@@ -1,14 +1,14 @@
 import { setSessionTitleIfPlaceholder } from "../state/session-actions";
 import { GatewayUnavailableError } from "../errors";
 import { Chat, useChat } from "@ai-sdk/react";
-import { ConsoleContent, StatusGlyph, UI_NAMES } from "@openomni/ui";
+import { ConsoleContent, StatusGlyph, UI_NAMES } from "@oni/ui";
 import { useStore } from "@tanstack/react-store";
 import type { ChatTransport, UIMessage } from "ai";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { sessionGlyphProps } from "../shell/session-glyph";
 import { consoleStore, type Session, type SessionId, setDraft } from "../state/store";
 import { uiMessagesToTranscript } from "./adapter";
-import type { OpenOmniUIMessage } from "./message";
+import type { OniUIMessage } from "./message";
 
 /** Called by App, not the keyed panel: closing a view must not stop its Chat. */
 export function useSessionChats(transport: ChatTransport<UIMessage> | null) {
@@ -23,17 +23,17 @@ export function useSessionChats(transport: ChatTransport<UIMessage> | null) {
     }),
     [],
   );
-  const chats = useRef<Map<SessionId, Chat<OpenOmniUIMessage>>>(new Map());
+  const chats = useRef<Map<SessionId, Chat<OniUIMessage>>>(new Map());
   useEffect(() => {
     const cache = chats.current;
     return () => {
       for (const chat of cache.values()) void chat.stop();
     };
   }, []);
-  return (sessionId: SessionId): Chat<OpenOmniUIMessage> => {
+  return (sessionId: SessionId): Chat<OniUIMessage> => {
     const existing = chats.current.get(sessionId);
     if (existing !== undefined) return existing;
-    const created = new Chat<OpenOmniUIMessage>({
+    const created = new Chat<OniUIMessage>({
       id: sessionId,
       messages: [],
       transport: wire,
@@ -53,7 +53,7 @@ export function SessionContent({
   onOpenChild,
 }: {
   readonly session: Session;
-  readonly chat: Chat<OpenOmniUIMessage>;
+  readonly chat: Chat<OniUIMessage>;
   readonly transport: ChatTransport<UIMessage> | null;
   readonly notice: string | undefined;
   /** Fork this session's durable identity at a boundary anchor (#1257). */

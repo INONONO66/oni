@@ -1,5 +1,5 @@
-import { Ingress } from "@openomni/protocol";
-import { ActionButton, Field, Input, Select } from "@openomni/ui";
+import { Ingress } from "@oni/protocol";
+import { ActionButton, Field, Input, Select } from "@oni/ui";
 import { useRef, useState } from "react";
 import { z } from "zod";
 

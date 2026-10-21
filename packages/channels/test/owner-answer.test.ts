@@ -9,11 +9,11 @@ import { testWebSocketId, websocketCallbacks } from "./helpers/websocket-server"
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Core } from "@openomni/agent";
+import { Core } from "@oni/agent";
 import { TEST_APPROVAL_POLICY } from "../../agent/test/helpers/approval-policy";
 const decideRequestTransition = Core.decideRequestTransition;
 const requestBindingDigest = Core.requestBindingDigest;
-import { Gateway, PlainValueSchema, canonicalDigest, type Channel, type SessionTransition, } from "@openomni/protocol";
+import { Gateway, PlainValueSchema, canonicalDigest, type Channel, type SessionTransition, } from "@oni/protocol";
 import { WebSocketHandler } from "../src/websocket";
 import { makeRouter } from "./router/_router-fixture";
 import { originalAction, requestPort } from "./helpers/requests";
@@ -153,7 +153,7 @@ async function connect(
     (message: Channel.InboundMessage) => Effect.sync(() => {
       messages.push(message);
     }),
-    <T>(_event: import("@openomni/protocol").BusEvent.Descriptor<T>, data: T) => {
+    <T>(_event: import("@oni/protocol").BusEvent.Descriptor<T>, data: T) => {
       logs.push(JSON.stringify(data));
     },
     {
@@ -220,7 +220,7 @@ test.each([
     decision === "approve" ? "resolved" : "refused",
   );
   const actions = sessionTree(request.sessionId, ledger().sessions.actions);
-  expect(actions.find((action: import("@openomni/protocol").LedgerAction.Node) => action.kind === "request" && (action.effect.value as { phase?: string }).phase === "answered")?.effect.value).toMatchObject({
+  expect(actions.find((action: import("@oni/protocol").LedgerAction.Node) => action.kind === "request" && (action.effect.value as { phase?: string }).phase === "answered")?.effect.value).toMatchObject({
     answer: { receivedAt: 10, principal, decision, inputHash: request.inputHash },
   });
   expect(JSON.stringify(actions)).not.toContain(credential);
@@ -245,7 +245,7 @@ test("same typed answer survives SQLite and gateway restart with a fresh owner c
   expect(sessionTree(request.sessionId, ledger().sessions.actions)).toEqual(before);
   expect(
     sessionTree(request.sessionId, ledger().sessions.actions).filter(
-      (action: import("@openomni/protocol").LedgerAction.Node) => action.id === `${request.requestId}:resolution`,
+      (action: import("@oni/protocol").LedgerAction.Node) => action.id === `${request.requestId}:resolution`,
     ),
   ).toHaveLength(1);
 });

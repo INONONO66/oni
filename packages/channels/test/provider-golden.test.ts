@@ -8,7 +8,7 @@ describe("provider ingress facts", () => {
   test("telegram preserves event identity, author, reply chain, and render text", () => {
     const result = new TelegramNormalizer({
       botId: "bot-1",
-      botUsername: "openomni_bot",
+      botUsername: "oni_bot",
     }).normalize(telegramReply("seller_acct"));
     expect(result?.facts).toMatchObject({
       eventId: "12",
@@ -76,7 +76,7 @@ describe("provider ingress facts", () => {
   });
 
   test("a telegram forum topic is the thread and a quoted message the reply-to; a bare group message has neither (#1490)", () => {
-    const normalizer = new TelegramNormalizer({ botId: "bot-1", botUsername: "openomni_bot" });
+    const normalizer = new TelegramNormalizer({ botId: "bot-1", botUsername: "oni_bot" });
     const topic = telegramReply("seller_acct");
     expect(
       normalizer.normalize({ ...topic, is_topic_message: true, message_thread_id: 99 })?.facts.reply,
@@ -87,7 +87,7 @@ describe("provider ingress facts", () => {
   });
 
   test("a telegram quoted message is carried as context, the bot's own as assistant (#1490)", () => {
-    const normalizer = new TelegramNormalizer({ botId: "78", botUsername: "openomni_bot" });
+    const normalizer = new TelegramNormalizer({ botId: "78", botUsername: "oni_bot" });
     const quoted = telegramReply("seller_acct");
     expect(normalizer.normalize(quoted)?.facts.context).toEqual({ quoted: { author: "assistant", text: "please report" } });
     const human = { ...quoted, reply_to_message: { ...quoted.reply_to_message, from: { id: 90, is_bot: false, first_name: "Kim" } } };

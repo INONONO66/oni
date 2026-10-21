@@ -1,4 +1,4 @@
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import type { PublishPort } from "../types";
 import type { Dedupe } from "./dedupe";
 

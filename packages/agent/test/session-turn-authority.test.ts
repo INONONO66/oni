@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { PlainValueSchema, type BusEvent, type PlainObject, type PlainValue } from "@openomni/protocol";
+import { PlainValueSchema, type BusEvent, type PlainObject, type PlainValue } from "@oni/protocol";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { seedPolicy } from "./helpers/seed-policy";
 import {

@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 
 export function expectNamedFailure(
   operation: () => void,
@@ -10,7 +10,7 @@ export function expectNamedFailure(
   expect(operation).toThrow(
     expect.objectContaining({
       name: errorName,
-      [Symbol.for("openomni.protocol.namedError")]: errorName,
+      [Symbol.for("oni.protocol.namedError")]: errorName,
       data: expectedFields,
     }),
   );

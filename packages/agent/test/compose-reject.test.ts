@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Cause, Context, Effect, Exit } from "effect";
 import { z } from "zod";
-import { canonicalDigest, type PlainValue, type PointId } from "@openomni/protocol";
+import { canonicalDigest, type PlainValue, type PointId } from "@oni/protocol";
 import {
   Capability,
   defineBundle,
@@ -14,9 +14,9 @@ import {
 import { runTestExit, runTestPromise } from "./helpers/isolated";
 import { compose, COMPOSE_REJECTION_CODES, ComposeRefused } from "../src/core/composition/compose";
 
-class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/compose/A") {}
-class SeamB extends Context.Service<SeamB, object>()("@openomni/agent/test/compose/B") {}
-class SeamGhost extends Context.Service<SeamGhost, object>()("@openomni/agent/test/compose/Ghost") {}
+class SeamA extends Context.Service<SeamA, object>()("@oni/agent/test/compose/A") {}
+class SeamB extends Context.Service<SeamB, object>()("@oni/agent/test/compose/B") {}
+class SeamGhost extends Context.Service<SeamGhost, object>()("@oni/agent/test/compose/Ghost") {}
 
 const kind = {
   schema: z.object({}),
@@ -158,7 +158,7 @@ test("seam_missing: an unknown seam rejects — it is not a deactivation", async
     }),
   );
   expect(missingBundleSeam.code).toBe("seam_missing");
-  expect(missingBundleSeam.detail).toBe("@openomni/agent/test/compose/Ghost");
+  expect(missingBundleSeam.detail).toBe("@oni/agent/test/compose/Ghost");
 });
 
 test("unknown_handler: a row referencing an unregistered how.ref rejects", async () => {

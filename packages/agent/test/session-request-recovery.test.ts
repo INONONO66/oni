@@ -7,7 +7,7 @@ import { expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { LedgerAction, PlainValue, SessionTransition } from "@openomni/protocol";
+import type { LedgerAction, PlainValue, SessionTransition } from "@oni/protocol";
 import { z } from "zod";
 import { defineTool, eraseTool } from "../src/core/loop/tool";
 import { createTurnDispatcher } from "../src/plugins/tool";

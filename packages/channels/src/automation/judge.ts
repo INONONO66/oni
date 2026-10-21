@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Ingress } from "@openomni/protocol";
+import type { Ingress } from "@oni/protocol";
 import type { ChannelError } from "../errors.js";
 import { match, type MatchDecision, type MatchPorts } from "./matcher.js";
 

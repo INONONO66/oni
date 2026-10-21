@@ -1,6 +1,6 @@
 import { sessionTree } from "../test/helpers/session-tree";
 import { describe, expect, test } from "bun:test";
-import { SessionTurn } from "@openomni/protocol";
+import { SessionTurn } from "@oni/protocol";
 import { z } from "zod";
 import { bounded } from "../test/helpers/bounded";
 import { firstDelta, roundTrip, tokenAccounting, toolDispatch } from "./turns";

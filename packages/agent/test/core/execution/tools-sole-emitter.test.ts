@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 import { isolated } from "../../helpers/isolated";
 
-import { Tool } from "@openomni/protocol";
+import { Tool } from "@oni/protocol";
 import { createDispatcher, defineTool } from "../../helpers/effect-g3-dispatcher";
 import { z } from "zod";
 import { dispatchEcho } from "../../helpers/echo-dispatch";

@@ -1,5 +1,5 @@
 import { openCatalogStore } from "../../../src/core/store/catalog";
-import type { PlainValue, PolicyRow, Storage } from "@openomni/protocol";
+import type { PlainValue, PolicyRow, Storage } from "@oni/protocol";
 
 export function withPolicyRows<A>(run: (source: Storage.PolicyRowSubAdapter) => A): A {
   const catalog = openCatalogStore(":memory:", { now: () => 1_700_000_000_000 });

@@ -1,7 +1,7 @@
 import { turnTerminal, turnResume } from "../src/core/store/session-reads";
 import { describe, expect, test } from "bun:test";
 import { Cause, Effect, Exit, type Fiber, } from "effect";
-import { canonicalDigest, type Delivery, type LedgerAction, type L0Observation, type SessionTransition, type SessionTurn, } from "@openomni/protocol";
+import { canonicalDigest, type Delivery, type LedgerAction, type L0Observation, type SessionTransition, type SessionTurn, } from "@oni/protocol";
 import { CommitFailed, type SessionError } from "../src/core/ports/failure";
 
 import type { ExecutionApprovalRequest, ExecutionApprovals, } from "../src/core/loop/executor";

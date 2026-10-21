@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { injectedOptions } from "./helpers/injected";
-import { type Channel, type Gateway, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, Outbound } from "@oni/protocol";
 import { SlackAdapter } from "../src/provider/slack/surface";
 import { SlackBotError } from "../src/provider/slack/sdk";
 import { SlackEndpointKeyError, SlackHandlerMissingError } from "../src/errors";

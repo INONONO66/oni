@@ -1,4 +1,4 @@
-import type { Actor, Ingress } from "@openomni/protocol";
+import type { Actor, Ingress } from "@oni/protocol";
 import { effectiveTrustTier } from "./effective-tier.js";
 
 /**

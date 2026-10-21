@@ -3,7 +3,7 @@ import { testExecutor, runAgentSync } from "../../helpers/executor";
 import type { ResolvedExecutorOptions } from "../../../src/core/loop/executor";
 import { catalogLayer } from "../../helpers/service-layers";
 import { expect, it } from "bun:test";
-import { PlainObjectSchema, type LedgerAction, type ToolExecutionContext } from "@openomni/protocol";
+import { PlainObjectSchema, type LedgerAction, type ToolExecutionContext } from "@oni/protocol";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { sessionTree as kernelSessionTree } from "../../helpers/session-tree";
 import { requestLedger } from "../../helpers/effect-g1";

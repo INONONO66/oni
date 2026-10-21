@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import net from "node:net";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost, type CodeRunner } from "./helpers/native";
 import { captureError, within } from "./ipc/helpers/signal";
 import { socketPath } from "./helpers/socket-path";

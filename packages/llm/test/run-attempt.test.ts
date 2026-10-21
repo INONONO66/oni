@@ -7,7 +7,7 @@ for (const visible of ["none", "text", "tool"] as const) {
     let calls = 0;
     const outcome = await run(
       {
-        authFilePath: "/nonexistent/openomni-test/auth.json",
+        authFilePath: "/nonexistent/oni-test/auth.json",
         messages: [],
         tools: [],
         model: { id: "test", name: "test", providerID: "test" },

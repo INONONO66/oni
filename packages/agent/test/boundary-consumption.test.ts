@@ -7,7 +7,7 @@ import { configureAction } from "../src/core/store/configure";
  */
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
-import type { Delivery, LedgerAction } from "@openomni/protocol";
+import type { Delivery, LedgerAction } from "@oni/protocol";
 import { DEFAULT_CONSUMPTION, boundaryConsumption, consumptionSettings } from "../src/core/journal/delivery";
 
 import type { SessionRunner } from "../src/core/session/run";

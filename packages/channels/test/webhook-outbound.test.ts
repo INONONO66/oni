@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { verifyHmacSignature } from "../src/authn/github-signature";
 import {
@@ -64,7 +64,7 @@ describe("the webhook provider's outbound side (#1569 lane 9)", () => {
       headers: {
         "content-type": "application/json",
         "x-signature": signWebhookBody(body, "shared-secret"),
-        "x-openomni-delivery": "k-1",
+        "x-oni-delivery": "k-1",
       },
       body: '{"message":"hello"}',
       redirect: "manual",

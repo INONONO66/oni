@@ -43,7 +43,7 @@ describe("the transport follows the endpoint", () => {
   test("Given a token no subprotocol can carry, When selected, Then it is refused by name", () => {
     // `new WebSocket(url, protocols)` THROWS a bare SyntaxError on a protocol
     // that is not an HTTP token, and it throws from inside the transport's
-    // first send — so an operator with a space in OPENOMNI_WS_TOKEN would get
+    // first send — so an operator with a space in ONI_WS_TOKEN would get
     // "Wrong protocol for WebSocket" on their first message and nothing
     // pointing at the variable that caused it. The daemon puts no character
     // constraint on the token, so this is reachable by configuration.
@@ -52,7 +52,7 @@ describe("the transport follows the endpoint", () => {
 
       expect(selected.kind).toBe("misconfigured");
       expect(selected.transport).toBeNull();
-      expect(selected.kind === "misconfigured" && selected.problem).toMatch(/OPENOMNI_WS_TOKEN/);
+      expect(selected.kind === "misconfigured" && selected.problem).toMatch(/ONI_WS_TOKEN/);
       // The value is a credential and the message reaches the screen.
       expect(selected.kind === "misconfigured" && selected.problem).not.toContain(token);
     }

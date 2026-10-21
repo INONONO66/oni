@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BusEvent, Token } from "@openomni/protocol";
+import { BusEvent, Token } from "@oni/protocol";
 import { RetryReason } from "../ports/reason-codes";
 
 const AgentBase = z.object({

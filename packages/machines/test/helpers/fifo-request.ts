@@ -3,7 +3,7 @@
 // One process serves every request of a test: an instrumented cold start is
 // the dominant cost under the exact collector.
 import { z } from "zod";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createFsDriver } from "./native";
 
 const [root, requests] = process.argv.slice(2);

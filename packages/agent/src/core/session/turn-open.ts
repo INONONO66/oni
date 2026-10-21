@@ -5,7 +5,7 @@ import type { ExecutionApprovals } from "../loop/executor";
 
 import type { SessionKernel } from "./entity";
 import { foldAlarmChains, openAlarmIds } from "./alarm-read";
-import { Delivery, AlarmOp, type LedgerAction, BusEvent, type PlainValue } from "@openomni/protocol";
+import { Delivery, AlarmOp, type LedgerAction, BusEvent, type PlainValue } from "@oni/protocol";
 import type { ChatAgentConfig } from "../ports/types";
 import { z } from "zod";
 import type { SessionRunnerResult, SessionRuntime } from "./runtime";

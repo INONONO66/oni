@@ -1,4 +1,4 @@
-import { type Channel, type Gateway, Operational, type Outbound, type PlainValue } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound, type PlainValue } from "@oni/protocol";
 import { DeliveryNotSent, SlackEndpointKeyError } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";

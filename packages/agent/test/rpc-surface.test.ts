@@ -21,7 +21,7 @@ import { SessionNotFound } from "../src/core/store/errors";
 import { retryAlarmEnvelope, retryAttemptChain, seedSessionWithOpenRequest } from "./helpers/seed-request";
 import { type FencedSession, fencedSession, materializeSession, sessionHandles, withSessionHandles } from "./helpers/seeded-session";
 import type { LedgerError } from "../src/core/store/errors";
-import { Alarm } from "@openomni/protocol";
+import { Alarm } from "@oni/protocol";
 import { approvalAnswer } from "./helpers/request-fixtures";
 import { runAgent } from "./helpers/executor";
 import type { DeliverRefused } from "../src/core/journal/messages";

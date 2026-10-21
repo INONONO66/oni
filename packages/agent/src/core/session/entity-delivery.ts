@@ -1,7 +1,7 @@
 import { computeActionHash, storedActionRow } from "../store/action-hash";
 import { CommitRefused, FenceRefused, type LedgerError } from "../store/errors";
 import { parsePlainJson } from "../store/storage/sqlite-l0-rows";
-import { Delivery, SessionTransition, type LedgerAction } from "@openomni/protocol";
+import { Delivery, SessionTransition, type LedgerAction } from "@oni/protocol";
 import { Cause, Effect, Exit, Option, Schema, type Scope } from "effect";
 import { LeaseLost, SessionAdmissionRefused, type SessionError } from "../ports/failure";
 import { createSessionAdmission, decideSessionAdmission } from "./admission";

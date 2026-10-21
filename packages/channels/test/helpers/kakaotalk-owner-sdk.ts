@@ -1,4 +1,4 @@
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import type {
   KakaoTalkMessage,
   KakaoTalkOwnerApi,

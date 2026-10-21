@@ -1,4 +1,4 @@
-import { Actor, type Ingress, resolveTarget, type Gateway } from "@openomni/protocol";
+import { Actor, type Ingress, resolveTarget, type Gateway } from "@oni/protocol";
 
 type ActorRecord = Pick<Ingress.Actor, "trustTier" | "role">;
 

@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Fiber } from "effect";
-import { LlmCall } from "@openomni/protocol";
+import { LlmCall } from "@oni/protocol";
 import { Processor as NativeProcessor } from "../../src/processor";
 import { anthropicModel, fixedNow, sequentialIds } from "../helpers/fixtures";
 import { runEffect } from "../helpers/native";

@@ -1,7 +1,7 @@
 import { sessionTree } from "../helpers/session-tree";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { LedgerSession } from "@openomni/protocol";
+import { LedgerSession } from "@oni/protocol";
 import { z } from "zod";
 import { SessionSqlRow } from "../../../src/core/store/storage/sqlite-l0-rows";
 import { materializeSession } from "../helpers/session";

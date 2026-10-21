@@ -1,4 +1,4 @@
-import { StatusGlyph, Text, TreeRow } from "@openomni/ui";
+import { StatusGlyph, Text, TreeRow } from "@oni/ui";
 import type { ComponentProps } from "react";
 import { formatRelative } from "../attention/reason";
 import type { Session } from "../state/store";

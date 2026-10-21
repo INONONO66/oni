@@ -1,6 +1,6 @@
 import { FakeLlmLive as LlmLive } from "./fake-llm";
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
-import { canonicalDigest, Delivery, LedgerAction, SessionTransition, type LedgerSession, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
+import { canonicalDigest, Delivery, LedgerAction, SessionTransition, type LedgerSession, type ObservationSink as ObservationPort, type SessionGeneration } from "@oni/protocol";
 import { Clock, type Context, Effect, Layer, Scope, Semaphore } from "effect";
 import { GenerationHandlers } from "../../src/core/composition/compose";
 import type { SessionKernel } from "../../src/core/session/entity";
@@ -17,8 +17,8 @@ import type { SessionRunnerResult } from "../../src/core/session/run";
 
 /**
  * Seam stub for `SessionRuntime.settleChild`: core fixtures exercise the settlement SEAM only. The shipped
- * delegation-policy fold lives in apps/openomni/src/bundles/delegation-policy and is tested from
- * apps/openomni/test; this stub answers the last parent-origin input with a minimal settled reply and never
+ * delegation-policy fold lives in apps/oni/src/bundles/delegation-policy and is tested from
+ * apps/oni/test; this stub answers the last parent-origin input with a minimal settled reply and never
  * claims to mirror the shipped policy.
  */
 function fixtureSettleChild(

@@ -1,6 +1,6 @@
 import { RateLimited } from "../../errors";
 import { newTraceId } from "../../support/trace";
-import { type Channel, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";

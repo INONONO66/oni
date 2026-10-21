@@ -1,4 +1,4 @@
-import { canonicalDigest, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, type PlainValue } from "@oni/protocol";
 import { Clock, Effect, type Scope } from "effect";
 import { z } from "zod";
 import type {

@@ -62,7 +62,7 @@ function mergeLcov(union: Map<string, Merged>, file: string, root: string): void
     if (line.startsWith("SF:")) {
       const raw = line.slice(3).trim();
       // A lane that loads another workspace's module records it relative to
-      // its own root (`SF:../../packages/agent/src/x.ts` from apps/openomni);
+      // its own root (`SF:../../packages/agent/src/x.ts` from apps/oni);
       // normalize so it merges with that workspace's own lane record.
       const source = isAbsolute(raw) ? relative(root, raw) : posix.normalize(`${prefix}/${raw}`);
       entry = union.get(source) ?? { hits: new Map(), reports: 0, seen: new Map() };

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, Operational } from "@oni/protocol";
 import { z } from "zod";
 import { createTelegramProvider } from "../src/provider/telegram/provider";
 import { TELEGRAM_ALLOWED_UPDATES, TelegramBotError } from "../src/provider/telegram/sdk";

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createGatewayChatTransport } from "../src/renderer/chat/gateway-transport";
 import { GatewayUnavailableError } from "../src/renderer/errors";
 import { upgradeWebSocket } from "./helpers/chat-server";

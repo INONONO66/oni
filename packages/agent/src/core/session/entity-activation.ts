@@ -1,13 +1,13 @@
 import type * as SessionHandleStore from "../store/fence";
 import { CommitRefused, FenceRefused, SessionNotFound, type LedgerError } from "../store/errors";
-import { canonicalJson, PlainObjectSchema, type LedgerAction } from "@openomni/protocol";
+import { canonicalJson, PlainObjectSchema, type LedgerAction } from "@oni/protocol";
 import { z } from "zod";
 import { Cause, Context, Effect, Option, type Scope, type Semaphore } from "effect";
 import { Entity, type Envelope } from "effect/cluster";
 import type { SessionEntityAuthority, SessionEntityPorts } from "./run";
 import { AdmissionFailure, AlarmRpc, DeliverRpc, ReadRpc, ResolveRpc } from "../journal/messages";
 import { armAction, ArmRefused, type AlarmChainReads, type AlarmDrainConfig, type AlarmFired, type AlarmSendRefused, type ArmVerb } from "../ports/alarm";
-import { isReservedAlarmPurpose } from "@openomni/protocol";
+import { isReservedAlarmPurpose } from "@oni/protocol";
 
 export interface SessionKernel extends SessionHandleStore.SessionKernel {}
 
@@ -24,7 +24,7 @@ export interface SessionEntityEnv {
 }
 
 export class SessionEntityContext extends Context.Service<SessionEntityContext, SessionEntityEnv>()(
-  "@openomni/agent/cluster/SessionEntityContext",
+  "@oni/agent/cluster/SessionEntityContext",
 ) {}
 
 export const SessionEntity = Entity.make("Session", [DeliverRpc, ResolveRpc, AlarmRpc, ReadRpc]);

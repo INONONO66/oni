@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { LlmCall, type Message, type Tool } from "@openomni/protocol";
+import { LlmCall, type Message, type Tool } from "@oni/protocol";
 import { mockAiModule, streamOf, type StreamTextArgs } from "./helpers/ai-mock";
 import type { StreamEvent } from "../src/processor/stream-events";
 import type { Sink } from "../src/sink";
@@ -247,7 +247,7 @@ describe("run", () => {
   });
 
   test("does not read stored auth when fallback is disabled", async () => {
-    const authFile = join(mkdtempSync(join(tmpdir(), "openomni-run-auth-")), "auth.json");
+    const authFile = join(mkdtempSync(join(tmpdir(), "oni-run-auth-")), "auth.json");
 
     try {
       await runEffect(Auth.set("stored-auth-provider", testAuth, { id: () => "tmp-stored", authFilePath: authFile }));

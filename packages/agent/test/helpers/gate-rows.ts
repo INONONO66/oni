@@ -1,4 +1,4 @@
-import type { GateRow, PlainValue, PointId } from "@openomni/protocol";
+import type { GateRow, PlainValue, PointId } from "@oni/protocol";
 import { compileGateRows, type GateHandler } from "../../src/core/gate/compose";
 import {
   composePointTable,

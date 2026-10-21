@@ -1,5 +1,5 @@
 {
-  "name": "@openomni/channels",
+  "name": "@oni/channels",
   "version": "0.0.1",
   "type": "module",
   "main": "./src/index.ts",
@@ -11,8 +11,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@openomni/agent": "workspace:*",
-    "@openomni/protocol": "workspace:*",
+    "@oni/agent": "workspace:*",
+    "@oni/protocol": "workspace:*",
     "agent-messenger": "2.39.0",
     "effect": "4.0.0-rc.118",
     "zod": "^4.5.4"

@@ -5,7 +5,7 @@ import { catalogLayer, executorLayer } from "./helpers/service-layers";
 import { describe, expect, test } from "bun:test";
 import { stringQueryTool } from "./helpers/query-tool";
 import { nth } from "./helpers/nth";
-import { canonicalDigest, LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
+import { canonicalDigest, LedgerAction, type PlainObject, type PlainValue, } from "@oni/protocol";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import type { DurableExecutor, ExecutionBatchItem, ExecutionResult, } from "../src/core/loop/executor";
 import type { WaveControl } from "../src/core/loop/tool";

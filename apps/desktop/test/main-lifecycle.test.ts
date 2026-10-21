@@ -16,13 +16,13 @@ import {
 import { runIsolated } from "./helpers/isolated-entry";
 import { flatten } from "./helpers/menu";
 
-const childCase = process.env.OPENOMNI_MAIN_LIFECYCLE_CHILD;
+const childCase = process.env.ONI_MAIN_LIFECYCLE_CHILD;
 const cases = childCase === undefined ? [false, true] : [childCase === "true"];
 const environment = [
   "ELECTRON_RENDERER_URL",
-  "OPENOMNI_WS_URL",
-  "OPENOMNI_WS_PORT",
-  "OPENOMNI_WS_TOKEN",
+  "ONI_WS_URL",
+  "ONI_WS_PORT",
+  "ONI_WS_TOKEN",
 ] as const;
 
 function applyEnvironment(entries: readonly (readonly [string, string | undefined])[]): void {
@@ -34,11 +34,11 @@ function applyEnvironment(entries: readonly (readonly [string, string | undefine
 
 test.each(cases)("main window lifecycle (development=%s)", async (development) => {
   if (childCase === undefined) {
-    await runIsolated(import.meta.path, { OPENOMNI_MAIN_LIFECYCLE_CHILD: String(development) });
+    await runIsolated(import.meta.path, { ONI_MAIN_LIFECYCLE_CHILD: String(development) });
     return;
   }
 
-  const directory = mkdtempSync(join(tmpdir(), "openomni-tabs-main-"));
+  const directory = mkdtempSync(join(tmpdir(), "oni-tabs-main-"));
   const file = join(directory, "window-bounds.json");
   const ready = Promise.withResolvers<void>();
   const events = new EventEmitter();
@@ -155,8 +155,8 @@ test.each(cases)("main window lifecycle (development=%s)", async (development) =
   const configured: Partial<Record<(typeof environment)[number], string>> = development
     ? {
         ELECTRON_RENDERER_URL: "http://localhost:5173",
-        OPENOMNI_WS_PORT: "4321",
-        OPENOMNI_WS_TOKEN: "pinned",
+        ONI_WS_PORT: "4321",
+        ONI_WS_TOKEN: "pinned",
       }
     : {};
   applyEnvironment(environment.map((key) => [key, configured[key]] as const));

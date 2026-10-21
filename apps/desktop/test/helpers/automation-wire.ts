@@ -1,4 +1,4 @@
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { createGatewayChatTransport } from "../../src/renderer/chat/gateway-transport";
 
 export const automationRecord: Ingress.Automation = {

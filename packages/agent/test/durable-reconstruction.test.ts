@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonicalDigest, FoldCheckpoint, PlainValueSchema } from "@openomni/protocol";
+import { canonicalDigest, FoldCheckpoint, PlainValueSchema } from "@oni/protocol";
 
 import { isolatedRun } from "./helpers/isolated";
 import { openCrashStores } from "./helpers/crash-stores";

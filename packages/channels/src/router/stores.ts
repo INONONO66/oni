@@ -1,11 +1,11 @@
-import { createDecisionFactPort } from "@openomni/agent";
+import { createDecisionFactPort } from "@oni/agent";
 import { createSurfaceKeyStore } from "../store/surface-key/index.js";
 import { createActorRegistry } from "../store/actor/index.js";
 import { createAutomationStore, type AutomationAdapter } from "../store/automation/index.js";
 import { createBlacklistStore } from "../store/blacklist/index.js";
 import { createChannelGrantStore } from "../store/channel-grant/index.js";
 import { createEgressBudgetStore } from "../store/egress/index.js";
-import type { Storage as ProtocolStorage } from "@openomni/protocol";
+import type { Storage as ProtocolStorage } from "@oni/protocol";
 
 export interface ChannelStoreSource {
   readonly actorRegistry?: ProtocolStorage.ActorRegistrySubAdapter;

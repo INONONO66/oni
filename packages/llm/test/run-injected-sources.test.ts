@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LlmCall, type Message } from "@openomni/protocol";
+import { LlmCall, type Message } from "@oni/protocol";
 import type { StreamEvent } from "../src/processor/stream-events";
 import { run } from "./helpers/native";
 import { collector } from "./helpers/observation";
@@ -15,7 +15,7 @@ test("run() stamps every time and identity from the injected sources", async () 
   const messages: Message.WithParts[] = [];
   const outcome = await run(
     {
-      authFilePath: "/nonexistent/openomni-test/auth.json",
+      authFilePath: "/nonexistent/oni-test/auth.json",
       messages: [],
       tools: [],
       model: { id: "model", name: "model", providerID: "provider" },

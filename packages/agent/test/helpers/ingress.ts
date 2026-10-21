@@ -1,5 +1,5 @@
 import type { LedgerError } from "../../src/core/store/errors";
-import type { Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { Delivery, LedgerAction, LedgerSession } from "@oni/protocol";
 import { Effect } from "effect";
 import type { SessionKernel } from "../../src/core/session/entity";
 import { receivedMessageAction } from "../../src/core/journal/delivery";

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "OpenOmni",
+      "name": "Oni",
       "devDependencies": {
         "@biomejs/biome": "2.4.16",
         "@commitlint/cli": "^20.5.0",
@@ -21,12 +21,12 @@
       },
     },
     "apps/desktop": {
-      "name": "@openomni/desktop",
+      "name": "@oni/desktop",
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/react": "4.0.96",
-        "@openomni/protocol": "workspace:*",
-        "@openomni/ui": "workspace:*",
+        "@oni/protocol": "workspace:*",
+        "@oni/ui": "workspace:*",
         "@tanstack/react-query": "5.102.8",
         "@tanstack/react-store": "0.11.1",
         "@tanstack/store": "0.11.1",
@@ -54,16 +54,16 @@
         "vite": "^8.2.2",
       },
     },
-    "apps/openomni": {
-      "name": "@openomni/app",
+    "apps/oni": {
+      "name": "@oni/app",
       "version": "0.1.0",
       "dependencies": {
-        "@openomni/agent": "workspace:*",
-        "@openomni/channels": "workspace:*",
-        "@openomni/codemode": "workspace:*",
-        "@openomni/llm": "workspace:*",
-        "@openomni/machines": "workspace:*",
-        "@openomni/protocol": "workspace:*",
+        "@oni/agent": "workspace:*",
+        "@oni/channels": "workspace:*",
+        "@oni/codemode": "workspace:*",
+        "@oni/llm": "workspace:*",
+        "@oni/machines": "workspace:*",
+        "@oni/protocol": "workspace:*",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
       },
@@ -73,11 +73,11 @@
       },
     },
     "packages/agent": {
-      "name": "@openomni/agent",
+      "name": "@oni/agent",
       "version": "0.1.0",
       "dependencies": {
         "@effect/sql-sqlite-bun": "4.0.0-rc.118",
-        "@openomni/protocol": "workspace:*",
+        "@oni/protocol": "workspace:*",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
       },
@@ -86,11 +86,11 @@
       },
     },
     "packages/channels": {
-      "name": "@openomni/channels",
+      "name": "@oni/channels",
       "version": "0.0.1",
       "dependencies": {
-        "@openomni/agent": "workspace:*",
-        "@openomni/protocol": "workspace:*",
+        "@oni/agent": "workspace:*",
+        "@oni/protocol": "workspace:*",
         "agent-messenger": "2.39.0",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
@@ -101,11 +101,11 @@
       },
     },
     "packages/codemode": {
-      "name": "@openomni/codemode",
+      "name": "@oni/codemode",
       "version": "0.0.1",
       "dependencies": {
-        "@openomni/machines": "workspace:*",
-        "@openomni/protocol": "workspace:*",
+        "@oni/machines": "workspace:*",
+        "@oni/protocol": "workspace:*",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
       },
@@ -115,12 +115,12 @@
       },
     },
     "packages/llm": {
-      "name": "@openomni/llm",
+      "name": "@oni/llm",
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/anthropic": "4.0.49",
         "@ai-sdk/openai": "4.0.60",
-        "@openomni/protocol": "workspace:*",
+        "@oni/protocol": "workspace:*",
         "ai": "7.0.93",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
@@ -130,10 +130,10 @@
       },
     },
     "packages/machines": {
-      "name": "@openomni/machines",
+      "name": "@oni/machines",
       "version": "0.0.1",
       "dependencies": {
-        "@openomni/protocol": "workspace:*",
+        "@oni/protocol": "workspace:*",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
       },
@@ -143,7 +143,7 @@
       },
     },
     "packages/protocol": {
-      "name": "@openomni/protocol",
+      "name": "@oni/protocol",
       "version": "0.0.1",
       "dependencies": {
         "@json-render/core": "^0.21.1",
@@ -154,7 +154,7 @@
       },
     },
     "packages/ui": {
-      "name": "@openomni/ui",
+      "name": "@oni/ui",
       "version": "0.0.0",
       "dependencies": {
         "@base-ui/react": "^1.7.0",
@@ -455,23 +455,23 @@
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.2", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.3", "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.3" } }, "sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw=="],
 
-    "@openomni/agent": ["@openomni/agent@workspace:packages/agent"],
+    "@oni/agent": ["@oni/agent@workspace:packages/agent"],
 
-    "@openomni/app": ["@openomni/app@workspace:apps/openomni"],
+    "@oni/app": ["@oni/app@workspace:apps/oni"],
 
-    "@openomni/channels": ["@openomni/channels@workspace:packages/channels"],
+    "@oni/channels": ["@oni/channels@workspace:packages/channels"],
 
-    "@openomni/codemode": ["@openomni/codemode@workspace:packages/codemode"],
+    "@oni/codemode": ["@oni/codemode@workspace:packages/codemode"],
 
-    "@openomni/desktop": ["@openomni/desktop@workspace:apps/desktop"],
+    "@oni/desktop": ["@oni/desktop@workspace:apps/desktop"],
 
-    "@openomni/llm": ["@openomni/llm@workspace:packages/llm"],
+    "@oni/llm": ["@oni/llm@workspace:packages/llm"],
 
-    "@openomni/machines": ["@openomni/machines@workspace:packages/machines"],
+    "@oni/machines": ["@oni/machines@workspace:packages/machines"],
 
-    "@openomni/protocol": ["@openomni/protocol@workspace:packages/protocol"],
+    "@oni/protocol": ["@oni/protocol@workspace:packages/protocol"],
 
-    "@openomni/ui": ["@openomni/ui@workspace:packages/ui"],
+    "@oni/ui": ["@oni/ui@workspace:packages/ui"],
 
     "@oxc-parser/binding-android-arm-eabi": ["@oxc-parser/binding-android-arm-eabi@0.142.0", "", { "os": "android", "cpu": "arm" }, "sha512-ZiRGDutGsv1G6bL/ozy/koC0Sv39T1DqyoC4KD1DOy9ZoACm1O5UWhEK2c02Qdk+4lfLVkvFa/mQ0fm/4h1BtQ=="],
 
@@ -1475,21 +1475,21 @@
 
     "@img/sharp-wasm32/@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
-    "@openomni/agent/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+    "@oni/agent/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
-    "@openomni/app/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@oni/app/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
-    "@openomni/channels/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+    "@oni/channels/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
-    "@openomni/codemode/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@oni/codemode/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
-    "@openomni/desktop/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
+    "@oni/desktop/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
 
-    "@openomni/llm/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@oni/llm/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
-    "@openomni/machines/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@oni/machines/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
-    "@openomni/ui/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
+    "@oni/ui/@types/bun": ["@types/bun@1.4.1", "", { "dependencies": { "bun-types": "1.4.1" } }, "sha512-0AVGiTXGajf1rgKom3N+c5L7CBxuoyyv1i44M0nX4UDK0G/fnRAMiri93nHuVPIb429KKtAgj7HatVmmOjeQLA=="],
 
     "@tailwindcss/node/lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 
@@ -1555,21 +1555,21 @@
 
     "webex-message-handler/undici": ["undici@8.12.1", "", {}, "sha512-usz3OVQBeh1LxNn0DzU0voLXMgn5CU/WUdpBsY6Ti5afNao+vTkmn4H/NxoXolc10cOqe2+YIG0Hspq2rsl64w=="],
 
-    "@openomni/agent/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+    "@oni/agent/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
-    "@openomni/app/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "@oni/app/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
-    "@openomni/channels/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+    "@oni/channels/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
-    "@openomni/codemode/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "@oni/codemode/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
-    "@openomni/desktop/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
+    "@oni/desktop/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
 
-    "@openomni/llm/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "@oni/llm/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
-    "@openomni/machines/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "@oni/machines/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
-    "@openomni/ui/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
+    "@oni/ui/@types/bun/bun-types": ["bun-types@1.4.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-loKuVrAFZKfEv+JvWkHRS9GW5IqLuLRjVXN9p+vZvBN86O5hf/pBZQ5hSoyipsrMmWObZBDvWnlmKvjKTM0PdA=="],
 
     "@tailwindcss/node/lightningcss/lightningcss-android-arm64": ["lightningcss-android-arm64@1.32.0", "", { "os": "android", "cpu": "arm64" }, "sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg=="],
 

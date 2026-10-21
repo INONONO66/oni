@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { LedgerAction, PlainObject, PlainValue } from "@openomni/protocol";
+import type { LedgerAction, PlainObject, PlainValue } from "@oni/protocol";
 import type { ExecutionError } from "../../src/core/ports/failure";
 import type { DurableExecutor, LlmAttempts } from "../../src/core/loop/executor";
 import { fakeClassifyFailure } from "./fake-llm";

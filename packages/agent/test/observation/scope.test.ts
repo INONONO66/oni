@@ -3,7 +3,7 @@ import { scopeObservation } from "../../src/core/observation/bus";
 import { newTraceId } from "../helpers/bus";
 import { ObservationDeliveryFailed } from "../../src/core/observation/bus";
 import { collector } from "../helpers/observation-collector";
-import { BusEvent, type ObservationSink } from "@openomni/protocol";
+import { BusEvent, type ObservationSink } from "@oni/protocol";
 import { z } from "zod";
 
 const TestEvent = BusEvent.define(

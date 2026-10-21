@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 import { isolated } from "../../helpers/isolated";
 import { describe, expect, it } from "bun:test";
-import { Operational, type Tool } from "@openomni/protocol";
+import { Operational, type Tool } from "@oni/protocol";
 import { runTestAgent, runUserMessage, failure, foreign } from "../../helpers/effect-g2";
 import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { Bus } from "../../helpers/bus";

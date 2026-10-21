@@ -1,4 +1,4 @@
-import { PlainObjectSchema, SessionTransition, type LedgerAction } from "@openomni/protocol";
+import { PlainObjectSchema, SessionTransition, type LedgerAction } from "@oni/protocol";
 import { Effect } from "effect";
 import type { SessionKernel } from "../../src/core/session/entity";
 import type { ExecutionLedger } from "../../src/core/loop/executor";

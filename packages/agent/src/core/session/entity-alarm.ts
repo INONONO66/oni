@@ -1,10 +1,10 @@
 import type { LedgerError } from "../store/errors";
 import { parsePlainJson } from "../store/storage/sqlite-l0-rows";
-import { canonicalJson, PlainValueSchema } from "@openomni/protocol";
+import { canonicalJson, PlainValueSchema } from "@oni/protocol";
 import { Effect, Schema } from "effect";
 import { AdmissionFailure, type AlarmOccurrence, type AlarmReceipt, DeadlineAlarmBody } from "../journal/messages";
 import { alarmDisposition, firedAction, MAX_OCCURRENCE_STRIKES, type AlarmFired, type AlarmWakeContext, AlarmWakeError } from "../ports/alarm";
-import { isReservedAlarmPurpose } from "@openomni/protocol";
+import { isReservedAlarmPurpose } from "@oni/protocol";
 import { armedChainReads, commitIn, entityArmVerb, retryRevision, sendQuietTick, type ActivationHandle } from "./entity-activation";
 import { appendReceived, deliver, drain, requestCommand } from "./entity-delivery";
 

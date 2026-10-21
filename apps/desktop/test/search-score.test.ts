@@ -120,7 +120,7 @@ describe("separators define a word start", () => {
 
 describe("scoring across a row's fields", () => {
   // Session name, project name, reason — in recall-likelihood order.
-  const fields = ["ledger append path", "openomni-kernel", "running"] as const;
+  const fields = ["ledger append path", "oni-kernel", "running"] as const;
 
   test("Given a hit on the session name, When scored, Then field 0 is reported", () => {
     expect(scoreFields(fields, "ledger")?.field).toBe(0);
@@ -141,10 +141,10 @@ describe("scoring across a row's fields", () => {
   });
 
   test("Given a query the session name spells better, When scored, Then the name wins", () => {
-    // `ker` prefixes nothing in the name but hits `openomni-kernel` at a word
+    // `ker` prefixes nothing in the name but hits `oni-kernel` at a word
     // start, so the project must win here — and the reverse case must not.
     expect(scoreFields(fields, "ker")?.field).toBe(1);
-    expect(scoreFields(["kernel work", "openomni-kernel", "running"], "ker")?.field).toBe(0);
+    expect(scoreFields(["kernel work", "oni-kernel", "running"], "ker")?.field).toBe(0);
   });
 
   test("Given an empty field list, When scored, Then nothing matches", () => {

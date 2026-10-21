@@ -1,7 +1,7 @@
 import { expect, it } from "bun:test";
 import { Clock, Effect } from "effect";
 import { TestClock } from "effect/testing";
-import type { Tool } from "@openomni/protocol";
+import type { Tool } from "@oni/protocol";
 import { isolated } from "../../helpers/isolated";
 import { readyWaveTurn } from "../../helpers/tool-wave";
 import { fixtureStopEvidence } from "../../helpers/chat-services";

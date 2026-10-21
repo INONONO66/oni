@@ -1,6 +1,6 @@
 import { sessionTree } from "../../../agent/test/store/helpers/session-tree";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { type LedgerAction, Outbound, type SessionTransition } from "@openomni/protocol";
+import { type LedgerAction, Outbound, type SessionTransition } from "@oni/protocol";
 import { z } from "zod";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

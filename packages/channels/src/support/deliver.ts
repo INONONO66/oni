@@ -1,5 +1,5 @@
 import { DeliveryNotSent } from "../errors";
-import { Operational, type Outbound } from "@openomni/protocol";
+import { Operational, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
 import { type DeliveryOutcome, PartialDeliveryError } from "./translate";

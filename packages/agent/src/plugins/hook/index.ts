@@ -25,7 +25,7 @@ export {
  */
 
 /** The tag a product bundle's `requires` resolves against at compose. */
-export const HookPort: PortTag = port("@openomni/hook/Hook");
+export const HookPort: PortTag = port("@oni/hook/Hook");
 
 /** The verbs the hook capability publishes over its port. */
 export interface HookVerbs {

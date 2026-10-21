@@ -69,7 +69,7 @@ test("comparison reports only added and resolved keys", () => {
 });
 
 test("runKnip refuses a knip.json whose workspaces drift from the topology", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-inventory-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-inventory-"));
   fixtures.push(fixture);
   await writeFile(join(fixture, "knip.json"), `${JSON.stringify({ workspaces: { bogus: {} } })}\n`);
   const cwd = process.cwd();
@@ -93,7 +93,7 @@ test.each([
   ["resolved", ["exports unused.ts orphan"], [], 0, "baseline entry is no longer reported"],
   ["new issue", [], [{ file: "unused.ts", exports: ["orphan"] }], 1, "VIOLATION [dead-exports]"],
 ])("in-process ratchet recognizes %s", async (_name, baseline, issues, code, text) => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-main-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-main-"));
   fixtures.push(fixture);
   await mkdir(join(fixture, "script/conformance"), { recursive: true });
   await writeFile(join(fixture, "script/conformance/knip-baseline.json"), JSON.stringify({ grandfathered: baseline }));
@@ -122,7 +122,7 @@ test.each([
 });
 
 test("production knip refuses an executable with the wrong version", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-version-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-version-"));
   fixtures.push(fixture);
   const executable = join(fixture, "knip.ts");
   await writeFile(executable, 'process.stdout.write("knip 0.0.0\\n");');
@@ -134,7 +134,7 @@ test("production knip refuses an executable with the wrong version", async () =>
 });
 
 test("production knip preserves successful reports and failed process stderr", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-transport-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-transport-"));
   fixtures.push(fixture);
   const executable = join(fixture, "knip.ts");
   await writeFile(executable, `
@@ -178,7 +178,7 @@ test("in-process self-test verifies normalization and ratchet decisions", async 
 });
 
 test("in-process update writes normalized baseline keys to the configured fixture", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-update-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-update-"));
   fixtures.push(fixture);
   await mkdir(join(fixture, "script/conformance"), { recursive: true });
   const cwd = process.cwd();
@@ -203,7 +203,7 @@ test("in-process update writes normalized baseline keys to the configured fixtur
 });
 
 test("entry-export census admits only topology package barrels", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-entry-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-entry-"));
   fixtures.push(fixture);
   await mkdir(join(fixture, "script/conformance"), { recursive: true });
   await writeFile(join(fixture, "script/conformance/knip-baseline.json"), '{"grandfathered":[]}');
@@ -238,7 +238,7 @@ test.each([
   ["resolved baseline", ["exports unused.ts orphan"], [], 0, "baseline entry is no longer reported"],
   ["new issue", [], [{ file: "unused.ts", exports: ["orphan"] }], 1, "VIOLATION [dead-exports]"],
 ])("CLI reports %s from the knip JSON transport", async (_name, baseline, issues, code, text) => {
-  const fixture = await mkdtemp(join(tmpdir(), "openomni-knip-cli-"));
+  const fixture = await mkdtemp(join(tmpdir(), "oni-knip-cli-"));
   fixtures.push(fixture);
   await mkdir(join(fixture, "bin"), { recursive: true });
   await mkdir(join(fixture, "script/conformance"), { recursive: true });

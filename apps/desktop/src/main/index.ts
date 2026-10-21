@@ -106,7 +106,7 @@ function bootstrap(host: { readonly env: Parameters<typeof resolveDesktopConfig>
   const config = resolveDesktopConfig(host.env);
   if ("kind" in config) {
     // A typed refusal, not a fallback (#1312): a present-but-invalid
-    // OPENOMNI_WS_PORT names itself and no window opens on a guessed port.
+    // ONI_WS_PORT names itself and no window opens on a guessed port.
     console.error(`[desktop] ${config.message}`);
     app.quit();
     return;

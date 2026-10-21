@@ -1,4 +1,4 @@
-import type { PlainValue, PointId, PolicyRow } from "@openomni/protocol";
+import type { PlainValue, PointId, PolicyRow } from "@oni/protocol";
 import { GateComposeError, type GatePointTable } from "./points";
 
 /**

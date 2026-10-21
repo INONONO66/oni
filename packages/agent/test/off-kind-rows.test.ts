@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Context, Effect } from "effect";
 import { z } from "zod";
-import { Delivery, Journal, type PlainValue } from "@openomni/protocol";
+import { Delivery, Journal, type PlainValue } from "@oni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
 import { Capability, Manifest, type PortTag } from "../src/core/ports/capability";
 import { runTestPromise } from "./helpers/isolated";
@@ -25,7 +25,7 @@ import {
  * rejects that kind as input with the existing `unknown_kind` refusal.
  */
 
-class ActionPort extends Context.Service<ActionPort, object>()("@openomni/agent/test/off-rows/action") {}
+class ActionPort extends Context.Service<ActionPort, object>()("@oni/agent/test/off-rows/action") {}
 
 const actionCapability = Capability.define({
   name: "action",

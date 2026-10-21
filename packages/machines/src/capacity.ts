@@ -1,4 +1,4 @@
-import { type BusEvent, Machine } from "@openomni/protocol";
+import { type BusEvent, Machine } from "@oni/protocol";
 import { Effect } from "effect";
 import { MachineRefusalError } from "./errors";
 import type { MachineInfo } from "./host";

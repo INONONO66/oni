@@ -8,7 +8,7 @@ import { openCatalogStore } from "../src/core/store/catalog";
 import { openSessionStore } from "../src/core/store/session-file";
 import * as SessionHandleStore from "../src/core/store/fence";
 import { accumulateUsage, Llm } from "../src/core/ports/llm";
-import type { Token } from "@openomni/protocol";
+import type { Token } from "@oni/protocol";
 import { Entropy, ObservationSink } from "../src/core/ports/ports";
 import { allowAllPolicy } from "../test/helpers/compiled-policy";
 import type { Bench } from "tinybench";

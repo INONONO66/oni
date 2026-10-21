@@ -1,5 +1,5 @@
 {
-  "name": "@openomni/desktop",
+  "name": "@oni/desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,9 +15,9 @@
     "check-types": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
-    "@openomni/protocol": "workspace:*",
+    "@oni/protocol": "workspace:*",
     "@ai-sdk/react": "4.0.96",
-    "@openomni/ui": "workspace:*",
+    "@oni/ui": "workspace:*",
     "@tanstack/react-query": "5.102.8",
     "@tanstack/react-store": "0.11.1",
     "@tanstack/store": "0.11.1",

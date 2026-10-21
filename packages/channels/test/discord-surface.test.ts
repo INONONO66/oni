@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { type Channel, Operational } from "@openomni/protocol";
+import { type Channel, Operational } from "@oni/protocol";
 import { z } from "zod";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { DISCORD_INTENTS } from "../src/provider/discord/sdk";
@@ -50,7 +50,7 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
       channel_id: "dm",
       author: { id: "user", username: "Sender" },
       content: "hello <@bot>",
-      mentions: [{ id: "bot", username: "openomni" }],
+      mentions: [{ id: "bot", username: "oni" }],
     });
     expect(await facts).toMatchObject({
       sender: { kind: "external", externalId: "user" },
@@ -65,7 +65,7 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
     listener.dispatch("MESSAGE_CREATE", {
       id: "echo",
       channel_id: "dm",
-      author: { id: READY.user.id, username: "openomni", bot: true },
+      author: { id: READY.user.id, username: "oni", bot: true },
       content: "my own post",
     });
     const facts = next();
@@ -216,11 +216,11 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
   it("rebinds the bot identity on a resume READY: the new id is filtered, the old id is now a sender", async () => {
     const { listener, next, inbound } = await started();
     listener.emit("disconnected");
-    listener.emit("connected", { user: { id: "bot2", username: "openomni" }, sessionId: "s2" });
+    listener.emit("connected", { user: { id: "bot2", username: "oni" }, sessionId: "s2" });
     listener.dispatch("MESSAGE_CREATE", {
       id: "own",
       channel_id: "dm",
-      author: { id: "bot2", username: "openomni", bot: true },
+      author: { id: "bot2", username: "oni", bot: true },
       content: "echo under the new id",
     });
     const fromOldId = next();

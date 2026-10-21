@@ -1,7 +1,7 @@
 /// <reference lib="es2022.object" />
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import type { LedgerSession } from "@openomni/protocol";
+import type { LedgerSession } from "@oni/protocol";
 import * as ledgerExports from "../../../src/core/store/session-file";
 import { bootstrapStoreDatabase } from "../../../src/core/store/session-file";
 import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";

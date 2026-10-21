@@ -1,13 +1,13 @@
 import { sessionTree } from "../../../agent/test/store/helpers/session-tree";
 import { TEST_APPROVAL_POLICY } from "../../../agent/test/helpers/approval-policy";
 import { Clock, Effect } from "effect";
-import { Core } from "@openomni/agent";
+import { Core } from "@oni/agent";
 const Entropy = Core.Entropy;
 const createSessionRequests = Core.createSessionRequests;
 const decideRequestTransition = Core.decideRequestTransition;
 type SessionRuntime = Core.SessionRuntime;
 import { runEffect } from "./effect";
-import { canonicalDigest, type Gateway, type PlainValue, type SessionTransition, } from "@openomni/protocol";
+import { canonicalDigest, type Gateway, type PlainValue, type SessionTransition, } from "@oni/protocol";
 import { adoptLedgerFence, ledger } from "./ledger";
 
 /** Channel tests exercise routing, not configure authority: the pinned pre-policy admits every configure. */

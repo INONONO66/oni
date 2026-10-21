@@ -1,5 +1,5 @@
 import type { HandlerTable as PolicyRegistry, NamedConsultant } from "../gate/compile";
-import { canonicalDigest, CORE_POINT_RECORDS, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, CORE_POINT_RECORDS, type PlainValue } from "@oni/protocol";
 import { type Clock, Context, Effect, Schema, type Scope } from "effect";
 import {
   type BundleContract,
@@ -11,7 +11,7 @@ import {
   toolInputSchema,
 } from "../ports/capability";
 
-export class GenerationHandlers extends Context.Service<GenerationHandlers, PolicyRegistry>()("@openomni/agent/GenerationHandlers") {}
+export class GenerationHandlers extends Context.Service<GenerationHandlers, PolicyRegistry>()("@oni/agent/GenerationHandlers") {}
 
 export interface ConsultantSeed {
   readonly name: string;
@@ -53,7 +53,7 @@ export type ComposeRejection = (typeof COMPOSE_REJECTION_CODES)[number];
 
 /** A rejection fails the boot — no partial activation. */
 export class ComposeRefused extends Schema.TaggedError<ComposeRefused>(
-  "@openomni/agent/core/ComposeRefused",
+  "@oni/agent/core/ComposeRefused",
 )("ComposeRefused", {
   code: Schema.Literals(COMPOSE_REJECTION_CODES),
   name: Schema.String,

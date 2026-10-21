@@ -1,4 +1,4 @@
-import type { BusEvent } from "@openomni/protocol";
+import type { BusEvent } from "@oni/protocol";
 import { Effect, FiberSet, PubSub, Scope, Stream } from "effect";
 import { runEffect } from "./effect";
 

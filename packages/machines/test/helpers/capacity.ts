@@ -1,4 +1,4 @@
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createMachineHost } from "./native";
 import { eventCollector } from "./events";
 import { socketPath } from "./socket-path";

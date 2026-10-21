@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { ChannelProviders } from "../src/provider/registry";
 import { createSlackProvider } from "../src/provider/slack/provider";
 import type { PublishPort } from "../src/types";

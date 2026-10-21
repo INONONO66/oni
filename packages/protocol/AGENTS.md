@@ -8,7 +8,7 @@
 
 Shared type foundation. Zero internal dependencies. All cross-package Zod schemas live here.
 
-Protocol defines schemas plus pure folds — no effects, storage, or I/O. It may describe communication, actor, dispatch, work, IPC, and storage contracts, but it must not decide routing, authority, lifecycle precedence, or execution policy. Product meaning belongs in `apps/openomni`; lower primitive behavior belongs in its owning package.
+Protocol defines schemas plus pure folds — no effects, storage, or I/O. It may describe communication, actor, dispatch, work, IPC, and storage contracts, but it must not decide routing, authority, lifecycle precedence, or execution policy. Product meaning belongs in `apps/oni`; lower primitive behavior belongs in its owning package.
 
 ## STRUCTURE
 
@@ -88,8 +88,8 @@ Keep these as protocol contracts only. Runtime policy and storage implementation
 ## ANTI-PATTERNS
 
 - Do NOT add effects, storage, or I/O here. Runtime helpers must remain pure folds or schema-local derivations.
-- Do NOT import from other `@openomni/*` packages — protocol is the dependency leaf.
-- Do NOT add authority or communication-kernel shortcuts here. Add the schema here, then implement semantics in `apps/openomni`.
+- Do NOT import from other `@oni/*` packages — protocol is the dependency leaf.
+- Do NOT add authority or communication-kernel shortcuts here. Add the schema here, then implement semantics in `apps/oni`.
 
 ## WHEN MODIFYING
 
@@ -99,10 +99,10 @@ Keep these as protocol contracts only. Runtime policy and storage implementation
 - Adding a new tool state? Add to `Tool.State` discriminated union in `tool/index.ts`.
 - Adding new policy vocabulary? Extend `policy/row-verdict.ts` or `policy/permission.ts` and coordinate with the gate engine in `packages/agent` — policy additions are protocol vocabulary and ride the #467 gate.
 - Adding a new storage sub-adapter interface? Add it as a named interface inside the `Storage` namespace in `storage/index.ts`.
-- Adding a new IPC method or field? Update `ipc/` here first, then adapt the machines/openomni callers.
+- Adding a new IPC method or field? Update `ipc/` here first, then adapt the machines/oni callers.
 - Adding trace metadata? Update `trace/index.ts`; helper functions stay in the agent store plane.
 - This package builds to `dist/` — run `bun run build` after changes.
 
 _Edited 2026-08-10 per Owner-approved clean-room corpus (local docs/corpus, session record)._
 
-_2026-08-19: gateway stage 0 (#706) landed `gateway/` — `Gateway.Deliver`/`Send` contracts (the historical lifecycle-control contract was removed by #969), `ReplyGrantRule` (retired by #1569: the reply door is authorized by the channels router's conversation binding), perimeter/conduct trust vocabulary (docs/gateway-design.md §2–§3). `openomni/messaging/schema.ts` re-exports the Send vocabulary from here; grant EVALUATION stays above protocol (contract boundary). The #969 request cutover above supersedes the original independent lifecycle control surface._
+_2026-08-19: gateway stage 0 (#706) landed `gateway/` — `Gateway.Deliver`/`Send` contracts (the historical lifecycle-control contract was removed by #969), `ReplyGrantRule` (retired by #1569: the reply door is authorized by the channels router's conversation binding), perimeter/conduct trust vocabulary (docs/gateway-design.md §2–§3). `oni/messaging/schema.ts` re-exports the Send vocabulary from here; grant EVALUATION stays above protocol (contract boundary). The #969 request cutover above supersedes the original independent lifecycle control surface._

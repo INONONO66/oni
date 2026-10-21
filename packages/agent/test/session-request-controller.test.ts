@@ -6,7 +6,7 @@ import type { ResolvedExecutorOptions } from "../src/core/loop/executor";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { expect, it } from "bun:test";
 import { seedPolicy } from "./helpers/seed-policy";
-import { L0Observation, type SessionTransition } from "@openomni/protocol";
+import { L0Observation, type SessionTransition } from "@oni/protocol";
 import { closeSessions } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { eraseTool, projectTools } from "../src/core/loop/tool";
@@ -122,7 +122,7 @@ it("configuration drift refuses consent while interruption cancels the whole sus
         expect(isolatedLedger().kernel.requestById(request.requestId)?.state).toBe("cancelled");
         expect(
           sessionTree(isolatedLedger().kernel, f.handle.id).some(
-            (action: import("@openomni/protocol").LedgerAction.Node) => {
+            (action: import("@oni/protocol").LedgerAction.Node) => {
               const effect = action.effect.value;
               return (
                 action.kind === "tool" &&

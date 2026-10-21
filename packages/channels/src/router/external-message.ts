@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { ChannelStores } from "./stores.js";
-import type { PolicyEvaluationInput } from "@openomni/agent";
-import { type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@openomni/protocol";
+import type { PolicyEvaluationInput } from "@oni/agent";
+import { type Gateway, Ingress, resolveTarget as eventTarget, targetKey } from "@oni/protocol";
 import { judgeAndMatch } from "../automation/judge.js";
 import type { MatchDecision, PendingGroup } from "../automation/matcher.js";
 import { type ingressInput, ingressSurfaceKey } from "./automation/input.js";

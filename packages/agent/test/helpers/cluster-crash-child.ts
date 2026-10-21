@@ -4,7 +4,7 @@
  * envelope unacknowledged until the parent SIGKILLs it. `restart` boots on the SAME files with a completing
  * runner and prints REDELIVERED (chain dedupe), SHAPES (real turn kinds) and DELIVER_AT (recorded clocks, never wall time).
  */
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation } from "@oni/protocol";
 import { Clock, Effect } from "effect";
 import {
   blockingRunner,

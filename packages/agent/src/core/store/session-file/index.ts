@@ -6,7 +6,7 @@ import {
   LedgerSession,
   type ObservationSink,
   type Storage as ProtocolStorage,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 
 import { z } from "zod";
 import { CatalogVersionRefused, CorruptRecord, CreateRefused, MaterializeRefused, SessionFileUnreadable, type LedgerError } from "../errors";

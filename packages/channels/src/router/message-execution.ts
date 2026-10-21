@@ -9,7 +9,7 @@ import {
   type Gateway,
   type LedgerAction,
   type PlainValue,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { createExistingAgentMessaging } from "./messaging/send";
 import type { ReplyMessaging } from "./messaging/reply";
 import type { externalMessage } from "./external-message";

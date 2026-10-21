@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { injectedOptions } from "./helpers/injected";
 import { GitHubAdapter } from "../src/provider/github/surface";
@@ -21,8 +21,8 @@ const body = JSON.stringify({
     user: { login: "octocat", type: "User" },
   },
   repository: {
-    full_name: "openomni/project",
-    owner: { login: "openomni" },
+    full_name: "oni/project",
+    owner: { login: "oni" },
     name: "project",
   },
 });

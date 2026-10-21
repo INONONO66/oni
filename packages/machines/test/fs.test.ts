@@ -18,14 +18,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createFsDriver } from "./helpers/native";
 import { expectEscape, expectInsideRead } from "./helpers";
 
 function withFixture(
   run: (fixture: { base: string; root: string; outside: string }) => Promise<void>,
 ) {
-  const base = mkdtempSync(join(tmpdir(), "openomni-machine-fs-"));
+  const base = mkdtempSync(join(tmpdir(), "oni-machine-fs-"));
   const root = join(base, "root");
   const outside = join(base, "outside");
   mkdirSync(root);
@@ -286,7 +286,7 @@ describe("daemon filesystem driver", () => {
   });
 
   test("does not confuse an export path with a sibling sharing its prefix", async () => {
-    const base = mkdtempSync(join(tmpdir(), "openomni-machine-fs-prefix-"));
+    const base = mkdtempSync(join(tmpdir(), "oni-machine-fs-prefix-"));
     const root = join(base, "export");
     const evil = join(base, "export-evil");
     mkdirSync(root);

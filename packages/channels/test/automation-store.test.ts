@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { createAutomationStore, AutomationEnableRefused } from "../src/store/automation/index.js";
 import { openChannelStore } from "../src/store/sqlite/index.js";
 import { AutomationConfigurationError } from "../src/errors.js";

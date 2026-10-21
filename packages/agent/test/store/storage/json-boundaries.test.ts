@@ -7,7 +7,7 @@ import { testExecutor } from "../../helpers/executor";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { requestLedger } from "../../helpers/effect-g1";
 import { isolated, isolatedLedger } from "../../helpers/isolated";
-import { PlainObjectSchema } from "@openomni/protocol";
+import { PlainObjectSchema } from "@oni/protocol";
 import { createSqliteDecisionFacts } from "../../../src/core/store/decision";
 import {
   materializeRow,

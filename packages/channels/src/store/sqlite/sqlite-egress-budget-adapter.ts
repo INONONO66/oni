@@ -1,4 +1,4 @@
-import { Gateway, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { Gateway, type Storage as ProtocolStorage } from "@oni/protocol";
 import { ChannelStoreInvariant } from "./errors";
 import type { Database } from "bun:sqlite";
 import { z } from "zod";

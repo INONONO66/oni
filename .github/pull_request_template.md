@@ -32,7 +32,7 @@ Relates to #
 - [ ] `session`
 - [ ] `llm`
 - [ ] `agent`
-- [ ] `openomni`
+- [ ] `oni`
 - [ ] `coordinator`
 - [ ] `server`
 

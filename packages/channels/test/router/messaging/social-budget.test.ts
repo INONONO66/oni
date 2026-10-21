@@ -1,7 +1,7 @@
 import { ledger } from "../../helpers/ledger";
 import { runEffect } from "../../helpers/effect";
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 
 import { createExistingAgentMessaging } from "../../../src/router/messaging/send.js";
 import { evaluateSocialBudget } from "../../../src/router/messaging/social-budget.js";

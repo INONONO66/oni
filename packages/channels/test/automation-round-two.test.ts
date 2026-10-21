@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { ChannelsFailure } from "../src/errors.js";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";

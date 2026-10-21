@@ -1,5 +1,5 @@
 import { Duration, Effect } from "effect";
-import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { ChannelsFailure, DeliveryNotSent } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";

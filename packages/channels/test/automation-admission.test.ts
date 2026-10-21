@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Gateway, Ingress } from "@openomni/protocol";
+import { type Gateway, Ingress } from "@oni/protocol";
 import { ledger, resetLedger } from "./helpers/ledger.js";
 import { openRequest } from "./helpers/requests.js";
 import { runEffect } from "./helpers/effect.js";

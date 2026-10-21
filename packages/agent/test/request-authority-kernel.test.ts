@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Delivery, type SessionTransition } from "@openomni/protocol";
+import { Delivery, type SessionTransition } from "@oni/protocol";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { allowConfigure, isolatedRuntime } from "./helpers/session-services";
 import { pendingRequest } from "./helpers/open-request";

@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { isolated } from "../../helpers/isolated";
 import { expect, test } from "bun:test";
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction } from "@oni/protocol";
 import { runAgent } from "../../../src/core/loop/turn";
 import { createAssistantMessage } from "../../../src/core/journal/message-factory";
 import { recordingLedger } from "../../helpers/g0-effect";

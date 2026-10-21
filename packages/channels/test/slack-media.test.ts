@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Outbound } from "@openomni/protocol";
+import type { Outbound } from "@oni/protocol";
 import { createSlackProvider } from "../src/provider/slack/provider";
 import { injectedOptions } from "./helpers/injected";
 import { SlackBotError } from "../src/provider/slack/sdk";

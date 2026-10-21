@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { isolated } from "../helpers/isolated";
 import { AgentFailure } from "../../src/core/ports/failure";
 import { RunEvents, createRunState, recordCallContext } from "../../src/core/loop/turn";

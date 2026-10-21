@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { TestClock } from "effect/testing";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { systemCommandRunner } from "../src/commands";
 import { MachinesFailure } from "../src/errors";
 import { createPtyAdapter, type PtyAdapter } from "../src/pty";
@@ -16,7 +16,7 @@ import { run } from "./ipc/helpers/effects";
  * Real-tmux adapter tests (#1273) on a private `-L` socket so the Owner's own
  * tmux server is never touched. The server started here is killed in afterAll.
  */
-const SOCKET = `openomni-test-${process.pid}`;
+const SOCKET = `oni-test-${process.pid}`;
 const CONTROL_SESSION = "omo-pty-control";
 
 const tmuxCli = (...args: string[]) => Bun.spawnSync(["tmux", "-L", SOCKET, ...args], { stderr: "pipe" });
@@ -314,7 +314,7 @@ describe("pty.session over real tmux", () => {
     const adapter = createPtyAdapter({
       id: () => "gen-missing",
       runner: systemCommandRunner(),
-      tmux: "openomni-test-no-such-tmux",
+      tmux: "oni-test-no-such-tmux",
       socketName: SOCKET,
     });
     expect(await run(adapter.offeredCapabilities([Machine.WellKnownCapability.ptySession, "shell.exec"]))).toEqual([

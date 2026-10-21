@@ -1,4 +1,4 @@
-import { Journal, type PlainValue } from "@openomni/protocol";
+import { Journal, type PlainValue } from "@oni/protocol";
 import {
   AgentInvariantViolation,
   Capability,
@@ -15,7 +15,7 @@ import {
  */
 
 /** The tag a product bundle's `requires` resolves against at compose. */
-export const ActionPort: PortTag = port("@openomni/action/Action");
+export const ActionPort: PortTag = port("@oni/action/Action");
 
 /** Identity reducer: an action row is a deferred INPUT consumed by delivery, never folded state. */
 export function actionCapability(): CapabilityDefinition<"action", PortTag, object> {

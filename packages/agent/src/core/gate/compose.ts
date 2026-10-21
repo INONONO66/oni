@@ -5,7 +5,7 @@ import {
   type PlainValue,
   type PointId,
   canonicalDigest,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { GateComposeError, type GatePointTable } from "./points";
 import { admitRow } from "./admit";
 import {

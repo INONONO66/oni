@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { ChannelsFailure } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
@@ -122,7 +122,7 @@ export class InstagramOwnerAdapter implements Channel.Surface {
   }
 
   private async restoreSession(): Promise<void> {
-    const directory = await mkdtemp(join(tmpdir(), "openomni-instagram-"));
+    const directory = await mkdtemp(join(tmpdir(), "oni-instagram-"));
     const path = join(directory, "session.json");
     try {
       await writeFile(path, this.credentials.session, { mode: 0o600 });

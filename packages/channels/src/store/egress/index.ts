@@ -6,8 +6,8 @@
  * missing sub-adapter fails closed; storage errors propagate before any send.
  */
 
-import type { Gateway, Storage as ProtocolStorage } from "@openomni/protocol";
-import { requireSubAdapter } from "@openomni/agent";
+import type { Gateway, Storage as ProtocolStorage } from "@oni/protocol";
+import { requireSubAdapter } from "@oni/agent";
 
 type ClaimResult<Refusal> =
   | Readonly<{ kind: "claimed" }>

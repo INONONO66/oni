@@ -5,7 +5,7 @@ import {
   NamedError,
   type PointId,
   type PointRecord,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { z } from "zod";
 
 /** The core always registers its eight records; a capability point exists only while composed. */

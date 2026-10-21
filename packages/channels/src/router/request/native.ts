@@ -7,7 +7,7 @@ import {
   type LedgerAction,
   type Delivery,
   type PlainValue,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { GatewayRouterPorts } from "../message-ports";
 
 export function answerNativeRequest(

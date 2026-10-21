@@ -1,4 +1,4 @@
-import { type Actor, Channel, type Gateway } from "@openomni/protocol";
+import { type Actor, Channel, type Gateway } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
 import { resolveSenderTargetGrant } from "./grant";
 

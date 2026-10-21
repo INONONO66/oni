@@ -3,7 +3,7 @@ import { Chat } from "@ai-sdk/react";
 import type { ChatTransport, UIMessage } from "ai";
 import { Window } from "happy-dom";
 import { act } from "react";
-import type { OpenOmniUIMessage } from "../src/renderer/chat/message";
+import type { OniUIMessage } from "../src/renderer/chat/message";
 import { SessionContent, useSessionChats } from "../src/renderer/chat/session-content";
 import { GatewayUnavailableError } from "../src/renderer/errors";
 import { mountWindow } from "./helpers";
@@ -15,7 +15,7 @@ const idle: ChatTransport<UIMessage> = {
   reconnectToStream: () => Promise.reject(new Error("no stream may be resumed by a decision")),
 };
 
-const blocked = (): OpenOmniUIMessage => ({
+const blocked = (): OniUIMessage => ({
   id: "answer",
   role: "assistant",
   parts: [
@@ -35,7 +35,7 @@ test.each([
 ])("%s in the tray answers the Chat's blocked tool with that decision", async (control, approved) => {
   const window = new Window({ url: "http://localhost" });
   const { host, restoreGlobals, root } = mountWindow(window);
-  const chat = new Chat<OpenOmniUIMessage>({
+  const chat = new Chat<OniUIMessage>({
     id: "session",
     messages: [blocked()],
     transport: idle,
@@ -94,7 +94,7 @@ test("a send without a configured gateway surfaces the named class on the chat",
 test("the fork control cites the newest boundary anchor and ancestry renders as data", async () => {
   const window = new Window({ url: "http://localhost" });
   const { host, restoreGlobals, root } = mountWindow(window);
-  const chat = new Chat<OpenOmniUIMessage>({ id: "session", messages: [], transport: idle });
+  const chat = new Chat<OniUIMessage>({ id: "session", messages: [], transport: idle });
   const forks: [string, string][] = [];
   const session = makeSession({
     durableSessionId: "durable",
@@ -136,7 +136,7 @@ test("the fork control cites the newest boundary anchor and ancestry renders as 
 test("a session without a boundary anchor or durable identity offers no fork control", async () => {
   const window = new Window({ url: "http://localhost" });
   const { host, restoreGlobals, root } = mountWindow(window);
-  const chat = new Chat<OpenOmniUIMessage>({ id: "session", messages: [], transport: idle });
+  const chat = new Chat<OniUIMessage>({ id: "session", messages: [], transport: idle });
   try {
     await act(() =>
       root.render(

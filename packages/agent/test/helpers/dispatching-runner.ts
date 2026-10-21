@@ -1,5 +1,5 @@
 import { messageSource } from "./message-source";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { createAssistantMessage } from "../../src/core/journal/message-factory";
 
 /** An assistant message for `sessionId` that optionally requests one pending tool call. */

@@ -1,4 +1,4 @@
-import { PlainValueSchema } from "@openomni/protocol";
+import { PlainValueSchema } from "@oni/protocol";
 import { APICallError } from "ai";
 import { z } from "zod";
 import { classifyFailure } from "../../src/classify";

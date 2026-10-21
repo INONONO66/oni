@@ -106,7 +106,7 @@ export async function instagramOwnerLogin(
   input: InstagramOwnerLoginInput,
   client: (scratchDir: string) => InstagramLoginApi = instagramOwnerSdk().loginClient,
 ): Promise<{ session: string }> {
-  const scratchDir = await mkdtemp(join(tmpdir(), "openomni-instagram-login-"));
+  const scratchDir = await mkdtemp(join(tmpdir(), "oni-instagram-login-"));
   try {
     const api = client(scratchDir);
     await completeLogin(api, input);

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Ingress } from "@openomni/protocol";
+import type { Ingress } from "@oni/protocol";
 import { isAuthorizedTopLevelActor } from "../../src/router/authority-actor";
 import { makeInboundEvent } from "./_router-fixture";
 

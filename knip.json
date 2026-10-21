@@ -28,7 +28,7 @@
       "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "test-e2e/**/*.ts"],
       "ignoreDependencies": ["tailwindcss"]
     },
-    "apps/openomni": {
+    "apps/oni": {
       "entry": [
         "test/**/*.test.ts",
         "test/fixtures/*.ts",

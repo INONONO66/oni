@@ -1,6 +1,6 @@
 import { Data } from "effect";
-import type { Actor, Storage as ProtocolStorage } from "@openomni/protocol";
-import { requireSubAdapter, withStoreTimestamps } from "@openomni/agent";
+import type { Actor, Storage as ProtocolStorage } from "@oni/protocol";
+import { requireSubAdapter, withStoreTimestamps } from "@oni/agent";
 import { StoredIdentity, StoredEndpoint } from "../sqlite/actor-schema.js";
 
 /**

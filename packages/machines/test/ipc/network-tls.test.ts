@@ -164,7 +164,7 @@ describe("TLS-over-TCP IPC transport", () => {
   test("a client that presents no certificate never becomes a connection", async () => {
     const { server, fingerprintsSeen } = await pinnedServer();
     const closed = deferred<void>();
-    // assumed: the committed fixtures carry no SAN (CN=openomni-test-host
+    // assumed: the committed fixtures carry no SAN (CN=oni-test-host
     // only), so Node hostname matching cannot apply; the probe verifies the
     // chain against the committed host cert and checks identity by the SAME
     // SPKI pin production uses.

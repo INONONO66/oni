@@ -1,4 +1,4 @@
-import type { BusEvent } from "@openomni/protocol";
+import type { BusEvent } from "@oni/protocol";
 
 type Datum = object | string | number | boolean | bigint | symbol | null | undefined;
 type Listener = (descriptor: BusEvent.Descriptor<never>, value: never) => void;

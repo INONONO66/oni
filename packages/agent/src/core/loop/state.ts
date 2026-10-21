@@ -1,4 +1,4 @@
-import type { Message, TraceContext } from "@openomni/protocol";
+import type { Message, TraceContext } from "@oni/protocol";
 import { stopState, type StopState } from "./stop";
 import { accumulateUsage, type RunInput, type LlmSink as Sink } from "../ports/llm";
 import { createBudgetState, recordTokenUsage, recordTurn, restoreBudgetState, type BudgetState, effectiveMaxToolCalls } from "./budget";
@@ -202,7 +202,7 @@ export function resetModelWindowGuards(state: RunState): void {
 
 function recordAssistantTokenDelta(
   state: RunState,
-  usage: import("@openomni/protocol").Token.ProviderUsage,
+  usage: import("@oni/protocol").Token.ProviderUsage,
 ): void {
   accumulateUsage(state.totalUsage, usage);
   state.budgetState = recordTokenUsage(state.budgetState, usage.inputTokens, usage.outputTokens);

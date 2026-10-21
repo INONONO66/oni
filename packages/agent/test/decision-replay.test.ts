@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { PolicyRow } from "@openomni/protocol";
+import type { PolicyRow } from "@oni/protocol";
 import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
 import {
   compilePolicySnapshot,

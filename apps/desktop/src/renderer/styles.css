@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@openomni/ui/styles.css";
+@import "@oni/ui/styles.css";
 
 /* Tailwind only emits utilities it can SEE. The renderer's own markup is
    scanned automatically, but every class this app actually renders now lives in

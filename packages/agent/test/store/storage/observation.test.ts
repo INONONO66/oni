@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { Gateway, type Delivery, L0Observation, LedgerAction, type ObservationSink, SessionTransition, } from "@openomni/protocol";
+import { Gateway, type Delivery, L0Observation, LedgerAction, type ObservationSink, SessionTransition, } from "@oni/protocol";
 import { type ObservationPublishFailure, publishCommitted } from "../../../src/core/store/storage/sqlite-l0-observation";
 import { createActions } from "../../../src/core/store/session-file/actions";
 import { L0Write } from "../../../src/core/store/session-file";

@@ -1,4 +1,4 @@
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 
 /** The factory refuses to reach for ambient clocks or entropy. */
 export interface MessageSource {

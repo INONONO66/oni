@@ -1,4 +1,4 @@
-import type { Core } from "@openomni/agent";
+import type { Core } from "@oni/agent";
 import { Effect } from "effect";
 
 type SessionRequests = Effect.Success<ReturnType<typeof Core.createSessionRequests>>;

@@ -1,5 +1,5 @@
 import { TelegramApiError } from "../../errors";
-import { type Gateway, Operational, type PlainValue } from "@openomni/protocol";
+import { type Gateway, Operational, type PlainValue } from "@oni/protocol";
 import { z } from "zod";
 import { fetchWithRetry } from "../../support/fetch-retry";
 import type { ChannelClient, EffectRunner, MediaBytes, PublishPort } from "../../types";

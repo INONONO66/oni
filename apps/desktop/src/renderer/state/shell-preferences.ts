@@ -1,4 +1,4 @@
-import { clampSidebarWidth, SIDEBAR_WIDTH } from "@openomni/ui";
+import { clampSidebarWidth, SIDEBAR_WIDTH } from "@oni/ui";
 
 /**
  * The two shell facts that outlive the window: whether the sidebar is open,
@@ -8,8 +8,8 @@ import { clampSidebarWidth, SIDEBAR_WIDTH } from "@openomni/ui";
  * `"false"` is open.
  */
 
-export const SIDEBAR_WIDTH_KEY = "openomni:sidebar-width";
-export const SIDEBAR_OPEN_KEY = "openomni:sidebar-open";
+export const SIDEBAR_WIDTH_KEY = "oni:sidebar-width";
+export const SIDEBAR_OPEN_KEY = "oni:sidebar-open";
 
 interface ShellPreferences {
   readonly open: boolean;

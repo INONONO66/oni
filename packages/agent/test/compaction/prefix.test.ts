@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { Effect } from "effect";
 import { Compaction, CompactionSession } from "../../src/plugins/compaction";
 import { evidenceAssistant } from "../helpers/compaction-cut";

@@ -1,5 +1,5 @@
 /** #1348: the parallel tool-wave fixtures shared by the wave ordering and timing suites. */
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { createAssistantMessage } from "../../src/core/journal/message-factory";
 import type { LlmSink as Sink } from "../../src/core/ports/llm";
 import { buildTurn, createRunState } from "../../src/core/loop/turn";

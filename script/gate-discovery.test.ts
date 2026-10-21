@@ -16,7 +16,7 @@ function put(root: string, path: string, source: string): void {
 }
 
 function fixture(): string {
-  const root = mkdtempSync(join(tmpdir(), "openomni-gates-"));
+  const root = mkdtempSync(join(tmpdir(), "oni-gates-"));
   roots.push(root);
   put(root, "package.json", JSON.stringify({ workspaces: ["packages/*", "apps/*"] }));
   mkdirSync(join(root, "script"));
@@ -71,11 +71,11 @@ function run(root: string, args: string[], cwd = root) {
 
 for (const extension of ["ts", "tsx"]) {
   for (const [name, path, source] of [
-    ["direction", "packages/ui/src/view", 'import "@openomni/protocol";'],
-    ["deep package", "apps/openomni/src/view", 'import "@openomni/protocol/src/index";'],
-    ["deep relative", "apps/openomni/src/view", 'import { x } from "../../../other";'],
-    ["driver band", "packages/channels/src/view", 'import "@openomni/agent";'],
-    ["golden principle", "apps/openomni/src/view", "try { work(); } catch {}"],
+    ["direction", "packages/ui/src/view", 'import "@oni/protocol";'],
+    ["deep package", "apps/oni/src/view", 'import "@oni/protocol/src/index";'],
+    ["deep relative", "apps/oni/src/view", 'import { x } from "../../../other";'],
+    ["driver band", "packages/channels/src/view", 'import "@oni/agent";'],
+    ["golden principle", "apps/oni/src/view", "try { work(); } catch {}"],
   ]) {
     test(`dependency CLI discovers ${name} in ${extension}`, () => {
       const root = fixture();
@@ -90,9 +90,9 @@ for (const extension of ["ts", "tsx"]) {
 
 test("dependency CLI permits allowed TSX imports and excludes test sources", () => {
   const root = fixture();
-  put(root, "apps/openomni/src/view.tsx", 'import "@openomni/protocol";');
-  put(root, "packages/ui/src/view.test.tsx", 'import "@openomni/protocol";');
-  put(root, "packages/ui/src/__tests__/view.tsx", 'import "@openomni/protocol";');
+  put(root, "apps/oni/src/view.tsx", 'import "@oni/protocol";');
+  put(root, "packages/ui/src/view.test.tsx", 'import "@oni/protocol";');
+  put(root, "packages/ui/src/__tests__/view.tsx", 'import "@oni/protocol";');
   expect(run(root, ["script/check-deps.ts"]).code).toBe(0);
 });
 
@@ -137,7 +137,7 @@ for (const cwd of [".", "script"]) {
       const root = fixture();
       put(
         root,
-        "apps/openomni/src/planted.tsx",
+        "apps/oni/src/planted.tsx",
         planted ? "export const TranscriptStore = 1;" : "export const live = 1;",
       );
       put(root, "packages/ui/src/ignored.spec.tsx", "export const TranscriptStore = 1;");
@@ -152,7 +152,7 @@ for (const cwd of [".", "script"]) {
         join(root, cwd),
       );
       expect(result.code).toBe(planted ? 1 : 0);
-      if (planted) expect(result.output).toContain("TranscriptStore apps/openomni/src/planted.tsx");
+      if (planted) expect(result.output).toContain("TranscriptStore apps/oni/src/planted.tsx");
     });
   }
 }

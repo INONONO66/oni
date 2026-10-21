@@ -1,4 +1,4 @@
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { AutomationConfigurationError, AutomationEnableRefused } from "../../errors.js";
 import { compiledPattern } from "../../automation/regex.js";

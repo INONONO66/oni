@@ -5,7 +5,7 @@ import { createTestAgent, failure } from "./helpers/effect-g3";
 import { describe, expect, it, test } from "bun:test";
 import { LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
-import type { Tool } from "@openomni/protocol";
+import type { Tool } from "@oni/protocol";
 import { createAssistantMessage } from "../src/core/journal/message-factory";
 import { RunEvents } from "../src/core/loop/turn";
 import { Bus } from "./helpers/bus";
@@ -28,7 +28,7 @@ function agent(run: MockLlmFn) {
 
 test("agent foundation tags and failure evidence are runtime contracts", () => {
   expect([Entropy.key, ObservationSink.key, SessionLayer.key, ToolCatalog.key]).toEqual([
-    "@openomni/agent/Entropy", "@openomni/agent/ObservationSink", "@openomni/agent/SessionLayer", "@openomni/agent/ToolCatalog",
+    "@oni/agent/Entropy", "@oni/agent/ObservationSink", "@oni/agent/SessionLayer", "@oni/agent/ToolCatalog",
   ]);
   expect(failureEvidence(new PolicyDenied({ phase: "pre", ruleIds: ["r"] }))).toEqual({ tag: "PolicyDenied", phase: "pre", ruleIds: ["r"] });
   expect(failureEvidence(new ToolBodyFailed({ tool: "x", cause: "bad" }))).toEqual({ tag: "ToolBodyFailed", tool: "x", cause: "bad" });

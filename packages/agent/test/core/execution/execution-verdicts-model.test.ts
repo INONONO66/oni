@@ -6,7 +6,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { recordingLedger, runTestOperation, failure as effectFailure, foreign, } from "../../helpers/effect-g2";
 import { compilePolicySnapshot } from "../../../src/core/gate/compile";
 import { ToolBodyFailed } from "../../../src/core/ports/failure";
-import type { LedgerAction, PlainValue, PolicyRow } from "@openomni/protocol";
+import type { LedgerAction, PlainValue, PolicyRow } from "@oni/protocol";
 
 const kinds = ["prompt", "turn", "llm", "tool"] as const;
 
@@ -121,9 +121,9 @@ function runTestSuccess(
 
 function resultEffects(actions: readonly LedgerAction.Append[], kind: LedgerAction.Kind) {
   return actions
-    .filter((action: import("@openomni/protocol").LedgerAction.Append) => action.kind === kind)
-    .map((action: import("@openomni/protocol").LedgerAction.Append) => action.effect.value)
-    .filter((effect: import("@openomni/protocol").PlainValue) =>
+    .filter((action: import("@oni/protocol").LedgerAction.Append) => action.kind === kind)
+    .map((action: import("@oni/protocol").LedgerAction.Append) => action.effect.value)
+    .filter((effect: import("@oni/protocol").PlainValue) =>
       typeof effect === "object" && effect !== null && !Array.isArray(effect)
         ? effect.phase === "result"
         : false,
@@ -166,7 +166,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
           // The admitted run records its real pre and post policy decisions;
           // the refused kind recorded nothing.
           expect(
-            actions.filter((action: import("@openomni/protocol").LedgerAction.Append) => action.kind === "policy.decision"),
+            actions.filter((action: import("@oni/protocol").LedgerAction.Append) => action.kind === "policy.decision"),
           ).toHaveLength(2);
         }),
       ),
@@ -190,7 +190,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
           const executor = testExecutor({
             policy: mandatoryOnlyPolicy(),
             ledger: {
-              commit(action: import("@openomni/protocol").LedgerAction.Append) {
+              commit(action: import("@oni/protocol").LedgerAction.Append) {
                 return Effect.gen(function* () {
                   const isIntent = action.kind === "llm" && committedIntent === undefined;
                   if (isIntent) {
@@ -290,7 +290,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
           expect(outcome).toBe(failure);
 
           expect(
-            actions.map((action: import("@openomni/protocol").LedgerAction.Append) => action.kind),
+            actions.map((action: import("@oni/protocol").LedgerAction.Append) => action.kind),
           ).toEqual(["policy.decision", "tool", "tool"]);
           const intent = actions[1];
           const result = actions[2];
@@ -355,7 +355,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
             expect(body).toHaveBeenCalledTimes(0);
             expect(
               actions.filter(
-                (action: import("@openomni/protocol").LedgerAction.Append) => action.kind === kind,
+                (action: import("@oni/protocol").LedgerAction.Append) => action.kind === kind,
               ),
             ).toHaveLength(0);
             expect(resultEffects(actions, kind)).toHaveLength(0);
@@ -376,7 +376,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
             expect(body).toHaveBeenCalledTimes(1);
             expect(
               actions.filter(
-                (action: import("@openomni/protocol").LedgerAction.Append) => action.kind === kind,
+                (action: import("@oni/protocol").LedgerAction.Append) => action.kind === kind,
               ),
             ).toHaveLength(2);
             expect(resultEffects(actions, kind)).toEqual([
@@ -456,7 +456,7 @@ describe("the single L2 executor's four-kind verdict model", () => {
 
 describe("the durable boundary child action commits only for executed outcomes", () => {
   const boundaryChildren = (actions: readonly LedgerAction.Append[]) =>
-    actions.filter((action: import("@openomni/protocol").LedgerAction.Append) =>
+    actions.filter((action: import("@oni/protocol").LedgerAction.Append) =>
       action.id.endsWith(":boundary"),
     );
 
@@ -473,7 +473,7 @@ describe("the durable boundary child action commits only for executed outcomes",
           expect(children).toHaveLength(1);
           const child = children[0];
           const intent = actions.find(
-            (action: import("@openomni/protocol").LedgerAction.Append) =>
+            (action: import("@oni/protocol").LedgerAction.Append) =>
               `${action.id}:boundary` === child?.id,
           );
           expect(child?.parentId).toBe(intent?.id);

@@ -12,17 +12,17 @@ message semantics are owned by the kernel architecture.
 ## 1. Problem
 
 Everything the Owner has decided lives in process environment, parsed once at
-boot (`apps/openomni/src/config.ts`):
+boot (`apps/oni/src/config.ts`):
 
 - **Bot tokens** — `DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`,
   `GITHUB_WEBHOOK_SECRET`/`GITHUB_TOKEN` as raw env strings.
-- **People** — were `OPENOMNI_ACTORS`, a JSON blob in a single env var
+- **People** — were `ONI_ACTORS`, a JSON blob in a single env var
   upserted into ActorRegistry at boot; retired by #1569 lane 8 (`loadConfig`
   refuses it when still set) — Person rows (`contact_add`) are the one
   declaration, and a Person's `reach` is the Owner's standing grant to be
   written to cold, given only with the Owner's consent.
-- **Budgets** — `OPENOMNI_SOCIAL_BUDGETS` as env JSON.
-- **Machines** — `OPENOMNI_MACHINES_ENROLLED` as env JSON.
+- **Budgets** — `ONI_SOCIAL_BUDGETS` as env JSON.
+- **Machines** — `ONI_MACHINES_ENROLLED` as env JSON.
 
 Consequences:
 
@@ -32,7 +32,7 @@ Consequences:
    why. This violates the record-before-act spirit: the Owner's provisioning
    act is the one act the ledger cannot see.
 2. **One person across platforms has no single declaration.** The retired
-   `OPENOMNI_ACTORS` bound one `externalId` per actor and its `channel` enum
+   `ONI_ACTORS` bound one `externalId` per actor and its `channel` enum
    was a hardcoded three-value list. The P3 `endpoint_merge` approval act can bind endpoints at
    runtime, but the Owner cannot *declare* "this person is these five platform
    IDs" anywhere durable.
@@ -60,7 +60,7 @@ Consequences:
   ciphertext referenced by id, never inline in declarations, never in ledger
   event streams.
 - **Env becomes seed, not source.** Environment variables remain a one-time
-  import path (`openomni init` / first boot) and an override for ephemeral dev
+  import path (`oni init` / first boot) and an override for ephemeral dev
   runs; the DB is the source of truth for standing declarations. The model
   API key is the exception: it stays injection-only (env / token-hub), because
   the host's key custody policy forbids persisting LLM keys on disk.
@@ -140,8 +140,8 @@ ChannelInstance {
   consent like an Owner instance or an outbound grant, and a rotation never
   introduces one.
 - The first live run is `docs/first-live-run.md` (#1600 lane R4):
-  `openomni channel add <platform>` declares a bot or Linear with its grant
-  block at the prompt, `openomni messaging` reports who reads, how the
+  `oni channel add <platform>` declares a bot or Linear with its grant
+  block at the prompt, `oni messaging` reports who reads, how the
   Resident writes and where the Owner is known, per declared platform.
 - A declared webhook target is its own inbound door at `/webhook/<slug>`
   (#1600 lane R3), verified by its `X-Signature` HMAC under the declared
@@ -175,7 +175,7 @@ ChannelInstance {
   endpoint `a2a:<id>`, never the door's. `send_message` reaches a peer with
   a url as the `a2a:<id>` contact, honouring its card only within the
   declared url's origin.
-- The Owner's own sign-in (#1569 lane 5b): `openomni login <platform>` runs
+- The Owner's own sign-in (#1569 lane 5b): `oni login <platform>` runs
   the platform's flow through the agent-messenger SDK (Slack QR, Discord
   remote-auth QR, Instagram password with two-factor or challenge code,
   KakaoTalk device passcode) and declares the `owner` instance over the
@@ -248,8 +248,8 @@ Secret {
   https://www.sqliteforum.com/p/sqlite-encryption-and-secure-storage). Whole-DB
   SQLCipher is rejected: the ledger must stay greppable/debuggable and only the
   secret fields are sensitive.
-- **KEK source, in priority order:** `OPENOMNI_VAULT_KEY` env (dev / CI), else
-  a key file (`~/.openomni/vault.key`, `0600`, created by `openomni init`).
+- **KEK source, in priority order:** `ONI_VAULT_KEY` env (dev / CI), else
+  a key file (`~/.oni/vault.key`, `0600`, created by `oni init`).
   OS-keychain backends are a later slice behind the same interface. No KEK →
   vault reads fail typed (`vault_locked`) → dependent channels do not mount.
 - **Redaction is a vault-boundary law:** plaintext exists only inside the
@@ -363,7 +363,7 @@ Runner operations (adopted from the same survey):
 - **The band contract is unchanged:** providers stay protocol-only (no ledger,
   no policy); whitelist/blacklist/tier/mint decisions remain router-side. The
   provider registry is data the *app* consumes to build stages —
-  `apps/openomni/src/channels.ts` shrinks from one hand-written block per
+  `apps/oni/src/channels.ts` shrinks from one hand-written block per
   channel to one loop over ChannelInstance rows.
 - **Slack ships as the contract's proof:** the first provider added after the
   refactor, touching zero app composition code beyond registering the provider.
@@ -392,7 +392,7 @@ change → affected stages bounce. There is no second "runtime config" surface.
 ## 6. Bootstrap (first run)
 
 The chicken-and-egg: tools require an owner-tier session; owner tier requires a
-declaration. Resolution — `openomni init` (CLI, local filesystem trust):
+declaration. Resolution — `oni init` (CLI, local filesystem trust):
 
 1. Creates the vault key file.
 2. Imports current env (tokens → vault, channel env → ChannelInstance rows)
@@ -402,7 +402,7 @@ declaration. Resolution — `openomni init` (CLI, local filesystem trust):
 
 Until an Owner Person exists, the loopback ws bootstrap grant behaves as today
 (owner tier on loopback only, named at that one call site in
-`apps/openomni/src/gateway.ts` and token-gated off loopback) — the existing
+`apps/oni/src/gateway.ts` and token-gated off loopback) — the existing
 single enforcement layer in `assertWsExposure` is unchanged. No named channel
 inherits that tier (#931).
 
@@ -458,7 +458,7 @@ gates as established (P0–P3 discipline).
   untouched + golden normalizer tests added.
 - **PR-B — Provisioning domain + vault.** Protocol schemas (Person,
   ChannelInstance, Secret), ledger stores + migration, envelope-encrypted
-  vault, `openomni init` import, boot reads DB with env-seed fallback
+  vault, `oni init` import, boot reads DB with env-seed fallback
   (§8.1 law). Gate: §8.1/8.2/8.3/8.4 executable.
 - **PR-C — Runtime administration.** Resident tools (§5), reconcile-on-mutate
   stage bouncing, approval-lane hooks for tier raises and owner-Person edits.
@@ -469,7 +469,7 @@ gates as established (P0–P3 discipline).
 
 ## 10. Open questions for the Owner
 
-1. KEK default: key file under `~/.openomni/` acceptable, or require macOS
+1. KEK default: key file under `~/.oni/` acceptable, or require macOS
    Keychain from day one? (Proposal: key file first, keychain behind the same
    interface later.)
 2. Should `channel_declare` accept a raw token through the resident session

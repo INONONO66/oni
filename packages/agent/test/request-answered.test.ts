@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { Effect } from "effect";
-import { Journal, type LedgerAction, type PlainObject, type PlainValue } from "@openomni/protocol";
+import { Journal, type LedgerAction, type PlainObject, type PlainValue } from "@oni/protocol";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { sessionTree } from "./helpers/session-tree";
 import { planeAnswer, requestPlane } from "./helpers/session-request-plane";

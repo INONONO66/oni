@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { type A2AFetch, A2AClient } from "../src/provider/a2a/client";
 import type { PublishPort } from "../src/types";

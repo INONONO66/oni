@@ -68,7 +68,7 @@ function selectChanges(paths: readonly string[], topology: readonly WorkspaceTop
 		}
 		const owner = topology.find((workspace) => path.startsWith(`${workspace.dir}/`));
 		if (!owner) return { selected, changeClass, globalReason: "global-or-unowned-path" };
-		if (owner.packageName === "@openomni/protocol")
+		if (owner.packageName === "@oni/protocol")
 			return { selected, changeClass, globalReason: "shared-contract-change" };
 		const next = owner.dir === "apps/desktop" || owner.dir === "packages/ui" ? "desktop" : "kernel";
 		if (changeClasses.indexOf(next) > changeClasses.indexOf(changeClass)) changeClass = next;

@@ -1,5 +1,5 @@
 import { writeSync } from "node:fs";
-import { LedgerAction, SessionGeneration } from "@openomni/protocol";
+import { LedgerAction, SessionGeneration } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import { sessionTree } from "./session-tree";

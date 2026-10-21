@@ -234,7 +234,7 @@ test("#1276 check b legal edges: core/api.ts, protocol and plugin-internal impor
       "packages/agent/src/plugins/compaction/restore.ts",
       [
         'import { Entropy } from "../../core/api";',
-        'import { canonicalDigest } from "@openomni/protocol";',
+        'import { canonicalDigest } from "@oni/protocol";',
         'import { geometry } from "./geometry";',
       ].join("\n"),
     ),
@@ -243,18 +243,18 @@ test("#1276 check b legal edges: core/api.ts, protocol and plugin-internal impor
 
 // ─── check (c): apps -> agent internals banned ───
 
-test("#1276 check c: an app file deep-importing @openomni/agent fails", () => {
+test("#1276 check c: an app file deep-importing @oni/agent fails", () => {
   const found = appsAgentInternalViolations(
-    "apps/openomni/src/runtime.ts",
-    'import { runAgent } from "@openomni/agent/core/turn";',
+    "apps/oni/src/runtime.ts",
+    'import { runAgent } from "@oni/agent/core/turn";',
   );
   expect(found).toHaveLength(1);
-  expect(found[0]).toContain("apps import only the @openomni/agent barrel");
+  expect(found[0]).toContain("apps import only the @oni/agent barrel");
 });
 
 test("#1276 check c: an app file relative-importing into packages/agent/src fails", () => {
   const found = appsAgentInternalViolations(
-    "apps/openomni/src/composition/model-selection.ts",
+    "apps/oni/src/composition/model-selection.ts",
     'import { x } from "../../../../packages/agent/src/core/entity";',
   );
   expect(found).toHaveLength(1);
@@ -263,14 +263,14 @@ test("#1276 check c: an app file relative-importing into packages/agent/src fail
 test("#1276 check c legal edges: the barrel and app-internal imports pass; non-apps files are out of scope", () => {
   expect(
     appsAgentInternalViolations(
-      "apps/openomni/src/runtime.ts",
-      'import { Core } from "@openomni/agent";\nimport { parentReply } from "./composition/parent-reply";',
+      "apps/oni/src/runtime.ts",
+      'import { Core } from "@oni/agent";\nimport { parentReply } from "./composition/parent-reply";',
     ),
   ).toEqual([]);
   expect(
     appsAgentInternalViolations(
       "packages/channels/src/router/index.ts",
-      'import { x } from "@openomni/agent/core/turn";',
+      'import { x } from "@oni/agent/core/turn";',
     ),
   ).toEqual([]);
 });
@@ -328,7 +328,7 @@ function scratchAppsTree(
   if (checkout === "dir") mkdirSync(join(root, ".git"));
   if (checkout === "file") writeFileSync(join(root, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
   for (const [file, source] of Object.entries(files)) {
-    const path = join(root, "apps/openomni/src", file);
+    const path = join(root, "apps/oni/src", file);
     mkdirSync(join(path, ".."), { recursive: true });
     writeFileSync(path, source);
   }
@@ -342,25 +342,25 @@ test.each([
   "const port = source.CustomSeam;",
   'const view = <CustomSeam />;',
 ])("#1481: retired app port identifiers fail in code: %s", (source) => {
-  expect(appPortVocabularyViolations("apps/openomni/src/probe.tsx", source)).toHaveLength(1);
+  expect(appPortVocabularyViolations("apps/oni/src/probe.tsx", source)).toHaveLength(1);
 });
 
 test("#1481: persisted keys, module paths and prose are not TypeScript identifiers", () => {
   const source = [
     'import { ToolCapabilityPort } from "./bundles/seams";',
-    'const key = "@openomni/openomni/ToolCapabilitySeam";',
-    'const other = "@openomni/openomni/CompactionSummarizerSeam";',
+    'const key = "@oni/oni/ToolCapabilitySeam";',
+    'const other = "@oni/oni/CompactionSummarizerSeam";',
     "// CustomSeam",
     "const pattern = /CustomSeam/;",
     "const view = <p>CustomSeam</p>;",
   ].join("\n");
-  expect(appPortVocabularyViolations("apps/openomni/src/probe.tsx", source)).toEqual([]);
-  expect(appPortVocabularyViolations("apps/openomni/test/probe.ts", "const CustomSeam = 1;")).toEqual([]);
+  expect(appPortVocabularyViolations("apps/oni/src/probe.tsx", source)).toEqual([]);
+  expect(appPortVocabularyViolations("apps/oni/test/probe.ts", "const CustomSeam = 1;")).toEqual([]);
 });
 
 test("#1481: the end-state scan alone rejects a returning app port identifier", async () => {
   const root = scratchAppsTree({ "bundles/probe.ts": "export const ToolCapabilitySeam = {};\n" });
-  const violation = "VIOLATION: apps/openomni/src/bundles/probe.ts:1 names retired app port identifier ToolCapabilitySeam";
+  const violation = "VIOLATION: apps/oni/src/bundles/probe.ts:1 names retired app port identifier ToolCapabilitySeam";
   try {
     // One enforcement layer per invariant: the dependency scan does not repeat it.
     expect(await validateAppsAgentBarrel(root)).toEqual([]);
@@ -379,7 +379,7 @@ test("#1343: a core token in a comment, string, or template text is prose, not a
         'const s = "SqliteClient.layer in a string";',
         `const t = \`SingleRunner.layer in template text \${1}\`;`,
       ].join("\n"),
-      "apps/openomni/src/prose.ts",
+      "apps/oni/src/prose.ts",
     ),
   ).toBe(0);
   expect(
@@ -387,7 +387,7 @@ test("#1343: a core token in a comment, string, or template text is prose, not a
       `const run = Core.createSessionEntityRunTurn;
 await kernel.commit({ body: \`\${kernel.materialize(id)}\` });
 `,
-      "apps/openomni/src/code.ts",
+      "apps/oni/src/code.ts",
     ),
   ).toBe(3);
 });
@@ -403,19 +403,19 @@ test("#1343: a member-chain receiver counts the same as the bare identifier", ()
         "cluster.SingleRunner.layer({});",
         "input.kernel.row(x);",
       ].join("\n"),
-      "apps/openomni/src/chain.ts",
+      "apps/oni/src/chain.ts",
     ),
   ).toBe(5);
 });
 
 test("#1343: regex literals never desync the counter — references after them still count", () => {
   expect(
-    appsAgentTokenCount("const r = /'/; kernel.commit(x);\n", "apps/openomni/src/regex.ts"),
+    appsAgentTokenCount("const r = /'/; kernel.commit(x);\n", "apps/oni/src/regex.ts"),
   ).toBe(1);
   expect(
     appsAgentTokenCount(
       "const r = /`/;\nkernel.commit(x);\nconst q = 1;\n",
-      "apps/openomni/src/regex-backtick.ts",
+      "apps/oni/src/regex-backtick.ts",
     ),
   ).toBe(1);
 });
@@ -424,25 +424,25 @@ test("#1343: JSX text with an apostrophe is prose in a .tsx file; the reference 
   expect(
     appsAgentTokenCount(
       "export const v = <p>don't kernel.commit here</p>;\nkernel.commit(x);\n",
-      "apps/openomni/src/view.tsx",
+      "apps/oni/src/view.tsx",
     ),
   ).toBe(1);
 });
 
 test("#1343: a line-wrapped member access is one reference (the regex-era miss)", () => {
   expect(
-    appsAgentTokenCount("const c = kernel\n  .commit({ sessionId: id });\n", "apps/openomni/src/wrap.ts"),
+    appsAgentTokenCount("const c = kernel\n  .commit({ sessionId: id });\n", "apps/oni/src/wrap.ts"),
   ).toBe(1);
 });
 
 test("#1343: a new app file starts at zero — one direct token fails the ratchet", async () => {
   const root = scratchAppsTree({
-    "composition/evil.ts": 'import { Core } from "@openomni/agent";\nexport const go = () => kernel.indexSession(1);\n',
+    "composition/evil.ts": 'import { Core } from "@oni/agent";\nexport const go = () => kernel.indexSession(1);\n',
   });
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toEqual([
-      "VIOLATION: apps/openomni/src/composition/evil.ts references 1 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
+      "VIOLATION: apps/oni/src/composition/evil.ts references 1 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -459,7 +459,7 @@ test("#1355: retiring or deleting the inherited app owner requires lowering its 
     try {
       const violations = await validateAppsAgentTokens(root);
       expect(violations).toEqual([
-        "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
+        "VIOLATION: apps/oni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -481,7 +481,7 @@ test("#1343: outside a checkout a stubbed pinned path passes, and the skip is on
   // in a plain directory: growth still fails there, slack is not judged.
   const root = scratchAppsTree({
     "index.ts": "export {};\n",
-    "view.tsx": 'import "@openomni/protocol";\n',
+    "view.tsx": 'import "@oni/protocol";\n',
   });
   const notices: string[] = [];
   try {
@@ -501,7 +501,7 @@ test("#1355: a worktree with no app tokens refuses inherited pin slack without n
     const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
     expect(notices).toEqual([]);
     expect(violations).toEqual([
-      "VIOLATION: apps/openomni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
+      "VIOLATION: apps/oni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -522,7 +522,7 @@ test("#1355: inherited app-token growth reports the owner and both numbers", asy
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/openomni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 1 — shrink only, never grow",
+      "VIOLATION: apps/oni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 1 — shrink only, never grow",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -548,7 +548,7 @@ test("#1346: session-store write calls are found by AST, wrapped or chained, nev
       "const s = 'kernel.commit(' + `wrapped .materialize( text`;",
       "const read = kernel.row(id); const other = commit(z);",
     ].join("\n"),
-    "apps/openomni/src/x.ts",
+    "apps/oni/src/x.ts",
   );
   expect(sites.map((site) => [site.line, site.receiver, site.member])).toEqual([
     [1, "kernel", "commit"],
@@ -573,7 +573,7 @@ test("#1346 r1 M2: every spelling of a write door counts — element access, des
       "const key = input.commit.id; const { commit: payload, deliver } = frame; send({ payload, deliver });",
       "const local = commitDeliverPayload(deps); local(input, payload);",
     ].join("\n"),
-    "apps/openomni/src/x.ts",
+    "apps/oni/src/x.ts",
   );
   // Line 9-10: `commit` as a payload field read, an uncalled destructure and
   // an unrelated local never count; line 2 counts because the destructured
@@ -588,7 +588,7 @@ test("#1346 r1 M2: every spelling of a write door counts — element access, des
     [6, "sessionStore", "create"],
   ]);
   expect(
-    appsSessionWriteSites("const c = kernel.commit; c(x); const { commit: m } = store; m(y);", "apps/openomni/src/y.ts").map(
+    appsSessionWriteSites("const c = kernel.commit; c(x); const { commit: m } = store; m(y);", "apps/oni/src/y.ts").map(
       (site) => [site.receiver, site.member],
     ),
   ).toEqual([
@@ -621,8 +621,8 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
   try {
     const violations = await validateAppsSessionWrites(root, silent);
     expect(violations).toEqual([
-      expect.stringContaining("apps/openomni/src/index.ts:1485 no longer names kernel.commit"),
-      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
+      expect.stringContaining("apps/oni/src/index.ts:1485 no longer names kernel.commit"),
+      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -650,7 +650,7 @@ function pinnedWritesTree(ingressLine: number, extra = ""): string {
 
 test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned to its exact line", async () => {
   expect(
-    appsSessionWriteSites("Core.adoptedExecutor(kernel,id,owner,clock,{})", "apps/openomni/src/probe.ts").map(
+    appsSessionWriteSites("Core.adoptedExecutor(kernel,id,owner,clock,{})", "apps/oni/src/probe.ts").map(
       (site) => [site.line, site.receiver, site.member],
     ),
   ).toEqual([[1, "Core", "adoptedExecutor"]]);
@@ -663,8 +663,8 @@ test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned 
   const moved = pinnedWritesTree(63);
   try {
     expect(await validateAppsSessionWrites(moved, silent)).toEqual([
-      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
-      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
+      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
+      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
     ]);
   } finally {
     rmSync(moved, { recursive: true, force: true });
@@ -672,7 +672,7 @@ test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned 
   const second = pinnedWritesTree(62, "const again = Core.adoptedExecutor(kernel, id, owner, clock, {});\n");
   try {
     expect(await validateAppsSessionWrites(second, silent)).toEqual([
-      expect.stringContaining("apps/openomni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
+      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
     ]);
   } finally {
     rmSync(second, { recursive: true, force: true });

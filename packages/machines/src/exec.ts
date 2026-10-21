@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit } from "effect";
 import { z } from "zod";
 import { SpawnFailure, type MachineError } from "./errors";

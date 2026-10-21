@@ -1,6 +1,6 @@
 import { setSessionTitleIfPlaceholder } from "../src/renderer/state/session-actions";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import * as ui from "@openomni/ui";
+import * as ui from "@oni/ui";
 import { notifyManager, QueryClient } from "@tanstack/react-query";
 import type { ServerWebSocket } from "bun";
 import { Window } from "happy-dom";

@@ -15,7 +15,7 @@ import { runEffect } from "./helpers/native";
 usePrivateCatalog();
 afterEach(() => mock.restore());
 
-const AUTH_FILE = "/nonexistent/openomni-test/auth.json";
+const AUTH_FILE = "/nonexistent/oni-test/auth.json";
 
 test("the service resolves catalog models and preserves typed resolution failure", async () => {
   const service = makeLlmService(AUTH_FILE);
