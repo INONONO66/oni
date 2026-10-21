@@ -1,0 +1,13 @@
+{
+  "status": "ok",
+  "rows": ["$ ls", ""],
+  "cursor": {
+    "x": 2,
+    "y": 1
+  },
+  "occupant": {
+    "pid": 123,
+    "command": "sh"
+  },
+  "observedAt": 1
+}

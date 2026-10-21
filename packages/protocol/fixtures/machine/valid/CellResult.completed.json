@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "cellId": "c1",
+  "output": {
+    "stdout": "2\n",
+    "stderr": ""
+  },
+  "value": "2"
+}

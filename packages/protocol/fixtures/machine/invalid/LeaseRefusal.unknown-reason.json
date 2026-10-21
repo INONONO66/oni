@@ -1,0 +1,6 @@
+{
+  "machineId": "mac-0",
+  "reason": "cpu",
+  "slots": 4,
+  "inFlight": 4
+}

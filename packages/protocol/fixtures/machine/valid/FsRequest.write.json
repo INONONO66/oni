@@ -1,0 +1,6 @@
+{
+  "op": "write",
+  "export": "notes",
+  "path": "a.txt",
+  "data": "aGk="
+}

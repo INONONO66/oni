@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "classCosts": {
+          "additionalProperties": false,
+          "properties": {
+            "eval": {
+              "const": 1,
+              "type": "number"
+            },
+            "exec": {
+              "const": 1,
+              "type": "number"
+            },
+            "job": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "pty": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "exec",
+            "eval",
+            "pty",
+            "job"
+          ],
+          "type": "object"
+        },
+        "machineId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "memReserveBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slots": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "machineId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "classCosts": {
+          "additionalProperties": false,
+          "properties": {
+            "eval": {
+              "const": 1,
+              "type": "number"
+            },
+            "exec": {
+              "const": 1,
+              "type": "number"
+            },
+            "job": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "pty": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "exec",
+            "eval",
+            "pty",
+            "job"
+          ],
+          "type": "object"
+        },
+        "memReserveBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slots": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "tag": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag"
+      ],
+      "type": "object"
+    }
+  ]
+}

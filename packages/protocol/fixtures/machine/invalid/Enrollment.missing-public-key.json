@@ -1,0 +1,6 @@
+{
+  "machineId": "mac-0",
+  "name": "brain-mac",
+  "allowedCapabilities": ["fs.read"],
+  "enrolledAt": 1
+}

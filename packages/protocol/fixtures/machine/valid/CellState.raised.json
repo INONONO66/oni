@@ -1,0 +1,9 @@
+{
+  "status": "raised",
+  "cellId": "c1",
+  "output": {
+    "stdout": "2\n",
+    "stderr": ""
+  },
+  "error": "boom"
+}

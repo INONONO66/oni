@@ -1,0 +1,10 @@
+{
+  "machineId": "mac-0",
+  "time": 2,
+  "reportedAt": 1,
+  "load": {
+    "loadAvg1": 0.5,
+    "memoryAvailableBytes": 1024,
+    "inFlight": 0
+  }
+}

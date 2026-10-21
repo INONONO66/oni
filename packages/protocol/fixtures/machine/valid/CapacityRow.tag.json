@@ -1,0 +1,9 @@
+{
+  "tag": "gpu",
+  "classCosts": {
+    "exec": 1,
+    "eval": 1,
+    "pty": 1,
+    "job": 2
+  }
+}

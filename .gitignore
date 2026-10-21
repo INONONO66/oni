@@ -21,6 +21,7 @@ source-metrics.json
 # Build Outputs
 dist
 dist-npm
+clients/target/
 
 # Local AI instructions (not committed)
 *.local.md

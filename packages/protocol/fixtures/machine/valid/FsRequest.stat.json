@@ -1,0 +1,5 @@
+{
+  "op": "stat",
+  "export": "notes",
+  "path": "dir/a.txt"
+}

@@ -1,0 +1,9 @@
+{
+  "cellId": "c1",
+  "name": "read",
+  "arguments": {
+    "path": "a.txt",
+    "limit": 10,
+    "flags": [true, null]
+  }
+}

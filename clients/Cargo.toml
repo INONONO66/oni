@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["protocol", "machine-client"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+oni-protocol = { path = "protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+typify = "0.8.0"
+regress = "0.12"
+schemars = "0.8"
+jsonschema = { version = "0.59", default-features = false }
+syn = { version = "2", features = ["full", "parsing"] }
+prettyplease = "0.2"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

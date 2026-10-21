@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "enrollment": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedCapabilities": {
+          "items": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "allowedExports": {
+          "items": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enrolledAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "machineId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "publicKey": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "machineId",
+        "name",
+        "allowedCapabilities",
+        "publicKey",
+        "enrolledAt"
+      ],
+      "type": "object"
+    },
+    "machineId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "time": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "machineId",
+    "time",
+    "enrollment"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,309 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "cellId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "output": {
+          "additionalProperties": false,
+          "properties": {
+            "stderr": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "truncated": {
+              "additionalProperties": false,
+              "properties": {
+                "stderr": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                },
+                "stdout": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "completed",
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "cellId",
+        "output"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "cellId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "output": {
+          "additionalProperties": false,
+          "properties": {
+            "stderr": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "truncated": {
+              "additionalProperties": false,
+              "properties": {
+                "stderr": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                },
+                "stdout": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "raised",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "cellId",
+        "output",
+        "error"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "cellId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "output": {
+          "additionalProperties": false,
+          "properties": {
+            "stderr": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "truncated": {
+              "additionalProperties": false,
+              "properties": {
+                "stderr": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                },
+                "stdout": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "timed_out",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "cellId",
+        "output"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "cellId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "output": {
+          "additionalProperties": false,
+          "properties": {
+            "stderr": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "truncated": {
+              "additionalProperties": false,
+              "properties": {
+                "stderr": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                },
+                "stdout": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "originalBytes": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "originalBytes"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "cancelled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "cellId",
+        "output"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "machine_not_attached",
+            "kernel_not_available"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

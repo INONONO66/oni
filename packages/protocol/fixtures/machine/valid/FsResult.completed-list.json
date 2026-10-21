@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "value": {
+    "op": "list",
+    "entries": [
+      {
+        "name": "a.txt",
+        "kind": "file",
+        "size": 2
+      },
+      {
+        "name": "dir",
+        "kind": "dir"
+      }
+    ],
+    "truncated": false
+  }
+}

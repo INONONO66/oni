@@ -1,0 +1,5 @@
+{
+  "status": "refused",
+  "reason": "digest_mismatch",
+  "message": "digest differs"
+}

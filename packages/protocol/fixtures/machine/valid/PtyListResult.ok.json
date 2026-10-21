@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "sessions": [
+    {
+      "name": "build",
+      "status": "live"
+    },
+    {
+      "name": "old",
+      "status": "lost"
+    }
+  ],
+  "truncated": false
+}

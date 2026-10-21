@@ -1,0 +1,24 @@
+{
+  "machineId": "mac-0",
+  "name": "brain-mac",
+  "allowedCapabilities": ["fs.read"],
+  "publicKey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "enrolledAt": 1,
+  "tags": ["gpu"],
+  "capabilities": ["fs.read"],
+  "os": "darwin",
+  "arch": "arm64",
+  "resources": {
+    "cpus": 4,
+    "memoryBytes": 8589934592
+  },
+  "live": {
+    "reportedAt": 1,
+    "load": {
+      "loadAvg1": 0.5,
+      "memoryAvailableBytes": 1024,
+      "inFlight": 0
+    },
+    "stale": false
+  }
+}

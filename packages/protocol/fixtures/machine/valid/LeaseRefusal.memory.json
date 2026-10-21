@@ -1,0 +1,8 @@
+{
+  "machineId": "mac-0",
+  "reason": "memory",
+  "slots": null,
+  "inFlight": 1,
+  "memoryAvailableBytes": 100,
+  "memReserveBytes": 200
+}

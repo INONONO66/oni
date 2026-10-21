@@ -10,6 +10,7 @@ export interface CiPlan {
   readonly class: (typeof changeClasses)[number];
   readonly lanes: readonly string[];
   readonly toolingTests: boolean;
+  readonly clients: boolean;
   readonly full: boolean;
   readonly verify: boolean;
   readonly dependencyReview: boolean;
@@ -23,10 +24,7 @@ export interface CiPlan {
   readonly reason: string;
 }
 
-function finishPlan(
-  plan: Selection,
-  changeClass: CiPlan["class"],
-): CiPlan {
+function finishPlan(plan: Selection, changeClass: CiPlan["class"], clients: boolean): CiPlan {
   const whole = changeClass === "tooling" || changeClass === "global";
   const matrix = {
     include: [
@@ -45,36 +43,42 @@ function finishPlan(
     class: changeClass,
     lanes: matrix.include.map((row) => row.key),
     toolingTests: whole,
+    clients,
   };
 }
 
 type ChangeSelection = {
-	selected: Set<string>;
-	changeClass: CiPlan["class"];
-	globalReason?: string;
+  selected: Set<string>;
+  changeClass: CiPlan["class"];
+  globalReason?: string;
 };
-function selectChanges(paths: readonly string[], topology: readonly WorkspaceTopology[]): ChangeSelection {
-	const selected = new Set<string>();
-	let changeClass: CiPlan["class"] = "docs";
-	for (const path of paths) {
-		const unsafe = path.split("/").some((part) => part === ".." || part === "." || part === "") || path.includes("\\");
-		if (unsafe) return { selected, changeClass, globalReason: "global-or-unowned-path" };
-		if (/^(?:[^/]+\.md|docs\/.*)$/.test(path)) continue;
-		if (/(^|\/)(package\.json|bun\.lockb?)$/.test(path))
-			return { selected, changeClass, globalReason: "dependency-manifest-change" };
-		if (path.startsWith("script/") && !path.startsWith("script/conformance/")) {
-			changeClass = "tooling";
-			continue;
-		}
-		const owner = topology.find((workspace) => path.startsWith(`${workspace.dir}/`));
-		if (!owner) return { selected, changeClass, globalReason: "global-or-unowned-path" };
-		if (owner.packageName === "@oni/protocol")
-			return { selected, changeClass, globalReason: "shared-contract-change" };
-		const next = owner.dir === "apps/desktop" || owner.dir === "packages/ui" ? "desktop" : "kernel";
-		if (changeClasses.indexOf(next) > changeClasses.indexOf(changeClass)) changeClass = next;
-		selected.add(owner.packageName);
-	}
-	return { selected, changeClass };
+function selectChanges(
+  paths: readonly string[],
+  topology: readonly WorkspaceTopology[],
+): ChangeSelection {
+  const selected = new Set<string>();
+  let changeClass: CiPlan["class"] = "docs";
+  for (const path of paths) {
+    const unsafe =
+      path.split("/").some((part) => part === ".." || part === "." || part === "") ||
+      path.includes("\\");
+    if (unsafe) return { selected, changeClass, globalReason: "global-or-unowned-path" };
+    if (/^(?:[^/]+\.md|docs\/.*)$/.test(path)) continue;
+    if (/(^|\/)(package\.json|bun\.lockb?)$/.test(path))
+      return { selected, changeClass, globalReason: "dependency-manifest-change" };
+    if (path.startsWith("script/") && !path.startsWith("script/conformance/")) {
+      changeClass = "tooling";
+      continue;
+    }
+    const owner = topology.find((workspace) => path.startsWith(`${workspace.dir}/`));
+    if (!owner) return { selected, changeClass, globalReason: "global-or-unowned-path" };
+    if (owner.packageName === "@oni/protocol")
+      return { selected, changeClass, globalReason: "shared-contract-change" };
+    const next = owner.dir === "apps/desktop" || owner.dir === "packages/ui" ? "desktop" : "kernel";
+    if (changeClasses.indexOf(next) > changeClasses.indexOf(changeClass)) changeClass = next;
+    selected.add(owner.packageName);
+  }
+  return { selected, changeClass };
 }
 
 export function planChanges(
@@ -83,12 +87,19 @@ export function planChanges(
   topology: readonly WorkspaceTopology[] = TOPOLOGY,
 ): CiPlan {
   validateGraph(topology);
-  if (full) return finishPlan(fullPlan(topology, "full-requested"), "global");
+  if (full) return finishPlan(fullPlan(topology, "full-requested"), "global", true);
   if (paths === undefined) throw new Error("PR planning requires discovered changed paths");
 
+  const clients = paths.some(
+    (path) =>
+      path.startsWith("clients/") ||
+      path.startsWith("packages/protocol/") ||
+      path === "script/generate-machine-schema.ts" ||
+      path === ".github/workflows/ci.yml",
+  );
   const selection = selectChanges(paths, topology);
   if (selection.globalReason)
-    return finishPlan(fullPlan(topology, selection.globalReason), "global");
+    return finishPlan(fullPlan(topology, selection.globalReason), "global", true);
   const { selected, changeClass } = selection;
 
   // allowedDeps intentionally includes test-only edges, unlike srcAllowedDeps.
@@ -102,17 +113,21 @@ export function planChanges(
   }
   const workspaces = topology.filter((workspace) => selected.has(workspace.packageName));
   const verify = workspaces.length > 0 || changeClass === "tooling";
-  return finishPlan({
-    full: false,
-    verify,
-    dependencyReview: false,
-    matrix: { include: verify ? rows(workspaces) : [] },
-    reason: verify
-      ? "workspace-impact"
-      : paths.length === 0
-        ? "empty-diff"
-        : "root-documentation-only",
-  }, changeClass);
+  return finishPlan(
+    {
+      full: false,
+      verify,
+      dependencyReview: false,
+      matrix: { include: verify ? rows(workspaces) : [] },
+      reason: verify
+        ? "workspace-impact"
+        : paths.length === 0
+          ? "empty-diff"
+          : "root-documentation-only",
+    },
+    changeClass,
+    clients,
+  );
 }
 
 function rows(topology: readonly WorkspaceTopology[]) {
@@ -165,6 +180,10 @@ export function main(
   argv: readonly string[] = Bun.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env,
 ): void {
+  if (argv.includes("--help")) {
+    process.stdout.write("Usage: bun run script/ci-plan.ts [--full | --base SHA --head SHA]\n");
+    return;
+  }
   const { values } = parseArgs({
     args: [...argv],
     options: { base: { type: "string" }, head: { type: "string" }, full: { type: "boolean" } },
@@ -203,7 +222,7 @@ export function main(
   if (outputPath) {
     appendFileSync(
       outputPath,
-      `full=${plan.full}\nverify=${plan.verify}\ndependencyReview=${plan.dependencyReview}\nmatrix=${JSON.stringify(plan.matrix)}\nclass=${plan.class}\ntoolingTests=${plan.toolingTests}\n`,
+      `full=${plan.full}\nverify=${plan.verify}\ndependencyReview=${plan.dependencyReview}\nmatrix=${JSON.stringify(plan.matrix)}\nclass=${plan.class}\ntoolingTests=${plan.toolingTests}\nclients=${plan.clients}\n`,
     );
   }
   process.stdout.write(`${JSON.stringify(plan)}\n`);

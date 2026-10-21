@@ -15,6 +15,9 @@
     "check-effect-boundaries": "bun run script/check-effect-boundaries.ts",
     "check-journal-writers": "bun run script/check-journal-writers.ts",
     "check-written-types": "bun run script/check-written-types.ts",
+    "clients:build": "cd clients && cargo build --release",
+    "clients:lint": "cd clients && cargo fmt --all --check && cargo clippy --all-targets -- -D warnings -D clippy::unwrap_used",
+    "clients:test": "cd clients && cargo test",
     "dev": "turbo run dev",
     "prepare": "lefthook install",
     "lint": "bun run lint:guards && bun run lint:side-effects && bun run lint:docs && bunx ultracite check --formatter-enabled=false .",
@@ -30,6 +33,7 @@
     "quality:clones:production": "jscpd --config script/quality-audit-jscpd-production.json",
     "quality:clones:test": "jscpd --config script/quality-audit-jscpd-test.json",
     "generate:agents-deps": "bun run script/generate-agents-deps.ts",
+    "generate:machine-schema": "bun run script/generate-machine-schema.ts",
     "generate:models-snapshot": "bun run script/generate-models-snapshot.ts"
   },
   "devDependencies": {

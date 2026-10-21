@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "enum": [
+    "machine.attach",
+    "machine.report",
+    "machine.run_code",
+    "machine.cancel_code",
+    "machine.peek_code",
+    "machine.exec",
+    "machine.call_tool",
+    "machine.fs_op",
+    "machine.fs_stream",
+    "machine.screen_read",
+    "machine.input_write",
+    "machine.pty_open",
+    "machine.pty_write",
+    "machine.pty_read",
+    "machine.pty_resize",
+    "machine.pty_close",
+    "machine.pty_list",
+    "machine.pty_output"
+  ],
+  "type": "string"
+}

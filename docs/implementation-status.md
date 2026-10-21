@@ -1,5 +1,60 @@
 # Implementation Status
 
+## #1623 machine client P1: the wire contract export and the `clients/` workspace
+
+On `feat/1623-machine-client-p1-contract` (2026-10-21, base `941c680ad`).
+The machine wire contract now exists outside TypeScript. `packages/protocol`
+exports `Machine.contractVersion = 1`, and `script/generate-machine-schema.ts`
+writes every `Machine.*` Zod value as one JSON Schema file under
+`packages/protocol/schema/machine/` (72 schemas plus `index.json`, which
+carries `contractVersion` and the sorted name-to-file list). Output is
+deterministic: keys sorted, 2-space indent, stray files removed on write,
+and `--check` refuses a stale, missing or extra file. Three fields that Zod
+describes as plain values (`ToolCall.arguments` values,
+`ToolCallResult.completed.value`, `ScreenReadResult.ok.accessibilityTree`)
+are emitted as `{}`; refinements (absolute or relative path, uniqueness,
+byte bounds) are dropped and the base type kept, as the script header
+records. `packages/protocol/fixtures/machine/` holds 149 valid and 95
+invalid fixtures; invalid fixtures cover structural violations and schema
+bounds (numeric ranges, array length and non-null optional fields), and
+`packages/protocol/test/machine-contract.test.ts` checks each
+one against the Zod source.
+
+The new `clients/` directory is a cargo workspace outside the Bun workspace,
+with its own `Cargo.lock` tracked. `clients/protocol` (`oni-protocol`)
+generates its Rust types in `build.rs` from `index.json`, one module per
+schema file, and exposes `CONTRACT_VERSION`; its tests round-trip every
+valid fixture and refuse every invalid one. `clients/machine-client`
+(`oni-machine-client`) builds the `mclient` binary: `mclient --version`
+prints `mclient 0.1.0 contract 1`; `join` and `run` are parsed and exit 2
+with `not implemented in this phase`. Root `package.json` adds
+`generate:machine-schema`, `clients:build`, `clients:lint` and
+`clients:test`; `script/ci-plan.ts` emits a `clients` flag and
+`.github/workflows/ci.yml` runs the Clients Rust job (fmt, clippy with
+`-D warnings -D clippy::unwrap_used`, test, and a 100% native line-coverage
+gate) on full runs and on PRs that touch `clients/`,
+`packages/protocol/`, the generator or the workflow (see `docs/ci.md`).
+
+Not shipped in this phase: attach, any transport to the daemon, session
+sync, enrollment from the client, and every `mclient` subcommand beyond
+`--version`. The generated Rust types are shapes only; `oni_protocol::decode`
+validates every wire value against the embedded JSON Schema before the shape
+decodes it, and it is the only entry clients use. Refinements that the schema
+export drops are not enforced on the Rust side either. Present `null` and
+empty collections survive the round-trip (`Option<Option<T>>`,
+`Option<Vec<T>>` and `Option<HashMap<...>>` fields, with
+`clients/protocol/src/presence.rs` distinguishing present null from absence).
+JSON number schemas use `serde_json::Number`, retaining integer and float
+representations for exact JSON equality. Every schema pattern is compiled
+with `regress` at build time before the generated regex initialization is
+allowed to use `unwrap()`.
+
+The Rust suite exercises four CLI outcomes (no args, version, join and run),
+both typed decoder error variants, every shared fixture and exact adjacent
+large-integer equality. Final-tree verification is separate from the initial
+generation receipts; the native coverage gate excludes `build.rs` and
+generated `OUT_DIR` code.
+
 ## #1620 project rename: openomni -> oni
 
 On `rename/oni` (2026-10-21, base `04af03379`). The product, the kernel app
