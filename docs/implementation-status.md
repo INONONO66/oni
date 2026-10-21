@@ -1,5 +1,52 @@
 # Implementation Status
 
+## #1623 machine client P1: the wire contract export and the `clients/` workspace
+
+On `feat/1623-machine-client-p1-contract` (2026-10-21, base `941c680ad`).
+The machine wire contract now exists outside TypeScript. `packages/protocol`
+exports `Machine.contractVersion = 1`, and `script/generate-machine-schema.ts`
+writes every `Machine.*` Zod value as one JSON Schema file under
+`packages/protocol/schema/machine/` (72 schemas plus `index.json`, which
+carries `contractVersion` and the sorted name-to-file list). Output is
+deterministic: keys sorted, 2-space indent, stray files removed on write,
+and `--check` refuses a stale, missing or extra file. Three fields that Zod
+describes as plain values (`ToolCall.arguments` values,
+`ToolCallResult.completed.value`, `ScreenReadResult.ok.accessibilityTree`)
+are emitted as `{}`; refinements (absolute or relative path, uniqueness,
+byte bounds) are dropped and the base type kept, as the script header
+records. `packages/protocol/fixtures/machine/` holds 138 valid and 86
+invalid fixtures; every invalid fixture is a structural violation (missing
+key, wrong JSON type, unknown discriminant), and
+`packages/protocol/test/machine-contract.test.ts` (227 tests) checks each
+one against the Zod source.
+
+The new `clients/` directory is a cargo workspace outside the Bun workspace,
+with its own `Cargo.lock` tracked. `clients/protocol` (`oni-protocol`)
+generates its Rust types in `build.rs` from `index.json`, one module per
+schema file, and exposes `CONTRACT_VERSION`; its tests round-trip every
+valid fixture and refuse every invalid one. `clients/machine-client`
+(`oni-machine-client`) builds the `mclient` binary: `mclient --version`
+prints `mclient 0.1.0 contract 1`; `join` and `run` are parsed and exit 2
+with `not implemented in this phase`. Root `package.json` adds
+`generate:machine-schema`, `clients:build`, `clients:lint` and
+`clients:test`; `script/ci-plan.ts` emits a `clients` flag and
+`.github/workflows/ci.yml` runs the Clients Rust job (fmt, clippy with
+`-D warnings`, test) on full runs and on PRs that touch `clients/`,
+`packages/protocol/`, the generator or the workflow (see `docs/ci.md`).
+
+Not shipped in this phase: attach, any transport to the daemon, session
+sync, enrollment from the client, and every `mclient` subcommand beyond
+`--version`. The Rust types enforce exactly what the JSON Schema says, so
+the dropped refinements are not enforced on the Rust side either.
+
+Receipts on the worktree head: `bun run --cwd packages/protocol build`,
+`generate-machine-schema.ts` then `--check` exit 0 ("Machine JSON Schema
+export is current"); `bun test packages/protocol` 894 pass / 0 fail;
+protocol `check-types` exit 0; `check-dead-exports` 0 new; `cargo fmt
+--check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` exit
+0 (cli 2 pass, fixtures 4 pass); `bun test script/ci-plan.test.ts` 43 pass
+/ 0 fail.
+
 ## #1620 project rename: openomni -> oni
 
 On `rename/oni` (2026-10-21, base `04af03379`). The product, the kernel app

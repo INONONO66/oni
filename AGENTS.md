@@ -66,6 +66,9 @@ oni/
 │   ├── codemode/        # code facade, machine handles, per-tenant interpreter runner
 │   ├── channels/        # channel drivers and perimeter gateway router
 │   └── ui/              # shared console presentation and design system
+├── clients/             # Rust cargo workspace for machine-side clients (own Cargo.lock, outside the Bun workspace)
+│   ├── protocol/        # oni-protocol: Rust types generated at build time from packages/protocol/schema/machine
+│   └── machine-client/  # oni-machine-client: the mclient binary (version + CLI skeleton in #1623 P1)
 ├── script/              # conformance and repository gates
 ├── turbo.json
 └── package.json
@@ -115,6 +118,8 @@ ui <- apps/desktop
 | `packages/channels` | Drivers over the agent-messenger SDK transport (each SDK subpath imported only by its provider's seam file, `sdk.ts` for the bot and `owner-sdk.ts` for the Owner account, #1569) plus perimeter routing, physical request correlation, identity-keyed delivery (`<platform>:<identity>` routes) and admission; the channel-facing perimeter stores (`src/store/`) | Session content or product execution; the SDK's own credential store |
 | `apps/oni` | Product composition: Resident, gateway, delegation, code mode, boot/shutdown | Reimplementation of package primitives |
 | `apps/desktop` | Electron shell: main/preload/renderer build pipeline, window security defaults, the gateway endpoint resolved from env in main and handed to the renderer over one `contextBridge` call; AI SDK chat state and the gateway transport; client state in one TanStack `Store` (`state/store.ts`: sessions, tabs with strictly local history, active id, retained closed snapshots, collapsed project groups, per-session drafts) read through `useStore` selectors, and server state through TanStack Query (`state/queries.ts` mints every key; the only query is the gateway endpoint — the wire has no session-list method yet); native Menu → value-only preload → one disposed App subscription; app-owned places/icons, kind-grouped Sessions list, prompt-title lifecycle, search invocation/reveal, attention ordering and App-lifetime Chat cache; no mock data of any kind. Desktop owns the unified SessionCard state, phase-to-glyph mapping, and pinned/demand/report/residue/watch/rest attention kinds. | Kernel logic; anything beyond protocol contracts; **transcript presentation — that is `packages/ui`'s** |
+| `clients/protocol` | Rust types generated from `packages/protocol/schema/machine` (the JSON Schema export of `Machine.*`, `index.json` first), `CONTRACT_VERSION` read from that index, and the fixture round-trip tests over `packages/protocol/fixtures/machine` (every valid fixture parses and re-serializes to the same value, every invalid fixture is refused) | Hand-written wire shapes; any schema that does not come out of the generator |
+| `clients/machine-client` | The `mclient` binary: `--version` prints the client and contract version; `join`/`run` exist as CLI skeleton only and exit 2 with `not implemented in this phase` (#1623 P1) | Attach, transport, session sync or any daemon behavior until a later phase ships it |
 | `packages/ui` | The renderer's UI package: tokens (`src/styles.css`), primitives, window chrome, the transcript's presentation (timeline, the three voices, tool rows and their folding, the composer, the approval tray), and the stable `Console` frame with generic `ConsoleContent`/`transcript` composition; `src/index.ts` exports only what apps/desktop imports, and `src/names.ts` is the single owner of every `data-ui` address. StatusGlyph owns generic tone/shape presentation and reference palette status tokens, never session phases. | Application places, project/session resolution, kernel logic or state policy. Touched Console contracts use generic transcript records; the lower-level Timeline sessionId adapter remains a legacy boundary |
 
 ## WHERE TO LOOK
@@ -140,6 +145,8 @@ ui <- apps/desktop
 | A2A door, Linear and Owner-only providers, the Person `reach` grant (#1569) | `packages/channels/src/provider/{a2a,linear,instagram,kakaotalk}/`, `A2A_DOOR_ID`/`a2aRoster` in `apps/oni/src/channels.ts`, `grants` in `apps/oni/src/index.ts` |
 | Delegation caps, deadline, and child replies (#1258) | `apps/oni/src/bundles/delegation-policy/` |
 | Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271; every tool is a removable bundle listed in `apps/oni/src/manifest.ts`, #1561) | `apps/oni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/oni/src/bundles/provision/provision.ts` |
+| Machine wire contract as JSON Schema (#1623; `Machine.contractVersion`, the generator, the valid/invalid fixtures) | `packages/protocol/src/machine/contract.ts`, `script/generate-machine-schema.ts`, `packages/protocol/schema/machine/`, `packages/protocol/fixtures/machine/`, `packages/protocol/test/machine-contract.test.ts` |
+| Rust client types and the mclient binary (#1623) | `clients/protocol/build.rs`, `clients/protocol/tests/fixtures.rs`, `clients/machine-client/src/main.rs` |
 | Shipped-state truth | `docs/implementation-status.md` |
 | Conformance/ratchets | `script/`, `script/conformance/` |
 
@@ -189,6 +196,17 @@ gh workflow run quality-mutation.yml --ref main -f pilot_limit=0 -f shard_count=
 # Reproduce one CI test lane:
 bun run ci test --lane agent
 bun run ci test --lane scripts-contracts
+
+# Machine wire contract export (#1623): regenerate packages/protocol/schema/machine
+# after a Machine.* schema change, or --check to refuse a stale export.
+bun run generate:machine-schema
+bun run script/generate-machine-schema.ts --check
+
+# Rust clients workspace (clients/Cargo.toml; cargo on PATH, run by the
+# Clients Rust CI job when clients/ or packages/protocol/ change):
+bun run clients:lint
+bun run clients:test
+bun run clients:build
 
 # Sole deployable app
 bun run --cwd apps/oni dev
