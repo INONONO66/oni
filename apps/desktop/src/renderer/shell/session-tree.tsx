@@ -12,7 +12,7 @@ import {
   StatusGlyph,
   Text,
   TreeRow,
-} from "@openomni/ui";
+} from "@oni/ui";
 import { SessionRow } from "./session-row";
 import { SquarePen } from "lucide-react";
 import { type ComponentProps, useCallback, useMemo, useRef } from "react";
@@ -129,7 +129,7 @@ export function SessionTree({
         actions={sidebarOpen ? <SidebarToggle /> : null}
         brand={
           <Text className="font-semibold" level="label" tone="fg">
-            OpenOmni
+            Oni
           </Text>
         }
       />

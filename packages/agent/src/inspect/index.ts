@@ -1,7 +1,7 @@
 import { turnIntent, delivery, turnTerminal } from "../core/store/session-reads";
 import type * as SessionHandleStore from "../core/store/fence";
 import type { SessionKernel } from "../core/session/entity";
-import { canonicalDigest, type LedgerAction, type PlainObject, type PlainValue, SessionHistory, SessionTransition, } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type PlainObject, type PlainValue, SessionHistory, SessionTransition, } from "@oni/protocol";
 import { z } from "zod";
 
 export const InspectRequest = SessionHistory.InspectRequest.extend({

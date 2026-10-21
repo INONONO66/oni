@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Policy } from "@openomni/protocol";
+import type { Policy } from "@oni/protocol";
 import { decisionFromEvaluation, evaluatePermission } from "../../../src/core/gate/match";
 
 const it = test;

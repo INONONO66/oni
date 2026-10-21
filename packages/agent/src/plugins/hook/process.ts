@@ -1,7 +1,7 @@
 import { Deferred, Effect, Schema, type Scope } from "effect";
 import { readPlainJson, thrownAsError } from "../../core/api";
 import { z } from "zod";
-import { PlainValueSchema, type PlainValue } from "@openomni/protocol";
+import { PlainValueSchema, type PlainValue } from "@oni/protocol";
 
 /**
  * One hook PID per composed generation over JSON lines; it rides the
@@ -68,7 +68,7 @@ const failure = (cause: "timeout" | "framing" | "exit"): HookOutcome =>
 
 /** The generation is refused, never partially activated. */
 export class HookSpawnError extends Schema.TaggedError<HookSpawnError>(
-  "@openomni/agent/plugins/hook/HookSpawnError",
+  "@oni/agent/plugins/hook/HookSpawnError",
 )("HookSpawnError", {
   command: Schema.Array(Schema.String),
   cause: Schema.ErrorInstance(),

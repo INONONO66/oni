@@ -2,11 +2,11 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
 import { eventCollector } from "./helpers/events";
 
-const socketName = `openomni-pty-fact-${process.pid}`;
+const socketName = `oni-pty-fact-${process.pid}`;
 afterAll(() => {
   Bun.spawnSync(["tmux", "-L", socketName, "kill-server"]);
 });

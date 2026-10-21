@@ -11,7 +11,7 @@ import { bindStorePlatform, consoleStore, createSession, INITIAL_CLIENT_STATE } 
 import { testPlatform } from "./helpers/platform";
 
 type Globals = { document?: object; window?: object; desktop?: DesktopApi };
-const ENVIRONMENT = ["OPENOMNI_WS_URL", "OPENOMNI_WS_TOKEN", "ELECTRON_RENDERER_URL"] as const;
+const ENVIRONMENT = ["ONI_WS_URL", "ONI_WS_TOKEN", "ELECTRON_RENDERER_URL"] as const;
 
 /** Snapshot the browser globals and gateway env the entries touch; returns the restorer. */
 function snapshotHost(globals: Globals): () => void {
@@ -153,8 +153,8 @@ test("desktop entries register IPC before window creation and render without awa
       return element;
     },
   };
-  process.env.OPENOMNI_WS_URL = "ws://127.0.0.1:43210/ws";
-  process.env.OPENOMNI_WS_TOKEN = "entry-token";
+  process.env.ONI_WS_URL = "ws://127.0.0.1:43210/ws";
+  process.env.ONI_WS_TOKEN = "entry-token";
   delete process.env.ELECTRON_RENDERER_URL;
   try {
     await import("../src/main");
@@ -193,7 +193,7 @@ test("desktop entries register IPC before window creation and render without awa
     // The env is resolved once at bootstrap (#1245): flipping variables after
     // startup must not switch a later window into dev mode or move the gateway.
     process.env.ELECTRON_RENDERER_URL = "http://localhost:5173";
-    process.env.OPENOMNI_WS_URL = "ws://127.0.0.1:43211/ws";
+    process.env.ONI_WS_URL = "ws://127.0.0.1:43211/ws";
     events.get("activate")?.();
     expect(windows).toHaveLength(1);
     expect(loaded.at(-1)?.endsWith("/renderer/index.html")).toBe(true);

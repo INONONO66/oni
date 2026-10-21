@@ -6,7 +6,7 @@
  * fresh real SQLite handles and closes them on every exit.
  */
 import { Effect, type Scope } from "effect";
-import type { LedgerSession } from "@openomni/protocol";
+import type { LedgerSession } from "@oni/protocol";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";

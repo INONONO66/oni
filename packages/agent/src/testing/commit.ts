@@ -1,4 +1,4 @@
-import type { LedgerSession } from "@openomni/protocol";
+import type { LedgerSession } from "@oni/protocol";
 import { SessionCommitError } from "../core/ports/failure";
 
 export function requireCommit(result: LedgerSession.CommitResult): LedgerSession.Row {

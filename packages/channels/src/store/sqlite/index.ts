@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Storage as ProtocolStorage } from "@openomni/protocol";
+import type { Storage as ProtocolStorage } from "@oni/protocol";
 import type { AutomationAdapter } from "../automation/index.js";
 import { applyChannelStoreSchema } from "./schema.js";
 import { createSqliteActorRegistryAdapter } from "./sqlite-actor-registry-adapter.js";

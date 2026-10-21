@@ -1,7 +1,7 @@
 import { turnTerminal, openTurns } from "../src/core/store/session-reads";
 import { describe, expect, test } from "bun:test";
 import { Effect, } from "effect";
-import type { SessionTurn } from "@openomni/protocol";
+import type { SessionTurn } from "@oni/protocol";
 import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
 
 import { awaitSignal, boundedSignal as bounded } from "./helpers/g0-signals";

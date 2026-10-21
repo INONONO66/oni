@@ -7,7 +7,7 @@ import {
   SessionGeneration,
   SessionHistory,
   type PolicyRow,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import {
   compilePolicySnapshot,
   createHandlerTable,

@@ -4,7 +4,7 @@ import { isolated, isolatedLedger } from "./helpers/isolated";
 import { Effect, Exit } from "effect";
 import { expect, test } from "bun:test";
 
-import { canonicalDigest, type LedgerAction } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction } from "@oni/protocol";
 import {
   appendSourceInvocation,
   gatewayPort,

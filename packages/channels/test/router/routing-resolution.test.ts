@@ -6,7 +6,7 @@ import { Effect, } from "effect";
 import { effectFailure } from "../helpers/effect-failure";
 import { replaceDecisionFacts } from "../helpers/ledger";
 import { endpointFacts } from "../../src/router/endpoint-facts";
-import { Channel, Ingress, type Delivery, type DecisionFact } from "@openomni/protocol";
+import { Channel, Ingress, type Delivery, type DecisionFact } from "@oni/protocol";
 import { Bus } from "../helpers/observation";
 import { commits, createMappedOwnerSession, makeRouter, ownerEvent, ownerFacts, ownerSender, registerOwnerDm, resetRouterState, routingDecisions, } from "./_router-fixture";
 
@@ -161,9 +161,9 @@ test("reply endpoint changes reject an otherwise equivalent route replay", async
     ],
   };
   expect(Ingress.routeDecisionsEquivalent(original, changed)).toBe(true);
-  replaceDecisionFacts((facts: import("@openomni/protocol").Storage.DecisionFactSubAdapter) => ({
+  replaceDecisionFacts((facts: import("@oni/protocol").Storage.DecisionFactSubAdapter) => ({
     ...facts,
-    record: (input: { key: string; type: string; data: import("@openomni/protocol").PlainObject; timeCreated: number; }) =>
+    record: (input: { key: string; type: string; data: import("@oni/protocol").PlainObject; timeCreated: number; }) =>
       input.key === streamId()
         ? { kind: "exists", fact: { ...fact, data: changed } }
         : facts.record(input),
@@ -191,7 +191,7 @@ test.each([
 ] as const)("decision facts %s refuses before delivery commit or projection", async (fault: "record_failure" | "absent" | "wrong_type" | "corrupt_fact") => {
   registerOwnerDm();
   createMappedOwnerSession();
-  replaceDecisionFacts((facts: import("@openomni/protocol").Storage.DecisionFactSubAdapter) =>
+  replaceDecisionFacts((facts: import("@oni/protocol").Storage.DecisionFactSubAdapter) =>
     fault === "absent"
       ? undefined
       : {

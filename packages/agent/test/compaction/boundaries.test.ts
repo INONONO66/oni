@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { Cause, Effect, Exit } from "effect";
 import { planAnchoredCut } from "../../src/plugins/compaction/candidate";
 import { createCompactionPlan, restoreCompactionProjection } from "../../src/plugins/compaction/durable";

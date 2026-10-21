@@ -12,7 +12,7 @@ import {
   type Delivery,
   type LedgerAction,
   type SessionTransition,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { decideRequestTransition, requestBindingDigest } from "../src/core/session/request";
 import { TEST_APPROVAL_POLICY } from "./helpers/approval-policy";
 

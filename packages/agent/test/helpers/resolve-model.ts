@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Model } from "@openomni/protocol";
+import type { Model } from "@oni/protocol";
 
 /** resolveModel double that records every ref it is asked to resolve (the injected `now` is contract plumbing, not identity). */
 export function recordingResolveModel(resolved: Model.Ref[]) {

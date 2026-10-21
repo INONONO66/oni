@@ -92,7 +92,7 @@ test("all events collect the accepted SHA and head on one runner before the sole
   expect(steps[reference]?.run).toContain('git worktree add --detach "$REFERENCE_WORKTREE" "$reference_commit"');
   expect(steps[reference]?.run).toContain('cd "$REFERENCE_WORKTREE"');
   expect(steps[reference]?.run).toContain("bun install --frozen-lockfile");
-  expect(steps[reference]?.run).toContain("bunx turbo run build --filter=@openomni/protocol");
+  expect(steps[reference]?.run).toContain("bunx turbo run build --filter=./packages/protocol");
   expect(steps[collection]?.run).toContain("if (( run % 2 )); then revisions=(reference head); else revisions=(head reference); fi");
   expect(steps[collection]?.run).toContain('measure reference "$REFERENCE_WORKTREE" "$GITHUB_WORKSPACE/bench-results/reference/runs/$run"');
   expect(steps[collection]?.run).toContain('measure head "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/bench-results/runs/$run"');

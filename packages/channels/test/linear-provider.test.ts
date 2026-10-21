@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "bun:test";
-import { type Channel, Gateway, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, Gateway, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { OwnerPosture } from "../src/provider/contract";
 import { LinearProvider } from "../src/provider/linear/provider";

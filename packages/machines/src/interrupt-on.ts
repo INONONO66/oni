@@ -1,4 +1,4 @@
-import { listenForAbort } from "@openomni/protocol";
+import { listenForAbort } from "@oni/protocol";
 import { Effect } from "effect";
 
 /** Machines-local connector: resumes with `outcome` when `signal` aborts; interrupting the waiter detaches the listener. */

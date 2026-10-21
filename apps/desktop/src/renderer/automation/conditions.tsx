@@ -1,5 +1,5 @@
-import type { Ingress } from "@openomni/protocol";
-import { Field, Select, Textarea } from "@openomni/ui";
+import type { Ingress } from "@oni/protocol";
+import { Field, Select, Textarea } from "@oni/ui";
 
 const LISTS = [
   ["channels", "Channels"], ["users", "Users"], ["threads", "Threads"],

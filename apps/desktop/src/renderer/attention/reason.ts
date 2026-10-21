@@ -1,4 +1,4 @@
-import { relativeTime } from "@openomni/ui";
+import { relativeTime } from "@oni/ui";
 import type { Session } from "../state/store";
 
 export function formatRelative(now: number, at: number): string {

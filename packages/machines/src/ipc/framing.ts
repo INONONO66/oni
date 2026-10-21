@@ -1,4 +1,4 @@
-import { type Ipc, type PlainValue, parseJson } from "@openomni/protocol";
+import { type Ipc, type PlainValue, parseJson } from "@oni/protocol";
 import { FrameSchema } from "./frame-schema";
 import { IpcProtocolError } from "./errors";
 

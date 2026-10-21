@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Channel, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { OwnerPosture } from "../src/provider/contract";
 import { InstagramOwnerAdapter } from "../src/provider/instagram/owner";
@@ -205,7 +205,7 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.typingRoute).toBeUndefined();
     expect(provider.credentials.safeParse({ session: INSTAGRAM_SESSION }).success).toBe(false);
-    expect(existsSync("/nonexistent/openomni-instagram")).toBe(false);
+    expect(existsSync("/nonexistent/oni-instagram")).toBe(false);
   });
 
   it("the owner arm's delivery route folds the surface receipt into the kernel's custody vocabulary", async () => {
@@ -226,7 +226,7 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     const client = seam.client();
     expect(client.getUserId()).toBeNull();
     expect(seam.listener(client, { pollInterval: 5_000 })).toBeDefined();
-    const scratch = join(tmpdir(), "openomni-instagram-login-seam-never-created");
+    const scratch = join(tmpdir(), "oni-instagram-login-seam-never-created");
     expect(seam.loginClient(scratch)).toBeDefined();
     expect(existsSync(scratch)).toBe(false);
   });

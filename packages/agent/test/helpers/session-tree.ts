@@ -1,4 +1,4 @@
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import type { SessionKernel } from "../../src/core/session/entity";
 
 /** Independent unbounded audit oracle over one kernel's chain; bounded pages underneath. */

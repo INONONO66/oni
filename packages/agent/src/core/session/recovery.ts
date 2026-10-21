@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import * as SessionHandleStore from "../store/fence";
 import type { CommitReceipt } from "../store/services";
 import type { LedgerError } from "../store/errors";
-import type { Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { Delivery, LedgerAction, LedgerSession } from "@oni/protocol";
 import { createExecutor, type ExecutionLedger, type ExecutionResult } from "../loop/executor";
 import { AgentFailure, type SessionError } from "../ports/failure";
 import type { ResolvedSessionRuntime, SessionRunnerResult } from "./run";

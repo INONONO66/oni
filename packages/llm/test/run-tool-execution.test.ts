@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { PlainValueSchema, type PlainObject, type PlainValue } from "@openomni/protocol";
+import { PlainValueSchema, type PlainObject, type PlainValue } from "@oni/protocol";
 import { run, type RunInput } from "./helpers/native";
 import type { StreamEvent } from "../src/processor/stream-events";
 

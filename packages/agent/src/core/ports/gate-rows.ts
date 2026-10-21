@@ -1,4 +1,4 @@
-import type { PointId } from "@openomni/protocol";
+import type { PointId } from "@oni/protocol";
 
 /**
  * The one module that mints row ids; generations record `rowsVersion` and decision facts recorded

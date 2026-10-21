@@ -1,9 +1,9 @@
 {
-  "name": "@openomni/ui",
+  "name": "@oni/ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "UI package for the OpenOmni desktop renderer: tokens, primitives, window chrome, and the Console composition (source-shipped TSX + CSS).",
+  "description": "UI package for the Oni desktop renderer: tokens, primitives, window chrome, and the Console composition (source-shipped TSX + CSS).",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",

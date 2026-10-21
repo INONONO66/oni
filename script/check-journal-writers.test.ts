@@ -59,7 +59,7 @@ test("a second append literal for a declared kind outside its writer module fail
   const root = fixture({
     "packages/protocol/src/journal/core/alarm.ts": ALARM_DECLARATION,
     "packages/agent/src/core/ports/alarm.ts": OWNER_WRITER,
-    "apps/openomni/src/rogue.ts":
+    "apps/oni/src/rogue.ts":
       'const planted = { id: "x", parentId: null, sessionId: "s", kind: "alarm", ts: 2, irreversible: true };\nexport default planted;\n',
   });
 
@@ -69,14 +69,14 @@ test("a second append literal for a declared kind outside its writer module fail
     code: 1,
     stdout: "",
     stderr:
-      'VIOLATION [journal-writers] apps/openomni/src/rogue.ts:1 kind "alarm" is owned by packages/agent/src/core/ports/alarm.ts\n',
+      'VIOLATION [journal-writers] apps/oni/src/rogue.ts:1 kind "alarm" is owned by packages/agent/src/core/ports/alarm.ts\n',
   });
 
   // Same tree in-process: the finding carries the exact location and owner,
   // and the CLI shell reports the violating exit code.
   expect(journalWriterFindings(root)).toEqual([
     {
-      file: "apps/openomni/src/rogue.ts",
+      file: "apps/oni/src/rogue.ts",
       line: 1,
       kind: "alarm",
       writer: "packages/agent/src/core/ports/alarm.ts",
@@ -122,7 +122,7 @@ test("intent payload literals without an append shape never count as writers", (
     "packages/agent/src/core/ports/alarm.ts": OWNER_WRITER,
     // An alarm prompt origin's shape: a nested payload value carries
     // `kind: "alarm"` but no `irreversible`/`parentId` sibling — not an append row.
-    "apps/openomni/src/monitor.ts":
+    "apps/oni/src/monitor.ts":
       'export const intent = { value: { kind: "alarm", alarmId: "w", occurrenceId: "w:1" } };\n',
   });
 

@@ -2,7 +2,7 @@ import { Effect, Scope, Context, Exit, Cause, Option, Fiber } from "effect";
 import * as Failure from "../ports/failure";
 import { thrownAsError } from "../ports/failure";
 import { type ExecutionError, type CommitFailed, ExecutionApprovalError, AgentFailure, Interrupted, OutcomeUnknown } from "../ports/failure";
-import { type LedgerAction, type PlainValue, type PlainObject, canonicalDigest, listenForAbort } from "@openomni/protocol";
+import { type LedgerAction, type PlainValue, type PlainObject, canonicalDigest, listenForAbort } from "@oni/protocol";
 import type { PolicyEvaluation } from "../gate/compile";
 import type { WaveControl } from "./tool";
 import { BOUNDED_CONCURRENCY } from "../ports/ports";

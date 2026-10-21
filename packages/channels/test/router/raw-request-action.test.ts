@@ -6,7 +6,7 @@ import { effectFailure } from "../helpers/effect-failure";
 import { runEffect } from "../helpers/effect";
 import { openRequest, requestPort } from "../helpers/requests";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { type Gateway, type Delivery, type BusEvent, type PlainValue, Ingress } from "@openomni/protocol";
+import { type Gateway, type Delivery, type BusEvent, type PlainValue, Ingress } from "@oni/protocol";
 import { createGatewayRouter, type GatewayRouterPorts } from "../../src/router";
 import { IngressRoutingError } from "../../src/errors";
 import { recordingDelivery } from "./_recording-delivery";

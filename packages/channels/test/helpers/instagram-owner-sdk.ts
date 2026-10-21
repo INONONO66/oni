@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import type {
   InstagramMessage,
   InstagramOwnerApi,

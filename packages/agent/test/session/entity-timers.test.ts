@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Option } from "effect";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { runAgent } from "../helpers/executor";
 import { TestClock } from "effect/testing";
 import { CommitRefused } from "../../src/core/store/errors";

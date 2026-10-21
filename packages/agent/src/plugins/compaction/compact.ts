@@ -1,6 +1,6 @@
 import { Clock, Effect } from "effect";
 import { type ExecutionError, RunEvents, type Entropy, pretty } from "../../core/api";
-import type { Message, BusEvent } from "@openomni/protocol";
+import type { Message, BusEvent } from "@oni/protocol";
 import type { CompactionYield } from "./geometry";
 import type { CompactionCandidate } from "./speculate";
 import type { ResolvedCompactionOptions, CompactionResult } from "./contract";

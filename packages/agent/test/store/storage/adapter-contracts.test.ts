@@ -1,7 +1,7 @@
 import { sessionTree } from "../helpers/session-tree";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { LedgerAction, type LedgerSession, PolicyRow } from "@openomni/protocol";
+import { LedgerAction, type LedgerSession, PolicyRow } from "@oni/protocol";
 import { materializeRow, residentRow } from "../helpers/ledger";
 import { useSqliteStores } from "../helpers/storage";
 

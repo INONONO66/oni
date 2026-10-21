@@ -1,4 +1,4 @@
-import type { PlainValue, Token } from "@openomni/protocol";
+import type { PlainValue, Token } from "@oni/protocol";
 
 /**
  * The classification vocabulary this package answers the agent core's

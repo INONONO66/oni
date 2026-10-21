@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { collector } from "../helpers/observation-collector";
 import { createBudgetState, evaluateBudget, publishBudgetTelemetry } from "../../src/core/loop/budget";
 import { testBudget } from "../helpers/approval-policy";

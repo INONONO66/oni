@@ -6,7 +6,7 @@ import {
   type RowVerdict,
   RowVerdictRead,
   type PolicyRow,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { z } from "zod";
 import { freezePlain } from "./match";
 import type { HandlerTable, NamedTransformer } from "./registry";

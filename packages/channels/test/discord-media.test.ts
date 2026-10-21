@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Outbound } from "@openomni/protocol";
+import type { Outbound } from "@oni/protocol";
 import { DiscordProvider } from "../src/provider/discord/provider";
 import { injectedOptions } from "./helpers/injected";
 

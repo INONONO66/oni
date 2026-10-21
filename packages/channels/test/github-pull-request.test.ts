@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { expect, test } from "bun:test";
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface";
 import { injectedOptions } from "./helpers/injected";
 

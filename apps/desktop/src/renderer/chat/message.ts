@@ -7,11 +7,11 @@ export interface TurnMetadata {
   readonly elapsedMs?: number;
 }
 
-type OpenOmniTools = {
+type OniTools = {
   bash: {
     input: { readonly command: string };
     output: { readonly stdout: string };
   };
 };
 
-export type OpenOmniUIMessage = UIMessage<TurnMetadata, never, OpenOmniTools>;
+export type OniUIMessage = UIMessage<TurnMetadata, never, OniTools>;

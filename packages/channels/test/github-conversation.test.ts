@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { GitHubProvider } from "../src/provider/github/provider";
 import { injectedOptions } from "./helpers/injected";
 

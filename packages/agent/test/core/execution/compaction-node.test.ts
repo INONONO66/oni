@@ -4,7 +4,7 @@ import { isolated } from "../../helpers/isolated";
 import { failure } from "../../helpers/effect-g3";
 import { overflowThenCompleteLlm } from "../../helpers/mock-llm";
 import { expect, it } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { runTestAgent } from "../../helpers/effect-g3";
 import { compiledPolicy } from "../../helpers/compiled-policy";
 import { recoveryRecording as recordingExecutor } from "../../helpers/effect-g3r";

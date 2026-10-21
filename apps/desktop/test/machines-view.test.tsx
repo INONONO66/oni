@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { act } from "react";
 import { MachinesView } from "../src/renderer/machines/view";
 import { automationRenderer } from "./helpers/automation-renderer";

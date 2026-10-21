@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Token } from "@openomni/protocol";
+import type { Token } from "@oni/protocol";
 import { accumulateUsage, type FailureClass } from "../../src/core/ports/llm";
 import { attemptReason } from "../../src/core/loop/retry";
 

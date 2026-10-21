@@ -1,6 +1,6 @@
-import { clampSidebarWidth, SIDEBAR_WIDTH } from "@openomni/ui";
+import { clampSidebarWidth, SIDEBAR_WIDTH } from "@oni/ui";
 import { Store } from "@tanstack/store";
-import type { SessionRead } from "@openomni/protocol";
+import type { SessionRead } from "@oni/protocol";
 import { RendererInvariantError } from "../errors";
 import type { RendererPlatform } from "../platform";
 

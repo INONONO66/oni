@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Result } from "effect";
-import { SessionGeneration } from "@openomni/protocol";
+import { SessionGeneration } from "@oni/protocol";
 import { createSession, CreateRefused, type CreateSessionInput } from "../../src/core/session/create";
 import { openLedgerPlane, OpenRefused, type LedgerPlane } from "../../src/core/session/host";
 import { MaterializeRefused } from "../../src/core/store/errors";

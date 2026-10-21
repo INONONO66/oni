@@ -1,4 +1,4 @@
-import { Journal, PlainObjectSchema, isReservedAlarmPurpose, type LedgerAction, type PlainObject, type PlainValue } from "@openomni/protocol";
+import { Journal, PlainObjectSchema, isReservedAlarmPurpose, type LedgerAction, type PlainObject, type PlainValue } from "@oni/protocol";
 import type { SessionKernel } from "./entity";
 
 /** The last committed arm, including a retirement arm with `at: null`. */

@@ -1,6 +1,6 @@
 # Core Model — The OS Specification
 
-This document specifies the system that [Design Philosophy](design-philosophy.md) states in one page. Philosophy owns ten nouns; this document owns their fields, formats, and states. Implementation truth lives in [Implementation Status](implementation-status.md); package-level structure in [Architecture](architecture.md). Live delivery order, issue state, and checkpoints belong to [GitHub #459](https://github.com/INONONO66/openomni/issues/459), not this contract.
+This document specifies the system that [Design Philosophy](design-philosophy.md) states in one page. Philosophy owns ten nouns; this document owns their fields, formats, and states. Implementation truth lives in [Implementation Status](implementation-status.md); package-level structure in [Architecture](architecture.md). Live delivery order, issue state, and checkpoints belong to [GitHub #459](https://github.com/INONONO66/oni/issues/459), not this contract.
 
 ## The System in One Paragraph
 
@@ -26,7 +26,7 @@ Identity is `ActorIdentity` (one canonical subject) with N `Endpoint`s (`channel
 
 All communication in the system reduces to three verbs:
 
-1. **`ingress.submit`** — the world enters. Channel adapters normalize everything (Owner messages, external humans, CLI apps, cron) into one schema. Adapters are defined in `packages/channels` and registered in `apps/openomni`; adding a channel touches only those composition surfaces.
+1. **`ingress.submit`** — the world enters. Channel adapters normalize everything (Owner messages, external humans, CLI apps, cron) into one schema. Adapters are defined in `packages/channels` and registered in `apps/oni`; adding a channel touches only those composition surfaces.
 2. **`dispatch.submit`** — anything crosses a boundary. Delivering to the Resident, escalating to the Owner, messaging an external human or an already-existing agent, targeting a session, or cancelling a Worker uses the same verb with a different target. New Worker allocation is also dispatched, but only the Resident may originate it; a message never allocates work.
 3. **`bus.publish`** — an observation is projected. Observation only; the bus never carries commands or performs a durable ledger write.
 

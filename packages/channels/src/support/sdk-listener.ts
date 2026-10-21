@@ -1,4 +1,4 @@
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { ChannelsFailure } from "../errors";
 import { newTraceId } from "./trace";
 import type { PublishPort } from "../types";

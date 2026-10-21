@@ -2,7 +2,7 @@ import { ledger } from "../helpers/ledger";
 import { effectFailure } from "../helpers/effect-failure";
 import { runEffect } from "../helpers/effect";
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Ingress, type BusEvent } from "@openomni/protocol";
+import { Ingress, type BusEvent } from "@oni/protocol";
 import { Bus } from "../helpers/observation";
 import {
   createMappedOwnerSession,

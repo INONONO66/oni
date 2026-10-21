@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { Timeline } from "@openomni/ui";
+import { Timeline } from "@oni/ui";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "../src/renderer/app";
 import { uiMessagesToTranscript } from "../src/renderer/chat/adapter";
-import type { OpenOmniUIMessage } from "../src/renderer/chat/message";
+import type { OniUIMessage } from "../src/renderer/chat/message";
 import { StateProvider } from "../src/renderer/state/provider";
 import { consoleStore, createSession, INITIAL_CLIENT_STATE } from "../src/renderer/state/store";
 import { testPlatform } from "./helpers/platform";
@@ -45,7 +45,7 @@ beforeAll(() => {
  * array here would let the shell and this gate disagree about what the column
  * actually contains. Small on purpose: one prompt, one tool call, one answer.
  */
-const MESSAGES: readonly OpenOmniUIMessage[] = [
+const MESSAGES: readonly OniUIMessage[] = [
   {
     id: "m1",
     role: "user",

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { DeliveryNotSent } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
 import { slackEmojiName } from "../src/provider/slack/emoji";

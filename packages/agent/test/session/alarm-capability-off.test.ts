@@ -6,7 +6,7 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { Alarm } from "@openomni/protocol";
+import { Alarm } from "@oni/protocol";
 import { Effect } from "effect";
 import {
   clusterTempDir,

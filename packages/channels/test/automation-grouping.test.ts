@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { advanceGroups, match } from "../src/automation/matcher.js";
 
 const record = Ingress.Automation.parse({

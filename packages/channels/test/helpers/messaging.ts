@@ -1,4 +1,4 @@
-import { Gateway, Outbound } from "@openomni/protocol";
+import { Gateway, Outbound } from "@oni/protocol";
 import { expect } from "bun:test";
 import { ledger } from "./ledger";
 
@@ -25,7 +25,7 @@ export function expectAwaited(receipt: Gateway.SendReceipt) {
   return receipt;
 }
 
-/** Shared messaging-domain fixture builders for openomni tests (#215). */
+/** Shared messaging-domain fixture builders for oni tests (#215). */
 
 export const messagingNow = 5_000_000_000_000;
 

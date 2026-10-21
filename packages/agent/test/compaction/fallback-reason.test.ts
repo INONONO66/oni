@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Journal } from "@openomni/protocol";
+import { Journal } from "@oni/protocol";
 import { Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { AgentFailure } from "../../src/core/ports/failure";

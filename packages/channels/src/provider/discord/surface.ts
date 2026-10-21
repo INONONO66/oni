@@ -1,5 +1,5 @@
 import { newTraceId } from "../../support/trace";
-import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import type { z } from "zod";
 import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";

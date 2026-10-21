@@ -26,7 +26,7 @@ type SelectedTransport =
  * throws from inside the transport's first send: the operator would see "Wrong
  * protocol for WebSocket" on their first message, with nothing naming the
  * variable that caused it. The daemon puts no character constraint on
- * `OPENOMNI_WS_TOKEN`, so a space in one is a configuration mistake, not an
+ * `ONI_WS_TOKEN`, so a space in one is a configuration mistake, not an
  * impossibility.
  */
 const HTTP_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
@@ -57,7 +57,7 @@ export function selectChatTransport(
       kind: "misconfigured",
       transport: null,
       problem:
-        "OPENOMNI_WS_TOKEN cannot be offered as a WebSocket subprotocol: it must contain only unreserved token characters (letters, digits, and !#$%&'*+-.^_`|~)",
+        "ONI_WS_TOKEN cannot be offered as a WebSocket subprotocol: it must contain only unreserved token characters (letters, digits, and !#$%&'*+-.^_`|~)",
     };
   }
 

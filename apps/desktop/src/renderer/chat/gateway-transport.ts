@@ -1,5 +1,5 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
-import { Ingress, Machine, listenForAbort, parseJson, SessionFork, SessionRead } from "@openomni/protocol";
+import { Ingress, Machine, listenForAbort, parseJson, SessionFork, SessionRead } from "@oni/protocol";
 import { AutomationRefusedError, GatewayUnavailableError, TransportCapabilityError } from "../errors";
 import { z } from "zod";
 

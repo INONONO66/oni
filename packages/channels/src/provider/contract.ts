@@ -1,4 +1,4 @@
-import type { Channel, Gateway, Outbound } from "@openomni/protocol";
+import type { Channel, Gateway, Outbound } from "@oni/protocol";
 import type { EffectRunner, MediaResolver, PublishPort } from "../types.js";
 import { z } from "zod";
 

@@ -1,5 +1,5 @@
 import type { TelegramBotListenerEventMap } from "agent-messenger/telegrambot";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import type {
   TelegramBotApi,
   TelegramBotEvents,

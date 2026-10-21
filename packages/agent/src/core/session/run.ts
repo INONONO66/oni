@@ -6,7 +6,7 @@ import { type ExecutionLedger, type ExecutionResult, createExecutor, type Execut
 import type { SessionPolicyRefusal } from "../journal/messages";
 
 import type { SessionKernel } from "./entity";
-import { type Delivery, type LedgerSession, type Model, type SessionGeneration, type SessionTurn, canonicalDigest, type TraceContext } from "@openomni/protocol";
+import { type Delivery, type LedgerSession, type Model, type SessionGeneration, type SessionTurn, canonicalDigest, type TraceContext } from "@oni/protocol";
 import type { ChatAgentConfig, AgentResult } from "../ports/types";
 import { ObservationSink as ObservationService, type RunnerServices, GenerationOwnership, interruptOn } from "../ports/ports";
 import { commitFoldBatch } from "../journal/compaction";

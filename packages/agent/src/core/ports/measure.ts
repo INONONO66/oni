@@ -1,4 +1,4 @@
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 
 /**
  * The last step-finish part's input tokens: provider-measured when usable,

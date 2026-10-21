@@ -1,4 +1,4 @@
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type { Provider } from "../../src/provider";
 
 /** Fixed wall clock for injected `now` stubs: 2025-01-01T00:00:00Z. */

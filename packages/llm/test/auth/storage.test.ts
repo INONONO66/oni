@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Auth } from "../../src/auth";
 
-const testAuthRoot = join(tmpdir(), "openomni-auth-storage-");
+const testAuthRoot = join(tmpdir(), "oni-auth-storage-");
 
 async function withTestAuthFile<T>(fn: (filepath: string, dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(testAuthRoot);
@@ -209,15 +209,15 @@ await Effect.runPromise(Auth.set(key, { type: "api", key: "sk-" + key }, { id: (
 
   it("reads and writes only the injected path, whatever the environment says", async () => {
     await withTestAuthFile(async (filepath, dir) => {
-      const previousAuthFile = process.env.OPENOMNI_AUTH_FILE;
-      process.env.OPENOMNI_AUTH_FILE = join(dir, "elsewhere.json");
+      const previousAuthFile = process.env.ONI_AUTH_FILE;
+      process.env.ONI_AUTH_FILE = join(dir, "elsewhere.json");
       try {
         await runEffect(Auth.set("anthropic", { type: "api", key: "sk-ant" }, { id: () => "tmp-env", authFilePath: filepath }));
         expect(await runEffect(Auth.get("anthropic", filepath))).toEqual({ type: "api", key: "sk-ant" });
         expect(existsSync(join(dir, "elsewhere.json"))).toBe(false);
       } finally {
-        if (previousAuthFile === undefined) delete process.env.OPENOMNI_AUTH_FILE;
-        else process.env.OPENOMNI_AUTH_FILE = previousAuthFile;
+        if (previousAuthFile === undefined) delete process.env.ONI_AUTH_FILE;
+        else process.env.ONI_AUTH_FILE = previousAuthFile;
       }
     });
   });

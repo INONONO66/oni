@@ -1,20 +1,20 @@
 import { latestGeneration, generationSnapshot, configureAction } from "../src/core/store/configure";
 import { turnTerminal } from "../src/core/store/session-reads";
 import { messageSource } from "./helpers/message-source";
-import { PlainValueSchema } from "@openomni/protocol";
+import { PlainValueSchema } from "@oni/protocol";
 import { sessionTree } from "./helpers/session-tree";
 import { testTurnDispatcher } from "./helpers/service-layers";
 import { prepareChatFixture } from "./helpers/chat-services";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices, } from "./helpers/session-services";
 import type { RunInput, LlmSink as Sink } from "../src/core/ports/llm";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { Effect } from "effect";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { awaitSignal, boundedSignal } from "./helpers/g0-signals";
 import { expect, test } from "bun:test";
 import { seedPolicy } from "./helpers/seed-policy";
 
-import { SessionTurn } from "@openomni/protocol";
+import { SessionTurn } from "@oni/protocol";
 import { closeSessions, type SessionRunnerInput } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { resolveSessionRuntime } from "../src/core/session/run";

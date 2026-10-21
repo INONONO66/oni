@@ -2,7 +2,7 @@ import { Cause, Effect, Exit, Option, Result } from "effect";
 import { providerFailure } from "../helpers/mock-llm";
 import { isolated } from "../helpers/isolated";
 import { afterEach, describe, expect, it } from "bun:test";
-import type { BusEvent } from "@openomni/protocol";
+import type { BusEvent } from "@oni/protocol";
 import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";
 import { collector } from "../helpers/observation-collector";

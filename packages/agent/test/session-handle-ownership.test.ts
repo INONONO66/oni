@@ -2,7 +2,7 @@ import { turnTerminal, turnIntent } from "../src/core/store/session-reads";
 import { latestGeneration } from "../src/core/store/configure";
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, } from "effect";
-import { type L0Observation, PlainValueSchema } from "@openomni/protocol";
+import { type L0Observation, PlainValueSchema } from "@oni/protocol";
 import type { ExecutionApprovals } from "../src/core/loop/executor";
 import type { ExecutionApprovalRequest } from "../src/core/loop/executor";
 import type { SessionHandle } from "../src/core/session/run";

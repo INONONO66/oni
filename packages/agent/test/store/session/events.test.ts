@@ -1,6 +1,6 @@
 import { sessionTree } from "../helpers/session-tree";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation } from "@oni/protocol";
 import { materializeSession } from "../helpers/session";
 import { useMemoryStores } from "../helpers/storage";
 import { Bus } from "../helpers/observation";

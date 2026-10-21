@@ -348,7 +348,7 @@ export async function measure(
     ),
   );
   findings.push(...typescriptMetricFindings(functionMetrics, contract.metrics));
-  const repository = env.GITHUB_REPOSITORY ?? "INONONO66/openomni";
+  const repository = env.GITHUB_REPOSITORY ?? "INONONO66/oni";
   const runUrl = env.GITHUB_RUN_ID
     ? `https://github.com/${repository}/actions/runs/${env.GITHUB_RUN_ID}`
     : `https://github.com/${repository}/commit/${head}`;

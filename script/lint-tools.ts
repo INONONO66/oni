@@ -31,14 +31,14 @@ import { join } from "node:path";
 import { runScriptMain } from "./main-runner";
 import { agentSourceFacts, checkCoreEndState } from "./check-core-end-state";
 import { projectTools } from "../packages/agent/src/core/loop/tool.js";
-import type { ToolPorts } from "../apps/openomni/src/composition/catalog.js";
-import { createMonitorTool } from "../apps/openomni/src/bundles/alarms/monitor/index.js";
-import { fileBundle } from "../apps/openomni/src/bundles/tools/file/index.js";
-import { bashBundle } from "../apps/openomni/src/bundles/tools/bash/index.js";
-import { evalBundle } from "../apps/openomni/src/bundles/tools/eval/index.js";
-import { completionBundle } from "../apps/openomni/src/bundles/tools/completion/index.js";
-import { provisionBundle } from "../apps/openomni/src/bundles/provision/provision.js";
-import { sendMessageBundle } from "../apps/openomni/src/bundles/messaging/send-message/index.js";
+import type { ToolPorts } from "../apps/oni/src/composition/catalog.js";
+import { createMonitorTool } from "../apps/oni/src/bundles/alarms/monitor/index.js";
+import { fileBundle } from "../apps/oni/src/bundles/tools/file/index.js";
+import { bashBundle } from "../apps/oni/src/bundles/tools/bash/index.js";
+import { evalBundle } from "../apps/oni/src/bundles/tools/eval/index.js";
+import { completionBundle } from "../apps/oni/src/bundles/tools/completion/index.js";
+import { provisionBundle } from "../apps/oni/src/bundles/provision/provision.js";
+import { sendMessageBundle } from "../apps/oni/src/bundles/messaging/send-message/index.js";
 import { eraseTool } from "../packages/agent/src/core/loop/tool.js";
 import type { Tool, AnyToolDefinition, ToolCategory } from "../packages/protocol/src/tool/index.js";
 import type { PlainObject, PlainValue } from "../packages/protocol/src/json.js";
@@ -379,7 +379,7 @@ export async function checkNaming(baseline: Baseline): Promise<Violation[]> {
 // ---------------------------------------------------------------------------
 
 // #1255: bundle-owned tools live under `src/bundles/<bundle>/index.ts`.
-const TOOL_SOURCE_GLOBS = ["apps/openomni/src/bundles/tools/**/*.ts", "apps/openomni/src/bundles/**/*.ts"];
+const TOOL_SOURCE_GLOBS = ["apps/oni/src/bundles/tools/**/*.ts", "apps/oni/src/bundles/**/*.ts"];
 const TOOL_CATEGORIES: readonly ToolCategory[] = ["query", "mutation", "authority", "execution"];
 
 function looksLikeToolDefinition(value: object): value is AnyToolDefinition {
@@ -448,8 +448,8 @@ function toolFileName(toolName: string): string {
 /** #1255: a bundle-owned tool lives in its bundle's `index.ts`, directory named after the tool. */
 function isToolSourcePath(toolName: string, filePath: string): boolean {
   const directory = toolName.replaceAll("_", "-");
-  const bundleRelative = filePath.startsWith("apps/openomni/src/bundles/")
-    ? filePath.slice("apps/openomni/src/bundles/".length).split("/")
+  const bundleRelative = filePath.startsWith("apps/oni/src/bundles/")
+    ? filePath.slice("apps/oni/src/bundles/".length).split("/")
     : [];
   const bundleLayout = (
     (bundleRelative.length === 2 && bundleRelative[1] === "index.ts") ||
@@ -712,19 +712,19 @@ function definitionSelfTest(checks: SelfTestChecks): SelfTestRow[] {
   if (!exemplar) return [[false, "definition invariant self-test has no exemplar"]];
   const unsafeQuery = { ...exemplar, name: "unsafe_query", category: "query" } as AnyToolDefinition;
   const fileNameChecks = [
-    ["send_message", "apps/openomni/src/bundles/tools/send-message.ts", 0],
-    ["send_message", "apps/openomni/src/bundles/tools/send_message.ts", 1],
-    ["read", "apps/openomni/src/bundles/tools/files/read.ts", 0],
-    ["read", "apps/openomni/src/bundles/tools/files/read-file.ts", 1],
+    ["send_message", "apps/oni/src/bundles/tools/send-message.ts", 0],
+    ["send_message", "apps/oni/src/bundles/tools/send_message.ts", 1],
+    ["read", "apps/oni/src/bundles/tools/files/read.ts", 0],
+    ["read", "apps/oni/src/bundles/tools/files/read-file.ts", 1],
   ] as const;
   const invalidDefinition = { ...exemplar, name: "", description: "" } as AnyToolDefinition;
   const invalidMessages = checks.definitionInvariantViolations(
-    [invalidDefinition], [{ definition: invalidDefinition, filePath: "apps/openomni/src/bundles/tools/.ts" }],
+    [invalidDefinition], [{ definition: invalidDefinition, filePath: "apps/oni/src/bundles/tools/.ts" }],
   ).map(({ message }) => message);
   const unknownCategory: AnyToolDefinition = { ...exemplar };
   Object.defineProperty(unknownCategory, "category", { value: "unregistered" });
   return [
-    [checks.definitionInvariantViolations([], [{ definition: unsafeQuery, filePath: "apps/openomni/src/bundles/tools/query/unsafe.ts" }])
+    [checks.definitionInvariantViolations([], [{ definition: unsafeQuery, filePath: "apps/oni/src/bundles/tools/query/unsafe.ts" }])
       .some(({ check }) => check === "earned-check"), "earned-check did not flag an uncatalogued definition"],
     ...fileNameChecks.map(([name, filePath, expected]): SelfTestRow => {
       const definition = { ...exemplar, name } as AnyToolDefinition;
@@ -736,7 +736,7 @@ function definitionSelfTest(checks: SelfTestChecks): SelfTestRow[] {
       invalidMessages.some((message) => message.startsWith("[tool-description]")),
     "definition invariants missed empty name or description"],
     [checks.definitionInvariantViolations([unknownCategory], [{ definition: unknownCategory,
-      filePath: `apps/openomni/src/bundles/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }])
+      filePath: `apps/oni/src/bundles/tools/${unknownCategory.name.replaceAll("_", "-")}.ts` }])
       .some(({ message }) => message.startsWith("[tool-category]")),
     "definition invariants missed an unregistered tool category"],
   ];

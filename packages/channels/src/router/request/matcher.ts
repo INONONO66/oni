@@ -1,4 +1,4 @@
-import type { Ingress, SessionTransition } from "@openomni/protocol";
+import type { Ingress, SessionTransition } from "@oni/protocol";
 import type { ChannelStores } from "../stores.js";
 type Correlation = SessionTransition.Correlation;
 

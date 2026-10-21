@@ -1,4 +1,4 @@
-import type { GateRow, PlainValue, PointId } from "@openomni/protocol";
+import type { GateRow, PlainValue, PointId } from "@oni/protocol";
 import { matchesMessage, type MessagePolicyContext } from "./match";
 import { GateComposeError, type GatePointTable } from "./points";
 import { compileGateRows, type CompiledGate } from "./compose";

@@ -1,4 +1,4 @@
-import { type BusEvent, type TraceContext, Operational } from "@openomni/protocol";
+import { type BusEvent, type TraceContext, Operational } from "@oni/protocol";
 import { RunEvents } from "./run-events";
 import type { AgentResult, TokenUsage } from "../ports/types";
 import type { RetryReason, TerminalReason } from "../ports/reason-codes";

@@ -2,7 +2,7 @@ import { sessionTree } from "../helpers/session-tree";
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { runLedgerSync } from "../helpers/effect";
-import type { LedgerSession } from "@openomni/protocol";
+import type { LedgerSession } from "@oni/protocol";
 import {
   materializeRow,
   openLedgerDatabase,
@@ -10,7 +10,7 @@ import {
   residentRow,
   type L0Adapters,
 } from "../helpers/ledger";
-import type { L0Observation } from "@openomni/protocol";
+import type { L0Observation } from "@oni/protocol";
 
 const GENESIS_ID = "session:configure";
 

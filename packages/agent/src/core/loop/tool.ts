@@ -3,7 +3,7 @@ import { AgentInvariantViolation, type ExecutionError, ToolBodyFailed, pretty, t
 import type { ChatAgentConfig } from "../ports/types";
 import type { RunState, TurnArtifacts } from "./turn";
 import { recordToolCall } from "./budget";
-import { type Tool, type Message, type PlainValue, PlainValueSchema, type ToolDefinition, type ToolExecutionContext, listenForAbort, type AnyToolDefinition, type LedgerAction, SessionGeneration, type ToolCategory, toolResultText, toolWireName } from "@openomni/protocol";
+import { type Tool, type Message, type PlainValue, PlainValueSchema, type ToolDefinition, type ToolExecutionContext, listenForAbort, type AnyToolDefinition, type LedgerAction, SessionGeneration, type ToolCategory, toolResultText, toolWireName } from "@oni/protocol";
 import { BOUNDED_CONCURRENCY } from "../ports/ports";
 import { z } from "zod";
 import { RawToolSlots, openInvocation, withExecutor, withInvocation, type InvocationFrame, type Executor, type ExecutionRequest } from "./executor";

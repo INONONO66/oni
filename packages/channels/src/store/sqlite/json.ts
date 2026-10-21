@@ -1,4 +1,4 @@
-import { PlainValueSchema } from "@openomni/protocol";
+import { PlainValueSchema } from "@oni/protocol";
 import { z } from "zod";
 
 /** Validate the SQLite envelope and the domain value at the same read boundary. */

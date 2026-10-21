@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ChildProcess } from "node:child_process";
 import { z } from "zod";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import { PythonKernel } from "./helpers/native";
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

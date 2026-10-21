@@ -7,7 +7,7 @@ import {
   PlainValueSchema,
   type PointId,
   type Tool,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { AlarmFired } from "./alarm";
 import { AgentInvariantViolation, type SessionError } from "./failure";
 import type { BundleLayerServices } from "./ports";
@@ -25,12 +25,12 @@ export interface PortTag {
   readonly key: string;
 }
 
-/** `@openomni/<owner>/<Name>` — the key law the boundary gate holds Context tags to. */
-const PORT_KEY = /^@openomni\/[a-z][a-z0-9-]*\/[A-Za-z][\w/-]*$/;
+/** `@oni/<owner>/<Name>` — the key law the boundary gate holds Context tags to. */
+const PORT_KEY = /^@oni\/[a-z][a-z0-9-]*\/[A-Za-z][\w/-]*$/;
 
 /** `capability_declares_tools`: model tools are bundle-owned. */
 export class DefineRefused extends Schema.TaggedError<DefineRefused>(
-  "@openomni/agent/core/DefineRefused",
+  "@oni/agent/core/DefineRefused",
 )("DefineRefused", {
   code: Schema.Literals(["namespace", "capability_declares_tools", "duplicate", "unknown"]),
   name: Schema.String,
@@ -38,7 +38,7 @@ export class DefineRefused extends Schema.TaggedError<DefineRefused>(
 }) {}
 
 export class CapabilityHookError extends Schema.TaggedError<CapabilityHookError>(
-  "@openomni/agent/core/CapabilityHookError",
+  "@oni/agent/core/CapabilityHookError",
 )("CapabilityHookError", {
   capability: Schema.String,
   reason: Schema.String,
@@ -148,7 +148,7 @@ function checkPort(tag: PortTag, name: string): void {
   if (!PORT_KEY.test(tag.key)) refuse("namespace", name, tag.key);
 }
 
-/** A key outside the `@openomni/<owner>/` law refuses `namespace`. */
+/** A key outside the `@oni/<owner>/` law refuses `namespace`. */
 export function port(key: string): PortTag {
   checkPort({ key }, key);
   return Object.freeze({ key });

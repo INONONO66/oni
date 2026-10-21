@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
-import { SessionFork, SessionRead } from "@openomni/protocol";
+import { SessionFork, SessionRead } from "@oni/protocol";
 import { QueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { attentionKind } from "../src/renderer/attention/order";

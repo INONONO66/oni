@@ -206,7 +206,7 @@ function validateRunReasonCodeVocabulary(filePath: string, source: string): Guar
     filePath,
     line: lineNumberForOffset(source, match.index),
     ruleId: "run-reason-code-vocabulary",
-    message: `run reason code "${match.captured}" written as a literal; use RunReasonCode from @openomni/agent so a rename fails the build instead of the run loop`,
+    message: `run reason code "${match.captured}" written as a literal; use RunReasonCode from @oni/agent so a rename fails the build instead of the run loop`,
   }));
 }
 

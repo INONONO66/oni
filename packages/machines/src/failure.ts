@@ -2,7 +2,7 @@ import { z } from "zod";
 import { MachinesFailure, MachineCellError, MachineRefusalError, SpawnFailure, FilesystemFailure, TransportFailure, type MachineError } from "./errors";
 import { IpcConnectionError, IpcPeerKeyMismatchError, IpcProtocolError, IpcRemoteError, IpcTimeoutError, type IpcError } from "./ipc/errors";
 
-/** One fallback for every machines-owned domain (including `@openomni/codemode`): a Cause without a typed error becomes MachinesFailure. */
+/** One fallback for every machines-owned domain (including `@oni/codemode`): a Cause without a typed error becomes MachinesFailure. */
 function machinesFallback(operation: string) {
   return z.preprocess(String, z.string()).transform((cause) => new MachinesFailure({ operation, cause }));
 }

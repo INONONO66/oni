@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ExecutionError, Entropy } from "../../core/api";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type {
   ResolvedCompactionOptions,
   FinishCompaction,

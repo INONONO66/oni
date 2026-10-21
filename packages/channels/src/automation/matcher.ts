@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { z } from "zod";
 import { compiledPattern } from "./regex.js";
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LedgerInvariant, SchemaRefused } from "../errors";
-import { LedgerAction, LedgerSession, PlainValueSchema, type PlainValue, PolicyRow } from "@openomni/protocol";
+import { LedgerAction, LedgerSession, PlainValueSchema, type PlainValue, PolicyRow } from "@oni/protocol";
 
 /** Malformed text is `SchemaRefused{reason: json}`. */
 export function parsePlainJson(text: string): PlainValue {

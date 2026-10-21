@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import type { LedgerAction, Tool } from "@openomni/protocol";
+import type { LedgerAction, Tool } from "@oni/protocol";
 import type { AgentResult } from "../../src/core/ports/types";
 
 export function expectFailedToolCommit(result: Tool.Result, committed: readonly LedgerAction.Append[]) {

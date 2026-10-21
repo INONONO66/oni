@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 
 /** The surface grant's posture toward an inbound that does not address the Resident. */
 export interface PerimeterPosture {

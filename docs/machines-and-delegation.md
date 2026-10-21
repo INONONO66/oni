@@ -9,7 +9,7 @@ alone says what is wired.
 
 ## 1. The two axes
 
-OpenOmni is an agent OS. Its reach grows along two axes:
+Oni is an agent OS. Its reach grows along two axes:
 
 - **Axis A — body (machines).** Devices attach by running a daemon that dials
   home. What the OS may do on a device is `effective = enrollment ∩ offer`.
@@ -140,8 +140,8 @@ the same raw endpoint; the plain-tool locus door belongs to #949.
 
 The host owns a listener SET feeding one attachment registry: the unix socket
 (mode 0600) is always bound; a TCP listener appears only when the Owner
-configures `OPENOMNI_MACHINES_TCP_HOST`/`PORT` plus the host TLS identity
-(`OPENOMNI_MACHINES_TLS_CERT`/`KEY` — all four or none, else boot refuses
+configures `ONI_MACHINES_TCP_HOST`/`PORT` plus the host TLS identity
+(`ONI_MACHINES_TLS_CERT`/`KEY` — all four or none, else boot refuses
 typed). Handles, events and codemode are transport-blind: a machine is the
 same machine on either door, and if one bind fails startup fails with the
 other listener released.
@@ -157,10 +157,10 @@ never displaces a valid attachment. Unix connections carry no peer key; the
 enrollment pin is simply not consulted there. See `docs/key-generation.md`
 for openssl one-liners, rotation, and addressing (Tailscale = tailnet IP in
 `tcp.host`; LAN = interface address). Breaking (#1270): `Enrollment.publicKey`
-is REQUIRED — existing `OPENOMNI_MACHINES_ENROLLED` values without it fail
+is REQUIRED — existing `ONI_MACHINES_ENROLLED` values without it fail
 closed at boot until each enrollment carries the daemon's key fingerprint.
 
-`OPENOMNI_MACHINES_ENROLLED` is a first-boot seed for each machine id, not
+`ONI_MACHINES_ENROLLED` is a first-boot seed for each machine id, not
 ongoing authority. Once an id has a stored enrollment, later environment edits
 do not replace it. Removed ids retain tombstones and are not restored by a
 restart. Boot emits one operational warning per differing active seed, naming
@@ -187,7 +187,7 @@ config change.
 
 The brain host is an ordinary attached machine. `machines.self` enrolls the
 application host itself: `{id?: "self", capabilities, exports[{name, path}]}`
-via `OPENOMNI_MACHINES_SELF` (JSON), with `OPENOMNI_MACHINES_DEFAULT` naming
+via `ONI_MACHINES_SELF` (JSON), with `ONI_MACHINES_DEFAULT` naming
 the machine a prefix-less path resolves to (default `self`). Self exports are
 mandatory and absolute — the Owner names the host roots the in-process daemon
 may expose; no host path outside them is readable, writable, listable,
@@ -200,14 +200,14 @@ in-process daemon with the self exports/capabilities, dial the host's own
 unix listener and complete `machine.attach`, and only then publish tool
 ports. Every failure in that chain is the one typed startup refusal
 `self_attach_failed { cause }`; there is no local execution fallback — ever.
-`apps/openomni/src/bundles/tools/<tool>/index.ts` and `apps/openomni/src/bundles/provision/provision.ts` contain no `node:fs`, no `Bun.spawn`, and no
+`apps/oni/src/bundles/tools/<tool>/index.ts` and `apps/oni/src/bundles/provision/provision.ts` contain no `node:fs`, no `Bun.spawn`, and no
 local locus: `parseLocus(input, { defaultMachine })` maps `/absolute/path`
 to the configured default machine and preserves explicit
 `machineId:/absolute/path`; relative paths refuse (no process cwd exists).
 A self daemon that disconnects after boot keeps the tools published but
 every call refuses with the typed `disconnected` reason; the lifecycle
 surface is the typed `machine.detached` event plus a logged
-`self_attach_failed` cause. `openomni machine
+`self_attach_failed` cause. `oni machine
 attach` is unchanged: a remote daemon attaches alongside `self` over the
 same protocol and negotiates capabilities through the same
 enrollment/offer intersection.
@@ -303,14 +303,14 @@ its state and lets its successor start fresh.
 Attachment loss closes the injected runner; `daemon.close()` and `closed`
 await process cleanup. Facade close cancels and awaits its live requests.
 
-`openomni machine attach <config.json>` is the minimal production composition
+`oni machine attach <config.json>` is the minimal production composition
 of the retained daemon wire. It prints its structured attach result, exits 1
 on refusal, and awaits close on host loss or SIGINT/SIGTERM. It is distinct
-from `openomni daemon`, which still manages the Resident service. Example:
+from `oni daemon`, which still manages the Resident service. Example:
 
 ```json
 {
-  "socketPath": "/tmp/openomni-machines.sock",
+  "socketPath": "/tmp/oni-machines.sock",
   "offer": {
     "machineId": "laptop",
     "offeredCapabilities": ["fs.read", "fs.write", "shell.exec", "kernel.py"],
@@ -344,7 +344,7 @@ machine itself, so the CDP endpoint is `http://127.0.0.1:<port>` and the
 helper may address the browser process directly during cleanup.
 
 - Profile confinement: `profile_dir` must sit inside an effective export;
-  omitted, it defaults to `<cell cwd>/.openomni/browser-profile`. The session
+  omitted, it defaults to `<cell cwd>/.oni/browser-profile`. The session
   opens with that directory as cwd, so the existing `openCwd` export rule
   refuses `path_escapes_export` before Chromium starts. The profile persists
   across close and reconnect (`--user-data-dir`), pairing the documented
@@ -352,7 +352,7 @@ helper may address the browser process directly during cleanup.
   profile.
 - Port selection: the launch probe-binds on the machine starting at the
   documented default 9222 and advances past occupied ports; the chosen port
-  and the browser pid are printed as `[openomni-browser] cdp-port <port>` /
+  and the browser pid are printed as `[oni-browser] cdp-port <port>` /
   `chromium-pid <pid>` lines and retained in the session output, which is the
   source of truth for reconnection and diagnostics. Readiness is the exact
   `DevTools listening on ws://` line from Chromium, never elapsed time.
@@ -371,7 +371,7 @@ helper may address the browser process directly during cleanup.
   a signal-range status, and keeps it alive on a real error status so the
   failure output stays readable (`machine(id).pty(session)` or
   `tmux attach -t <session>` inspects it; the session name is
-  `openomni-browser-<sha256(profile_dir)[:12]>`). `client.close()` ends
+  `oni-browser-<sha256(profile_dir)[:12]>`). `client.close()` ends
   Chromium and the session but keeps the profile. Interpreter close stops
   each client's browser process directly as best-effort cleanup.
 
@@ -386,7 +386,7 @@ client = browser("laptop")
 
 # headed variant on a machine with a display, explicit profile
 headed = browser("laptop", headless=False,
-                 profile_dir="/home/owner/work/.openomni/browser-profile")
+                 profile_dir="/home/owner/work/.oni/browser-profile")
 headed.close()                                  # ends Chromium + session, keeps profile
 ```
 

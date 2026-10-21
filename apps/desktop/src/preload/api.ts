@@ -24,7 +24,7 @@ export interface GatewayEndpoint {
  * type error — it is a promise that never settles. Both sides read the literal
  * from here.
  */
-export const GATEWAY_CHANNEL = "openomni:gateway";
+export const GATEWAY_CHANNEL = "oni:gateway";
 export const SHELL_COMMAND_CHANNEL = "shell:command";
 /**
  * Renderer -> main: close the window that sent it.

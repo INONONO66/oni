@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import net from "node:net";
-import { type Ipc, Machine } from "@openomni/protocol";
+import { type Ipc, Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
 import { connectIpcClient, createIpcServer } from "./ipc/helpers/native";
 import { socketPath } from "./helpers/socket-path";

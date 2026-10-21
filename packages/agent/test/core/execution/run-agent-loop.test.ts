@@ -18,7 +18,7 @@ import { isolated, isolatedLedger } from "../../helpers/isolated";
 import { dispatchingRunner } from "../../helpers/effect-g2";
 import { expect, test, spyOn } from "bun:test";
 import { seedPolicy } from "../../helpers/seed-policy";
-import { Message, canonicalDigest, type LedgerSession, type PlainValue } from "@openomni/protocol";
+import { Message, canonicalDigest, type LedgerSession, type PlainValue } from "@oni/protocol";
 import { z } from "zod";
 import { closeSessions } from "../../../src/core/session/run";
 import { session } from "../../../src/testing/registry";
@@ -101,9 +101,9 @@ test("reopened SQLite hydrates exact tool-bearing assistant identities and rende
           });
           expect((yield* first.prompt("first"))?.kind).toBe("result");
           const preserved = inputs[1]?.find(
-            (message: import("@openomni/protocol").Message.WithParts) =>
+            (message: import("@oni/protocol").Message.WithParts) =>
               message.parts.some(
-                (part: import("@openomni/protocol").Message.WithParts["parts"][number]) =>
+                (part: import("@oni/protocol").Message.WithParts["parts"][number]) =>
                   part.type === "tool",
               ),
           );
@@ -129,19 +129,19 @@ test("reopened SQLite hydrates exact tool-bearing assistant identities and rende
             })).prompt("after reopen"))?.kind,
           ).toBe("result");
           const restored = inputs[2]?.find(
-            (message: import("@openomni/protocol").Message.WithParts) =>
+            (message: import("@oni/protocol").Message.WithParts) =>
               message.info.id === preserved?.info.id,
           );
           expect(restored).toEqual(preserved);
           expect(
             inputs[2]?.filter(
-              (message: import("@openomni/protocol").Message.WithParts) =>
+              (message: import("@oni/protocol").Message.WithParts) =>
                 message.info.id === preserved?.info.id,
             ),
           ).toHaveLength(1);
           expect(
             sessionTree(isolatedLedger().kernel, "history").filter(
-              (action: import("@openomni/protocol").LedgerAction.Node) => action.kind === "message",
+              (action: import("@oni/protocol").LedgerAction.Node) => action.kind === "message",
             ),
           ).not.toHaveLength(0);
         } finally {
@@ -293,7 +293,7 @@ test("compaction projection and lossless revert survive SQLite reopen without de
           const node = [...before]
             .reverse()
             .find(
-              (action: import("@openomni/protocol").LedgerAction.Node) =>
+              (action: import("@oni/protocol").LedgerAction.Node) =>
                 action.kind === "compaction" &&
                 object(action.effect.value)?.terminal === "executed",
             );
@@ -301,13 +301,13 @@ test("compaction projection and lossless revert survive SQLite reopen without de
           if (payload === undefined || !Array.isArray(payload.projection))
             throw new Error("missing compaction projection");
           const projection = payload.projection.map(
-            (entry: import("@openomni/protocol").PlainValue) => Message.WithParts.parse(entry),
+            (entry: import("@oni/protocol").PlainValue) => Message.WithParts.parse(entry),
           );
           expect(probe.nextBoundary.slice(0, -2)).toEqual(projection);
           expect(
             probe.nextBoundary
               .slice(-2)
-              .map((message: import("@openomni/protocol").Message.WithParts) => message.info.id),
+              .map((message: import("@oni/protocol").Message.WithParts) => message.info.id),
           ).toEqual(pending.map((item) => item.id));
           const record = z
             .object({

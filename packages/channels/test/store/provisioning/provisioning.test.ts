@@ -4,7 +4,7 @@ import { createDecipheriv, type DecipherGCM } from "node:crypto";
 import { expectNamedFailure } from "../helpers/errors";
 import { useSqliteChannelStore } from "../helpers/sqlite";
 import { inspect } from "node:util";
-import { Provisioning } from "@openomni/protocol";
+import { Provisioning } from "@oni/protocol";
 import { createChannelInstanceStore, createPersonStore, createSecretStore, Vault, } from "../../../src/index.js";
 
 const NOW = 1_756_000_000_000;

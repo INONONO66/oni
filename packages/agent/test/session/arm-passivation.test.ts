@@ -14,7 +14,7 @@ import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { Cause, Deferred, Effect, Exit, Queue } from "effect";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { AlarmSendRefused, type AlarmFired, type ArmVerb } from "../../src/core/ports/alarm";
 import { CommitRefused } from "../../src/core/store/errors";
 import { openSessionStore } from "../../src/core/store/session-file";

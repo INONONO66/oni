@@ -6,7 +6,7 @@
  */
 import { sessionTree } from "../helpers/session-tree";
 import { describe, expect, test } from "bun:test";
-import { L0Observation } from "@openomni/protocol";
+import { L0Observation } from "@oni/protocol";
 import { Effect, Stream } from "effect";
 import { makeObservationBus } from "../../../src/core/observation/bus";
 import { yieldUntil } from "../../helpers/bus-fixture";

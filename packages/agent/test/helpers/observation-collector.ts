@@ -1,4 +1,4 @@
-import type { ObservationSink } from "@openomni/protocol";
+import type { ObservationSink } from "@oni/protocol";
 
 type ObservationData = Parameters<ObservationSink["publish"]>[1];
 export interface CollectingObservationSink extends ObservationSink {

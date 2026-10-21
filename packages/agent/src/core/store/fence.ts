@@ -1,4 +1,4 @@
-import { type ConsumptionSettings, type Delivery, type LedgerAction, type LedgerSession, type ObservationSink, type PolicyRow, type SessionGeneration, type SessionHistory, SessionTransition, type SessionTurn, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { type ConsumptionSettings, type Delivery, type LedgerAction, type LedgerSession, type ObservationSink, type PolicyRow, type SessionGeneration, type SessionHistory, SessionTransition, type SessionTurn, type Storage as ProtocolStorage } from "@oni/protocol";
 import { Effect } from "effect";
 import type { CatalogStore } from "./catalog.js";
 import { configurationSnapshot, generationSnapshot, latestGenerationForIn, latestSettingsIn, materializationSeed, type MaterializeInput } from "./configure";

@@ -1,5 +1,5 @@
-import type { Actor, Gateway, LedgerSession, PlainValue, Policy } from "@openomni/protocol";
-import { PolicyDecision, PolicyPermission } from "@openomni/protocol";
+import type { Actor, Gateway, LedgerSession, PlainValue, Policy } from "@oni/protocol";
+import { PolicyDecision, PolicyPermission } from "@oni/protocol";
 import { z } from "zod";
 
 

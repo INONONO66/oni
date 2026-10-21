@@ -3,7 +3,7 @@ import { testBus } from "./helpers/bus";
 import { expect, test } from "bun:test";
 
 import { compilePolicySnapshot, createHandlerTable, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
-import type { PlainValue, PolicyRow } from "@openomni/protocol";
+import type { PlainValue, PolicyRow } from "@oni/protocol";
 import { Clock, Effect, Layer } from "effect";
 import { z } from "zod";
 import { GenerationHandlers } from "../src/core/composition/compose";

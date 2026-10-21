@@ -1,5 +1,5 @@
-import type { SessionRead } from "@openomni/protocol";
-import { type ConsoleStrip, UI_NAMES } from "@openomni/ui";
+import type { SessionRead } from "@oni/protocol";
+import { type ConsoleStrip, UI_NAMES } from "@oni/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ShellCommand } from "../../preload/api";

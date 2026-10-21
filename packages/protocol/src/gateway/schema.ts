@@ -12,7 +12,7 @@ import { Channel } from "../channel/index.js";
 /**
  * Gateway contracts (docs/gateway-design.md §2, stage 0 — #706).
  *
- * The gateway (`@openomni/channels` after stage 2) and the brain
+ * The gateway (`@oni/channels` after stage 2) and the brain
  * and app brain do not import each other; these schemas are the injected seam.
  *
  * Trust vocabulary (§3): *perimeter trust* — who may reach us / whom we may

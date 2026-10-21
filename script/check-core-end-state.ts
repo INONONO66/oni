@@ -10,7 +10,7 @@ import { runScriptMain } from "./main-runner";
 const ROOT = join(import.meta.dir, "..");
 const SRC = "packages/agent/src/";
 const CORE = `${SRC}core/`;
-const RETIRED = /ModelPort|model-port|@openomni\/model|retry-loop|seam|core\/mailbox|legacy-rows|\bworker\b/gi;
+const RETIRED = /ModelPort|model-port|@oni\/model|retry-loop|seam|core\/mailbox|legacy-rows|\bworker\b/gi;
 type VocabularyPin = { readonly file: string; readonly token: string; readonly count: number; readonly owner: string };
 type VocabularyExclusions = {
   readonly quotedIdentifiers: readonly string[];
@@ -19,7 +19,7 @@ type VocabularyExclusions = {
 
 /** App port identifiers retire independently of persisted keys and module paths. */
 export function appPortVocabularyViolations(file: string, source: string): string[] {
-  if (!file.startsWith("apps/openomni/src/")) return [];
+  if (!file.startsWith("apps/oni/src/")) return [];
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const violations: string[] = [];
   const visit = (node: ts.Node): void => {
@@ -138,7 +138,7 @@ export async function checkCoreEndState(root = ROOT, exclusions: VocabularyExclu
     const problems = scope === "src" ? facts.retiredTokens + facts.forbiddenPatterns : facts.emptyThrows;
     if (problems > 0) violations.push(`VIOLATION: ${file} has ${problems} forbidden source/assertion matches`);
   }
-  for await (const file of new Bun.Glob("apps/openomni/src/**/*.{ts,tsx}").scan({ cwd: root, onlyFiles: true })) {
+  for await (const file of new Bun.Glob("apps/oni/src/**/*.{ts,tsx}").scan({ cwd: root, onlyFiles: true })) {
     violations.push(...appPortVocabularyViolations(file, await Bun.file(join(root, file)).text()));
   }
   violations.push(...exclusions.quotedLiterals

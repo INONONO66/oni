@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { Journal, type LedgerAction, SessionTransition, type ObservationSink, type Storage } from "@openomni/protocol";
+import { Journal, type LedgerAction, SessionTransition, type ObservationSink, type Storage } from "@oni/protocol";
 import { z } from "zod";
 import { thrownAsError } from "../../ports/failure";
 import { LedgerInvariant } from "../errors";

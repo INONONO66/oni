@@ -1,4 +1,4 @@
-import { Text } from "@openomni/ui";
+import { Text } from "@oni/ui";
 import type { Boundary, Ordered } from "../attention";
 import { ATTENTION_LABEL, orderByAttention } from "../attention/order";
 import type { Session, SessionId } from "../state/store";

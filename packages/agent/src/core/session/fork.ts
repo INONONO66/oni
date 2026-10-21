@@ -6,7 +6,7 @@ import { configurationSnapshot, configureAction } from "../store/configure";
  * delivery rows are renamed `fork:<parent>:<id>` so a pre-fork key is admitted fresh.
  */
 import { Data, Effect } from "effect";
-import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@openomni/protocol";
+import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@oni/protocol";
 import type { SessionKernel } from "../store/fence";
 
 import { actionPayloadBytes } from "../store/action-hash";

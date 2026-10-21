@@ -28,7 +28,7 @@ describe("original-action authority census", () => {
     "packages/protocol/src/storage/authority.ts",
   ])("rejects an independent authority mutant at %s", (path) => {
     expect(
-      authorityViolations(path, `import { ${retiredStore} as store } from "@openomni/agent";`),
+      authorityViolations(path, `import { ${retiredStore} as store } from "@oni/agent";`),
     ).toContainEqual(expect.objectContaining({ rule: "legacy-api", path }));
   });
 

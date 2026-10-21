@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Context, Effect } from "effect";
 import { z } from "zod";
-import type { AnyToolDefinition, PlainValue } from "@openomni/protocol";
+import type { AnyToolDefinition, PlainValue } from "@oni/protocol";
 import {
   Capability,
   defineBundle,
@@ -13,7 +13,7 @@ import {
 import { AlarmPort } from "../src/core/ports/alarm";
 
 class TestSeam extends Context.Service<TestSeam, { readonly ping: () => string }>()(
-  "@openomni/agent/test/capability/Seam",
+  "@oni/agent/test/capability/Seam",
 ) {}
 
 const toolDefinition = (name: string): AnyToolDefinition => ({
@@ -107,7 +107,7 @@ test("malformed names and duplicate declarations refuse typed", () => {
   }
 });
 
-test("a seam key outside the @openomni/<owner>/ law refuses namespace at construction and at define", () => {
+test("a seam key outside the @oni/<owner>/ law refuses namespace at construction and at define", () => {
   expect(() => port("alarm")).toThrow(DefineRefused);
   try {
     port("@acme/agent/Seam");
@@ -115,9 +115,9 @@ test("a seam key outside the @openomni/<owner>/ law refuses namespace at constru
   } catch (refusal) {
     expect((refusal as DefineRefused).code).toBe("namespace");
   }
-  const other = port("@openomni/agent/test/capability/Other");
+  const other = port("@oni/agent/test/capability/Other");
   expect(Object.isFrozen(other)).toBe(true);
-  expect(other.key).toBe("@openomni/agent/test/capability/Other");
+  expect(other.key).toBe("@oni/agent/test/capability/Other");
   try {
     defineTestCapability({ port: { key: "nope" } });
     throw new Error("unreachable");

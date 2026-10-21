@@ -1,4 +1,4 @@
-import { type BusEvent, type PlainValue, PlainValueSchema } from "@openomni/protocol";
+import { type BusEvent, type PlainValue, PlainValueSchema } from "@oni/protocol";
 
 /** Event-name buckets erase T; publish restores it after validating that event. */
 type Subscriber = (data: never) => void;

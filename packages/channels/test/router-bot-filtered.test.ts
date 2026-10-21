@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { ledger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
 import { inboundIdOf } from "../src/router/inbound-id";

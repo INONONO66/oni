@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
-import { DecisionFact, type Storage, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { DecisionFact, type Storage, type Storage as ProtocolStorage } from "@oni/protocol";
 import { z } from "zod";
 import { parsePlainJson } from "./storage/sqlite-l0-rows";
 

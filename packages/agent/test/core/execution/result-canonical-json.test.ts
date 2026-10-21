@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import { Effect } from "effect";
 import { recordingExecutor } from "../../helpers/effect-g1";
 import { isolated } from "../../helpers/isolated";

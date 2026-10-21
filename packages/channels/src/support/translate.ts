@@ -1,4 +1,4 @@
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { DeliveryNotSent } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";

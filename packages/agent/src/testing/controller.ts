@@ -1,6 +1,6 @@
 import { Effect, Fiber, Option, type Scope } from "effect";
 import { FenceRefused } from "../core/store/errors";
-import type { Delivery, LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { Delivery, LedgerAction, LedgerSession } from "@oni/protocol";
 import { CommitFailed, ExecutionApprovalError, AgentFailure, type SessionError } from "../core/ports/failure";
 import { toolSnapshot } from "../core/journal/commit";
 import { internalOrigin, receivedMessageAction } from "../core/journal/delivery";

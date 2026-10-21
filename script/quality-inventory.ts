@@ -77,7 +77,7 @@ function metricContract(value: Json | undefined): TypescriptMetricContract {
   if (Object.values(thresholds).some((threshold) => !Number.isInteger(threshold) || threshold <= 0))
     throw new InventoryError("schema", "", "invalid metric threshold");
   return {
-    algorithm: jsonLiteral(object.algorithm, "openomni-typescript-function-metrics-v1"),
+    algorithm: jsonLiteral(object.algorithm, "oni-typescript-function-metrics-v1"),
     tool: jsonLiteral(object.tool, "typescript"),
     version: jsonLiteral(object.version, "5.9.2"),
     coverage: jsonLiteral(object.coverage, "lcov-da-line-fraction-v1"),

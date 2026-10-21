@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IpcRemoteError, connectIpcClient, createIpcServer, typedCall } from "./ipc/helpers/native";
 import { captureError } from "./ipc/helpers/signal";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { attachMachineDaemon, type CodeRunner } from "./helpers/native";
 import { type MachineHost, createMachineHost } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
@@ -576,7 +576,7 @@ describe("machine attach handshake", () => {
         const withoutTmux = await attachMachineDaemon({
           socketPath: path,
           offer: ptyOffer,
-          pty: { tmux: "openomni-test-no-such-tmux" },
+          pty: { tmux: "oni-test-no-such-tmux" },
         });
         expect(withoutTmux.attachment).toEqual({
           status: "attached",

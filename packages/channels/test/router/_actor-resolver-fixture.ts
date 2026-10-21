@@ -1,6 +1,6 @@
 import { ledger } from "../helpers/ledger";
 import { beforeEach } from "bun:test";
-import { type Gateway, Ingress } from "@openomni/protocol";
+import { type Gateway, Ingress } from "@oni/protocol";
 import { z } from "zod";
 
 export const actorFixtureSchema = Ingress.ActorSchema.catchall(z.json());

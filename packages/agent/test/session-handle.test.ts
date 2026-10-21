@@ -1,8 +1,8 @@
 import { turnIntent, openTurns, turnResume } from "../src/core/store/session-reads";
 import { describe, expect, spyOn, test } from "bun:test";
 import { Effect, } from "effect";
-import { type LedgerAction, type L0Observation, PlainValueSchema } from "@openomni/protocol";
-import type { Delivery } from "@openomni/protocol";
+import { type LedgerAction, type L0Observation, PlainValueSchema } from "@oni/protocol";
+import type { Delivery } from "@oni/protocol";
 import type { SessionHandle } from "../src/core/session/run";
 import type { SessionRunner, SessionRunnerInput } from "../src/core/session/run";
 import { AgentFailure } from "../src/core/store/errors";

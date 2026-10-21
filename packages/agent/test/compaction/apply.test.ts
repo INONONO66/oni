@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { AgentFailure } from "../../src/core/ports/failure";
 import { isolated } from "../helpers/isolated";
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import { Compaction } from "../../src/plugins/compaction";
 import { collector } from "../helpers/observation-collector";
 import { resolveCompactionGeometry } from "../../src/plugins/compaction/geometry";

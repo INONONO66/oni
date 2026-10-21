@@ -1,4 +1,4 @@
-import { Gateway } from "@openomni/protocol";
+import { Gateway } from "@oni/protocol";
 import { z } from "zod";
 import { PendingGroup } from "../../automation/matcher.js";
 

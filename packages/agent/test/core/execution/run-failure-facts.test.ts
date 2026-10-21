@@ -61,7 +61,7 @@ describe("terminal failure facts", () => {
     expect((await failedRun(failure)).result).toBe(failure);
     expect(JSON.stringify(failure)).toBe(original);
     expect(
-      Object.getOwnPropertyDescriptor(failure, Symbol.for("openomni.agent.failureFacts"))
+      Object.getOwnPropertyDescriptor(failure, Symbol.for("oni.agent.failureFacts"))
         ?.enumerable,
     ).toBe(false);
   });

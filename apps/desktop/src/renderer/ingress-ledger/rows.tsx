@@ -1,5 +1,5 @@
-import type { Ingress } from "@openomni/protocol";
-import { relativeTime } from "@openomni/ui";
+import type { Ingress } from "@oni/protocol";
+import { relativeTime } from "@oni/ui";
 
 type Row = Ingress.RoutingDecisionPayload;
 type AutomationRow = Extract<Row, { stage: "automation" }>;

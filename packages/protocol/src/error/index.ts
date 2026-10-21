@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Cross-copy identity brand: bun resolves each workspace package's
-// node_modules symlink to @openomni/protocol independently, so one process
+// node_modules symlink to @oni/protocol independently, so one process
 // can hold two copies of a generated error class. `instanceof` alone is
 // therefore unsound across package boundaries; the Symbol.for-registered
 // brand carries the error name and is set only by this factory, so the
@@ -11,7 +11,7 @@ import { z } from "zod";
 // additionally validates the candidate's `data` against this factory's
 // schema — the guard's type predicate is only sound when the payload
 // actually has the promised shape.
-const NAMED_ERROR_BRAND = Symbol.for("openomni.protocol.namedError");
+const NAMED_ERROR_BRAND = Symbol.for("oni.protocol.namedError");
 
 // Payloads are object-shaped by contract: an unconstrained z.ZodType defaults
 // to ZodType<unknown, unknown>, which would leak `unknown` into every

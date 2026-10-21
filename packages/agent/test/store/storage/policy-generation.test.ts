@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import type { PolicyRow } from "@openomni/protocol";
+import type { PolicyRow } from "@oni/protocol";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 
 const first: Omit<PolicyRow.Row, "generation"> = {

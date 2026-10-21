@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalDigest, type LedgerAction, PlainValueSchema, SessionTurn } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, PlainValueSchema, SessionTurn } from "@oni/protocol";
 import { Effect } from "effect";
 import { deliveryActions } from "../src/core/journal/delivery";
 import { turnIntentAction, turnTerminalAction } from "../src/core/journal/turn-rows";

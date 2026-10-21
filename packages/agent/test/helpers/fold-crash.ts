@@ -1,5 +1,5 @@
 import { AgentFailure } from "../../src/core/store/errors";
-import { canonicalDigest, FoldCheckpoint, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@openomni/protocol";
+import { canonicalDigest, FoldCheckpoint, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@oni/protocol";
 import { z } from "zod";
 import { Effect } from "effect";
 import { runAgent } from "./executor";

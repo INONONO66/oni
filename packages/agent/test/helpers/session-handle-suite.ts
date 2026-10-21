@@ -3,8 +3,8 @@ import { latestGeneration } from "../../src/core/store/configure";
 /** #1348: the shared durable-session-handle suite plane (state, runners, kernel reads, program runner). */
 import { afterEach, beforeEach, expect } from "bun:test";
 import { Effect, type Scope } from "effect";
-import type { Delivery, PolicyRow } from "@openomni/protocol";
-import { type BusEvent, type LedgerAction, L0Observation, type ObservationSink, type SessionGeneration, type SessionTransition, type SessionTurn } from "@openomni/protocol";
+import type { Delivery, PolicyRow } from "@oni/protocol";
+import { type BusEvent, type LedgerAction, L0Observation, type ObservationSink, type SessionGeneration, type SessionTransition, type SessionTurn } from "@oni/protocol";
 import type { ExecutionApprovalRequest } from "../../src/core/loop/executor";
 import { closeSessions, type SessionCreateOptions, type SessionHandle, type SessionRunner, type SessionRunnerInput } from "../../src/core/session/run";
 import { session } from "../../src/testing/registry";

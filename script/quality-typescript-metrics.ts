@@ -2,7 +2,7 @@ import ts from "typescript";
 import type { NativeLines } from "./quality-native-lcov";
 
 export type TypescriptMetricContract = {
-  readonly algorithm: "openomni-typescript-function-metrics-v1";
+  readonly algorithm: "oni-typescript-function-metrics-v1";
   readonly tool: "typescript";
   readonly version: "5.9.2";
   readonly coverage: "lcov-da-line-fraction-v1";

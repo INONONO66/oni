@@ -1,4 +1,4 @@
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import { z } from "zod";
 
 /** JSON.parse preserves -0 and can overflow numbers; the persisted-fact schema rejects both. */

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import net from "node:net";
-import { Ipc } from "@openomni/protocol";
+import { Ipc } from "@oni/protocol";
 import { IpcConnectionError } from "../../src/ipc/errors";
 import { connectIpcClient, createIpcServer } from "./helpers/native";
 import { captureError, deferred, within } from "./helpers/signal";

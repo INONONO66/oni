@@ -8,8 +8,8 @@ import { Provider } from "../../src/provider";
 import { BUNDLED_ROWS } from "../../src/provider/rows";
 import { getLanguage, getSDK } from "../../src/provider/sdk";
 
-/** `openomni/<version> (<platform> <kernelRelease>; <arch>)` — the whole contract. */
-const IDENTITY_PATTERN = /^openomni\/\d+\.\d+\.\d+ \(.+; .+\)$/;
+/** `oni/<version> (<platform> <kernelRelease>; <arch>)` — the whole contract. */
+const IDENTITY_PATTERN = /^oni\/\d+\.\d+\.\d+ \(.+; .+\)$/;
 
 /** Resolution applies the provider's bundled row; fixtures take the same path. */
 function rowed(model: Provider.Model): Provider.Model {
@@ -73,11 +73,11 @@ async function capturedOpenAIRequest(
 }
 
 describe("clientIdentity", () => {
-  test("renders openomni/<version> (<platform> <kernelRelease>; <arch>)", () => {
+  test("renders oni/<version> (<platform> <kernelRelease>; <arch>)", () => {
     const identity = clientIdentity();
 
     expect(identity).toMatch(IDENTITY_PATTERN);
-    expect(identity).toBe(`openomni/${clientIdentity.version} (${platform()} ${release()}; ${arch()})`);
+    expect(identity).toBe(`oni/${clientIdentity.version} (${platform()} ${release()}; ${arch()})`);
   });
 
   test("is pure — repeated calls render the same string", () => {

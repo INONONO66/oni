@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Delivery } from "@openomni/protocol";
+import type { Delivery } from "@oni/protocol";
 
 export function recordingDelivery(commits: Delivery.Commit[]) {
   return {

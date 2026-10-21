@@ -1,4 +1,4 @@
-import { segmentTurns, type TranscriptNode, type TurnCost } from "@openomni/ui";
+import { segmentTurns, type TranscriptNode, type TurnCost } from "@oni/ui";
 import type { TurnMetadata } from "./message";
 
 export function costOf(metadata: TurnMetadata | undefined): TurnCost | undefined {

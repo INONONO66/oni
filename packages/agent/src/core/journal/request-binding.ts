@@ -1,4 +1,4 @@
-import { Alarm, PlainValueSchema, type LedgerAction, canonicalDigest, SessionTransition, type PlainValue } from "@openomni/protocol";
+import { Alarm, PlainValueSchema, type LedgerAction, canonicalDigest, SessionTransition, type PlainValue } from "@oni/protocol";
 
 type CapturedApproval = Omit<import("../loop/executor").ExecutionApprovalRequest, "durable">;
 

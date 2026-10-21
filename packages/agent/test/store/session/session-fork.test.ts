@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { SessionGeneration, type LedgerAction } from "@openomni/protocol";
+import { SessionGeneration, type LedgerAction } from "@oni/protocol";
 import { testNow } from "../helpers/storage";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import { RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "../helpers/old-catalog";

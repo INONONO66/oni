@@ -1,4 +1,4 @@
-import type { Message, Tool } from "@openomni/protocol";
+import type { Message, Tool } from "@oni/protocol";
 
 /** The streaming callback contract of `run()`; not the `BusEvent.Sink` observation port. */
 export interface Sink {

@@ -13,8 +13,8 @@ const header = `import { Context, Effect, Layer } from "effect";
 import { defineBundle, port } from "../packages/agent/src/core/ports/capability";
 import { AgentFailure, type SessionError } from "../packages/agent/src/core/ports/failure";
 import { Entropy, ObservationSink, type BundleLayerServices } from "../packages/agent/src/core/ports/ports";
-class External extends Context.Service<External, boolean>()("@openomni/test/External") {}
-const Alarm = port("@openomni/agent/capability/alarm");
+class External extends Context.Service<External, boolean>()("@oni/test/External") {}
+const Alarm = port("@oni/agent/capability/alarm");
 const seeded = Layer.effectDiscard(Effect.gen(function* () { yield* Entropy; yield* ObservationSink; }));
 const failing = Layer.effectDiscard(Effect.fail(new AgentFailure({ operation: "fixture", cause: "typed" })));
 `;

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryReconciliation, deliverKeyed } from "../src/support/deliver";
 import type { PublishPort } from "../src/types";

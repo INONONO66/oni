@@ -111,7 +111,7 @@ test("type-only and duplicate namespace exports cannot satisfy the exact invento
   expect(agentIndexPerimeterViolations(`${source}\nexport * as Core from "./core";`).join("\n")).toContain("export form");
 });
 
-test.each(["ModelPort", "model-port", "@openomni/model", "retry-loop", "seam", "core/mailbox", "legacy-rows", "worker"])("rejects retired vocabulary %s", (token) => {
+test.each(["ModelPort", "model-port", "@oni/model", "retry-loop", "seam", "core/mailbox", "legacy-rows", "worker"])("rejects retired vocabulary %s", (token) => {
   expect(agentSourceFacts("packages/agent/src/core/ports/types.ts", `// ${token}`).retiredTokens).toBe(1);
 });
 

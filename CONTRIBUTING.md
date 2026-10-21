@@ -1,6 +1,6 @@
 # Contributing
 
-OpenOmni is a personal AI workforce project with a specific architectural vision. Contributions are welcome, but please read through `docs/` before proposing significant changes. The project prioritizes coherence over feature count.
+Oni is a personal AI workforce project with a specific architectural vision. Contributions are welcome, but please read through `docs/` before proposing significant changes. The project prioritizes coherence over feature count.
 
 ## Prerequisites
 
@@ -11,8 +11,8 @@ OpenOmni is a personal AI workforce project with a specific architectural vision
 ## Setup
 
 ```bash
-git clone https://github.com/INONONO66/openomni.git
-cd openomni
+git clone https://github.com/INONONO66/oni.git
+cd oni
 bun install --frozen-lockfile
 bun run build
 bun test --timeout 15000
@@ -49,7 +49,7 @@ Scope is the affected workspace or concern (`protocol`, `ledger`, `llm`, `agent`
 
 TypeScript monorepo built with Bun and Turborepo. `script/topology.ts` owns the
 workspace inventory and allowed dependencies; the generated table in `AGENTS.md`
-is its readable counterpart. `apps/openomni` composes the agent product and
+is its readable counterpart. `apps/oni` composes the agent product and
 `apps/desktop` consumes the `packages/ui` design system. Core packages retain
 their declared boundaries, which `script/check-deps.ts` enforces in source and
 manifests. See `docs/implementation-status.md` for current wiring.

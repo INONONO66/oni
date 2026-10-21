@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Core } from "@openomni/agent";
+import { Core } from "@oni/agent";
 import { openChannelStore, type ChannelStore } from "../../../src/store/sqlite/index.js";
 
 /** Fixed injected clock (#1245): store tests assert exact timestamps. */

@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Channel, Ingress } from "@openomni/protocol";
+import { Channel, Ingress } from "@oni/protocol";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
 import { commits, makeRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState } from "./router/_router-fixture.js";

@@ -1,4 +1,4 @@
-import { type Gateway, Ingress } from "@openomni/protocol";
+import { type Gateway, Ingress } from "@oni/protocol";
 import { Effect } from "effect";
 import { decodeChannelFailure } from "../../errors.js";
 import type { StoredGroup } from "../../store/automation/group.js";

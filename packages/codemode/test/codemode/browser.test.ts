@@ -13,7 +13,7 @@ import { createCodemode } from "./helpers/native";
  * socket and a real Chromium, so readiness and loss are decided by actual
  * terminal output, never by elapsed time.
  */
-const TMUX_SOCKET = `openomni-browser-test-${process.pid}`;
+const TMUX_SOCKET = `oni-browser-test-${process.pid}`;
 const CELL_TIMEOUT_MS = 120_000;
 const silent = {
   publish() {
@@ -22,7 +22,7 @@ const silent = {
 };
 
 const sessionOf = (profile: string) =>
-  `openomni-browser-${createHash("sha256").update(profile).digest("hex").slice(0, 12)}`;
+  `oni-browser-${createHash("sha256").update(profile).digest("hex").slice(0, 12)}`;
 
 /** Loud prerequisite probe: these tests must fail, not silently pass, without Chromium. */
 function chromiumExecutable(): string {
@@ -146,7 +146,7 @@ test(
         [
           `client = browser("M", profile_dir=${JSON.stringify(profiles.shared)})`,
           "page = client.context.new_page()",
-          'page.goto("data:text/html,<title>openomni fixture</title>")',
+          'page.goto("data:text/html,<title>oni fixture</title>")',
           "(page.title(), client.port, client.session)",
         ].join("\n"),
         "browser",
@@ -154,7 +154,7 @@ test(
       );
       expect(result.status).toBe("completed");
       if (result.status !== "completed") return;
-      expect(result.value).toContain("'openomni fixture'");
+      expect(result.value).toContain("'oni fixture'");
       const port = Number(/, (\d+), /.exec(result.value ?? "")?.[1]);
       expect(port).toBeGreaterThan(9222);
       // The selected port is printed into and retained by the session output.
@@ -162,7 +162,7 @@ test(
       expect(view.status).toBe("ok");
       if (view.status !== "ok") return;
       const transcript = Buffer.from(view.data).toString("utf8");
-      expect(transcript).toContain(`[openomni-browser] cdp-port ${port}`);
+      expect(transcript).toContain(`[oni-browser] cdp-port ${port}`);
       expect(transcript).toContain("DevTools listening on ws://");
     } finally {
       occupied?.stop(true);
@@ -195,7 +195,7 @@ test(
     const view = await host.get("M").pty.read(sessionOf(profiles.shared), {});
     expect(view.status).toBe("ok");
     const transcript = view.status === "ok" ? Buffer.from(view.data).toString("utf8") : "";
-    const pid = Number(/\[openomni-browser\] chromium-pid (\d+)/.exec(transcript)?.[1]);
+    const pid = Number(/\[oni-browser\] chromium-pid (\d+)/.exec(transcript)?.[1]);
     expect(pid).toBeGreaterThan(0);
     process.kill(pid, "SIGKILL");
     // Loss detection is a liveness round trip inside every client accessor, so
@@ -203,7 +203,7 @@ test(
     const error = raisedError(await mode.cell.run("client.pages", "browser", { timeoutMs: CELL_TIMEOUT_MS }));
     expect(error).toContain("browser_lost");
     expect(error).toContain("--- tmux session output ---");
-    expect(error).toContain("[openomni-browser] cdp-port");
+    expect(error).toContain("[oni-browser] cdp-port");
   },
   CELL_TIMEOUT_MS,
 );
@@ -337,7 +337,7 @@ test(
     const view = await host.get("M").pty.read(session, {});
     expect(view.status).toBe("ok");
     const transcript = view.status === "ok" ? Buffer.from(view.data).toString("utf8") : "";
-    const pid = Number(/\[openomni-browser\] chromium-pid (\d+)/.exec(transcript)?.[1]);
+    const pid = Number(/\[oni-browser\] chromium-pid (\d+)/.exec(transcript)?.[1]);
     expect(pid).toBeGreaterThan(0);
     let cursor = view.status === "ok" ? view.cursor : undefined;
     await kernelSide.close();
@@ -355,7 +355,7 @@ test(
       Bun.spawnSync(["tmux", "-L", TMUX_SOCKET, "has-session", "-t", `=${session}`]).exitCode === 0;
     let tail = "";
     let listed = sessionListed();
-    for (let round = 0; round < 60 && listed && !tail.includes("[openomni-browser] chromium-exited"); round += 1) {
+    for (let round = 0; round < 60 && listed && !tail.includes("[oni-browser] chromium-exited"); round += 1) {
       const paced = await host.get("M").pty.read(session, { ...(cursor ? { cursor } : {}), waitMs: 1_000 });
       if (paced.status === "ok") {
         cursor = paced.cursor;

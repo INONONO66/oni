@@ -8,11 +8,11 @@ const root = join(import.meta.dir, "..");
 const allowlistPath = "script/conformance/effect-runner-sites.json";
 const boundaryPath = "script/conformance/effect-boundary-sites.json";
 const boundaryCodes = new Set(["R4_TAG_PREFIX", "R5_RACE_ALL", "R6_GEN_FINALLY", "R7_UNSCOPED_FORK", "R8_GLOBAL_LET", "R9_UNUSED_TAG", "R10_RESOURCE_SUCCEED"]);
-const approvedEdges = new Set(["apps/openomni/src/cli/main.ts", "apps/openomni/src/gateway.ts"]);
+const approvedEdges = new Set(["apps/oni/src/cli/main.ts", "apps/oni/src/gateway.ts"]);
 // Test runners have exactly one owner per package. Bench programs are executable
 // entrypoints, like the app edges, rather than reusable test runner helpers.
 const RUNNER_OWNERS = new Set([
-  "apps/openomni/test/helpers/effect.ts",
+  "apps/oni/test/helpers/effect.ts",
   "packages/agent/test/helpers/isolated.ts",
   "packages/channels/test/helpers/effect.ts",
   "packages/llm/test/helpers/runner.ts",
@@ -24,18 +24,18 @@ const RUNNER_OWNERS = new Set([
 const runnerNames = new Set(["runPromise", "runPromiseExit", "runSync", "runSyncExit", "runFork", "runCallback"]);
 /** The sealed catalog's tool bodies; bundle roots and composition files are not tool bodies. */
 export const TOOL_BODY_PATHS: ReadonlyMap<string, string> = new Map([
-  ["read", "apps/openomni/src/bundles/tools/read/index.ts"],
-  ["write", "apps/openomni/src/bundles/tools/write/index.ts"],
-  ["edit", "apps/openomni/src/bundles/tools/edit/index.ts"],
-  ["ls", "apps/openomni/src/bundles/tools/ls/index.ts"],
-  ["find", "apps/openomni/src/bundles/tools/find/index.ts"],
-  ["grep", "apps/openomni/src/bundles/tools/grep/index.ts"],
-  ["bash", "apps/openomni/src/bundles/tools/bash/index.ts"],
-  ["eval", "apps/openomni/src/bundles/tools/eval/index.ts"],
-  ["monitor", "apps/openomni/src/bundles/alarms/monitor/index.ts"],
-  ["send_message", "apps/openomni/src/bundles/messaging/send-message/index.ts"],
-  ["provision", "apps/openomni/src/bundles/provision/provision.ts"],
-  ["completion", "apps/openomni/src/bundles/tools/completion/index.ts"],
+  ["read", "apps/oni/src/bundles/tools/read/index.ts"],
+  ["write", "apps/oni/src/bundles/tools/write/index.ts"],
+  ["edit", "apps/oni/src/bundles/tools/edit/index.ts"],
+  ["ls", "apps/oni/src/bundles/tools/ls/index.ts"],
+  ["find", "apps/oni/src/bundles/tools/find/index.ts"],
+  ["grep", "apps/oni/src/bundles/tools/grep/index.ts"],
+  ["bash", "apps/oni/src/bundles/tools/bash/index.ts"],
+  ["eval", "apps/oni/src/bundles/tools/eval/index.ts"],
+  ["monitor", "apps/oni/src/bundles/alarms/monitor/index.ts"],
+  ["send_message", "apps/oni/src/bundles/messaging/send-message/index.ts"],
+  ["provision", "apps/oni/src/bundles/provision/provision.ts"],
+  ["completion", "apps/oni/src/bundles/tools/completion/index.ts"],
 ]);
 function isToolBodyPath(file: string): boolean {
   return new Set(TOOL_BODY_PATHS.values()).has(file);
@@ -43,7 +43,7 @@ function isToolBodyPath(file: string): boolean {
 // pre-existing at origin/main (bundles/send-message/index.ts:3, line 4 since the channels import of #1569 lane 8); follow-up #1454
 export const PREEXISTING_TOOL_EFFECT_PINS: ReadonlyMap<string, { readonly file: string; readonly line: number; readonly text: string }> = new Map([
   ["send_message", {
-    file: "apps/openomni/src/bundles/messaging/send-message/index.ts",
+    file: "apps/oni/src/bundles/messaging/send-message/index.ts",
     line: 4,
     text: 'import { Effect } from "effect";',
   }],
@@ -120,7 +120,7 @@ class Provenance {
   }
   private module(specifier: string, source: ts.SourceFile): Origin | undefined {
     if (isEffectSpecifier(specifier)) return { module: specifier, members: [] };
-    const workspace = /^@openomni\/([^/]+)$/.exec(specifier);
+    const workspace = /^@oni\/([^/]+)$/.exec(specifier);
     const base = (workspace ? join(this.worktree, "packages", workspace[1] ?? "", "src/index") : resolve(dirname(source.fileName), specifier)).replace(/\.[cm]?jsx?$/, "");
     const candidates = [base, ...[".ts", ".tsx", ".mts", ".cts", "/index.ts", "/index.tsx"].map((suffix: string) => base + suffix)];
     const file = candidates.find((candidate: string) => this.sources.has(candidate));
@@ -350,7 +350,7 @@ function promiseTwins(file: string, functions: readonly DeclaredFunction[], prov
 }
 
 function productionSource(file: string): boolean {
-  return /^(packages\/[^/]+|apps\/openomni)\/src\//.test(file) && !/\.(test|spec)\.[cm]?tsx?$/.test(file) && !/(^|\/)(__tests__|test|tests)\//.test(file);
+  return /^(packages\/[^/]+|apps\/oni)\/src\//.test(file) && !/\.(test|spec)\.[cm]?tsx?$/.test(file) && !/(^|\/)(__tests__|test|tests)\//.test(file);
 }
 /** v4 keys sit on the call itself (`Context.Service<I, S>(key)`, `Context.Reference(key, ...)`) or on the outer call of the class form (`Context.Service<I, S>()(key)`). */
 function keyArgument(tag: ts.CallExpression): ts.Expression | undefined {
@@ -362,7 +362,7 @@ function tagKey(tag: ts.CallExpression, provenance?: Provenance): string {
   const argument = keyArgument(tag);
   const key = argument && (provenance?.expression(argument)?.node ?? argument);
   if (key && ts.isStringLiteralLike(key)) return key.text;
-  if (key && ts.isTemplateExpression(key) && key.head.text === "@openomni/bundle/"
+  if (key && ts.isTemplateExpression(key) && key.head.text === "@oni/bundle/"
     && key.templateSpans.length === 1 && /^\/[A-Za-z][A-Za-z0-9-]*$/.test(key.templateSpans[0]?.literal.text ?? "")) {
     const span = key.templateSpans[0];
     if (span) return `${key.head.text}${ts.isStringLiteralLike(span.expression) ? span.expression.text : "<template>"}${span.literal.text}`;
@@ -370,11 +370,11 @@ function tagKey(tag: ts.CallExpression, provenance?: Provenance): string {
   return "<computed>";
 }
 function validTagKey(key: string, file: string): boolean {
-  const bundle = /^apps\/openomni\/src\/bundles\/([a-z][a-z0-9-]*)\//.exec(file);
-  if (/^@openomni\/bundle\/([a-z][a-z0-9-]*|<template>)\/[A-Za-z][A-Za-z0-9-]*$/.test(key))
-    return !bundle || key.startsWith(`@openomni/bundle/${bundle[1]}/`);
+  const bundle = /^apps\/oni\/src\/bundles\/([a-z][a-z0-9-]*)\//.exec(file);
+  if (/^@oni\/bundle\/([a-z][a-z0-9-]*|<template>)\/[A-Za-z][A-Za-z0-9-]*$/.test(key))
+    return !bundle || key.startsWith(`@oni/bundle/${bundle[1]}/`);
   const owner = bundle ? `bundle/${bundle[1]}` : file.split("/")[1];
-  return key.startsWith(`@openomni/${owner}/`) && /^[A-Za-z][\w/-]*$/.test(key.slice(`@openomni/${owner}/`.length));
+  return key.startsWith(`@oni/${owner}/`) && /^[A-Za-z][\w/-]*$/.test(key.slice(`@oni/${owner}/`.length));
 }
 /** A never-valued presence probe does not declare a new service identity. */
 function tagPresenceProbe(node: ts.CallExpression, provenance: Provenance): boolean {
@@ -445,7 +445,7 @@ function succeedRule(node: ts.CallExpression, file: string, provenance: Provenan
   if (tag && value && (generationResource(tag, node, file) || provenance.ownsResource(value))) sites.add("R10_RESOURCE_SUCCEED", file, application);
 }
 function generationResource(tag: ts.CallExpression, provider: ts.Node, file: string): boolean {
-  return tagKey(tag) === "@openomni/agent/ObservationSink"
+  return tagKey(tag) === "@oni/agent/ObservationSink"
     && file === "packages/agent/src/layers.ts"
     && enclosingName(provider).split("/").includes("AgentGenerationLive");
 }
@@ -520,7 +520,7 @@ function appLiveProviders(sources: readonly ts.SourceFile[], worktree: string, p
     ts.forEachChild(node, descend);
   };
   for (const source of sources) {
-    if (relative(worktree, source.fileName) !== "apps/openomni/src/runtime.ts") continue;
+    if (relative(worktree, source.fileName) !== "apps/oni/src/runtime.ts") continue;
     for (const node of appLiveRoots(source)) visit(node);
   }
   return tags;

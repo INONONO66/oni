@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { CHILD, PARENT, useForkFixture } from "./helpers/fork-fixture";
 import * as SessionHandleStore from "../../src/core/store/fence";
 

@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
-import { Timeline } from "@openomni/ui";
+import { Timeline } from "@oni/ui";
 import { Window } from "happy-dom";
 import { act } from "react";
 import { App } from "../src/renderer/app";
 import { uiMessagesToTranscript } from "../src/renderer/chat/adapter";
-import type { OpenOmniUIMessage } from "../src/renderer/chat/message";
+import type { OniUIMessage } from "../src/renderer/chat/message";
 import { StateProvider } from "../src/renderer/state/provider";
 import { queryKeys } from "../src/renderer/state/queries";
 import { setSessionTitleIfPlaceholder } from "../src/renderer/state/session-actions";
@@ -104,7 +104,7 @@ test("mounted shell restores preferences, navigates, creates and searches sessio
     await act(() => key("x"));
     expect(consoleStore.state.sessions).toHaveLength(3);
 
-    const messages: OpenOmniUIMessage[] = [
+    const messages: OniUIMessage[] = [
       {
         id: "answer",
         role: "assistant",

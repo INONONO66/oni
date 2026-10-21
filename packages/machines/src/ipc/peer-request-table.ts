@@ -1,4 +1,4 @@
-import { Ipc, type IdSource, type PlainValue } from "@openomni/protocol";
+import { Ipc, type IdSource, type PlainValue } from "@oni/protocol";
 import { Cause, Deferred, Effect, Exit, Option } from "effect";
 import { IpcRemoteError, IpcTimeoutError, type IpcError } from "./errors";
 import { decodeIpcFailure } from "../failure";

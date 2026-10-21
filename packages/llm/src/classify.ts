@@ -1,4 +1,4 @@
-import { parseJson } from "@openomni/protocol";
+import { parseJson } from "@oni/protocol";
 import { z } from "zod";
 import { type ApiFailure, coerceApiError, declaredContextOverflow, errorFacts } from "./error";
 import { headerDelay } from "./header-delay";

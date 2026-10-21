@@ -1,4 +1,4 @@
-import { JournalKind, type ConsumptionSettings, type ConsumptionWidth, type Delivery, type LedgerAction, type SessionTurn } from "@openomni/protocol";
+import { JournalKind, type ConsumptionSettings, type ConsumptionWidth, type Delivery, type LedgerAction, type SessionTurn } from "@oni/protocol";
 import type { SessionKernel } from "../session/entity";
 
 export function internalOrigin(sessionId: string): Delivery.Origin {

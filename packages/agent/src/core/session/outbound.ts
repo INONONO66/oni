@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { type SessionError, CommitFailed, AgentInvariantViolation } from "../ports/failure";
 
 import type { SessionKernel } from "./entity";
-import { type LedgerAction, SessionTransition, canonicalDigest, PlainValueSchema } from "@openomni/protocol";
+import { type LedgerAction, SessionTransition, canonicalDigest, PlainValueSchema } from "@oni/protocol";
 import { fencedExecutionLedger, type ResolvedSessionRuntime, type SessionEntityPorts } from "./runtime";
 
 export function outboundOpen(

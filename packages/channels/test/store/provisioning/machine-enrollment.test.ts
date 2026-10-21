@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { z } from "zod";
 import { createMachineEnrollmentStore } from "../../../src/index.js";
 

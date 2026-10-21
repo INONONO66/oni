@@ -23,7 +23,7 @@ test("gatedPath admits product src and tooling, refuses tests and docs", () => {
   expect(gatedPath("packages/agent/src/executor.ts")).toBe(true);
   expect(gatedPath("packages/ui/src/tree-row.tsx")).toBe(true);
   expect(gatedPath("packages/ui/src/styles.css")).toBe(false);
-  expect(gatedPath("apps/openomni/src/cli/daemon.ts")).toBe(true);
+  expect(gatedPath("apps/oni/src/cli/daemon.ts")).toBe(true);
   expect(gatedPath("script/check-deps.ts")).toBe(true);
   expect(gatedPath("script/check-deps.test.ts")).toBe(false);
   expect(gatedPath("packages/agent/src/executor.test.ts")).toBe(false);
@@ -80,7 +80,7 @@ test("#1318 planted escape: an uncovered line in a nested script path fails the 
 
 test("lcovPrefix maps artifact layouts to repo prefixes", () => {
   expect(lcovPrefix("cov/coverage-agent/packages/agent/coverage/lcov.info")).toBe("packages/agent");
-  expect(lcovPrefix("cov/coverage-x/apps/openomni/coverage/lcov.info")).toBe("apps/openomni");
+  expect(lcovPrefix("cov/coverage-x/apps/oni/coverage/lcov.info")).toBe("apps/oni");
   expect(lcovPrefix("cov/coverage-scripts-tooling-1/script/coverage/lcov.info")).toBe("script");
   expect(lcovPrefix("packages/agent/coverage/lcov.info")).toBe("packages/agent");
 });
@@ -154,17 +154,17 @@ test("lcov union takes the maximum hits across shards", () => {
 });
 
 test("lcov union merges a cross-workspace relative SF path with the owner lane", () => {
-  // apps/openomni's lane records the agent module it loaded as
+  // apps/oni's lane records the agent module it loaded as
   // `SF:../../packages/agent/src/x.ts`; that record must merge with the
   // agent lane's `SF:src/x.ts`, not survive as a separate unnormalized key.
   const dir = mkdtempSync(join(tmpdir(), "patch-cov-cross-"));
   try {
     mkdirSync(join(dir, "packages/agent/coverage"), { recursive: true });
-    mkdirSync(join(dir, "apps/openomni/coverage"), { recursive: true });
+    mkdirSync(join(dir, "apps/oni/coverage"), { recursive: true });
     writeFileSync(join(dir, "packages/agent/coverage/lcov.info"), "SF:src/x.ts\nDA:1,0\nDA:2,4\n");
-    writeFileSync(join(dir, "apps/openomni/coverage/lcov.info"), "SF:../../packages/agent/src/x.ts\nDA:1,9\nDA:2,0\n");
+    writeFileSync(join(dir, "apps/oni/coverage/lcov.info"), "SF:../../packages/agent/src/x.ts\nDA:1,9\nDA:2,0\n");
     const union = lcovUnion(
-      [join(dir, "packages/agent/coverage/lcov.info"), join(dir, "apps/openomni/coverage/lcov.info")],
+      [join(dir, "packages/agent/coverage/lcov.info"), join(dir, "apps/oni/coverage/lcov.info")],
       dir,
     );
     expect([...union.keys()]).toEqual(["packages/agent/src/x.ts"]);

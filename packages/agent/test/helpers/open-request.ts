@@ -1,4 +1,4 @@
-import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { Effect } from "effect";
 import { requestLedger } from "./g0-request-ledger";
 import { requestBindingDigest } from "../../src/core/session/request";

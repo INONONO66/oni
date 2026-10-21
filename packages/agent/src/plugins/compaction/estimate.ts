@@ -1,4 +1,4 @@
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type { SummarizationBudget, ResolvedCompactionOptions } from "./contract";
 import { resolveCompactionGeometry, type CompactionYield } from "./geometry";
 

@@ -1,20 +1,20 @@
-# OpenOmni
+# Oni
 
 **Target product model: an agent operating system built around a single permanent Resident, where failures make the system structurally stronger.**
 
-The product and role model below describe OpenOmni's target architecture, not a claim that the single-Resident, Jester, or Governor model is fully shipped. See [Current Status](#current-status) for what is wired today.
+The product and role model below describe Oni's target architecture, not a claim that the single-Resident, Jester, or Governor model is fully shipped. See [Current Status](#current-status) for what is wired today.
 
-In that target model, OpenOmni is a personal AI workforce built around one Resident. The Resident is the sole allocator of new Worker assignments: it understands the user's intent and context, handles what it can directly, and delegates execution when needed. Workers can be internal agents, external AI services, or people. From the system's perspective, they're all the same thing.
+In that target model, Oni is a personal AI workforce built around one Resident. The Resident is the sole allocator of new Worker assignments: it understands the user's intent and context, handles what it can directly, and delegates execution when needed. Workers can be internal agents, external AI services, or people. From the system's perspective, they're all the same thing.
 
 What makes this target architecture different from a typical agent framework is where the improvement logic lives. The Resident doesn't reflect on itself or rewrite its own behavior. Instead, a separate System Governor analyzes execution patterns and proposes tightly controlled Policy and Skill changes that prevent recurring failures. The Resident stays focused on the user. The system gets better underneath it.
 
 This separation isn't just an architectural preference. It's the only way to build something you can trust over time.
 
-## What is OpenOmni?
+## What is Oni?
 
-OpenOmni is a system for building an AI workforce one person can rely on for the long term.
+Oni is a system for building an AI workforce one person can rely on for the long term.
 
-Most agent projects focus on making a single agent more capable. OpenOmni focuses on something different: creating the conditions where one Resident can work stably and reliably over months and years. The user has one relationship, with one Resident. That Resident decides what to handle directly and what to hand off. Workers — whether internal tools, other AI agents, or humans — are all treated the same way. They receive work, return results, and don't create new top-level work on their own.
+Most agent projects focus on making a single agent more capable. Oni focuses on something different: creating the conditions where one Resident can work stably and reliably over months and years. The user has one relationship, with one Resident. That Resident decides what to handle directly and what to hand off. Workers — whether internal tools, other AI agents, or humans — are all treated the same way. They receive work, return results, and don't create new top-level work on their own.
 
 The goal isn't a smarter agent. It's a trustworthy one.
 
@@ -48,7 +48,7 @@ Only the Resident can allocate a new Worker. Workers can decompose same-domain w
 
 ## Design Philosophy
 
-Agent capability is no longer the bottleneck — reliability is. OpenOmni reduces to three kernel primitives (every subject is an **actor**, every boundary-crossing action passes one **gate**, everything lands in one **ledger**), two laws (a claim without evidence did not happen; no one judges their own work), and one dial (the harder an action touches reality, the more the human is involved). Four roles run on top: Workers do, the Resident decides, the Jester doubts, the Governor fixes — and root is the Owner.
+Agent capability is no longer the bottleneck — reliability is. Oni reduces to three kernel primitives (every subject is an **actor**, every boundary-crossing action passes one **gate**, everything lands in one **ledger**), two laws (a claim without evidence did not happen; no one judges their own work), and one dial (the harder an action touches reality, the more the human is involved). Four roles run on top: Workers do, the Resident decides, the Jester doubts, the Governor fixes — and root is the Owner.
 
 → [Design Philosophy](docs/design-philosophy.md)
 
@@ -60,17 +60,17 @@ Component-level truth lives in [Implementation Status](docs/implementation-statu
 
 ## Install & Run 24/7
 
-OpenOmni ships as an npm package running on [Bun](https://bun.sh) >=1.4.0
+Oni ships as an npm package running on [Bun](https://bun.sh) >=1.4.0
 for built-in PTY alarm monitoring (development and CI pin 1.4.1):
 
 ```bash
-npm install -g openomni     # or: bun add -g openomni
-openomni onboard            # interactive setup -> ~/.openomni/env
-openomni daemon install     # launchd / systemd --user service, survives reboot
-openomni doctor             # read-only diagnostics
+npm install -g oni     # or: bun add -g oni
+oni onboard            # interactive setup -> ~/.oni/env
+oni daemon install     # launchd / systemd --user service, survives reboot
+oni doctor             # read-only diagnostics
 ```
 
-The publishable artifact is staged with `bun run --cwd apps/openomni build:npm` and published from `apps/openomni/dist-npm`.
+The publishable artifact is staged with `bun run --cwd apps/oni build:npm` and published from `apps/oni/dist-npm`.
 
 ## Development
 
@@ -95,7 +95,7 @@ bun run format
 
 ## Acknowledgements
 
-OpenOmni's default `web_search` and `web_fetch` tools are powered by [minpeter/opensearch](https://github.com/minpeter/opensearch) through its AI SDK tool package.
+Oni's default `web_search` and `web_fetch` tools are powered by [minpeter/opensearch](https://github.com/minpeter/opensearch) through its AI SDK tool package.
 
 ## License
 

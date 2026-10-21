@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { BusEvent } from "@openomni/protocol";
+import { BusEvent } from "@oni/protocol";
 import { z } from "zod";
 import { testBus } from "../helpers/isolated";
 

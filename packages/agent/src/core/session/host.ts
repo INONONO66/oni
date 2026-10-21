@@ -1,6 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import type { Database } from "bun:sqlite";
-import type { LedgerSession, ObservationSink } from "@openomni/protocol";
+import type { LedgerSession, ObservationSink } from "@oni/protocol";
 import { type Crypto, Data, Duration, Effect, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { existsSync, mkdirSync, rmSync } from "node:fs";

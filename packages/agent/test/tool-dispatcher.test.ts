@@ -1,4 +1,4 @@
-import { toolOutputRefSchema } from "@openomni/protocol";
+import { toolOutputRefSchema } from "@oni/protocol";
 import { runAgentSync } from "./helpers/executor";
 import { catalogLayer } from "./helpers/service-layers";
 import { Effect, Fiber } from "effect";
@@ -12,13 +12,13 @@ import { recordingExecutor } from "./helpers/effect-g2";
 import { valueTool } from "./helpers/query-tool";
 import { z } from "zod";
 
-function dispatcher(definitions: readonly import("@openomni/protocol").AnyToolDefinition[]) {
+function dispatcher(definitions: readonly import("@oni/protocol").AnyToolDefinition[]) {
   return runAgentSync(createDispatcher({ executor: recordingExecutor().executor }).pipe(Effect.provide(catalogLayer(definitions))));
 }
 
 /** A dispatcher wired with in-memory tool output projection ports. */
 function projectingDispatcher(
-  definitions: readonly import("@openomni/protocol").AnyToolDefinition[],
+  definitions: readonly import("@oni/protocol").AnyToolDefinition[],
   budgetBytes = 32_768,
 ) {
   const stored = new Map<string, { bytes: Uint8Array; mediaType?: string }>();
@@ -41,7 +41,7 @@ const OUTPUT_MARKER = /\n\[output (sha256:[0-9a-f]{64}): (\d+) bytes; read with 
 
 const OutputRef = toolOutputRefSchema();
 
-function parsedRef(details: import("@openomni/protocol").PlainValue | undefined) {
+function parsedRef(details: import("@oni/protocol").PlainValue | undefined) {
   return OutputRef.parse(z.object({ outputRef: OutputRef }).parse(details).outputRef);
 }
 

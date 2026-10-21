@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type Channel, Gateway, Operational, Outbound } from "@openomni/protocol";
+import { type Channel, Gateway, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent } from "../src/errors";
 import { createA2AProvider } from "../src/provider/a2a/provider";
@@ -10,7 +10,7 @@ const PEERS = [
   { id: "scout", token: "scout-token" },
   { id: "planner", token: "planner-token" },
 ];
-const CARD = { name: "OpenOmni Resident", description: "one Resident, delegating through evidence", version: "0.1.0" };
+const CARD = { name: "Oni Resident", description: "one Resident, delegating through evidence", version: "0.1.0" };
 /** The driver's run port with every sleep elided: a blocking wait expires at once. */
 const immediate: EffectRunner = () => Promise.resolve(undefined as never);
 

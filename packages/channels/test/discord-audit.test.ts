@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { injectedOptions, testRun } from "./helpers/injected";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { DiscordClient } from "../src/provider/discord/client";
 import { DiscordApiError, DiscordHandlerMissingError } from "../src/errors";
 import { DiscordAdapter } from "../src/provider/discord/surface";

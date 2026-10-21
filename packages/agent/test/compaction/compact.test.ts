@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { isolated } from "../helpers/isolated";
 import { describe, expect, it } from "bun:test";
-import type { Message, PlainValue } from "@openomni/protocol";
+import type { Message, PlainValue } from "@oni/protocol";
 import { z } from "zod";
 import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";

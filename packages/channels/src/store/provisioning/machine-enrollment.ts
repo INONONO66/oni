@@ -1,4 +1,4 @@
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { z } from "zod";
 import type { openChannelStore } from "../sqlite/index.js";
 import { sqliteJsonData } from "../sqlite/json.js";

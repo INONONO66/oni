@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import type { ActionSqlRow } from "./storage/sqlite-l0-rows.js";
 
-export const GENESIS_PREV_HASH = "openomni:l0:genesis:v1";
+export const GENESIS_PREV_HASH = "oni:l0:genesis:v1";
 
 /** Leaf module so the session-file kernel and the SQLite write plane share it without a cycle. */
 export function computeActionHash(input: Omit<ActionSqlRow, "action_hash">): string {

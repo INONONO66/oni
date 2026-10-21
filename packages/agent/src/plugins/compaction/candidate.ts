@@ -1,4 +1,4 @@
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type { CompactionCandidate } from "./speculate";
 
 // A summary sees the original leading prefix; preservation is decided separately.

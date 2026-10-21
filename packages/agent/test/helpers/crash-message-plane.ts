@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { Clock, Effect } from "effect";
 import { TestClock } from "effect/testing";
 import type { LedgerError } from "../../src/core/store/errors";
-import { Delivery, LedgerAction, SessionTransition } from "@openomni/protocol";
+import { Delivery, LedgerAction, SessionTransition } from "@oni/protocol";
 import { z } from "zod";
 import { sessionTree } from "./session-tree";
 import type { SessionKernel } from "../../src/core/session/entity";

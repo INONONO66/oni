@@ -1,5 +1,23 @@
 # Implementation Status
 
+## #1620 project rename: openomni -> oni
+
+On `rename/oni` (2026-10-21, base `04af03379`). The product, the kernel app
+and every workspace package carry the name `oni`: `apps/oni` (was
+`apps/openomni`), `@oni/*` package names and imports, root package `oni`, the
+published bundle `oni` with the `oni` binary (`bin/oni.js`), the CLI help,
+the data directory `~/.oni`, the `ONI_*` environment family, launchd
+`ai.oni.*`, systemd `oni.service`, the desktop IPC channel `oni:gateway`, the
+protocol error brand `oni.protocol.namedError`, the `oni/<version>` and
+`oni-server` user agents, the GitHub comment marker `oni-delivery:`, and the
+benchmark history key `Oni Benchmarks` (the gh-pages `dev/bench/data.js`
+entries key was renamed in place so the accepted reference survives). No
+compatibility path reads the old names: a deployment moves its `~/.openomni`
+directory to `~/.oni`, rewrites `OPENOMNI_*` keys to `ONI_*`, and reinstalls
+the bundle under the new name. Frozen history keeps the old name on purpose:
+`docs/agents-stamps.md`, the per-PR stamps under `docs/agents-stamps/`, and
+`.omo/` plans and reports.
+
 ## #1512 cli: contact over the machine pty (epic #1508)
 
 On `feat/1512-cli-contact-pty` (2026-10-17, base `0d88e4fa7` = the #1511
@@ -13,7 +31,7 @@ machine the self machine or a live enrollment; the row carries no credential
 and the channel profile mounts nothing for it (`CONTACT_ONLY_PROVIDERS`,
 status `ready` with the contact detail). The hard-coded
 `cli:claude-code|codex|omp` list is gone from `send-message`.
-`apps/openomni/src/bundles/child-activity/contact/`: `declaration.ts`
+`apps/oni/src/bundles/child-activity/contact/`: `declaration.ts`
 (row resolution, `cli-<id>` pane name), `rule.ts` (the idle/working/blocked
 data rule over the turn's persisted receipts — hook `waiting` blocks, hook
 `terminal` or the transcript's terminal is idle, any other hook phase is
@@ -25,7 +43,7 @@ per-child counter file) and `runner.ts` (Effect-native: `host.place({
 machineId })` is an exact placement whose lease `renewPtyWhile` holds the
 pane; `pty.list` decides lookup-or-create — a pane this Resident did not
 launch is never written to; a launch writes the hook script and the pack's
-`liveConfig` under `<cwd>/.openomni/<child>/`, installs a spool-only watch,
+`liveConfig` under `<cwd>/.oni/<child>/`, installs a spool-only watch,
 writes `exec <pack.launch argv>`, takes the transcript path from the first
 live line through the pack's `locate`, and re-installs the watch with both
 sources; one watch per turn, keyed by the send; submit is the pack's recipe,
@@ -51,7 +69,7 @@ the pane and the waiting send ends `landed`; the parent gets the existing
 expiry prompt. `index.ts` composes `contacts.cli` and `contacts.reply` in
 production; nothing runs until a cli row is declared, and app stop drops
 every pane this Resident launched (watch, tmux session, lease).
-Receipts: `apps/openomni/test/cli-contact.test.ts` (declaration door under
+Receipts: `apps/oni/test/cli-contact.test.ts` (declaration door under
 consent, the rule table, the runner over a scripted host — launch, one
 watch per turn, blocked/busy refusals, the stalled diagnostic, the
 interrupt, cleanup) and `test/cli-contact-e2e.test.ts` (a booted Resident, a
@@ -92,7 +110,7 @@ is a typed refusal after placement and before any pane opens; a replayed
 tool call with the same key joins the running turn or returns its settled
 outcome without re-typing the letter; committed-action rescans page from
 the last seen revision (`childRowsAfter`). Receipts: the r1 cases in
-`apps/openomni/test/cli-contact.test.ts` (pane rollback across three
+`apps/oni/test/cli-contact.test.ts` (pane rollback across three
 refusals, the TestClock stall predicate, typed `turn_already_ended` with no
 ETX, deadline retire on terminal and stall, replay of ended and running
 keys, one full-history scan, the hook appender run under `/bin/sh` with a
@@ -102,7 +120,7 @@ export resolution and refusal), `test/delegation-policy.test.ts`
 deadline chain after the terminal; the longer-than-stall deadline), and
 `packages/machines/test/attach.test.ts` (`host.exports`). The
 `kernel.commit` pin is re-measured at `index.ts:1444`. At the r1 tip the
-complete `bun test apps/openomni --timeout 15000` run, backgrounded under
+complete `bun test apps/oni --timeout 15000` run, backgrounded under
 the #1498 15-minute watchdog, was terminated by the watchdog after 25 test
 files with 0 `(fail)` lines (its last file header `test/hooks-json.test.ts`,
 a sibling lane's app suite running on the same machine when it ended) and
@@ -143,7 +161,7 @@ forwarded to a daemon that refused it), and the listing drops a root two
 allowed exports share because `location()` refuses it as ambiguous. The
 hook appender's header documents the single-user assumption behind
 `kill -0` (another uid's live holder would read as gone); no behaviour
-change. Receipts: the r2 cases in `apps/openomni/test/cli-contact.test.ts`
+change. Receipts: the r2 cases in `apps/oni/test/cli-contact.test.ts`
 (two cli deadlines on one sender through `armDelegationDeadline` against a
 chain model judged by `Core.alarmDisposition` — the first retire leaves
 the second `run`, session children share their chain, two panes with one
@@ -173,7 +191,7 @@ authority-ordered read model; the existing watch owner reads verified remote
 locations through daemon filesystem calls and the alarm cadence, with
 fixture-backed real-daemon/entity tests but no live external-child launch
 claimed. r1 (2026-10-17, ruling amendment
-https://github.com/INONONO66/openomni/issues/1511#issuecomment-6233905889):
+https://github.com/INONONO66/oni/issues/1511#issuecomment-6233905889):
 a transcript line re-read under a new file generation lands as a new
 `child_receipt` beside the `generation_changed` diagnostic row, never an
 `idempotency_conflict`; the dialect pack's `live` decoder is the one owner of
@@ -203,7 +221,7 @@ Effect through the one injected
 `WatchSenders` door (`deliver` and `admit`), keeping the #1423 single-entry
 rule; the `off: ["child-activity"]` boot row and the fixture-derived
 `toolUseId` assertion are in the receipts. At `49a4efa87` the complete
-`bun test apps/openomni --timeout 15000` run was terminated by the #1498
+`bun test apps/oni --timeout 15000` run was terminated by the #1498
 15-minute watchdog after 33 files with 0 failures and was not claimed green;
 at the r1b tip the same command completed under the watchdog with 1066 pass,
 0 fail across 144 files (73.5 s, exit 0), the only `(fail)` line in its
@@ -232,14 +250,14 @@ The adapter stamps transcript reads strictly monotonic per child
 receipts), so two reads inside one clock millisecond across a generation
 change can never tie in `currentState` and a shrinking rewrite wins over
 the larger stale generation; the total comparator is unchanged. The
-complete `bun test apps/openomni --timeout 15000` run on `0d88e4fa7`
+complete `bun test apps/oni --timeout 15000` run on `0d88e4fa7`
 completed under the #1498 watchdog (1066 pass, 0 fail, 144 files); one
 completion does not retire the #1498 record.
 
 ## #1527 worker dialect packs (epic #1508)
 
 On `feat/1527-dialect-packs` (2026-10-17, base `8638019e8`, PR #1549).
-`apps/openomni/src/bundles/child-activity/dialects/pack.ts` is the pure
+`apps/oni/src/bundles/child-activity/dialects/pack.ts` is the pure
 dialect-pack contract: a strict `Manifest` (id, supported `versions`
 pattern, `commands`, screen markers for permission/idle/working, and the
 `capabilities` a pack declares — `live` hooks/extension/none, `transcript`
@@ -260,7 +278,7 @@ first pack is `dialects/claude-code/` (manifest, launch via `--session-id`
 and `--settings`, hook events mapped onto the six phases, JSONL user and
 assistant records joined to hook evidence on `toolUseId`). No reconciler
 consumes the packs yet; integration follows #1511. Receipt:
-`apps/openomni/src/bundles/child-activity/dialects/conformance.test.ts`
+`apps/oni/src/bundles/child-activity/dialects/conformance.test.ts`
 (runs every registered pack over its captured screen, hook and JSONL
 fixtures under `claude-code/test/`: selection by command and version,
 typed refusals, phase coverage with repeated and descending `seq`
@@ -292,7 +310,7 @@ fail-open paths from the agent-core audit (2026-10-14) close in
 `packages/agent`. `Manifest.define` (`src/core/ports/capability.ts`) now
 refuses an `off` name that no capability or bundle declares with the typed
 `DefineRefused` `{ code: "unknown", name: "manifest", detail: <name> }`,
-so a misspelled `OPENOMNI_BUNDLES_OFF` entry fails the boot before any
+so a misspelled `ONI_BUNDLES_OFF` entry fails the boot before any
 listener instead of silently leaving the capability on; `cascadeOff`
 (`src/core/composition/compose.ts`) seeds the disabled map straight from
 `manifest.off` because every root is already declared. Compose also
@@ -302,7 +320,7 @@ rejects two capabilities that declare the same port key as `duplicate`
 set stays at six codes; `DefineRefused` grows from three codes to four.
 Receipts: `packages/agent/test/capability-define.test.ts` (the refusal and
 the declared-name pass), `packages/agent/test/compose-reject.test.ts`
-(the port-key collision), `apps/openomni/test/capability-off-boot.test.ts`
+(the port-key collision), `apps/oni/test/capability-off-boot.test.ts`
 (the former "ignored" row now asserts the typed boot refusal with no model
 call). The #1306 sentences below that describe compose ignoring undeclared
 names record the pre-C12 behavior.
@@ -313,8 +331,8 @@ On `feat/1600-first-live-run` (2026-10-17, lane R4 of #1600, the last).
 Nothing in the repository has ever spoken to a real platform: every
 receipt below this section is a fake SDK listener or client. This lane
 gives the Owner the two commands and the one runbook that first live run
-needs, and nothing else. **`openomni channel add <platform>`**
-(`apps/openomni/src/cli/channel.ts`) declares a bot instance — Slack,
+needs, and nothing else. **`oni channel add <platform>`**
+(`apps/oni/src/cli/channel.ts`) declares a bot instance — Slack,
 Discord, Telegram, GitHub, a webhook target, an A2A peer — or Linear's
 Owner instance over the Owner's socket with its grant block (`--tier`,
 `--allow`, `--mention-only`; the Owner's consent by the call itself, lane
@@ -323,7 +341,7 @@ echoed, an optional field left blank not sent) and sealed by the daemon,
 `--print` showing the declaration for the Resident's provision tool
 instead; the Owner-account flags (`--intake`, `--outbound`,
 `--auto-reply`) belong to Linear alone, every other account signs in with
-`openomni login`. **`openomni messaging`** (`cli/messaging.ts`) is the
+`oni login`. **`oni messaging`** (`cli/messaging.ts`) is the
 readiness report read from the catalog the env file names (`main.ts`
 opens the channel tables on the catalog file and closes them at once):
 per platform the rows with their postures and whether the credential row
@@ -349,13 +367,13 @@ platform with every check passing is the first this document may call
 live. Found by lane R3 and still open on #1600: an authenticated answer
 naming a request that does not exist never settles its frame.
 
-Receipts: `apps/openomni/test/cli-channel.test.ts` (the flags, the
+Receipts: `apps/oni/test/cli-channel.test.ts` (the flags, the
 prompts and their secrecy, the declaration with its grant, the socket
 report, `--print`, every refusal), `test/cli-messaging.test.ts` (the
 report over every platform shape, nothing declared, a ready row),
 `test/cli.test.ts` (`messaging` over the real catalog reader: no catalog
 refused plainly, a declared row reported, the usage). Suites:
-`packages/channels` 1017 pass, `apps/openomni` 1055 pass, 0 fail.
+`packages/channels` 1017 pass, `apps/oni` 1055 pass, 0 fail.
 
 ## #1600 Messaging readiness — dead paths (lane R3)
 
@@ -402,11 +420,11 @@ reported as a handle**: `send_message` returns the contact outcome
 (`not_sent` for a platform that rejected the letter, `unknown` for one
 whose outcome is unknown), the same word a connector contact gives.
 
-Receipts: `apps/openomni/test/e2e.test.ts` (the declared webhook door:
+Receipts: `apps/oni/test/e2e.test.ts` (the declared webhook door:
 unsigned 401, signed and refused 200 "Not ingested", undeclared 404),
 `test/boot-wiring.test.ts` (the handler under its own key, gone with the
 stage), `packages/channels/test/webhook-provider.test.ts` (refusal 200,
-failure 500), `apps/openomni/test/answer-authentication.test.ts` (the production ws
+failure 500), `apps/oni/test/answer-authentication.test.ts` (the production ws
 grant and a `connection:<uuid>` socket; another surface and a token boot
 go to the token rule), `test/request-entry-auth.test.ts` (the booted
 tokenless frame with an empty credential is authenticated),
@@ -416,7 +434,7 @@ tokenless frame with an empty credential is authenticated),
 `packages/channels/test/router/messaging/identity.test.ts` (the Owner-only
 platform refusal before transport), `test/linear-provider.test.ts` (the
 deaf start refused; `all` reads), `test/kakaotalk-owner.test.ts` (the cold
-send receipt). Suites: `packages/channels` 1017 pass, `apps/openomni`
+send receipt). Suites: `packages/channels` 1017 pass, `apps/oni`
 1045 pass, 0 fail.
 
 ## #1600 Messaging readiness — the reply door (lane R2)
@@ -485,7 +503,7 @@ Owner instance, the Owner's instance with auto-reply, the bot when the bot
 saw it; a button tap answers the button's message),
 `test/router/messaging/social-budget.test.ts` (a letter to the owner-tier
 actor asks no budget and debits nothing; a declared one still governs),
-`apps/openomni/test/resident-reply-to-origin.test.ts` (the draft reaches
+`apps/oni/test/resident-reply-to-origin.test.ts` (the draft reaches
 the Owner through the bot, unconsented, naming the conversation; with no
 platform it stays in the session; another refusal is never a draft),
 `test/reply-door.test.ts` (the app's origin fold carries `receivedBy`: an
@@ -494,7 +512,7 @@ Owner-received DM is a draft through the real gateway),
 without a budget takes the letter, no consent asked),
 `test/owner-contact.test.ts` (the contact's choice: a messenger bot or the
 socket, one endpoint, never GitHub or an Owner-only platform). Suites:
-`packages/channels` 1015 pass, `apps/openomni` 1039 pass, 0 fail.
+`packages/channels` 1015 pass, `apps/oni` 1039 pass, 0 fail.
 
 ## #1600 Messaging readiness — admission: a declared instance can admit people (lane R1)
 
@@ -520,7 +538,7 @@ instance's declaration is the platform grant's posture and an Owner
 instance's block speaks only where the platform has no bot reader
 (`settleGrant`; a union would have let an Owner-instance list lock
 strangers out of the bot); the registrar takes the declarations over the
-env lists `OPENOMNI_CHANNEL_ALLOWED_SENDERS`/`OPENOMNI_CHANNEL_MENTION_ONLY`,
+env lists `ONI_CHANNEL_ALLOWED_SENDERS`/`ONI_CHANNEL_MENTION_ONLY`,
 which stand only where no declaration speaks — an explicit
 `mentionOnly: false` included (`createMountedChannelGrantRegistrar`). A
 guest on a surface declared at `manager` is admitted at that tier
@@ -548,7 +566,7 @@ workspace-less row after the exact (channel, workspace, externalId) match,
 so a Person declared as `{ channel: "slack", externalId: "T1:U1" }` is
 recognized in workspace `T1`; the `contact_add` tool text names what an
 endpoint looks like on every platform. Receipts:
-`apps/openomni/test/provision-tools.test.ts` (any block takes consent, a
+`apps/oni/test/provision-tools.test.ts` (any block takes consent, a
 consented block replaces, a declaration without one keeps, an empty list
 is refused; an Owner instance's secret rotates only under consent),
 `test/provisioning.test.ts` (the row carries it),
@@ -566,7 +584,7 @@ theirs and the Owner is warned), `test/request-domain-revisions.test.ts`
 `packages/channels/test/router/mention-only.test.ts` (the surface's mention
 is addressed), `test/store/actor/endpoint-filters.test.ts` (the fallback),
 `test/{slack,discord,instagram,kakaotalk}-owner.test.ts` (each account);
-suites: `packages/channels` 1010 pass, `apps/openomni` 1032 pass,
+suites: `packages/channels` 1010 pass, `apps/oni` 1032 pass,
 0 fail. Not in this lane: the remaining #1600 lanes (reply door, dead
 paths, the first live run).
 
@@ -580,7 +598,7 @@ messenger provider (Slack, Discord, Telegram, Instagram, KakaoTalk), under
 `support/sdk-listener.ts` custody; GitHub, Linear, webhook and A2A are
 hand-rolled over fetch and webhook ingress. The SDK's own credential store
 is never used — every account session and bot token is a vault row
-declared through `channel_add` or sealed by `openomni login`. **Identity**
+declared through `channel_add` or sealed by `oni login`. **Identity**
 (P1, P2, P5): a mounted messenger channel is one `(platform, identity)`
 instance, `bot` the default on Slack, Discord and Telegram (GitHub, webhook
 and ws stay identity-less platform surfaces reached as the bot), `owner`
@@ -603,7 +621,7 @@ the result). **Inbound from other agents**: the one A2A door at `POST /a2a`
 admits every declared peer at its contact's tier, the context being the
 conversation. **Retired**: the hand-rolled Slack/Discord/Telegram
 transports, the reply-grant machinery and the post-turn `send_message`
-report, `OPENOMNI_ACTORS` and env actors (Person rows are the one
+report, `ONI_ACTORS` and env actors (Person rows are the one
 declaration), the #1110 "only the Owner is public" identity amendment.
 **Not shipped by the epic** (recorded, not implied): the Owner-draft arm
 for conversations only the Owner instance can reach (shipped by #1600 lane
@@ -611,11 +629,11 @@ R2, the section above); the Telegram Owner
 instance (no SDK export yet); a contact's later answer delivered as a
 prompt (A2A answers ride the tool result; the inbound door is the
 asynchronous path); A2A streaming, push notifications and durable tasks;
-budgets as Person fields (`OPENOMNI_SOCIAL_BUDGETS` stays env). Dead
+budgets as Person fields (`ONI_SOCIAL_BUDGETS` stays env). Dead
 exports: the baseline is empty and `check-dead-exports` passes at this
 commit; SLOP receipts for the epic's deletions are in `docs/SLOP.md`
 (the #1569 table). Suite counts at the epic's close: see each lane's
-section; the last full runs were `packages/channels` 1005, `apps/openomni`
+section; the last full runs were `packages/channels` 1005, `apps/oni`
 1023, `packages/protocol` 656, 0 fail.
 
 ## #1569 Perimeter collapse for addressed sends (lane 8)
@@ -625,18 +643,18 @@ corrected). Who the Resident may write to, and when the Owner is asked, are
 now the Owner's declarations alone. **Person `reach`**:
 `Provisioning.Person` carries `reach?: boolean`
 (`packages/protocol/src/provisioning/schema.ts`), set through `contact_add`'s
-manifest (`apps/openomni/src/bundles/provision/contacts.ts`) — and it is the
+manifest (`apps/oni/src/bundles/provision/contacts.ts`) — and it is the
 Owner's to grant: a manifest carrying `reach: true` (a new Person, or a
 re-declaration of a reachable one, so the endpoints behind the grant are
 the Owner's too) suspends `contact_add` for the Owner's consent bound to the
 row's revision (`approvalRequirement`), like a tier raise; without consent
 the row never lands. The standing `SenderTargetGrant` for every resident
 session is built from the Person store at each send (`grants` in
-`apps/openomni/src/index.ts`: residents × Persons with `reach: true`,
+`apps/oni/src/index.ts`: residents × Persons with `reach: true`,
 operations `awaited` and `fire_and_forget`), so a contact named mid-run is
 reachable at once and a Person without `reach` is an inbound identity only
 — a letter to it is `ungranted` (the tool sees the
-`message.resident.actor_grant` policy row). **`OPENOMNI_ACTORS` is
+`message.resident.actor_grant` policy row). **`ONI_ACTORS` is
 retired**: `config.actors`, `RegisteredActor`, `actorsFromEnv` and
 `registerActors` are gone; `materializePersons` is the one path from a
 declaration to an actor row (the loopback `ws` Owner bootstrap is
@@ -645,7 +663,7 @@ unchanged), and `loadConfig` refuses the variable when it is still set
 social budget is the Owner's to approve, never a silent denial**: the
 consent is one judgement made in two places that read the same facts — the
 Person's `reach` and the active budgets (`activeBudgetFor`, exported by
-`@openomni/channels`: a lapsed allowance is no budget). At the tool,
+`@oni/channels`: a lapsed allowance is no budget). At the tool,
 `send_message`'s approval hook (`ownerConsent`) suspends a letter to a
 reachable Person with no active budget for the Owner's consent, bound to
 the Person row's revision (`domainRevisions: { [personId]: revision }`,
@@ -669,7 +687,7 @@ hand and its window/cooldown/quiet-hours/do-not-contact suppressions
 stand. Receipts: `packages/channels/test/router/messaging/social-budget.test.ts`
 (preflight's `approval_required`, the lapsed budget, the consented send
 with no debit, consent under a declared budget), `test/barrel.test.ts`,
-`apps/openomni/test/send-message-contacts.test.ts` (the hook per target
+`apps/oni/test/send-message-contacts.test.ts` (the hook per target
 kind and the bound revision; the consent fact from the kernel's revisions;
 the kernel leg through `protectedDispatch`: suspend, answer, one consented
 send; refusal sends nothing; an edited row is stale consent),
@@ -682,8 +700,8 @@ again), `test/send-message-e2e.test.ts` (a Person without `reach` is
 letter land with no reboot), `test/app-surface.test.ts`,
 `test/request-channel-e2e.test.ts` and `test/helpers/request-owner-process.ts`
 (Person rows with `reach`, never env actors), `test/config.test.ts`
-(`OPENOMNI_ACTORS` refused); suites: `packages/channels` 1005 pass,
-`apps/openomni` 1023 pass, 0 fail (the earlier 1024 counted the child process a cleanup test spawns).
+(`ONI_ACTORS` refused); suites: `packages/channels` 1005 pass,
+`apps/oni` 1023 pass, 0 fail (the earlier 1024 counted the child process a cleanup test spawns).
 
 ## #1569 A2A: the door and the `a2a:` contact (lane 9c)
 
@@ -704,13 +722,13 @@ never introduces one (`channelConsentRequired`, `executeSecretRotate`).
 declaration into a `ready` roster entry and mounts one row, `A2A_DOOR_ID`
 (`channel:a2a`, surface `a2a`), while any peer is declared — keyed by
 nothing a peer's revision or rotation changes, since the roster
-(`a2aRoster` in `apps/openomni/src/channels.ts`) lists the instance store
+(`a2aRoster` in `apps/oni/src/channels.ts`) lists the instance store
 and opens each credential from the vault at request time; disabling,
 rotating or declaring a peer takes effect at the next request with no
 remount, and the door goes only with the last peer
-(`apps/openomni/test/a2a-door.test.ts`). The door (`A2AAdapter`, `POST
+(`apps/oni/test/a2a-door.test.ts`). The door (`A2AAdapter`, `POST
 /a2a` and `GET /.well-known/agent-card.json` — `/.well-known/agent.json`
-too — through `WEBHOOK_ROUTES`/`CARD_PATHS` in `apps/openomni/src/index.ts`)
+too — through `WEBHOOK_ROUTES`/`CARD_PATHS` in `apps/oni/src/index.ts`)
 compares a bearer in constant time against every peer; the match's id is
 the peer's actor id, and the peer's tier is the Owner's `contact_add` of an
 actor with endpoint `{ channel: "a2a", externalId: <id> }`, never the
@@ -744,7 +762,7 @@ warned); a restart forgets them. The card names this agent (`A2A_CARD`),
 scheme, and as its url the door the request came through — the forwarded
 scheme and host when a proxy terminating TLS sets them. Out: the
 `a2a:<id>` contact kind on `send_message` (`a2aConnector`,
-`apps/openomni/src/composition/a2a-contacts.ts`): the peer's card is read
+`apps/oni/src/composition/a2a-contacts.ts`): the peer's card is read
 once from either well-known path (a GET that fails in any way is no card)
 and honoured only when its url shares the declared url's origin — a card
 pointing elsewhere is `not_sent` with nothing sent and the Owner warned
@@ -782,15 +800,15 @@ waiter, cancel, bounded retention, every JSON-RPC error, the failed task),
 foreign card, one send per key with every receipt, the task read-back),
 `test/router-bot-filtered.test.ts` and `test/automation-store.test.ts` (the
 a2a exemptions), `test/provider-contract.test.ts`,
-`apps/openomni/test/a2a-door.test.ts` (one door for two peers, the live
+`apps/oni/test/a2a-door.test.ts` (one door for two peers, the live
 roster, the door going with the last peer),
-`apps/openomni/test/a2a-contacts.test.ts` (the card, the foreign card, the
+`apps/oni/test/a2a-contacts.test.ts` (the card, the foreign card, the
 send, the replay, every answer shape and task state, the thread, the wait,
 its ceiling and the failed read, the bounded answer, every withheld peer),
 `test/send-message-contacts.test.ts`, `test/provision-tools.test.ts` (the
 url consent), `test/e2e.test.ts` (two peers on the booted daemon: the
 named peer's blocking send answered by the Resident, the unnamed peer's
-task failed); suites: `packages/channels` 1003 pass, `apps/openomni` 1020
+task failed); suites: `packages/channels` 1003 pass, `apps/oni` 1020
 pass, 0 fail.
 
 ## #1569 Linear provider (lane 9b)
@@ -808,7 +826,7 @@ as the Owner (absent leaves the instance ingress-only, loudly: a reply
 without a key is a Warn and `not_sent`), and the Owner's user id for when
 the key cannot say; with a key the start reads `viewer` and fails closed
 when it cannot name its user. Ingress is the workspace webhook at
-`/linear/webhook` (`WEBHOOK_ROUTES` in `apps/openomni/src/index.ts` maps
+`/linear/webhook` (`WEBHOOK_ROUTES` in `apps/oni/src/index.ts` maps
 `/github/webhook` and `/linear/webhook` to their provider's handler, read
 live from the supervisor's table) under the declared posture: `all` reads
 every new issue and comment; `mentions_and_dms` reads the comments that
@@ -859,9 +877,9 @@ compare, duplicates and unsupported events, the
 router's refusal and a failure, comments out with every receipt and the
 re-run's lookup, the keyless instance, the failed-closed start, the
 Owner-only arms), `test/provider-contract.test.ts` (the Owner-only
-conformance case, webhook-fed), `apps/openomni/test/e2e.test.ts` (the
+conformance case, webhook-fed), `apps/oni/test/e2e.test.ts` (the
 `/linear/webhook` route beside GitHub's); suites: `packages/channels`
-982 pass, `apps/openomni` 1013 pass, `packages/protocol`
+982 pass, `apps/oni` 1013 pass, `packages/protocol`
 656 pass, 0 fail.
 
 ## #1569 Outbound `webhook:` contact (lane 9a)
@@ -872,7 +890,7 @@ Merged to main as PR #1594 (2026-10-16).
 (`{ id, contact, from, message, replyTo?, sentAt }`) signed with the
 target's shared secret in `X-Signature` (`sha256=<hex HMAC-SHA256 of the
 raw body>`, the signature the inbound `webhook` provider verifies) and
-carrying the idempotency key in `X-OpenOmni-Delivery`. A target is a
+carrying the idempotency key in `X-Oni-Delivery`. A target is a
 `channel:webhook:<id>` instance whose sealed credential names a `url`
 (`WebhookCredentials.url`, http or https; absent leaves the declaration
 ingress-only as before) beside `id` and its shared secret — `secret`
@@ -882,7 +900,7 @@ declaration naming neither is refused by the schema). Declaring a url is
 an outbound destination, so it takes Owner consent like an Owner instance
 or an outbound grant (`channelConsentRequired`): the Resident cannot
 declare a target of its own. The target and its secret are read from the
-vault at send time (`apps/openomni/src/composition/webhook-contacts.ts`,
+vault at send time (`apps/oni/src/composition/webhook-contacts.ts`,
 `webhookContacts` over the instance store, `vaultCredentialReader` and the
 sender), so nothing about a target lives outside its declaration; an
 undeclared target (or another provider's row), a disabled one, one
@@ -906,7 +924,7 @@ the Owner once and never re-sent. Custody is the process's own, as for
 every driver: a daemon that crashes between the POST and the journaled
 receipt holds no memory of the attempt. The connector
 (`webhookConnector` in
-`apps/openomni/src/bundles/messaging/send-message/index.ts`, registered
+`apps/oni/src/bundles/messaging/send-message/index.ts`, registered
 beside `cli`) keys the attempt by the tool call (`<sessionId>:<callId>`,
 so a replayed call is the same attempt) and returns the target's textual
 answer on the tool result itself (`ContactOutcome.response`): a webhook is
@@ -932,14 +950,14 @@ the inbound side verifies, one POST per key never followed anywhere with
 the textual answer cut at the byte bound, the refusal / redirect /
 never-left / 5xx / lost-answer receipts with their Warns, the bounded
 request), `packages/channels/test/webhook-provider.test.ts` (the inline
-secret on the inbound side), `apps/openomni/test/webhook-contacts.test.ts`
+secret on the inbound side), `apps/oni/test/webhook-contacts.test.ts`
 (the body and the vault-read target, the inline secret, every `not_sent`
 reason with nothing posted and the Owner's detail),
-`apps/openomni/test/provision-tools.test.ts` (consent for a url, none
-introduced by a rotation), `apps/openomni/test/send-message-contacts.test.ts`
+`apps/oni/test/provision-tools.test.ts` (consent for a url, none
+introduced by a rotation), `apps/oni/test/send-message-contacts.test.ts`
 (the address, the connector's outcomes, the answer on the result),
 `packages/channels/test/barrel.test.ts`; suites: `packages/channels`
-969 pass, `apps/openomni` 1012 pass, 0 fail.
+969 pass, `apps/oni` 1012 pass, 0 fail.
 
 ## #1569 Login helpers and the channel wire: the Owner's own sign-in (lane 5b)
 
@@ -967,7 +985,7 @@ credential store is never used. The wire: `Provisioning.ChannelDeclareRequest`
 (`packages/protocol/src/provisioning/wire.ts`) is the provision tool's
 `channel_add` as a ws frame; `packages/channels/src/websocket.ts` decodes it
 (`decodeChannelDeclare`: a malformed frame is answered `invalid_record`
-naming its issues, never routed as chat); `apps/openomni/src/composition/channel-wire.ts`
+naming its issues, never routed as chat); `apps/oni/src/composition/channel-wire.ts`
 (`channelWire`) answers it — only the Owner's socket (the automation wire's
 admission: the registered identity, else the ws bootstrap grant) may
 declare, `owner_only` otherwise, `store_unconfigured` without provisioning,
@@ -976,11 +994,11 @@ under `channelDomainRevisions`, so the declaration is bound to the instance
 revision exactly as an approved tool invocation is and an Owner instance
 passes consent by the call itself; `gateway.ts`'s `webSocketCallbacks`
 takes the wire as its `channels` port and `index.ts` composes it over the
-provisioning port. The CLI: `openomni login <slack|discord|instagram|kakaotalk>
+provisioning port. The CLI: `oni login <slack|discord|instagram|kakaotalk>
 [--id channel:<platform>:owner] [--intake mentions_and_dms|all|none]
-[--outbound] [--auto-reply] [--print]` (`apps/openomni/src/cli/login.ts`)
+[--outbound] [--auto-reply] [--print]` (`apps/oni/src/cli/login.ts`)
 runs the sign-in, declares the instance over the Owner's socket
-(`main.ts`: `ws://$OPENOMNI_WS_HOST:$OPENOMNI_WS_PORT/ws` with the `auth`
+(`main.ts`: `ws://$ONI_WS_HOST:$ONI_WS_PORT/ws` with the `auth`
 subprotocol from the env file, one frame out and the matching frame back)
 and prints its status; `--print` prints `{ provider, identity: "owner",
 credential }` instead, for an Owner declaring through the Resident's
@@ -1003,7 +1021,7 @@ flows are faked at the seam), a desktop sign-in, re-login on session
 expiry. Receipts: `packages/channels/test/owner-login.test.ts` (the four
 flows and their prompts, the Instagram scratch directory gone, the typed
 refusals), `test/websocket-channel-declare.test.ts` (decode and the
-`invalid_record` answer), `apps/openomni/test/cli-login.test.ts` (parsing,
+`invalid_record` answer), `apps/oni/test/cli-login.test.ts` (parsing,
 each platform's prompts, the declared request, the refused report,
 `--print`, the payload kept when the daemon cannot take the declaration,
 the own status deciding the exit, the secret prompts),
@@ -1014,7 +1032,7 @@ malformed frame is `invalid_record`, a collaborator's socket is
 `owner_only`; the CLI's real client against the daemon and against bare
 sockets that close, refuse the frame, refuse the token or sit off
 loopback), `test/cli.test.ts`; suites: `packages/channels`
-963 pass, `apps/openomni` 1009 pass, 0 fail.
+963 pass, `apps/oni` 1009 pass, 0 fail.
 
 ## #1569 Owner-only platforms: Instagram and KakaoTalk through the Owner's account (lane 7)
 
@@ -1096,11 +1114,11 @@ and never re-sent),
 `test/provider-owner-arm.test.ts`, `test/channel-band-boundary.test.ts`,
 `test/router/messaging/composition.test.ts` (draft, auto-reply, bot
 precedence, the DM answered in its chat), `test/sdk-listener.test.ts`
-(the recoverable pre-connected error), `apps/openomni/test/reply-door.test.ts`
-(the DM binding's chat), `apps/openomni/test/identity-instances.test.ts` (Owner-only
+(the recoverable pre-connected error), `apps/oni/test/reply-door.test.ts`
+(the DM binding's chat), `apps/oni/test/identity-instances.test.ts` (Owner-only
 rows, `autoReply` gated by outbound, the supervisor's auto-reply set),
-`apps/openomni/test/owner-policy.test.ts`; suites: `packages/channels`
-956 pass, `apps/openomni` 998 pass, 0 fail.
+`apps/oni/test/owner-policy.test.ts`; suites: `packages/channels`
+956 pass, `apps/oni` 998 pass, 0 fail.
 
 ## #1569 Owner intake: the Owner instance reads what the account sees (lane 6)
 
@@ -1178,12 +1196,12 @@ refused copy carried, in-flight copy waits), `test/router/mention-only.test.ts`
 (an Owner mention is addressed under an `ownerIntake` grant whichever copy
 arrives, filtered without one; the Owner's copy has its own inbound id),
 `test/channel-band-boundary.test.ts` (`agent-messenger/discord` home),
-`apps/openomni/test/identity-instances.test.ts` (posture → `listens`, the
+`apps/oni/test/identity-instances.test.ts` (posture → `listens`, the
 one grant row re-registered at the least reader tier naming the Owner
 reader, an Owner-only reader registers the grant),
-`apps/openomni/test/provision-tools.test.ts` (posture knobs under the
+`apps/oni/test/provision-tools.test.ts` (posture knobs under the
 resolved identity, sticky settings on re-declaration); suites:
-`packages/channels` 922 pass, `apps/openomni` 996 pass, 0 fail.
+`packages/channels` 922 pass, `apps/oni` 996 pass, 0 fail.
 
 ## #1569 the identity axis and the Slack Owner instance (PR 5 of the epic)
 
@@ -1251,19 +1269,19 @@ classification over both error shapes, the owner arm's runtime),
 home), `test/router/messaging/identity.test.ts` (bot default and bare
 platform fallback, `as: owner` journaled through `slack:owner`, the three
 `identity_not_granted` refusals before transport, a bot send never leaving
-through the Owner's account), `apps/openomni/test/identity-door.test.ts`
+through the Owner's account), `apps/oni/test/identity-door.test.ts`
 (the real gateway: Owner-origin turn + outbound-granted instance, non-Owner
 turn, no Owner instance, no identity, the tool's `as`),
-`apps/openomni/test/identity-instances.test.ts` (declared Owner rows,
+`apps/oni/test/identity-instances.test.ts` (declared Owner rows,
 `identity_unsupported`, outbound gating the route, the supervisor keying
 grant/webhook by platform and routes by instance, `channel_add` identity),
-`apps/openomni/test/provision-tools.test.ts` (Owner consent for an Owner
+`apps/oni/test/provision-tools.test.ts` (Owner consent for an Owner
 instance and its grant with the revision CAS, sticky identity on
 re-declaration, Owner-arm rotation, instance-surface preconditions),
-`apps/openomni/test/identity-door.test.ts` (the newest external delivery
+`apps/oni/test/identity-door.test.ts` (the newest external delivery
 decides), `packages/channels/test/slack-owner.test.ts` (another workspace's
 endpoint refused); suites on the stacked tree: `packages/channels` 899 pass,
-`packages/protocol` 656 pass, `packages/agent` 1530 pass, `apps/openomni`
+`packages/protocol` 656 pass, `packages/agent` 1530 pass, `apps/oni`
 991 pass, 0 fail each.
 
 ## #1569 the reply door (PR 4 of the epic)
@@ -1326,9 +1344,9 @@ for conversations only the Owner instance can reach (lane 5+). Receipts:
 session answers in-channel with the binding grant id and no debit; another
 session, an unknown prompt and a route-less surface refused before
 transport; receipt values; admission replay/conflict),
-`apps/openomni/test/reply-door.test.ts` (real gateway: binding fold, key
+`apps/oni/test/reply-door.test.ts` (real gateway: binding fold, key
 ownership, `reply_unbound`, `child.reply`),
-`apps/openomni/test/resident-reply-to-origin.test.ts` (origin send naming
+`apps/oni/test/resident-reply-to-origin.test.ts` (origin send naming
 the prompt, refusal/throw never fails the turn, `same_conversation` refusal
 with the reply still sent, other-conversation and reaction sends pass),
 `packages/protocol/test/gateway.test.ts` (grant shape),
@@ -1531,13 +1549,13 @@ admission, active credit, renewal and invalidation stay under one owner.
 `packages/codemode` keeps only opaque lease references, translates
 `machine_saturated` and `lease_expired`, and holds the lease across nested
 execution; it owns no placement fold, counters, scheduler or TTL. The app
-reads optional `OPENOMNI_MACHINES_CAPACITY` JSON, injects capacity and the
+reads optional `ONI_MACHINES_CAPACITY` JSON, injects capacity and the
 one Effect-clock scheduler (`composition/platform.ts`) into the host with a
 scope finalizer for pending timers, and codemode receives no clocks or
 schedulers. No new tool, wire method, store mechanic, capacity transport
 constant or app DB mechanics; the exact-line session-writer pin moved with
 the composition insertion.
-Receipts on `998482b72` (base `dc32b01a3`): lead final chain on `998482b72` (base `dc32b01a3`): 13/13 gates exit 0 (build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries); `check-deps-agent-bands.test.ts` 45/0; app machine/codemode/self/provision/config/code-mode-e2e suites 246/0; protocol 653/0; machines 282/0 (1 skip); codemode 53 pass, 1 fail = `browser.test.ts` host-only Chromium/playwright precondition; `check-patch-coverage --base origin/main` all changed executable lines covered (package lcov + `script/coverage/lcov.info` from the check-deps suites run in `script/`, 124/0). Lane receipts on `8af46f845` (base `5dffade3b`): app 63/0, machines 282/0, codemode 61/0, protocol 653/0, patch coverage all covered. Lead self-verify fix: the app's host scheduler now rides `effectScheduler` with a scope finalizer instead of an inline `setTimeout` (zero raw timers remain in `apps/openomni/src`).
+Receipts on `998482b72` (base `dc32b01a3`): lead final chain on `998482b72` (base `dc32b01a3`): 13/13 gates exit 0 (build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries); `check-deps-agent-bands.test.ts` 45/0; app machine/codemode/self/provision/config/code-mode-e2e suites 246/0; protocol 653/0; machines 282/0 (1 skip); codemode 53 pass, 1 fail = `browser.test.ts` host-only Chromium/playwright precondition; `check-patch-coverage --base origin/main` all changed executable lines covered (package lcov + `script/coverage/lcov.info` from the check-deps suites run in `script/`, 124/0). Lane receipts on `8af46f845` (base `5dffade3b`): app 63/0, machines 282/0, codemode 61/0, protocol 653/0, patch coverage all covered. Lead self-verify fix: the app's host scheduler now rides `effectScheduler` with a scope finalizer instead of an inline `setTimeout` (zero raw timers remain in `apps/oni/src`).
 
 ## #1556 pooled placement, pick-time leases and one `machine()` (epic #1554, rung B)
 
@@ -1574,10 +1592,10 @@ rows live in one additive channels store,
 table: schema-validated JSON, monotonic revisions, removal tombstones,
 `seed` never overwriting a live row or a tombstone, and `list` returning only
 active rows; the package index adds that one export and nothing else in
-`packages/channels` changes. `OPENOMNI_MACHINES` is a first-boot seed: an
+`packages/channels` changes. `ONI_MACHINES` is a first-boot seed: an
 env entry that differs from the stored row is ignored and logged as
 `enrollment_seed_ignored`. `machine_add` is a shipped `require_approval`
-policy row (`apps/openomni/policy/owner-policy.json`); a session add binds
+policy row (`apps/oni/policy/owner-policy.json`); a session add binds
 the approval to the public key and declaration revision stored in the
 original invocation. Re-adding a live machine revokes the old attachment
 with `enrollment_replaced`; `machine_remove` revokes with
@@ -1590,27 +1608,27 @@ gateway frames; the app decodes that frame at the authenticated WebSocket
 callback, and `apps/desktop` renders a read-only Machines place (names,
 tags, capabilities, capacity, load, staleness, with unreported, loading,
 offline, error and empty states) over it.
-Receipts on `c89127356` (rebased onto `ae351e71a`): app policy/provision/machine suites 235 pass / 0 fail (`provision-machine-add-consent` now a row in `apps/openomni/policy/owner-policy.json`, pinned by `owner-policy.test.ts`); lane receipts before the rebase: protocol 629/0, machines 264/0 (1 skip), channels 879/0, desktop 517/0, scripts 74/0, patch coverage green; lead gate chain 14/14 exit 0 (install, build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries). Forbidden surfaces grep-zero: `provider: "machine"` and `channel:machine:`.
+Receipts on `c89127356` (rebased onto `ae351e71a`): app policy/provision/machine suites 235 pass / 0 fail (`provision-machine-add-consent` now a row in `apps/oni/policy/owner-policy.json`, pinned by `owner-policy.test.ts`); lane receipts before the rebase: protocol 629/0, machines 264/0 (1 skip), channels 879/0, desktop 517/0, scripts 74/0, patch coverage green; lead gate chain 14/14 exit 0 (install, build, check-types, lint, lint:tools, lint:docs, check-written-types, topology, deps, import cycles, dead exports, journal writers, tsconfig inheritance, effect boundaries). Forbidden surfaces grep-zero: `provider: "machine"` and `channel:machine:`.
 
 
 ## #1574 Pack conformance
 
 Pack conformance: tool + policy kinds; dialect kind pending #1549.
-`apps/openomni/test/helpers/pack-kinds.ts` registers each loader, typed refusal
-set and discovered fixture cases. `apps/openomni/test/pack-conformance.test.ts`
+`apps/oni/test/helpers/pack-kinds.ts` registers each loader, typed refusal
+set and discovered fixture cases. `apps/oni/test/pack-conformance.test.ts`
 runs the same non-empty, repeatable, typed-refusal and process-isolation checks
 for every kind, including a throwaway probe kind. Adding a pack of an existing
 kind requires only a fixture directory under `test/fixtures/packs/`; a new
 kind adds one registry row and a fixture directory. A per-kind guard refuses
 an empty case set or a declared code without a fixture. Receipt:
-`apps/openomni/test/pack-conformance.test.ts`.
+`apps/oni/test/pack-conformance.test.ts`.
 
 ## #1572 Owner policy rows
 
 On `feat/1572-policy-rows` (2026-10-15, rebased onto `e1bb6369b`). The Owner's
 approval values and every app-owned message, provision and delegation policy
-row ship in one file, `apps/openomni/policy/owner-policy.json`.
-`OPENOMNI_POLICY_PATH` selects the file read at boot; blank selects the shipped
+row ship in one file, `apps/oni/policy/owner-policy.json`.
+`ONI_POLICY_PATH` selects the file read at boot; blank selects the shipped
 file. The file seeds missing rows: on an existing database, stored rows win per
 id, and a reset starts a new generation. The loader parses the file through
 Zod and refuses boot with `AppInvariantError` codes `unreadable_path`, `invalid_policy_file`,
@@ -1620,14 +1638,14 @@ executable handler.
 
 `packages/agent` remains the owner of `SEEDED_POLICY_ROWS` and
 `POINT_GENERATION_ROW`. The app compiler adds those kernel rows around the
-Owner rows when seeding a generation. `apps/openomni/test/owner-policy.test.ts`
+Owner rows when seeding a generation. `apps/oni/test/owner-policy.test.ts`
 pins the pre-move row id/point set and both C2 typed refusals; the real-run
 receipts are `/tmp/ulw-r3/c2-unknown-point.txt` and
 `/tmp/ulw-r3/c2-unknown-handler.txt`.
 
 ## #1573 external tool packs
 
-`OPENOMNI_TOOL_PACKS_DIR` optionally names a directory of JSON manifests, one
+`ONI_TOOL_PACKS_DIR` optionally names a directory of JSON manifests, one
 bundle per pack. Boot validates each tool's JSON Schema, required command
 placeholders, enrolled machine and name before composition; malformed packs,
 unknown machines and built-in tool collisions fail closed with
@@ -1637,7 +1655,7 @@ generation as built-in tools, so `provision{op:"bundle_disable"}` removes the
 pack's tools from the next generation. Rendered arguments are standalone,
 shell-quoted values; execution resolves the attached machine's `exec` port,
 never a local process. Unset means no external packs. Receipts:
-`apps/openomni/test/tool-packs.test.ts`, `/tmp/ulw-r4/c4-machine-exec.txt`.
+`apps/oni/test/tool-packs.test.ts`, `/tmp/ulw-r4/c4-machine-exec.txt`.
 
 ## #1558 streamed bulk fs, terminal output facts and named jobs (epic #1554, rung F)
 
@@ -1665,9 +1683,9 @@ written-types exit 0, patch coverage all changed lines covered.
 
 ## #1561 every model tool is a removable bundle (base `35d60a491`)
 
-- Shipped: `apps/openomni/src/manifest.ts` lists the `file` (read, write, edit, ls, find, grep), `bash`, `eval`, `send-message`, `provision` and `completion` bundles beside `monitor`; each declares its tools through `Bundle.define({ tools })` over late-bound ports (`appManifest`'s `tools` input reads `composition/composed.ts` `ToolPortsSlot`, bound by boot like the monitor's alarm slot; `bundles/seams.ts` `boundTool` resolves the current ports per call). The hard-wired `catalogDefinitions` list is deleted (`composition/catalog.ts` keeps only the `ToolPorts` shape), and `send-message` is the sole owner of the `send_message` face.
+- Shipped: `apps/oni/src/manifest.ts` lists the `file` (read, write, edit, ls, find, grep), `bash`, `eval`, `send-message`, `provision` and `completion` bundles beside `monitor`; each declares its tools through `Bundle.define({ tools })` over late-bound ports (`appManifest`'s `tools` input reads `composition/composed.ts` `ToolPortsSlot`, bound by boot like the monitor's alarm slot; `bundles/seams.ts` `boundTool` resolves the current ports per call). The hard-wired `catalogDefinitions` list is deleted (`composition/catalog.ts` keeps only the `ToolPorts` shape), and `send-message` is the sole owner of the `send_message` face.
 - A generation's tools are exactly the composed bundles' tools: `GenerationLayers.initialize` refuses a non-empty per-role definition list with `tools_are_bundle_owned`, and the old `send_message` duplicate exception in `composition/generation-layers.ts` is gone, so a second bundle declaring a shipped tool name is the typed `duplicate` compose refusal.
-- `provision{op:"bundle_disable", name:"bash"}` drops `bash` from the next generation: `apps/openomni/test/tool-bundles.test.ts` asserts the next turn's offered tools, the generation bump and the journaled compose `disabled` entry. Turning the `tool` capability off now cascades every tool bundle.
+- `provision{op:"bundle_disable", name:"bash"}` drops `bash` from the next generation: `apps/oni/test/tool-bundles.test.ts` asserts the next turn's offered tools, the generation bump and the journaled compose `disabled` entry. Turning the `tool` capability off now cascades every tool bundle.
 - Tool order on the model door is the composed bundle order (dependency-sorted, then manifest order).
 
 ## #1563 prompt catalog session wiring
@@ -1678,7 +1696,7 @@ both the Resident and child system presets. Process-session requests now carry
 the configured prompt and skill directory paths; child entries validate those
 paths and reload the same catalog before creating their Resident. The
 regression fixture proves one configured skill is present in both generated
-presets. Receipts: `apps/openomni/test/prompt-wiring.test.ts` and
+presets. Receipts: `apps/oni/test/prompt-wiring.test.ts` and
 `/tmp/ulw-1563/evidence.txt`.
 
 ## #1562 provider rows
@@ -1693,10 +1711,10 @@ surface). Model resolution applies the provider's row; a row id absent from the
 catalog resolves to a catalog-free model on that row. `sdk.ts` keeps only the
 npm-package -> factory selection; proxy auth still selects Chat Completions.
 
-`OPENOMNI_PROVIDERS_PATH` is optional. When set, rows replace bundled rows by
-id, and the configured provider's row outranks `OPENOMNI_MODEL_BASE_URL`,
-`OPENOMNI_MODEL_HEADERS` (row headers win by name) and the API key variable;
-row ids are admitted in `OPENOMNI_MODEL_FALLBACKS`. Env-only deployments are
+`ONI_PROVIDERS_PATH` is optional. When set, rows replace bundled rows by
+id, and the configured provider's row outranks `ONI_MODEL_BASE_URL`,
+`ONI_MODEL_HEADERS` (row headers win by name) and the API key variable;
+row ids are admitted in `ONI_MODEL_FALLBACKS`. Env-only deployments are
 unchanged. A malformed, unreadable or unsupported-npm file refuses boot with
 `invalid_providers_file` (config) / `ProviderRowsError` (llm), never a
 fallback. The scope named `packages/agent/src/model`; that code now lives in
@@ -1708,19 +1726,19 @@ fallback. The scope named `packages/agent/src/model`; that code now lives in
 On `feat/1560-prompts-skills-data` (2026-10-15, base `b74f3c652`). The
 Resident and child role presets are markdown files with `name`/`role`
 frontmatter and `## Identity`, `Mandate`, `Policies`, `Style` sections under
-`apps/openomni/prompts/roles/`; `bundles/prompt/roles.ts` parses them into the
+`apps/oni/prompts/roles/`; `bundles/prompt/roles.ts` parses them into the
 same `RolePreset` shape (imported as text, so the bundled CLI carries them).
-`OPENOMNI_SKILLS_DIR` lists every `<dir>/<skill>/SKILL.md` (frontmatter
-`name` + `description`) and `OPENOMNI_PROMPTS_DIR` every `<dir>/*.md`
+`ONI_SKILLS_DIR` lists every `<dir>/<skill>/SKILL.md` (frontmatter
+`name` + `description`) and `ONI_PROMPTS_DIR` every `<dir>/*.md`
 template (`description`, optional `name`) as `<skills>` and
 `<prompt_templates>` blocks with absolute paths, rendered by
 `buildAgentPrompt(preset, { catalog })`. `loadConfig` loads the catalog into
 `config.prompts`, so an unset or absent directory lists nothing and a malformed
 file, bad YAML, an unknown role section or a duplicate name refuses boot with
-the typed `OpenOmniPromptDataError`. Wired in #1563: `config.prompts` reaches
+the typed `OniPromptDataError`. Wired in #1563: `config.prompts` reaches
 the Resident/child `buildAgentPrompt` calls and both directories reach process
 children. Receipts:
-`apps/openomni/test/prompt.test.ts`, `test/config.test.ts`.
+`apps/oni/test/prompt.test.ts`, `test/config.test.ts`.
 
 ## #1555 machine capacity facts and the `machine.report` heartbeat (epic #1554, rung A)
 
@@ -1736,7 +1754,7 @@ host accepted the previous one: a refusal (`machine_not_attached` |
 `machine_mismatch`) means the host no longer holds this attachment while the
 transport stands, so `daemon.attachment` records it as `refused`
 (`disconnected` | `machine_mismatch`) and the daemon closes as it does after a
-refused reattach (`openomni machine attach` exits 1); a failed call is logged
+refused reattach (`oni machine attach` exits 1); a failed call is logged
 and the cadence continues on the same connection, and a beat that settles
 after transport loss touches nothing. The host accepts a report only from the
 attaching connection for the machine it attached as, keeps the latest per
@@ -1745,7 +1763,7 @@ attachment, drops it on detach, and publishes `machine.reported` (ephemeral;
 `live?: { reportedAt, load, stale }` with `stale` judged by the host clock
 against `staleAfterMs` (default 15 000 = three missed default beats);
 `codemode.listMachines` exposes both for free. Without `report` wiring a daemon
-offers no probed resources and never beats. `openomni machine attach`
+offers no probed resources and never beats. `oni machine attach`
 (`cli/machine.ts`) wires `report` on the same Effect-clock scheduler its TCP
 reconnect uses, with `now` from `captureNow`; the brain's `self` daemon
 (`composition/self-machine.ts`) does not report yet — it is the only machine
@@ -1755,7 +1773,7 @@ registration, event), `packages/machines/test/report.test.ts` (fake
 scheduler/probe/host clock: cadence, floor, staleness flip, typed refusals,
 recorded refusal after supersede, beat cancelled by transport loss and
 restarted at zero by the reattach, failed call keeps the cadence) and
-`apps/openomni/test/machine-config.test.ts`
+`apps/oni/test/machine-config.test.ts`
 (the configured TCP daemon's first beat lands and `list()` shows probed
 `resources` with non-stale `live`).
 
@@ -1800,15 +1818,15 @@ collapse into one text part while Code, Image, File and a Card's image keep
 their own part — so channels still upload a spec's media before L2 renders it
 natively; desktop rendering belongs to L4 and postback delivery landed in L3.
 Receipts: `packages/protocol/test/outbound.test.ts`, the channels translate
-and admission spec tests, `apps/openomni/test/send-message-contacts.test.ts`,
-and `apps/openomni/test/prompt.test.ts`.
+and admission spec tests, `apps/oni/test/send-message-contacts.test.ts`,
+and `apps/oni/test/prompt.test.ts`.
 
 ## #1506 auto-ack reaction
 
 On `feat/app-ack-reaction` (2026-10-14, base `72ce6b7be`). A Resident turn
 that originates on a channel puts a pending reaction on the originating
 message while the model runs and, once the turn settles, swaps it for an ok
-or failed reaction. The policy is data: `OPENOMNI_ACK_REACTION` is JSON with
+or failed reaction. The policy is data: `ONI_ACK_REACTION` is JSON with
 `pending`, `ok` and `failed` emoji, or `off`; it is off by default and a
 malformed value refuses boot with `invalid_ack_reaction`.
 
@@ -1828,8 +1846,8 @@ bot's whole list so the swap is one call.
 
 Receipts: order ack -> report -> terminal with the swap payload, default
 off, failed turn, evidence-only, throwing port and refused pending in
-`apps/openomni/test/resident-reply-to-origin.test.ts`; config parsing
-(`off`, strict shape, typed code) in `apps/openomni/test/config.test.ts`;
+`apps/oni/test/resident-reply-to-origin.test.ts`; config parsing
+(`off`, strict shape, typed code) in `apps/oni/test/config.test.ts`;
 replace-and-settle per platform in
 `packages/channels/test/{discord,slack}-media.test.ts` and
 `packages/channels/test/translate.test.ts`.
@@ -1857,7 +1875,7 @@ machine PTY endpoint is unchanged.
 
 ## #1498 app test lane bounds a synchronous Bun PTY wait (PR #1535, base `2047087ba`)
 
-On `fix/1498-watch-sources-hang` (2026-10-14), the generated `Test (openomni
+On `fix/1498-watch-sources-hang` (2026-10-14), the generated `Test (oni
 app)` step in `.github/workflows/ci.yml` has a 10-minute deadline, beneath the
 matrix job's 30-minute limit. `script/topology.ts` owns the generated step and
 `script/check-topology.test.ts` pins the app-specific timeout.
@@ -1873,7 +1891,7 @@ machine contention also reached its external 600-second cap before finishing.
 The standalone `/tmp` PTY reproducer completed 50/50 iterations; the PR
 carries its text and the sample excerpt.
 
-`apps/openomni/src/composition/watch-sources.ts` kills the detached process
+`apps/oni/src/composition/watch-sources.ts` kills the detached process
 group, awaits `child.exited`, then closes the terminal; that order is unchanged.
 One repo-side teardown defect was fixed: when `killCommandGroup` throws the
 typed `AlarmProcessGroupError`, the PTY master was never closed and EOF never
@@ -1889,7 +1907,7 @@ ratchet in `script/check-deps.ts` shrinks from 16 imports across 10 files to
 zero. No sibling edge remains pinned. Cross-bundle construction belongs to
 the composing app; bundle-owned schemas and ports stay with their consumer.
 
-Paths below are relative to `apps/openomni/src/bundles/`.
+Paths below are relative to `apps/oni/src/bundles/`.
 
 | Former importer | Former sibling targets | Before | After | Replacement |
 | --- | --- | ---: | ---: | --- |
@@ -1980,8 +1998,8 @@ without a typing route, WebSocket owners, and child sessions start no pulse.
 
 Tests: virtual-clock calls and cancellation with Telegram and Discord
 fake-fetch routes (`packages/channels/test/typing-pulse.test.ts`), mounted route
-cleanup (`apps/openomni/test/boot-wiring.test.ts`), and an external Resident
-turn with a refused typing receipt (`apps/openomni/test/resident-reply-to-origin.test.ts`).
+cleanup (`apps/oni/test/boot-wiring.test.ts`), and an external Resident
+turn with a refused typing receipt (`apps/oni/test/resident-reply-to-origin.test.ts`).
 Not in this change: Slack typing (`assistant.threads.setStatus` needs the
 `assistant:write` scope; Slack declares `typing: false` until that scope and
 route land); outbound emoji reactions, already shipped in #1504; inbound
@@ -1992,13 +2010,13 @@ media normalization and automated reactions remain outside this lane.
 On `refactor/1481-app-pins-seams` (2026-10-14). Item 2 is implemented:
 `ToolCapabilitySeam` and `CompactionSummarizerSeam` become
 `ToolCapabilityPort` and `CompactionSummarizerPort` in
-`apps/openomni/src/bundles/seams.ts` and every importer, without aliases.
+`apps/oni/src/bundles/seams.ts` and every importer, without aliases.
 Their persisted keys remain byte-identical:
-`"@openomni/openomni/ToolCapabilitySeam"` and
-`"@openomni/openomni/CompactionSummarizerSeam"`. The manifest test compares
+`"@oni/oni/ToolCapabilitySeam"` and
+`"@oni/oni/CompactionSummarizerSeam"`. The manifest test compares
 both UTF-8 keys and the composed hash against the literal legacy preimage.
 The dependency and end-state gates reject TypeScript identifiers containing
-`Seam` throughout `apps/openomni/src`, while preserving quoted keys, module
+`Seam` throughout `apps/oni/src`, while preserving quoted keys, module
 paths, and prose. This does not claim a repository-wide prose rename.
 
 Item 1 remains open: the direct agent-core token pin is **1 before, 1
@@ -2099,7 +2117,7 @@ capabilities; platform vocabulary stays inside the provider band.
   then the rendered body; a request answer and the `ws` surface carry no
   header. `packages/channels/src/index.ts` exports `MediaBytes` and
   `MediaResolver`.
-- `apps/openomni/src/bundles/messaging/send-message/index.ts` — the tool
+- `apps/oni/src/bundles/messaging/send-message/index.ts` — the tool
   takes `message` as a string or an array of parts, or `react` (one emoji on
   the contact's `conversation.replyToMessageId`), exactly one of the two
   (`.refine`, applied on the model path by the dispatcher's input parse). A
@@ -2107,7 +2125,7 @@ capabilities; platform vocabulary stays inside the provider band.
   only and the `ChannelEgressPort`/`HumanNotifyPort` connectors are deleted.
   The turn-end report (#1482/#1485/#1490) sent the result text through the
   string sugar until #1569 PR 4 moved it onto the reply door (an
-  origin-targeted gateway send, no tool row). `apps/openomni/src/composition/media.ts` is the app's
+  origin-targeted gateway send, no tool row). `apps/oni/src/composition/media.ts` is the app's
   `MediaResolver`: a ref with an authority is an `https` URL fetched with
   manual redirects (at most three hops, every hop re-admitted: https only,
   no loopback/link-local/private host), a 30 s timeout, and the body read in
@@ -2125,9 +2143,9 @@ capabilities; platform vocabulary stays inside the provider band.
 Tests: `packages/channels/test/translate.test.ts` (folding, media upload
 and fallback, react refusal, partial delivery), provider golden/conformance
 suites over payloads, router prompt pins (`ownerPrompt` fixture),
-`apps/openomni/test/media-resolver.test.ts` (machine stat-first cap,
+`apps/oni/test/media-resolver.test.ts` (machine stat-first cap,
 streamed-body cap, hop-by-hop redirect admission, private hosts),
-`apps/openomni/test/send-message-contacts.test.ts` (string, four-part and
+`apps/oni/test/send-message-contacts.test.ts` (string, four-part and
 react letters through the gateway door; react without a conversation
 refused; schema exactly-one rule), `test/router/messaging/send.test.ts`
 (legacy `body` admission replays). Channels 838/0, app 870/0 at commit time.
@@ -2228,7 +2246,7 @@ Inherited pins authorized by the lead on 2026-10-14:
 
 | Surface | Exact inherited pin | Closure owner |
 | --- | --- | --- |
-| `apps/openomni/src/index.ts` direct agent-core tokens | 1, unchanged from main: the #1346 deferred `tools.add` configure commit | Apps/openomni entity-seam ruling; follow-up issue to be filed by the lead |
+| `apps/oni/src/index.ts` direct agent-core tokens | 1, unchanged from main: the #1346 deferred `tools.add` configure commit | Apps/oni entity-seam ruling; follow-up issue to be filed by the lead |
 | Agent production clones | 0 | Agent core gate |
 | Agent duplicated test lines | 248 (about 0.4803% of the agent test census) | #945 agent test-quality debt |
 
@@ -2255,7 +2273,7 @@ and `session.configure.settings` schemas and is not a stored field.
 Mechanical app edits are limited to `src/bundles/alarms/{cron,monitor}/index.ts`,
 `src/bundles/{approval-policy,compaction,delegation-policy,hooks-json,resident}/index.ts`,
 `src/bundles/messaging/send-message/index.ts`, `src/bundles/seams.ts`,
-`src/manifest.ts` and `test/alarm-bundles.test.ts` under `apps/openomni`.
+`src/manifest.ts` and `test/alarm-bundles.test.ts` under `apps/oni`.
 The #1343 app-token count remains 1; these names are not ledger/entity tokens.
 
 Nine quoted
@@ -2288,31 +2306,31 @@ The comment gate has one enforcement layer, its existing exact per-file pins.
 
 ## #1426 — watch-sources reconcile cadence on the alarm plane (PR #1474, base `11061c992`)
 
-- Cadence: `apps/openomni/src/composition/watch-plane.ts` arms one `watch`-purpose cadence chain per native path source on the app alarm plane (one-second cadence as the issue specifies), re-armed from its own fired row while the path watch is live and superseded with `at: null` on close; restoring a source arms once and never restarts an existing handle; arm refusals surface the entity's typed reason. Empty ticks return the no-drain `exhausted` outcome so the session can passivate; they still write two durable rows per watch per second, which is the Owner decision in #1477.
+- Cadence: `apps/oni/src/composition/watch-plane.ts` arms one `watch`-purpose cadence chain per native path source on the app alarm plane (one-second cadence as the issue specifies), re-armed from its own fired row while the path watch is live and superseded with `at: null` on close; restoring a source arms once and never restarts an existing handle; arm refusals surface the entity's typed reason. Empty ticks return the no-drain `exhausted` outcome so the session can passivate; they still write two durable rows per watch per second, which is the Owner decision in #1477.
 - Lifecycle: `composition/watch-sources.ts` reports typed retire failures through `options.failure`; `closeAll()` awaits pending installs and in-flight retirements with `allSettled`, and installs after shutdown started refuse with `WatchRefused({ reason: "shutdown" })`. `index.ts` runs `watchSources.closeAll()` while the Effect runtime is live so retirement can complete.
 - Capacity: a path watch holds two armed rows (three with a timeout) under the 64 armed-row cap — `2P + 3T + other ≤ 64`; an install past the cap is a typed `alarm_budget` refusal with complete cleanup.
-- Clock: the CLI reconnect and termination delays (`cli/machine.ts`, `cli/main.ts`) run on the Effect clock; CLI readiness is signalled over the child's stdout pipe. `setInterval|setTimeout` under `apps/openomni/src` is zero.
+- Clock: the CLI reconnect and termination delays (`cli/machine.ts`, `cli/main.ts`) run on the Effect clock; CLI readiness is signalled over the child's stdout pipe. `setInterval|setTimeout` under `apps/oni/src` is zero.
 - Review r1: High 2 (close/closeAll rejections; missing real-wiring TestClock test → `test/app-watch-cadence.test.ts` proves one armed cadence row per live path watch, a dropped create recovered by the fired cadence, zero rows after cancel), Medium 5 (per-tick drain, capacity, install after shutdown, `fs.watch` readiness, docs) all fixed; Lows recorded on the PR.
-- Verification (bun 1.4.1 pinned, behind the host gate lock): focused files after the r1 fix watch-sources 23 / app-watch-cadence 1 / cli-entry 28 pass; openomniApp lane and patch coverage rerun after the rebase onto `11061c992` (recorded on the PR); check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
+- Verification (bun 1.4.1 pinned, behind the host gate lock): focused files after the r1 fix watch-sources 23 / app-watch-cadence 1 / cli-entry 28 pass; oniApp lane and patch coverage rerun after the rebase onto `11061c992` (recorded on the PR); check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
 - Quiet ticks (#1477): an empty cadence tick returns `{outcome: "quiet", at}`; the core moves the same armed occurrence forward in `armed_alarms` and re-sends it keyed `occurrenceId@tick` with no `fired` or re-arm row, so a path watch costs the journal nothing while nothing happens (was 2 rows/watch/second). A real fire or retire settles the chain as before. Receipt: `test/app-watch-cadence.test.ts`.
 
 ## #1427 — compaction summaries as session llm rows, no failed turn on summary failure (PR #1475, base `5d2de7484`, app half)
 
-- Accounting: `apps/openomni/src/bundles/compaction/summarizer.ts` runs the summary through the compacting session's own executor (`src/composition/completion.ts`), so the call lands as that session's `llm` row with `intent.purpose: "compaction"` and usage; no side session, no direct provider call. Grouping by purpose in the metrics read model is core work tracked in #1476.
+- Accounting: `apps/oni/src/bundles/compaction/summarizer.ts` runs the summary through the compacting session's own executor (`src/composition/completion.ts`), so the call lands as that session's `llm` row with `intent.purpose: "compaction"` and usage; no side session, no direct provider call. Grouping by purpose in the metrics read model is core work tracked in #1476.
 - Failure shape: a thrown or timed-out summary yields the core's deterministic window cut (`summarizerFailed: true`) and a completed turn, never a failed turn. Each overflow attempt has its own deadline on the injected Clock, `summaryDeadline = 30 s + ceil(maxOutputTokens / 20) s` unless configured; the core speculative guard (`summarizerDeadlineMs`) wraps nine attempts plus 60 s. A timeout sets `summarizerFailed`, after which core policy disables speculative compaction for that session. A literal `fallback` compaction reason is #1476.
 - Request shape: [turn system prompt as instructions, the messages the core hands over in order, instruction last]. Not yet prefix-cache equivalent: the request sends no tools, `toolChoice: "none"` and different reasoning options, so sessions with tools get no provider cache hit; parity and the unfiltered leading prefix are #1476.
 - Unchanged: compaction policy thresholds and the four core ports; `git diff --stat 5d2de7484..HEAD -- packages apps/desktop script` is empty.
 - Review r1: High 0, Medium 3 — M1 whole-loop 60 s deadline → per-attempt, derived, configurable; M2 acceptance criteria over-claimed → marked partial with the deferred halves on #1476; M3 missing stamp and this row. Lows recorded on the PR.
-- Verification (bun 1.4.1 pinned, behind the host gate lock): apps/openomni 849 pass / 1 hang-class failure in the full lane (a 989 s stall under host load; the four compaction files pass isolated 14/14, then 15 focused after the r1 fix), patch coverage all changed executable lines covered; check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
+- Verification (bun 1.4.1 pinned, behind the host gate lock): apps/oni 849 pass / 1 hang-class failure in the full lane (a 989 s stall under host load; the four compaction files pass isolated 14/14, then 15 focused after the r1 fix), patch coverage all changed executable lines covered; check-types, lint, lint:tools, check-deps, check-effect-boundaries, check-dead-exports, check-journal-writers exit 0; PR CI green.
 
 ## #1353 — compaction four core ports with a plugin-owned policy (PR #1470, base `91eb15949`)
 
 - Port: `packages/agent/src/core/ports/compaction-ports.ts` declares the four operations the turn loop needs and nothing else (132 formatter-canonical lines, 172 before; the issue's ~70-100 guide is noted as a follow-up). `core/loop/turn.ts` reaches compaction through exactly one `maybeCompact(` call; the old tokens (`applyCompaction`, `prepareCompactionAfterContinue`, `createCompactionSession`, `geometry`, `shouldCompact`, `createSession`, `thresholdTokens`) go 11 → 0 in turn.ts.
 - Policy: compaction policy, speculation and tool-output elision defaults move into `packages/agent/src/plugins/compaction/policy.ts`. `CompactionReason = prepare | threshold | yield | overflow` (`prepare` only starts speculation after a tool-call continuation and never executes); `overflow` is recorded as the existing `trigger: "yield"` row value, so no recorded journal byte changes (goldens and conformance snapshots untouched). The plugin imports only `core/api.ts`; `Bun.spawn` in the plugin stays 0.
-- Deletions: `packages/agent/src/core/compaction.ts` (144 lines) and `apps/openomni/src/compaction/strategy.ts` (30) are gone; core and `testing/registry.ts` imports of `plugins/compaction` 1 → 0; app `configuredCompaction` 3 → 0. The app `compactionBundle` only makes composition refuse when no summarizer is composed.
+- Deletions: `packages/agent/src/core/compaction.ts` (144 lines) and `apps/oni/src/compaction/strategy.ts` (30) are gone; core and `testing/registry.ts` imports of `plugins/compaction` 1 → 0; app `configuredCompaction` 3 → 0. The app `compactionBundle` only makes composition refuse when no summarizer is composed.
 - Regression caught by the full agent suite: speculative preparation was torn down before the settle-abort finalizer could grant its start tick; fixed by forking a child scope in `bindCompactionRun` before registering the finalizer (finalizer order unchanged: abort still runs before the child's fibers are torn down).
 - Review r1: High 1 — the tool-call continue path called `compact("threshold")` and could execute a compaction where main only prepared; prepare-only semantics restored through the port with a test proving a continue step above threshold writes zero `compaction` rows while end-of-turn still compacts. Medium 5 — M1 the speculative-grace deferral applies to `yield` again (a window yield with a speculative summary in flight defers instead of launching a second summarizer), M2 the yield point is armed from the model window only, M3 `compaction-off.test.ts` now fails the second call as a real context overflow and asserts zero compaction rows: the first turn stops normally and the second settles with the original typed provider failure (a successful second turn is impossible under the no-retry contract with compaction off), M4 `DEFAULT_TOOL_OUTPUT_ELISION` is no longer exported and elision is tested by behavior, M5 this stamp and this section replace the stale `applyCompaction` description. Lows carried as PR comments.
-- Verification: packages/agent 1441 pass / 0 fail (217 files), apps/openomni 846 / 0 (117 files); check-types, lint, lint:tools, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types and check-comment-residue exit 0; the full local gate (`gate-1353.log`) exits 0 on the reviewed head. Four app bundle-list pins gained the shipped `compaction-summarizer` / `compaction-strategy` bundles (test-only).
+- Verification: packages/agent 1441 pass / 0 fail (217 files), apps/oni 846 / 0 (117 files); check-types, lint, lint:tools, check-deps, check-import-cycles, check-dead-exports, check-journal-writers, check-written-types and check-comment-residue exit 0; the full local gate (`gate-1353.log`) exits 0 on the reviewed head. Four app bundle-list pins gained the shipped `compaction-summarizer` / `compaction-strategy` bundles (test-only).
 
 ## #1457 verified driver facts match automation triggers (epic #1337 follow-up)
 
@@ -2356,14 +2374,14 @@ cases fail on the pre-fix matcher or pre-fix drivers.
   `packages/agent/src/plugins/alarm/index.ts`, and reaches the app only through
   `Bundle`; the core `ComposePurposesVerb` definition, its `core/api.ts` and
   `core/index.ts` exports and the compose-time injection are deleted (token
-  count 2 → 0 across `packages/agent/src` and `apps/openomni/src`). `plugins/alarm/**`
+  count 2 → 0 across `packages/agent/src` and `apps/oni/src`). `plugins/alarm/**`
   imports only `core/api`; core imports nothing from `plugins/`.
 - One chain fold: `packages/agent/src/core/session/alarm-read.ts` `foldAlarmChains`
   walks `historyPage` in 256-row pages over `(afterRevision, throughRevision]`
   and `openAlarmIds` drops reserved purposes and `at: null` retirements. It
   replaces the loop fold inside `core/session/run.ts` (`sessionStopEvidence`, now typed
   over `Pick<SessionKernel, "row" | "actionById" | "historyPage">`) and the app
-  fold in `apps/openomni/src/composition/alarm-plane.ts` (which aliases
+  fold in `apps/oni/src/composition/alarm-plane.ts` (which aliases
   `Core.foldAlarmChains`). Equivalence was reviewer-compared against both
   deleted folds on revision bounds, reserved purposes, `at: null` retirement,
   matching versus superseded stale firings and occurrence identity;
@@ -2371,7 +2389,7 @@ cases fail on the pre-fix matcher or pre-fix drivers.
   `test/alarm-stop-evidence.test.ts` pin the divergence cases with stub kernels
   built through `SessionHistory.Page.parse` / `LedgerSession.Row.parse`.
 - The former manual watch-retirement check is
-  `apps/openomni/test/monitor-retire-restart.test.ts` over the real WS/monitor
+  `apps/oni/test/monitor-retire-restart.test.ts` over the real WS/monitor
   path. `script/check-comment-residue.ts` pins lowered for `run.ts` and
   `plugins/alarm/index.ts`; the new `alarm-read.ts` is pinned at 0.
 - Review r1: H2 (branch not rebased onto #1349; residue pins stale) and M2
@@ -2416,12 +2434,12 @@ On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a
   `admitWebSocketOwner` and the app's automation callback both read it, so one
   rule names the Owner's own connection. The old tokenless branch is gone: the
   same grant covers a tokenless loopback socket, and removing the grant
-  (`openomni-resident-ws`) makes both chat and automation fail closed.
+  (`oni-resident-ws`) makes both chat and automation fail closed.
 - A declared socket keeps whatever its registered identity says (a registered
   collaborator still gets `require_approval`); an unregistered declaration on
   a token-authenticated socket resolves exactly as chat resolves it (the token
   is the Owner credential). Session callers are unchanged.
-- Tests (`apps/openomni/test/automation-wire.test.ts`): the fresh token socket
+- Tests (`apps/oni/test/automation-wire.test.ts`): the fresh token socket
   on plain `/ws` with no pre-registered Owner runs add -> enable -> list twice
   across a reconnect with `createdBy: "owner"` results; the same socket without
   the bootstrap grant is refused `require_approval`.
@@ -2437,7 +2455,7 @@ On `fix1337/1456-desktop-owner-bootstrap` (PR #1463, 2026-10-13, base `2c3efdb0a
 
 ## #1428 nine-bundle app layout
 
-The app has eleven bundle directories under `apps/openomni/src/bundles/`: alarms, approval-policy, compaction, core-policy, delegation-policy, hooks-json, messaging, prompt, provision, resident, and tools. These are the nine from the #1428 proposal plus approval-policy and hooks-json, which #1346/#1256 had already landed as bundles; imports, test paths, and tool globs relocated without behavior changes. `script/check-deps.ts` pins the existing sibling-bundle and direct bundle-to-app-module findings by exact import identity; new edges and pin slack fail closed, and #1454 tracks removal of those edges. `script/lint-tools.ts` accepts the nested `bundles/tools/<tool>/index.ts` form while checking the directory against the catalog tool name.
+The app has eleven bundle directories under `apps/oni/src/bundles/`: alarms, approval-policy, compaction, core-policy, delegation-policy, hooks-json, messaging, prompt, provision, resident, and tools. These are the nine from the #1428 proposal plus approval-policy and hooks-json, which #1346/#1256 had already landed as bundles; imports, test paths, and tool globs relocated without behavior changes. `script/check-deps.ts` pins the existing sibling-bundle and direct bundle-to-app-module findings by exact import identity; new edges and pin slack fail closed, and #1454 tracks removal of those edges. `script/lint-tools.ts` accepts the nested `bundles/tools/<tool>/index.ts` form while checking the directory against the catalog tool name.
 
 ## #1341 app wiring for rule-based ingress automation (epic #1337, rung 4)
 
@@ -2451,7 +2469,7 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   actor's trust tier, never from the request (#1446 r1 H2).
 - `src/composition/automation-wire.ts` answers every request with a typed value
   (refusals included, no throw); `automation-judge.ts` binds the optional fast
-  model (`OPENOMNI_FAST_MODEL_ID`) to the channels judge port;
+  model (`ONI_FAST_MODEL_ID`) to the channels judge port;
   `automation-alarm.ts` registers the alarm sender once per session and types
   malformed payloads as `AlarmWakeError`; `automation-delivery.ts` lands
   `prompt|action` rows — target `new` composes the #1346 create-session
@@ -2474,8 +2492,8 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
 - The writer keeps the restore tail under `maxTailBytes` (`commitFoldBatch` checkpoints by count or bytes); the activation restore (`restoreSessionHistory`) refuses a longer tail with a typed `RestoreRefused`; restore telemetry is logged from `core/session/recovery.ts` and never reaches model context. A folded state past the row cap degrades explicitly: the store's typed `row_bytes` refusal of the writer's own checkpoint is logged with `sessionId`/`checkpointId`/`checkpointBytes` and the caller's rows commit without it.
 - `armed_alarms` gains a strike counter: `strikeArmedAlarm` increments in its own transaction (no journal row) and the entity settles an occurrence unexecuted at `MAX_OCCURRENCE_STRIKES = 3`; session-file schema is `SESSION_FILE_SCHEMA_VERSION = 2` with a probe-side v1 upgrade, and a file written by a newer build refuses to open with `CatalogVersionRefused{operation: "openSessionStore"}` (no read-only `query_only` fallback remains).
 - Every journal row is capped at `DEFAULT_ROW_BYTE_CAP = 1024 * 1024` bytes of payload at the `sqlite-l0-write.ts` append boundary (typed `SchemaRefused{reason: "row_bytes"}`, zero rows written); the `tool.post` decision row records the projected (bounded) result so it fits; the boundary test pins literal bytes (`1_048_576` commits, `1_048_577` refuses) rather than mirroring the constant.
-- The process-session child provides `Logger.layer([Logger.withConsoleError(Logger.formatLogFmt)])` through the new `AppRuntimeOptions.logger` (provided under the whole runtime layer so cluster-host fibers inherit it): the child's stdout is the parent's JSON-lines wire, and the restore log would otherwise fail the parent's `JSON.parse` and restart the entity on every activation (CI `openomniApp` lane; `process-session-e2e` 9/1 → 11/0).
-- Scope: `packages/agent` (27 files), `packages/protocol` (4: `ledger/l0.ts`, `journal/core/session-configure.ts`, `journal/index.ts`, `storage/index.ts`), `script` (2: `check-comment-residue.ts`, `conformance/schema-snapshot.json`), `apps/openomni` (2: `src/runtime.ts`, `src/process-entry.ts`); 35 files over 16 commits; zero edits under `packages/channels`.
+- The process-session child provides `Logger.layer([Logger.withConsoleError(Logger.formatLogFmt)])` through the new `AppRuntimeOptions.logger` (provided under the whole runtime layer so cluster-host fibers inherit it): the child's stdout is the parent's JSON-lines wire, and the restore log would otherwise fail the parent's `JSON.parse` and restart the entity on every activation (CI `oniApp` lane; `process-session-e2e` 9/1 → 11/0).
+- Scope: `packages/agent` (27 files), `packages/protocol` (4: `ledger/l0.ts`, `journal/core/session-configure.ts`, `journal/index.ts`, `storage/index.ts`), `script` (2: `check-comment-residue.ts`, `conformance/schema-snapshot.json`), `apps/oni` (2: `src/runtime.ts`, `src/process-entry.ts`); 35 files over 16 commits; zero edits under `packages/channels`.
 - Review: r1 H1–H3 and M1–M5 fixed in 8 follow-up commits (one per finding plus one H3 band follow-up keeping `entity.ts` under its `check-deps` pin); Lows carried as PR comments. CI round: comment residue trimmed to the 1424bp ratio pin, written `unknown` test locals replaced by typed narrowing, child stderr logger. Gate: the codemode lane was rerun alone after a Chromium launch timeout under host load (47 pass / 0 fail).
 
 ## #1342 desktop automation editor and ingress ledger explorer (epic #1337, rung 5)
@@ -2505,19 +2523,19 @@ On `epic1337/1341-app-wiring` (2026-10-13, base `033258aae`, PR #1446).
   tests, not by desktop tests.
 
 
-## #1352 model-call layer extracted to `@openomni/llm` (epic #1356, rung 5)
+## #1352 model-call layer extracted to `@oni/llm` (epic #1356, rung 5)
 
 On `epic1356/1352-llm-package` (2026-10-13, base `c99bb6d5c`).
 
-`packages/agent/src/model/` (provider resolution and adapters, the stream-event processor, usage accounting, credential storage, the `ai@7.0.93` pin and the provider majors) and its tests moved by `git mv` into the new `packages/llm` workspace (`@openomni/llm`, depends on `@openomni/protocol` only; `Provider` is package-internal, `Model` survives only as protocol `Model.Ref`). The dependency is reversed from the pre-#1246 package: the core declares the port in `packages/agent/src/core/ports/llm.ts` — the `Llm` tag keeps its `@openomni/agent/Llm` key, `LlmPort { resolveModel(ref, now), run(input, sink), classifyFailure(facts) }`, `LlmSink`, `RunInput`, `ResolvedModel`, a `_tag`-identified `LlmRunFailure` and the closed `FailureClass` (`aborted | overflow | retryable{reason, afterMs?, directed, instant} | terminal{reason, code?}`) — and `packages/agent` never imports `@openomni/llm`, `ai` or `@ai-sdk/*` (`script/check-deps.ts` workspace table and core band). `core/loop/retry.ts` keeps the retry decision: reason codes, the 60s directed and 30s ladder caps, the instant-failure streak, the 3-attempt cap and overflow -> compaction producer; `runAttempts` takes a `classify` callback and `turn.ts` asks the port about a successful stop that showed nothing, so a usage-proven overflow enters the same recovery; a stop that already showed output is the answer and is never replayed (the between-turn compaction trigger owns that window, as before). An error result whose payload is not a typed failure settles as a terminal `AgentFailure`, not a retry input. `makeLlmService(authFilePath)` in `packages/llm/src/services.ts` is the port value; `apps/openomni/src/runtime.ts` binds it to `Core.Llm` (`LlmLive`), `composition/completion.ts` classifies through the bound port, and `observation/llm-failure.ts` maps the class to a `ProviderReason`. `classifyFailure` is pure: overflow for a declared or text-matched overflow, a normal stop whose input + cacheRead exceeds the window, or a length stop with zero output at >= `NEAR_WINDOW_RATIO` (0.99, named once) of the window; missing usage never reclassifies. The agent test suite runs against the port-only fake (`packages/agent/test/helpers/fake-llm.ts`, whose classifier mirrors the real one: no provider cause is terminal); the shared seven-signature `ai` mock lives in `packages/llm/test/helpers/retry.ts` only. New tests: `packages/agent/test/core/llm-port.test.ts` (facts, directed delay, terminal, overflow routing, the silent and the visible stop), `packages/llm/test/failure-classification.test.ts`, `packages/llm/test/run.test.ts` (one attempt per invocation); `packages/llm/test/retry/retry.test.ts` relocated; `packages/agent/test/core/provider-retry-ownership.test.ts` kept. Topology: `script/topology.ts` adds the `llm` workspace (nine workspaces; `apps/openomni` may depend on it), `check-deps.ts` drops the model band, the `Model` namespace and the moved-file pins, `check-comment-residue.ts` drops the moved pins (the residue gate covers `packages/agent/src` only) and lowers the JSDoc ceiling 126 -> 109, `knip.json` and `.github/workflows/ci.yml` gain the lane, the AGENTS topology table is regenerated, and `script/effect-error-contract.test.ts`, `gate-discovery.test.ts`, `lint-side-effects.ts` and `generate-models-snapshot.ts` follow the moved paths.
+`packages/agent/src/model/` (provider resolution and adapters, the stream-event processor, usage accounting, credential storage, the `ai@7.0.93` pin and the provider majors) and its tests moved by `git mv` into the new `packages/llm` workspace (`@oni/llm`, depends on `@oni/protocol` only; `Provider` is package-internal, `Model` survives only as protocol `Model.Ref`). The dependency is reversed from the pre-#1246 package: the core declares the port in `packages/agent/src/core/ports/llm.ts` — the `Llm` tag keeps its `@oni/agent/Llm` key, `LlmPort { resolveModel(ref, now), run(input, sink), classifyFailure(facts) }`, `LlmSink`, `RunInput`, `ResolvedModel`, a `_tag`-identified `LlmRunFailure` and the closed `FailureClass` (`aborted | overflow | retryable{reason, afterMs?, directed, instant} | terminal{reason, code?}`) — and `packages/agent` never imports `@oni/llm`, `ai` or `@ai-sdk/*` (`script/check-deps.ts` workspace table and core band). `core/loop/retry.ts` keeps the retry decision: reason codes, the 60s directed and 30s ladder caps, the instant-failure streak, the 3-attempt cap and overflow -> compaction producer; `runAttempts` takes a `classify` callback and `turn.ts` asks the port about a successful stop that showed nothing, so a usage-proven overflow enters the same recovery; a stop that already showed output is the answer and is never replayed (the between-turn compaction trigger owns that window, as before). An error result whose payload is not a typed failure settles as a terminal `AgentFailure`, not a retry input. `makeLlmService(authFilePath)` in `packages/llm/src/services.ts` is the port value; `apps/oni/src/runtime.ts` binds it to `Core.Llm` (`LlmLive`), `composition/completion.ts` classifies through the bound port, and `observation/llm-failure.ts` maps the class to a `ProviderReason`. `classifyFailure` is pure: overflow for a declared or text-matched overflow, a normal stop whose input + cacheRead exceeds the window, or a length stop with zero output at >= `NEAR_WINDOW_RATIO` (0.99, named once) of the window; missing usage never reclassifies. The agent test suite runs against the port-only fake (`packages/agent/test/helpers/fake-llm.ts`, whose classifier mirrors the real one: no provider cause is terminal); the shared seven-signature `ai` mock lives in `packages/llm/test/helpers/retry.ts` only. New tests: `packages/agent/test/core/llm-port.test.ts` (facts, directed delay, terminal, overflow routing, the silent and the visible stop), `packages/llm/test/failure-classification.test.ts`, `packages/llm/test/run.test.ts` (one attempt per invocation); `packages/llm/test/retry/retry.test.ts` relocated; `packages/agent/test/core/provider-retry-ownership.test.ts` kept. Topology: `script/topology.ts` adds the `llm` workspace (nine workspaces; `apps/oni` may depend on it), `check-deps.ts` drops the model band, the `Model` namespace and the moved-file pins, `check-comment-residue.ts` drops the moved pins (the residue gate covers `packages/agent/src` only) and lowers the JSDoc ceiling 126 -> 109, `knip.json` and `.github/workflows/ci.yml` gain the lane, the AGENTS topology table is regenerated, and `script/effect-error-contract.test.ts`, `gate-discovery.test.ts`, `lint-side-effects.ts` and `generate-models-snapshot.ts` follow the moved paths.
 
-Verification: `check-types`, `lint`, `script/check-deps.ts`, `script/check-topology.ts`, `script/check-comment-residue.ts`, `script/check-dead-exports.ts` and `lint:tools` on the branch; the changed test files of `packages/llm`, `packages/agent` and `apps/openomni` run per file under the shared flock lock (never the whole suite); the issue's zero-hit searches (`from "ai"`/`@ai-sdk` and `../model`/`@openomni/llm` under `packages/agent/src`, `from "ai"`/`@ai-sdk` under `packages/agent/test`, `@openomni/agent` under `packages/llm/src`, the model band and `Model` namespace in `check-deps.ts`) return nothing. The full gate is lead-owned.
+Verification: `check-types`, `lint`, `script/check-deps.ts`, `script/check-topology.ts`, `script/check-comment-residue.ts`, `script/check-dead-exports.ts` and `lint:tools` on the branch; the changed test files of `packages/llm`, `packages/agent` and `apps/oni` run per file under the shared flock lock (never the whole suite); the issue's zero-hit searches (`from "ai"`/`@ai-sdk` and `../model`/`@oni/llm` under `packages/agent/src`, `from "ai"`/`@ai-sdk` under `packages/agent/test`, `@oni/agent` under `packages/llm/src`, the model band and `Model` namespace in `check-deps.ts`) return nothing. The full gate is lead-owned.
 
 ## #1346 one-call session creation and the four entity RPCs (epic #1356, rung 4)
 
 On `epic1356/1346-create-session-four-rpcs` (2026-10-13, base `89b90b793`, PR #1444).
 
-Session creation is one core call: `Core.createSession` (`packages/agent/src/core/session/create.ts`, `SessionStore.create`) commits the session-file genesis inside the catalog transaction, so the durable genesis and its catalog index row exist together or not at all, refusing typed `CreateRefused{duplicate | orphan_index | write}`; fork indexing is core-owned through `ForkPorts.catalog`. The app reaches a session only through the four entity RPCs: ingress and outbound commits ride the core execution ledgers (typed `CorruptRecord` on a missing receipt), `materializeDeliveryTarget` calls `Core.createSession`, interrupt is `Deliver{kind: "signal", control: "interrupt"}` (the app CAS/retry loop is deleted), and the process child forwards deliveries as `request_deliver` frames the parent commits through the entity. The `Core` barrel exposes `SessionHandleStore` as the curated read-only face only; `script/check-deps.ts` `validateAppsSessionWrites` bans session-store write receivers in `apps/**` except the exact `index.ts:1219 kernel.commit` (`tools.add` configure) line and the pinned `ingress-executor.ts` `Core.adoptedExecutor` perimeter exception. Verification tokens in `apps/openomni/src`: `kernel.commit(`/`source.commit(`/`kernel.materialize(`/`plane.catalog.indexSession(` 2/1/1/3 → 0/0/0/0; scoped `.commit(` 5 → 1 and `.materialize(` 3 → 1.
+Session creation is one core call: `Core.createSession` (`packages/agent/src/core/session/create.ts`, `SessionStore.create`) commits the session-file genesis inside the catalog transaction, so the durable genesis and its catalog index row exist together or not at all, refusing typed `CreateRefused{duplicate | orphan_index | write}`; fork indexing is core-owned through `ForkPorts.catalog`. The app reaches a session only through the four entity RPCs: ingress and outbound commits ride the core execution ledgers (typed `CorruptRecord` on a missing receipt), `materializeDeliveryTarget` calls `Core.createSession`, interrupt is `Deliver{kind: "signal", control: "interrupt"}` (the app CAS/retry loop is deleted), and the process child forwards deliveries as `request_deliver` frames the parent commits through the entity. The `Core` barrel exposes `SessionHandleStore` as the curated read-only face only; `script/check-deps.ts` `validateAppsSessionWrites` bans session-store write receivers in `apps/**` except the exact `index.ts:1219 kernel.commit` (`tools.add` configure) line and the pinned `ingress-executor.ts` `Core.adoptedExecutor` perimeter exception. Verification tokens in `apps/oni/src`: `kernel.commit(`/`source.commit(`/`kernel.materialize(`/`plane.catalog.indexSession(` 2/1/1/3 → 0/0/0/0; scoped `.commit(` 5 → 1 and `.materialize(` 3 → 1.
 
 Verification: lead gate `gate-1346.sh` on the PR head after the rebase onto `89b90b793` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1346.log`); adversarial review r1 (`review-1346-r1.md`) and r2 (`review-1346-r2.md`): Gate (local, 2aa690c6c): 14 STEP/LANE/PATCH exits 0 in gate-1346.log; the packages/agent lane wedged under load 23 on 18 cores (114/114 timeouts, 0 assertion failures, no output after 15:40) and was killed, then rerun alone (hub 15:51 ruling, no full-gate rerun): LANE_EXIT packages/agent 0,  1787 pass  0 fail - logs gate-1346.log + gate-1346.agent.log under core1356/..
 
@@ -2525,7 +2543,7 @@ Verification: lead gate `gate-1346.sh` on the PR head after the rebase onto `89b
 
 On `epic1356/1345-core-host-layer` (2026-10-12, base `25584f2d7`, PR #1442).
 
-The ledger host moved into `packages/agent`: `core/session/host.ts` opens the catalog, per-session stores, the `effect/cluster` `SingleRunner` layer and the session entity behind `Core.openLedger` (a scoped Layer; one store-opening function carries the typed `OpenRefused`, and the plane finalizer is the catalog's only release). The plain plane constructor exists only as `Testing.openLedgerPlane` for test fixtures and is banned in `apps/**/src` by `script/check-deps.ts`; the `Core` barrel no longer exposes `openCatalogStore`/`openSessionStore`. `apps/openomni/src/composition/cluster-runtime.ts` keeps configuration and consumes the Layer: retired tokens `openCatalogStore|openSessionStore|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient` in `apps/openomni/src` 2/3/2/6/2 → 0/0/0/0/0; `@effect/sql-sqlite-bun` imports in app + channels src 1 → 0 and `effect/cluster` imports in app src 1 → 0. The one channels touch is the Owner-approved test helper `packages/channels/test/helpers/ledger.ts` (+18/−10: import switched to `Testing.openLedgerPlane`, a `close` and the session-file key mapping; no `packages/channels/src` change). `packages/agent/test/core/host.test.ts` covers file and memory modes, late port binding, open refusal, single catalog release, reopen over the same catalog/session files, and memory-mode passivation on the injected clock.
+The ledger host moved into `packages/agent`: `core/session/host.ts` opens the catalog, per-session stores, the `effect/cluster` `SingleRunner` layer and the session entity behind `Core.openLedger` (a scoped Layer; one store-opening function carries the typed `OpenRefused`, and the plane finalizer is the catalog's only release). The plain plane constructor exists only as `Testing.openLedgerPlane` for test fixtures and is banned in `apps/**/src` by `script/check-deps.ts`; the `Core` barrel no longer exposes `openCatalogStore`/`openSessionStore`. `apps/oni/src/composition/cluster-runtime.ts` keeps configuration and consumes the Layer: retired tokens `openCatalogStore|openSessionStore|createSessionEntityLayer|createSessionEntityRunTurn|SqliteClient` in `apps/oni/src` 2/3/2/6/2 → 0/0/0/0/0; `@effect/sql-sqlite-bun` imports in app + channels src 1 → 0 and `effect/cluster` imports in app src 1 → 0. The one channels touch is the Owner-approved test helper `packages/channels/test/helpers/ledger.ts` (+18/−10: import switched to `Testing.openLedgerPlane`, a `close` and the session-file key mapping; no `packages/channels/src` change). `packages/agent/test/core/host.test.ts` covers file and memory modes, late port binding, open refusal, single catalog release, reopen over the same catalog/session files, and memory-mode passivation on the injected clock.
 
 Verification: lead gate `gate-1345.sh` on the PR head after the rebase onto `25584f2d7` (log `.omo/evidence/ulw/01a11a6f-1bd5-7df9-b6af-92414dece7bb/core1356/gate-1345.log`); adversarial review r1 (`review-1345-r1.md`, H1 M4 L6) fixed in full by the r1 fix lane, r2 (`review-1345-r2.md`) r2 REQUEST_CHANGES H3 fixed in f65ba02ca..eb0e7d732 + 171b9371e; gate-verified GATE_EXIT 0 on 171b9371e, no r3 per rule 3.
 
@@ -2563,7 +2581,7 @@ On `epic1337/1340-matcher-judge-store` (2026-10-13, base `182a9fc27`, PR #1411).
   automation or groups.
 - Grouped events are durable rows (`store/automation/`, SQLite adapter in
   `store/sqlite/`) that survive a store reopen; quiet windows close from
-  the injected clock, which `apps/openomni/src/index.ts` mounts via
+  the injected clock, which `apps/oni/src/index.ts` mounts via
   `composition/automation-clock.ts`. Prompt and action deliveries go
   through the ordinary dispatch path (policy gate, egress budget, event-id
   checks, `message.admitted`).
@@ -2572,7 +2590,7 @@ On `epic1337/1340-matcher-judge-store` (2026-10-13, base `182a9fc27`, PR #1411).
 - Rule editing (`provision{automation_*}`) and the desktop editor are rungs
   4/5 (#1341, #1342). A non-firing automation never suppresses ordinary delivery;
   a failing group close is isolated to its group and recorded. Tests:
-  channels 770 pass / 0 fail; apps/openomni 782 pass / 0 fail.
+  channels 770 pass / 0 fail; apps/oni 782 pass / 0 fail.
 
 ## #1339 channel drivers report facts only and emit the unified ingress input (epic #1337, rung 2)
 
@@ -2582,13 +2600,13 @@ On `epic1337/1339-facts-only-drivers` (2026-10-13, base `6f9503ef1`, PR #1410).
   `IngressFacts` author/event (bot flag, reactions, edits, pull-request events);
   Slack `message_changed` edits by the bot itself are dropped as self-echo.
 - Fifth provider: signed webhook (`packages/channels/src/provider/webhook/`),
-  composed in `apps/openomni` with its own credential reader; webhook rows boot
+  composed in `apps/oni` with its own credential reader; webhook rows boot
   with their own schema.
 - `router/ingress-filter.ts` records bot and reaction ignores as ledger rows
   before routing; `router/inbound-id.ts` is the single inbound-id helper; GitHub
   refused connections classify `not_sent` through the shared `isNotSent` rule.
 - No automation policy or matcher yet (rung 3, #1340). Tests: channels 709 pass /
-  0 fail; apps/openomni green.
+  0 fail; apps/oni green.
 
 ## #1338 protocol contracts for the unified ingress input, automation records and automation ledger decisions (epic #1337, rung 1)
 
@@ -2638,17 +2656,17 @@ On `epic1337/1338-protocol-schemas` (2026-10-12, base `d9800ad74`, PR #1409).
 
 ## #1422 one delegation depth cap owner (lane D, umbrella #1421)
 
-Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. The depth row lives in the catalog policy plane, where `seedKernelPolicyRows` (`apps/openomni/src/bundles/core-policy/index.ts`) lets every stored row overwrite the default by id, so a catalog seeded before this change keeps admitting at its stored `max: 4`; only catalogs without the row (fresh installs) receive the shared value. Migrating stored rows is a follow-up on #1422. The tests assert the admission constant equals the caps' `maxDepth`.
+Merged `e8481ef66` (PR #1432). The message-policy depth row and the admission constant share one value: `ADMISSION_DEPTH_MAX = DEFAULT_DELEGATION_CAPS.maxDepth` (3) in the delegation-policy bundle; admission previously allowed one level deeper than the caps declared. The depth row lives in the catalog policy plane, where `seedKernelPolicyRows` (`apps/oni/src/bundles/core-policy/index.ts`) lets every stored row overwrite the default by id, so a catalog seeded before this change keeps admitting at its stored `max: 4`; only catalogs without the row (fresh installs) receive the shared value. Migrating stored rows is a follow-up on #1422. The tests assert the admission constant equals the caps' `maxDepth`.
 
 ## #1424 desktop journal-kind audit (lane D, umbrella #1421)
 
-Merged `e86ae5eb0` (PR #1431). The 12-kind coverage table and the confirmed audit live on issue #1424 (https://github.com/INONONO66/openomni/issues/1424#issuecomment-6128854787); the unreachable desktop `data-epoch` path is deleted and no renderer was added: every kind arrives as a payload-free page row, the live message frame carries no revision, and pages are not joined to chat messages, so no per-kind marker can be placed today. Which kinds to render, and how, stays a product decision listed on the issue with a recommendation.
+Merged `e86ae5eb0` (PR #1431). The 12-kind coverage table and the confirmed audit live on issue #1424 (https://github.com/INONONO66/oni/issues/1424#issuecomment-6128854787); the unreachable desktop `data-epoch` path is deleted and no renderer was added: every kind arrives as a payload-free page row, the live message frame carries no revision, and pages are not joined to chat messages, so no per-kind marker can be placed today. Which kinds to render, and how, stays a product decision listed on the issue with a recommendation.
 
 ## #1423 the app's Promise band is a declared three-module band (lane D, umbrella #1421)
 
 On `app/1423-promise-band` (2026-10-12, base `c85607df7`, PR #1430).
 
-The three `apps/openomni` modules forced onto Promises or callbacks by an
+The three `apps/oni` modules forced onto Promises or callbacks by an
 external runtime API are declared as one band; each carries a head comment
 naming the forcing API, the single Effect entry call, and what must never be
 added there. Comment-only; zero behavior change; no lint or script added.
@@ -2742,7 +2760,7 @@ On `stab/12-legacy-rows-cutover` (2026-10-08, base `2dc31be78`).
   (bundle id, dotted) parse and re-admit, pre-cutover decode/replay with a
   matcher-row fixture, snapshot version); `generation-policy.test.ts`,
   `permission-row-migration.test.ts`,
-  `apps/openomni/test/policy-seed-rows.test.ts` pass unchanged.
+  `apps/oni/test/policy-seed-rows.test.ts` pass unchanged.
 
 ## #1311 delegation lifecycle contract — typed cap refusals + once-only child settlement (epic #1303, rung 14)
 
@@ -2752,7 +2770,7 @@ On `stab/14-delegation-lifecycle-contract` (2026-10-08, base `2dc31be78`).
   (strict: `status: completed|failed`, `preview` max 4096 characters, `pointer: {session, action}`),
   exported through `MessageContract`; 3 parse-failure tests
   (`packages/protocol/test/send-message.test.ts` 16 pass). Protocol stays Effect-free.
-- Typed refusal: `DelegationRefusal` zod in `apps/openomni/src/bundles/delegation-policy`;
+- Typed refusal: `DelegationRefusal` zod in `apps/oni/src/bundles/delegation-policy`;
   `capVerdict` deny payloads carry `reason: JSON.stringify(refusal)` as the single carrier so the
   canonical `delegation_refused` JSON reaches the model through the consulted-guard seam
   (`gate/evaluate.ts` → `ToolRefused`) with zero core gate/dispatch edits.
@@ -2801,9 +2819,9 @@ On `stab/15-bounded-tool-output-projection` (2026-10-08, base `2dc31be78`).
   `onPublish(eventName, delivered)` seam for rung 16 measurement
   (`packages/agent/test/core/bus.test.ts` zero-publication and
   non-matching-name cases).
-- Config: `OPENOMNI_TOOL_OUTPUT_BUDGET_BYTES` -> `resolveToolOutput` ->
+- Config: `ONI_TOOL_OUTPUT_BUDGET_BYTES` -> `resolveToolOutput` ->
   genesis `session.configure{settings.toolOutputBudgetBytes}`
-  (`apps/openomni/test/tool-output-budget.test.ts` through the shipped
+  (`apps/oni/test/tool-output-budget.test.ts` through the shipped
   composition).
 - Measured (1 MiB fixture, `packages/agent/test/core/execution/tool-output-projection.test.ts`):
   row bytes before projection 1048770, after 16617; read-plane / row-event
@@ -2821,7 +2839,7 @@ On `stab/11-retire-inbox-worker-vocabulary` (2026-10-08, base `4b36d0f73`).
   `inboxId`/`inboxIds`/`inboxKind` -> `deliveryId`/`deliveryIds`/`deliveryKind`,
   `LedgerSession.Role` `worker`-byte -> `child`; agent core/plugins/tests,
   channels router/store, codemode/machines Python prelude (`max_concurrency`
-  kwarg), apps/openomni composition/tools/policy-seed/message-policy
+  kwarg), apps/oni composition/tools/policy-seed/message-policy
   (`message.child.*` ids, tool visibility `child`) and the desktop `inbox`
   route -> `automations` all follow (231 files). Ingress drops the retired
   string/object subordinate target with a typed parse refusal
@@ -2881,7 +2899,7 @@ On `stab/9-core-policy-to-bundles` (2026-10-08, base `c11ae7148`).
   `ChatAgentConfig.defaultBudget` is required. The policy rides required
   ports: `SessionRuntime.approvalPolicy`, `SessionEntityPorts.approvalPolicy`,
   `ExecutorOptions.approvalPolicy` (no optional fallbacks).
-- Product bundle: `apps/openomni/src/bundles/approval-policy/index.ts` owns the
+- Product bundle: `apps/oni/src/bundles/approval-policy/index.ts` owns the
   shipped literals (`["owner"]`, 8 per 3,600,000 ms, 86,400,000 ms, 24 turns /
   40 tool calls / 5 min wall / 2 min tool wall) and provides the seam;
   `appManifest` lists it (six bundles). `send-message` requires the seam, so a
@@ -2890,7 +2908,7 @@ On `stab/9-core-policy-to-bundles` (2026-10-08, base `c11ae7148`).
 - Tests: `packages/agent/test/approval-policy.test.ts` (4 pass: quota
   injection limit 2 vs 3, responders land verbatim with the injected expiry,
   default-budget resolution with per-field explicit wins, `seam_missing`
-  compose refusal) and `apps/openomni/test/approval-policy.test.ts` (3 pass:
+  compose refusal) and `apps/oni/test/approval-policy.test.ts` (3 pass:
   shipped values through the bundle's `index.ts`, default compose includes the
   provider, stripped manifest refuses `seam_missing` naming `send-message`).
   `delegation-policy.test.ts` unchanged and green; durable request bytes
@@ -2901,12 +2919,12 @@ On `stab/9-core-policy-to-bundles` (2026-10-08, base `c11ae7148`).
 
 On `stab/10-composition-root-dedupe` (2026-10-08, base `0373ed38c`). Boot
 options carry no tool list: `StartOptions`/`ResidentOptions` lost
-`toolDefinitions` (`rg -c 'toolDefinitions' -g '*.ts' apps/openomni` prints
+`toolDefinitions` (`rg -c 'toolDefinitions' -g '*.ts' apps/oni` prints
 nothing) and app tests that need an extra tool declare it through a test
 manifest bundle (`appFixture`'s `bundles` option / `testToolsBundle`), so the
 12-factory catalog is the manifest's tool projection and nothing else.
 `monitor` is declared once, by `monitorBundle`: `createMonitorTool` appears
-under `apps/openomni/src` only in `bundles/monitor/index.ts`,
+under `apps/oni/src` only in `bundles/monitor/index.ts`,
 `catalogDefinitions` returns 11 factories, and the generation-construction
 name-collision keep rule is replaced by the typed `duplicate` compose refusal
 (`manifest.test.ts` pins a two-`monitor` manifest refusing closed). The dead
@@ -2924,13 +2942,13 @@ child's non-zero exit, and a failure that left the journal unmoved dies as a
 wiring defect) and wakes the session entity once through the entity client's
 entity-internal `rescan` Alarm, so fence rotation, consume folds and
 passivation arming belong to the entity alone (`rg -c
-'decideSessionAdmission' apps/openomni/src/process-entry.ts` prints nothing).
+'decideSessionAdmission' apps/oni/src/process-entry.ts` prints nothing).
 `emptyComposition` is deleted and `AppRuntimeOptions.composed` is required;
-`cli/main.ts` hands `startOpenOmni` the config only, and
+`cli/main.ts` hands `startOni` the config only, and
 `test/helpers/generation-services.ts` composes its own empty manifest.
 `packages/agent/test/helpers/composition-fixtures.ts` and
-`apps/openomni/test/composition-drift.test.ts` are deleted; the five
-shipped-behavior suites moved to `apps/openomni/test`.
+`apps/oni/test/composition-drift.test.ts` are deleted; the five
+shipped-behavior suites moved to `apps/oni/test`.
 
 Ruled deviations: the send-message bundle also declares its tool on the base
 catalog, so the duplicate-name compose refusal exempts `send_message`
@@ -2992,8 +3010,8 @@ with main `c68c9de5a`). Three lane branches (bands A/B/C) merged into one PR.
   return failure lists that `kernel.ts` decodes to `browser_cleanup_failed`.
 - Band B — channels, desktop, ui: the telegram poller adopts
   `listenForAbort` (a pre-aborted poll makes zero requests); an invalid
-  `OPENOMNI_WS_PORT` is a typed `DesktopConfigError` and main refuses to
-  boot (unset still means 3000; `OPENOMNI_WS_URL` wins); `TranscriptMarkdown`
+  `ONI_WS_PORT` is a typed `DesktopConfigError` and main refuses to
+  boot (unset still means 3000; `ONI_WS_URL` wins); `TranscriptMarkdown`
   is a required-payload paragraph union and the blank-element render branches
   are deleted.
 - Band C — agent, app gateway: `replaceFileAtomically` and its test, eight
@@ -3046,12 +3064,12 @@ head merged with rung 1 head). The five removable capabilities now boot the
 WHOLE app off through the product manifest, and the off list is one config
 key:
 
-- `apps/openomni/src/config.ts`: `bundlesOff` renamed `off` — the same
-  `OPENOMNI_BUNDLES_OFF` JSON tuple now carries bundle and capability names
+- `apps/oni/src/config.ts`: `bundlesOff` renamed `off` — the same
+  `ONI_BUNDLES_OFF` JSON tuple now carries bundle and capability names
   alike; compose ignores names the manifest never declared. Measured:
   `rg -c 'bundlesOff' -g '*.ts' packages apps` 10 hits in 6 files before, no
   output after.
-- `apps/openomni/src/bundles/resident/index.ts`: a composition with a nonempty `disabled`
+- `apps/oni/src/bundles/resident/index.ts`: a composition with a nonempty `disabled`
   cascade leaves session genesis unstamped (`manifestHash` absent), so the
   first turn's existing single-writer adoption appends the
   `session.configure{operation: "compose", disabled: [{name, because}]}` row;
@@ -3083,7 +3101,7 @@ key:
   Telegram carries `reply_to_message` text as the quote.
 - `packages/channels/src/router/automation/mention-only.ts` (#1494): an
   opt-in mention-only posture per surface. `Actor.ChannelGrant.mentionOnly`
-  rides the surface's mount grant (`OPENOMNI_CHANNEL_MENTION_ONLY`, a JSON
+  rides the surface's mount grant (`ONI_CHANNEL_MENTION_ONLY`, a JSON
   array of surface ids, `config.channelMentionOnly`); the perimeter rule
   table (`automation/rules.ts`) filters a channel message that does not
   address the Resident as `mention_only` (`by: rule/mention-only`, one
@@ -3091,7 +3109,7 @@ key:
   a reply quoting the Resident (`context.quoted.author === "assistant"`),
   or a thread whose label the surface map already knows; a channel label
   alone never counts. Absent flag = every admitted message routes, as before.
-- `apps/openomni/test/capability-off-boot.test.ts` (8 pass / 0 fail): one
+- `apps/oni/test/capability-off-boot.test.ts` (8 pass / 0 fail): one
   boot per row through `suite.boot` with injected clock and entropy. Measured
   cascades on this base: alarm → alarm, monitor, cron, delegation-policy;
   action → action, hook, hooks-json, delegation-policy; hook → hook,
@@ -3106,7 +3124,7 @@ key:
 - App tests reach plugins only through the `Bundle` barrel:
   `createWatchVerb` is re-exported from `plugins/alarm` and
   `alarm-plane.test.ts` drops the deep import —
-  `rg -c 'src/plugins/' -g '*.ts' apps/openomni/test` returns no output.
+  `rg -c 'src/plugins/' -g '*.ts' apps/oni/test` returns no output.
 
 No new journal kind, point, tool or verb; the five-plugin layout table and
 `plugins-layout.test.ts` are untouched.
@@ -3168,7 +3186,7 @@ the default 4000-character tool-output elision with a 500-character head.
 No new journal kind, schema version, tool, or gate point. Tests:
 `packages/agent/test/compaction/{compact,capability}.test.ts`,
 `packages/agent/test/core/execution/{compaction-deferral,compaction-off,overflow-recovery}.test.ts`,
-and `apps/openomni/test/compaction-composition.test.ts`.
+and `apps/oni/test/compaction-composition.test.ts`.
 
 ## #1316 tool plugin owns tool dispatch, monitor requires the tool seam (epic #1303)
 
@@ -3187,7 +3205,7 @@ the tool-body seams (`executeToolBody`, `projectTools`, `ToolBodyOutcome`,
 `ToolRefused`, the `Dispatcher` types). The agent `Bundle` barrel re-exports
 the plugin; `core/index.ts` exports no dispatcher
 (`rg -c 'createTurnDispatcher' -g '*.ts' packages/agent/src/core` → nothing)
-and `apps/openomni/src/bundles/resident/index.ts` composes `Bundle.createTurnDispatcher`
+and `apps/oni/src/bundles/resident/index.ts` composes `Bundle.createTurnDispatcher`
 (`rg -c 'Core.createTurnDispatcher' -g '*.ts' apps packages` → nothing).
 Capability declaration: the `monitor` bundle (wake-budget row on `tool.pre`)
 and the `delegation-policy` bundle (three consulted cap rows on `tool.pre`)
@@ -3195,7 +3213,7 @@ declare `requires: ToolCapabilitySeam`, so `off: ["tool"]` composes with a
 typed cascade — `session.configure{disabled: [{name: "monitor"|"send-message"|
 "delegation-policy", because: "tool"}]}` and zero surviving `tool.pre`/
 `tool.post` rows — instead of rejecting the rows `unknown_point`
-(`apps/openomni/test/manifest.test.ts`). A row on `tool.pre` from a bundle
+(`apps/oni/test/manifest.test.ts`). A row on `tool.pre` from a bundle
 that does not require the tool seam still rejects `unknown_point`. New
 `packages/agent/test/plugins/tool-plugin.test.ts` pins the plugin door, the
 two invalid-output edges and the guarded-page recovery cursor walk. Durable
@@ -3217,9 +3235,9 @@ write `transaction` to one database handle. The agent catalog
 (`packages/agent/src/core/store/catalog.ts`) declares no channel-facing table
 and constructs no channel-facing adapter; it exposes its raw `database`
 handle, and the app composition
-(`apps/openomni/src/composition/cluster-runtime.ts`) attaches
+(`apps/oni/src/composition/cluster-runtime.ts`) attaches
 `openChannelStore(catalog.database, now)` once per boot as
-`AppLedgerPlane.channel`. `apps/openomni/src/gateway.ts` builds
+`AppLedgerPlane.channel`. `apps/oni/src/gateway.ts` builds
 `ChannelStoreSource` from `plane.channel.*` plus the ingress session's
 `decisionFacts`/`transaction`. Channels tests run on their own fixture
 (`packages/channels/test/store/helpers/sqlite.ts`);
@@ -3243,16 +3261,16 @@ capability plugin directory holds source instead of a README scaffold:
 the `action` journal kind (schema and version read from the protocol's
 `Journal.CAPABILITY_DECLARATIONS`, identity reducer), the `action` deliver
 input and the `action.pre` gate point — plus `ActionSeam`
-(`@openomni/action/Action`), both public through the agent `Bundle` namespace
+(`@oni/action/Action`), both public through the agent `Bundle` namespace
 (`packages/agent/src/bundle.ts` re-exports the plugin beside `plugins/hook`).
-`apps/openomni/src/manifest.ts` now composes `Bundle.actionCapability()`
+`apps/oni/src/manifest.ts` now composes `Bundle.actionCapability()`
 instead of calling `Bundle.Capability.define` locally; the app-owned
-`ActionCapabilitySeam` is deleted from `apps/openomni/src/bundles/seams.ts`
+`ActionCapabilitySeam` is deleted from `apps/oni/src/bundles/seams.ts`
 (`rg -c 'ActionCapabilitySeam' -g '*.ts' packages apps` returns nothing) and
 `bundles/delegation-policy` requires `Bundle.ActionSeam`. The cascade is
 unchanged because compose resolves `requires` by name: `off: ["action"]`
 still disables `action`, `hook`, `hooks-json` and `delegation-policy` with
-`because: "action"` (`apps/openomni/test/hooks-json.test.ts`), and the new
+`because: "action"` (`apps/oni/test/hooks-json.test.ts`), and the new
 `packages/agent/test/action-plugin.test.ts` proves the plugin-owned cascade
 over a minimal `actionCapability()` + `hookCapability()` manifest. Durable
 bytes, the kind schema, the point set and the 12-tool catalog are untouched.
@@ -3262,8 +3280,8 @@ bytes, the kind schema, the point set and the 12-tool catalog are untouched.
 On `epic1260/1258-send-message-contacts` (2026-10-05, base `ab62ca98`). The
 agent owns one session; every other party is a contact behind the single
 `send_message` tool. The tool face moved (git mv) from
-`apps/openomni/src/bundles/tools/send-message.ts` to
-`apps/openomni/src/bundles/messaging/send-message/index.ts` (`Bundle.define`, requires
+`apps/oni/src/bundles/tools/send-message.ts` to
+`apps/oni/src/bundles/messaging/send-message/index.ts` (`Bundle.define`, requires
 tool; the sealed 12-tool catalog is unchanged — the bundle face shares the
 catalog definition name). Contact registry: `telegram:<id>` / `discord:<id>` /
 `human:<id>` / `cli:claude-code|codex|omp`; one Effect connector per kind over
@@ -3275,7 +3293,7 @@ the sender's prompt. Session/new-session sends keep riding the gateway ingest
 door; a `to.new` send with `deadline_ms` arms the `delegation.deadline`
 purpose for the created child.
 
-`apps/openomni/src/bundles/delegation-policy/` (`Bundle.define`, requires
+`apps/oni/src/bundles/delegation-policy/` (`Bundle.define`, requires
 action + alarm — composing `action` off cascades the bundle off) owns the
 delegation policy as generation data: three consulted gate rows at `tool.pre`
 (`spawn_depth` limit 3 from catalog parent links, `spawn_children` limit 4
@@ -3294,15 +3312,15 @@ async consultant or a sync guard) with the `when` context
 `composition/generation-layers.ts` to the live catalog plane and register
 unconditionally so persisted consult rows compile under any composition (the
 process child boots the empty composition). Tests:
-`apps/openomni/test/send-message-contacts.test.ts` (routing per kind, scripted
+`apps/oni/test/send-message-contacts.test.ts` (routing per kind, scripted
 CLI stdout -> parent prompt, boot-bind of both bundles, idempotent first-prompt
 replay `{seq, existed: true}`, action-off cascade) and
-`apps/openomni/test/delegation-policy.test.ts` (cap matrix fail-closed,
+`apps/oni/test/delegation-policy.test.ts` (cap matrix fail-closed,
 deadline wake cancel + parent prompt, typed wake failures).
 
 ## #1256 hook capability and hooks-json bundle (epic #1260, draft PR #1292)
 
-Branch `epic1260/1256-hook-capability`, base `5362b3bd` (#1255). Shipped: the removable hook capability `packages/agent/src/plugins/hook` — `hookCapability()` is `Capability.define({name: "hook", requires: ["action"], seam: "@openomni/hook/Hook"})` with the single handler `hook/process` (`HOOK_PROCESS_REF`), and `process.ts` owns the one external hook surface: `acquireHookProcess` spawns one JSON-lines child process per acquisition Scope (one PID per distinct command per generation — the pool key is the command argv, so two rows with the same command share one child while `timeoutMs`/`maxLineBytes` ride each call; the Scope finalizer drains in-flight calls, stops the reader fiber, then kills the PID), multiplexes concurrent calls by request id, bounds every call with `Effect.timeoutOption` on the injected Clock, and returns the closed `HookOutcome` union `gate{verdict: allow | deny | require_approval} | rewrite{args} | observe | failure{code: "hook_timeout", cause: timeout | framing | exit}`; one malformed stdout line is a framing failure that poisons the process fail-closed — every in-flight call fails, the PID is marked dead and killed, later calls refuse (garbage cannot be attributed to one request or trusted afterwards); spawn refusal is the typed `HookSpawnError`; the plugin imports only `core/api.ts` and `Bun\.spawn|node:child_process` greps 0 under `packages/agent/src/core`. App side: `apps/openomni/src/bundles/hooks-json` compiles the Owner's hooks JSON file (config `hooksPath`, env `OPENOMNI_HOOKS_PATH`, read once in `index.ts` before any listener exists) into gate rows over the hook handler at the four mapped events — `PreToolUse→tool.pre`, `PostToolUse→tool.post`, `UserPromptSubmit→prompt.pre`, `SessionStart→session.open` — with row ids `hooks-json/<point>#<n>` at order 500+; an unmapped event key, unreadable bytes or an invalid shape refuse boot with the typed app invariant failure (no seventh compose code: the file is validated before compose; a missing hook capability still rejects `seam_missing` inside the closed set); the in-process `hooks-json/secrets-guard` rewrite transformer masks secret-shaped tokens and guard rows declare their rewritable `fields` (`UserPromptSubmit` defaults to `["body"]`, tool events declare explicitly, a `SessionStart` guard refuses at compile); a command entry may declare `do: "rewrite"` with its `fields`, compiling to a consult row with the protocol `rewrite` flag whose PREPARED consultant response the fold applies as a contained rewrite (a reply that is not a plain record within the declared fields folds to deny with one `incompatible_response` fact), and the live policy seed discriminates consultant refs from synchronous transformers so an external rewrite row seeds `consult{rewrite}`; command entries otherwise compile to consulted gate rows served LIVE through the hook consultant at all four points: the fold is fail-closed (a hook response incompatible with its row — e.g. a rewrite answering a gate — folds to deny with one recorded `incompatible_response` fact), a reply that lands after its call's deadline re-enters the session through the entity deliver door as a `hook.late` action row carrying its stale cursor (bounded late window, default 256), prompt-policy refusals fire at BOTH doors (turn start and the mid-turn run boundary draining steer deliveries), refusal errors are typed `AppInvariantError`s carrying machine-consumed codes — `AppInvariantError.code` is an OPTIONAL string field, so the code set is NOT closed at the type level; the hooks-json reader emits exactly `unmapped_event | not_json | unreadable_path | invalid_config | missing_rewrite_fields | session_start_rewrite`, and a gate row naming a synchronous kernel service as its consultant refuses at seed time. The manifest (`apps/openomni/src/manifest.ts`) grows the non-exported `action` capability (identity reduce over the protocol `action` declaration) as the hook capability's `requires` root: `off: ["action"]` cascades `hook` and `hooks-json`, `off: ["hook"]` cascades `hooks-json`, and a mid-session recompose journals `session.configure{operation: "compose", disabled: [{name: "hook", because: "hook"}, {name: "hooks-json", because: "hook"}]}` at the next turn start. Tests: `packages/agent/test/hook-plugin.test.ts` (scripted echo child, TestClock timeout, PID rotation proving child receipt via an ordered ack round-trip, death mid-call, split frames via an injected fake child with an exact chunk boundary, framing poison, spawn refusal, late rewrite/observe routing and late-window eviction; no sleeps) and `apps/openomni/test/hooks-json.test.ts` (row compilation incl. consult/observe seeds, typed refusal codes, secrets guard, off cascades, `seam_missing`, catalog policy seeding through real boot, the capability-removed one-turn gate with the journal chain byte-identical across two pinned runs, and the real-boot e2e set: prompt gate deny/allow decision rows, mid-turn steer deny at the run boundary, body and `bash.command` rewrites reaching model/executor, incompatible-response deny fold, the late `hook.late` row, and the one-PID-per-command pool with teardown kills). Measured at the r4 head: root and app check-types 0; root lint green; check-deps band ratchet 25 unchanged; check-dead-exports 0 new; check-written-types 0; check-journal-writers 12; check-effect-boundaries green; suites stable 5x each — hook-plugin 19/0, hooks-json 21/0, policy-seed-rows 3/0, stale-action-backlog 6/0, retryable-once 2/0; a manual real-run tool.pre denial (journaled deny decision + refused tool slot) is recorded in the lane evidence.
+Branch `epic1260/1256-hook-capability`, base `5362b3bd` (#1255). Shipped: the removable hook capability `packages/agent/src/plugins/hook` — `hookCapability()` is `Capability.define({name: "hook", requires: ["action"], seam: "@oni/hook/Hook"})` with the single handler `hook/process` (`HOOK_PROCESS_REF`), and `process.ts` owns the one external hook surface: `acquireHookProcess` spawns one JSON-lines child process per acquisition Scope (one PID per distinct command per generation — the pool key is the command argv, so two rows with the same command share one child while `timeoutMs`/`maxLineBytes` ride each call; the Scope finalizer drains in-flight calls, stops the reader fiber, then kills the PID), multiplexes concurrent calls by request id, bounds every call with `Effect.timeoutOption` on the injected Clock, and returns the closed `HookOutcome` union `gate{verdict: allow | deny | require_approval} | rewrite{args} | observe | failure{code: "hook_timeout", cause: timeout | framing | exit}`; one malformed stdout line is a framing failure that poisons the process fail-closed — every in-flight call fails, the PID is marked dead and killed, later calls refuse (garbage cannot be attributed to one request or trusted afterwards); spawn refusal is the typed `HookSpawnError`; the plugin imports only `core/api.ts` and `Bun\.spawn|node:child_process` greps 0 under `packages/agent/src/core`. App side: `apps/oni/src/bundles/hooks-json` compiles the Owner's hooks JSON file (config `hooksPath`, env `ONI_HOOKS_PATH`, read once in `index.ts` before any listener exists) into gate rows over the hook handler at the four mapped events — `PreToolUse→tool.pre`, `PostToolUse→tool.post`, `UserPromptSubmit→prompt.pre`, `SessionStart→session.open` — with row ids `hooks-json/<point>#<n>` at order 500+; an unmapped event key, unreadable bytes or an invalid shape refuse boot with the typed app invariant failure (no seventh compose code: the file is validated before compose; a missing hook capability still rejects `seam_missing` inside the closed set); the in-process `hooks-json/secrets-guard` rewrite transformer masks secret-shaped tokens and guard rows declare their rewritable `fields` (`UserPromptSubmit` defaults to `["body"]`, tool events declare explicitly, a `SessionStart` guard refuses at compile); a command entry may declare `do: "rewrite"` with its `fields`, compiling to a consult row with the protocol `rewrite` flag whose PREPARED consultant response the fold applies as a contained rewrite (a reply that is not a plain record within the declared fields folds to deny with one `incompatible_response` fact), and the live policy seed discriminates consultant refs from synchronous transformers so an external rewrite row seeds `consult{rewrite}`; command entries otherwise compile to consulted gate rows served LIVE through the hook consultant at all four points: the fold is fail-closed (a hook response incompatible with its row — e.g. a rewrite answering a gate — folds to deny with one recorded `incompatible_response` fact), a reply that lands after its call's deadline re-enters the session through the entity deliver door as a `hook.late` action row carrying its stale cursor (bounded late window, default 256), prompt-policy refusals fire at BOTH doors (turn start and the mid-turn run boundary draining steer deliveries), refusal errors are typed `AppInvariantError`s carrying machine-consumed codes — `AppInvariantError.code` is an OPTIONAL string field, so the code set is NOT closed at the type level; the hooks-json reader emits exactly `unmapped_event | not_json | unreadable_path | invalid_config | missing_rewrite_fields | session_start_rewrite`, and a gate row naming a synchronous kernel service as its consultant refuses at seed time. The manifest (`apps/oni/src/manifest.ts`) grows the non-exported `action` capability (identity reduce over the protocol `action` declaration) as the hook capability's `requires` root: `off: ["action"]` cascades `hook` and `hooks-json`, `off: ["hook"]` cascades `hooks-json`, and a mid-session recompose journals `session.configure{operation: "compose", disabled: [{name: "hook", because: "hook"}, {name: "hooks-json", because: "hook"}]}` at the next turn start. Tests: `packages/agent/test/hook-plugin.test.ts` (scripted echo child, TestClock timeout, PID rotation proving child receipt via an ordered ack round-trip, death mid-call, split frames via an injected fake child with an exact chunk boundary, framing poison, spawn refusal, late rewrite/observe routing and late-window eviction; no sleeps) and `apps/oni/test/hooks-json.test.ts` (row compilation incl. consult/observe seeds, typed refusal codes, secrets guard, off cascades, `seam_missing`, catalog policy seeding through real boot, the capability-removed one-turn gate with the journal chain byte-identical across two pinned runs, and the real-boot e2e set: prompt gate deny/allow decision rows, mid-turn steer deny at the run boundary, body and `bash.command` rewrites reaching model/executor, incompatible-response deny fold, the late `hook.late` row, and the one-PID-per-command pool with teardown kills). Measured at the r4 head: root and app check-types 0; root lint green; check-deps band ratchet 25 unchanged; check-dead-exports 0 new; check-written-types 0; check-journal-writers 12; check-effect-boundaries green; suites stable 5x each — hook-plugin 19/0, hooks-json 21/0, policy-seed-rows 3/0, stale-action-backlog 6/0, retryable-once 2/0; a manual real-run tool.pre denial (journaled deny decision + refused tool slot) is recorded in the lane evidence.
 
 ## #1257 fork sessions into verifiable chains (epic #1260, draft PR #1291)
 
@@ -3331,7 +3349,7 @@ mismatch refuses `schema_version` with zero child writes. The copy cap is genera
 configuration per the issue's "cap copied bytes in generation configuration":
 `session.configure{settings.forkCopyByteCap}` is folded off the parent
 generation like the consumption widths (`DEFAULT_FORK_COPY_BYTE_CAP` 4 MiB when
-unset), and the app's resolved startup value (env `OPENOMNI_FORK_COPY_BYTE_CAP`)
+unset), and the app's resolved startup value (env `ONI_FORK_COPY_BYTE_CAP`)
 is the input written into each new session's genesis settings.
 `SessionStore.fork` appends genesis plus copies in one transaction; an existing
 child id refuses `child_exists` leaving the first chain intact.
@@ -3345,7 +3363,7 @@ aside}` plus the optional fork `children` list (id + anchor + title where
 known) the desktop renders as a clickable Forks list opening each child as a
 bound local session, the `session_fork` gateway method + websocket frame land in
 `packages/protocol/src/gateway/session-read.ts` / `packages/channels` /
-`apps/openomni/src/composition/session-fork.ts`, and the desktop session header
+`apps/oni/src/composition/session-fork.ts`, and the desktop session header
 renders the aside. `foldSessionHistory` never reads `session.configure`
 intents, so the aside cannot reach model context or compaction; the only
 promotion path is `forkAsideTransformer`, an opt-in `prompt.pre` gate handler
@@ -3358,11 +3376,11 @@ returns nothing. The kernel reads inputs by SQL (`inputMessages` on
 prompt's origin by `actionById` point read. No new journal kind exists:
 `rg -c 'kind: "session\.fork"' packages apps` returns nothing. Tests:
 `packages/agent/test/store/session/{session-fork,fork-exclusions,inspect-tree,inspect-aside}.test.ts`
-and the wire roundtrip `apps/openomni/test/session-fork.test.ts`.
+and the wire roundtrip `apps/oni/test/session-fork.test.ts`.
 
 ## #1255 declarative capabilities and bundles (epic #1260, PR #1289, merged `5362b3bd`)
 
-Branch `epic1260/1255-declarative-bundles`, base `77e1375b` (#1254). Shipped: the three declaration contracts `Capability.define` / `Bundle.define` (the `Bundle` namespace barrel's `define` = `defineBundle`) / `Manifest.define` in `packages/agent/src/core/ports/capability.ts`, surfaced through `core/api.ts` and the root `Bundle` namespace (`packages/agent/src/bundle.ts` is now a 19-line re-export barrel); `compose(manifest) → Generation` in `packages/agent/src/core/composition/compose.ts` is the one loader path and rejects exactly the closed six codes `requires_cycle | duplicate | product_declares_kind | seam_missing | unknown_handler | unknown_point` (the former `BundleError.namespace` refusal moved to define time); the `off` cascade (`requires` fan-out) is recorded on the existing writer as `session.configure{disabled: [{name, because}]}` with `ConfigureIntent.operation: "compose"` and no new journal kind; generations are recomputed from empty state on every manifest change and adopted by each session at its next turn start (`manifestHash` stamped on the configure row); the handler table of a composed generation is built once at compose and provided as the `GenerationHandlers` Context tag (`HandlerTable`/`createHandlerTable` in `core/gate/`; the `NamedPolicyRegistry` name greps zero); the three tool projections (`Tool.Spec`, `SessionGeneration.Tool`, the dispatch table) are derived once from the composed generation and `sessionTool()`/`toolSpec()` are deleted from `packages/agent/src`. App side: `apps/openomni/src/manifest.ts` declares the product manifest, `composition/composed.ts` holds the `ComposedGeneration` service the generation Layers read, boot composes the manifest and fails closed on a typed `ComposeRefused`, product bundles live under `apps/openomni/src/bundles/{monitor,cron}` (replacing `tools/monitor.ts` and the composition bundles, both grep zero), `provision{bundle_enable | bundle_disable}` recomposes the manifest with the four consent rows pinned, and `apps/openomni/test/monitor-bundle.test.ts` proves the monitor bundle end to end through `index.ts` wiring (restart fire, mid-turn disable, off at boot). D5: the tool-result split `content / details / structuredContent` lands as protocol owner fields in `packages/protocol/src/tool/result.ts` (`toolResultJsonSchema` bounded at 262,144 bytes, `toolResultText` the one fallback reader) and is consumed by eval and code mode (`composition/codemode.ts` maps `structuredContent` onto `ToolCallResult.value`; the cell door is typed-only). `script/check-deps.test.ts` ratchets the deletion tokens (`#1255 T5` records `@openomni/llm` at 0, already met by #1246). Recorded deviations: adoption bypasses `authorizeConfigure` (the manifest change is the authorized act; the per-session append is mechanical); `Generation` carries `inputs/capabilities/bundles/disabled` beyond the body's seven fields (needed by rotation and admission); protocol `Disabled` is `.readonly()`; `compose.ts` helpers split under the lint complexity cap; desktop/ui rendering of `details` and the gate `ToolBodyOutcome.output` name are follow-ups, not D5 consumers. Sweeps on the merged head: `rg --files apps/openomni/src | rg 'tools/monitor\.ts|composition/monitor-ports\.ts'` → empty; `sessionTool\(|toolSpec\(` in `packages/*/src` and `apps/*/src` → 0 (two app tests keep a local `toolSpec` helper); `BundlesLive|BundleDefinitions|bundlePolicyTag|NamedPolicyRegistry` → 0; `Bun\.cron\(` → 0; `Effect.succeed(true)` fail-open in `packages/agent/src` → 0; `approvalBindings` → 0. Lane-measured suites before the final gate: protocol 526/0, agent 1685/0, apps 658/0; the final gate chain is recorded in the PR.
+Branch `epic1260/1255-declarative-bundles`, base `77e1375b` (#1254). Shipped: the three declaration contracts `Capability.define` / `Bundle.define` (the `Bundle` namespace barrel's `define` = `defineBundle`) / `Manifest.define` in `packages/agent/src/core/ports/capability.ts`, surfaced through `core/api.ts` and the root `Bundle` namespace (`packages/agent/src/bundle.ts` is now a 19-line re-export barrel); `compose(manifest) → Generation` in `packages/agent/src/core/composition/compose.ts` is the one loader path and rejects exactly the closed six codes `requires_cycle | duplicate | product_declares_kind | seam_missing | unknown_handler | unknown_point` (the former `BundleError.namespace` refusal moved to define time); the `off` cascade (`requires` fan-out) is recorded on the existing writer as `session.configure{disabled: [{name, because}]}` with `ConfigureIntent.operation: "compose"` and no new journal kind; generations are recomputed from empty state on every manifest change and adopted by each session at its next turn start (`manifestHash` stamped on the configure row); the handler table of a composed generation is built once at compose and provided as the `GenerationHandlers` Context tag (`HandlerTable`/`createHandlerTable` in `core/gate/`; the `NamedPolicyRegistry` name greps zero); the three tool projections (`Tool.Spec`, `SessionGeneration.Tool`, the dispatch table) are derived once from the composed generation and `sessionTool()`/`toolSpec()` are deleted from `packages/agent/src`. App side: `apps/oni/src/manifest.ts` declares the product manifest, `composition/composed.ts` holds the `ComposedGeneration` service the generation Layers read, boot composes the manifest and fails closed on a typed `ComposeRefused`, product bundles live under `apps/oni/src/bundles/{monitor,cron}` (replacing `tools/monitor.ts` and the composition bundles, both grep zero), `provision{bundle_enable | bundle_disable}` recomposes the manifest with the four consent rows pinned, and `apps/oni/test/monitor-bundle.test.ts` proves the monitor bundle end to end through `index.ts` wiring (restart fire, mid-turn disable, off at boot). D5: the tool-result split `content / details / structuredContent` lands as protocol owner fields in `packages/protocol/src/tool/result.ts` (`toolResultJsonSchema` bounded at 262,144 bytes, `toolResultText` the one fallback reader) and is consumed by eval and code mode (`composition/codemode.ts` maps `structuredContent` onto `ToolCallResult.value`; the cell door is typed-only). `script/check-deps.test.ts` ratchets the deletion tokens (`#1255 T5` records `@oni/llm` at 0, already met by #1246). Recorded deviations: adoption bypasses `authorizeConfigure` (the manifest change is the authorized act; the per-session append is mechanical); `Generation` carries `inputs/capabilities/bundles/disabled` beyond the body's seven fields (needed by rotation and admission); protocol `Disabled` is `.readonly()`; `compose.ts` helpers split under the lint complexity cap; desktop/ui rendering of `details` and the gate `ToolBodyOutcome.output` name are follow-ups, not D5 consumers. Sweeps on the merged head: `rg --files apps/oni/src | rg 'tools/monitor\.ts|composition/monitor-ports\.ts'` → empty; `sessionTool\(|toolSpec\(` in `packages/*/src` and `apps/*/src` → 0 (two app tests keep a local `toolSpec` helper); `BundlesLive|BundleDefinitions|bundlePolicyTag|NamedPolicyRegistry` → 0; `Bun\.cron\(` → 0; `Effect.succeed(true)` fail-open in `packages/agent/src` → 0; `approvalBindings` → 0. Lane-measured suites before the final gate: protocol 526/0, agent 1685/0, apps 658/0; the final gate chain is recorded in the PR.
 
 ## #1254 alarm split: core timer, removable alarm capability (epic #1260, PR #1285, merged `77e1375b`)
 
@@ -3415,7 +3433,7 @@ removable capability `packages/agent/src/plugins/alarm/` imports only
 exhaustion (a watch is an armed alarm `alarmId = watchId`, `sourceKey:
 "monitor"`; re-arm = `supersedes`, cancel = `at: null`; timeout = a second
 arm), and the `arm`/`watch` verbs. The app composes the capability in
-`apps/openomni/src/bundles/alarms/index.ts` (chain fold, chain-guard reads,
+`apps/oni/src/bundles/alarms/index.ts` (chain fold, chain-guard reads,
 typed prompt port; the app never commits an arm row itself — tool-facing arms
 delegate through the live-activation registry to the entity's one committing
 verb, bound at creation to the authorizing activation (a turn token alone
@@ -3479,7 +3497,7 @@ typed `CronParseError{code}`; `packages/protocol/test/cron-next.test.ts`), and
 regenerated: one added source variant, one description line). Assumed (Owner
 ruling D3): loop consumption defaults — alarms before prompt 4, armed-alarm cap
 64, passivation idle 60 s, `sweep{full: false, idleDays: 7}` — typed once as
-`Core.AlarmDrainConfig`, values from `apps/openomni/src/config.ts`. Lead fixes
+`Core.AlarmDrainConfig`, values from `apps/oni/src/config.ts`. Lead fixes
 after the lane merge: `Protocol.canonicalJson` is the one canonical byte owner
 for persisted text payloads (alarm payloads, message origins), so the stored
 bytes and the digest minted from them agree; the live-wait fold `openAlarmIds`
@@ -3511,7 +3529,7 @@ not a string (`failure-of.test.ts` reproduces it with `Error.stackTraceLimit =
 inside a full app run and passes alone — test and `pathSource` logic are
 identical on main (an `fs.watch` create race, not changed here); the
 `durable-reconstruction` fresh-process tests fail with `Cannot find module
-'@openomni/protocol'` when root `check-types` emits `protocol/dist`
+'@oni/protocol'` when root `check-types` emits `protocol/dist`
 concurrently — gates run serially. Sweeps at HEAD: `hasNewerAttempt` 0,
 alarm-scoped `epoch` 0, `Bun\.cron\(|alarm\.cancel` 0,
 `monitor-ports|watchOccurrenceKey|watchTimeoutKey|:occ:` 0; one writer for
@@ -3529,7 +3547,7 @@ On `machines/1275-browser-recipe` (2026-10-03, draft PR #1286). The codemode
 Python prelude gains `browser(machine_id, *, headless=True, profile_dir=None,
 executable_path=None)` returning a thin `BrowserClient` around Playwright's
 `connect_over_cdp`; Chromium runs persistently in a cell-owned tmux
-`pty.session` (name `openomni-browser-<sha256(profile)[:12]>`), with the CDP
+`pty.session` (name `oni-browser-<sha256(profile)[:12]>`), with the CDP
 port probe-bound from 9222 and port + pid retained in the session output.
 Profile dirs are export-confined via the existing `openCwd` rule
 (`path_escapes_export` before launch); loss at any client accessor raises the
@@ -3562,7 +3580,7 @@ instant `close()` resolves.
 
 ## #1273 persistent terminals: pty.session over tmux
 
-- #1510 (epic #1508) structural screen snapshot: `machine.pty_read` params are now the new union `Machine.PtyReadParams = PtyReadScreenRequest | PtyReadRequest`, discriminated by `source` (`PtyReadRequest`, the stream request, is byte-for-byte the #1273 type — the schema-snapshot lint forbids reshaping an existing type); `{name, source: "screen"}` answers `Machine.PtyScreenResult` — `rows` (`capture-pane -p -e`, one per pane row), `cursor {x, y}`, `occupant {pid, command} | null` (one `display-message -p` line pairing two distinct tmux facts: `pid` is `#{pane_pid}`, the pid of the pane's initial process — the shell tmux started, the pane's root — and `command` is `#{pane_current_command}`, the name of the process currently in the foreground of the pane as tmux reports it; so occupant is {pid of the pane's root process, name of the foreground command}, never the foreground process's pid; null for a dead pane or no pid; the pid is a correlation fact, never the terminal's identity) and `observedAt` from the daemon's injected clock (`PtyAdapterOptions.now`; the daemon resolves `pty.now ?? report.now` after spreading its `pty` options, so an explicit undefined `pty.now` still falls back to the heartbeat clock — #1603 r1; a daemon with neither fails the read typed `pty.screen`). On the host, `pty.screen` and `pty.resize` budget two daemon command deadlines plus the call margin (`COMMAND_TIMEOUT_MS` exported from `pty-control.ts`), since each issues two bounded control commands. The byte stream, its cursor and `waitMs` are unchanged; the host handle gains `pty.screen(name)` beside the unchanged `read`; code mode is untouched. No wait, idle or readiness rule exists in `packages/machines`. The self machine (`apps/openomni/src/composition/self-machine.ts`) passes no clock yet, so its screen reads fail typed until a later lane threads one. Receipts: `packages/protocol/test/machine/machine-pty.test.ts`, `packages/machines/test/pty.test.ts` (scripted server: happy path, spaces in the process name, null occupant, malformed facts, no clock, shared refusals, 3.4 command grammar), `packages/machines/test/pty-daemon-clock.test.ts` (scripted daemon over the host: undefined `pty.now` falls back to `report.now`, explicit `pty.now` wins, resize over the two-command budget), `packages/machines/test/host-listen.test.ts` (real tmux on a private `-L` socket: rows equal the open default and the server's `pane_height`, cursor and occupant equal the server's own facts, exact clock ticks, no stream bytes consumed, session and linked window gone after close).
+- #1510 (epic #1508) structural screen snapshot: `machine.pty_read` params are now the new union `Machine.PtyReadParams = PtyReadScreenRequest | PtyReadRequest`, discriminated by `source` (`PtyReadRequest`, the stream request, is byte-for-byte the #1273 type — the schema-snapshot lint forbids reshaping an existing type); `{name, source: "screen"}` answers `Machine.PtyScreenResult` — `rows` (`capture-pane -p -e`, one per pane row), `cursor {x, y}`, `occupant {pid, command} | null` (one `display-message -p` line pairing two distinct tmux facts: `pid` is `#{pane_pid}`, the pid of the pane's initial process — the shell tmux started, the pane's root — and `command` is `#{pane_current_command}`, the name of the process currently in the foreground of the pane as tmux reports it; so occupant is {pid of the pane's root process, name of the foreground command}, never the foreground process's pid; null for a dead pane or no pid; the pid is a correlation fact, never the terminal's identity) and `observedAt` from the daemon's injected clock (`PtyAdapterOptions.now`; the daemon resolves `pty.now ?? report.now` after spreading its `pty` options, so an explicit undefined `pty.now` still falls back to the heartbeat clock — #1603 r1; a daemon with neither fails the read typed `pty.screen`). On the host, `pty.screen` and `pty.resize` budget two daemon command deadlines plus the call margin (`COMMAND_TIMEOUT_MS` exported from `pty-control.ts`), since each issues two bounded control commands. The byte stream, its cursor and `waitMs` are unchanged; the host handle gains `pty.screen(name)` beside the unchanged `read`; code mode is untouched. No wait, idle or readiness rule exists in `packages/machines`. The self machine (`apps/oni/src/composition/self-machine.ts`) passes no clock yet, so its screen reads fail typed until a later lane threads one. Receipts: `packages/protocol/test/machine/machine-pty.test.ts`, `packages/machines/test/pty.test.ts` (scripted server: happy path, spaces in the process name, null occupant, malformed facts, no clock, shared refusals, 3.4 command grammar), `packages/machines/test/pty-daemon-clock.test.ts` (scripted daemon over the host: undefined `pty.now` falls back to `report.now`, explicit `pty.now` wins, resize over the two-command budget), `packages/machines/test/host-listen.test.ts` (real tmux on a private `-L` socket: rows equal the open default and the server's `pane_height`, cursor and occupant equal the server's own facts, exact clock ticks, no stream bytes consumed, session and linked window gone after close).
 
 On `machines/1273-pty-session` (2026-10-03, base `a004bdb0`, draft PR #1283).
 The machine protocol gains the `pty.session` capability and six wire methods
@@ -3621,16 +3639,16 @@ construction (`inspect-renderers.test.ts`); the app `session_read` surface
 stays thin and `attemptUsage` is byte-equal to the fold DTO
 (`gateway-frame.test.ts`). Consumers switched: the gateway inbox commits
 through `deliver` (interrupt/resume as `signal` + control op,
-`apps/openomni/src/composition/message-session.ts`), out-of-turn answers
+`apps/oni/src/composition/message-session.ts`), out-of-turn answers
 through `resolve`, and watch fires, watch timeouts and request deadlines
-through `alarm` occurrences (`apps/openomni/src/index.ts`). The nine legacy
+through `alarm` occurrences (`apps/oni/src/index.ts`). The nine legacy
 RPCs (`Prompt`/`Interrupt`/`Resume`/`RequestResolve`/`RequestCancel`/
 `RetryScheduled`/`Deadline`/`WatchFired`/`WatchTimeout`), the `receive` and
 `timerWake` handler bodies and the `driveInbox` name are deleted; the four
 issue sweeps (`RetryScheduledRpc|DeadlineRpc|WatchFiredRpc|WatchTimeoutRpc`,
 `timerWake`, `cluster/timers`, `driveInbox`) grep to zero. The cluster host
 takes `SqlClient` and `Crypto.Crypto` as injected layers
-(`apps/openomni/src/composition/cluster-runtime.ts`); a deterministic Crypto
+(`apps/oni/src/composition/cluster-runtime.ts`); a deterministic Crypto
 layer hosts the full deliver round-trip (`deterministic-crypto.test.ts`).
 Boundary consumption (C2): inputs are consumed at loop boundaries only —
 `steer` at `after_tools` and turn end, `followUp` at turn end — with widths
@@ -3669,13 +3687,13 @@ captureId) and SDK handle `screen/input`; `codemode.screen` is query-class in
 the app composition. Tests drive host+daemon over the real socket wire with a
 recorded fake runner (probes, crop offsets, downscale, every refusal,
 withdrawal) plus an opt-in real-surface capture test
-(`OPENOMNI_REAL_SCREEN=1`).
+(`ONI_REAL_SCREEN=1`).
 
 ## #1272 code mode extracted into packages/codemode (reverses part of #1246)
 
 On `machines/1272-codemode-package` (2026-10-03, base `58b7f18d`). The
-repository has six packages: `packages/codemode` (`@openomni/codemode`, deps
-`@openomni/protocol` + `@openomni/machines`) now owns the reusable
+repository has six packages: `packages/codemode` (`@oni/codemode`, deps
+`@oni/protocol` + `@oni/machines`) now owns the reusable
 Python-backed cell runtime shared by the application host and the machine
 daemon — `createCodemode`, machine object handles, one lazy `PythonKernel` per
 tenant, the cell registry and `cell.run/peek/stop`, the Python prelude
@@ -3688,12 +3706,12 @@ and device access and exports the structural contracts code mode consumes
 (`CodeRunner`, `MachineHost`/`MachineHandle`/`MachineInfo`, `onAbort`,
 `machinesFallback`); its barrel no longer re-exports `./codemode` and
 `git ls-files packages/machines/src/codemode` is empty. The daemon CLI
-(`apps/openomni/src/cli/machine.ts`), app composition
+(`apps/oni/src/cli/machine.ts`), app composition
 (`src/composition/codemode.ts`), eval tool and all code-mode tests import
-`@openomni/codemode` directly; application policy, completion budget, ledger
+`@oni/codemode` directly; application policy, completion budget, ledger
 and model rendering stay in the app. `script/topology.ts` carries the
 `codemode` row (own CI test + coverage lane, knip workspace, tsconfig
-verification); the app allowlist gained `@openomni/codemode`.
+verification); the app allowlist gained `@oni/codemode`.
 
 ## #1252 twelve journal kinds (epic #1260, merged as `58b7f18d`, PR #1278)
 
@@ -3758,9 +3776,9 @@ R095-R100, the two directory barrels merged into `core/index.ts`); changes
 beyond import lines are the composition seams below. Exactly five plugin
 directories under `src/plugins/` — `alarm`, `action`, `hook`, `compaction`,
 `tool` — and `plugins/compaction` imports only `src/core/api.ts` (the one
-plugin-facing core surface) plus `@openomni/protocol`. The product
+plugin-facing core surface) plus `@oni/protocol`. The product
 compositions `parent-reply/` and `model-selection.ts` moved to
-`apps/openomni/src/composition/` and enter through new optional core seams
+`apps/oni/src/composition/` and enter through new optional core seams
 (`ChatAgentConfig.restoreModelSelection`, `SessionChatRunnerOptions.pinnedModel`,
 `SessionRuntime.parentReply`) wired in `resident.ts`/`index.ts`/
 `process-entry.ts`; `attemptRouteChange` stays private inside
@@ -3830,10 +3848,10 @@ Scope shuts the PubSub down and interrupts every drain, so overlapping
 generations unsubscribe independently at Scope closure. The kernel
 `ObservationSink` port is unchanged; `observationBusLayer` provides it as a
 Layer. The app mounts the root bus in the runtime's own Scope
-(`apps/openomni/src/runtime.ts`; injected fixture sinks mount as
+(`apps/oni/src/runtime.ts`; injected fixture sinks mount as
 `Layer.succeed`) and builds one bus per generation inside the generation
 Layer's Scope with a finalizer that gates publishes off before shutdown
-(`apps/openomni/src/composition/generation-layers.ts`); root fan-out and
+(`apps/oni/src/composition/generation-layers.ts`); root fan-out and
 `active` gating semantics are preserved. A throwing callback subscriber is
 caught per element, logged on the subscriber's own fiber as a typed
 `ObservationSubscriberFailure` via `Effect.logError`, and never blocks the
@@ -3859,7 +3877,7 @@ On `epic1260/1248-channels-effect` (2026-10-02, base `0ebef4b0`, rebased onto
 #1250's merge `9b4e4b8c`). Every channel-driver timer is an Effect program on
 an injected runtime: drivers compose Effect values and the app supplies the
 one runner port (`EffectRunner` in `packages/channels/src/types.ts`, bound to
-`runAppEffect` in `apps/openomni/src/index.ts`). `setTimeout(`/`setInterval(`/
+`runAppEffect` in `apps/oni/src/index.ts`). `setTimeout(`/`setInterval(`/
 `new Promise(`/`calculateBackoff` grep to zero in `packages/channels/src`.
 One shared reconnect policy (`src/support/schedule.ts`): exponential from 1s
 capped at 60s via `Schedule.min` (this pin has no either combinator), ±20%
@@ -3872,7 +3890,7 @@ identity (Telegram poller). `fetchWithRetry` is `Effect.retry` with at most
 three attempts honoring 429 retry-after; the Discord heartbeat is an
 `Effect.delay`/`Effect.forever` loop whose missed-ACK watchdog closes with the
 resume-safe code; the process reply wait is `Effect.timeoutOrElse` on the app
-runtime clock (`apps/openomni/src/composition/process-replies.ts`). Uncertain
+runtime clock (`apps/oni/src/composition/process-replies.ts`). Uncertain
 deliveries stay `unknown`, are never resent, and now publish one Owner-visible
 Warn per physical attempt (`src/support/deliver.ts`). Tests drive the fake
 clock through per-test `ManagedRuntime(TestClock.layer())` helpers (the named
@@ -3887,7 +3905,7 @@ Deferred hangs on failure — every such race uses `Effect.raceFirst`.
 Superseded by #1276 (receipt at the top of this file): the seven directories
 below merged into one `core/` (store under `core/store/`), the namespaces are
 now five, and `parent-reply`/`model-selection` live in
-`apps/openomni/src/composition/`. Paths in this receipt are the #1247 state.
+`apps/oni/src/composition/`. Paths in this receipt are the #1247 state.
 
 On `epic1260/1247-agent-dirs` (2026-10-02, base `9b4e4b8c`, merged as `a5ee6c4d`, PR #1266). `packages/agent/src`
 had exactly seven directories plus `index.ts`: `kernel/` (turn loop, gate,
@@ -3909,7 +3927,7 @@ symbol outside `testing/`) grep to zero across packages/apps/script/docs
 (kernel→session→store…) with a shrink-only ratchet in `script/check-deps.ts`.
 
 Measured deviations, accepted by the Owner
-([PR #1266 comment](https://github.com/INONONO66/openomni/pull/1266#issuecomment-5951852779)):
+([PR #1266 comment](https://github.com/INONONO66/oni/pull/1266#issuecomment-5951852779)):
 `kernel/` measures 6,090 LOC against the issue's ≤4,200 target — the issue's
 own routing table places `gate/decide.ts` in `kernel/`, and the size shrink is
 deferred to #1251/#1255, not re-planned in this lane. The band-ratchet
@@ -3927,7 +3945,7 @@ Band b1 of the #1259 cleanup ladder landed on `epic1260/1259-b1-protocol`: thirt
 ## #1250 model and desktop unified on AI SDK 7 (epic #1260, merged as `9b4e4b8c` (PR #1265))
 
 On `epic1260/1250-ai-7` (2026-10-02, base `0ebef4b0`). `packages/agent` and
-`apps/openomni` pin `ai@7.0.93` (the exact desktop version) with provider
+`apps/oni` pin `ai@7.0.93` (the exact desktop version) with provider
 majors 4 (`@ai-sdk/anthropic@4.0.49`, `@ai-sdk/openai@4.0.60`, both resolving
 against the same `@ai-sdk/provider@4.0.10`); no ai 6 or provider-utils 4
 resolution remains in `bun.lock`, whose diff is the ai dependency closure (the
@@ -3964,7 +3982,7 @@ zero everywhere, including scripts, CI, and docs.
   perimeter router; absorbs the channel-facing stores — actor, blacklist,
   channel-grant, reply-grant, egress, provisioning/vault — at `src/store/`;
   depends on protocol + agent), and `packages/ui` (data-blind design system,
-  no deps). `apps/openomni` composes protocol/agent/machines/channels;
+  no deps). `apps/oni` composes protocol/agent/machines/channels;
   `apps/desktop` sits on protocol + ui.
 - **Wiring.** Everything external imports through each package's one root
   barrel; no re-export file exists at any old package path. `AgentFailure` and
@@ -3991,9 +4009,9 @@ time, entropy and environment reads are replaced by injection; seven
 permissive defaults become explicit typed outcomes.
 
 - **Three environment owners.** `process.env` is read only by
-  `apps/openomni/src/config.ts` (vault key resolved once into
-  `OpenOmniConfig.kek` via `resolveKek(env, home)` and injected into declared
-  provisioning), `apps/openomni/src/cli/env-file.ts` (`processEnvironment()`
+  `apps/oni/src/config.ts` (vault key resolved once into
+  `OniConfig.kek` via `resolveKek(env, home)` and injected into declared
+  provisioning), `apps/oni/src/cli/env-file.ts` (`processEnvironment()`
   for cli/main and watch-sources spawn env), and
   `packages/llm/src/model/loader.ts` (`resolveAuthFilePath(env)`, called
   once when `LlmLive` is constructed; the Layer closes over the path and
@@ -4021,7 +4039,7 @@ permissive defaults become explicit typed outcomes.
   id })`, renderer `createPlatform({ clock, ids })` bound once in `main.tsx`
   (`RendererPlatform { now(): number; id(): string }`; minting before
   `bindStorePlatform` throws `RendererInvariantError`). Composition roots
-  supply sources: `apps/openomni/src/composition/platform.ts`
+  supply sources: `apps/oni/src/composition/platform.ts`
   `platformEntropy()` holds the tree's only `node:crypto` randomUUID import,
   and protocol `traceIdFromUuid` alone formats trace IDs.
 - **Seven defaults replaced.** (1) Unknown-provenance external mail runs
@@ -4175,11 +4193,11 @@ under `.omo/reports/kernel-campaign-w53/`.
 
 - **Effect runner owners (A1):** `script/conformance/effect-runner-sites.json`
   is `[]` (48 → 0). `script/check-effect-boundaries.ts` names exactly one
-  test-runner owner per package (`RUNNER_OWNERS`: the openomni, agent,
+  test-runner owner per package (`RUNNER_OWNERS`: the oni, agent,
   channels, ipc, ledger, llm, and machines test helpers) plus the two named
   bench entrypoints (`packages/agent/bench/turns.ts`,
   `packages/ledger/bench/index.ts`); the production edges remain
-  `apps/openomni/src/cli/main.ts` and `apps/openomni/src/gateway.ts`. No
+  `apps/oni/src/cli/main.ts` and `apps/oni/src/gateway.ts`. No
   production `src/` file changed for A1.
 - **Written any/unknown 0 (A2/A2b/A3):** repository-wide written
   `any`/`unknown` type keywords went 68 → 0 (A2 protocol 16 → 0, A2b the last
@@ -4192,7 +4210,7 @@ under `.omo/reports/kernel-campaign-w53/`.
   Tool/Transcript/Policy/Machine/Ingress aliases with zero production
   consumers).
 - **One app-owned read model (A4/A4b):** the single read surface is the
-  `session_read` handler in `apps/openomni/src/gateway.ts`; channels only
+  `session_read` handler in `apps/oni/src/gateway.ts`; channels only
   parses and transports the frame. Every read wire DTO is Zod plain data in
   `packages/protocol/src/gateway/session-read.ts` (`SessionRead.Request` /
   `Cursor` / `Page` / `Gap` / `Receipt`); the `session_snapshot`,
@@ -4315,13 +4333,13 @@ Deleted source surfaces include `packages/ledger/migration/`,
 `packages/ledger/src/storage/migration-runner.ts`, the `u967-*`, `u969-*`,
 `historical-projections`, and `historical-request-format` migration readers,
 `packages/agent/src/executor-retry-alarm.ts`, and
-`apps/openomni/src/composition/alarm-worker.ts`. The obsolete script gates
+`apps/oni/src/composition/alarm-worker.ts`. The obsolete script gates
 `check-ledger-schema-drift`, `verify-ledger-rename`,
 `generate-ledger-archive-manifest`, `ledger-archive-snapshot`, and
 `ledger-producer-manifest` are also deleted.
 
 The crash matrix remains exactly 27 faults on the entity plane. Parent-measured
-gates at this branch state are: `apps/openomni` 529/0, packages 1443/0,
+gates at this branch state are: `apps/oni` 529/0, packages 1443/0,
 channels 576/0, script 717/0, `check-types` exit 0, dead exports 0 known/0 new,
 `check-effect-boundaries` exit 0 with its runner-site allowlist reduced 54 → 48,
 and the §5(a) deletion grep at zero.
@@ -4349,14 +4367,14 @@ At the #1184 inspection paths (since #1247: `packages/agent/src/kernel/gate/deci
 SessionLayer; `packages/agent/src/tool-dispatcher.ts` (since #1247
 `packages/agent/src/kernel/tool.ts`) resolves ToolCatalog.
 `packages/agent/src/core/execution/run.ts` (since #1247 `packages/agent/src/kernel/turn.ts`) and
-`apps/openomni/src/composition/completion.ts` resolve Llm and ObservationSink.
+`apps/oni/src/composition/completion.ts` resolve Llm and ObservationSink.
 App boot and gateway thread the ledger plane explicitly
-(`apps/openomni/src/index.ts`, `apps/openomni/src/gateway.ts`);
-`createAppLedger` (`apps/openomni/src/composition/cluster-runtime.ts`) owns
+(`apps/oni/src/index.ts`, `apps/oni/src/gateway.ts`);
+`createAppLedger` (`apps/oni/src/composition/cluster-runtime.ts`) owns
 storage acquisition/release.
 
-`apps/openomni/src/runtime.ts` builds AppLive with a final Layer.mergeAll.
-`apps/openomni/src/composition/generation-layers.ts` constructs the selected
+`apps/oni/src/runtime.ts` builds AppLive with a final Layer.mergeAll.
+`apps/oni/src/composition/generation-layers.ts` constructs the selected
 catalog, scoped local observations, named registry and compiled policy; its
 session-keyed managers use `packages/agent/src/session-generations.ts`
 (since #1247 `makeSessionGenerations` in
@@ -4364,8 +4382,8 @@ session-keyed managers use `packages/agent/src/session-generations.ts`
 service lives in `packages/agent/src/kernel/gate/decide.ts`) for
 capture/configure and retirement. Boot initializes immutable role definitions
 before recovery. Installed bundle names are passed to new sessions, and bundle
-rows enter existing policy seeding (`apps/openomni/src/index.ts`,
-`apps/openomni/src/bundles/core-policy/index.ts`). Existing configure operations carry recorded
+rows enter existing policy seeding (`apps/oni/src/index.ts`,
+`apps/oni/src/bundles/core-policy/index.ts`). Existing configure operations carry recorded
 membership unchanged (`packages/agent/src/session-configuration.ts`; since
 #1247 `createSessionConfiguration` in `packages/agent/src/session/run.ts`).
 
@@ -4381,9 +4399,9 @@ migration, a bundle membership API, full W3 G1, or concrete production bundles.
 
 Policy/ledger ownership was updated on `kernel/s1-authority-cut-2`, 2026-09-18: G002 (#930) deletes the unused composition schema and moves app action reads to narrow SQL-backed ports.
 
-**G003 durable spine (`kernel/s1-durable-spine`, 2026-09-18, #930):** the volatile `waitRetry` seam is deleted; a provider retry commits an `alarm.arm` action carrying a `retry.scheduled` spec (kind `at`, id `<intent>:retry:<attempt>`) before any wait, and the live waiter or boot alarm worker consumes it exactly once through the fenced cancel CAS (now admitting one-shot alarms) and wakes the session without an inbox prompt (`packages/agent/src/executor-retry-alarm.ts`, `apps/openomni/src/composition/alarm-worker.ts`). A boundary-flagged execution (compaction) commits summary + successor projection + accounting as one ledger transaction before result commit or publication; crash recovery settles the open intent executed-from-boundary without resummarizing (`packages/agent/src/executor.ts`, `executor-recovery.ts` — since #1247 `packages/agent/src/kernel/gate/decide.ts` — and `compaction/execute-cut.ts`, since #1247 `plugins/compaction/execute-cut.ts`). Commit-time writer fencing is recorded as taxonomy: a stale fence gets the typed `{ok:false, reason:"stale"}` rejection atomically with no partial row, proven fence-only under the same owner name (`packages/ledger/test/session/commit-fencing.test.ts`). Crash-matrix rows `retry_backoff_wait` -> `rearmed`, `compaction_summary_before_result_commit` -> `resumed_without_reexecution`, `owner_reclaimed_before_stale_transcript_flush` -> `rejected`.
+**G003 durable spine (`kernel/s1-durable-spine`, 2026-09-18, #930):** the volatile `waitRetry` seam is deleted; a provider retry commits an `alarm.arm` action carrying a `retry.scheduled` spec (kind `at`, id `<intent>:retry:<attempt>`) before any wait, and the live waiter or boot alarm worker consumes it exactly once through the fenced cancel CAS (now admitting one-shot alarms) and wakes the session without an inbox prompt (`packages/agent/src/executor-retry-alarm.ts`, `apps/oni/src/composition/alarm-worker.ts`). A boundary-flagged execution (compaction) commits summary + successor projection + accounting as one ledger transaction before result commit or publication; crash recovery settles the open intent executed-from-boundary without resummarizing (`packages/agent/src/executor.ts`, `executor-recovery.ts` — since #1247 `packages/agent/src/kernel/gate/decide.ts` — and `compaction/execute-cut.ts`, since #1247 `plugins/compaction/execute-cut.ts`). Commit-time writer fencing is recorded as taxonomy: a stale fence gets the typed `{ok:false, reason:"stale"}` rejection atomically with no partial row, proven fence-only under the same owner name (`packages/ledger/test/session/commit-fencing.test.ts`). Crash-matrix rows `retry_backoff_wait` -> `rearmed`, `compaction_summary_before_result_commit` -> `resumed_without_reexecution`, `owner_reclaimed_before_stale_transcript_flush` -> `rejected`.
 
-Single source of truth for current wiring, not a declaration that every target in [Core Model](core-model.md), [Kernel Contract](kernel-contract.md), [Architecture](architecture.md), or [Machines and Delegation](machines-and-delegation.md) has shipped. [Epic #930](https://github.com/INONONO66/openomni/issues/930) supersedes #459 for kernel delivery; #966 and #968-#973 are the subsequent lifecycle campaign.
+Single source of truth for current wiring, not a declaration that every target in [Core Model](core-model.md), [Kernel Contract](kernel-contract.md), [Architecture](architecture.md), or [Machines and Delegation](machines-and-delegation.md) has shipped. [Epic #930](https://github.com/INONONO66/oni/issues/930) supersedes #459 for kernel delivery; #966 and #968-#973 are the subsequent lifecycle campaign.
 
 [Kernel reference pins](kernel-references.md) are owned by `docs/kernel-references.md`.
 
@@ -4401,9 +4419,9 @@ Single source of truth for current wiring, not a declaration that every target i
 
 **Source baseline:** #946 stage 2 includes main `678d357e` (#993/#949 stage 1), #991 codemode, #988's protocol contract and #990's desktop gateway selection. Historical #948 receipts below retain their `c4fb7748` source pin. [SLOP](SLOP.md) records deletion ownership; the PR body records the final gate commands and exit codes. Closed issue labels are not implementation evidence.
 
-**W1 (#1108) durable reconstruction (merged `851a71fc`, 2026-09-24):** checkpoint folding commits `fold.checkpoint` at the 256-action threshold and at compaction/restoration boundaries (`packages/ledger/src/storage/l0-action-builders.ts`, `packages/agent/src/session-lifecycle/history.ts` — since #1247 `packages/agent/src/inspect/history.ts`). Bounded hydration validates the checkpoint seed before a capped range load; corrupt seeds refuse with `FoldCheckpointIntegrityError` — zero full-tree fallback, zero runner entry (`packages/ledger/src/session/kernel.ts`). The whole-tree kernel `tree` export is removed; production `.tree(` consumers grep to zero across agent/openomni/ledger src, and the fold oracle remains test-only (now `packages/agent/test/store/helpers/session-tree.ts`, #1246). `authorizeConfigure` is a required pinned pre-policy authority on the session runtime (`packages/agent/src/session-contract.ts:129`); the optional-callback `?? Effect.succeed(true)` fail-open in `packages/agent/src/session-configuration.ts` is deleted (grep zero). Retry scheduling persists the unchanged `retry.scheduled` alarm payload (kind/attempt/reason/notBefore — `packages/protocol/src/ledger/l0.ts` `Alarm.RetrySchedule`) before any wait; restart sleeps only the residual `notBefore - now` with the recorded row byte-identical and no new jitter drawn (`packages/agent/src/executor-retry-alarm.ts`, deleted by W5.2 #1197; retry alarms live in `packages/agent/src/session/alarm.ts` since #1247). NOT in W1: durable alarm-level deadline/route/jitter/provenance/remainingBudget fields (protocol change required) and a durable route cooldown store (no owner exists); residual/jitter/provenance are proven only at the derived level (`notBefore` embeds the drawn jitter; provenance/budget live in attempt-intent metadata). Crash-matrix v2 reconstruction rows (`script/conformance/crash-matrix.json`): `fold_checkpoint_committed_before_wake`, `context_restore_checkpoint_committed_before_publish` and `same_id_result_after_checkpoint_before_wake` → `resumed_without_reexecution`; `fold_checkpoint_tampered_before_load` and `captured_generation_missing_after_restart` → `rejected` (typed refusal, no fallback or generation substitution); `open_tool_checkpoint_before_terminal` → `lost` (identity preserved, `outcome_unknown`, no re-entry); `recovery_dispatch_identity_committed_before_rpc` → `resumed_without_reexecution` (not the `rearmed` target: no separately durable recovery-dispatch identity).
+**W1 (#1108) durable reconstruction (merged `851a71fc`, 2026-09-24):** checkpoint folding commits `fold.checkpoint` at the 256-action threshold and at compaction/restoration boundaries (`packages/ledger/src/storage/l0-action-builders.ts`, `packages/agent/src/session-lifecycle/history.ts` — since #1247 `packages/agent/src/inspect/history.ts`). Bounded hydration validates the checkpoint seed before a capped range load; corrupt seeds refuse with `FoldCheckpointIntegrityError` — zero full-tree fallback, zero runner entry (`packages/ledger/src/session/kernel.ts`). The whole-tree kernel `tree` export is removed; production `.tree(` consumers grep to zero across agent/oni/ledger src, and the fold oracle remains test-only (now `packages/agent/test/store/helpers/session-tree.ts`, #1246). `authorizeConfigure` is a required pinned pre-policy authority on the session runtime (`packages/agent/src/session-contract.ts:129`); the optional-callback `?? Effect.succeed(true)` fail-open in `packages/agent/src/session-configuration.ts` is deleted (grep zero). Retry scheduling persists the unchanged `retry.scheduled` alarm payload (kind/attempt/reason/notBefore — `packages/protocol/src/ledger/l0.ts` `Alarm.RetrySchedule`) before any wait; restart sleeps only the residual `notBefore - now` with the recorded row byte-identical and no new jitter drawn (`packages/agent/src/executor-retry-alarm.ts`, deleted by W5.2 #1197; retry alarms live in `packages/agent/src/session/alarm.ts` since #1247). NOT in W1: durable alarm-level deadline/route/jitter/provenance/remainingBudget fields (protocol change required) and a durable route cooldown store (no owner exists); residual/jitter/provenance are proven only at the derived level (`notBefore` embeds the drawn jitter; provenance/budget live in attempt-intent metadata). Crash-matrix v2 reconstruction rows (`script/conformance/crash-matrix.json`): `fold_checkpoint_committed_before_wake`, `context_restore_checkpoint_committed_before_publish` and `same_id_result_after_checkpoint_before_wake` → `resumed_without_reexecution`; `fold_checkpoint_tampered_before_load` and `captured_generation_missing_after_restart` → `rejected` (typed refusal, no fallback or generation substitution); `open_tool_checkpoint_before_terminal` → `lost` (identity preserved, `outcome_unknown`, no re-entry); `recovery_dispatch_identity_committed_before_rpc` → `resumed_without_reexecution` (not the `rearmed` target: no separately durable recovery-dispatch identity).
 
-**W2 (#1110) one message plane (merged `d5b48a1b`, PR #1190, 2026-09-25):** the Resident no longer replies on its own initiative. The post-turn block that dispatched `send_message` to the last external-origin actor is deleted from `apps/openomni/src/bundles/resident/index.ts` (grep zero for `send_message` in that file); external replies happen only through an explicit `send_message` tool call, and a child's terminal still reaches the parent inbox as the kernel obligation. One alarm writer: the request-deadline `INSERT` in `sqlite-l0-write.ts` is gone; `requestDeadline` (`packages/ledger/src/storage/l0-action-builders.ts:24`) builds the row and the transaction-local `insertAlarm` (`packages/ledger/src/storage/sqlite-l0-write.ts:122`) is the single `INSERT INTO alarm` site, called by explicit `armAlarm` (`sqlite-l0-alarms.ts:87`) and by request/reply state projection in the same commit. The app alarm worker mints no occurrence ids and renders no timeout verdict; a watch timeout is delivered as a clock observation (`timer:<fireAt + timeout_ms>`) and the ledger alone decides expiry (`apps/openomni/src/composition/alarm-worker.ts`). Channel provisioning is declared-only: `channelsFromEnv`, `config.channels` and the `source: "env"` selection are deleted; `loadConfig`/`doctor` refuse nonblank legacy tokens with `ConfigurationError` `legacy_channel_credentials` naming `provision`/`channel_add` (`apps/openomni/src/config.ts:253`); the supervisor reports `source(): "declared"` only (`apps/openomni/src/bundles/provision/supervisor.ts:76`). Physical delivery reports facts: adapters return `sent | not_sent | unknown` (`packages/channels/src/support/deliver.ts:8`), `DeliveryReconciliation` holds custody per idempotency key and releases it only on a proven `not_sent` (connection never established, typed `DeliveryNotSent`, or platform rejection); the kernel `accepted | rejected | unknown` receipt is a translation at that one boundary (`kernelDeliveryReceipt`), and the expiring outbound `DedupeWindow` is deleted. GitHub reports unopened webhooks as a typed `unsupported_event` refusal observation (`packages/channels/src/provider/github/surface.ts:23-35`) while keeping HTTP 200; PR events are still not ingested. Matcher bearer/identity-less branches and the resolver's `legacyActorFields` copier are deleted (SLOP H14). Agent ports: outbound recovery reconciles against the receiver's durable receipt before any redispatch (`packages/agent/src/session-outbound.ts:112`) and `SessionRequestPort.cancel` shares the original-action CAS (`packages/agent/src/session-requests.ts:127`). The IPC client drops frames once disconnected or closed (`packages/ipc/src/client.ts`). Crash-matrix rows (`script/conformance/crash-matrix.json`): `platform_send_committed_before_local_ack_reconciled_sent` → `resumed_without_reexecution`; new `alarm_fire_committed_before_hibernated_doorbell` → `rearmed`; `platform_attempt_marker_before_send_reconciled_not_sent` and `outbound_flood_deadline_before_timer_rearm` stay `rearmed` and `platform_send_ambiguous_without_reconciliation` stays `replayed` because the ledger outbound projection admits only `pending | delivered` (no durable attempt, `outcome_unknown` or `notBefore` state); that protocol change is NOT in W2.
+**W2 (#1110) one message plane (merged `d5b48a1b`, PR #1190, 2026-09-25):** the Resident no longer replies on its own initiative. The post-turn block that dispatched `send_message` to the last external-origin actor is deleted from `apps/oni/src/bundles/resident/index.ts` (grep zero for `send_message` in that file); external replies happen only through an explicit `send_message` tool call, and a child's terminal still reaches the parent inbox as the kernel obligation. One alarm writer: the request-deadline `INSERT` in `sqlite-l0-write.ts` is gone; `requestDeadline` (`packages/ledger/src/storage/l0-action-builders.ts:24`) builds the row and the transaction-local `insertAlarm` (`packages/ledger/src/storage/sqlite-l0-write.ts:122`) is the single `INSERT INTO alarm` site, called by explicit `armAlarm` (`sqlite-l0-alarms.ts:87`) and by request/reply state projection in the same commit. The app alarm worker mints no occurrence ids and renders no timeout verdict; a watch timeout is delivered as a clock observation (`timer:<fireAt + timeout_ms>`) and the ledger alone decides expiry (`apps/oni/src/composition/alarm-worker.ts`). Channel provisioning is declared-only: `channelsFromEnv`, `config.channels` and the `source: "env"` selection are deleted; `loadConfig`/`doctor` refuse nonblank legacy tokens with `ConfigurationError` `legacy_channel_credentials` naming `provision`/`channel_add` (`apps/oni/src/config.ts:253`); the supervisor reports `source(): "declared"` only (`apps/oni/src/bundles/provision/supervisor.ts:76`). Physical delivery reports facts: adapters return `sent | not_sent | unknown` (`packages/channels/src/support/deliver.ts:8`), `DeliveryReconciliation` holds custody per idempotency key and releases it only on a proven `not_sent` (connection never established, typed `DeliveryNotSent`, or platform rejection); the kernel `accepted | rejected | unknown` receipt is a translation at that one boundary (`kernelDeliveryReceipt`), and the expiring outbound `DedupeWindow` is deleted. GitHub reports unopened webhooks as a typed `unsupported_event` refusal observation (`packages/channels/src/provider/github/surface.ts:23-35`) while keeping HTTP 200; PR events are still not ingested. Matcher bearer/identity-less branches and the resolver's `legacyActorFields` copier are deleted (SLOP H14). Agent ports: outbound recovery reconciles against the receiver's durable receipt before any redispatch (`packages/agent/src/session-outbound.ts:112`) and `SessionRequestPort.cancel` shares the original-action CAS (`packages/agent/src/session-requests.ts:127`). The IPC client drops frames once disconnected or closed (`packages/ipc/src/client.ts`). Crash-matrix rows (`script/conformance/crash-matrix.json`): `platform_send_committed_before_local_ack_reconciled_sent` → `resumed_without_reexecution`; new `alarm_fire_committed_before_hibernated_doorbell` → `rearmed`; `platform_attempt_marker_before_send_reconciled_not_sent` and `outbound_flood_deadline_before_timer_rearm` stay `rearmed` and `platform_send_ambiguous_without_reconciliation` stays `replayed` because the ledger outbound projection admits only `pending | delivered` (no durable attempt, `outcome_unknown` or `notBefore` state); that protocol change is NOT in W2.
 
 ## #947 stage-1 branch receipt (2026-09-06)
 
@@ -4463,22 +4481,22 @@ WebSocket/path wake still commits one fired pair and reaches revision 59.
 
 | Component | Current wiring | Source |
 | --- | --- | --- |
-| Kernel app | Boot/shutdown, Resident, channels, gateway, provisioning, machines, messaging, cells, and compaction. No built-in curated memory or replacement port. | `apps/openomni/src/index.ts` |
+| Kernel app | Boot/shutdown, Resident, channels, gateway, provisioning, machines, messaging, cells, and compaction. No built-in curated memory or replacement port. | `apps/oni/src/index.ts` |
 | Desktop console | Electron shell and app-owned AI SDK chat state; the renderer selects the configured gateway or the explicit preview transport. Gateway admission receipts and later message frames are distinct. Presentation is shared with the UI showcase. | `apps/desktop/`, `packages/ui/` |
-| Channel drivers | Discord, GitHub, Slack, Telegram providers and a separate WebSocket bootstrap surface. Providers own credential/settings validation and outbound rendering; the app composes them. The three bot transports are the agent-messenger SDK (#1569 PRs 1–3): Slack Socket Mode (`SlackBotListener` + `SlackBotClient` pinned to one physical attempt per idempotency key), the Discord gateway (`DiscordBotListener`) and the Telegram long poll (`TelegramBotListener`), each under `support/sdk-listener.ts` custody; Discord and Telegram REST stays on the package's own clients over `fetch-retry`. No hand-rolled gateway, poller, reconnect schedule or socket shell remains. | `packages/channels/src/provider/`, `packages/channels/src/provider/{slack,discord,telegram}/sdk.ts`, `packages/channels/src/support/sdk-listener.ts`, `packages/channels/src/websocket.ts`, `apps/openomni/src/channels.ts` |
-| Perimeter gateway | Blacklist, physical request correlation, channel ceiling, actor identity, surface sessions, durable route decisions, and grant/egress/idempotency-controlled sends survive. Removed dialogue stores confer no routing rights. WebSocket credentials use the canonical auth subprotocol; query-only authentication is rejected (#974). | `packages/channels/src/router/`, `packages/channels/src/authn/websocket.ts`, `apps/openomni/src/gateway.ts` |
-| Provisioning | Durable persons, channel instances, and encrypted secrets; declared instances are the only channel provisioning owner, and nonblank legacy channel env credentials are refused at config load with `legacy_channel_credentials` (W2 #1110). The vault key and channel supervisor are composed at boot. The one-shot environment import command is deleted. | `packages/channels/src/store/provisioning/`, `apps/openomni/src/bundles/provision/` |
-| Runtime administration | The `provision` op union uses the live supervisor for channel/secret changes and status. Person mutations suspend their original invocation for authenticated approval when `approvalRequirement` demands one (editing the existing owner Person, or raising a tier above collaborator); other declarations and non-sole-owner `person_remove` apply directly. `contact_promote` and `contact_merge` suspend under the `require_approval` policy row until the Owner's answer re-admits the original invocation; the separate `approval` tool was deleted in `239b4273` (2026-09-08). | `apps/openomni/src/tools/provision.ts`, `apps/openomni/src/provisioning/supervisor.ts` |
-| Resident and native workers | Shared durable session handles and one app runner. A turn opened by an approved person on a channel surface (external origin with an `actorId`, not `ws`) answers that person through the reply door (#1569 PR 4): the result text enters the gateway as an origin-targeted send naming the delivered prompt, the app folds the conversation from that prompt's recorded origin (the surface they wrote on, #1485; the channel or thread they wrote in, a DM directly, #1490) and the router admits it on the surface-key binding the inbound claimed — no grant, budget or tool row. A `send_message` letter to that same conversation is refused in the tool wave as `same_conversation`; every other external letter, and every session-to-session message, is an explicit `send_message` call (W2 #1110 removed the unconditional post-turn reply; the owner-only report returned with #1482 as a synthesized tool dispatch, replaced by the door). Native and real process child-to-parent delivery pass targeted tests; the old app delegation subtree and tools are removed. | `apps/openomni/src/bundles/resident/index.ts`, `apps/openomni/src/process-entry.ts`, `apps/openomni/src/composition/process-session.ts` |
+| Channel drivers | Discord, GitHub, Slack, Telegram providers and a separate WebSocket bootstrap surface. Providers own credential/settings validation and outbound rendering; the app composes them. The three bot transports are the agent-messenger SDK (#1569 PRs 1–3): Slack Socket Mode (`SlackBotListener` + `SlackBotClient` pinned to one physical attempt per idempotency key), the Discord gateway (`DiscordBotListener`) and the Telegram long poll (`TelegramBotListener`), each under `support/sdk-listener.ts` custody; Discord and Telegram REST stays on the package's own clients over `fetch-retry`. No hand-rolled gateway, poller, reconnect schedule or socket shell remains. | `packages/channels/src/provider/`, `packages/channels/src/provider/{slack,discord,telegram}/sdk.ts`, `packages/channels/src/support/sdk-listener.ts`, `packages/channels/src/websocket.ts`, `apps/oni/src/channels.ts` |
+| Perimeter gateway | Blacklist, physical request correlation, channel ceiling, actor identity, surface sessions, durable route decisions, and grant/egress/idempotency-controlled sends survive. Removed dialogue stores confer no routing rights. WebSocket credentials use the canonical auth subprotocol; query-only authentication is rejected (#974). | `packages/channels/src/router/`, `packages/channels/src/authn/websocket.ts`, `apps/oni/src/gateway.ts` |
+| Provisioning | Durable persons, channel instances, and encrypted secrets; declared instances are the only channel provisioning owner, and nonblank legacy channel env credentials are refused at config load with `legacy_channel_credentials` (W2 #1110). The vault key and channel supervisor are composed at boot. The one-shot environment import command is deleted. | `packages/channels/src/store/provisioning/`, `apps/oni/src/bundles/provision/` |
+| Runtime administration | The `provision` op union uses the live supervisor for channel/secret changes and status. Person mutations suspend their original invocation for authenticated approval when `approvalRequirement` demands one (editing the existing owner Person, or raising a tier above collaborator); other declarations and non-sole-owner `person_remove` apply directly. `contact_promote` and `contact_merge` suspend under the `require_approval` policy row until the Owner's answer re-admits the original invocation; the separate `approval` tool was deleted in `239b4273` (2026-09-08). | `apps/oni/src/tools/provision.ts`, `apps/oni/src/provisioning/supervisor.ts` |
+| Resident and native workers | Shared durable session handles and one app runner. A turn opened by an approved person on a channel surface (external origin with an `actorId`, not `ws`) answers that person through the reply door (#1569 PR 4): the result text enters the gateway as an origin-targeted send naming the delivered prompt, the app folds the conversation from that prompt's recorded origin (the surface they wrote on, #1485; the channel or thread they wrote in, a DM directly, #1490) and the router admits it on the surface-key binding the inbound claimed — no grant, budget or tool row. A `send_message` letter to that same conversation is refused in the tool wave as `same_conversation`; every other external letter, and every session-to-session message, is an explicit `send_message` call (W2 #1110 removed the unconditional post-turn reply; the owner-only report returned with #1482 as a synthesized tool dispatch, replaced by the door). Native and real process child-to-parent delivery pass targeted tests; the old app delegation subtree and tools are removed. | `apps/oni/src/bundles/resident/index.ts`, `apps/oni/src/process-entry.ts`, `apps/oni/src/composition/process-session.ts` |
 | Session durability | Fenced single-flight execution, durable inbox/alarms, parent-linked rows, action history, generation snapshots, boot recovery, idle release, authoritative reads, revision-gap observation, bounded revision history pages (`history()`) and redacted causal inspection (`inspect()`) derived from committed actions (#972). Legacy public CRUD/message/TTL ownership is removed, not aliased. | `packages/agent/src/core/store/fence.ts`, `packages/agent/src/core/session/run.ts`, `packages/agent/src/inspect/index.ts`, `packages/agent/src/core/store/session-file/index.ts`, `packages/agent/src/core/store/storage/` |
-| Action executor and policy | Session-pinned compiled policy rows govern prompt/turn/model/tool/message pre/post decisions; message post is obligation-only. The executor owns model/tool intents and linked terminals; prompt/turn records remain session-owned. Old policy callback registries are deleted (#965); configure-authority and approval-binding seams remain tracked by B6/H6. Unconsumed general effect composition is deleted without replacement (#1030). | `packages/agent/src/core/loop/executor.ts`, `packages/agent/src/core/gate/compile.ts`, `apps/openomni/src/bundles/core-policy/index.ts` |
+| Action executor and policy | Session-pinned compiled policy rows govern prompt/turn/model/tool/message pre/post decisions; message post is obligation-only. The executor owns model/tool intents and linked terminals; prompt/turn records remain session-owned. Old policy callback registries are deleted (#965); configure-authority and approval-binding seams remain tracked by B6/H6. Unconsumed general effect composition is deleted without replacement (#1030). | `packages/agent/src/core/loop/executor.ts`, `packages/agent/src/core/gate/compile.ts`, `apps/oni/src/bundles/core-policy/index.ts` |
 | LLM | Canonical model/auth resolution, provider classification, retry-after/backoff, and corrected additive token accounting. The processor performs one attempt; session execution owns retry and re-admission. The unused public fact tap is removed (#976); ephemeral transcript folding and message/tool callbacks remain. | `packages/agent/src/model/`, `packages/agent/src/core/loop/executor.ts` |
-| Compaction | App-configured summarization and agent-owned speculative/synchronous compaction, with durable projection/range/hash/revert evidence and reconstruction from canonical actions. The summarizer is wired, not dormant. | `apps/openomni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/`, `packages/agent/src/inspect/history.ts` |
-| Observation | Scoped agent bus/component observations are projections, not durable authority. Ledger facts commit before observation. The old telemetry package and bus-persistence writer are absent. | `packages/agent/src/core/observation/bus.ts`, `apps/openomni/src/observation/` |
-| Machine body and raw endpoints | Stable list/get handles expose binary-safe confined fs read/write/list/stat, stateless exec(cmd,cwd), and runCode. Enrollment/offer intersection is fail-closed. Exactly two authorization boundaries: captured kernel tool.pre and daemon capability/export enforcement. The descriptor-pinned no-follow confinement driver remains; the injected interpreter runner lives in `packages/codemode` since #1272. Old app filesystem/list-machines tools remain absent. #1270: the host binds a listener set (unix always; TCP+TLS only with the full `OPENOMNI_MACHINES_TCP_*`/`OPENOMNI_MACHINES_TLS_*` tuple) into one registry; network trust is chain-verified on the daemon side (the configured `hostCertificate` PEM is the trust anchor and its key fingerprint the pin) and key-pinned on the host side (`Enrollment.publicKey`, sha256 over SPKI DER), refusing `peer_key_mismatch` before admission; a known machine's dropped/in-window calls fail once typed `disconnected`; the daemon's opt-in reconnect redials with full-jitter backoff (250ms base, 30s cap, injected scheduler), reattaches the same identity to the existing handles, and closes terminally on a refused reattach; the `machine attach` CLI config gains the pinned-TLS tcp shape (see `docs/key-generation.md`). #1271: the brain host attaches as machine `self` — `machines.self {id?="self", capabilities, exports}` + `machines.default?="self"` (`OPENOMNI_MACHINES_SELF`/`OPENOMNI_MACHINES_DEFAULT`), boot validates the plane, starts the listener, attaches an in-process daemon over the unix loopback and completes `machine.attach` before tool ports publish; every failure in that chain is the typed startup refusal `self_attach_failed {cause}`; `apps/openomni/src/bundles/tools/` has no local execution path (`node:fs`, `Bun.spawn`, `localBash`, `kind: "local"` all grep 0) — prefix-less paths resolve to the configured default machine via `parseLocus(input, {defaultMachine})`, relative paths refuse, bash runs on the daemon (absolute `cwd`, daemon-bounded execution), and `openomni machine attach` still attaches a remote daemon alongside self. | `packages/machines/`, `packages/protocol/src/machine/`, `packages/machines/src/ipc/`, `packages/machines/src/reconnect.ts` |
-| Code mode | Public factory supplies machine object handles named after the tools (`read/write/ls/bash/eval`) and `cell.run/peek/stop`. The injected daemon runner owns lazy per-tenant Python processes, parallel/completion helpers and callback routing. The brain facade never spawns Python. Cancellation and close propagate across the attachment and await process cleanup. App VFS, cell registry and old machine methods are deleted; the single `eval` tool delegates to codemode: `run` waits `timeout` seconds then answers `running` with a `cell_id`, `peek` reads the streamed partial output (`machine.peek_code`), `stop` interrupts and settles the cell as `cancelled` with its output, never re-running it; a ten-minute ceiling bounds background cells. Cell-only `completion({prompt, model?, system?, schema?})` has a 32-call per-catalog budget; a `schema` answer is validated host-side and returned as canonical JSON; batching is the cell's `parallel()`. | `packages/codemode/src/`, `apps/openomni/src/composition/codemode.ts`, `apps/openomni/src/bundles/tools/eval/index.ts`, `apps/openomni/src/bundles/tools/completion/index.ts` |
-| Tool catalog and prompts | The catalog is sealed (#949): eleven model-door tools `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, `eval`, `monitor`, `send_message`, `provision` plus the cell-only `completion`; snake_case names, one `op` discriminator under `operation` for eval/monitor/provision, flat `tools/<name>.ts` (`_` written `-` in file names; `lint:tools` `[tool-file-name]` pins the correspondence). There is no `approval` tool: `provision.contact_promote`/`contact_merge` carry `require_approval` policy rows resolved through the kernel request path. `lint:tools` and the catalog test pin the exact set and refuse retired names. The prompt builder accepts model tuning only; deleted-domain injection/instructions are absent. Dispatcher-only model truncation caps at 32,000 UTF-16 code units on a Unicode code-point boundary, with exact dropped/original UTF-8 byte counts; cell values stay full. | `apps/openomni/src/bundles/tools/core/catalog.ts`, `apps/openomni/src/bundles/prompt/`, `packages/agent/src/core/loop/tool.ts` |
-| CLI and composition | Start/onboard/daemon/doctor/logs and npm staging belong to the app. The staged package folds every workspace package into its two bundles and declares native addons (`classic-level`, #1614) as its only runtime dependencies, pinned to the version the bundler resolved, so the bundles carry no build-host path. The minimal `openomni machine attach <config.json>` composes the retained machine daemon wire; Resident `openomni daemon` remains unchanged. Reversible composition owns both boot rollback and reverse-order shutdown. | `apps/openomni/src/cli/`, `apps/openomni/script/build-npm-package.ts`, `apps/openomni/src/composition/boot.ts` |
+| Compaction | App-configured summarization and agent-owned speculative/synchronous compaction, with durable projection/range/hash/revert evidence and reconstruction from canonical actions. The summarizer is wired, not dormant. | `apps/oni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/`, `packages/agent/src/inspect/history.ts` |
+| Observation | Scoped agent bus/component observations are projections, not durable authority. Ledger facts commit before observation. The old telemetry package and bus-persistence writer are absent. | `packages/agent/src/core/observation/bus.ts`, `apps/oni/src/observation/` |
+| Machine body and raw endpoints | Stable list/get handles expose binary-safe confined fs read/write/list/stat, stateless exec(cmd,cwd), and runCode. Enrollment/offer intersection is fail-closed. Exactly two authorization boundaries: captured kernel tool.pre and daemon capability/export enforcement. The descriptor-pinned no-follow confinement driver remains; the injected interpreter runner lives in `packages/codemode` since #1272. Old app filesystem/list-machines tools remain absent. #1270: the host binds a listener set (unix always; TCP+TLS only with the full `ONI_MACHINES_TCP_*`/`ONI_MACHINES_TLS_*` tuple) into one registry; network trust is chain-verified on the daemon side (the configured `hostCertificate` PEM is the trust anchor and its key fingerprint the pin) and key-pinned on the host side (`Enrollment.publicKey`, sha256 over SPKI DER), refusing `peer_key_mismatch` before admission; a known machine's dropped/in-window calls fail once typed `disconnected`; the daemon's opt-in reconnect redials with full-jitter backoff (250ms base, 30s cap, injected scheduler), reattaches the same identity to the existing handles, and closes terminally on a refused reattach; the `machine attach` CLI config gains the pinned-TLS tcp shape (see `docs/key-generation.md`). #1271: the brain host attaches as machine `self` — `machines.self {id?="self", capabilities, exports}` + `machines.default?="self"` (`ONI_MACHINES_SELF`/`ONI_MACHINES_DEFAULT`), boot validates the plane, starts the listener, attaches an in-process daemon over the unix loopback and completes `machine.attach` before tool ports publish; every failure in that chain is the typed startup refusal `self_attach_failed {cause}`; `apps/oni/src/bundles/tools/` has no local execution path (`node:fs`, `Bun.spawn`, `localBash`, `kind: "local"` all grep 0) — prefix-less paths resolve to the configured default machine via `parseLocus(input, {defaultMachine})`, relative paths refuse, bash runs on the daemon (absolute `cwd`, daemon-bounded execution), and `oni machine attach` still attaches a remote daemon alongside self. | `packages/machines/`, `packages/protocol/src/machine/`, `packages/machines/src/ipc/`, `packages/machines/src/reconnect.ts` |
+| Code mode | Public factory supplies machine object handles named after the tools (`read/write/ls/bash/eval`) and `cell.run/peek/stop`. The injected daemon runner owns lazy per-tenant Python processes, parallel/completion helpers and callback routing. The brain facade never spawns Python. Cancellation and close propagate across the attachment and await process cleanup. App VFS, cell registry and old machine methods are deleted; the single `eval` tool delegates to codemode: `run` waits `timeout` seconds then answers `running` with a `cell_id`, `peek` reads the streamed partial output (`machine.peek_code`), `stop` interrupts and settles the cell as `cancelled` with its output, never re-running it; a ten-minute ceiling bounds background cells. Cell-only `completion({prompt, model?, system?, schema?})` has a 32-call per-catalog budget; a `schema` answer is validated host-side and returned as canonical JSON; batching is the cell's `parallel()`. | `packages/codemode/src/`, `apps/oni/src/composition/codemode.ts`, `apps/oni/src/bundles/tools/eval/index.ts`, `apps/oni/src/bundles/tools/completion/index.ts` |
+| Tool catalog and prompts | The catalog is sealed (#949): eleven model-door tools `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, `eval`, `monitor`, `send_message`, `provision` plus the cell-only `completion`; snake_case names, one `op` discriminator under `operation` for eval/monitor/provision, flat `tools/<name>.ts` (`_` written `-` in file names; `lint:tools` `[tool-file-name]` pins the correspondence). There is no `approval` tool: `provision.contact_promote`/`contact_merge` carry `require_approval` policy rows resolved through the kernel request path. `lint:tools` and the catalog test pin the exact set and refuse retired names. The prompt builder accepts model tuning only; deleted-domain injection/instructions are absent. Dispatcher-only model truncation caps at 32,000 UTF-16 code units on a Unicode code-point boundary, with exact dropped/original UTF-8 byte counts; cell values stay full. | `apps/oni/src/bundles/tools/core/catalog.ts`, `apps/oni/src/bundles/prompt/`, `packages/agent/src/core/loop/tool.ts` |
+| CLI and composition | Start/onboard/daemon/doctor/logs and npm staging belong to the app. The staged package folds every workspace package into its two bundles and declares native addons (`classic-level`, #1614) as its only runtime dependencies, pinned to the version the bundler resolved, so the bundles carry no build-host path. The minimal `oni machine attach <config.json>` composes the retained machine daemon wire; Resident `oni daemon` remains unchanged. Reversible composition owns both boot rollback and reverse-order shutdown. | `apps/oni/src/cli/`, `apps/oni/script/build-npm-package.ts`, `apps/oni/src/composition/boot.ts` |
 
 #949 stage 1 removes the target-selection workspace and capability-based catalog fold; call-time admission belongs to executor `tool.pre`. Model fallback selection belongs to `packages/llm`. Together with #991's codemode workspace, the generated topology describes twelve workspaces. The standalone waiting/approval folds and stores are removed by #969. #949 stage 2 seals the catalog, folds approval into `provision`, and drops the catalog's conditional Proxy port scaffolding: every tool is constructed statically and refuses at execution when its port is absent. #949 stage 3 adds `eval` `peek`/`stop` over a background cell registry with streamed partial output, `completion` options `{model, system, schema}`, and renames the codemode handle methods to the tool names.
 
@@ -4520,9 +4538,9 @@ The provider retry owner is unchanged (`createAttemptRunner` in `packages/agent/
 
 The #947 alarm band is hardened against the transition contract without a second monitor, table or engine. `Alarm.Fire` (`packages/protocol/src/ledger/l0.ts`) carries the evaluator's transport `sourceKey`; the caller-minted `actionId`/`inboxId` and caller-supplied `limit` are gone. `alarmOccurrence` (`packages/ledger/src/storage/l0-action-builders.ts`) is the single admission judgment shared by the SQLite adapter and the in-memory test double: stale epoch/fence, pre-due time, consecutive equal poll batch, persisted `timeout_ms` deadline and persisted `notificationLimit` are decided there from the committed row. The occurrence action id is `Alarm.occurrenceId(alarmId, epoch, sourceKey)` and the prompt inbox id is derived alongside it, so redelivery of one committed occurrence appends nothing and leaves the session revision unchanged. Recurring matches stay armed; exit/timeout/one-shot complete; the N+1th match under a budget of N commits exactly one `alarm.paused` prompt and fences the evaluator; cancel and rearm fence before the band closes the source.
 
-Recovery modes are unchanged in kind and now visible in identity: takeover (`acquire`) advances the fence and preserves epoch, notification count and dedupe digest, so a restarted idempotent poll that prints the same batch is suppressed and the next distinct batch delivers; explicit `rearm` advances the epoch and resets both. A non-persistent (timed) watch found running at band restart settles with a `restart` summary; live PTY output in the gap is never replayed; cursor-capable backends were not added. `createAlarmWorker` (`apps/openomni/src/composition/alarm-worker.ts`) keeps only OS handles, the per-source line counter and the recovery flag; the path source hands its stat identity to the ledger as the occurrence key and keeps its snapshot only to classify create/modify.
+Recovery modes are unchanged in kind and now visible in identity: takeover (`acquire`) advances the fence and preserves epoch, notification count and dedupe digest, so a restarted idempotent poll that prints the same batch is suppressed and the next distinct batch delivers; explicit `rearm` advances the epoch and resets both. A non-persistent (timed) watch found running at band restart settles with a `restart` summary; live PTY output in the gap is never replayed; cursor-capable backends were not added. `createAlarmWorker` (`apps/oni/src/composition/alarm-worker.ts`) keeps only OS handles, the per-source line counter and the recovery flag; the path source hands its stat identity to the ledger as the occurrence key and keeps its snapshot only to classify create/modify.
 
-Tests: `apps/openomni/test/monitor-occurrence.test.ts` (distinct occurrences and zero-duplicate redelivery, takeover-vs-rearm dedupe, N+1 contenders, ledger-decided deadline, real PTY occurrence key), `packages/ledger/test/storage/alarm.test.ts` and `alarm-control.test.ts` (SQLite/memory parity, budget from the persisted spec), and the existing `alarm-boot-durability`, `alarm-worker-boundaries`, `monitor-budget`, `monitor-deadline`, `monitor-tool-boundaries`, `monitor-process-group` and `monitor-app` suites for evaluator restart, session hibernation and deterministic source shutdown. The contract's ALD/ALA/ALX relocation targets and `AlarmTransition` schema were not built; `session-lifecycle-contract.md` records the landed owners.
+Tests: `apps/oni/test/monitor-occurrence.test.ts` (distinct occurrences and zero-duplicate redelivery, takeover-vs-rearm dedupe, N+1 contenders, ledger-decided deadline, real PTY occurrence key), `packages/ledger/test/storage/alarm.test.ts` and `alarm-control.test.ts` (SQLite/memory parity, budget from the persisted spec), and the existing `alarm-boot-durability`, `alarm-worker-boundaries`, `monitor-budget`, `monitor-deadline`, `monitor-tool-boundaries`, `monitor-process-group` and `monitor-app` suites for evaluator restart, session hibernation and deterministic source shutdown. The contract's ALD/ALA/ALX relocation targets and `AlarmTransition` schema were not built; `session-lifecycle-contract.md` records the landed owners.
 
 ## #973 lifecycle conformance
 
@@ -4556,7 +4574,7 @@ The #967 corrections are merged: subprotocol-only authentication (#974), legacy 
 The archive CLI creates a native SQLite image plus a v2 all-table receipt at explicit paths. Verification restores a temporary copy rather than opening the operator archive writable. `--dispose-967 --approve-manifest-sha256` revalidates the archive/receipt/source before guarded migration `0034_u967_archive_disposition`, in the migration transaction. Eligible retired Wait projections and archived bus rows are removed only with approval; the empty bus table is dropped. Ordinary boot does not archive implicitly. Message/part retention is not a DROP receipt and remains a final-convergence consideration for #945/#948, even though #937 is now merged.
 
 ## #1259 slop cleanup sub-PRs
-Band b5 (`epic1260/1259-b5-openomni`) cleans apps/openomni composition, tools and delegation-cli items per the #1259 inventory: the dead `OPENOMNI_DB_PATH` test env var is deleted, the five boot-composition `console.error` incident sites publish `Operational.Events.Error` through the ObservationSink, `index-coverage.test.ts` is renamed `app-surface.test.ts`, `createMonitorTool` takes explicit `MonitorPorts | undefined`, find's `relativeTo` refuses a walk outside the search root, and eval's `signal` is the non-optional `AbortSignal`; items 118/133 defer to band 7's file ownership and eleven items keep with rationale — full per-item account in [SLOP.md](SLOP.md#l-1259-sub-prs).
+Band b5 (`epic1260/1259-b5-oni`) cleans apps/oni composition, tools and delegation-cli items per the #1259 inventory: the dead `ONI_DB_PATH` test env var is deleted, the five boot-composition `console.error` incident sites publish `Operational.Events.Error` through the ObservationSink, `index-coverage.test.ts` is renamed `app-surface.test.ts`, `createMonitorTool` takes explicit `MonitorPorts | undefined`, find's `relativeTo` refuses a walk outside the search root, and eval's `signal` is the non-optional `AbortSignal`; items 118/133 defer to band 7's file ownership and eleven items keep with rationale — full per-item account in [SLOP.md](SLOP.md#l-1259-sub-prs).
 
 Band b4 (`epic1260/1259-b4-channels`, commit `c1420c6e`) cleans packages/channels per the #1259 inventory: duplicated normalizer guards deleted from the telegram/discord surfaces, handler casts replaced by `requireHandler` binding, the floating telegram poll-loop promise annotated with `void`, the stale `DeliveringSurface` comment pruned, `verifyGitHubSignature` moved into `src/authn/` beside its only consumer, and a duplicate file-level `beforeEach` removed from the send suite — net LOC negative, zero behavior change; full per-item account in [SLOP.md](SLOP.md#l-1259-sub-prs).
 
@@ -4564,7 +4582,7 @@ Band b2 (`epic1260/1259-b2-agent-llm`) cleans packages/agent (core, session enti
 
 Band b7a (`epic1260/1259-b7a-xc`) sweeps the cross-cutting items outside `packages/agent`: knip.json stale ignore lists and eight redundant entry patterns deleted, `productionConsumerFindings` merged into `censusConsumerFindings`, the schema-only `runtime.workspace_lock` policy effect deleted, codemode's `decodeCodeFailure` rewritten as a plain instanceof dispatch, the provisioning `reconcile` pass-through inlined, cluster fixture clocks made deterministic, and stale H13 barrel claims corrected — 8 fixed, 18 already resolved upstream, 24 kept with rationale, net LOC negative; per-item account in [SLOP.md](SLOP.md#l-1259-sub-prs).
 
-Band b7b (`epic1260/1259-b7b-agent-final`, the final #1259 sub-PR) cleans the packages/agent cross-cutting items and the four lead-owned apps/openomni files: eight items fixed (single tool-result resolution and a collision-only tool-metadata assertion in `core/loop/tool.ts`, the `pendingBacklog` and `SessionActionCommitPort` wrappers deleted, a stop-evidence empty-page guard, one `node:crypto` sha256 API across the model fingerprints, a top-level `ai` import, provision `replaceAll`), eighteen re-verified as already resolved upstream, twenty-four kept with rationale, none deferred — net LOC negative, zero behavior change; full per-item account in [SLOP.md](SLOP.md#l-1259-sub-prs).
+Band b7b (`epic1260/1259-b7b-agent-final`, the final #1259 sub-PR) cleans the packages/agent cross-cutting items and the four lead-owned apps/oni files: eight items fixed (single tool-result resolution and a collision-only tool-metadata assertion in `core/loop/tool.ts`, the `pendingBacklog` and `SessionActionCommitPort` wrappers deleted, a stop-evidence empty-page guard, one `node:crypto` sha256 API across the model fingerprints, a top-level `ai` import, provision `replaceAll`), eighteen re-verified as already resolved upstream, twenty-four kept with rationale, none deferred — net LOC negative, zero behavior change; full per-item account in [SLOP.md](SLOP.md#l-1259-sub-prs).
 
 ## Census and final quality: current versus required
 
@@ -4587,14 +4605,14 @@ claim about it.
 | E3 | No new fixture code or prose snapshots in this docs patch. | Reproducible separate production/test clone-zero receipts remain #945 work. |
 | E4 | Required by the Owner-approved #945 amendment; **not parked**. | Explicit/implicit TypeScript any type0 and unknown type0, with no boundary exemption. |
 | E5 | Script tests and the per-PR patch-coverage gate exist (#1116 deleted the script coverage ratchet lane). | Campaign-wide coverage100%, complexity and mutation guarantees, including the gates themselves. |
-| E7 | Runtime prompt has no deleted injection or tool instruction; structural assembly assertions already exist. | `apps/openomni/test/prompt.test.ts` still pins code-mode prose. E7 is not closed by a documentation-only PR; a negative signature/sentinel mutation gate is not claimed shipped. |
+| E7 | Runtime prompt has no deleted injection or tool instruction; structural assembly assertions already exist. | `apps/oni/test/prompt.test.ts` still pins code-mode prose. E7 is not closed by a documentation-only PR; a negative signature/sentinel mutation gate is not claimed shipped. |
 
 #945 remains open. Its acceptance also requires cyclomatic<22, cognitive<22, Halstead difficulty<80, CRAP<25, surviving mutants0, frozen analyzer versions/inventory/settings/coverage dimensions/operators, and full scheduled/final-convergence mutation execution. A passing ratchet or lint command does not establish any of those absent receipts. Local verification results, including pre-existing failures, are recorded in [SLOP.md](SLOP.md); no zero-failure campaign receipt is claimed.
 
 ## Parked and otherwise unimplemented
 
-- [#950](https://github.com/INONONO66/openomni/issues/950) remains `icebox`, outside #930, superseding closed [#811](https://github.com/INONONO66/openomni/issues/811). It owns machine-offer isolation capability/fail-closed execution and the gateway egress secret gate. Kernel trust-boundary placement does not decide sandbox profiles or scanner semantics. Re-triage follows #938/#939 and #946; all three are open at verification. No sandbox/scanner implementation is included here.
-- #949 stays open after stage 3, which landed `eval.op = run | peek | stop` over a background cell registry, `completion` options, and tool-named codemode handle methods for the five operations the machine wire carries (`read/write/ls/bash/eval`). Not landed: the `edit`, `find` and `grep` handle methods from the Owner amendment. Those tools are compositions the app tool layer builds over `read/write/list/stat` (`apps/openomni/src/bundles/tools/{edit,find,grep}.ts` on `core/filesystem.ts`); the codemode plane (`packages/codemode/`, #1246 fold reversed by #1272) sits below that layer and the wire has no such op, so offering them in the cell without duplicating the tools means hoisting that composition into a package both can import. Until then the handle set is the five above and a cell reaches the other three through `tool.edit/find/grep()` proxies. Continuous alarm scheduling stays #947; #969 acceptance uses the behavioral and deletion receipts above, not only its census; machine handles and codemode are described above.
+- [#950](https://github.com/INONONO66/oni/issues/950) remains `icebox`, outside #930, superseding closed [#811](https://github.com/INONONO66/oni/issues/811). It owns machine-offer isolation capability/fail-closed execution and the gateway egress secret gate. Kernel trust-boundary placement does not decide sandbox profiles or scanner semantics. Re-triage follows #938/#939 and #946; all three are open at verification. No sandbox/scanner implementation is included here.
+- #949 stays open after stage 3, which landed `eval.op = run | peek | stop` over a background cell registry, `completion` options, and tool-named codemode handle methods for the five operations the machine wire carries (`read/write/ls/bash/eval`). Not landed: the `edit`, `find` and `grep` handle methods from the Owner amendment. Those tools are compositions the app tool layer builds over `read/write/list/stat` (`apps/oni/src/bundles/tools/{edit,find,grep}.ts` on `core/filesystem.ts`); the codemode plane (`packages/codemode/`, #1246 fold reversed by #1272) sits below that layer and the wire has no such op, so offering them in the cell without duplicating the tools means hoisting that composition into a package both can import. Until then the handle set is the five above and a cell reaches the other three through `tool.edit/find/grep()` proxies. Continuous alarm scheduling stays #947; #969 acceptance uses the behavioral and deletion receipts above, not only its census; machine handles and codemode are described above.
 - Connector definitions and installation schemas are not an installed connector execution host. The dormant installation store is deleted.
 - Governor/Jester/Voice, Stakes and effective-authority target consumers, dynamic reactive composition, and any later memory/search redesign are not promoted to shipped by retained design prose.
 
@@ -4605,4 +4623,4 @@ Band b6 (`epic1260/1259-b6-ui-script-gates`) fixed item 171 (the quality-native-
 
 ## #1356 agent residue baseline
 
-#1343 landed the shrink-only comment-residue gate (`script/check-comment-residue.ts`): every `packages/agent/src` file carries tight pins for issue-number comment lines and `// ───` dividers (491/52 at `d9800ad74`, plus one exact structural-header exemption in `inspect/index.ts`, allow-list budget <=10 enforced by the gate), comment lines classified from TypeScript comment-trivia ranges; the package comment ratio (1425bp = 3485/24454) is a growth-only CEILING (adding plain code passes), while the over-six-line JSDoc count (126) is a tight pin — growth and slack both fail, so cleanup (#1344) lowers pins in the same PR. The issue's 97 JSDoc count is not reproducible under any line-span definition; the ceiling is the measured 126 under "spans > 6 physical lines". `check-deps.ts` additionally pins direct agent-core responsibility tokens referenced from `apps/openomni/src` code (19 across five files: cluster-runtime 5, ingress-executor 2, message-session 1, index 6, process-entry 5), counted by AST walk — code references only, never comments, strings, template text, regex literals or JSX text; token-pin slack is judged inside a git checkout only (worktree `.git` files included) and the skip outside one is a single loud NOTICE. No residue was removed and no production code changed; the Dependency Rules CI job runs both gates.
+#1343 landed the shrink-only comment-residue gate (`script/check-comment-residue.ts`): every `packages/agent/src` file carries tight pins for issue-number comment lines and `// ───` dividers (491/52 at `d9800ad74`, plus one exact structural-header exemption in `inspect/index.ts`, allow-list budget <=10 enforced by the gate), comment lines classified from TypeScript comment-trivia ranges; the package comment ratio (1425bp = 3485/24454) is a growth-only CEILING (adding plain code passes), while the over-six-line JSDoc count (126) is a tight pin — growth and slack both fail, so cleanup (#1344) lowers pins in the same PR. The issue's 97 JSDoc count is not reproducible under any line-span definition; the ceiling is the measured 126 under "spans > 6 physical lines". `check-deps.ts` additionally pins direct agent-core responsibility tokens referenced from `apps/oni/src` code (19 across five files: cluster-runtime 5, ingress-executor 2, message-session 1, index 6, process-entry 5), counted by AST walk — code references only, never comments, strings, template text, regex literals or JSX text; token-pin slack is judged inside a git checkout only (worktree `.git` files included) and the skip outside one is a single loud NOTICE. No residue was removed and no production code changed; the Dependency Rules CI job runs both gates.

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { decodeLlmFailure, failureText } from "../error";
 import type { LlmError } from "../errors";
-import type { Message, Transcript } from "@openomni/protocol";
+import type { Message, Transcript } from "@oni/protocol";
 import { OutputPayload, ProviderEvent } from "./event-schema";
 import { stringifyToolOutput, type SDKToolValue } from "../message";
 import type { StreamEvent, StreamEventState, StreamEventContext } from "./stream-events";

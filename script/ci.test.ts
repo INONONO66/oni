@@ -20,7 +20,7 @@ function cli(args: readonly string[], env: Record<string, string> = {}) {
 }
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "openomni-ci-"));
+  const dir = mkdtempSync(join(tmpdir(), "oni-ci-"));
   for (const workspace of TOPOLOGY) {
     mkdirSync(join(dir, workspace.dir), { recursive: true });
     writeFileSync(
@@ -181,7 +181,7 @@ test("test entry dispatches workspace and script lanes through their canonical c
 });
 
 test("tooling shard one runs the Python self-tests directly", () => {
-  using fixture = { dir: mkdtempSync(join(tmpdir(), "openomni-ci-")), [Symbol.dispose]() { rmSync(this.dir, { recursive: true, force: true }); } };
+  using fixture = { dir: mkdtempSync(join(tmpdir(), "oni-ci-")), [Symbol.dispose]() { rmSync(this.dir, { recursive: true, force: true }); } };
   const script = join(fixture.dir, "script");
   mkdirSync(script, { recursive: true });
   const calls: { args: string[]; options?: SpawnOptions }[] = [];

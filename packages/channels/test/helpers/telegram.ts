@@ -16,7 +16,7 @@ export function telegramReply(username?: string): TelegramMessage {
       message_id: 11,
       chat: { id: 34, type: "group" },
       date: 1,
-      from: { id: 78, is_bot: true, first_name: "OpenOmni" },
+      from: { id: 78, is_bot: true, first_name: "Oni" },
       text: "please report",
     },
   };

@@ -1,4 +1,4 @@
-import { type Channel, type Gateway, Operational, type Outbound } from "@openomni/protocol";
+import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";

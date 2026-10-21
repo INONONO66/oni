@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Database } from "bun:sqlite";
-import { Journal, LedgerAction, type LedgerSession } from "@openomni/protocol";
+import { Journal, LedgerAction, type LedgerSession } from "@oni/protocol";
 import { actionPayloadBytes, computeActionHash, GENESIS_PREV_HASH, storedActionRow } from "../action-hash.js";
 import { SessionSqlRow, decodeSession } from "./sqlite-l0-rows";
 import { CorruptRecord, SchemaRefused } from "../errors";

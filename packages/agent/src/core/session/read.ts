@@ -3,7 +3,7 @@
  * `fold.checkpoint` is a store-internal accelerator excluded from every model
  * by construction: each model filters on its declared kinds only.
  */
-import type { LedgerAction, PlainValue } from "@openomni/protocol";
+import type { LedgerAction, PlainValue } from "@oni/protocol";
 import { attemptUsage, groupUsageByPurpose } from "../observation/metrics";
 
 export const READ_MODELS = Object.freeze([

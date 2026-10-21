@@ -3,7 +3,7 @@ import { channelRequests } from "../../helpers/channel-requests";
 import { channelTransaction } from "../../helpers/channel-transaction";
 import { runEffect } from "../../helpers/effect";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Gateway } from "@openomni/protocol";
+import { Gateway } from "@oni/protocol";
 import { createExistingAgentMessaging } from "../../../src/router/messaging/send.js";
 import { seededRequests } from "../../helpers/requests";
 

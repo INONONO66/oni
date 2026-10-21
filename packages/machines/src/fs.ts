@@ -13,7 +13,7 @@ import {
   writeSync,
 } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createHash, type Hash } from "node:crypto";
 
 type EntryKind = "file" | "dir" | "symlink" | "other";
@@ -619,7 +619,7 @@ export function createFsDriver(
       const targetName = segments.at(-1) as string;
       const refusal = checkWriteTarget(parent.fd, targetName);
       if (refusal !== undefined) return refusal;
-      const tempName = `.openomni-transfer-${createHash("sha256").update(transferId).digest("hex").slice(0, 32)}`;
+      const tempName = `.oni-transfer-${createHash("sha256").update(transferId).digest("hex").slice(0, 32)}`;
       const staged = openAt(parent.fd, tempName, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_CLOEXEC | constants.O_NONBLOCK);
       if (!("fd" in staged)) return streamRefused("io_error");
       retained = true;

@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction } from "@oni/protocol";
 import { z } from "zod";
 import { bounded } from "./bounded";
 import { effectValue } from "./native-executor";

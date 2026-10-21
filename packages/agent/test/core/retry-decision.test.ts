@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LlmCall, Operational } from "@openomni/protocol";
+import { LlmCall, Operational } from "@oni/protocol";
 import type { FailureClass } from "../../src/core/ports/llm";
 import {
   decide,

@@ -1,6 +1,6 @@
 # What Is an Agent OS — Definition and Qualification Tests
 
-OpenOmni's root claim is "a single-Owner Agent OS" ([Design Philosophy](design-philosophy.md)). This document defines the term functionally — metaphor stripped — so the claim is checkable rather than rhetorical. Current wiring is tracked only in [Implementation Status](implementation-status.md); live delivery tracking is [GitHub #459](https://github.com/INONONO66/openomni/issues/459).
+Oni's root claim is "a single-Owner Agent OS" ([Design Philosophy](design-philosophy.md)). This document defines the term functionally — metaphor stripped — so the claim is checkable rather than rhetorical. Current wiring is tracked only in [Implementation Status](implementation-status.md); live delivery tracking is [GitHub #459](https://github.com/INONONO66/oni/issues/459).
 
 ## 1. What an OS functionally is
 
@@ -26,7 +26,7 @@ The classical OS protected memory and CPU. The agent world's scarce resources ar
 
 The last row is the category's genuinely new duty. **A classical OS could generally trust a CPU's exit status; an agent's "done" can be false.** An Agent OS therefore needs accountability: preserve what happened, require evidence, and deterministically check the specific predicates it knows how to check. It cannot mechanically turn an arbitrary claim into truth; unsupported claims remain assertions.
 
-OpenOmni sharpens that duty by treating each unit of work as a WorkItem contract. Progress completion, one execution's exit status, one criterion's result, and terminal contract completion are different facts. The target contract permits closure only through a durable admission bound to the current contract revision and evidence basis.
+Oni sharpens that duty by treating each unit of work as a WorkItem contract. Progress completion, one execution's exit status, one criterion's result, and terminal contract completion are different facts. The target contract permits closure only through a durable admission bound to the current contract revision and evidence basis.
 
 ## 3. Definition
 
@@ -62,8 +62,8 @@ A system qualifies only by passing all five. This turns "is it an Agent OS?" fro
 
 **No existing system passes all five.** The term "Agent OS" is today mostly marketing — and simultaneously a real, unoccupied category. The unoccupied duties are specifically **T4 (accountability for agent claims)** and the authority form of **T1/T5** (multiplexing a principal's life, not a machine's).
 
-A note on trust direction, since it is the deepest split in the landscape: companion systems (OpenClaw, Hermes) are built on *trusting* the agent — its reports, its self-curated memory, its self-improved skills. OpenOmni is built on *not trusting* it: execution, judgment, and improvement are separated, and completion claims must survive an evidence gate. This is an axiom difference, not a feature difference, which is why it is expensive to retrofit in either direction.
+A note on trust direction, since it is the deepest split in the landscape: companion systems (OpenClaw, Hermes) are built on *trusting* the agent — its reports, its self-curated memory, its self-improved skills. Oni is built on *not trusting* it: execution, judgment, and improvement are separated, and completion claims must survive an evidence gate. This is an axiom difference, not a feature difference, which is why it is expensive to retrofit in either direction.
 
-## 6. OpenOmni qualification
+## 6. Oni qualification
 
 [Implementation Status](implementation-status.md) alone records which qualification mechanisms are currently wired. The bets this depends on — and the criteria under which we abandon the claim — live in [Bets and Kill Criteria](bets-and-kill-criteria.md).

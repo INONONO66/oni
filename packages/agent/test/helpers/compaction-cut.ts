@@ -1,6 +1,6 @@
 /** #1348: the evidence history and execution input shared by the compaction cut suites. */
 import { Effect } from "effect";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type { executeCompaction } from "../../src/plugins/compaction/execute-cut";
 
 /** An assistant message `id` in `sessionID` carrying one completed `read` call with 900 bytes of evidence output. */

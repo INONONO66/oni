@@ -4,7 +4,7 @@ import { posix } from "node:path";
 import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
 import { typedCall } from "./typed-call";
-import { type BusEvent, type Ipc, Machine } from "@openomni/protocol";
+import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
 import { Effect, Fiber, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";

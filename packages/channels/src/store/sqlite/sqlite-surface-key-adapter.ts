@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { ChannelStoreInvariant } from "./errors";
-import type { Storage as ProtocolStorage } from "@openomni/protocol";
+import type { Storage as ProtocolStorage } from "@oni/protocol";
 
 const SessionIdRow = z.object({ session_id: z.string() }).nullable();
 const KeyRows = z.array(z.object({ key: z.string() }));

@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { SchemaRefused } from "../src/core/store/errors";
 import { runLedgerSync } from "./store/helpers/effect";
 import { adoptWriter, materializeSession } from "./store/helpers/session";

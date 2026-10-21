@@ -1,5 +1,5 @@
-import type { Ingress } from "@openomni/protocol";
-import { ActionButton, ConsoleContent, Text } from "@openomni/ui";
+import type { Ingress } from "@oni/protocol";
+import { ActionButton, ConsoleContent, Text } from "@oni/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { GatewayChatTransport } from "../chat/gateway-transport";

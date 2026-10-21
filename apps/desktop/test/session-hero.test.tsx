@@ -3,9 +3,9 @@ import { Chat } from "@ai-sdk/react";
 import type { ChatTransport, UIMessage } from "ai";
 import { Window } from "happy-dom";
 import { act } from "react";
-import type { OpenOmniUIMessage } from "../src/renderer/chat/message";
+import type { OniUIMessage } from "../src/renderer/chat/message";
 import { SessionContent } from "../src/renderer/chat/session-content";
-import { UI_NAMES } from "@openomni/ui";
+import { UI_NAMES } from "@oni/ui";
 import { mountWindow } from "./helpers";
 import { makeSession } from "./helpers/session";
 
@@ -17,7 +17,7 @@ const idle: ChatTransport<UIMessage> = {
 test("an empty session hero docks after the first transcript node", async () => {
   const window = new Window({ url: "http://localhost" });
   const { host, restoreGlobals, root } = mountWindow(window);
-  const chat = new Chat<OpenOmniUIMessage>({ id: "session", messages: [], transport: idle });
+  const chat = new Chat<OniUIMessage>({ id: "session", messages: [], transport: idle });
 
   try {
     await act(() =>

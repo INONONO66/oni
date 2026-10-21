@@ -3,7 +3,7 @@ import { Effect, Result, Stream } from "effect";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Bench } from "tinybench";
-import { L0Observation, type LedgerSession, type Message } from "@openomni/protocol";
+import { L0Observation, type LedgerSession, type Message } from "@oni/protocol";
 import { materializeSession } from "../test/store/helpers/session";
 import { makeObservationBus } from "../src/core/observation/bus";
 import { openCatalogStore } from "../src/core/store/catalog";
@@ -192,7 +192,7 @@ async function runMessageSerialization(): Promise<void> {
     modelID: "bench",
     providerID: "bench",
     agent: "bench-agent",
-    path: { cwd: "/tmp/openomni", root: "/tmp/openomni" },
+    path: { cwd: "/tmp/oni", root: "/tmp/oni" },
     tokens: { input: 512, output: 128, reasoning: 64, cache: { read: 32, write: 16 } },
     finish: "stop",
   };

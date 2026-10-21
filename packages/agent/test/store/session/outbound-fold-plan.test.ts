@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { canonicalDigest } from "@openomni/protocol";
+import { canonicalDigest } from "@oni/protocol";
 import { OUTBOUND_STATES_SQL } from "../../../src/core/store/session-file/reads";
 import { materializeSession } from "../helpers/session";
 import { withDiskStores } from "../helpers/storage";

@@ -5,7 +5,7 @@ import { CommitRefused, type LedgerError } from "../store/errors";
 
 import type { CommitReceipt } from "../store/services";
 import { ObservationSink, type RunnerServices } from "../ports/ports";
-import { canonicalDigest, Journal, type SessionGeneration, type Delivery, type LedgerAction, type LedgerSession, type PlainValue, } from "@openomni/protocol";
+import { canonicalDigest, Journal, type SessionGeneration, type Delivery, type LedgerAction, type LedgerSession, type PlainValue, } from "@oni/protocol";
 import { createExecutor } from "../loop/executor";
 import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES } from "../ports/tool-output";
 import { AgentFailure, CommitFailed, type ExecutionError, type SessionError } from "../ports/failure";

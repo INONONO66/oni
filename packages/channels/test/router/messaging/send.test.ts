@@ -8,7 +8,7 @@ import { runEffect } from "../../helpers/effect";
 import { replaceDecisionFacts } from "../../helpers/ledger";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { type Gateway, Outbound, type PlainObject, type SessionTransition, type Storage } from "@openomni/protocol";
+import { type Gateway, Outbound, type PlainObject, type SessionTransition, type Storage } from "@oni/protocol";
 import { Bus } from "../../helpers/observation";
 import { createExistingAgentMessaging } from "../../../src/router/messaging/send.js";
 import type { KernelDeliveryReceipt } from "../../../src/support/deliver";
@@ -395,7 +395,7 @@ describe("delivery receipt", () => {
     expect(receipt.request.correlation.replyToMessageId).toBe("platform:msg-77");
     expect(
       sessionTree(receipt.request.sessionId, ledger().sessions.actions).filter(
-        (action: import("@openomni/protocol").LedgerAction.Node) => action.kind === "request",
+        (action: import("@oni/protocol").LedgerAction.Node) => action.kind === "request",
       ),
     ).toHaveLength(2);
     const stored = ledger().kernel.requestById("request:test-awaited");
@@ -403,12 +403,12 @@ describe("delivery receipt", () => {
     // Correlation now answers the platform id, not the internal message id.
     expect(
       ledger().kernel.requestRows().filter(
-        (row: import("@openomni/protocol").SessionTransition.Request) => row.correlation.replyToMessageId === "platform:msg-77",
+        (row: import("@oni/protocol").SessionTransition.Request) => row.correlation.replyToMessageId === "platform:msg-77",
       ),
     ).toHaveLength(1);
     expect(
       ledger().kernel.requestRows().filter(
-        (row: import("@openomni/protocol").SessionTransition.Request) => row.correlation.replyToMessageId === "message:test-awaited",
+        (row: import("@oni/protocol").SessionTransition.Request) => row.correlation.replyToMessageId === "message:test-awaited",
       ),
     ).toHaveLength(0);
   });
@@ -685,7 +685,7 @@ async function probe(point: FaultPoint): Promise<Probe> {
     },
     grants: () => [buildGrant("grant:reconciliation")],
     budgets: () => [activeBudget],
-    publish: <T>(event: import("@openomni/protocol").BusEvent.Descriptor<T>) => {
+    publish: <T>(event: import("@oni/protocol").BusEvent.Descriptor<T>) => {
       if (event.name === "messaging.sent" && failAfterReceipt) {
         failAfterReceipt = false;
         throw new Error(`fault:${point}`);

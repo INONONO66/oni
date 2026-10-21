@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { SessionKernel } from "../core/session/entity";
 import { AgentInvariantViolation } from "../core/ports/failure";
-import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@openomni/protocol";
+import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@oni/protocol";
 import { actionPayloadBytes } from "../core/store/action-hash";
 
 /**

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createFsDriver } from "./helpers/native";
 
 test("transfer cursors replay a lost read frame without advancing the digest twice", async () => {
@@ -100,7 +100,7 @@ test("cleanup releases every transfer even if a staged temp was removed external
       .toMatchObject({ status: "begun" });
     expect(await driver.stream({ op: "begin", mode: "read", transferId: "survivor", export: "work", path: "source" }))
       .toMatchObject({ status: "begun" });
-    const staged = readdirSync(root).find((name) => name.startsWith(".openomni-transfer-"));
+    const staged = readdirSync(root).find((name) => name.startsWith(".oni-transfer-"));
     if (staged === undefined) throw new Error("missing staged transfer");
     rmSync(join(root, staged));
     expect(() => driver.abortAll()).toThrow("failed to remove staged filesystem transfer");

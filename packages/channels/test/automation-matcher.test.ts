@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { judgeAndMatch } from "../src/automation/judge.js";
 import { match } from "../src/automation/matcher.js";
 import { runEffect } from "./helpers/effect.js";

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Storage as ProtocolStorage } from "@openomni/protocol";
+import type { Storage as ProtocolStorage } from "@oni/protocol";
 import { StoredIdentity, StoredEndpoint } from "./actor-schema";
 import { sqliteJsonData, SqliteCountRow } from "./json";
 

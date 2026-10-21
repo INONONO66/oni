@@ -4,7 +4,7 @@ import type { DiscordBotApi, DiscordBotEvents, DiscordSdk } from "../../src/prov
 type Handler = (...args: never[]) => void;
 
 /** The SDK's READY info: the bot user and its session. */
-export const READY = { user: { id: "bot", username: "openomni" }, sessionId: "session" };
+export const READY = { user: { id: "bot", username: "oni" }, sessionId: "session" };
 
 /**
  * A scripted stand-in for the SDK gateway listener: the test emits the

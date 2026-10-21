@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import * as Native from "../../src";
 import { createFsDriver as fsDriver } from "../../src/fs";
 import { decodeMachineFailure } from "../../src/failure";

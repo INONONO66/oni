@@ -5,7 +5,7 @@
  * non-printable characters and backslashes use octal escapes. Everything here
  * is pure so framing and escape handling are unit-testable without a server.
  */
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 
 export type PtyControlEvent =
   | { readonly kind: "reply-begin" }

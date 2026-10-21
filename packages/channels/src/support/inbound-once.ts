@@ -1,4 +1,4 @@
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 
 /** The physical message key two instances of one platform share: platform, workspace, channel, event. */
 function inboundKey(message: Channel.InboundMessage): string {

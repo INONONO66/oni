@@ -1,6 +1,6 @@
 import { Clock, Effect, Result } from "effect";
 import { AgentFailure, type ExecutionError, Entropy } from "../../core/api";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type { CompactionOptions, AnchoredCutAttempt } from "./contract";
 import { latestAnchorBody, isAnchorMessage } from "./candidate";
 import { prepareSummarizerInput, estimateContentChars, messageContentChars } from "./estimate";

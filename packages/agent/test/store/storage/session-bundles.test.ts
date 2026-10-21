@@ -2,7 +2,7 @@ import { sessionTree } from "../helpers/session-tree";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { runLedgerSync } from "../helpers/effect";
-import { SessionGeneration } from "@openomni/protocol";
+import { SessionGeneration } from "@oni/protocol";
 import { useSqliteStores } from "../helpers/storage";
 import { z } from "zod";
 

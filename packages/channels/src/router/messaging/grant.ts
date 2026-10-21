@@ -1,4 +1,4 @@
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 
 /**
  * Existing-agent messaging grant evaluation (#215, gateway router since #707

@@ -5,6 +5,12 @@ Keep that stamp current when editing (doc-state sync law).
 
 ## OVERVIEW
 
+Project renamed on `rename/oni` (#1620, 2026-10-21): the repository, the
+kernel app (`apps/oni`), every `@oni/*` workspace package, the `oni` bundle
+and binary, `~/.oni`, the `ONI_*` environment family and the service names
+all carry the name `oni`. Nothing reads the old name; frozen history
+(`docs/agents-stamps.md`, `docs/agents-stamps/`, `.omo/`) keeps it.
+
 Benchmark admission updated on `fix/benchmark-paired-reference-20260914`: every event measures the latest accepted SHA and head on one runner in alternating serial order, with separate frozen dependencies and canonical 14-metric summaries. The sole 20% gate uses a fresh one-reference history (zero historical noise band); only passing main push/dispatch runs publish original head timings. Raw paired observations and hashed provenance remain artifacts. An Owner-applied `benchmark:accept-baseline` label lets the PR gate pass with `ACCEPTED` rows. After merge, the Owner runs `gh workflow run benchmark.yml --ref main -f accept_baseline=true` to publish the new accepted reference; scheduled runs never accept baseline resets.
 See `docs/ci.md`; hosted execution and landing remain parent-owned.
 
@@ -42,14 +48,14 @@ matched cold diagnostics at indices 0, 8 and 15, and reported
 `originalRestored:true`. Full campaign completion and six-hour feasibility are
 not established.
 
-OpenOmni is a single-Owner Agent OS: one Resident delegates through durable contracts and evidence, not self-report. The repository contains core packages, one deployable kernel app, and an Electron console (`apps/desktop`) with app-owned AI SDK chat state and shared UI presentation. Target contracts live in `docs/core-model.md`, `docs/kernel-contract.md`, and `docs/machines-and-delegation.md`; `docs/implementation-status.md` is authoritative for current wiring.
+Oni is a single-Owner Agent OS: one Resident delegates through durable contracts and evidence, not self-report. The repository contains core packages, one deployable kernel app, and an Electron console (`apps/desktop`) with app-owned AI SDK chat state and shared UI presentation. Target contracts live in `docs/core-model.md`, `docs/kernel-contract.md`, and `docs/machines-and-delegation.md`; `docs/implementation-status.md` is authoritative for current wiring.
 
 ## STRUCTURE
 
 ```text
-openomni/
+oni/
 ├── apps/
-│   ├── openomni/        # kernel app: eleven bundle directories under src/bundles/, gateway composition
+│   ├── oni/        # kernel app: eleven bundle directories under src/bundles/, gateway composition
 │   │   └── src/bundles/ # alarms, approval-policy, compaction, core-policy, delegation-policy, hooks-json, messaging, prompt, provision, resident, tools
 │   └── desktop/         # Electron console: shell/build pipeline plus app-owned AI SDK chat state
 ├── packages/
@@ -73,12 +79,12 @@ openomni/
 Read `X <- Y` as Y may depend on X.
 
 ```text
-protocol <- agent, llm, machines, codemode, channels, apps/openomni, apps/desktop
-agent <- channels, apps/openomni
-llm <- apps/openomni
-machines <- codemode, apps/openomni
-codemode <- apps/openomni
-channels <- apps/openomni
+protocol <- agent, llm, machines, codemode, channels, apps/oni, apps/desktop
+agent <- channels, apps/oni
+llm <- apps/oni
+machines <- codemode, apps/oni
+codemode <- apps/oni
+channels <- apps/oni
 ui <- apps/desktop
 ```
 
@@ -90,12 +96,12 @@ ui <- apps/desktop
 | `machines` | protocol |
 | `codemode` | protocol, machines |
 | `channels` | protocol, agent |
-| `apps/openomni` | protocol, channels, agent, llm, machines, codemode |
+| `apps/oni` | protocol, channels, agent, llm, machines, codemode |
 | `ui` | none |
 | `apps/desktop` | protocol, ui |
 <!-- END GENERATED TOPOLOGY -->
 
-`script/check-deps.ts` is the executable contract. Product meaning is composed in `apps/openomni`; core packages remain independently consumable primitives.
+`script/check-deps.ts` is the executable contract. Product meaning is composed in `apps/oni`; core packages remain independently consumable primitives.
 
 ## PACKAGE OWNERSHIP
 
@@ -103,11 +109,11 @@ ui <- apps/desktop
 | --- | --- | --- |
 | `packages/protocol` | Schemas, wire contracts, pure folds | I/O, storage, product decisions |
 | `packages/agent` | Generic durable-session mechanics over its store facts, stateless loop, and compaction; the generic policy gate (`src/core/gate/`); handle-scoped catalog/session-file stores, action hash chain, decision facts, and activation fence CAS (`src/core/store/`); the model-call port and retry decision (`src/core/llm.ts`, `src/core/retry.ts`); bus and scoped observation (`src/observation/`) | Product-specific session identity, routing, lifecycle policy, or authority decisions; provider adapters or the `ai` SDK (that is `packages/llm`'s) |
-| `packages/llm` | The model-call layer behind the core port: provider resolution and adapters over `ai@7.0.93`, one streaming attempt per `run`, stream-event processing, usage accounting, credential storage, the pure `classifyFailure` | Retry scheduling, attempt caps, fallback, compaction, or any `@openomni/agent` import |
+| `packages/llm` | The model-call layer behind the core port: provider resolution and adapters over `ai@7.0.93`, one streaming attempt per `run`, stream-event processing, usage accounting, credential storage, the pure `classifyFailure` | Retry scheduling, attempt caps, fallback, compaction, or any `@oni/agent` import |
 | `packages/machines` | Machine attachment, confined fs, exec and injected code wire; framing and bidirectional transport (`src/ipc/`); the structural host/daemon contracts code mode consumes | Enrollment policy, kernel policy, model rendering or product judgment |
 | `packages/codemode` | Code facade (`createCodemode`), machine object handles, per-tenant Python interpreter and cell `run/peek/stop` lifecycle, code-mode prelude, codemode errors and call routing | Kernel policy, ledger state, model rendering, machine transport or enrollment |
 | `packages/channels` | Drivers over the agent-messenger SDK transport (each SDK subpath imported only by its provider's seam file, `sdk.ts` for the bot and `owner-sdk.ts` for the Owner account, #1569) plus perimeter routing, physical request correlation, identity-keyed delivery (`<platform>:<identity>` routes) and admission; the channel-facing perimeter stores (`src/store/`) | Session content or product execution; the SDK's own credential store |
-| `apps/openomni` | Product composition: Resident, gateway, delegation, code mode, boot/shutdown | Reimplementation of package primitives |
+| `apps/oni` | Product composition: Resident, gateway, delegation, code mode, boot/shutdown | Reimplementation of package primitives |
 | `apps/desktop` | Electron shell: main/preload/renderer build pipeline, window security defaults, the gateway endpoint resolved from env in main and handed to the renderer over one `contextBridge` call; AI SDK chat state and the gateway transport; client state in one TanStack `Store` (`state/store.ts`: sessions, tabs with strictly local history, active id, retained closed snapshots, collapsed project groups, per-session drafts) read through `useStore` selectors, and server state through TanStack Query (`state/queries.ts` mints every key; the only query is the gateway endpoint — the wire has no session-list method yet); native Menu → value-only preload → one disposed App subscription; app-owned places/icons, kind-grouped Sessions list, prompt-title lifecycle, search invocation/reveal, attention ordering and App-lifetime Chat cache; no mock data of any kind. Desktop owns the unified SessionCard state, phase-to-glyph mapping, and pinned/demand/report/residue/watch/rest attention kinds. | Kernel logic; anything beyond protocol contracts; **transcript presentation — that is `packages/ui`'s** |
 | `packages/ui` | The renderer's UI package: tokens (`src/styles.css`), primitives, window chrome, the transcript's presentation (timeline, the three voices, tool rows and their folding, the composer, the approval tray), and the stable `Console` frame with generic `ConsoleContent`/`transcript` composition; `src/index.ts` exports only what apps/desktop imports, and `src/names.ts` is the single owner of every `data-ui` address. StatusGlyph owns generic tone/shape presentation and reference palette status tokens, never session phases. | Application places, project/session resolution, kernel logic or state policy. Touched Console contracts use generic transcript records; the lower-level Timeline sessionId adapter remains a legacy boundary |
 
@@ -124,16 +130,16 @@ ui <- apps/desktop
 | Messaging identity, reply door vs `send_message`, SDK transport (#1569) | `docs/conversation-and-message-io.md`, `packages/channels/src/provider/slack/sdk.ts` |
 | Raw machine endpoints | `packages/machines/src/` |
 | Code mode and injected interpreter | `packages/codemode/src/` |
-| Resident and app composition | `apps/openomni/src/bundles/resident/index.ts`, `apps/openomni/src/index.ts` |
-| App policy, messaging, and prompts | `apps/openomni/src/bundles/core-policy/`, `apps/openomni/src/bundles/messaging/`, `apps/openomni/src/bundles/prompt/` |
-| App alarms and provision operations | `apps/openomni/src/bundles/alarms/`, `apps/openomni/src/bundles/provision/` |
-| Production compaction strategy | `apps/openomni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/` |
-| Gateway and channel registration | `apps/openomni/src/gateway.ts`, `apps/openomni/src/channels.ts` |
-| Contacts and the one send_message tool (#1258; `cli:`/`webhook:`/`a2a:` contact kinds, the missing-budget consent hook, #1569) | `apps/openomni/src/bundles/messaging/send-message/`, `apps/openomni/src/composition/{webhook,a2a}-contacts.ts` |
-| First live run of messaging: declare a bot from the CLI, the readiness report, the runbook (#1600 lane R4) | `apps/openomni/src/cli/channel.ts`, `apps/openomni/src/cli/messaging.ts`, `docs/first-live-run.md` |
-| A2A door, Linear and Owner-only providers, the Person `reach` grant (#1569) | `packages/channels/src/provider/{a2a,linear,instagram,kakaotalk}/`, `A2A_DOOR_ID`/`a2aRoster` in `apps/openomni/src/channels.ts`, `grants` in `apps/openomni/src/index.ts` |
-| Delegation caps, deadline, and child replies (#1258) | `apps/openomni/src/bundles/delegation-policy/` |
-| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271; every tool is a removable bundle listed in `apps/openomni/src/manifest.ts`, #1561) | `apps/openomni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/openomni/src/bundles/provision/provision.ts` |
+| Resident and app composition | `apps/oni/src/bundles/resident/index.ts`, `apps/oni/src/index.ts` |
+| App policy, messaging, and prompts | `apps/oni/src/bundles/core-policy/`, `apps/oni/src/bundles/messaging/`, `apps/oni/src/bundles/prompt/` |
+| App alarms and provision operations | `apps/oni/src/bundles/alarms/`, `apps/oni/src/bundles/provision/` |
+| Production compaction strategy | `apps/oni/src/bundles/compaction/`, `packages/agent/src/plugins/compaction/` |
+| Gateway and channel registration | `apps/oni/src/gateway.ts`, `apps/oni/src/channels.ts` |
+| Contacts and the one send_message tool (#1258; `cli:`/`webhook:`/`a2a:` contact kinds, the missing-budget consent hook, #1569) | `apps/oni/src/bundles/messaging/send-message/`, `apps/oni/src/composition/{webhook,a2a}-contacts.ts` |
+| First live run of messaging: declare a bot from the CLI, the readiness report, the runbook (#1600 lane R4) | `apps/oni/src/cli/channel.ts`, `apps/oni/src/cli/messaging.ts`, `docs/first-live-run.md` |
+| A2A door, Linear and Owner-only providers, the Person `reach` grant (#1569) | `packages/channels/src/provider/{a2a,linear,instagram,kakaotalk}/`, `A2A_DOOR_ID`/`a2aRoster` in `apps/oni/src/channels.ts`, `grants` in `apps/oni/src/index.ts` |
+| Delegation caps, deadline, and child replies (#1258) | `apps/oni/src/bundles/delegation-policy/` |
+| Product tools and provisioning (no local fs/shell: every tool routes through the attached machine daemon, #1271; every tool is a removable bundle listed in `apps/oni/src/manifest.ts`, #1561) | `apps/oni/src/bundles/tools/<tool>/index.ts` (`file` bundle: `bundles/tools/file/`), `apps/oni/src/bundles/provision/provision.ts` |
 | Shipped-state truth | `docs/implementation-status.md` |
 | Conformance/ratchets | `script/`, `script/conformance/` |
 
@@ -185,7 +191,7 @@ bun run ci test --lane agent
 bun run ci test --lane scripts-contracts
 
 # Sole deployable app
-bun run --cwd apps/openomni dev
+bun run --cwd apps/oni dev
 
 # Desktop console (Electron)
 bun run --cwd apps/desktop dev
@@ -203,10 +209,10 @@ complete campaign receipt, including restoration and cleanup proof.
 
 ## NOTES
 
-- `apps/openomni` is the kernel composition root. `apps/desktop` owns Electron and AI SDK chat state and imports `packages/ui`; its dependency band permits `protocol` and `ui`, not kernel implementation packages. It speaks to the daemon over the gateway's WebSocket rather than importing it: main resolves `OPENOMNI_WS_URL`, else `ws://127.0.0.1:<OPENOMNI_WS_PORT or 3000>/ws`, and `OPENOMNI_WS_TOKEN`, with the port default and the `/ws` path copied as literals from `apps/openomni/src/config.ts` and `apps/openomni/src/index.ts` and the source named at each — the dependency the console must not take is the reason the copy exists.
-- The three Promise-side app modules (`composition/watch-sources.ts`, `composition/process-session.ts`, `provisioning/supervisor.ts`) form the app's declared Promise band (#1423): each head comment names the forcing API and the single Effect entry call; nothing else in `apps/openomni` may take a Promise or callback shape for session work.
-- `packages/channels` is the perimeter gateway; `apps/openomni` injects delivery and observation ports. Conversation windows, send leases, and engagement lifecycles were removed in issue #943; ordinary sends use grants, egress budgets, idempotency, and physical request correlation.
-- `packages/agent` coordinates generic session handles through `SessionHandleStore` and owns the durable facts in `src/core/store/`, while product-specific session identity, routing, and lifecycle policy remain in `apps/openomni`.
+- `apps/oni` is the kernel composition root. `apps/desktop` owns Electron and AI SDK chat state and imports `packages/ui`; its dependency band permits `protocol` and `ui`, not kernel implementation packages. It speaks to the daemon over the gateway's WebSocket rather than importing it: main resolves `ONI_WS_URL`, else `ws://127.0.0.1:<ONI_WS_PORT or 3000>/ws`, and `ONI_WS_TOKEN`, with the port default and the `/ws` path copied as literals from `apps/oni/src/config.ts` and `apps/oni/src/index.ts` and the source named at each — the dependency the console must not take is the reason the copy exists.
+- The three Promise-side app modules (`composition/watch-sources.ts`, `composition/process-session.ts`, `provisioning/supervisor.ts`) form the app's declared Promise band (#1423): each head comment names the forcing API and the single Effect entry call; nothing else in `apps/oni` may take a Promise or callback shape for session work.
+- `packages/channels` is the perimeter gateway; `apps/oni` injects delivery and observation ports. Conversation windows, send leases, and engagement lifecycles were removed in issue #943; ordinary sends use grants, egress budgets, idempotency, and physical request correlation.
+- `packages/agent` coordinates generic session handles through `SessionHandleStore` and owns the durable facts in `src/core/store/`, while product-specific session identity, routing, and lifecycle policy remain in `apps/oni`.
 - Shipped-state claims, including Stakes, effective authority, and connector consumers, belong only in `docs/implementation-status.md`; other docs define target contracts or historical context and defer to it.
 - CI lives in `.github/workflows/ci.yml`; its Ultracite check is `bunx ultracite check --formatter-enabled=false .` (formatting disabled). Full formatting checks use `bunx ultracite check .`; the pinned baseline has existing formatter failures, recorded in `docs/SLOP.md`.
 - #945 is a campaign ratchet, not a zero-quality closure claim. Named publisher/export/store measurements and type, complexity, clone, coverage, and scheduled mutation gates are separate from final zero at #973. E4 is required, not parked; #950 alone parks sandbox/egress hardening outside #930.

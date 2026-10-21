@@ -1,6 +1,6 @@
 import { generationSnapshot } from "../core/store/configure";
 import { Effect, Scope } from "effect";
-import type { LedgerSession, SessionGeneration } from "@openomni/protocol";
+import type { LedgerSession, SessionGeneration } from "@oni/protocol";
 import { AgentFailure, AgentInvariantViolation, type SessionError } from "../core/ports/failure";
 import { BOUNDED_CONCURRENCY, type SessionEntryServices } from "../core/ports/ports";
 

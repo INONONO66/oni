@@ -3,7 +3,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../../helpers/effect";
 import { effectFailure } from "../../helpers/effect-failure";
 import { Effect } from "effect";
-import { Channel, type Gateway, Ingress, MessagingEvents, Outbound } from "@openomni/protocol";
+import { Channel, type Gateway, Ingress, MessagingEvents, Outbound } from "@oni/protocol";
 import type { ChannelDeliveryRoute } from "../../../src/router";
 import { admitReply } from "../../../src/router/messaging/admission";
 import { SendAdmissionConflict } from "../../../src/errors";

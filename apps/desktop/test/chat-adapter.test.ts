@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { uiMessagesToTranscript } from "../src/renderer/chat/adapter";
-import type { OpenOmniUIMessage } from "../src/renderer/chat/message";
+import type { OniUIMessage } from "../src/renderer/chat/message";
 
 /**
  * The adapter is the ONE place the AI SDK's message shape meets the design
  * system's transcript shape, and it is the only place either vocabulary is
- * allowed to know the other exists. `@openomni/ui` never imports `ai`; the SDK
+ * allowed to know the other exists. `@oni/ui` never imports `ai`; the SDK
  * never learns what a `TranscriptTool` is.
  *
  * What is asserted here is therefore a translation contract rather than a
@@ -15,7 +15,7 @@ import type { OpenOmniUIMessage } from "../src/renderer/chat/message";
  * response the SDK expects back carries the approval's id.
  */
 
-const user = (id: string, text: string): OpenOmniUIMessage => ({
+const user = (id: string, text: string): OniUIMessage => ({
   id,
   role: "user",
   parts: [{ type: "text", text }],

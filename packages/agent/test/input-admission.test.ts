@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Delivery, Journal } from "@openomni/protocol";
+import { Delivery, Journal } from "@oni/protocol";
 import { kernelOwnedRow } from "./helpers/request-fixtures";
 import { deliveryActions, inputRowKind, receivedMessageAction } from "../src/core/journal/delivery";
 import { decideSessionAdmission } from "../src/core/session/admission";

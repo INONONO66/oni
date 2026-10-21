@@ -3,8 +3,8 @@
  * Protocol owns key validation. Missing storage fails closed; mapping does not authorize routing.
  */
 
-import { Channel, type Storage as ProtocolStorage } from "@openomni/protocol";
-import { requireSubAdapter } from "@openomni/agent";
+import { Channel, type Storage as ProtocolStorage } from "@oni/protocol";
+import { requireSubAdapter } from "@oni/agent";
 
 export function createSurfaceKeyStore(source: {
   readonly surfaceKey?: ProtocolStorage.SurfaceKeySubAdapter;

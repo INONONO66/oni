@@ -252,14 +252,14 @@ describe("proxy-models", () => {
 
   describe("Provider.resolveModel proxy discovery", () => {
     it("resolves a model advertised only by the configured proxy", async () => {
-      const directory = mkdtempSync(join(tmpdir(), "openomni-proxy-registry-"));
+      const directory = mkdtempSync(join(tmpdir(), "oni-proxy-registry-"));
       const authFilePath = join(directory, "auth.json");
-      const previousModelsPath = process.env.OPENOMNI_MODELS_PATH;
-      const previousModelsUrl = process.env.OPENOMNI_MODELS_URL;
-      const previousDisableFetch = process.env.OPENOMNI_DISABLE_MODELS_FETCH;
-      process.env.OPENOMNI_MODELS_PATH = join(directory, "models.json");
-      process.env.OPENOMNI_MODELS_URL = "https://models.dev";
-      delete process.env.OPENOMNI_DISABLE_MODELS_FETCH;
+      const previousModelsPath = process.env.ONI_MODELS_PATH;
+      const previousModelsUrl = process.env.ONI_MODELS_URL;
+      const previousDisableFetch = process.env.ONI_DISABLE_MODELS_FETCH;
+      process.env.ONI_MODELS_PATH = join(directory, "models.json");
+      process.env.ONI_MODELS_URL = "https://models.dev";
+      delete process.env.ONI_DISABLE_MODELS_FETCH;
       stubFetch((input) => {
         const url = String(input);
         if (url === "https://models.dev/api.json") {
@@ -297,12 +297,12 @@ describe("proxy-models", () => {
 
         expect(model).toMatchObject({ id: "proxy-only-model", providerID: "openai" });
       } finally {
-        if (previousModelsPath === undefined) delete process.env.OPENOMNI_MODELS_PATH;
-        else process.env.OPENOMNI_MODELS_PATH = previousModelsPath;
-        if (previousModelsUrl === undefined) delete process.env.OPENOMNI_MODELS_URL;
-        else process.env.OPENOMNI_MODELS_URL = previousModelsUrl;
-        if (previousDisableFetch === undefined) delete process.env.OPENOMNI_DISABLE_MODELS_FETCH;
-        else process.env.OPENOMNI_DISABLE_MODELS_FETCH = previousDisableFetch;
+        if (previousModelsPath === undefined) delete process.env.ONI_MODELS_PATH;
+        else process.env.ONI_MODELS_PATH = previousModelsPath;
+        if (previousModelsUrl === undefined) delete process.env.ONI_MODELS_URL;
+        else process.env.ONI_MODELS_URL = previousModelsUrl;
+        if (previousDisableFetch === undefined) delete process.env.ONI_DISABLE_MODELS_FETCH;
+        else process.env.ONI_DISABLE_MODELS_FETCH = previousDisableFetch;
         rmSync(directory, { recursive: true, force: true });
       }
     });

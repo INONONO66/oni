@@ -1,4 +1,4 @@
-import { Actor, PlainValueSchema } from "@openomni/protocol";
+import { Actor, PlainValueSchema } from "@oni/protocol";
 import { z } from "zod";
 
 // Actor metadata crosses a JSON persistence boundary; arbitrary JS values cannot round-trip.

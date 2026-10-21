@@ -1,4 +1,4 @@
-import type { StatusGlyph } from "@openomni/ui";
+import type { StatusGlyph } from "@oni/ui";
 import type { ComponentProps } from "react";
 import type { SessionPhase } from "../state/store";
 

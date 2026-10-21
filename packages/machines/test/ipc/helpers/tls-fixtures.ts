@@ -1,7 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import fs from "node:fs";
 import { certificateKeyFingerprint } from "../../../src";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 
 function fixture(name: string): string {
   return fs.readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8");

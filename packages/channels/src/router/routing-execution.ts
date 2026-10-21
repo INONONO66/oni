@@ -5,7 +5,7 @@ import {
   type SessionTransition,
   type Gateway,
   type RouteNotDelivered,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { ChannelStores } from "./stores.js";
 import { targetsOfRequest, responderCandidates, ingressEvidence } from "./request/matcher.js";
 import type { GatewayRouterPorts } from "./message-ports.js";

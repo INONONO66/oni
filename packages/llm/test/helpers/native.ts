@@ -37,5 +37,5 @@ type NativeInput = Parameters<typeof nativeRun>[0];
 export type TestRunInput = Omit<NativeInput, "now" | "id" | "authFilePath"> & Partial<Pick<NativeInput, "now" | "id" | "authFilePath">>;
 export function run(input: TestRunInput, sink: Parameters<typeof nativeRun>[1], dependencies: { createStream?: Processor.ProcessorOptions["createStream"] } = {}) {
   const createStream = dependencies.createStream;
-  return runEffect(nativeRun({ now: fixedNow, id: sequentialIds(), authFilePath: "/nonexistent/openomni-llm-test/auth.json", ...input }, sink, createStream ? { createStream: (request) => Effect.tryPromise({ try: () => createStream(request), catch: decodeLlmFailure("test.provider") }) } : {}));
+  return runEffect(nativeRun({ now: fixedNow, id: sequentialIds(), authFilePath: "/nonexistent/oni-llm-test/auth.json", ...input }, sink, createStream ? { createStream: (request) => Effect.tryPromise({ try: () => createStream(request), catch: decodeLlmFailure("test.provider") }) } : {}));
 }

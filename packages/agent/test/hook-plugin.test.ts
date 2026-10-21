@@ -10,7 +10,7 @@ import {
   type HookLateResult,
   type HookOutcome,
 } from "../src/plugins/hook";
-import { canonicalDigest, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, type PlainValue } from "@oni/protocol";
 import {
   expectPoisoned,
   forkStarted,

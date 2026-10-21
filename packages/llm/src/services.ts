@@ -1,4 +1,4 @@
-import type { Model } from "@openomni/protocol";
+import type { Model } from "@oni/protocol";
 import type { Effect } from "effect";
 import { classifyFailure } from "./classify";
 import type { LlmError } from "./errors";

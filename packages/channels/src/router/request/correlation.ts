@@ -1,4 +1,4 @@
-import type { SessionTransition } from "@openomni/protocol";
+import type { SessionTransition } from "@oni/protocol";
 
 interface Candidate {
   readonly key: `request:${string}`;

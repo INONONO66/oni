@@ -1,8 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { env } from "node:process";
 import { createInterface, type Interface } from "node:readline";
-import { parseJson, Machine } from "@openomni/protocol";
-import { onAbort, type MachineError } from "@openomni/machines";
+import { parseJson, Machine } from "@oni/protocol";
+import { onAbort, type MachineError } from "@oni/machines";
 import { Cause, Deferred, Effect, Exit, Queue, type Scope, Semaphore } from "effect";
 import { CodemodeError, DriverFailure, type CodeError } from "./errors";
 import { decodeCodeFailure } from "./failure";
@@ -27,7 +27,7 @@ import threading
 import time
 import traceback
 
-_OUTPUT_LIMIT = int(os.environ["OPENOMNI_CELL_OUTPUT_MAX_BYTES"])
+_OUTPUT_LIMIT = int(os.environ["ONI_CELL_OUTPUT_MAX_BYTES"])
 _BROWSER_TRANSCRIPT_LIMIT = 65_536
 _emit_lock = threading.Lock()
 _cell_context = threading.local()
@@ -371,7 +371,7 @@ def machine(id=None, *, tag=None, prefer="spread", requires=None):
 
 # --- Browser recipe (#1275): Playwright over CDP; Chromium lives in a pty.session. ---
 BROWSER_DEFAULT_CDP_PORT = 9222
-_BROWSER_MARK = "[openomni-browser]"
+_BROWSER_MARK = "[oni-browser]"
 _BROWSER_INSTALL_HINT = "python -m playwright install chromium"
 _BROWSER_DEVTOOLS_LINE = "DevTools listening on ws://"
 _browser_clients = {}
@@ -436,7 +436,7 @@ class BrowserClient:
         self.profile_dir = profile_dir
         self.headless = headless
         self.session = (
-            "openomni-browser-" + hashlib.sha256(profile_dir.encode("utf-8")).hexdigest()[:12]
+            "oni-browser-" + hashlib.sha256(profile_dir.encode("utf-8")).hexdigest()[:12]
         )
         self.port = None
         self.endpoint = None
@@ -733,7 +733,7 @@ def browser(machine_id, *, headless=True, profile_dir=None, executable_path=None
     profile = (
         profile_dir
         if profile_dir is not None
-        else os.path.join(os.getcwd(), ".openomni", "browser-profile")
+        else os.path.join(os.getcwd(), ".oni", "browser-profile")
     )
     key = (machine_id, profile)
     client = _browser_clients.get(key)
@@ -1090,7 +1090,7 @@ export class PythonKernel {
       const exited = yield* Deferred.make<void>();
       const cleanup = yield* Deferred.make<CleanupCompleteFrame["failed"]>();
       const process = yield* Effect.try({ try: () => spawn("python3", ["-u", "-c", PYTHON_DRIVER], {
-        env: { ...env, OPENOMNI_CELL_OUTPUT_MAX_BYTES: String(Machine.CELL_OUTPUT_MAX_BYTES) },
+        env: { ...env, ONI_CELL_OUTPUT_MAX_BYTES: String(Machine.CELL_OUTPUT_MAX_BYTES) },
       }), catch: decodeCodeFailure("driver.spawn") });
       this.onSpawn?.(process);
       this.exits.add(exited);

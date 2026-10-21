@@ -26,7 +26,7 @@ import { AdmissionFailure, AlarmOccurrence, type AlarmRpc, type DeliverRpc, type
 import type { SessionEntityPorts } from "../../src/core/session/run";
 import { clusterTempDir, makeTurnPort, resolvedRunner } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
-import type { Delivery } from "@openomni/protocol";
+import type { Delivery } from "@oni/protocol";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 import { fencedSession } from "../helpers/seeded-session";
 

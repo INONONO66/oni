@@ -23,7 +23,7 @@ describe("Provisioning.Person", () => {
     trustTier: "owner",
     endpoints: [{ channel: "telegram", externalId: "12345", workspace: "T123" }],
     revision: 0,
-    createdBy: "openomni-init",
+    createdBy: "oni-init",
     updatedAt: NOW,
   };
 

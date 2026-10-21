@@ -11,7 +11,7 @@ body:
           required: true
         - label: I'm using the latest version of the affected package
           required: true
-        - label: This is a bug, not a usage question (use [Discussions](https://github.com/INONONO66/openomni/discussions) for questions)
+        - label: This is a bug, not a usage question (use [Discussions](https://github.com/INONONO66/oni/discussions) for questions)
           required: true
 
   - type: textarea
@@ -32,7 +32,7 @@ body:
         Issues without reproduction steps may be closed without investigation.
       placeholder: |
         ```ts
-        import { Storage } from "@openomni/agent";
+        import { Storage } from "@oni/agent";
         Storage.get(); // Expected: returns adapter, Actual: throws
         ```
 
@@ -70,7 +70,7 @@ body:
         - session
         - llm
         - agent
-        - openomni
+        - oni
         - coordinator
         - server
         - Not sure

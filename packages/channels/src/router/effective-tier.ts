@@ -1,4 +1,4 @@
-import type { Actor } from "@openomni/protocol";
+import type { Actor } from "@oni/protocol";
 
 export function effectiveTrustTier(
   actorTier: Actor.TrustTier | undefined,

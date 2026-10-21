@@ -2,12 +2,12 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost } from "../../../machines/test/helpers/native";
 import { createCodemode } from "./helpers/native";
 
 const root = mkdtempSync(join(tmpdir(), "oc-job-"));
-const tmuxSocket = `openomni-job-test-${process.pid}`;
+const tmuxSocket = `oni-job-test-${process.pid}`;
 const capabilities = [Machine.WellKnownCapability.pythonKernel, Machine.WellKnownCapability.ptySession];
 afterAll(() => {
   Bun.spawnSync(["tmux", "-L", tmuxSocket, "kill-server"]);

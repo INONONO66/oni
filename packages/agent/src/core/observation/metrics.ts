@@ -1,4 +1,4 @@
-import type { LedgerAction, PlainValue } from "@openomni/protocol";
+import type { LedgerAction, PlainValue } from "@oni/protocol";
 
 export interface AttemptUsage {
   readonly attemptId: string;

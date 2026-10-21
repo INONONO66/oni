@@ -1,4 +1,4 @@
-import { BusEvent, type ObservationSink, Gateway, type Delivery, type SessionTurn } from "@openomni/protocol";
+import { BusEvent, type ObservationSink, Gateway, type Delivery, type SessionTurn } from "@oni/protocol";
 import { Data, Effect, FiberSet, Layer, PubSub, type Scope, Stream } from "effect";
 import { z } from "zod";
 import { ObservationSink as ObservationSinkTag } from "../ports/ports";

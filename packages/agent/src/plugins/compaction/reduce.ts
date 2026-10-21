@@ -1,4 +1,4 @@
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 
 import type { ToolOutputElision } from "../../core/api";
 

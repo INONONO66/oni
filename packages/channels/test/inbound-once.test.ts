@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Channel } from "@openomni/protocol";
+import type { Channel } from "@oni/protocol";
 import { inboundOnce } from "../src/support/inbound-once";
 
 function message(eventId: string, receivedBy: "bot" | "owner", channelId = "C1"): Channel.InboundMessage {

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@openomni/codemode": ["./src/index.ts"]
+      "@oni/codemode": ["./src/index.ts"]
     }
   },
   "include": ["src", "test"],

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toolResultText, type Message } from "@openomni/protocol";
+import { toolResultText, type Message } from "@oni/protocol";
 import { stringifyToolOutput, toModelMessages } from "../../src/message";
 import type { Provider } from "../../src/provider";
 

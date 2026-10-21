@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import type * as SessionHandleStore from "../../../src/core/store/fence";
 import type { LedgerError } from "../../../src/core/store/errors";
-import type { LedgerSession } from "@openomni/protocol";
+import type { LedgerSession } from "@oni/protocol";
 import { runLedgerSync } from "./effect";
 
 /** A real configured L0 session row on the given kernel; no legacy JSON writer. */

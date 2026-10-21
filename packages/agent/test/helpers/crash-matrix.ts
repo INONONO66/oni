@@ -16,7 +16,7 @@ import { Effect } from "effect";
 import { appendFileSync, writeSync } from "node:fs";
 
 import type { LedgerError } from "../../src/core/store/errors";
-import { LedgerAction, Message, PlainObjectSchema, PlainValueSchema, type PlainValue, } from "@openomni/protocol";
+import { LedgerAction, Message, PlainObjectSchema, PlainValueSchema, type PlainValue, } from "@oni/protocol";
 import { z } from "zod";
 import type { ExecutionLedger } from "../../src/core/loop/executor";
 import { createLedgerRetryAlarmPort } from "../../src/core/loop/executor";
@@ -305,7 +305,7 @@ function hibernateCut(point: CrashPoint, bodies: string[]) {
       point === "delivery_ack_committed_before_owner_cleanup" &&
       bodies.includes("accepted") &&
       isolatedLedger().kernel.outboundRows(sessionId).some(
-        (item: import("@openomni/protocol").SessionTransition.Outbound) => item.state === "delivered",
+        (item: import("@oni/protocol").SessionTransition.Outbound) => item.state === "delivered",
       )
     )
       stop(point, bodies);

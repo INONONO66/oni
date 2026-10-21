@@ -1,6 +1,6 @@
 import { generationSnapshot } from "../../../src/core/store/configure";
 import { beforeEach, expect, test } from "bun:test";
-import type { LedgerAction, PlainValue, SessionTransition } from "@openomni/protocol";
+import type { LedgerAction, PlainValue, SessionTransition } from "@oni/protocol";
 
 import { materializeSession } from "../helpers/session";
 import { useMemoryStores } from "../helpers/storage";

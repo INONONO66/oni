@@ -3,7 +3,7 @@ import { advanceGroups, type MatchDecision } from "../../automation/matcher.js";
 import type { StoredGroup } from "../../store/automation/group.js";
 import type { ChannelStores } from "../stores.js";
 import { type ChannelError, decodeChannelFailure } from "../../errors.js";
-import { Ingress, type BusEvent, type Gateway } from "@openomni/protocol";
+import { Ingress, type BusEvent, type Gateway } from "@oni/protocol";
 
 function closeRows(group: StoredGroup, decision: MatchDecision, result: Gateway.IngestResult | undefined) {
   return decision.rows.map((row): Ingress.RoutingDecisionPayload => {

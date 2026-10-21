@@ -12,7 +12,7 @@ import { fixedNow } from "../helpers/fixtures";
 import { runEffect } from "../helpers/native";
 import { captureRequest } from "../helpers/provider-fetch";
 
-const AUTH_FILE = "/nonexistent/openomni-test/auth.json";
+const AUTH_FILE = "/nonexistent/oni-test/auth.json";
 usePrivateCatalog();
 
 let directory: string;
@@ -79,7 +79,7 @@ describe("provider rows file", () => {
 
   test("an unreadable path refuses typed; an unset path is no configured rows", () => {
     const path = join(directory, "missing.json");
-    expect(() => resolveProviderRows({ OPENOMNI_PROVIDERS_PATH: path })).toThrow(
+    expect(() => resolveProviderRows({ ONI_PROVIDERS_PATH: path })).toThrow(
       expect.objectContaining({ _tag: "ProviderRowsError", reason: "unreadable" }),
     );
     expect(resolveProviderRows({})).toEqual([]);

@@ -1,6 +1,6 @@
 import { testExecutor } from "../../helpers/executor";
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { isolated } from "../../helpers/isolated";
 import { expect, test } from "bun:test";
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";

@@ -3,7 +3,7 @@ import { LedgerInvariant } from "../errors";
 import { thrownAsError } from "../../ports/failure";
 import { parsePlainJson } from "./sqlite-l0-rows";
 import type { Database } from "bun:sqlite";
-import { Gateway, Delivery, type LedgerAction, PlainValueSchema, SessionTransition, L0Observation, type ObservationSink, } from "@openomni/protocol";
+import { Gateway, Delivery, type LedgerAction, PlainValueSchema, SessionTransition, L0Observation, type ObservationSink, } from "@oni/protocol";
 
 export interface ObservationPublishFailure {
   readonly actionId: string;

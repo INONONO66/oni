@@ -5,7 +5,7 @@ import {
   Gateway,
   MessagingEvents,
   type Outbound,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { type ChannelError, decodeChannelFailure, SendAdmissionConflict } from "../../errors";
 import type { KernelDeliveryReceipt } from "../../support/deliver";
 import type { ChannelStores } from "../stores.js";

@@ -1,4 +1,4 @@
-import { type Channel, Gateway } from "@openomni/protocol";
+import { type Channel, Gateway } from "@oni/protocol";
 import type { InboundNormalizer } from "../../types";
 import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
 

@@ -2,7 +2,7 @@ import { configureAction } from "../src/core/store/configure";
 import { expect, test } from "bun:test";
 import { Context } from "effect";
 import { z } from "zod";
-import { Journal, type PlainValue } from "@openomni/protocol";
+import { Journal, type PlainValue } from "@oni/protocol";
 
 import {
   Capability,
@@ -15,9 +15,9 @@ import { compose } from "../src/core/composition/compose";
 import { CompactionPort } from "../src/core/api";
 import { compactionCapability } from "../src/bundle";
 
-class SeamA extends Context.Service<SeamA, object>()("@openomni/agent/test/off/A") {}
-class SeamB extends Context.Service<SeamB, object>()("@openomni/agent/test/off/B") {}
-class SeamM extends Context.Service<SeamM, object>()("@openomni/agent/test/off/M") {}
+class SeamA extends Context.Service<SeamA, object>()("@oni/agent/test/off/A") {}
+class SeamB extends Context.Service<SeamB, object>()("@oni/agent/test/off/B") {}
+class SeamM extends Context.Service<SeamM, object>()("@oni/agent/test/off/M") {}
 
 const kind = {
   schema: z.object({}),

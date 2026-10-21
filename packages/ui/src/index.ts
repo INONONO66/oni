@@ -1,4 +1,4 @@
-/* @openomni/ui — the UI package apps/desktop consumes. Tokens live in
+/* @oni/ui — the UI package apps/desktop consumes. Tokens live in
    ./styles.css. The barrel exports exactly what the renderer imports — the one
    `Console` composition, the sidebar column's rows the app composes into its
    slot, the width contract the app's store clamps against, and the transcript

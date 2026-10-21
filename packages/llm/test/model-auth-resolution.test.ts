@@ -8,7 +8,7 @@ import { fixedNow } from "./helpers/fixtures";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const authFilePath = join(tmpdir(), "openomni-model-auth-resolution-absent", "auth.json");
+const authFilePath = join(tmpdir(), "oni-model-auth-resolution-absent", "auth.json");
 
 const catalog = {
   anthropic: {

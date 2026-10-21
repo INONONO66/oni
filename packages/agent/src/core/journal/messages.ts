@@ -26,7 +26,7 @@ export class SessionPolicyRefusal {
 
 /** A closed code set; a rejection appends nothing: zero journal facts ride a refused delivery. */
 export class DeliverRefused extends Schema.TaggedError<DeliverRefused>(
-  "@openomni/agent/cluster/DeliverRefused",
+  "@oni/agent/cluster/DeliverRefused",
 )("DeliverRefused", {
   code: Schema.Literals([
     "unknown_kind",
@@ -41,7 +41,7 @@ export class DeliverRefused extends Schema.TaggedError<DeliverRefused>(
 
 /** Refused before the request authority runs, so a stale response appends no journal fact. */
 export class ResolveRefused extends Schema.TaggedError<ResolveRefused>(
-  "@openomni/agent/cluster/ResolveRefused",
+  "@oni/agent/cluster/ResolveRefused",
 )("ResolveRefused", {
   code: Schema.Literals(["unknown_request", "already_resolved", "malformed_body"]),
 }) {}
@@ -95,7 +95,7 @@ export const DeadlineAlarmBody = Schema.Struct({ requestId: Schema.String });
  * delivers it again instead of folding it into the settled original.
  */
 export class AlarmOccurrence extends Schema.Class<AlarmOccurrence>(
-  "@openomni/agent/cluster/AlarmOccurrence",
+  "@oni/agent/cluster/AlarmOccurrence",
 )({
   occurrenceId: Schema.String,
   purpose: Schema.String,

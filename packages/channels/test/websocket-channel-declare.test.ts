@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { Provisioning } from "@openomni/protocol";
+import type { Provisioning } from "@oni/protocol";
 import { Effect } from "effect";
 import { WebSocketHandler } from "../src/websocket";
 import type { PublishPort } from "../src/types";

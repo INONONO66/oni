@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { FIXED_NOW, injectedOptions, sequentialIds } from "./helpers/injected";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 import { TelegramAdapter } from "../src/provider/telegram/surface";

@@ -1,7 +1,7 @@
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { Effect } from "effect";
 import { z } from "zod";
 import type { CommandResult, CommandRunner } from "./commands";

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Alarm } from "@openomni/protocol";
+import type { Alarm } from "@oni/protocol";
 import type { AlarmFired, AlarmWakeContext, ArmRefused, ArmVerb } from "../../src/core/api";
 import {
   alarmCapability,

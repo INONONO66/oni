@@ -4,7 +4,7 @@ import type { ResolvedExecutorOptions } from "../src/core/loop/executor";
 import { executorLayer, catalogLayer } from "./helpers/service-layers";
 import { expect, it } from "bun:test";
 
-import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { Cause, Deferred, Effect, Fiber } from "effect";
 import { assertFresh } from "../src/core/loop/approval";
 import { ExecutionApprovalError, AgentFailure } from "../src/core/ports/failure";

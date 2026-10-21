@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { Journal, type BusEvent } from "@openomni/protocol";
+import { Journal, type BusEvent } from "@oni/protocol";
 import { runLedgerSync } from "./store/helpers/effect";
 import { adoptWriter, materializeSession } from "./store/helpers/session";
 import { type LedgerStores, withDiskStores } from "./store/helpers/storage";

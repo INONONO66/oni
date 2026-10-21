@@ -10,7 +10,7 @@ import {
   type PlainObject,
   type Tool,
   toolResultText,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { Sink } from "../sink";
 import type { Provider } from "../provider";
 import { estimateUsage as defaultEstimateUsage, type EstimateUsage } from "../token";

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { prepareChatFixture, type ChatFixture } from "./chat-services";
-import type { TraceContext } from "@openomni/protocol";
+import type { TraceContext } from "@oni/protocol";
 import { createSessionChatRunner } from "../../src/core/session/run";
 import { session } from "../../src/testing/registry";
 import { fixtureConfigHead, fixtureTraceContext } from "./chat-services";

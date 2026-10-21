@@ -5,7 +5,7 @@ import { isolated } from "../helpers/isolated";
 import { createTestAgent, runUserMessage, failure } from "../helpers/effect-g2";
 import { describe, expect, it } from "bun:test";
 import type { RunInput, LlmSink as Sink } from "../../src/core/ports/llm";
-import type { Model } from "@openomni/protocol";
+import type { Model } from "@oni/protocol";
 import { RunEvents } from "../../src/core/loop/turn";
 import type { RunnerServices } from "../../src/core/ports/ports";
 import { createAssistantMessage } from "../../src/core/journal/message-factory";

@@ -3,7 +3,7 @@ import fs, { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import { attachMachineDaemon as nativeDaemon } from "../src/daemon";
 import { createMachineHost as nativeHost } from "../src/host";
 import { PTY_OPEN_SIZE } from "../src/pty";

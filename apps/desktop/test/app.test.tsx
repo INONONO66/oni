@@ -91,7 +91,7 @@ describe("one session", () => {
     const html = shell({ url: "ws://127.0.0.1:3000/ws", token: "has a space" });
     const footer = html.slice(html.indexOf('data-ui="Sidebar.Footer"'));
 
-    expect(footer).toContain("OPENOMNI_WS_TOKEN cannot be offered as a WebSocket subprotocol");
+    expect(footer).toContain("ONI_WS_TOKEN cannot be offered as a WebSocket subprotocol");
     expect(footer).toContain('data-tone="destructive"');
     expect(footer).not.toContain("Configured:");
   });

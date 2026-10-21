@@ -11,7 +11,7 @@ import type {
   Policy,
   Token,
   Tool,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { RunInput } from "./llm";
 import type { CompactionOptions, CompactionPortService } from "./compaction-ports";
 import type { Executor } from "../loop/executor";
@@ -102,9 +102,9 @@ export interface ObservedChatAgentConfig extends Omit<ChatAgentConfig, "budget" 
 }
 
 export interface ChatAgentInput {
-  readonly history?: readonly import("@openomni/protocol").Message.WithParts[];
+  readonly history?: readonly import("@oni/protocol").Message.WithParts[];
   /** The open turn's checkpointed budget counters; absent or null starts the run from zero. */
-  readonly budgetState?: import("@openomni/protocol").FoldCheckpoint.BudgetState | null;
+  readonly budgetState?: import("@oni/protocol").FoldCheckpoint.BudgetState | null;
   /**
    * Hydrated history. `partMetadata`, when present, rides onto the rebuilt text
    * part verbatim: an anchor that loses its metadata across resume breaks the
@@ -126,7 +126,7 @@ export interface ChatAgentInput {
         time?: number;
       }
   >;
-  traceContext?: import("@openomni/protocol").TraceContext.Type;
+  traceContext?: import("@oni/protocol").TraceContext.Type;
 }
 
 export interface AgentStep {

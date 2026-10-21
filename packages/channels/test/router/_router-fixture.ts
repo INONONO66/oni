@@ -5,8 +5,8 @@ import { channelRequests } from "../helpers/channel-requests";
 import { channelTransaction } from "../helpers/channel-transaction";
 import { originalAction, requestPort } from "../helpers/requests";
 import { messageExecutionReceipt } from "../helpers/message-execution";
-import { Channel, Ingress, Gateway, type Delivery } from "@openomni/protocol";
-import { Core } from "@openomni/agent";
+import { Channel, Ingress, Gateway, type Delivery } from "@oni/protocol";
+import { Core } from "@oni/agent";
 import { z } from "zod";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 const compilePolicySnapshot = Core.compilePolicySnapshot;
@@ -248,7 +248,7 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
         }
       }),
     ),
-    sink: <T>(event: import("@openomni/protocol").BusEvent.Descriptor<T>, data: T) => {
+    sink: <T>(event: import("@oni/protocol").BusEvent.Descriptor<T>, data: T) => {
       if (event.name === Ingress.Events.RoutingDecision.name) {
         decisions.push(Ingress.Events.RoutingDecision.schema.parse(data));
       }

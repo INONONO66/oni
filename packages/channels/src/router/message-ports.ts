@@ -1,9 +1,9 @@
 import type { Effect } from "effect";
 import type { ChannelError } from "../errors";
-import type { PolicyEvaluationInput } from "@openomni/agent";
+import type { PolicyEvaluationInput } from "@oni/agent";
 import type {
   BusEvent, Gateway, Ingress, Delivery, LedgerAction, Outbound, PlainValue, SessionTransition,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import type { KernelDeliveryReceipt } from "../support/deliver";
 import type { ConversationBinding } from "./messaging/reply";
 

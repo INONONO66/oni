@@ -5,7 +5,7 @@ import { channelTransaction } from "../helpers/channel-transaction";
 import { effectFailure } from "../helpers/effect-failure";
 import { runEffect } from "../helpers/effect";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Gateway, type Delivery } from "@openomni/protocol";
+import { Gateway, type Delivery } from "@oni/protocol";
 import { z } from "zod";
 import { createGatewayRouter, type GatewayRouterPorts } from "../../src/router";
 import { resetStores } from "./_router-fixture";

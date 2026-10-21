@@ -1,6 +1,6 @@
 import { generationSnapshot, materializationSeed, type MaterializeInput } from "../store/configure";
 import { Effect } from "effect";
-import type { LedgerAction, LedgerSession } from "@openomni/protocol";
+import type { LedgerAction, LedgerSession } from "@oni/protocol";
 import type { LedgerPlane } from "./host";
 import { thrownAsError } from "../ports/failure";
 import { CreateRefused, type LedgerError } from "../store/errors";

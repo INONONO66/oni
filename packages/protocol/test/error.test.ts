@@ -96,7 +96,7 @@ describe("NamedError.create", () => {
   });
 
   test("isInstance recognizes instances from an independent copy of the class", () => {
-    // bun resolves each workspace symlink to @openomni/protocol separately,
+    // bun resolves each workspace symlink to @oni/protocol separately,
     // so one process can hold two copies of the same generated class; the
     // guard must match across copies. A second create() with the same name
     // reproduces that dual-load shape.
@@ -128,7 +128,7 @@ test("emits a concrete cross-package guard type", () => {
   mkdirSync(fixtureDirectory, { recursive: true });
   writeFileSync(
     fixture,
-    `import { NamedError } from "@openomni/protocol";
+    `import { NamedError } from "@oni/protocol";
 import { z } from "zod";
 const ConcreteError = NamedError.create("ConcreteError", z.object({ message: z.string(), detail: z.number() }));
 class DerivedError extends ConcreteError {
@@ -160,7 +160,7 @@ if (DerivedError.isInstance(error)) {
       skipLibCheck: true,
       baseUrl: fixtureDirectory,
       paths: {
-        "@openomni/protocol": [join(packageRoot, "dist", "index.d.ts")],
+        "@oni/protocol": [join(packageRoot, "dist", "index.d.ts")],
         zod: [join(packageRoot, "node_modules", "zod", "index.d.ts")],
       },
     });

@@ -7,7 +7,7 @@ import {
 } from "./helpers/session-services";
 import { expect, spyOn, test } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
-import { PlainObjectSchema, type LedgerAction, type LedgerSession } from "@openomni/protocol";
+import { PlainObjectSchema, type LedgerAction, type LedgerSession } from "@oni/protocol";
 import type { SessionHandle, SessionRunnerInput } from "../src/core/session/run";
 import { session } from "../src/testing/registry";
 import { isolated, isolatedLedger } from "./helpers/isolated";

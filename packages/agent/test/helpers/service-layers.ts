@@ -1,5 +1,5 @@
 import { generationSnapshot } from "../../src/core/store/configure";
-import type { AnyToolDefinition, Tool } from "@openomni/protocol";
+import type { AnyToolDefinition, Tool } from "@oni/protocol";
 import { Clock, Context, Effect, Layer } from "effect";
 import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
 import { Entropy, ObservationSink, SessionLayer, ToolCatalog } from "../../src/core/ports/ports";
@@ -56,7 +56,7 @@ export function observationService(sink: ResolvedExecutorOptions["observations"]
   const service = {
     publish: ((event, data) => { sink.publish(event, data); bus.publish(event, data); }) satisfies typeof bus.publish,
     subscribe: "subscribe" in sink && sink.subscribe !== undefined ? sink.subscribe.bind(sink) : bus.subscribe,
-    scope: (identity: Parameters<typeof scopeObservation>[1]): import("@openomni/protocol").ObservationSink => scopeObservation(service, identity, source),
+    scope: (identity: Parameters<typeof scopeObservation>[1]): import("@oni/protocol").ObservationSink => scopeObservation(service, identity, source),
   };
   return service;
 }

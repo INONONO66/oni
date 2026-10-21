@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { Effect, Fiber, Cause, Exit } from "effect";
 import { TestClock } from "effect/testing";
 import { execute as nativeExecute } from "../src/exec";

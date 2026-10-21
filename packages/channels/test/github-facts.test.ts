@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { injectedOptions } from "./helpers/injected";
 import { expect, test } from "bun:test";
-import { Gateway, Outbound, type Channel } from "@openomni/protocol";
+import { Gateway, Outbound, type Channel } from "@oni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface";
 
 for (const text of ["ambient event", "@owner review @bot", "@bot"]) {

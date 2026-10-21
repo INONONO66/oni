@@ -1,6 +1,6 @@
 import { sessionTree } from "../helpers/session-tree";
 import { beforeEach, expect, test } from "bun:test";
-import { canonicalDigest, type LedgerAction, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type SessionTransition } from "@oni/protocol";
 import { materializeSession } from "../helpers/session";
 import { useMemoryStores } from "../helpers/storage";
 

@@ -1,4 +1,4 @@
-import { Delivery, PlainObjectSchema, type PlainValue, type LedgerAction, type LedgerSession, L0Observation, type PolicyRow, SessionHistory, SessionTransition, SessionTurn, type ObservationSink } from "@openomni/protocol";
+import { Delivery, PlainObjectSchema, type PlainValue, type LedgerAction, type LedgerSession, L0Observation, type PolicyRow, SessionHistory, SessionTransition, SessionTurn, type ObservationSink } from "@oni/protocol";
 import { z } from "zod";
 import { latestGenerationForIn } from "./configure";
 import { LedgerInvariant, SessionNotFound, StorageUnavailable } from "./errors";

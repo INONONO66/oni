@@ -14,7 +14,7 @@ import { approveWriteRow } from "./helpers/compiled-policy";
 
 import { LlmRunFailure } from "../src/core/ports/llm";
 import { FakeProviderError } from "./helpers/fake-llm";
-import { Alarm, L0Observation, type PolicyRow, type SessionHistory } from "@openomni/protocol";
+import { Alarm, L0Observation, type PolicyRow, type SessionHistory } from "@oni/protocol";
 import { closeSessions, type SessionRunner } from "../src/core/session/run";
 import { createTurnDispatcher } from "../src/plugins/tool";
 import { resolveSessionRuntime } from "../src/core/session/run";
@@ -293,7 +293,7 @@ function lifecycle() {
           }),
       }, fixture), fixture); });
     const commission = sessionTree(isolatedLedger().kernel, "parent").find(
-      (action: import("@openomni/protocol").LedgerAction.Node) =>
+      (action: import("@oni/protocol").LedgerAction.Node) =>
         turnTerminal(action) !== undefined,
     );
     if (commission === undefined) throw new Error("parent turn never sealed");
@@ -386,28 +386,28 @@ describe("action-based history and diagnostic projections", () => {
           expect(
             inspection.transitions.map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.actionId,
             ),
-          ).toEqual(tree.map((a: import("@openomni/protocol").LedgerAction.Node) => a.id));
+          ).toEqual(tree.map((a: import("@oni/protocol").LedgerAction.Node) => a.id));
           expect(
             inspection.transitions.map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.revision,
             ),
           ).toEqual(
-            tree.map((action: import("@openomni/protocol").LedgerAction.Node) => action.ordinal),
+            tree.map((action: import("@oni/protocol").LedgerAction.Node) => action.ordinal),
           );
           const known = new Set(
-            tree.map((action: import("@openomni/protocol").LedgerAction.Node) => action.id),
+            tree.map((action: import("@oni/protocol").LedgerAction.Node) => action.id),
           );
           // W5.2: the input-queue table is gone; received-message chain
           // actions (kind "prompt") are the delivered rows.
           const delivered = new Set(
             tree
-              .filter((action: import("@openomni/protocol").LedgerAction.Node) => action.kind === "prompt")
-              .map((action: import("@openomni/protocol").LedgerAction.Node) => action.id),
+              .filter((action: import("@oni/protocol").LedgerAction.Node) => action.kind === "prompt")
+              .map((action: import("@oni/protocol").LedgerAction.Node) => action.id),
           );
           for (const transition of inspection.transitions) {
             switch (transition.cause.kind) {
@@ -428,7 +428,7 @@ describe("action-based history and diagnostic projections", () => {
           const byOp = (op: string, phase: SessionHistory.Phase) =>
             inspection.transitions.filter(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.op === op && entry.phase === phase,
             );
           // Attempts share the llm kind; an attempt intent is the llm
@@ -436,28 +436,28 @@ describe("action-based history and diagnostic projections", () => {
           const attemptActionIds = new Set(
             tree
               .filter(
-                (action: import("@openomni/protocol").LedgerAction.Node) =>
+                (action: import("@oni/protocol").LedgerAction.Node) =>
                   action.kind === "llm" &&
                   typeof (action.intent.value as { attempt?: number })?.attempt === "number",
               )
-              .map((action: import("@openomni/protocol").LedgerAction.Node) => action.id),
+              .map((action: import("@oni/protocol").LedgerAction.Node) => action.id),
           );
           expect(
             byOp("chat", "intent").filter(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.kind === "llm" && attemptActionIds.has(entry.actionId),
             ),
           ).toHaveLength(2);
           expect(
             byOp("chat", "result").map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.outcome,
             ),
           ).toEqual(["executed", "executed", "executed"]);
           const attemptResults = tree.filter(
-            (action: import("@openomni/protocol").LedgerAction.Node) =>
+            (action: import("@oni/protocol").LedgerAction.Node) =>
               action.kind === "llm" &&
               attemptActionIds.has(action.parentId ?? "") &&
               action.effect.value !== null &&
@@ -472,21 +472,21 @@ describe("action-based history and diagnostic projections", () => {
           expect(
             byOp("forbidden", "decision").map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => [entry.outcome, entry.reason],
             ),
           ).toEqual([["blocked_pre", "not_allowed"]]);
           expect(
             byOp("write", "result").map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.outcome,
             ),
           ).toEqual(["executed"]);
           expect(
             byOp("webhook", "result").map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => entry.outcome,
             ),
           ).toEqual(["outcome_unknown"]);
@@ -501,35 +501,35 @@ describe("action-based history and diagnostic projections", () => {
           const monitorFire = `${Alarm.occurrenceId("parent", "monitor", 1, "timer:1000")}:delivered`;
           const woke = inspection.transitions.find(
             (
-              entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+              entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
             ) => entry.actionId === monitorFire,
           );
           expect(woke?.kind).toBe("alarm");
           expect(woke?.cause).toEqual({ kind: "action", actionId: "monitor:arm:1" });
           const wakePrompt = inspection.transitions.find(
             (
-              entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+              entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
             ) => entry.kind === "prompt" && entry.parentId === monitorFire,
           );
           expect(wakePrompt?.cause).toEqual({ kind: "action", actionId: monitorFire });
           const fromChild = inspection.transitions.find(
             (
-              entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+              entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
             ) => entry.kind === "prompt" && entry.peerSessionId === "child",
           );
           expect(
             inspection.children.map(
-              (child: import("@openomni/protocol").SessionHistory.Inspection) => child.sessionId,
+              (child: import("@oni/protocol").SessionHistory.Inspection) => child.sessionId,
             ),
           ).toEqual(["child"]);
           const outbound = inspection.children[0]?.transitions.filter(
-            (e: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number]) =>
+            (e: import("@oni/protocol").SessionHistory.Inspection["transitions"][number]) =>
               e.kind === "message",
           );
           expect(
             outbound?.map(
               (
-                entry: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                entry: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
               ) => [entry.peerSessionId, entry.outcome],
             ),
           ).toEqual([
@@ -557,7 +557,7 @@ describe("action-based history and diagnostic projections", () => {
           expect(
             inspection.policy.filter(
               (
-                decision: import("@openomni/protocol").SessionHistory.Inspection["policy"][number],
+                decision: import("@oni/protocol").SessionHistory.Inspection["policy"][number],
               ) => decision.verdict === "deny",
             ),
           ).toMatchObject([
@@ -566,14 +566,14 @@ describe("action-based history and diagnostic projections", () => {
           expect(
             inspection.policy.filter(
               (
-                decision: import("@openomni/protocol").SessionHistory.Inspection["policy"][number],
+                decision: import("@oni/protocol").SessionHistory.Inspection["policy"][number],
               ) => decision.matchedRuleIds.includes("approve-write"),
             ),
           ).toMatchObject([{ verdict: "require_approval", reason: "owner", generation: 1 }]);
           expect(
             inspection.policy.every(
               (
-                decision: import("@openomni/protocol").SessionHistory.Inspection["policy"][number],
+                decision: import("@oni/protocol").SessionHistory.Inspection["policy"][number],
               ) => decision.generation === 1,
             ),
           ).toBe(true);
@@ -582,7 +582,7 @@ describe("action-based history and diagnostic projections", () => {
             expect(
               inspection.transitions.some(
                 (
-                  e: import("@openomni/protocol").SessionHistory.Inspection["transitions"][number],
+                  e: import("@oni/protocol").SessionHistory.Inspection["transitions"][number],
                 ) => e.actionId === decision.subjectActionId,
               ),
             ).toBe(true);

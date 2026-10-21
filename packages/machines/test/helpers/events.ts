@@ -1,4 +1,4 @@
-import { type BusEvent, Machine } from "@openomni/protocol";
+import { type BusEvent, Machine } from "@oni/protocol";
 
 type MachineEventPayload =
   | ReturnType<typeof Machine.Events.Attached.schema.parse>

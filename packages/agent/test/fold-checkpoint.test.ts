@@ -13,7 +13,7 @@ import {
   type PlainObject,
   PlainValueSchema,
   SessionTurn,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { createRunState } from "../src/core/loop/turn";
 import { evaluateBudget } from "../src/core/loop/budget";
 import { testBudget } from "./helpers/approval-policy";

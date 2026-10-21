@@ -1,4 +1,4 @@
-import type { Token } from "@openomni/protocol";
+import type { Token } from "@oni/protocol";
 import { UsageResponse, type Reported } from "./schema";
 
 /** A step's locally estimated counts, in the same units as provider accounting. */

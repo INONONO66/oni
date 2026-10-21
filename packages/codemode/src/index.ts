@@ -1,6 +1,6 @@
-import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type CodeRunner, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@openomni/machines";
+import { MachinesFailure, MachineRefusalError, type LeaseHandle, type LeaseClass, type CodeRunner, type MachineError, type MachineHandle, type MachineHost, type MachineInfo } from "@oni/machines";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { listenForAbort, Machine } from "@openomni/protocol";
+import { listenForAbort, Machine } from "@oni/protocol";
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
 import { z } from "zod";
 import { PythonKernel } from "./kernel";

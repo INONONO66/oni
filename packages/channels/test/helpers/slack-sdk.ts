@@ -1,5 +1,5 @@
 import type { SlackBotListenerEventMap } from "agent-messenger/slackbot";
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import type {
   SlackBotApi,
   SlackBotEvents,

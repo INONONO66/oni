@@ -1,4 +1,4 @@
-import { PlainValueSchema, SessionTurn, type LedgerAction, type PlainValue, type SessionGeneration } from "@openomni/protocol";
+import { PlainValueSchema, SessionTurn, type LedgerAction, type PlainValue, type SessionGeneration } from "@oni/protocol";
 import type { SessionRunnerResult } from "../session/run";
 
 interface TurnEnvelopeActionInput {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Outbound } from "@openomni/protocol";
+import { Outbound } from "@oni/protocol";
 import { deliveryFixture, installDeliveryFetch } from "./helpers/delivery";
 
 // #1569: Slack rides the agent-messenger SDK; its physical evidence is pinned over the SDK error shapes in slack-surface.test.ts.

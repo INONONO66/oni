@@ -4,7 +4,7 @@ import { expect, spyOn, test } from "bun:test";
 import { isolated, isolatedLedger } from "./helpers/isolated";
 import { allowConfigure, isolatedRuntime } from "./helpers/session-services";
 import { pendingRequest } from "./helpers/open-request";
-import type { SessionTransition } from "@openomni/protocol";
+import type { SessionTransition } from "@oni/protocol";
 import { commitSessionRequest } from "../src/core/session/request";
 
 

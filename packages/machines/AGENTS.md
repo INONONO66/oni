@@ -2,7 +2,7 @@
 
 Refreshed 2026-10-03 (#1273, branch `machines/1273-pty-session`; previously #1270 lanes A+B, #1274, #1272).
 
-Machine execution package (`@openomni/machines`): a machine is WHERE execution happens, never WHO is delegated to. Owns the machine host/daemon lifecycle, confined fs/exec drivers, and the NDJSON IPC transport over Unix sockets and pin-trusted mutual-TLS TCP (`src/ipc/`; the TCP listener and pinned client landed with #1270; the standalone ipc package was absorbed here in #1246; code mode was extracted to `packages/codemode` in #1272 — machines keeps only the structural contracts it consumes: `CodeRunner`, `MachineHost`/`MachineHandle`/`MachineInfo`, `onAbort`). The public surface is Effect-typed on Effect `4.0.0-rc.118`. Serializable message schemas stay in `@openomni/protocol` (`Ipc` and `Machine` namespaces); this package never validates run semantics or evaluates policy.
+Machine execution package (`@oni/machines`): a machine is WHERE execution happens, never WHO is delegated to. Owns the machine host/daemon lifecycle, confined fs/exec drivers, and the NDJSON IPC transport over Unix sockets and pin-trusted mutual-TLS TCP (`src/ipc/`; the TCP listener and pinned client landed with #1270; the standalone ipc package was absorbed here in #1246; code mode was extracted to `packages/codemode` in #1272 — machines keeps only the structural contracts it consumes: `CodeRunner`, `MachineHost`/`MachineHandle`/`MachineInfo`, `onAbort`). The public surface is Effect-typed on Effect `4.0.0-rc.118`. Serializable message schemas stay in `@oni/protocol` (`Ipc` and `Machine` namespaces); this package never validates run semantics or evaluates policy.
 
 ## STRUCTURE
 
@@ -29,7 +29,7 @@ src/
 
 ## DEPENDENCIES
 
-`@openomni/protocol` (workspace, the only `@openomni` import — enforced by `script/check-deps.ts`), plus `effect@4.0.0-rc.118` (exact pin) and `zod`. Consumers: `@openomni/codemode` and `apps/openomni`.
+`@oni/protocol` (workspace, the only `@oni` import — enforced by `script/check-deps.ts`), plus `effect@4.0.0-rc.118` (exact pin) and `zod`. Consumers: `@oni/codemode` and `apps/oni`.
 
 ## KEY PATTERNS (ipc transport)
 
@@ -68,9 +68,9 @@ src/
 
 ## ANTI-PATTERNS
 
-- Do NOT add kernel/ledger/policy or product-app imports — the dependency ratchet fails; `@openomni/protocol` stays the only workspace import.
+- Do NOT add kernel/ledger/policy or product-app imports — the dependency ratchet fails; `@oni/protocol` stays the only workspace import.
 - Do NOT put message schemas here; they belong in `packages/protocol`.
-- Do NOT deep-import from `@openomni/machines/src/*`; use the package barrel.
+- Do NOT deep-import from `@oni/machines/src/*`; use the package barrel.
 - Do NOT reintroduce machine vocabulary (protocol `Machine.*`, `Ipc.Methods`) inside `src/ipc/` — the transport stays generic; `typed-call.ts` and its callers own the wire-method table.
 - Do NOT add per-domain untyped-fallback error classes; `MachinesFailure` is the single fallback (`src/failure.ts`).
 - Do NOT call `Effect.run*` in package tests outside the runner-owner helpers, and never in `src/` — the boundary checker owns both rules.

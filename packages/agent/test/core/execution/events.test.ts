@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { RunEvents } from "../../../src/core/loop/turn";
-import { Operational, type PlainObject } from "@openomni/protocol";
+import { Operational, type PlainObject } from "@oni/protocol";
 import { z } from "zod";
 import { createBudgetState, publishBudgetTelemetry } from "../../../src/core/loop/budget";
 import { collector } from "../../helpers/observation-collector";

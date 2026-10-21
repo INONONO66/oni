@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { Effect } from "effect";
 import { rmSync } from "node:fs";
 import { openCatalogStore } from "../../src/core/store/catalog";

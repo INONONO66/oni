@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import net from "node:net";
-import { Ipc } from "@openomni/protocol";
+import { Ipc } from "@oni/protocol";
 import { Effect } from "effect";
 import { connectIpcClient } from "../../src/ipc/client";
 import { IpcConnectionError, IpcProtocolError } from "../../src/ipc/errors";

@@ -1,6 +1,6 @@
 import { sessionTree } from "../helpers/session-tree";
 import { describe, expect, test } from "bun:test";
-import { LedgerAction, type ObservationSink } from "@openomni/protocol";
+import { LedgerAction, type ObservationSink } from "@oni/protocol";
 import { createActions } from "../../../src/core/store/session-file/actions";
 import { L0Write } from "../../../src/core/store/session-file";
 import type { ObservationPublishFailure } from "../../../src/core/store/storage/sqlite-l0-observation";

@@ -21,8 +21,8 @@ import { coreGateFiles } from "./core-gate.test-helper";
 
 const roots: string[] = [];
 const checker = join(import.meta.dir, "check-deps.ts");
-const audit = "apps/openomni/src/bundles/audit-log/index.ts";
-const demo = "apps/openomni/src/bundles/demo/index.ts";
+const audit = "apps/oni/src/bundles/audit-log/index.ts";
+const demo = "apps/oni/src/bundles/demo/index.ts";
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -117,7 +117,7 @@ test.each([
 });
 
 test("removed sibling edge pins refuse both their former edge and a new sibling", () => {
-  const file = "apps/openomni/src/bundles/messaging/index.ts";
+  const file = "apps/oni/src/bundles/messaging/index.ts";
   const root = fixture({});
   const finding = { code: "BUNDLE_CROSS_NAMESPACE" as const, file, line: 2, specifier: "../delegation-policy/index" };
   const swapped = { ...finding, line: 3, specifier: "../different-bundle/index" };
@@ -131,7 +131,7 @@ test("removed sibling edge pins refuse both their former edge and a new sibling"
 });
 
 test("a former deep-relative edge is no longer exempt", async () => {
-  const file = "apps/openomni/src/bundles/tools/core/watch.ts";
+  const file = "apps/oni/src/bundles/tools/core/watch.ts";
   const root = fixture({
     [file]: 'import type { SessionKernel } from "../../../composition/cluster-runtime";',
   });
@@ -143,9 +143,9 @@ test("a former deep-relative edge is no longer exempt", async () => {
 test("refuses tsconfig aliases inherited by the app", async () => {
   const root = fixture({
     "tsconfig.base.json": JSON.stringify({
-      compilerOptions: { baseUrl: ".", paths: { "#demo/*": ["apps/openomni/src/bundles/demo/*"] } },
+      compilerOptions: { baseUrl: ".", paths: { "#demo/*": ["apps/oni/src/bundles/demo/*"] } },
     }),
-    "apps/openomni/tsconfig.json": JSON.stringify({
+    "apps/oni/tsconfig.json": JSON.stringify({
       extends: "../../tsconfig.base.json",
       include: ["src"],
     }),
@@ -164,13 +164,13 @@ test.each([
 ])("refuses laundering through an app barrel: %s", async (source) => {
   const root = fixture({
     [audit]: 'import * as bridge from "../../bridge.js";',
-    "apps/openomni/src/bridge.ts": 'export * from "./cycle.js";',
-    "apps/openomni/src/cycle.ts": `export * from "./bridge.js";\n${source}`,
+    "apps/oni/src/bridge.ts": 'export * from "./cycle.js";',
+    "apps/oni/src/cycle.ts": `export * from "./bridge.js";\n${source}`,
     [demo]: "export const value = 1; export type Value = number;",
   });
   const result = await run(root);
   expect(result.code).toBe(1);
-  expect(result.error).toContain("VIOLATION: BUNDLE_APP_IMPORT apps/openomni/src/bundles/audit-log/index.ts:1");
+  expect(result.error).toContain("VIOLATION: BUNDLE_APP_IMPORT apps/oni/src/bundles/audit-log/index.ts:1");
 });
 
 test.each([
@@ -181,54 +181,54 @@ test.each([
 ])("refuses computed paths reachable by a bundle: %s", async (source) => {
   const root = fixture({
     [audit]: 'import "../../bridge.js";',
-    "apps/openomni/src/bridge.ts": source,
+    "apps/oni/src/bridge.ts": source,
   });
   const result = await run(root);
   expect(result.code).toBe(1);
-  expect(result.error).toContain("VIOLATION: BUNDLE_APP_IMPORT apps/openomni/src/bundles/audit-log/index.ts:1");
+  expect(result.error).toContain("VIOLATION: BUNDLE_APP_IMPORT apps/oni/src/bundles/audit-log/index.ts:1");
 });
 
 test("allows same namespace, external dependencies, approved core barrels and app composition", async () => {
   const root = fixture({
     [audit]:
-      'import "./internal.js"; import type { PlainValue } from "@openomni/protocol"; import { Layer } from "effect";',
-    "apps/openomni/src/bundles/audit-log/internal.ts":
+      'import "./internal.js"; import type { PlainValue } from "@oni/protocol"; import { Layer } from "effect";',
+    "apps/oni/src/bundles/audit-log/internal.ts":
       'export * from "./index.js"; const text = \'import("../demo/index.js")\'; function local(require: (s: string) => string) { return require("../demo/index.js"); }',
     [demo]: "export const value = 1;",
-    "apps/openomni/src/composition.ts":
+    "apps/oni/src/composition.ts":
       'import "./bundles/audit-log/index.js"; import "./bundles/demo/index.js";',
   });
   expect((await run(root)).code).toBe(0);
 });
 
-test("manifest layer order: allowed @openomni deps pass, inverted deps fail", async () => {
+test("manifest layer order: allowed @oni deps pass, inverted deps fail", async () => {
   const manifest = (name: string, deps: Record<string, string>) =>
     JSON.stringify({ name, dependencies: deps });
   const allowed = fixture({
-    "packages/agent/package.json": manifest("@openomni/agent", {
-      "@openomni/protocol": "workspace:*",
+    "packages/agent/package.json": manifest("@oni/agent", {
+      "@oni/protocol": "workspace:*",
       typescript: "catalog:",
     }),
   });
   expect((await run(allowed)).code).toBe(0);
 
   const inverted = fixture({
-    "packages/protocol/package.json": manifest("@openomni/protocol", {
-      "@openomni/agent": "workspace:*",
+    "packages/protocol/package.json": manifest("@oni/protocol", {
+      "@oni/agent": "workspace:*",
     }),
   });
   const result = await run(inverted);
   expect(result.code).toBe(1);
   expect(result.error).toContain(
-    "VIOLATION: protocol depends on @openomni/agent — not allowed by layer order",
+    "VIOLATION: protocol depends on @oni/agent — not allowed by layer order",
   );
 });
 
 test("rejects malformed dependency maps instead of treating them as empty", async () => {
   const root = fixture({
     "packages/protocol/package.json": JSON.stringify({
-      name: "@openomni/protocol",
-      dependencies: ["@openomni/agent"],
+      name: "@oni/protocol",
+      dependencies: ["@oni/agent"],
     }),
   });
   await expect(runInProcess(root)).rejects.toThrow();
@@ -262,8 +262,8 @@ test("accepts a clean repository with no dependency or doc warnings", async () =
 test.each([
   ["import {", "BUNDLE_PARSE_ERROR"],
   ['import "./missing.js";', "BUNDLE_UNRESOLVED_IMPORT"],
-  ['const loaded = require("@openomni/ui");', "BUNDLE_IMPORT_NOT_ALLOWED"],
-  ['type Loaded = import("@openomni/agent/src/services").Clock;', "BUNDLE_IMPORT_NOT_ALLOWED"],
+  ['const loaded = require("@oni/ui");', "BUNDLE_IMPORT_NOT_ALLOWED"],
+  ['type Loaded = import("@oni/agent/src/services").Clock;', "BUNDLE_IMPORT_NOT_ALLOWED"],
 ])("fails closed for %s", async (source, code) => {
   const root = fixture({ [audit]: source });
   const result = await run(root);
@@ -282,8 +282,8 @@ test.each([
   const root = fixture({
     [audit]: source,
     [demo]: "export const value = 1;",
-    "apps/openomni/src/loader.ts": 'export { load } from "./loader-origin.js";',
-    "apps/openomni/src/loader-origin.ts": "export const load = require;",
+    "apps/oni/src/loader.ts": 'export { load } from "./loader-origin.js";',
+    "apps/oni/src/loader-origin.ts": "export const load = require;",
   });
   expect(await checkBundleImports(root)).toContainEqual(expect.objectContaining({
     code: "BUNDLE_CROSS_NAMESPACE",
@@ -302,15 +302,15 @@ test.each([
   const root = fixture({
     [audit]: 'import "../demo/index.js";',
     [demo]: "export {};",
-    "apps/openomni/tsconfig.json": config,
+    "apps/oni/tsconfig.json": config,
   });
   const result = await run(root);
   expect(result.code).toBe(1);
-  expect(result.error).toContain("BUNDLE_CONFIG_ERROR apps/openomni/tsconfig.json:");
+  expect(result.error).toContain("BUNDLE_CONFIG_ERROR apps/oni/tsconfig.json:");
 });
 
 test("refuses a config that exists but cannot be read", async () => {
-  const config = "apps/openomni/tsconfig.json";
+  const config = "apps/oni/tsconfig.json";
   const root = fixture({ [audit]: "export {};", [config]: "{}" });
   chmodSync(join(root, config), 0o000);
   try {
@@ -329,7 +329,7 @@ test("refuses a resolved local file excluded from the compiler program", async (
   const root = fixture({
     [audit]: 'import "#shared";',
     "shared/api.ts": "export const value = 1;",
-    "apps/openomni/tsconfig.json": JSON.stringify({
+    "apps/oni/tsconfig.json": JSON.stringify({
       compilerOptions: { noResolve: true, paths: { "#shared": ["../../shared/api.ts"] } },
       include: ["src"],
     }),
@@ -344,15 +344,15 @@ test("refuses a resolved local file excluded from the compiler program", async (
 
 test("allows a repository without production bundles and ignores isolated test fixtures", async () => {
   const root = fixture({
-    "apps/openomni/test/bundles/audit/index.ts": 'import "../demo/index.js";',
-    "apps/openomni/src/bundles/demo/example.test.ts": 'import "../audit/index.js";',
+    "apps/oni/test/bundles/audit/index.ts": 'import "../demo/index.js";',
+    "apps/oni/src/bundles/demo/example.test.ts": 'import "../audit/index.js";',
   });
   expect(await checkBundleImports(root)).toEqual([]);
 });
 
 test("allows composition outside the reserved namespace directories", async () => {
   const root = fixture({
-    "apps/openomni/src/bundles/index.ts":
+    "apps/oni/src/bundles/index.ts":
       'export * from "./audit-log/index.js"; export * from "./demo/index.js";',
     [audit]: "export const audit = 1;",
     [demo]: "export const demo = 2;",
@@ -363,7 +363,7 @@ test("allows composition outside the reserved namespace directories", async () =
 test("follows require edges into shared barrels", async () => {
   const root = fixture({
     [audit]: 'const shared = require("../../shared.js");',
-    "apps/openomni/src/shared.ts": 'export * from "./bundles/demo/index.js";',
+    "apps/oni/src/shared.ts": 'export * from "./bundles/demo/index.js";',
     [demo]: "export {};",
   });
   expect(await checkBundleImports(root)).toContainEqual(expect.objectContaining({
@@ -377,7 +377,7 @@ test("follows require edges into shared barrels", async () => {
 test("refuses unresolved aliases instead of treating them as external dependencies", async () => {
   const root = fixture({
     [audit]: 'import "bundle/demo";',
-    "apps/openomni/tsconfig.json": JSON.stringify({
+    "apps/oni/tsconfig.json": JSON.stringify({
       compilerOptions: { paths: { "bundle/*": ["./src/bundles/*"] } },
       include: ["src"],
     }),
@@ -391,13 +391,13 @@ test.each([
   [
     "source dependency",
     "packages/protocol/src/illegal.ts",
-    'import { Session } from "@openomni/agent";',
+    'import { Session } from "@oni/agent";',
     "not allowed by layer order",
   ],
   [
     "channels driver dependency",
     "packages/channels/src/provider/driver.ts",
-    'import { DecisionFacts } from "@openomni/agent";',
+    'import { DecisionFacts } from "@oni/agent";',
     "S8 banding",
   ],
   [
@@ -409,13 +409,13 @@ test.each([
   [
     "channels brain store access",
     "packages/channels/src/router/illegal.ts",
-    'import { Session } from "@openomni/agent";',
+    'import { Session } from "@oni/agent";',
     "names agent surface Session",
   ],
   [
     "deep package import",
     "packages/agent/src/illegal.ts",
-    'import { Session } from "@openomni/protocol/src/session";',
+    'import { Session } from "@oni/protocol/src/session";',
     "use package barrel instead",
   ],
   [
@@ -445,9 +445,9 @@ test.each([
 
 test("ignores test and untracked research sources in dependency scans", async () => {
   const root = fixture({
-    "packages/protocol/test/illegal.test.ts": 'import "@openomni/agent/src/index";',
-    "tmp/illegal.ts": 'import "@openomni/agent/src/index";',
-    ".claude/illegal.ts": 'import "@openomni/agent/src/index";',
+    "packages/protocol/test/illegal.test.ts": 'import "@oni/agent/src/index";',
+    "tmp/illegal.ts": 'import "@oni/agent/src/index";',
+    ".claude/illegal.ts": 'import "@oni/agent/src/index";',
   });
   expect((await run(root)).code).toBe(0);
 });
@@ -490,13 +490,13 @@ test("missing package manifest fails closed before source scanning", async () =>
 
 test("deep-import fix suggestions retain the package barrel identity", async () => {
   const root = fixture({
-    "packages/agent/src/illegal.ts": 'import "@openomni/protocol/src/session";',
+    "packages/agent/src/illegal.ts": 'import "@oni/protocol/src/session";',
   });
   Bun.argv.push("--fix-suggestions");
   try {
     const result = await runInProcess(root);
     expect(result.code).toBe(1);
-    expect(result.error).toContain("suggestion: @openomni/protocol");
+    expect(result.error).toContain("suggestion: @oni/protocol");
   } finally {
     Bun.argv.pop();
   }
@@ -736,7 +736,7 @@ test("#1247 S8 pin: validateAgentIndexPerimeter reads the pinned file and refuse
 // ONE conformance assertion over the issue body's "tokens that must return no
 // output" (the deleted monitor tool/ports files, the imperative session-tool
 // constructors, bundle names in boot, the legacy compose plane, kernel-row
-// @openomni/llm references, the ambient cron grid). It reads the LIVE
+// @oni/llm references, the ambient cron grid). It reads the LIVE
 // repository via import.meta.dir — never a fixture — so a regrowth of any
 // retired surface names the file that grew it.
 
@@ -745,18 +745,18 @@ const repoRoot = join(import.meta.dir, "..");
 const RETIRED_SURFACES: Readonly<Record<string, { pattern: RegExp; globs: readonly string[] }>> = {
   "monitor tool/ports files": {
     pattern: /./,
-    globs: ["apps/openomni/src/bundles/tools/monitor.ts", "apps/openomni/src/composition/monitor-ports.ts"],
+    globs: ["apps/oni/src/bundles/tools/monitor.ts", "apps/oni/src/composition/monitor-ports.ts"],
   },
   "sessionTool(/toolSpec( in the agent": {
     pattern: /sessionTool\(|toolSpec\(/,
     globs: ["packages/agent/src/**/*.ts"],
   },
-  "bundle name 'monitor' in boot": { pattern: /monitor/, globs: ["apps/openomni/src/index.ts"] },
+  "bundle name 'monitor' in boot": { pattern: /monitor/, globs: ["apps/oni/src/index.ts"] },
   "legacy compose plane BundlesLive": {
     pattern: /BundlesLive/,
     globs: ["apps/*/src/**/*.ts", "packages/agent/src/**/*.ts"],
   },
-  "@openomni/llm in kernel rows": { pattern: /@openomni\/llm/, globs: ["packages/agent/src/**/*.ts"] },
+  "@oni/llm in kernel rows": { pattern: /@oni\/llm/, globs: ["packages/agent/src/**/*.ts"] },
   "ambient Bun.cron( grid": { pattern: /Bun\.cron\(/, globs: ["apps/**/*.ts", "packages/**/*.ts"] },
 };
 
@@ -783,22 +783,22 @@ test("#1255: every retired surface greps to zero in the live repository", async 
 test("#1345 ban: a seeded app use of a retired ledger constructor or host import is rejected", async () => {
   const root = mkdtempSync(join(tmpdir(), "check-deps-1345-"));
   try {
-    const seeded = join(root, "apps/openomni/src/composition/seeded.ts");
+    const seeded = join(root, "apps/oni/src/composition/seeded.ts");
     mkdirSync(dirname(seeded), { recursive: true });
     writeFileSync(
       seeded,
       [
-        'import { Core } from "@openomni/agent";',
+        'import { Core } from "@oni/agent";',
         'import { SingleRunner } from "effect/cluster";',
         "const catalog = Core.openCatalogStore(\":memory:\", { now: () => 1 });",
         "export { catalog, SingleRunner };",
       ].join("\n"),
     );
     // A test file under apps/ is outside the scan, like every dependency rule.
-    writeFileSync(join(root, "apps/openomni/src/composition/seeded.test.ts"), "Core.openSessionStore;\n");
+    writeFileSync(join(root, "apps/oni/src/composition/seeded.test.ts"), "Core.openSessionStore;\n");
     expect(await validateAppsAgentBarrel(root)).toEqual([
-      "VIOLATION: apps/openomni/src/composition/seeded.ts:2 imports effect/cluster — #1345: the core host owns the runner and SQLite client",
-      "VIOLATION: apps/openomni/src/composition/seeded.ts:3 names openCatalogStore — #1345: apps open the ledger through Core.openLedger only",
+      "VIOLATION: apps/oni/src/composition/seeded.ts:2 imports effect/cluster — #1345: the core host owns the runner and SQLite client",
+      "VIOLATION: apps/oni/src/composition/seeded.ts:3 names openCatalogStore — #1345: apps open the ledger through Core.openLedger only",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -816,13 +816,13 @@ test("#1345 ban: every retired name and import form fails; comments, strings and
     'export * from "@effect/sql-sqlite-bun";',
     'const lazy = import("effect/cluster/SingleRunner");',
   ].join("\n");
-  expect(appsRetiredHostViolations("apps/openomni/src/x.ts", source).map((line) => line.split(" — ")[0])).toEqual([
-    "VIOLATION: apps/openomni/src/x.ts:3 names openSessionStore",
-    "VIOLATION: apps/openomni/src/x.ts:4 names createSessionEntityRunTurn",
-    "VIOLATION: apps/openomni/src/x.ts:5 names createSessionEntityLayer",
-    "VIOLATION: apps/openomni/src/x.ts:6 names openLedgerPlane",
-    "VIOLATION: apps/openomni/src/x.ts:7 imports @effect/sql-sqlite-bun",
-    "VIOLATION: apps/openomni/src/x.ts:8 imports effect/cluster/SingleRunner",
+  expect(appsRetiredHostViolations("apps/oni/src/x.ts", source).map((line) => line.split(" — ")[0])).toEqual([
+    "VIOLATION: apps/oni/src/x.ts:3 names openSessionStore",
+    "VIOLATION: apps/oni/src/x.ts:4 names createSessionEntityRunTurn",
+    "VIOLATION: apps/oni/src/x.ts:5 names createSessionEntityLayer",
+    "VIOLATION: apps/oni/src/x.ts:6 names openLedgerPlane",
+    "VIOLATION: apps/oni/src/x.ts:7 imports @effect/sql-sqlite-bun",
+    "VIOLATION: apps/oni/src/x.ts:8 imports effect/cluster/SingleRunner",
   ]);
   expect(appsRetiredHostViolations("packages/agent/src/core/session/host.ts", source)).toEqual([]);
 });

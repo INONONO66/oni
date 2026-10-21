@@ -7,21 +7,21 @@ import { ModelCatalogError, type LlmError } from "../errors";
 import { Catalog, RemoteCatalog } from "./schema";
 import { readProviderRows, type ProviderRow } from "../provider/rows";
 
-const DEFAULT_CACHE_PATH = join(homedir(), ".openomni", "models.json");
+const DEFAULT_CACHE_PATH = join(homedir(), ".oni", "models.json");
 const REMOTE_TIMEOUT_MS = 10_000;
 
 /** The package's one environment owner: credential file location injected into `auth/storage`. */
 export function resolveAuthFilePath(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  const override = env.OPENOMNI_AUTH_FILE;
-  return override ? resolve(override) : join(homedir(), ".openomni", "auth.json");
+  const override = env.ONI_AUTH_FILE;
+  return override ? resolve(override) : join(homedir(), ".oni", "auth.json");
 }
-/** `OPENOMNI_PROVIDERS_PATH` read here like the credential file: unset is no configured rows, a bad file throws `ProviderRowsError`. */
+/** `ONI_PROVIDERS_PATH` read here like the credential file: unset is no configured rows, a bad file throws `ProviderRowsError`. */
 export function resolveProviderRows(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): readonly ProviderRow[] {
-  const path = env.OPENOMNI_PROVIDERS_PATH?.trim();
+  const path = env.ONI_PROVIDERS_PATH?.trim();
   return path ? readProviderRows(resolve(path)) : [];
 }
 async function snapshot(): Promise<Catalog> {
@@ -41,7 +41,7 @@ function readCache(path: string): Effect.Effect<Catalog | undefined, LlmError> {
 }
 /** Every remote failure (network, timeout, status, body, decode) is a typed `remote` refusal. */
 function fetchRemote(): Effect.Effect<Catalog, LlmError> {
-  const url = `${process.env.OPENOMNI_MODELS_URL || "https://models.dev"}/api.json`;
+  const url = `${process.env.ONI_MODELS_URL || "https://models.dev"}/api.json`;
   return Effect.tryPromise({
     try: (signal) => fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(REMOTE_TIMEOUT_MS)]) }),
     catch: catalogError("remote", url),
@@ -61,10 +61,10 @@ function writeCache(path: string, catalog: Catalog): Effect.Effect<void, LlmErro
 }
 function loadCatalog(loadSnapshot: () => Promise<Catalog>): Effect.Effect<Catalog, LlmError> {
   return Effect.gen(function* () {
-    const path = process.env.OPENOMNI_MODELS_PATH ?? DEFAULT_CACHE_PATH;
+    const path = process.env.ONI_MODELS_PATH ?? DEFAULT_CACHE_PATH;
     const cached = yield* readCache(path);
     if (cached !== undefined && Object.keys(cached).length > 0) return cached;
-    if (!process.env.OPENOMNI_DISABLE_MODELS_FETCH) {
+    if (!process.env.ONI_DISABLE_MODELS_FETCH) {
       // A typed `remote` refusal continues to the bundled snapshot; `cache` and
       // `cache_write` refusals propagate untouched.
       const remote = yield* fetchRemote().pipe(

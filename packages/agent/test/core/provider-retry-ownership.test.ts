@@ -3,7 +3,7 @@ import { isolated } from "../helpers/isolated";
 import { createTestAgent, failure as effectFailure } from "../helpers/effect-g2";
 import { afterEach, describe, expect, it } from "bun:test";
 import { type FailureFacts, LlmRunFailure, type RunInput, type LlmSink } from "../../src/core/ports/llm";
-import type { Model } from "@openomni/protocol";
+import type { Model } from "@oni/protocol";
 import { RunEvents } from "../../src/core/loop/turn";
 import { Bus } from "../helpers/bus";
 import { failureFacts } from "../../src/core/loop/retry";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Ipc } from "@openomni/protocol";
+import { Ipc } from "@oni/protocol";
 import { z } from "zod";
 import { LineDecoder } from "../../src/ipc/framing";
 import { createIpcServer } from "./helpers/native";

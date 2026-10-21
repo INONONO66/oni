@@ -1,8 +1,8 @@
-import type { PendingApproval, TranscriptNode, TurnCost } from "@openomni/ui";
+import type { PendingApproval, TranscriptNode, TurnCost } from "@oni/ui";
 import { getToolName, isToolUIPart } from "ai";
 import { z } from "zod";
 import { costOf, costsByTurn } from "./turn-cost";
-import type { OpenOmniUIMessage } from "./message";
+import type { OniUIMessage } from "./message";
 
 type TranscriptTool = Extract<TranscriptNode, { kind: "tool" }>;
 type TranscriptMarkdown = Extract<TranscriptNode, { kind: "assistant" }>["blocks"][number];
@@ -17,7 +17,7 @@ interface Transcript {
   readonly pending: readonly PendingApproval[];
 }
 
-export function uiMessagesToTranscript(messages: readonly OpenOmniUIMessage[]): Transcript {
+export function uiMessagesToTranscript(messages: readonly OniUIMessage[]): Transcript {
   const nodes: TranscriptNode[] = [];
   const pending: PendingApproval[] = [];
   /** Which node ids each turn's cost should attach to, once turns are known. */
@@ -46,7 +46,7 @@ export function uiMessagesToTranscript(messages: readonly OpenOmniUIMessage[]): 
 }
 
 function appendAssistant(
-  message: OpenOmniUIMessage,
+  message: OniUIMessage,
   nodes: TranscriptNode[],
   pending: PendingApproval[],
 ): void {
@@ -113,7 +113,7 @@ function toolNode(part: ToolPart): {
     node,
     approval: {
       toolId: part.approval.id,
-      // The product's sentence, composed here because `@openomni/ui` prints
+      // The product's sentence, composed here because `@oni/ui` prints
       // what it is handed and never writes a sentence about a tool.
       summary: target === "" ? `${tool} wants to run` : `${tool} wants to run ${target}`,
       reason: part.approval.requestReason ?? "requires approval",
@@ -121,7 +121,7 @@ function toolNode(part: ToolPart): {
   };
 }
 
-type ToolPart = Extract<OpenOmniUIMessage["parts"][number], { toolCallId: string }>;
+type ToolPart = Extract<OniUIMessage["parts"][number], { toolCallId: string }>;
 
 const STATUS: Readonly<Record<ToolPart["state"], LoudStatus | undefined>> = {
   "input-streaming": "running",
@@ -150,7 +150,7 @@ function targetOf(input: z.infer<typeof targetSchema>): string {
 }
 
 /** A user message's text: its text parts, joined. Files and the rest are not prose. */
-function textOf(message: OpenOmniUIMessage): string {
+function textOf(message: OniUIMessage): string {
   return message.parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)

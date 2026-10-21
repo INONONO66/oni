@@ -2,7 +2,7 @@ import { sessionTree } from "./helpers/session-tree";
 import { expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { LedgerAction } from "@openomni/protocol";
+import { LedgerAction } from "@oni/protocol";
 import { computeActionHash, GENESIS_PREV_HASH } from "../../src/core/store/session-file";
 import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
 import {

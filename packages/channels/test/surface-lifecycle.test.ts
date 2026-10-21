@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { FIXED_NOW, injectedOptions, testRun } from "./helpers/injected";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import type { z } from "zod";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { GitHubAdapter } from "../src/provider/github/surface";

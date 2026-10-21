@@ -1,4 +1,4 @@
-import type { Policy } from "@openomni/protocol";
+import type { Policy } from "@oni/protocol";
 import { evaluateChannelPermission, recordDecision } from "./decision";
 import type { ChannelAuthnDecisionObserver } from "./types";
 import { verifyGitHubSignature } from "./github-signature";

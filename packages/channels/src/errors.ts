@@ -1,4 +1,4 @@
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { Data } from "effect";
 import { z } from "zod";
 

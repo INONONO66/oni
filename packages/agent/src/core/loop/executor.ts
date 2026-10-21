@@ -1,6 +1,6 @@
 import { Effect, Exit, Clock } from "effect";
 import { type ExecutionError, type CommitFailed, AgentFailure } from "../ports/failure";
-import { type LedgerAction, type PlainValue, canonicalDigest } from "@openomni/protocol";
+import { type LedgerAction, type PlainValue, canonicalDigest } from "@oni/protocol";
 import type { PolicyEvaluation } from "../gate/compile";
 import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectResultValue } from "../ports/tool-output";
 import { Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports/ports";

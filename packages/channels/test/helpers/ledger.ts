@@ -1,8 +1,8 @@
-import { type Core, Testing } from "@openomni/agent";
+import { type Core, Testing } from "@oni/agent";
 type LedgerError = Core.LedgerError;
 import { Effect } from "effect";
 import { basename, dirname } from "node:path";
-import type { Delivery, LedgerAction, Storage as ProtocolStorage } from "@openomni/protocol";
+import type { Delivery, LedgerAction, Storage as ProtocolStorage } from "@oni/protocol";
 import { createChannelStores, type ChannelStores } from "../../src/router/stores";
 import { openChannelStore, type ChannelStore } from "../../src/store/sqlite/index.js";
 import { runEffect } from "./effect";

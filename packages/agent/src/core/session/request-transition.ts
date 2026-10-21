@@ -1,4 +1,4 @@
-import { canonicalDigest, PlainValueSchema, SessionTransition, type Delivery, type LedgerAction, type LedgerSession, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, PlainValueSchema, SessionTransition, type Delivery, type LedgerAction, type LedgerSession, type PlainValue } from "@oni/protocol";
 import { requestBindingDigest } from "../journal/request-binding";
 import type { ApprovalRecentOpen } from "../composition/approval-policy";
 import { deadlineArms, inputRecord, resolutionRecord } from "./../journal/request-binding";

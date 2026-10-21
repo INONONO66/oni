@@ -1,4 +1,4 @@
-import type { BusEvent, Message, Model, PlainObject, Token, Tool } from "@openomni/protocol";
+import type { BusEvent, Message, Model, PlainObject, Token, Tool } from "@oni/protocol";
 import { Context, Data, type Effect } from "effect";
 import { z } from "zod";
 
@@ -175,7 +175,7 @@ export interface LlmPort {
 }
 
 /** The Context tag the composition root binds; the key predates the port. */
-export class Llm extends Context.Service<Llm, LlmPort>()("@openomni/agent/Llm") {}
+export class Llm extends Context.Service<Llm, LlmPort>()("@oni/agent/Llm") {}
 
 /** Add billed usage, including failed attempts; auxiliary counts are not billed twice. */
 export function accumulateUsage(total: Token.AgentUsage, usage: Token.ProviderUsage): void {

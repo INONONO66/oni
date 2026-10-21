@@ -1,4 +1,4 @@
-import type { Ingress, SessionRead } from "@openomni/protocol";
+import type { Ingress, SessionRead } from "@oni/protocol";
 import { GatewayUnavailableError } from "../errors";
 import { queryOptions, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";

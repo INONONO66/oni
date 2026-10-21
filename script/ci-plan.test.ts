@@ -122,22 +122,22 @@ test("includes test-only permitted dependencies transitively without a workspace
       ...sample,
       key: "future",
       dir: "packages/future",
-      packageName: "@openomni/future",
-      allowedDeps: ["@openomni/ui"],
+      packageName: "@oni/future",
+      allowedDeps: ["@oni/ui"],
       srcAllowedDeps: [],
     },
     {
       ...sample,
       key: "downstream",
       dir: "apps/downstream",
-      packageName: "@openomni/downstream",
-      allowedDeps: ["@openomni/future"],
+      packageName: "@oni/downstream",
+      allowedDeps: ["@oni/future"],
     },
     {
       ...sample,
       key: "wildcard",
       dir: "apps/wildcard",
-      packageName: "@openomni/wildcard",
+      packageName: "@oni/wildcard",
       allowedDeps: "any-except-self",
     },
   ];
@@ -167,13 +167,13 @@ test("accepts an explicitly empty diff with a reason", () => {
 
 test("validates dependency references even for documentation-only or full plans", () => {
   // Given an invalid graph, when planned, then neither fast path hides it.
-  const topology = [{ ...TOPOLOGY[0], allowedDeps: ["@openomni/missing"] }];
+  const topology = [{ ...TOPOLOGY[0], allowedDeps: ["@oni/missing"] }];
   expect(() => planChanges(["README.md"], false, topology)).toThrow();
   expect(() => planChanges(undefined, true, topology)).toThrow();
 });
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "openomni-ci-plan-"));
+  const root = mkdtempSync(join(tmpdir(), "oni-ci-plan-"));
   const env = {
     ...process.env,
     GITHUB_EVENT_NAME: "pull_request",
@@ -235,7 +235,7 @@ test("plans both rename endpoints from real NUL-delimited git output without exe
   expect(plan.lanes).toEqual([
     "machines",
     "codemode",
-    "openomniApp",
+    "oniApp",
     "ui",
     "desktopApp",
   ]);

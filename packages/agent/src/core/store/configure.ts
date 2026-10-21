@@ -1,4 +1,4 @@
-import { canonicalDigest, ConsumptionSettings, type ConfigureDisabled, type LedgerAction, type LedgerSession, SessionGeneration, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { canonicalDigest, ConsumptionSettings, type ConfigureDisabled, type LedgerAction, type LedgerSession, SessionGeneration, type Storage as ProtocolStorage } from "@oni/protocol";
 import { z } from "zod";
 import { GATE_ROW_WRITER_VERSION } from "../ports/gate-rows";
 import { LedgerInvariant } from "./errors";

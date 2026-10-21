@@ -1,4 +1,4 @@
-import type { BusEvent } from "@openomni/protocol";
+import type { BusEvent } from "@oni/protocol";
 import { Bus } from "./bus";
 import { bounded } from "./bounded";
 

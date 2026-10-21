@@ -4,7 +4,7 @@ import {
   type PlainValue,
   PlainValueSchema,
   PolicyRef,
-} from "@openomni/protocol";
+} from "@oni/protocol";
 import { z } from "zod";
 import type { Effect } from "effect";
 import { clonePlain, freezePlain } from "./match";

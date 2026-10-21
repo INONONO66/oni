@@ -1,5 +1,5 @@
 import { generationSnapshot, configureAction } from "../../src/core/store/configure";
-import { PlainValueSchema, type LedgerAction } from "@openomni/protocol";
+import { PlainValueSchema, type LedgerAction } from "@oni/protocol";
 import { turnTerminalAction } from "../../src/core/journal/turn-rows";
 import { requireCommit } from "../../src/testing/commit";
 import type { ExecutionLedger } from "../../src/core/loop/executor";

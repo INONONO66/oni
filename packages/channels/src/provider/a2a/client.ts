@@ -1,4 +1,4 @@
-import type { PlainValue } from "@openomni/protocol";
+import type { PlainValue } from "@oni/protocol";
 import { ChannelsFailure, DeliveryNotSent } from "../../errors";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import type { PublishPort } from "../../types";

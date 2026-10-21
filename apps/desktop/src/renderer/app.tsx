@@ -5,7 +5,7 @@ import {
   type ConsoleStrip,
   StatusGlyph,
   type WindowPlatform,
-} from "@openomni/ui";
+} from "@oni/ui";
 import { useStore } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect, useMemo } from "react";
 import { SessionContent, useSessionChats } from "./chat/session-content";

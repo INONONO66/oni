@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { LedgerSession, Storage as ProtocolStorage } from "@openomni/protocol";
+import type { LedgerSession, Storage as ProtocolStorage } from "@oni/protocol";
 import type { LedgerError } from "./errors";
 import type { CatalogStore } from "./catalog.js";
 import type { SessionStore } from "./session-file/index.js";

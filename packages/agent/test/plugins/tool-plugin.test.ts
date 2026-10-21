@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createDispatcher, createTurnDispatcher } from "../../src/plugins/tool";
 import { defineTool } from "../../src/core/loop/tool";
 import type { Executor } from "../../src/core/loop/executor";
-import type { AnyToolDefinition, LedgerAction } from "@openomni/protocol";
+import type { AnyToolDefinition, LedgerAction } from "@oni/protocol";
 import { recordingLedger } from "../../test/helpers/recording-ledger";
 import { runAgentSync } from "../helpers/executor";
 import { catalogLayer } from "../helpers/service-layers";

@@ -1,4 +1,4 @@
-import { canonicalDigest, type LedgerAction, type LedgerSession, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type LedgerAction, type LedgerSession, type SessionTransition } from "@oni/protocol";
 
 /** A resident session row `id` leased to owner `kernel` at fence/revision/generation 1 in `state`. */
 export function kernelOwnedRow(id: string, state: LedgerSession.State): LedgerSession.Row {

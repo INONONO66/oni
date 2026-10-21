@@ -1,7 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import net from "node:net";
 import tls from "node:tls";
-import type { IdSource, Ipc, PlainValue } from "@openomni/protocol";
+import type { IdSource, Ipc, PlainValue } from "@oni/protocol";
 import { Effect, type Scope } from "effect";
 import { IpcConnectionError, IpcPeerKeyMismatchError, IpcProtocolError, type IpcError } from "./errors";
 import { decodeIpcFailure } from "../failure";

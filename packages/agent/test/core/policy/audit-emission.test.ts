@@ -4,7 +4,7 @@ import { Effect, Fiber } from "effect";
 import { expect, it } from "bun:test";
 import type { ExecutionLedger } from "../../../src/core/loop/executor";
 import { compilePolicySnapshot } from "../../../src/core/gate/compile";
-import { L0Observation, type LedgerAction, type PolicyRow } from "@openomni/protocol";
+import { L0Observation, type LedgerAction, type PolicyRow } from "@oni/protocol";
 import { isolated } from "../../helpers/isolated";
 
 function policyRow(name: string, kind: PolicyRow.Row["kind"], phase: PolicyRow.Phase, verdict: PolicyRow.Row["verdict"]["value"]): PolicyRow.Row {

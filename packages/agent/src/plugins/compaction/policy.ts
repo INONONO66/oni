@@ -1,5 +1,5 @@
 import { Effect, Result, Scope } from "effect";
-import type { Message } from "@openomni/protocol";
+import type { Message } from "@oni/protocol";
 import type {
   CompactionOutcome,
   CompactionPort,

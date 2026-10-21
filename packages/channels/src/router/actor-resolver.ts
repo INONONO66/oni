@@ -1,4 +1,4 @@
-import type { Actor, Gateway } from "@openomni/protocol";
+import type { Actor, Gateway } from "@oni/protocol";
 import type { ChannelStores } from "./stores.js";
 import { matchBlacklist } from "./blacklist.js";
 import { resolveChannelGrant } from "./channel-grant.js";

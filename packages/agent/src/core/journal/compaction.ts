@@ -1,4 +1,4 @@
-import { canonicalDigest, PlainValueSchema, SessionTurn, FoldCheckpoint, type LedgerAction, type LedgerSession } from "@openomni/protocol";
+import { canonicalDigest, PlainValueSchema, SessionTurn, FoldCheckpoint, type LedgerAction, type LedgerSession } from "@oni/protocol";
 import { Effect } from "effect";
 import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryCheckpoint } from "../../inspect/history";
 import type { CompactionPortService } from "../ports/compaction-ports";

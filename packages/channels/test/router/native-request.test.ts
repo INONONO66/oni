@@ -5,7 +5,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { runEffect } from "../helpers/effect";
 import { Effect } from "effect";
 import { effectFailure } from "../helpers/effect-failure";
-import { canonicalDigest, type SessionTransition } from "@openomni/protocol";
+import { canonicalDigest, type SessionTransition } from "@oni/protocol";
 import { answerNativeRequest } from "../../src/router/request/native";
 import { openRequest, requestPort } from "../helpers/requests";
 import { makeRouter } from "./_router-fixture";

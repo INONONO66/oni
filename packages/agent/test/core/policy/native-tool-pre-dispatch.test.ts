@@ -4,7 +4,7 @@ import { testExecutor, runAgentSync } from "../../helpers/executor";
 import { executorLayer, catalogLayer } from "../../helpers/service-layers";
 import { expect, test } from "bun:test";
 import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
-import { PlainObjectSchema } from "@openomni/protocol";
+import { PlainObjectSchema } from "@oni/protocol";
 import { Cause, Effect, Fiber } from "effect";
 import { createHandlerTable } from "../../../src/core/gate/compile";
 import { requestLedger, crashAfterRequestOpen, failure } from "../../helpers/effect-g1";

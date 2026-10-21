@@ -6,7 +6,7 @@ import { runAgent } from "../../src/core/loop/turn";
 import type { ChatAgentInput } from "../../src/core/ports/types";
 import type { LlmSink as Sink } from "../../src/core/ports/llm";
 import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
-import type { PolicyRow } from "@openomni/protocol";
+import type { PolicyRow } from "@oni/protocol";
 import { recordingExecutor } from "./effect-g3-recording";
 import { TEST_BUDGET } from "../helpers/approval-policy";
 export { recordingExecutor, recordingLedger } from "./effect-g3-recording";

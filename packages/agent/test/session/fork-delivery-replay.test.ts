@@ -8,7 +8,7 @@ import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type BusEvent, L0Observation, type ObservationSink } from "@openomni/protocol";
+import { type BusEvent, L0Observation, type ObservationSink } from "@oni/protocol";
 import { deliveryActions, receivedMessageAction } from "../../src/core/journal/delivery";
 import { clusterTempDir, runCluster, sendPrompt, sessionFileFor, verifyChain } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";

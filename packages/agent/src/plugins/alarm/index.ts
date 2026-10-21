@@ -54,7 +54,7 @@ export interface AlarmBundlePurposes {
 
 /** Typed purpose-registry compose failure: no partial activation. */
 export class AlarmComposeError extends Schema.TaggedError<AlarmComposeError>(
-  "@openomni/agent/core/AlarmComposeError",
+  "@oni/agent/core/AlarmComposeError",
 )("AlarmComposeError", {
   code: Schema.Literals(["reserved_purpose", "duplicate_purpose"]),
   purpose: Schema.String,

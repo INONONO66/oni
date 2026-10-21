@@ -1,4 +1,4 @@
-import { canonicalDigest, Message } from "@openomni/protocol";
+import { canonicalDigest, Message } from "@oni/protocol";
 import { z } from "zod";
 import { latestCompactionAnchorId } from "./candidate";
 import { AgentInvariantViolation } from "../../core/api";

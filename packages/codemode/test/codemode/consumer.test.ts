@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import type { LeaseHandle } from "@openomni/machines";
+import type { LeaseHandle } from "@oni/machines";
 import { Effect } from "effect";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

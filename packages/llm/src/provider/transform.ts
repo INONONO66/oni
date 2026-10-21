@@ -1,4 +1,4 @@
-import { toolWireName } from "@openomni/protocol";
+import { toolWireName } from "@oni/protocol";
 import type { SDKMessage } from "../message";
 import type { Provider } from ".";
 

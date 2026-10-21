@@ -1,6 +1,6 @@
 import { generationSnapshot } from "../../src/core/store/configure";
 import { turnTerminal } from "../../src/core/store/session-reads";
-import type { LedgerAction } from "@openomni/protocol";
+import type { LedgerAction } from "@oni/protocol";
 import { turnIntentAction, turnTerminalAction } from "../../src/core/journal/turn-rows";
 
 /** Canonical generation-1 snapshot shared by FSM and admission fixtures. */

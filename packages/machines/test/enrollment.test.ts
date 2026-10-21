@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Machine } from "@openomni/protocol";
+import type { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { eventCollector } from "./helpers/events";

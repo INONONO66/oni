@@ -1,5 +1,5 @@
 import { Context, Layer, Effect, type Scope } from "effect";
-import { listenForAbort, type AnyToolDefinition, type ObservationSink as ObservationPort, type SessionGeneration } from "@openomni/protocol";
+import { listenForAbort, type AnyToolDefinition, type ObservationSink as ObservationPort, type SessionGeneration } from "@oni/protocol";
 import type { CompiledPolicySnapshot } from "../gate/compile";
 import type { Llm } from "./llm";
 import type { SessionError } from "./failure";
@@ -15,7 +15,7 @@ export interface EntropySource {
   readonly random: () => number;
 }
 
-export class Entropy extends Context.Service<Entropy, EntropySource>()("@openomni/agent/Entropy") {
+export class Entropy extends Context.Service<Entropy, EntropySource>()("@oni/agent/Entropy") {
   static readonly layer = (source: EntropySource): Layer.Layer<Entropy> => Layer.succeed(Entropy, source);
 }
 
@@ -46,31 +46,31 @@ export interface CapturedGeneration {
   retain(): () => void;
 }
 
-export class GenerationOwnership extends Context.Service<GenerationOwnership, CapturedGeneration>()("@openomni/agent/GenerationOwnership") {}
+export class GenerationOwnership extends Context.Service<GenerationOwnership, CapturedGeneration>()("@oni/agent/GenerationOwnership") {}
 
 export interface GenerationLayersService {
-  initialize(definitions: Readonly<Record<import("@openomni/protocol").LedgerSession.Role, readonly AnyToolDefinition[]>>): Effect.Effect<void, SessionError>;
+  initialize(definitions: Readonly<Record<import("@oni/protocol").LedgerSession.Role, readonly AnyToolDefinition[]>>): Effect.Effect<void, SessionError>;
   capture(id: SessionGeneration.Id): Effect.Effect<CapturedGeneration, SessionError, Scope.Scope>;
   configure<A>(id: SessionGeneration.Id, snapshot: SessionGeneration.Snapshot, commit: Effect.Effect<A, SessionError>): Effect.Effect<A, SessionError>;
   readonly settle: Effect.Effect<void>;
   readonly drain: Effect.Effect<void, SessionError>;
 }
 
-export class GenerationLayers extends Context.Service<GenerationLayers, GenerationLayersService>()("@openomni/agent/GenerationLayers") {}
+export class GenerationLayers extends Context.Service<GenerationLayers, GenerationLayersService>()("@oni/agent/GenerationLayers") {}
 
 export class ObservationSink extends Context.Service<
   ObservationSink,
   ObservationPort & Required<Pick<ObservationPort, "subscribe" | "scope">>
->()("@openomni/agent/ObservationSink") {}
+>()("@oni/agent/ObservationSink") {}
 
 export class SessionLayer extends Context.Service<
   SessionLayer,
   { readonly snapshot: SessionGeneration.Snapshot; readonly policy: CompiledPolicySnapshot }
->()("@openomni/agent/SessionLayer") {}
+>()("@oni/agent/SessionLayer") {}
 
 export class ToolCatalog extends Context.Service<
   ToolCatalog,
   { readonly definitions: readonly ToolDispatchDefinition[] }
->()("@openomni/agent/ToolCatalog") {}
+>()("@oni/agent/ToolCatalog") {}
 
-export class Ledger extends Context.Service<Ledger, LedgerPlane>()("@openomni/agent/core/Ledger") {}
+export class Ledger extends Context.Service<Ledger, LedgerPlane>()("@oni/agent/core/Ledger") {}

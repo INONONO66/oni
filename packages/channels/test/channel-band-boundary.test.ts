@@ -7,7 +7,7 @@ import ts from "typescript";
 const CHANNEL_ROOT = fileURLToPath(new URL("../src", import.meta.url));
 // zod is pure schema validation — no I/O, no authority — and providers declare
 // their credential/settings schemas in-band (docs/provisioning-and-providers.md §4).
-const DRIVER_ALLOWED_PACKAGES = new Set(["@openomni/protocol", "zod", "effect"]);
+const DRIVER_ALLOWED_PACKAGES = new Set(["@oni/protocol", "zod", "effect"]);
 // #1569: platform transport is the agent-messenger SDK. Each SDK subpath has
 // exactly one home — the provider's `sdk.ts` seam — so SDK types never reach
 // a surface, the router or the stores except through that file.
@@ -20,7 +20,7 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/instagram", "src/provider/instagram/owner-sdk.ts"],
   ["agent-messenger/kakaotalk", "src/provider/kakaotalk/owner-sdk.ts"],
 ]);
-const JUDGMENT_ALLOWED_PACKAGES = new Set(["@openomni/agent"]);
+const JUDGMENT_ALLOWED_PACKAGES = new Set(["@oni/agent"]);
 const JUDGMENT_DIRS = ["src/router/", "src/authn/", "src/store/"] as const;
 // #1317: the channel-facing persistence band owns its SQLite adapters, so the
 // runtime's built-in driver is legal there — and only there.
@@ -176,9 +176,9 @@ describe("channels band import boundary", () => {
       detectBandViolations([
         {
           path: "src/websocket.ts",
-          text: 'import Ledger = require("@openomni/agent");',
+          text: 'import Ledger = require("@oni/agent");',
         },
       ]),
-    ).toEqual(["src/websocket.ts: imports @openomni/agent"]);
+    ).toEqual(["src/websocket.ts: imports @oni/agent"]);
   });
 });

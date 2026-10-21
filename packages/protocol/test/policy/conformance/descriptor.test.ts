@@ -107,7 +107,7 @@ const descriptorFixtures: Policy.Resource.Descriptor[] = [
     labels: ["source:project", "skill.git"],
     capabilities: ["behavior.inject"],
     effects: ["prompt.modify"],
-    source: { type: "project", projectId: "openomni", path: ".opencode/skill/git-master" },
+    source: { type: "project", projectId: "oni", path: ".opencode/skill/git-master" },
   }),
   Policy.Resource.Descriptor.parse({
     id: "mcpSource:server:filesystem",
@@ -123,7 +123,7 @@ const descriptorFixtures: Policy.Resource.Descriptor[] = [
     labels: ["source:file", "credential.anthropic"],
     capabilities: [],
     effects: [],
-    source: { type: "file", path: "/var/openomni/secrets/anthropic.json" },
+    source: { type: "file", path: "/var/oni/secrets/anthropic.json" },
   }),
   Policy.Resource.Descriptor.parse({
     id: "policy:operator:default",
@@ -169,7 +169,7 @@ describe("Policy.Resource.Descriptor conformance", () => {
   });
 
   test("redact removes credential source paths from serialized descriptors", () => {
-    const secretPath = "/var/openomni/secrets/anthropic.json";
+    const secretPath = "/var/oni/secrets/anthropic.json";
     const credential = Policy.Resource.Descriptor.parse({
       id: "credential:anthropic:api-key",
       kind: "credential",

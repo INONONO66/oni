@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LedgerAction, type Message, SessionTransition } from "@openomni/protocol";
+import { LedgerAction, type Message, SessionTransition } from "@oni/protocol";
 import { z } from "zod";
 import { renderAnchorText } from "../../src/plugins/compaction/summary";
 import { alarmDisposition } from "../../src/core/ports/alarm";

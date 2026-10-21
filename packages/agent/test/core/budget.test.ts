@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { Bus } from "../helpers/bus";
 import { collector } from "../helpers/observation-collector";
 import { captureBusEvents } from "../helpers/bus-event";

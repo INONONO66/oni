@@ -3,9 +3,9 @@ import type { RoutingDecisionPayload } from "../event/ingress.js";
 
 /**
  * Shared route.decided recorder core (batch ② commit 1). The two ingress
- * arms — the gateway router (external, @openomni/channels) and the brain's
+ * arms — the gateway router (external, @oni/channels) and the brain's
  * internal product path — may not import each other
- * (openomni↛channels = 0/0), so the PURE parts of their once byte-identical
+ * (oni↛channels = 0/0), so the PURE parts of their once byte-identical
  * `route.decided` recorders are hoisted here: both arms import these and do
  * their OWN durable record (each through its own scoped `DecisionFacts.port()`
  * and its own package-local typed error). Precedent: the #707 slice-1 wait

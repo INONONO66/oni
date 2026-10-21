@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { resolveRoute, type RouteState } from "../../src/router/resolve-route.js";
 
 type RouteInbound = Parameters<typeof resolveRoute>[0];

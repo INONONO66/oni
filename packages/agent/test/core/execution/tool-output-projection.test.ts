@@ -7,7 +7,7 @@ import { configureAction } from "../../../src/core/store/configure";
  */
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { canonicalDigest, canonicalJson, type LedgerAction, type PlainValue } from "@openomni/protocol";
+import { canonicalDigest, canonicalJson, type LedgerAction, type PlainValue } from "@oni/protocol";
 import { useMemoryStores, testNow } from "../../store/helpers/storage";
 import { actionPayloadBytes } from "../../../src/core/store/action-hash";
 import { L0Write } from "../../../src/core/store/session-file";

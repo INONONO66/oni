@@ -8,7 +8,7 @@ rules:
   scope-enum:
     - 1
     - always
-    - [protocol, ipc, telemetry, ledger, policy, placement, llm, agent, machines, channels, openomni, script, docs]
+    - [protocol, ipc, telemetry, ledger, policy, placement, llm, agent, machines, channels, oni, script, docs]
   header-max-length:
     - 2
     - always

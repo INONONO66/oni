@@ -195,7 +195,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ startsWith(matrix.key, 'scripts-tooling-') && 15 || 30 }}
     env:
-      OPENOMNI_CHILD_COVERAGE_DIR: ${{ github.workspace }}/apps/openomni/coverage/children
+      ONI_CHILD_COVERAGE_DIR: ${{ github.workspace }}/apps/oni/coverage/children
     strategy:
       fail-fast: false
       # ci-plan derives scripts-tooling-1 and scripts-tooling-2 from scriptPartitions.
@@ -251,11 +251,11 @@ jobs:
         if: matrix.key == 'channels'
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
         working-directory: packages/channels
-      - name: Test (openomni app)
-        if: matrix.key == 'openomniApp'
+      - name: Test (oni app)
+        if: matrix.key == 'oniApp'
         timeout-minutes: 10
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage
-        working-directory: apps/openomni
+        working-directory: apps/oni
       - name: Test (ui design system)
         if: matrix.key == 'ui'
         run: bun test --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage

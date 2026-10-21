@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import net from "node:net";
 import { connectIpcClient, createIpcServer, typedCall } from "./ipc/helpers/native";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { attachMachineDaemon, createMachineHost, MachineRefusalError } from "./helpers/native";
 import { socketPath } from "./helpers/socket-path";
 import { startProxy } from "./helpers/proxy";

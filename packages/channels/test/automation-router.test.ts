@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { Ingress } from "@openomni/protocol";
+import { Ingress } from "@oni/protocol";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
 import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";

@@ -7,7 +7,7 @@ const startupScript = join(import.meta.dirname, "startup.cjs");
 
 test("production desktop shell boots with its bridge and CSP", async () => {
   const testInfo = test.info();
-  const profile = await mkdtemp(join(tmpdir(), "openomni-desktop-smoke-"));
+  const profile = await mkdtemp(join(tmpdir(), "oni-desktop-smoke-"));
   const errorsFile = join(profile, "startup-errors.jsonl");
   const environment = Object.fromEntries(
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
@@ -30,7 +30,7 @@ test("production desktop shell boots with its bridge and CSP", async () => {
     page.on("console", (message) => {
       if (message.type() === "error") rendererErrors.push(message.text());
     });
-    await expect(page).toHaveTitle("OpenOmni Desktop");
+    await expect(page).toHaveTitle("Oni Desktop");
     const root = page.locator('[data-ui="Console.Content"]');
     await expect(root).toBeVisible();
     const bounds = await root.boundingBox();

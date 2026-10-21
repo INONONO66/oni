@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { Provisioning, type Storage as ProtocolStorage } from "@openomni/protocol";
+import { Provisioning, type Storage as ProtocolStorage } from "@oni/protocol";
 import { z } from "zod";
 import { sqliteJsonData } from "./json";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Operational } from "@openomni/protocol";
+import { Operational } from "@oni/protocol";
 import { Effect } from "effect";
 import { RunEvents } from "../../../src/core/loop/turn";
 import { Bus } from "../../helpers/bus";

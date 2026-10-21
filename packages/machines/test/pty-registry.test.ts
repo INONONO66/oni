@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Machine } from "@openomni/protocol";
+import { Machine } from "@oni/protocol";
 import { createPtyRegistry, PTY_LIVE_RETAIN_MAX_BYTES } from "../src/pty-registry";
 
 function opened(generation = "gen-a") {

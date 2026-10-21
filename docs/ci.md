@@ -16,7 +16,7 @@ changes take the maximum class in the table; scopes are unions.
 | --- | --- | --- | --- |
 | `docs` | Root `*.md` or `docs/**` only | None | No |
 | `desktop` | `apps/desktop/**`, `packages/ui/**` | Affected workspaces and consumers | No |
-| `kernel` | Other packages or `apps/openomni/**` | Affected workspaces and consumers | No |
+| `kernel` | Other packages or `apps/oni/**` | Affected workspaces and consumers | No |
 | `tooling` | `script/**` except conformance contracts | Changed workspace lanes, if present | Two tooling shards |
 | `global` | Protocol, manifests/lockfile, conformance contracts, CI/root configuration, malformed or unowned paths | All | Two tooling shards |
 
@@ -72,7 +72,7 @@ baselines). A PR is admitted by:
   allow-list; `check-deps.ts` additionally pins
   per-file direct agent-core responsibility tokens (`kernel.commit`,
   `createSessionEntityLayer`, `SqliteClient.layer`, ...) referenced from
-  `apps/openomni/src` code — comments and strings never count, a new app
+  `apps/oni/src` code — comments and strings never count, a new app
   file starts at zero, and pin slack is judged only inside a git checkout
   (outside one the skip prints a NOTICE and growth is still judged).
 - **Tests**: selected workspace lanes and, for tooling/full plans, the two
@@ -139,7 +139,7 @@ shards. All lanes must succeed before the audit can publish issues.
 | --- | --- |
 | Absolute line coverage | Bun LCOV, unioned across the same lanes as CI; per-file covered/executable denominators, with unloaded production/tooling sources explicitly reported as missing records |
 | Cognitive complexity | The pinned Biome engine used by Ultracite, JSON reporter, `noExcessiveCognitiveComplexity` above 21; `--only` also measures the two lint-override files |
-| Cyclomatic complexity | TypeScript 5.9.2 AST function walker `openomni-typescript-function-metrics-v1`; one plus branch, loop, catch, case, conditional-expression and short-circuit decision nodes; exclusive maximum 22 |
+| Cyclomatic complexity | TypeScript 5.9.2 AST function walker `oni-typescript-function-metrics-v1`; one plus branch, loop, catch, case, conditional-expression and short-circuit decision nodes; exclusive maximum 22 |
 | Halstead difficulty | The same function walker counts TypeScript operator and operand tokens and computes `(distinct operators / 2) * (total operands / distinct operands)`; exclusive maximum 80 |
 | CRAP | `cyclomatic^2 * (1 - coverage)^3 + cyclomatic`, where coverage is the function's fraction of covered LCOV `DA` lines; exclusive maximum 25 |
 | Clones | Pinned jscpd, separate production and test configurations, at least 5 lines and 50 tokens; fixtures, declarations and generated output excluded |
@@ -208,7 +208,7 @@ whole suite) consume it. A scheduled workflow that skips it fails before any
 measurement: the audit lane with `ModuleNotFoundError: playwright`, the
 mutation shards with `baseline test selection is not green`.
 
-`script/check-effect-boundaries.ts` is the fail-closed boundary gate. It scans tracked and non-ignored untracked TypeScript under `apps/`, `packages/` and `script/`, resolves Effect runners through imports and repository re-exports, and permits execution only in `apps/openomni/src/cli/main.ts` and `apps/openomni/src/gateway.ts`. It also rejects Effect imports in protocol/UI/desktop/tool surfaces, forbidden excluded-package dependencies and Promise twins; the runner-site JSON (`script/conformance/effect-runner-sites.json`) is a shrink-only ratchet whose live rows are reported without failure and whose stale rows fail. Ratchet rows may name only non-production sites (`packages|apps/<ws>/test|bench/...` or `script/*.test.ts`); a production `src/` row is `R2_INVALID_ALLOWLIST`, so production runners outside the two app edges always fail. The remaining test/helper/bench rows are owed to W5 #1113 (zero target).
+`script/check-effect-boundaries.ts` is the fail-closed boundary gate. It scans tracked and non-ignored untracked TypeScript under `apps/`, `packages/` and `script/`, resolves Effect runners through imports and repository re-exports, and permits execution only in `apps/oni/src/cli/main.ts` and `apps/oni/src/gateway.ts`. It also rejects Effect imports in protocol/UI/desktop/tool surfaces, forbidden excluded-package dependencies and Promise twins; the runner-site JSON (`script/conformance/effect-runner-sites.json`) is a shrink-only ratchet whose live rows are reported without failure and whose stale rows fail. Ratchet rows may name only non-production sites (`packages|apps/<ws>/test|bench/...` or `script/*.test.ts`); a production `src/` row is `R2_INVALID_ALLOWLIST`, so production runners outside the two app edges always fail. The remaining test/helper/bench rows are owed to W5 #1113 (zero target).
 
 `script/scripts-lanes.ts` is the explicit recursive test manifest. Its contract
 test rejects missing, duplicate and newly unassigned `script/**/*.test.ts` files.

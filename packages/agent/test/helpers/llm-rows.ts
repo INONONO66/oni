@@ -1,4 +1,4 @@
-import type { LedgerAction, PlainObject, PlainValue } from "@openomni/protocol";
+import type { LedgerAction, PlainObject, PlainValue } from "@oni/protocol";
 
 type Row = Pick<LedgerAction.Append, "kind" | "intent" | "effect" | "parentId"> & {
   readonly id: string;

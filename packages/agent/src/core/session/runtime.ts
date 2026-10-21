@@ -6,7 +6,7 @@ import type { SessionPolicyRefusal } from "../journal/messages";
 
 import type { SessionKernel } from "./entity";
 import type { InspectRequest, InspectionPage } from "../../inspect";
-import type { Delivery, LedgerAction, LedgerSession, ObservationSink, SessionGeneration, ConfigureDisabled, SessionHistory, SessionTurn, SessionTransition } from "@openomni/protocol";
+import type { Delivery, LedgerAction, LedgerSession, ObservationSink, SessionGeneration, ConfigureDisabled, SessionHistory, SessionTurn, SessionTransition } from "@oni/protocol";
 import type { ChatAgentConfig } from "../ports/types";
 import type { decideSessionAdmission } from "./admission";
 import type { Generation } from "../composition/compose";
@@ -62,7 +62,7 @@ export interface SessionRunnerInput {
     readonly id?: string;
     readonly time?: number;
   })[];
-  readonly history?: readonly import("@openomni/protocol").Message.WithParts[];
+  readonly history?: readonly import("@oni/protocol").Message.WithParts[];
   readonly hydrated?: import("../../inspect/history").HydratedSessionHistory;
   readonly tools: readonly SessionGeneration.Tool[];
   readonly toolsGeneration: number;

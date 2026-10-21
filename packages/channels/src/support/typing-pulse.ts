@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Gateway } from "@openomni/protocol";
+import type { Gateway } from "@oni/protocol";
 import type { ProviderTypingRoute } from "../provider/contract.js";
 
 /**

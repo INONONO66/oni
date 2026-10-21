@@ -1,5 +1,5 @@
 import type { Effect, Scope } from "effect";
-import type { BusEvent, Message } from "@openomni/protocol";
+import type { BusEvent, Message } from "@oni/protocol";
 import type { CompactionRecord } from "./durable";
 import type {
   CompactionOptions,

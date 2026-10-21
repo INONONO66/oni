@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Gateway } from "@openomni/protocol";
+import { Gateway } from "@oni/protocol";
 import { TelegramNormalizer } from "../src/provider/telegram/normalizer";
 import { TelegramUpdateSchema } from "../src/provider/telegram/types";
 import { SlackNormalizer } from "../src/provider/slack/normalizer";

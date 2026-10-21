@@ -4,7 +4,7 @@ import { notifyManager, QueryClient } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
 import { z } from "zod";
-import type { SessionRead } from "@openomni/protocol";
+import type { SessionRead } from "@oni/protocol";
 import { App } from "../src/renderer/app";
 import { StateProvider } from "../src/renderer/state/provider";
 import { queryKeys } from "../src/renderer/state/queries";

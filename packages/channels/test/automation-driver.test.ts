@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, expect, test } from "bun:test";
-import { type Channel, Gateway, Ingress } from "@openomni/protocol";
+import { type Channel, Gateway, Ingress } from "@oni/protocol";
 import { GitHubAdapter } from "../src/provider/github/surface.js";
 import { WebhookAdapter } from "../src/provider/webhook/surface.js";
 import { inboundIdOf } from "../src/router/inbound-id.js";

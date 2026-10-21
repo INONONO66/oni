@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Deferred, Effect } from "effect";
-import { Ipc } from "@openomni/protocol";
+import { Ipc } from "@oni/protocol";
 import { makeDispatcher } from "../../src/ipc/callbacks";
 import { IpcQueueFullError } from "../../src/ipc/errors";
 import { run } from "./helpers/effects";

@@ -1,4 +1,4 @@
-import type { Actor } from "@openomni/protocol";
+import type { Actor } from "@oni/protocol";
 import { ledger, resetLedger } from "../helpers/ledger";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { resetGrantStore } from "../helpers/channel-grant";
