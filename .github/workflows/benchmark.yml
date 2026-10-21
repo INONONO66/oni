@@ -60,7 +60,7 @@ jobs:
         run: |
           bun run script/summarize-benchmark-runs.ts --validate-input
           bun run script/check-benchmark-regression.ts --validate-input
-      - run: bunx turbo run build --filter=@oni/protocol
+      - run: bunx turbo run build --filter=./packages/protocol
 
       # Accepted history is data only. Both revisions use the head-pinned Bun,
       # but install their own frozen dependency graphs in separate worktrees.
@@ -83,7 +83,7 @@ jobs:
           (
             cd "$REFERENCE_WORKTREE"
             bun install --frozen-lockfile
-            bunx turbo run build --filter=@oni/protocol
+            bunx turbo run build --filter=./packages/protocol
           )
 
       - name: Run repeated paired benchmarks
@@ -158,7 +158,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      - run: bunx turbo run build --filter=@oni/protocol
+      - run: bunx turbo run build --filter=./packages/protocol
       - run: bun test ./packages/agent/test/store/bench/memory-regression.bench.ts
 
   publish:
