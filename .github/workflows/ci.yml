@@ -28,6 +28,7 @@ jobs:
       verify: ${{ steps.select.outputs.verify }}
       matrix: ${{ steps.select.outputs.matrix }}
       dependencyReview: ${{ steps.select.outputs.dependencyReview }}
+      clients: ${{ steps.select.outputs.clients }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -71,6 +72,31 @@ jobs:
           path: workspace-dist.tar
           if-no-files-found: error
           retention-days: 14
+
+  clients:
+    name: Clients (Rust)
+    needs: [plan]
+    if: needs.plan.outputs.clients == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup
+      - run: bun install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients
+      - run: bun run --cwd packages/protocol build
+      - run: bun run script/generate-machine-schema.ts --check
+      - run: bun run clients:lint
+      - run: bun run clients:test
 
   desktop-smoke:
     name: Desktop production smoke
@@ -342,7 +368,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [plan, prepare, tests, scripts-contracts, static, deps, desktop-smoke, patch-coverage, dependency-review]
+    needs: [plan, prepare, clients, tests, scripts-contracts, static, deps, desktop-smoke, patch-coverage, dependency-review]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -355,6 +381,17 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ci-plan
+      - name: Verify Clients Rust completion
+        env:
+          CLIENTS_ENABLED: ${{ needs.plan.outputs.clients }}
+          CLIENTS_RESULT: ${{ needs.clients.result }}
+        run: |
+          if [[ "$CLIENTS_ENABLED" == "true" ]]; then
+            test "$CLIENTS_RESULT" = "success"
+          else
+            test "$CLIENTS_ENABLED" = "false"
+            test "$CLIENTS_RESULT" = "skipped"
+          fi
       - run: bun run ci gate --plan ci-plan.json
         env:
           CI_NEEDS: ${{ toJSON(needs) }}

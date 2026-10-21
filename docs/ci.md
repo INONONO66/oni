@@ -31,6 +31,11 @@ global: contracts and consumers require the complete validated dist archive.
 The plan travels as `ci-plan.json` in the `ci-plan` artifact; only small
 selection fields and the matrix travel through job outputs.
 
+The **Clients (Rust)** lane runs on full plans and when a PR changes
+`clients/**`, `packages/protocol/**`, `script/generate-machine-schema.ts`, or
+`.github/workflows/ci.yml`. It rebuilds the protocol schema before formatting,
+linting, and testing the `clients/` workspace.
+
 ## CI tiers and merge queue
 
 CI has two tiers with the same job names and required `CI` status. The scoped PR

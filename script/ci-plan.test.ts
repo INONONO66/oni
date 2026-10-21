@@ -16,7 +16,11 @@ import { TOPOLOGY, type WorkspaceTopology } from "./topology";
 
 const keys = (paths: readonly string[], topology: readonly WorkspaceTopology[] = TOPOLOGY) =>
   planChanges(paths, false, topology).matrix.include.map((row) => row.key);
-const allKeys = [...TOPOLOGY.map((workspace) => workspace.key), "scripts-tooling-1", "scripts-tooling-2"];
+const allKeys = [
+  ...TOPOLOGY.map((workspace) => workspace.key),
+  "scripts-tooling-1",
+  "scripts-tooling-2",
+];
 const cli = join(import.meta.dir, "ci-plan.ts");
 const planSchema = z
   .object({
@@ -24,6 +28,7 @@ const planSchema = z
     class: z.enum(["docs", "desktop", "kernel", "tooling", "global"]),
     lanes: z.array(z.string()),
     toolingTests: z.boolean(),
+    clients: z.boolean(),
     full: z.boolean(),
     verify: z.boolean(),
     dependencyReview: z.boolean(),
@@ -54,8 +59,16 @@ test.each([
 
 test("merge-group planning is full and global", () => {
   const plan = planChanges(undefined, true);
-  expect(plan).toMatchObject({ full: true, class: "global", toolingTests: true });
+  expect(plan).toMatchObject({ full: true, class: "global", toolingTests: true, clients: true });
   expect(plan.lanes).toEqual(allKeys);
+});
+
+test.each([
+  ["clients/machine-client/src/main.rs", true],
+  ["packages/protocol/src/index.ts", true],
+  ["packages/machines/src/index.ts", false],
+])("selects the Clients Rust lane as %s changes", (path, clients) => {
+  expect(planChanges([path]).clients).toBe(clients);
 });
 
 test("v2 scopes a desktop change to its own lanes", () => {
@@ -232,13 +245,7 @@ test("plans both rename endpoints from real NUL-delimited git output without exe
   // Then both old and new owners propagate, with machine-only output fields.
   expect(result.exitCode).toBe(0);
   const plan = planSchema.parse(JSON.parse(result.stdout.toString()));
-  expect(plan.lanes).toEqual([
-    "machines",
-    "codemode",
-    "oniApp",
-    "ui",
-    "desktopApp",
-  ]);
+  expect(plan.lanes).toEqual(["machines", "codemode", "oniApp", "ui", "desktopApp"]);
   const lines = readFileSync(output, "utf8").trim().split("\n");
   expect(lines).toEqual([
     `full=${plan.full}`,
@@ -247,6 +254,7 @@ test("plans both rename endpoints from real NUL-delimited git output without exe
     `matrix=${JSON.stringify(plan.matrix)}`,
     `class=${plan.class}`,
     `toolingTests=${plan.toolingTests}`,
+    `clients=${plan.clients}`,
   ]);
   expect(existsSync(join(repo.root, "PWNED"))).toBe(false);
 });
@@ -268,7 +276,12 @@ test("fails the actual CLI when PR input is absent", () => {
   expect(result.stdout.toString()).toBe("");
 });
 
-test.each(["push", "workflow_dispatch", "schedule", "merge_group"])("forces full for the %s event", (event) => {
+test.each([
+  "push",
+  "workflow_dispatch",
+  "schedule",
+  "merge_group",
+])("forces full for the %s event", (event) => {
   // Given a non-PR event without diff input, when invoked, then every gate runs.
   using repo = fixture();
   const result = repo.run([], { GITHUB_EVENT_NAME: event });
@@ -315,7 +328,15 @@ test("main writes the complete GITHUB_OUTPUT contract for a full run", () => {
       process.chdir(cwd);
     }
     const written = readFileSync(output, "utf8");
-    for (const key of ["full=true", "verify=true", "dependencyReview=", "matrix=", "class=global", "toolingTests="]) {
+    for (const key of [
+      "full=true",
+      "verify=true",
+      "dependencyReview=",
+      "matrix=",
+      "class=global",
+      "toolingTests=",
+      "clients=true",
+    ]) {
       expect(written).toContain(key);
     }
   } finally {
