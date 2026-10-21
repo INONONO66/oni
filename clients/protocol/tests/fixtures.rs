@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use oni_protocol::DecodeError;
 use serde_json::Value;
 
 const SCHEMA_DIR: &str = concat!(
@@ -16,132 +17,108 @@ const FIXTURE_DIR: &str = concat!(
     "/../../packages/protocol/fixtures/machine"
 );
 
-/// Parses `value` as the generated type named `name` and serializes it back.
+/// Decodes `value` as the wire root named `name` before applying `on_valid`.
 /// `None` means the name is not one of the generated types.
-macro_rules! round_trip_by_name {
-    ($name:expr, $value:expr, [$($ty:ident,)*]) => {
+macro_rules! decode_by_name {
+    ($name:expr, $value:expr, $on_valid:expr, [$($ty:ident,)*]) => {
         match $name {
             $(stringify!($ty) => Some(
-                serde_json::from_value::<oni_protocol::$ty>($value)
-                    .map_err(|error| error.to_string())
-                    .and_then(|parsed| serde_json::to_value(parsed).map_err(|error| error.to_string())),
+                oni_protocol::decode::<oni_protocol::$ty>($value).map($on_valid),
             ),)*
             _ => None,
         }
     };
 }
 
-fn round_trip(name: &str, value: Value) -> Option<Result<Value, String>> {
-    round_trip_by_name!(
-        name,
-        value,
-        [
-            AbsolutePath,
-            AttachResult,
-            CancelCode,
-            CancelResult,
-            CapabilityId,
-            CapacityRow,
-            CapacityRows,
-            CellOutput,
-            CellRequest,
-            CellResult,
-            CellState,
-            CompletionRequest,
-            Enrollment,
-            EventAttached,
-            EventDetached,
-            EventEnrolled,
-            EventLeaseRefused,
-            EventPtyOutput,
-            EventReported,
-            EventUnenrolled,
-            ExecRequest,
-            ExecResult,
-            ExportName,
-            FsRequest,
-            FsResult,
-            FsStreamRequest,
-            FsStreamResult,
-            Info,
-            InputAction,
-            InputWriteRequest,
-            InputWriteResult,
-            KeyFingerprint,
-            LeaseRefusal,
-            Load,
-            MachineId,
-            Offer,
-            PeekAnswer,
-            PeekCode,
-            PeekRefused,
-            PeekResult,
-            PlacementOutcome,
-            PlacementRequest,
-            PtyCloseRequest,
-            PtyCloseResult,
-            PtyCursor,
-            PtyListRequest,
-            PtyListResult,
-            PtyOpenRequest,
-            PtyOpenResult,
-            PtyOutput,
-            PtyReadParams,
-            PtyReadRequest,
-            PtyReadResult,
-            PtyReadScreenRequest,
-            PtyResizeRequest,
-            PtyResizeResult,
-            PtyScreenResult,
-            PtySessionInfo,
-            PtySessionName,
-            PtyWriteRequest,
-            PtyWriteResult,
-            Report,
-            ReportResult,
-            Request,
-            Resources,
-            Response,
-            ScreenReadRequest,
-            ScreenReadResult,
-            ScreenRegion,
-            ToolCall,
-            ToolCallResult,
-            WireMethod,
-        ]
-    )
-}
-
-/// JSON value equality where numbers compare by value: a `number` field is an
-/// `f64` in Rust, so a fixture's `1` serializes back as `1.0`.
-fn same_json(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        (Value::Number(left), Value::Number(right)) => left.as_f64() == right.as_f64(),
-        (Value::Array(left), Value::Array(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right)
-                    .all(|(left, right)| same_json(left, right))
-        }
-        (Value::Object(left), Value::Object(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .all(|(key, value)| right.get(key).is_some_and(|other| same_json(value, other)))
-        }
-        _ => left == right,
-    }
-}
-
-fn read_json(path: &Path) -> Value {
-    let text =
-        fs::read_to_string(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
+macro_rules! decode_fixture {
+    ($name:expr, $value:expr, $on_valid:expr) => {
+        decode_by_name!(
+            $name,
+            $value,
+            $on_valid,
+            [
+                AbsolutePath,
+                AttachResult,
+                CancelCode,
+                CancelResult,
+                CapabilityId,
+                CapacityRow,
+                CapacityRows,
+                CellOutput,
+                CellRequest,
+                CellResult,
+                CellState,
+                CompletionRequest,
+                Enrollment,
+                EventAttached,
+                EventDetached,
+                EventEnrolled,
+                EventLeaseRefused,
+                EventPtyOutput,
+                EventReported,
+                EventUnenrolled,
+                ExecRequest,
+                ExecResult,
+                ExportName,
+                FsRequest,
+                FsResult,
+                FsStreamRequest,
+                FsStreamResult,
+                Info,
+                InputAction,
+                InputWriteRequest,
+                InputWriteResult,
+                KeyFingerprint,
+                LeaseRefusal,
+                Load,
+                MachineId,
+                Offer,
+                PeekAnswer,
+                PeekCode,
+                PeekRefused,
+                PeekResult,
+                PlacementOutcome,
+                PlacementRequest,
+                PtyCloseRequest,
+                PtyCloseResult,
+                PtyCursor,
+                PtyListRequest,
+                PtyListResult,
+                PtyOpenRequest,
+                PtyOpenResult,
+                PtyOutput,
+                PtyReadParams,
+                PtyReadRequest,
+                PtyReadResult,
+                PtyReadScreenRequest,
+                PtyResizeRequest,
+                PtyResizeResult,
+                PtyScreenResult,
+                PtySessionInfo,
+                PtySessionName,
+                PtyWriteRequest,
+                PtyWriteResult,
+                Report,
+                ReportResult,
+                Request,
+                Resources,
+                Response,
+                ScreenReadRequest,
+                ScreenReadResult,
+                ScreenRegion,
+                ToolCall,
+                ToolCallResult,
+                WireMethod,
+            ]
+        )
+    };
 }
 
 fn index() -> Value {
-    read_json(&Path::new(SCHEMA_DIR).join("index.json"))
+    serde_json::from_reader(
+        fs::File::open(Path::new(SCHEMA_DIR).join("index.json")).expect("open schema index"),
+    )
+    .expect("parse schema index")
 }
 
 /// Fixture files of one kind as (schema name, path), sorted by file name.
@@ -191,45 +168,59 @@ fn every_index_schema_has_a_generated_type() {
     for schema in schemas {
         let name = schema["name"].as_str().expect("schema name");
         assert!(
-            round_trip(name, Value::Null).is_some(),
+            decode_fixture!(name, Value::Null, |_| ()).is_some(),
             "{name} is missing from the fixture match"
         );
     }
 }
 
 #[test]
-fn valid_fixtures_round_trip() {
+fn valid_fixtures_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let valid = fixtures("valid");
     assert!(!valid.is_empty());
     for (name, path) in valid {
-        let value = read_json(&path);
-        match round_trip(&name, value.clone()) {
+        let value: Value = serde_json::from_reader(fs::File::open(&path)?)?;
+        match decode_fixture!(name.as_str(), value.clone(), |parsed| {
+            serde_json::to_value(parsed).expect("wire shape serializes")
+        }) {
             None => panic!("{}: unknown schema name {name}", path.display()),
             Some(Err(error)) => panic!("{}: refused: {error}", path.display()),
-            Some(Ok(back)) => assert!(
-                same_json(&back, &value),
-                "{} does not round-trip: {back} != {value}",
-                path.display()
-            ),
+            Some(Ok(back)) => assert_eq!(back, value, "{} does not round-trip", path.display()),
         }
     }
+    Ok(())
 }
 
 #[test]
-fn invalid_fixtures_are_refused() {
+fn invalid_fixtures_are_refused() -> Result<(), Box<dyn std::error::Error>> {
     let invalid = fixtures("invalid");
     assert!(!invalid.is_empty());
-    let mut accepted = Vec::new();
     for (name, path) in invalid {
-        match round_trip(&name, read_json(&path)) {
-            None => panic!("{}: unknown schema name {name}", path.display()),
-            Some(Ok(parsed)) => accepted.push(format!("{}: accepted as {parsed}", path.display())),
-            Some(Err(_)) => {}
-        }
+        let value = serde_json::from_reader(fs::File::open(&path)?)?;
+        assert!(
+            matches!(
+                decode_fixture!(name.as_str(), value, |_| ()),
+                Some(Err(DecodeError::Schema { .. }))
+            ),
+            "{} must fail schema validation",
+            path.display()
+        );
     }
-    assert!(
-        accepted.is_empty(),
-        "invalid fixtures accepted:\n{}",
-        accepted.join("\n")
+    Ok(())
+}
+
+#[test]
+fn json_equality_distinguishes_adjacent_large_integers() {
+    let left = serde_json::json!(9007199254740992_u64);
+    let right = serde_json::json!(9007199254740993_u64);
+    assert_ne!(left, right);
+    assert_ne!(serde_json::json!(1), serde_json::json!(1.0));
+    assert_eq!(
+        oni_protocol::decode::<oni_protocol::ToolCallResult>(
+            serde_json::json!({"status": "completed", "value": right.clone()})
+        )
+        .map(|parsed| serde_json::to_value(parsed).expect("wire shape serializes"))
+        .expect("valid arbitrary JSON"),
+        serde_json::json!({"status": "completed", "value": right})
     );
 }

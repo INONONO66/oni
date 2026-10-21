@@ -7,15 +7,15 @@
 //! The root type is named after the index entry and re-exported at the crate
 //! root.
 //!
-//! Generated code is written as one token line per module, so clippy's
-//! `possible_missing_else` (a layout lint about `} if` on one line) is allowed
-//! on those modules only.
+//! Generated shapes preserve field presence; embedded validators enforce the
+//! original schemas at the decode boundary.
 
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+use syn::{parse_quote, punctuated::Punctuated, Meta, Token, Type};
 use typify::{TypeSpace, TypeSpaceSettings};
 
 const SCHEMA_DIR: &str = "../../packages/protocol/schema/machine";
@@ -44,12 +44,25 @@ fn main() {
         let path = schema_dir.join(&entry.file);
         println!("cargo:rerun-if-changed={}", path.display());
         let module = module_name(&entry.name);
-        let code = generate(&entry.name, read_json(&path));
+        let code = generate(&entry.name, read_json(&path), &path);
         fs::write(out_dir.join(format!("{module}.rs")), code).expect("write generated module");
         root.push_str(&format!(
             "/// Types generated from `{file}`.\n\
-             #[allow(clippy::possible_missing_else)]\n\
-             pub mod {module} {{\n    include!(concat!(env!(\"OUT_DIR\"), \"/{module}.rs\"));\n}}\n\
+             // build.rs proves every pattern with regress before emitting runtime unwraps.\n\
+             #[allow(clippy::unwrap_used)]\n\
+             pub mod {module} {{\n\
+                 include!(concat!(env!(\"OUT_DIR\"), \"/{module}.rs\"));\n\
+                 static VALIDATOR: std::sync::LazyLock<jsonschema::Validator> =\n\
+                     std::sync::LazyLock::new(|| {{\n\
+                         let schema = serde_json::from_str(include_str!(concat!(\n\
+                             env!(\"CARGO_MANIFEST_DIR\"), \"/{SCHEMA_DIR}/{file}\"\n\
+                         ))).expect(\"embedded schema JSON\");\n\
+                         jsonschema::draft7::new(&schema).expect(\"embedded draft-07 schema\")\n\
+                     }});\n\
+                 impl crate::WireRoot for {name} {{\n\
+                     fn validator() -> &'static jsonschema::Validator {{ &VALIDATOR }}\n\
+                 }}\n\
+             }}\n\
              pub use {module}::{name};\n",
             file = entry.file,
             name = entry.name,
@@ -79,21 +92,126 @@ fn entries(index: &Value) -> Vec<Entry> {
 
 /// Converts one schema document. The index name becomes the schema title so
 /// typify emits the root type under that name.
-fn generate(name: &str, mut schema: Value) -> String {
+fn generate(name: &str, mut schema: Value, path: &Path) -> String {
     name_variant_members(&mut schema, name, false);
+    let mut settings = TypeSpaceSettings::default();
+    prove_schema(&schema, path, &mut settings);
     let root = schema
         .as_object_mut()
         .unwrap_or_else(|| panic!("{name}: schema document is an object"));
-    close_empty_root(name, root);
     root.insert("title".to_owned(), Value::String(name.to_owned()));
     let root = serde_json::from_value(schema)
         .unwrap_or_else(|error| panic!("{name}: not a draft-07 root schema: {error}"));
-    let mut space = TypeSpace::new(&TypeSpaceSettings::default());
+    let mut space = TypeSpace::new(&settings);
     space
         .add_root_schema(root)
         .unwrap_or_else(|error| panic!("{name}: typify refused the schema: {error}"))
         .unwrap_or_else(|| panic!("{name}: typify produced no root type"));
-    space.to_stream().to_string()
+    let mut module = syn::parse2::<syn::File>(space.to_stream()).expect("generated Rust module");
+    for item in &mut module.items {
+        match item {
+            syn::Item::Struct(item) => preserve_presence(&mut item.fields),
+            syn::Item::Enum(item) => {
+                for variant in &mut item.variants {
+                    preserve_presence(&mut variant.fields);
+                }
+            }
+            _ => {}
+        }
+    }
+    prettyplease::unparse(&module)
+}
+
+/// Patterns are immutable build inputs. Number shapes retain the JSON number
+/// representation instead of rounding integers or changing them into floats.
+fn prove_schema(schema: &Value, path: &Path, settings: &mut TypeSpaceSettings) {
+    match schema {
+        Value::Object(object) => {
+            if let Some(pattern) = object.get("pattern").and_then(Value::as_str) {
+                regress::Regex::new(pattern).unwrap_or_else(|error| {
+                    panic!("{}: pattern {pattern:?}: {error}", path.display())
+                });
+            }
+            if object.get("type").and_then(Value::as_str) == Some("number") {
+                settings.with_conversion(
+                    serde_json::from_value(schema.clone()).expect("number schema"),
+                    "::serde_json::Number",
+                    std::iter::empty(),
+                );
+            }
+            for child in object.values() {
+                prove_schema(child, path, settings);
+            }
+        }
+        Value::Array(children) => {
+            for child in children {
+                prove_schema(child, path, settings);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Current nullable optional properties are unrestricted JSON (`{}`), emitted
+/// as Option<Value>. No optional typed-null union or BTreeMap occurs.
+fn preserve_presence(fields: &mut syn::Fields) {
+    for field in fields {
+        let ty = &field.ty;
+        let nullable = matches!(ty, Type::Path(outer)
+            if outer.path.segments.last().is_some_and(|segment|
+                segment.ident == "Option" && matches!(&segment.arguments,
+                    syn::PathArguments::AngleBracketed(args)
+                    if matches!(args.args.first(), Some(syn::GenericArgument::Type(Type::Path(inner)))
+                        if inner.path.segments.iter().map(|part| part.ident.to_string())
+                            .eq(["serde_json", "Value"])))));
+        let mut rewritten = false;
+        for attribute in &mut field.attrs {
+            if !attribute.path().is_ident("serde") {
+                continue;
+            }
+            let arguments = attribute
+                .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                .expect("generated serde attributes");
+            let optional = arguments.iter().any(|meta| meta.path().is_ident("default"));
+            let collection = matches!(ty, Type::Path(path)
+                if path.path.segments.last().is_some_and(|segment|
+                    segment.ident == "Vec" || segment.ident == "HashMap"));
+            if !(nullable && skips(&arguments, "::is_none")
+                || collection && optional && skips(&arguments, "::is_empty"))
+            {
+                continue;
+            }
+            let kept: Punctuated<Meta, Token![,]> = arguments
+                .into_iter()
+                .filter(|meta| {
+                    !meta.path().is_ident("default") && !meta.path().is_ident("skip_serializing_if")
+                })
+                .collect();
+            *attribute = parse_quote!(#[serde(#kept)]);
+            rewritten = true;
+        }
+        if rewritten {
+            field.ty = parse_quote!(::std::option::Option<#ty>);
+            field.attrs.push(parse_quote!(
+                #[serde(default, skip_serializing_if = "Option::is_none")]
+            ));
+            if nullable {
+                field.attrs.push(parse_quote!(
+                    #[serde(deserialize_with = "crate::presence::some")]
+                ));
+            }
+        }
+    }
+}
+
+fn skips(arguments: &Punctuated<Meta, Token![,]>, suffix: &str) -> bool {
+    arguments.iter().any(|meta| {
+        matches!(meta,
+            Meta::NameValue(value) if value.path.is_ident("skip_serializing_if")
+                && matches!(&value.value, syn::Expr::Lit(literal)
+                    if matches!(&literal.lit, syn::Lit::Str(text)
+                        if text.value().ends_with(suffix))))
+    })
 }
 
 /// typify cannot name a struct, a nested union, a constrained string or a
@@ -103,8 +221,8 @@ fn generate(name: &str, mut schema: Value) -> String {
 /// such schema a `title` built from its path, the same way typify names
 /// property types elsewhere: parent name, then the property name, `Item` for
 /// array items, `Value` for map values, and the member's discriminant for a
-/// union member. It also rewrites `const` as a one-value `enum`. Validation keywords are untouched, so the generated types
-/// accept exactly what the schema accepts.
+/// union member. It also rewrites `const` as a one-value `enum`. The original
+/// schema remains the authority used by the decode validator.
 fn name_variant_members(schema: &mut Value, path: &str, below_variant: bool) {
     if let Some(object) = schema.as_object_mut() {
         // typify drops `const` on a struct field and accepts any value of the
@@ -148,33 +266,6 @@ fn name_children(schema: &mut Value, path: &str, below_variant: bool) {
                 }
             }
         }
-    }
-}
-
-/// A closed object with no properties becomes an empty struct, and serde also
-/// accepts an empty array for any struct. A map whose value type has no
-/// members accepts exactly `{}`. typify names that value type only through a
-/// definition, so the empty enum is hoisted into `definitions`. Only the
-/// document root is rewritten; the exported schemas have no nested case.
-fn close_empty_root(name: &str, root: &mut serde_json::Map<String, Value>) {
-    let no_properties = root
-        .get("properties")
-        .and_then(Value::as_object)
-        .is_some_and(serde_json::Map::is_empty);
-    if !no_properties || root.get("additionalProperties") != Some(&Value::Bool(false)) {
-        return;
-    }
-    let never = format!("{name}Value");
-    root.remove("properties");
-    root.insert(
-        "additionalProperties".to_owned(),
-        serde_json::json!({ "$ref": format!("#/definitions/{never}") }),
-    );
-    let definitions = root
-        .entry("definitions")
-        .or_insert_with(|| Value::Object(serde_json::Map::new()));
-    if let Value::Object(definitions) = definitions {
-        definitions.insert(never, serde_json::json!({ "enum": [], "type": "string" }));
     }
 }
 
