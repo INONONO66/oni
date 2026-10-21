@@ -38,6 +38,7 @@ export const scriptsLanes = {
     "check-types-census.test.ts",
     "check-written-types.test.ts",
     "conformance/summarize-benchmark-runs.test.ts",
+    "generate-machine-schema.test.ts",
     "generate-models-snapshot.test.ts",
     "quality-audit.test.ts",
     "quality-audit-issues.test.ts",
@@ -85,6 +86,7 @@ export const scriptToolingPartitions = {
   "scripts-tooling-2": [
     "bundle-type-contract.test.ts",
     "check-comment-residue.test.ts",
+    "generate-machine-schema.test.ts",
     "generate-models-snapshot.test.ts",
     "run-quality-mutations-compiler.test.ts",
     "quality-mutation-shard.test.ts",
