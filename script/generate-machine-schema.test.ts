@@ -19,10 +19,13 @@ function scratch(): { readonly root: string; readonly dir: URL } {
   return { root, dir: new URL(`${pathToFileURL(root).href}/schema/`) };
 }
 
-async function capture(run: () => Promise<void>): Promise<{ logs: string[]; errors: string[]; exitCode: typeof process.exitCode }> {
+async function capture(run: () => Promise<void>): Promise<{ logs: string[]; errors: string[]; exitCode: number }> {
   const logs: string[] = [];
   const errors: string[] = [];
-  const previousExitCode = process.exitCode;
+  // Earlier suites in the same shard may leave an exit code behind, and once
+  // set it cannot go back to undefined; every run starts from success (0).
+  const previousExitCode = process.exitCode ?? 0;
+  process.exitCode = 0;
   const log = spyOn(console, "log").mockImplementation((message: string) => {
     logs.push(message);
   });
@@ -31,7 +34,7 @@ async function capture(run: () => Promise<void>): Promise<{ logs: string[]; erro
   });
   try {
     await run();
-    return { logs, errors, exitCode: process.exitCode };
+    return { logs, errors, exitCode: process.exitCode ?? 0 };
   } finally {
     log.mockRestore();
     error.mockRestore();
@@ -60,7 +63,7 @@ test("writes the export into a missing directory and prunes files the contract n
   const expected = renderMachineSchemas();
   const first = await capture(() => main([], dir));
   expect(first.logs).toEqual([`Wrote ${expected.size} machine JSON Schema files`]);
-  expect(first.exitCode).toBeUndefined();
+  expect(first.exitCode).toBe(0);
   expect(readdirSync(join(root, "schema")).sort()).toEqual([...expected.keys()].sort());
   expect(readFileSync(join(root, "schema", "index.json"), "utf8")).toBe(expected.get("index.json") ?? "");
 
@@ -70,11 +73,11 @@ test("writes the export into a missing directory and prunes files the contract n
   expect(readdirSync(join(root, "schema")).sort()).toEqual([...expected.keys(), "notes.txt"].sort());
 });
 
-test("--check reports a current export without touching exit code", async () => {
+test("--check reports a current export and leaves the exit code at success", async () => {
   const { dir } = scratch();
   await capture(() => main([], dir));
   const check = await capture(() => main(["--check"], dir));
-  expect(check).toEqual({ logs: ["Machine JSON Schema export is current"], errors: [], exitCode: undefined });
+  expect(check).toEqual({ logs: ["Machine JSON Schema export is current"], errors: [], exitCode: 0 });
 });
 
 test("--check lists stale, extra and missing files in sorted order and fails", async () => {
