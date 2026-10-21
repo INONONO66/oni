@@ -3,8 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Machine } from "../packages/protocol/src/index.js";
-import { PlainValueSchema } from "../packages/protocol/src/json.js";
+import { Machine, PlainValueSchema } from "../packages/protocol/src/index.js";
 import { machineSchemas, main, renderMachineSchemas } from "./generate-machine-schema";
 
 const roots: string[] = [];

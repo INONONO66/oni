@@ -99,7 +99,7 @@ export function planChanges(
   );
   const selection = selectChanges(paths, topology);
   if (selection.globalReason)
-    return finishPlan(fullPlan(topology, selection.globalReason), "global", clients);
+    return finishPlan(fullPlan(topology, selection.globalReason), "global", true);
   const { selected, changeClass } = selection;
 
   // allowedDeps intentionally includes test-only edges, unlike srcAllowedDeps.

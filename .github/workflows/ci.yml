@@ -89,7 +89,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
         with:
           toolchain: 1.98.0
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        with:
+          tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: clients
@@ -97,6 +100,8 @@ jobs:
       - run: bun run script/generate-machine-schema.ts --check
       - run: bun run clients:lint
       - run: bun run clients:test
+      - name: Gate native line coverage (build.rs is not measured)
+        run: cd clients && cargo llvm-cov --workspace --tests --locked --fail-under-lines 100
 
   desktop-smoke:
     name: Desktop production smoke

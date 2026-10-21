@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -87,6 +87,7 @@ test("skips executable jobs when only root documentation changes", () => {
   // Then no executable or dependency jobs are selected.
   expect(plan).toMatchObject({
     full: false,
+    clients: false,
     verify: false,
     dependencyReview: false,
     matrix: { include: [] },
@@ -122,7 +123,7 @@ test.each([
   "packages/ui-extra/src/index.ts",
 ])("fails closed to full when %s changes", (path) => {
   // Given a global, manifest, or unowned path, when planned, then all gates run.
-  expect(planChanges([path])).toMatchObject({ full: true, verify: true, dependencyReview: true });
+  expect(planChanges([path])).toMatchObject({ full: true, verify: true, dependencyReview: true, clients: true });
   expect(keys([path])).toEqual(allKeys);
 });
 
@@ -183,6 +184,17 @@ test("validates dependency references even for documentation-only or full plans"
   const topology = [{ ...TOPOLOGY[0], allowedDeps: ["@oni/missing"] }];
   expect(() => planChanges(["README.md"], false, topology)).toThrow();
   expect(() => planChanges(undefined, true, topology)).toThrow();
+});
+
+test("rejects empty, duplicate and malformed topology inventories", () => {
+  const sample = TOPOLOGY[0];
+  expect(() => planChanges([], false, [])).toThrow("topology must contain workspaces");
+  expect(() => planChanges([], false, [sample, sample])).toThrow(
+    "topology workspace names, keys and directories must be unique",
+  );
+  expect(() => planChanges([], false, [{ ...sample, key: "bad/key" }])).toThrow(
+    "invalid topology workspace boundary",
+  );
 });
 
 function fixture() {
@@ -341,5 +353,58 @@ test("main writes the complete GITHUB_OUTPUT contract for a full run", () => {
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("main prints exact usage and succeeds with --help", () => {
+  const output: string[] = [];
+  const write = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    output.push(String(chunk));
+    return true;
+  });
+  try {
+    main(["--help"], {});
+    expect(output).toEqual(["Usage: bun run script/ci-plan.ts [--full | --base SHA --head SHA]\n"]);
+    expect(process.exitCode ?? 0).toBe(0);
+  } finally {
+    write.mockRestore();
+  }
+});
+
+test("main plans an in-process PR diff with exact output", () => {
+  using repo = fixture();
+  const base = repo.snapshot();
+  writeFileSync(join(repo.root, "script/fixture.ts"), "export const fixture = 2;\n");
+  const head = repo.snapshot();
+  const output: string[] = [];
+  const write = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    output.push(String(chunk));
+    return true;
+  });
+  const cwd = process.cwd();
+  try {
+    process.chdir(repo.root);
+    main(["--base", base, "--head", head], { GITHUB_EVENT_NAME: "pull_request" });
+    expect(output).toHaveLength(1);
+    const plan = planSchema.parse(JSON.parse(output[0] ?? ""));
+    expect(plan).toMatchObject({ class: "tooling", full: false, clients: false });
+  } finally {
+    process.chdir(cwd);
+    write.mockRestore();
+  }
+});
+
+test("main rejects unresolved git revisions in process", () => {
+  using repo = fixture();
+  const cwd = process.cwd();
+  try {
+    process.chdir(repo.root);
+    expect(() =>
+      main(["--base", "1".repeat(40), "--head", repo.snapshot()], {
+        GITHUB_EVENT_NAME: "pull_request",
+      }),
+    ).toThrow("git diff failed");
+  } finally {
+    process.chdir(cwd);
   }
 });

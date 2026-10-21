@@ -26,8 +26,7 @@
  */
 import { readdirSync, rmSync } from "node:fs";
 import { z } from "zod";
-import type { PlainValue } from "../packages/protocol/src/json.js";
-import { Machine } from "../packages/protocol/src/index.js";
+import { Machine, type PlainValue } from "../packages/protocol/src/index.js";
 
 const SCHEMA_DIR = new URL("../packages/protocol/schema/machine/", import.meta.url);
 const INDEX_FILE = "index.json";
