@@ -34,7 +34,9 @@ selection fields and the matrix travel through job outputs.
 The **Clients (Rust)** lane runs on full plans and when a PR changes
 `clients/**`, `packages/protocol/**`, `script/generate-machine-schema.ts`, or
 `.github/workflows/ci.yml`. It rebuilds the protocol schema before formatting,
-linting, and testing the `clients/` workspace.
+linting, and testing the `clients/` workspace. The setup action runs the sole
+`bun install`; the job pins `rust-toolchain` by SHA and gates workspace coverage
+with `cargo llvm-cov --fail-under-lines 100`.
 
 ## CI tiers and merge queue
 

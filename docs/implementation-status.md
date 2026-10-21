@@ -14,10 +14,10 @@ describes as plain values (`ToolCall.arguments` values,
 `ToolCallResult.completed.value`, `ScreenReadResult.ok.accessibilityTree`)
 are emitted as `{}`; refinements (absolute or relative path, uniqueness,
 byte bounds) are dropped and the base type kept, as the script header
-records. `packages/protocol/fixtures/machine/` holds 138 valid and 86
-invalid fixtures; every invalid fixture is a structural violation (missing
-key, wrong JSON type, unknown discriminant), and
-`packages/protocol/test/machine-contract.test.ts` (227 tests) checks each
+records. `packages/protocol/fixtures/machine/` holds 149 valid and 95
+invalid fixtures; invalid fixtures cover structural violations and schema
+bounds (numeric ranges, array length and non-null optional fields), and
+`packages/protocol/test/machine-contract.test.ts` checks each
 one against the Zod source.
 
 The new `clients/` directory is a cargo workspace outside the Bun workspace,
@@ -31,21 +31,29 @@ with `not implemented in this phase`. Root `package.json` adds
 `generate:machine-schema`, `clients:build`, `clients:lint` and
 `clients:test`; `script/ci-plan.ts` emits a `clients` flag and
 `.github/workflows/ci.yml` runs the Clients Rust job (fmt, clippy with
-`-D warnings`, test) on full runs and on PRs that touch `clients/`,
+`-D warnings -D clippy::unwrap_used`, test, and a 100% native line-coverage
+gate) on full runs and on PRs that touch `clients/`,
 `packages/protocol/`, the generator or the workflow (see `docs/ci.md`).
 
 Not shipped in this phase: attach, any transport to the daemon, session
 sync, enrollment from the client, and every `mclient` subcommand beyond
-`--version`. The Rust types enforce exactly what the JSON Schema says, so
-the dropped refinements are not enforced on the Rust side either.
+`--version`. The generated Rust types are shapes only; `oni_protocol::decode`
+validates every wire value against the embedded JSON Schema before the shape
+decodes it, and it is the only entry clients use. Refinements that the schema
+export drops are not enforced on the Rust side either. Present `null` and
+empty collections survive the round-trip (`Option<Option<T>>`,
+`Option<Vec<T>>` and `Option<HashMap<...>>` fields, with
+`clients/protocol/src/presence.rs` distinguishing present null from absence).
+JSON number schemas use `serde_json::Number`, retaining integer and float
+representations for exact JSON equality. Every schema pattern is compiled
+with `regress` at build time before the generated regex initialization is
+allowed to use `unwrap()`.
 
-Receipts on the worktree head: `bun run --cwd packages/protocol build`,
-`generate-machine-schema.ts` then `--check` exit 0 ("Machine JSON Schema
-export is current"); `bun test packages/protocol` 894 pass / 0 fail;
-protocol `check-types` exit 0; `check-dead-exports` 0 new; `cargo fmt
---check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` exit
-0 (cli 2 pass, fixtures 4 pass); `bun test script/ci-plan.test.ts` 43 pass
-/ 0 fail.
+The Rust suite exercises four CLI outcomes (no args, version, join and run),
+both typed decoder error variants, every shared fixture and exact adjacent
+large-integer equality. Final-tree verification is separate from the initial
+generation receipts; the native coverage gate excludes `build.rs` and
+generated `OUT_DIR` code.
 
 ## #1620 project rename: openomni -> oni
 
