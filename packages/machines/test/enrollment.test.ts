@@ -15,7 +15,7 @@ test("enrollment removal drops reports and fails in-flight calls once while othe
   const release = Promise.withResolvers<void>();
   const beat = Promise.withResolvers<() => void>();
   const reported = events.next("machine.reported");
-  const offer: Machine.Offer = { machineId: "worker", daemonVersion: "test", offeredCapabilities: ["kernel.py"], offeredAt: 2, platform: "darwin-arm64" };
+  const offer: Omit<Machine.Offer, "peer" | "generation"> = { machineId: "worker", daemonVersion: "test", offeredCapabilities: ["kernel.py"], offeredAt: 2, platform: "darwin-arm64" };
   const daemon = await attachMachineDaemon({
     socketPath: path, offer,
     report: {

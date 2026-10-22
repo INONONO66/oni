@@ -67,6 +67,7 @@ describe("IPC transport resilience (#QB1)", () => {
     await c1.call("register", { name: "c1" });
     const c1ConnectionId = connectionIds.get("c1");
     if (!c1ConnectionId) throw new Error("c1 connection id was not captured");
+    expect(srv.native.isConnected(c1ConnectionId)).toBe(true);
     srv.useConnection(c1ConnectionId);
 
     const c2 = await connectIpcClient(socketPath, {
@@ -81,6 +82,7 @@ describe("IPC transport resilience (#QB1)", () => {
     // Drop the active connection.
     c1.close();
     expect(await within(disconnected.promise, "active connection removal")).toBe(c1ConnectionId);
+    expect(srv.native.isConnected(c1ConnectionId)).toBe(false);
 
     // Clearing the active id lets the surviving connection bind.
     expect(await srv.call("ping")).toEqual({ from: "c2" });

@@ -22,7 +22,7 @@ const enrollment: Machine.Enrollment = {
   enrolledAt: 1000,
 };
 
-function offer(overrides: Partial<Machine.Offer> = {}): Machine.Offer {
+function offer(overrides: Partial<Omit<Machine.Offer, "peer" | "generation">> = {}): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId: "mac-studio",
     daemonVersion: "0.0.1",
@@ -178,7 +178,7 @@ describe("machine attach handshake", () => {
           },
         });
         try {
-          await client.call("machine.attach", offer({ exports: [{ name: "docs", path: "/" }] }));
+          await client.call("machine.attach", { ...offer({ exports: [{ name: "docs", path: "/" }] }), peer: { kind: "daemon", contractVersion: 2 } });
           const handle = host.get("mac-studio");
           await expect(handle.fs.stat("/file")).rejects.toMatchObject({
             _tag: "MachineRefusalError",
@@ -246,6 +246,8 @@ describe("machine attach handshake", () => {
                 ...entry,
                 tags: entry.tags ?? [],
                 capabilities: ["fs.read", "kernel.py"],
+                generation: 1,
+                peer: { kind: "daemon", contractVersion: Machine.contractVersion },
                 os: "darwin",
                 arch: "arm64",
               })),
@@ -338,6 +340,7 @@ describe("machine attach handshake", () => {
         const daemon = await attachMachineDaemon({ socketPath: path, offer: offer() });
         expect(daemon.attachment).toEqual({
           status: "attached",
+          generation: 1,
           effectiveCapabilities: ["fs.read"],
           effectiveExports: [],
         });
@@ -391,8 +394,9 @@ describe("machine attach handshake", () => {
           await expect(
             client.call("machine.attach", { machineId: "mac-studio" }),
           ).rejects.toBeInstanceOf(IpcRemoteError);
-          expect(await client.call("machine.attach", offer())).toEqual({
+          expect(await client.call("machine.attach", { ...offer(), peer: { kind: "daemon", contractVersion: 2 } })).toEqual({
             status: "attached",
+            generation: 1,
             effectiveCapabilities: ["fs.read"],
             effectiveExports: [],
           });
@@ -459,10 +463,11 @@ describe("machine attach handshake", () => {
         expect((await superseded).payload).toEqual({
           machineId: "mac-studio",
           time: 5000,
-          reason: "superseded_by_reattach",
+          reason: "superseded",
         });
         expect(second.attachment).toEqual({
           status: "attached",
+          generation: 2,
           effectiveCapabilities: ["shell.exec"],
           effectiveExports: [],
         });
@@ -487,7 +492,7 @@ describe("machine attach handshake", () => {
   test("daemon rejects host requests outside its wire contract", async () => {
     const path = socketPath();
     const rogue = await createIpcServer(path, (_method, _params, respond) => {
-      respond({ status: "attached", effectiveCapabilities: [], effectiveExports: [] });
+      respond({ status: "attached", generation: 1, effectiveCapabilities: [], effectiveExports: [] });
     });
     try {
       const daemon = await attachMachineDaemon({ socketPath: path, offer: offer() });
@@ -569,6 +574,7 @@ describe("machine attach handshake", () => {
         const withTmux = await attachMachineDaemon({ socketPath: path, offer: ptyOffer });
         expect(withTmux.attachment).toEqual({
           status: "attached",
+          generation: 1,
           effectiveCapabilities: ["pty.session"],
           effectiveExports: [],
         });
@@ -580,6 +586,7 @@ describe("machine attach handshake", () => {
         });
         expect(withoutTmux.attachment).toEqual({
           status: "attached",
+          generation: 2,
           effectiveCapabilities: [],
           effectiveExports: [],
         });
@@ -597,6 +604,7 @@ describe("machine attach handshake", () => {
         });
         expect(daemon.attachment).toEqual({
           status: "attached",
+          generation: 1,
           effectiveCapabilities: ["shell.exec"],
           effectiveExports: [],
         });
@@ -624,6 +632,7 @@ describe("machine attach handshake", () => {
           });
           expect(daemon.attachment).toEqual({
             status: "attached",
+            generation: 1,
             effectiveCapabilities: ["pty.session"],
             effectiveExports: ["work"],
           });
@@ -692,7 +701,7 @@ describe("machine attach handshake", () => {
 describe("daemon peek_code wire answers (#1312)", () => {
   const attachedHost = (path: string) =>
     createIpcServer(path, (_method, _params, respond) =>
-      respond({ status: "attached", effectiveCapabilities: ["kernel.py"], effectiveExports: [] }),
+      respond({ status: "attached", generation: 1, effectiveCapabilities: ["kernel.py"], effectiveExports: [] }),
     );
 
   test("a daemon without a runner refuses kernel_not_available instead of fabricating empty output", async () => {

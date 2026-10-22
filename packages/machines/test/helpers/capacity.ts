@@ -50,6 +50,7 @@ export async function fixture(capacity?: Machine.CapacityRow[], offered: Machine
     clients.push(client);
     await client.call(Machine.WireMethod.Attach, {
       machineId, daemonVersion: "test", platform: "linux-arm64", offeredAt: 0,
+      peer: { kind: "daemon", contractVersion: Machine.contractVersion },
       offeredCapabilities: ["shell.exec"], ...(offeredResources === null ? {} : { resources: offeredResources }),
     });
     return client;

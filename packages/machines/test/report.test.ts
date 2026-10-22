@@ -40,7 +40,7 @@ const enrollment: Machine.Enrollment = {
   publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   enrolledAt: 1,
 };
-function offer(changes: Partial<Machine.Offer> = {}): Machine.Offer {
+function offer(changes: Partial<Omit<Machine.Offer, "peer" | "generation">> = {}): Omit<Machine.Offer, "peer" | "generation"> {
   return { machineId: "w-1", daemonVersion: "test", platform: "linux-x64", offeredCapabilities: ["kernel.py"], offeredAt: 2, ...changes };
 }
 const resources: Machine.Resources = { cpus: 4, memoryBytes: 8 * 1024 ** 3 };
@@ -131,7 +131,7 @@ describe("machine.report heartbeat", () => {
     const report = (machineId: string) => stranger.call(Machine.WireMethod.Report, { machineId, reportedAt: 1, load });
     try {
       expect(await report("w-1")).toEqual({ status: "refused", reason: "machine_not_attached" });
-      expect(await stranger.call(Machine.WireMethod.Attach, offer())).toMatchObject({ status: "attached" });
+      expect(await stranger.call(Machine.WireMethod.Attach, { ...offer(), peer: { kind: "daemon", contractVersion: Machine.contractVersion } })).toMatchObject({ status: "attached" });
       expect(await report("w-2")).toEqual({ status: "refused", reason: "machine_mismatch" });
       expect(host.list()[0]?.live).toBeUndefined();
       expect(collector.events.map((event) => event.name)).toEqual(["machine.attached"]);
@@ -143,7 +143,7 @@ describe("machine.report heartbeat", () => {
     }
   });
 
-  test("a report the host refuses records the refusal and ends the cadence until the next attach", async () => {
+  test("a superseded connection cancels its pending beat and closes the daemon", async () => {
     const hostPath = socketPath();
     const host = await createMachineHost({ listen: { unix: hostPath }, enrollment: () => enrollment, events: { publish: () => undefined }, now: () => 0 });
     const clock = fakeScheduler();
@@ -151,17 +151,16 @@ describe("machine.report heartbeat", () => {
     const daemon = await attachMachineDaemon({ socketPath: hostPath, offer: offer(), report: { scheduler: clock, now: () => 0, probe } });
     try {
       const first = await firstBeat;
-      // Supersede the attachment from another connection: the first connection's beat is now unattached.
+      // Supersession closes the original connection before its pending beat runs.
       const usurper = await attachMachineDaemon({ socketPath: hostPath, offer: offer() });
       try {
-        first.task();
-        // The refused beat schedules nothing; the daemon's close is the only later cancellation.
         await daemon.closed;
       } finally {
         await usurper.close();
       }
       expect(clock.entries).toHaveLength(1);
-      expect(daemon.attachment).toEqual({ status: "refused", reason: "disconnected" });
+      expect(first.cancelled).toBe(true);
+      expect(daemon.attachment.status).toBe("attached");
     } finally {
       await daemon.close();
       await host.close();
@@ -220,7 +219,7 @@ describe("machine.report heartbeat", () => {
   });
 
   test("a beat whose call fails keeps the cadence while the connection stands; a mismatch refusal is recorded and terminal", async () => {
-    const attached: Machine.AttachResult = { status: "attached", effectiveCapabilities: ["kernel.py"], effectiveExports: [] };
+    const attached: Machine.AttachResult = { status: "attached", generation: 1, effectiveCapabilities: ["kernel.py"], effectiveExports: [] };
     // Beat answers in order: a shape no ReportResult parses (a failed call, not a refusal), then accepted, then the refusal.
     const answers: Ipc.Response["result"][] = [{ status: "bogus" }, { status: "accepted" }, { status: "refused", reason: "machine_mismatch" }];
     const server = await createIpcServer(socketPath(), (method, _params, respond) => {

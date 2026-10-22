@@ -31,7 +31,7 @@ const enrollment: Machine.Enrollment = {
   enrolledAt: 1000,
 };
 
-function offer(capabilities: readonly Machine.CapabilityId[]): Machine.Offer {
+function offer(capabilities: readonly Machine.CapabilityId[]): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId: "mac-studio",
     daemonVersion: "0.0.1",

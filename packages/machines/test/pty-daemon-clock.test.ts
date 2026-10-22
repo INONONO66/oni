@@ -20,7 +20,7 @@ const enrollment = (machineId: string): Machine.Enrollment => ({
 });
 /** `pty.open` confines `cwd` to an fs export (the exec rule), so each daemon exports `/` as `root`. */
 const fsExports = new Map([["root", "/"]]);
-const offer = (machineId: string): Machine.Offer => ({
+const offer = (machineId: string): Omit<Machine.Offer, "peer" | "generation"> => ({
   machineId,
   daemonVersion: "test",
   platform: "linux-x64",

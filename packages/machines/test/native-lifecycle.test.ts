@@ -10,6 +10,7 @@ import { socketPath } from "./ipc/helpers/socket-path";
 import { attachMachineDaemon } from "../src/daemon";
 import { execute } from "../src/exec";
 import { createMachineHost } from "../src/host";
+import { createMemoryGenerationStore } from "../src/generation-store";
 import { enrollment, offer } from "./helpers";
 import { refusingToolPort } from "./helpers/native";
 
@@ -73,6 +74,7 @@ test("closing the attached daemon scope terminates a host-dispatched process gro
   const path = socketPath("machine-life");
   const detached = deferred();
   const host = await acquire(createMachineHost({
+    generations: createMemoryGenerationStore(),
     listen: { unix: path }, enrollment, now: () => 3, id: lifecycleIds("life-host"), dispatcherBound: 8, callTool: refusingToolPort,
     events: { publish: (event) => { if (event.name === Machine.Events.Detached.name) detached.resolve(); } },
   }));

@@ -55,9 +55,9 @@ function machineHandle(native: Native.MachineHandle) {
   };
 }
 export type MachineHandle = ReturnType<typeof machineHandle>;
-export async function createMachineHost(options: Omit<Parameters<typeof Native.createMachineHost>[0], "callTool" | "id" | "dispatcherBound"> & { id?: () => string; dispatcherBound?: number; callTool?: (call: Machine.ToolCall) => Promise<Machine.ToolCallResult> }) {
+export async function createMachineHost(options: Omit<Parameters<typeof Native.createMachineHost>[0], "callTool" | "id" | "dispatcherBound" | "generations"> & { id?: () => string; dispatcherBound?: number; generations?: Native.AttachGenerationStore; callTool?: (call: Machine.ToolCall) => Promise<Machine.ToolCallResult> }) {
   const callTool = options.callTool;
-  const { value: native, close } = await acquire(Native.createMachineHost({ ...options, scheduler: options.scheduler ?? { schedule: () => () => undefined }, id: options.id ?? sequentialIds("host-req"), dispatcherBound: options.dispatcherBound ?? 256, callTool: callTool ? (call) => foreign(() => callTool(call)) : refusingToolPort }));
+  const { value: native, close } = await acquire(Native.createMachineHost({ ...options, generations: options.generations ?? Native.createMemoryGenerationStore(), scheduler: options.scheduler ?? { schedule: () => () => undefined }, id: options.id ?? sequentialIds("host-req"), dispatcherBound: options.dispatcherBound ?? 256, callTool: callTool ? (call) => foreign(() => callTool(call)) : refusingToolPort }));
   const handles = new Map<string, MachineHandle>();
   return { native, list: native.list, place: native.place, capacity: native.capacity, endpoints: native.endpoints,
     get(id: string) { let handle = handles.get(id); if (!handle) { handle = machineHandle(native.get(id)); handles.set(id, handle); } return handle; },
