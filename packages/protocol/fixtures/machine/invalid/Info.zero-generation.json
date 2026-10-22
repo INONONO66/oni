@@ -1,0 +1,12 @@
+{
+  "machineId": "mac-0",
+  "name": "brain-mac",
+  "allowedCapabilities": ["fs.read"],
+  "publicKey": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "enrolledAt": 1,
+  "tags": ["gpu"],
+  "capabilities": ["fs.read"],
+  "os": "darwin",
+  "arch": "arm64",
+  "generation": 0
+}

@@ -1,0 +1,11 @@
+{
+  "machineId": "mac-0",
+  "offeredCapabilities": [],
+  "daemonVersion": "0.1.0",
+  "platform": "darwin-arm64",
+  "offeredAt": 1,
+  "peer": {
+    "kind": "browser",
+    "contractVersion": 2
+  }
+}

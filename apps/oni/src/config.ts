@@ -126,6 +126,8 @@ export interface OniConfig {
     readonly enrolled: readonly Machine.Enrollment[];
     readonly capacity?: readonly Machine.CapacityRow[];
   };
+  /** Path handed to the machine host's durable attach-generation store. */
+  readonly machineGenerationsPath?: string;
   /**
    * Owner-declared allowances for cold proactive sends (#1569 lane 8: a
    * target without one takes the Owner's consent on the invocation). The
@@ -246,6 +248,14 @@ export interface ClusterStorageConfig {
   readonly catalogPath: string;
   readonly sessionsDir: string;
   readonly entityIdleMs: number;
+}
+
+/** Shared default for env-loaded and injected machine-plane configurations. */
+export function resolveMachineGenerationsPath(
+  config: Pick<OniConfig, "machineGenerationsPath">,
+  home: string = homedir(),
+): string {
+  return config.machineGenerationsPath ?? join(home, ".oni", "machines", "generations.json");
 }
 
 /**
@@ -833,6 +843,10 @@ export function loadConfig(
     kek: resolveKek(env, home),
     model: modelFromEnv(env),
     ...(machines === undefined ? {} : { machines }),
+    machineGenerationsPath: resolveMachineGenerationsPath(
+      { machineGenerationsPath: env.ONI_MACHINES_GENERATIONS?.trim() || undefined },
+      home,
+    ),
     ...(socialBudgets === undefined ? {} : { socialBudgets }),
     ...(channelAllowedSenders === undefined ? {} : { channelAllowedSenders }),
     ...(channelMentionOnly === undefined ? {} : { channelMentionOnly }),

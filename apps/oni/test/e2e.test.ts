@@ -124,6 +124,7 @@ function configEnvFor(directory: string): Record<string, string> {
     ONI_MODEL_API_KEY: "test-key",
     // #1271: a boot without a machine plane refuses.
     ONI_MACHINES_SOCKET: join(directory, "machines.sock"),
+    ONI_MACHINES_GENERATIONS: join(directory, "generations.json"),
     ONI_MACHINES_SELF: JSON.stringify({
       capabilities: ["fs.read"],
       exports: [{ name: "workspace", path: directory }],
@@ -151,6 +152,7 @@ const CONFIG_ENV = [
   "ONI_SOCIAL_BUDGETS",
   "ONI_MACHINES_ENROLLED",
   "ONI_MACHINES_SOCKET",
+  "ONI_MACHINES_GENERATIONS",
   "ONI_MACHINES_SELF",
   "ONI_MACHINES_DEFAULT",
   "ONI_VAULT_KEY",

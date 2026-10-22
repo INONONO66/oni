@@ -15,16 +15,12 @@ import { socketPath } from "./helpers/socket-path";
 import { testIds } from "./helpers/test-entropy";
 import { attachConfiguredMachine } from "../src/cli/machine";
 import { testSelfMachine } from "./helpers/self-machine";
+import { residentSuite } from "./helpers/resident-suite";
 import { testBus } from "../../../packages/agent/test/helpers/isolated";
 
+const suite = residentSuite();
 function fixtureConfig(machines: OniConfig["machines"]): OniConfig {
-  return {
-    host: "127.0.0.1",
-    wsPort: 0,
-    kek: { kind: "locked", reason: "no vault key in this fixture" },
-    model: { provider: "fake", id: "fixture", apiKey: "fixture" },
-    ...(machines === undefined ? {} : { machines }),
-  };
+  return suite.config("oni-self-boot-", { machines });
 }
 
 const spies: Array<{ mockRestore(): void }> = [];

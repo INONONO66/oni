@@ -5,7 +5,7 @@ import type { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMachineHost } from "@oni/machines";
+import { createMachineHost, createMemoryGenerationStore } from "@oni/machines";
 import { pinnedTcpHostOptions, qaOffer, spawnAttachCli, tlsFixturesDir } from "./helpers/machine-cli";
 import { composeCodemode, type ComposedCodemode } from "../src/composition/codemode";
 import { modelToolOutput } from "./helpers/tool-dispatch";
@@ -22,6 +22,7 @@ test("machine attach CLI composes real runners; eval pipelines two machine handl
   const capabilities = ["fs.read", "fs.write", "shell.exec", "kernel.py"];
   let cells: ComposedCodemode;
   const host = await acquireEffect(createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     listen: { unix: path },
     id: testIds("cli-host"),

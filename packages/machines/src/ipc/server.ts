@@ -45,6 +45,7 @@ interface IpcServerApi {
   /** Returns false when the notification was dropped because no client is connected. */
   notify(method: string, params?: Ipc.Notification["params"]): Effect.Effect<boolean, IpcError>;
   useConnection(id: string): void;
+  isConnected(id: string): boolean;
   /** Fail pending calls before closing one revoked peer, leaving other peers live. */
   disconnect(id: string): void;
   /**
@@ -331,7 +332,11 @@ function makeServerCore(handler: RequestHandler, options: IpcServerOptions, disp
         }, catch: decodeIpcFailure("server.notify") });
       },
       useConnection(id) {
-        if (connections.has(id)) activeConnectionId = id;
+        // A missing pin must never silently route through a surviving peer.
+        activeConnectionId = id;
+      },
+      isConnected(id) {
+        return connections.has(id);
       },
       disconnect(id) {
         const state = connections.get(id);

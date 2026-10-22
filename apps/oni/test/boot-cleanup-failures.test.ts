@@ -7,6 +7,9 @@ import { startOni } from "../src/index";
 import { AppLifecycleFailure } from "../src/runtime";
 import { Bus } from "./helpers/bus";
 import { testMachinesPlane } from "./helpers/self-machine";
+import { residentSuite } from "./helpers/resident-suite";
+
+const suite = residentSuite();
 
 test("boot retains both the acquisition failure and the failing cleanup", async () => {
   const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus });
@@ -36,12 +39,10 @@ test("server bind failure preserves its cleanup failure and closes storage", asy
   const release = new AppLifecycleFailure({ operation: "fixture.release", cause: "refused" });
   await runAppBoot(runtime, bootResource(Effect.void, () => Effect.fail(release)));
   try {
-    const failed = startOni({ runtime, config: {
-      host: "127.0.0.1", wsPort: port,
-      kek: { kind: "locked", reason: "no vault key in this fixture" },
-      model: { provider: "fake", id: "fixture", apiKey: "fixture" },
+    const failed = startOni({ runtime, config: suite.config("oni-boot-cleanup-", {
+      wsPort: port,
       machines: testMachinesPlane(),
-    } });
+    }) });
     await expect(failed).rejects.toBeInstanceOf(AggregateError);
     expect((await fetch(`http://127.0.0.1:${occupied.port}`)).status).toBe(200);
   } finally {

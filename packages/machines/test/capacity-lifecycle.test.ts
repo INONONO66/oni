@@ -80,6 +80,19 @@ test("renewal charges the operation class rather than the original pick class", 
   } finally { finish.resolve(); await f.close(); }
 });
 
+test("a completed operation is refused when its generation is fenced before delivery", async () => {
+  const f = await fixture();
+  const capacity = createCapacity({ rows: [], list: f.host.list, now: f.time.now, scheduler: f.time, events: f.events.sink, id: () => "fenced-owner" });
+  try {
+    const placed = capacity.place(request);
+    if (placed.kind !== "placed") throw new Error(`expected lease: ${placed.kind}`);
+    await expect(run(placed.lease.renewWhile(Effect.sync(() => {
+      capacity.detach("w", "stale_generation");
+      return "completed";
+    })))).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "stale_generation" });
+  } finally { capacity.detach("w", "disconnected"); await f.close(); }
+});
+
 test("overlapping opens of one terminal retain one releasable claim", async () => {
   const f = await fixture();
   const capacity = createCapacity({ rows: [], list: f.host.list, now: f.time.now, scheduler: f.time, events: f.events.sink, id: () => "terminal-owner" });
@@ -101,5 +114,5 @@ test("overlapping opens of one terminal retain one releasable claim", async () =
     capacity.terminalClosed("w", "shared");
     placed.lease.release();
     expect(capacity.place(request).kind).toBe("placed");
-  } finally { finish.resolve(); capacity.detach("w"); await f.close(); }
+  } finally { finish.resolve(); capacity.detach("w", "lease_expired"); await f.close(); }
 });

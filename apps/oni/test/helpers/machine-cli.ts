@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
-import type { createMachineHost } from "@oni/machines";
+import { createMemoryGenerationStore, type createMachineHost } from "@oni/machines";
 import { daemonFingerprint, hostIdentity } from "../../../../packages/machines/test/ipc/helpers/tls-fixtures";
 import { refusingToolPort } from "./tool-port";
 
@@ -11,7 +11,7 @@ import { refusingToolPort } from "./tool-port";
 export const tlsFixturesDir = join(import.meta.dir, "../../../../packages/machines/test/ipc/fixtures");
 
 /** One QA-flavored daemon offer exporting `root` as `data`. */
-export function qaOffer(machineId: string, root: string, capabilities: readonly string[]): Machine.Offer {
+export function qaOffer(machineId: string, root: string, capabilities: readonly string[]): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId,
     offeredCapabilities: [...capabilities],
@@ -30,6 +30,7 @@ export function pinnedTcpHostOptions(
   events: HostOptions["events"] = { publish() { return; } },
 ): HostOptions {
   return {
+    generations: createMemoryGenerationStore(),
     listen: { tcp: { host: "127.0.0.1", port: 0 } },
     tls: hostIdentity,
     id,

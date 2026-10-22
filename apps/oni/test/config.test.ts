@@ -49,6 +49,7 @@ const ENV_KEYS = [
   "ONI_MACHINES_CAPACITY",
   "ONI_MACHINES_SELF",
   "ONI_MACHINES_SOCKET",
+  "ONI_MACHINES_GENERATIONS",
   "ONI_MACHINES_TCP_HOST",
   "ONI_MACHINES_TCP_PORT",
   "ONI_MACHINES_TLS_CERT",
@@ -124,6 +125,19 @@ describe("machines network listener config", () => {
     const machines = loadConfig().machines;
     expect(machines?.listen).toEqual({ unix: "/tmp/machines-config-test.sock" });
     expect(machines?.tls).toBeUndefined();
+  });
+
+  it("resolves the generation store beneath the supplied home", () => {
+    process.env.ONI_MACHINES_SELF = selfEnv;
+    expect(loadConfig("/tmp/oni-config-home").machineGenerationsPath)
+      .toBe("/tmp/oni-config-home/.oni/machines/generations.json");
+  });
+
+  it("uses the configured generation store path instead of the home default", () => {
+    process.env.ONI_MACHINES_SELF = selfEnv;
+    process.env.ONI_MACHINES_GENERATIONS = "/tmp/oni-generations-override.json";
+    expect(loadConfig("/tmp/oni-config-home").machineGenerationsPath)
+      .toBe("/tmp/oni-generations-override.json");
   });
 
   it("the full tuple yields the tcp endpoint with the PEM contents read at boot", () => {

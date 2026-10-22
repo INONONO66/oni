@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import type { Machine } from "@oni/protocol";
 import { attachMachineDaemon as nativeDaemon } from "../src/daemon";
 import { createMachineHost as nativeHost } from "../src/host";
+import { createMemoryGenerationStore } from "../src/generation-store";
 import { PTY_OPEN_SIZE } from "../src/pty";
 import { createMachineHost, refusingToolPort } from "./helpers/native";
 import { acquire } from "./ipc/helpers/effects";
@@ -32,7 +33,7 @@ function enrollment(machineId: string, publicKey: Machine.KeyFingerprint): Machi
     enrolledAt: 1,
   };
 }
-function offer(machineId: string, root: string): Machine.Offer {
+function offer(machineId: string, root: string): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId,
     daemonVersion: "test",
@@ -263,7 +264,7 @@ describe("host listener set (#1270)", () => {
       });
       try {
         expect(legitimate.value.attachment.status).toBe("attached");
-        expect(await intruder.call("machine.attach", offer("pinned", root))).toEqual({
+        expect(await intruder.call("machine.attach", { ...offer("pinned", root), peer: { kind: "daemon", contractVersion: 2 } })).toEqual({
           status: "refused",
           reason: "peer_key_mismatch",
         });
@@ -297,6 +298,7 @@ describe("host listener set (#1270)", () => {
             id: sequentialIds("half-bound"),
             dispatcherBound: 8,
             callTool: refusingToolPort,
+            generations: createMemoryGenerationStore(),
             enrollment: () => undefined,
             events: silent,
             now: () => 3,
@@ -324,6 +326,7 @@ describe("host listener set (#1270)", () => {
       id: sequentialIds("invalid"),
       dispatcherBound: 8,
       callTool: refusingToolPort,
+      generations: createMemoryGenerationStore(),
       enrollment: () => undefined,
       events: silent,
       now: () => 3,

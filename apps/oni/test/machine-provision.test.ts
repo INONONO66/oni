@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Machine, ToolExecutionContext } from "@oni/protocol";
+import { Machine, type ToolExecutionContext } from "@oni/protocol";
 import { createProvisionTool } from "../src/bundles/provision/provision";
 import { executeMachine, machineDomainRevisions, type MachinePort } from "../src/bundles/provision/machines";
 import { machineWire } from "../src/composition/machine-wire";
@@ -57,6 +57,11 @@ test("provision enrolls and attaches a daemon without restarting, then removes i
       await bounded(attached);
       const result = await tool.execute({ operation: { op: "machine_list", args: {} } }, context);
       expect(result).toEqual({ op: "machine_list", result: { rows: host.list() } });
+      expect(result).toMatchObject({ op: "machine_list", result: { rows: [{
+        machineId: "worker-1",
+        generation: 1,
+        peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+      }] } });
       expect(host.list()).toMatchObject([{ name: "Worker", tags: ["pool"], resources: { cpus: 4 } }]);
       expect(machineWire(JSON.stringify({ type: "machine_list", requestId: "rows" }), host.native))
         .toEqual({ type: "machine_listed", requestId: "rows", rows: host.list() });

@@ -13,7 +13,7 @@ export function enrollment(): Machine.Enrollment {
     enrolledAt: 1,
   };
 }
-export function offer(root: string, changes: Partial<Machine.Offer> = {}): Machine.Offer {
+export function offer(root: string, changes: Partial<Omit<Machine.Offer, "peer" | "generation">> = {}): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId: "m-1",
     offeredCapabilities: capabilities,

@@ -15,7 +15,9 @@ import { testIds } from "./helpers/test-entropy";
 import { testEntropy } from "./helpers/test-entropy";
 import { Bus } from "./helpers/bus";
 import { testMachinesPlane } from "./helpers/self-machine";
+import { residentSuite } from "./helpers/resident-suite";
 
+const suite = residentSuite();
 const config = {
   host: "127.0.0.1",
   wsPort: 0,
@@ -58,7 +60,7 @@ test("tool ports bridge machine filesystem and exec effects through the app runt
 
 test("the server edge consumes the shared gateway runtime and its injected services", async () => {
   const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus, now: () => 123, entropy: testEntropy(() => "fixed") });
-  const first = await startOni({ config, runtime });
+  const first = await startOni({ config: suite.config("oni-effect-runtime-", config), runtime });
   try {
     expect(first.runtime).toBe(runtime);
     expect(gatewayRuntime({ composed: composedHolder(), observations: Bus })).toBe(runtime);
@@ -175,7 +177,7 @@ test("a runtime with fixed entity ports refuses late rebinding", async () => {
   });
   try {
     await expect(
-      startOni({ runtime, config }),
+      startOni({ runtime, config: suite.config("oni-effect-runtime-", config) }),
     ).rejects.toThrow(
       "session entity ports were fixed at runtime construction",
     );

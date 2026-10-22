@@ -1,12 +1,14 @@
 import { type BusEvent, Machine } from "@oni/protocol";
 import { Effect } from "effect";
 import { MachineRefusalError } from "./errors";
+import { onAbort } from "./interrupt-on";
 import type { MachineInfo } from "./host";
 
 export interface LeaseScheduler {
   schedule(delayMs: number, task: () => void): () => void;
 }
 export type LeaseClass = keyof NonNullable<Machine.CapacityRow["classCosts"]>;
+type LeaseInvalidation = "lease_expired" | "stale_generation" | "disconnected";
 export type HostPlacementRequest = Machine.PlacementRequest | { readonly machineId: string };
 export interface LeaseHandle {
   readonly id: string;
@@ -40,6 +42,7 @@ interface Lease {
   readonly claims: Set<Claim>;
   readonly terminals: Map<string, Claim>;
   readonly arm: () => void;
+  invalidate(reason: LeaseInvalidation): void;
   cancel?: () => void;
 }
 interface CapacityOptions {
@@ -112,6 +115,8 @@ export function createCapacity(options: CapacityOptions) {
     if (scheduler === undefined)
       throw new MachineRefusalError({ reason: "lease_scheduler_missing", message: "machine leases require an injected scheduler" });
     const controller = new AbortController();
+    const fence = new AbortController();
+    let invalidation: LeaseInvalidation = "lease_expired";
     let timerVersion = 0;
     const cancel = (): void => {
       timerVersion += 1;
@@ -136,7 +141,7 @@ export function createCapacity(options: CapacityOptions) {
       return Effect.suspend(() => {
         const machine = options.list().find((entry) => entry.machineId === machineId);
         if (controller.signal.aborted || machine === undefined)
-          return Effect.fail(new MachineRefusalError({ reason: "lease_expired", message: `lease_expired: ${handle.id}` }));
+          return Effect.fail(new MachineRefusalError({ status: "refused", reason: invalidation, message: `${invalidation}: ${handle.id}` }));
         const held = name === undefined ? undefined : lease.terminals.get(name);
         const claim = held ?? { cost: effective(machine).classCosts[workClass], users: 0, retained: false };
         const extra = lease.exclusive || held !== undefined ? 0 : Math.max(lease.cost, activeCost(lease) + claim.cost) - leaseCost(lease);
@@ -152,6 +157,12 @@ export function createCapacity(options: CapacityOptions) {
       claim.users -= 1;
       settle(lease, claim);
     });
+    function fenced<A, E, R>(operation: Effect.Effect<A, E, R>): Effect.Effect<A, E | MachineRefusalError, R> {
+      const stale = () => new MachineRefusalError({ status: "refused", reason: invalidation, message: `${invalidation}: ${handle.id}` });
+      return Effect.raceFirst(operation, onAbort(fence.signal, Effect.suspend(() => Effect.fail(stale())))).pipe(
+        Effect.flatMap((result) => fence.signal.aborted ? Effect.fail(stale()) : Effect.succeed(result)),
+      );
+    }
     const handle: LeaseHandle = {
       id: options.id(), machineId, signal: controller.signal,
       release() {
@@ -160,10 +171,10 @@ export function createCapacity(options: CapacityOptions) {
         if (lease.claims.size === 0) remove(lease);
       },
       renewWhile: (operation, workClass = reservation.workClass) =>
-        Effect.acquireUseRelease(acquire(workClass), () => operation, releaseClaim),
+        Effect.acquireUseRelease(acquire(workClass), () => fenced(operation), releaseClaim),
       renewPtyWhile: (operation, session) => Effect.acquireUseRelease(
         acquire(session.workClass ?? "pty", session.name),
-        (claim) => operation.pipe(Effect.tap((result) => Effect.sync(() => {
+        (claim) => fenced(operation).pipe(Effect.tap((result) => Effect.sync(() => {
           if (session.op === "open" && result.status === "ok" && !lease.terminals.has(session.name)) {
             claim.retained = true;
             lease.terminals.set(session.name, claim);
@@ -172,7 +183,10 @@ export function createCapacity(options: CapacityOptions) {
         releaseClaim,
       ),
     };
-    const lease: Lease = { handle, ...reservation, claims: new Set(), terminals: new Map(), arm };
+    const lease: Lease = {
+      handle, ...reservation, claims: new Set(), terminals: new Map(), arm,
+      invalidate(reason) { invalidation = reason; fence.abort(); handle.release(); },
+    };
     const members = leases.get(machineId) ?? new Set<Lease>();
     members.add(lease);
     leases.set(machineId, members);
@@ -222,9 +236,9 @@ export function createCapacity(options: CapacityOptions) {
         settle(lease, claim);
       }
     },
-    detach(machineId: string) {
+    detach(machineId: string, reason: LeaseInvalidation) {
       for (const lease of leases.get(machineId) ?? []) {
-        lease.handle.release();
+        lease.invalidate(reason);
         remove(lease);
       }
       leases.delete(machineId);

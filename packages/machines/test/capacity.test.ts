@@ -143,7 +143,7 @@ test("reattachment invalidates old leases instead of charging the replacement", 
     const lease = pick(f.host);
     await f.attach("w");
     expect(f.host.place(request).kind).toBe("placed");
-    await expect(run(lease.renewWhile(Effect.void))).rejects.toMatchObject({ reason: "lease_expired" });
+    await expect(run(lease.renewWhile(Effect.void))).rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "stale_generation" });
   } finally { await f.close(); }
 });
 

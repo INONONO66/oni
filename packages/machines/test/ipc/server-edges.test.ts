@@ -43,6 +43,29 @@ describe("server edge branches", () => {
     });
   }
 
+  test("pinning a missing connection never falls back to another live peer", async () => {
+    const srv = await createIpcServer(socketPathForTest("missing-pin"), (_method, _params, respond) => {
+      respond({ accepted: true });
+    });
+    servers.push(srv);
+    let survivorCalls = 0;
+    const survivor = await connectIpcClient(srv.socketPath, {
+      onRequest: (_method, _params, respond) => {
+        survivorCalls += 1;
+        respond({ served: true });
+      },
+    });
+    try {
+      expect(await survivor.call("introduce", {})).toEqual({ accepted: true });
+      srv.useConnection("conn-not-present");
+      await expect(srv.call("wrong-target", {})).rejects.toBeInstanceOf(IpcConnectionError);
+      expect(survivorCalls).toBe(0);
+      srv.useConnection("conn-1");
+      expect(await srv.call("correct-target", {})).toEqual({ served: true });
+      expect(survivorCalls).toBe(1);
+    } finally { await survivor.close(); }
+  });
+
   test("refuses to unlink a non-socket path", async () => {
     const path = socketPathForTest("directory");
     mkdirSync(path);

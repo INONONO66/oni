@@ -182,6 +182,23 @@ export const LeaseRefusal = z.object({
 export type LeaseRefusal = z.infer<typeof LeaseRefusal>;
 
 /**
+ * Which kind of peer offers the attachment and which machine contract version
+ * it speaks. The host admits only versions it supports.
+ */
+export const Peer = z
+  .object({
+    kind: z.enum(["daemon", "client"]),
+    contractVersion: z.number().int().min(1),
+  })
+  .strict();
+
+/**
+ * Host-minted attach generation: grows by one on every fresh attach of a
+ * machine id, so a superseded attachment is fenced by its older value.
+ */
+export const AttachGeneration = z.number().int().min(1);
+
+/**
  * Daemon-side attach report: what this machine CAN do right now.
  * May be empty — a daemon is allowed to attach before any capability module
  * is ready; it simply yields an empty effective set until it re-offers.
@@ -208,6 +225,12 @@ export const Offer = z
     /** e.g. "darwin-arm64" — display/diagnostic fact, never a matching key. */
     platform: z.string().min(1),
     offeredAt: EpochMs,
+    peer: Peer,
+    /**
+     * The last generation the host accepted, presented on reconnect. Absent
+     * on a fresh attach, which mints a new generation.
+     */
+    generation: AttachGeneration.optional(),
   })
   .strict();
 export type Offer = z.infer<typeof Offer>;
@@ -265,6 +288,8 @@ export const AttachResult = z.discriminatedUnion("status", [
       status: z.literal("attached"),
       effectiveCapabilities: z.array(CapabilityId).superRefine(uniqueCapabilities),
       effectiveExports: z.array(ExportName).superRefine(uniqueExports),
+      /** The generation this attachment holds; present it on reconnect. */
+      generation: AttachGeneration,
     })
     .strict(),
   z
@@ -278,6 +303,10 @@ export const AttachResult = z.discriminatedUnion("status", [
         // #1271: the id has a live attachment the host refuses to supersede
         // (the brain's own `self` daemon must never be hijacked by a reattach).
         "already_attached",
+        // The offered peer speaks a contract version the host does not support.
+        "unsupported_contract",
+        // The presented generation is not the one the host holds for the id.
+        "stale_generation",
       ]),
     })
     .strict(),

@@ -84,6 +84,7 @@ describe("machine JSON Schema export", () => {
       .filter((file) => file.endsWith(".json") && file !== "index.json")
       .sort();
     expect(index.contractVersion).toBe(Machine.contractVersion);
+    expect(Machine.supportedContractVersions).toEqual([Machine.contractVersion]);
     expect(index.schemas.map((entry) => entry.file).sort()).toEqual(onDisk);
     expect(onDisk).toEqual([...schemas.keys()].map((name) => `${name}.json`).sort());
   });

@@ -2,5 +2,9 @@
   "machineId": "mac-0",
   "offeredCapabilities": [],
   "platform": "darwin-arm64",
-  "offeredAt": 1
+  "offeredAt": 1,
+  "peer": {
+    "kind": "daemon",
+    "contractVersion": 2
+  }
 }

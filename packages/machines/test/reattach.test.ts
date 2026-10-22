@@ -40,7 +40,7 @@ const enrollment: Machine.Enrollment = {
   publicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   enrolledAt: 1,
 };
-function offer(): Machine.Offer {
+function offer(): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId: "m-1",
     daemonVersion: "test",

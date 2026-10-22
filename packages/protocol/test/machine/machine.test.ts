@@ -17,6 +17,7 @@ const offer = {
   daemonVersion: "0.1.0",
   platform: "darwin-arm64",
   offeredAt: 2,
+  peer: { kind: "daemon", contractVersion: 2 },
 } satisfies Machine.Offer;
 
 describe("managed machine enrollment", () => {
@@ -209,6 +210,12 @@ describe("Machine.AttachResult", () => {
       expect(result.error.issues[0]?.code).toBe("invalid_value");
       expect(result.error.issues[0]?.path.join(".")).toBe("reason");
     }
+  });
+
+  test("attached carries the admitted generation and refuses one below 1", () => {
+    const attached = { status: "attached", effectiveCapabilities: [], effectiveExports: [], generation: 3 } satisfies Machine.AttachResult;
+    expect(Machine.AttachResult.parse(attached)).toEqual(attached);
+    expectIssue(Machine.AttachResult.safeParse({ ...attached, generation: 0 }), { path: "generation" });
   });
 
   test("refused vocabulary includes already_attached (#1271 self hijack refusal)", () => {

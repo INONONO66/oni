@@ -18,8 +18,9 @@ import { captureNow, effectScheduler } from "../composition/platform";
  * key via its enrollment. The TLS fields and `hostCertificate` are PEM file
  * PATHS (read at attach time), so key material never sits in the JSON.
  */
+const DaemonOffer = Machine.Offer.omit({ peer: true, generation: true });
 const UnixConfiguration = z
-  .object({ socketPath: z.string().min(1), offer: Machine.Offer })
+  .object({ socketPath: z.string().min(1), offer: DaemonOffer })
   .strict();
 const TcpConfiguration = z
   .object({
@@ -27,7 +28,7 @@ const TcpConfiguration = z
     hostCertificate: z.string().min(1),
     tlsCertificate: z.string().min(1),
     tlsPrivateKey: z.string().min(1),
-    offer: Machine.Offer,
+    offer: DaemonOffer,
   })
   .strict();
 const Configuration = z.union([UnixConfiguration, TcpConfiguration]);

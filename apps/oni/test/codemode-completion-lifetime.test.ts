@@ -9,7 +9,7 @@ import { Bundle, Core } from "@oni/agent";
 const createTurnDispatcher = Bundle.createTurnDispatcher;
 const currentInvocation = Core.currentInvocation;
 import { createCodemode } from "@oni/codemode";
-import { attachMachineDaemon, createMachineHost, type MachinesFailure } from "@oni/machines";
+import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore, type MachinesFailure } from "@oni/machines";
 import { LedgerAction, type Machine, type PlainObject } from "@oni/protocol";
 import { z } from "zod";
 import { cellPorts } from "./helpers/cell-ports";
@@ -47,6 +47,7 @@ for (const stop of [false, true]) {
     const path = socketPath();
     let cells: Effect.Success<ReturnType<typeof composeCodemode>>;
     const host = await acquireEffect(createMachineHost({
+      generations: createMemoryGenerationStore(),
       dispatcherBound: 8,
       listen: { unix: path },
       id: testIds("lifetime-host"),

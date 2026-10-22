@@ -2,6 +2,7 @@ export { attachMachineDaemon, type MachineDaemon, type CodeRunner } from "./daem
 export type { ReconnectOptions } from "./reconnect";
 export * from "./errors";
 export { createMachineHost, type MachineHost, type MachineHandle, type MachineInfo } from "./host";
+export { createMemoryGenerationStore, createFileGenerationStore, type AttachGenerationStore } from "./generation-store";
 export type { LeaseHandle, LeaseClass } from "./capacity";
 export * from "./ipc";
 export { typedCall } from "./typed-call";

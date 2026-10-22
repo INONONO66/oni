@@ -49,10 +49,15 @@ describe("Machine.KeyFingerprint", () => {
 });
 
 describe("Machine.AttachResult transport refusal reasons", () => {
-  test.each(["peer_key_mismatch", "disconnected"] as const)("%s round-trips", (reason) => {
+  test.each(["peer_key_mismatch", "disconnected", "unsupported_contract", "stale_generation"] as const)("%s round-trips", (reason) => {
     const refusal = { status: "refused", reason } satisfies Machine.AttachResult;
     const result = Machine.AttachResult.safeParse(JSON.parse(JSON.stringify(refusal)));
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toEqual(refusal);
   });
+});
+
+test.each(["superseded", "superseded_by_reattach"] as const)("machine detach reads serialized %s reason", (reason) => {
+  const event = { machineId: "mac-0", time: 1, reason };
+  expect(Machine.Events.Detached.schema.parse(JSON.parse(JSON.stringify(event)))).toEqual(event);
 });

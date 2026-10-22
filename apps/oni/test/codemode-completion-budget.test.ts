@@ -4,7 +4,7 @@ import { Cause, Effect, Layer } from "effect";
 import { Bundle } from "@oni/agent";
 const createTurnDispatcher = Bundle.createTurnDispatcher;
 import { createCodemode } from "@oni/codemode";
-import { attachMachineDaemon, createMachineHost, MachinesFailure } from "@oni/machines";
+import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore, MachinesFailure } from "@oni/machines";
 import { LedgerAction, type Machine } from "@oni/protocol";
 import { catalogLayer, executorLayer } from "../../../packages/agent/test/helpers/service-layers";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
@@ -26,6 +26,7 @@ test("two cells in one turn each own a full completion budget", async () => {
   let cells: Effect.Success<ReturnType<typeof composeCodemode>>;
   const cellCalls = new Map<string, number>();
   const host = await acquireEffect(createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     listen: { unix: path },
     id: testIds("budget-host"),
@@ -99,6 +100,7 @@ test("a non-ToolRefused defect inside the cell door dies instead of folding to a
   const causes: Cause.Cause<MachinesFailure>[] = [];
   const settled: Machine.ToolCallResult[] = [];
   const host = await acquireEffect(createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     listen: { unix: path },
     id: testIds("defect-host"),

@@ -287,7 +287,7 @@ test("the longest effective normalized root wins — an offered root the enrollm
     // (#1512 r2 L11 — the host routes by the roots the daemon negotiated), so the path resolves through `docs`.
     const client = await scripted(path);
     try {
-      await client.call("machine.attach", offer(root, twoExports));
+      await client.call("machine.attach", { ...offer(root, twoExports), peer: { kind: "daemon", contractVersion: 2 } });
       expect(await host.get("m-1").fs.stat(join(nested, "file"))).toMatchObject({ op: "stat", kind: "file", size: 1 });
       expect(routed).toEqual(["docs:nested/file"]);
     } finally {
@@ -303,7 +303,7 @@ test("the longest effective normalized root wins — an offered root the enrollm
     });
     const bothClient = await scripted(bothPath);
     try {
-      await bothClient.call("machine.attach", offer(root, twoExports));
+      await bothClient.call("machine.attach", { ...offer(root, twoExports), peer: { kind: "daemon", contractVersion: 2 } });
       expect(await both.get("m-1").fs.stat(join(nested, "file"))).toMatchObject({ op: "stat", kind: "file", size: 1 });
       expect(routed).toEqual(["docs:nested/file", "private:file"]);
     } finally {
@@ -384,7 +384,7 @@ describe("daemon boundary cannot be bypassed by a rogue host", () => {
       const path = socketPath();
       const proxyPath = socketPath();
       const host = await createIpcServer(path, (_method, _params, respond) =>
-        respond({ status: "attached", effectiveCapabilities: capabilities, effectiveExports: ["docs"] }),
+        respond({ status: "attached", generation: 1, effectiveCapabilities: capabilities, effectiveExports: ["docs"] }),
       );
       const dropped = Promise.withResolvers<void>();
       let discarded = false;
@@ -433,6 +433,7 @@ describe("daemon boundary cannot be bypassed by a rogue host", () => {
       const host = await createIpcServer(path, (_method, _params, respond) =>
         respond({
           status: "attached",
+          generation: 1,
           effectiveCapabilities: capabilities,
           effectiveExports: ["docs"],
         }),
@@ -474,6 +475,7 @@ describe("daemon boundary cannot be bypassed by a rogue host", () => {
       const host = await createIpcServer(path, (_method, _params, respond) =>
         respond({
           status: "attached",
+          generation: 1,
           effectiveCapabilities: capabilities,
           effectiveExports: missing === "enrollment" ? [] : ["docs"],
         }),
@@ -511,6 +513,7 @@ describe("daemon boundary cannot be bypassed by a rogue host", () => {
       const host = await createIpcServer(path, (_method, _params, respond) =>
         respond({
           status: "attached",
+          generation: 1,
           effectiveCapabilities: capabilities,
           effectiveExports: ["data"],
         }),

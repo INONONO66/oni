@@ -4,6 +4,7 @@ import { Database } from "bun:sqlite";
 import { Bus } from "./bus";
 import { L0Observation, type PlainValue, type Tool } from "@oni/protocol";
 import { z } from "zod";
+import { dirname, join } from "node:path";
 import { appFixture } from "./app-fixture";
 import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
 import { planeOf } from "./ledger";
@@ -145,6 +146,7 @@ async function serve() {
     config: {
       catalogPath,
       sessionsDir,
+      machineGenerationsPath: join(dirname(catalogPath), "machines", "generations.json"),
       host: "127.0.0.1",
       wsPort: 0,
       wsToken: OWNER_TOKEN,
