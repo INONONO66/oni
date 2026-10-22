@@ -1,5 +1,81 @@
 # Implementation Status
 
+## #1624 machine host admission: contract v2 peers and the attach generation
+
+On `feat/1624-machine-host-admission` (2026-10-22, base `5b4f2a253` after
+#1625, PR pending). `Machine.contractVersion` is now `2` and the new
+`Machine.supportedContractVersions` is `[2]` (a plain array, not a schema;
+`packages/protocol/test/machine-contract.test.ts` pins it to
+`[contractVersion]`). `Machine.Offer` gains a required `peer`
+(`{ kind: "daemon" | "client", contractVersion: int >= 1 }`, strict) and an
+optional `generation` (int >= 1); `AttachResult.attached` gains a required
+`generation`; `AttachResult.refused.reason` gains `unsupported_contract` and
+`stale_generation`; `Machine.Info` gains optional `generation` and `peer`; the
+`machine.detached` reason enum is `connection_closed | host_closed |
+enrollment_removed | enrollment_replaced | superseded_by_reattach |
+superseded`; the host emits `superseded` while old events remain readable.
+`Peer` and `AttachGeneration` are
+schema-local building blocks in `packages/protocol/src/machine/schema.ts`,
+not `Machine` namespace roots. The JSON Schema export was regenerated (still
+73 files, `index.json` says `contractVersion: 2`) and the fixture set is now
+156 valid and 103 invalid (new valid: `Offer.client-peer`,
+`Offer.reconnect-generation`, `AttachResult.unsupported-contract`,
+`AttachResult.stale-generation`, `EventDetached.superseded`,
+`EventDetached.superseded-by-reattach`, `Info.generation-peer`; new invalid:
+missing or unknown `peer`, zero `contractVersion`, zero `generation` on
+Offer, AttachResult and Info, or missing `generation` on
+AttachResult.attached). The #1623 paragraph below keeps its original `contractVersion = 1`
+and 149/95 numbers as history. `clients/` needed no change; `cargo test`
+passed on the regenerated schemas.
+
+`packages/machines` owns the host half. `createMachineHost` now requires a
+`generations: AttachGenerationStore` port (`src/generation-store.ts`:
+`current(machineId)` and `compareAndSet(machineId, expected, next)`, both
+Effects failing with `MachinesFailure`) and ships
+`createMemoryGenerationStore()` plus `createFileGenerationStore({ path })`
+(JSON record `machineId -> generation`, owner-pid lock directory at `<path>.lock`,
+`<path>.tmp` then rename, mode 0600; a missing file reads as empty, an
+invalid or unreadable one fails closed with operation `generation.read` or
+`generation.compareAndSet`). Admission runs under a `Semaphore(1)` in the
+order `machine_not_enrolled`, `peer_key_mismatch`, `unsupported_contract`
+(against `supportedContractVersions`), `machine_mismatch`, then
+`already_attached` for a generation-less offer on any live `neverSupersede`
+id, including the same connection (refused before the store is touched), then the
+generation: a reconnect must present exactly `current` or is refused
+`stale_generation`; a fresh offer mints `current + 1` by CAS with one
+re-read on a lost race. An accepted offer detaches the incumbent connection
+and any earlier attachment on the same connection with reason `superseded`,
+disconnects the displaced connection, and invalidates its leases with
+`stale_generation` (every other detach invalidates with `disconnected`;
+`lease_expired` comes only from the lease's own idle expiry or release;
+`capacity.detach(machineId, reason)` and `MachineRefusalError` now carry
+`status: "refused"` and the `stale_generation` reason). `MachineInfo` is
+`Machine.Info & { generation: number; peer }` and `list()` fills both.
+
+The daemon half: `MachineDaemonOptions.offer` is
+`Omit<Machine.Offer, "peer" | "generation">`, parsed by the matching Zod
+projection; the daemon adds `peer: { kind: "daemon", contractVersion:
+Machine.contractVersion }`, sends the accepted `generation` on every later
+attach, and turns a `stale_generation` or `unsupported_contract` refusal
+into `MachinesFailure { operation: "daemon.attach", cause }`: on first
+attach it is the startup failure, on reattach it populates `attachment`,
+stops the reconnector and fails `closed`. The app (`apps/oni`) parses the
+same daemon-owned shape in `oni machine attach` config, adds
+`OniConfig.machineGenerationsPath` resolved by
+`resolveMachineGenerationsPath` from `ONI_MACHINES_GENERATIONS` (default
+`~/.oni/machines/generations.json`), and passes
+`createFileGenerationStore({ path })` into `createMachineHost`.
+
+Receipts (lead, 2026-10-22, worktree `openomni-wt/mc-p2`): machines suite
+323 pass / 0 fail across 42 files before n8's review fixes, including
+`test/generation-store.test.ts`, `test/host-admission.test.ts` and
+`test/daemon-admission.test.ts`; coverage `generation-store.ts` 100%
+lines, `host.ts` 100% lines, `capacity.ts` 100% lines; protocol 932 pass /
+0 fail; `generate-machine-schema --check` current; root `lint`, `check-deps`
+and `check-dead-exports` exit 0; `cargo test` in `clients/` all green. The
+full app suite after the config/index change is the lead's merge gate, not
+recorded here.
+
 ## #1623 machine client P1: the wire contract export and the `clients/` workspace
 
 On `feat/1623-machine-client-p1-contract` (2026-10-21, base `941c680ad`).

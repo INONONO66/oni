@@ -24,7 +24,10 @@ The protocol contracts for both belong together because they meet in the tool ca
   for one machine. Never empty (an enrolled machine with nothing allowed is a
   contradiction).
 - `Machine.Offer` — daemon-side attach report: what the machine can do right
-  now. May be empty; the daemon re-offers when modules come up.
+  now. May be empty; the daemon re-offers when modules come up. Since #1624
+  it carries a required `peer {kind: "daemon" | "client", contractVersion}`
+  and an optional `generation` (the last one the host accepted, presented on
+  reconnect only).
 - `Machine.effectiveCapabilities(enrollment, offer)` — pure clockless fold:
   intersection, sorted; mismatched machine ids refuse (`machine_mismatch`).
   Neither side can grant itself a capability the other never named.
@@ -34,7 +37,9 @@ The protocol contracts for both belong together because they meet in the tool ca
   owned grammar: enrollment writer, daemon offer, and tool `requires` all
   parse the same shape.
 - Events: `machine.attached` (carries the effective set in force),
-  `machine.detached`.
+  `machine.detached` (reason `connection_closed | host_closed |
+  enrollment_removed | enrollment_replaced | superseded_by_reattach |
+  superseded`); new host emissions use `superseded`.
 
 The daemon itself is the driver-band `packages/machines` package
 ({protocol, ipc} deps only, reverse-connection over the ipc transport);
@@ -181,7 +186,61 @@ cap 30s, injected scheduler/randomness in tests); a successful reattach
 resets the backoff and the host's existing handles serve the replacement
 connection. A REFUSED reattach is terminal: the refusal surfaces, nothing is
 rescheduled, and the daemon closes (the CLI exits nonzero) until restart or
-config change.
+config change. A reconnect presents the generation the host minted for the
+previous attachment (next section); a `stale_generation` or
+`unsupported_contract` refusal fails the daemon with the typed
+`MachinesFailure { operation: "daemon.attach", cause }`, on first attach as
+the startup error and on reattach through `closed`.
+
+### 2.3.1 Contract admission and the attach generation (#1624)
+
+`Machine.contractVersion` is 2 and `Machine.supportedContractVersions` is
+`[2]`. Every offer names its peer: the daemon composes
+`{ kind: "daemon", contractVersion: Machine.contractVersion }` itself, so a
+daemon configuration (the CLI JSON, `MachineDaemonOptions.offer`) is
+`Omit<Machine.Offer, "peer" | "generation">`; a `client` peer uses the same
+Offer shape with `kind: "client"`. The host judges one offer at a time (a
+`Semaphore(1)` wraps `attach`) in this fixed order, and the first failing
+step answers:
+
+1. `machine_not_enrolled` when no enrollment exists for the offered id.
+2. `peer_key_mismatch` when a TCP peer's presented key differs from
+   `Enrollment.publicKey` (key pinning precedes contract negotiation so an
+   intruder cannot displace a peer).
+3. `unsupported_contract` when `peer.contractVersion` is not in
+   `supportedContractVersions`.
+4. `machine_mismatch` from the enrollment ∩ offer folds.
+5. `already_attached` when the id is in `neverSupersede`, is attached on
+   any connection (including the offering one), and the offer carries no
+   `generation`. Fresh offers are refused before the generation store is touched.
+6. `stale_generation` from the generation step below.
+
+The generation is host-minted and durable. `createMachineHost` takes a
+required `generations: AttachGenerationStore` port
+(`current(machineId)` and `compareAndSet(machineId, expected, next)`);
+`packages/machines` ships `createMemoryGenerationStore()` and
+`createFileGenerationStore({ path })`. A fresh offer (no `generation`) mints
+`current + 1` through CAS, re-reading once on a lost race and refusing
+`stale_generation` if the second attempt loses too. A reconnect offer must
+present exactly the current generation or it is refused `stale_generation`.
+The accepted value is returned as `AttachResult.attached.generation`,
+appears on `MachineInfo` (`generation` plus `peer`), and the daemon keeps it
+for its next reconnect.
+
+Admission supersedes: once a generation is accepted, the incumbent connection
+for that id (and any earlier attachment on the same connection) is detached
+with `machine.detached { reason: "superseded" }`, its leases are invalidated
+with `stale_generation` so a pending `renewWhile` fails with
+`MachineRefusalError { status: "refused", reason: "stale_generation" }`,
+and the host disconnects the displaced connection. Every other detach
+(transport loss, host closure, enrollment removal or replacement) invalidates
+running leases with `disconnected`; `lease_expired` comes only from the
+lease's own idle expiry or release. The file store writes
+`{ "<machineId>": <generation> }` under an owner-pid lock directory at
+`<path>.lock`, through a `<path>.tmp` rename with mode 0600; an unreadable or invalid file fails
+closed as `MachinesFailure` (`generation.read` / `generation.compareAndSet`).
+The app passes `createFileGenerationStore` with `ONI_MACHINES_GENERATIONS`,
+default `~/.oni/machines/generations.json`.
 
 ### 2.4 Self machine (#1271)
 
