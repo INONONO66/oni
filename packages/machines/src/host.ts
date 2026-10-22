@@ -5,12 +5,13 @@ import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
 import { typedCall } from "./typed-call";
 import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
-import { Effect, Fiber, type Scope } from "effect";
+import { Effect, Fiber, Semaphore, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
 import { onAbort } from "./interrupt-on";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
+import type { AttachGenerationStore } from "./generation-store";
 
 interface MachineHostOptions {
   /**
@@ -28,6 +29,7 @@ interface MachineHostOptions {
   /** Callback dispatcher bound per listener (#1312): required, the composition chooses it. */
   readonly dispatcherBound: number;
   readonly enrollment: (id: Machine.MachineId) => Machine.Enrollment | undefined;
+  readonly generations: AttachGenerationStore;
   readonly events: BusEvent.Sink;
   readonly now: () => number;
   /**
@@ -37,11 +39,11 @@ interface MachineHostOptions {
    */
   readonly callTool: (call: Machine.ToolCall) => Effect.Effect<Machine.ToolCallResult, MachineError>;
   /**
-   * Machine ids whose live attachment is never superseded (#1271): while such
-   * an id is attached, a second offer for it from another connection is
-   * refused `already_attached` instead of detaching the incumbent. The app
-   * passes the self machine id so no same-uid process can hijack the brain's
-   * own fs/shell plane through the reattach-supersede path.
+   * Machine ids protected from fresh-offer supersession (#1271): while such
+   * an id is attached, an offer without a generation is refused
+   * `already_attached`. A reconnect proving the current generation may
+   * replace its stale connection. The app protects its own machine id.
+   * Fresh offers are refused before reading or changing the generation store.
    */
   readonly neverSupersede?: readonly Machine.MachineId[];
   /**
@@ -62,6 +64,7 @@ type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }
 type ReadValue = Omit<Value<"read">, "data"> & { readonly data: Uint8Array };
 type ExecValue = Omit<Extract<Machine.ExecResult, { status: "completed" }>, "stdout" | "stderr"> & { readonly stdout: Uint8Array; readonly stderr: Uint8Array };
 type ScreenValue = Omit<Extract<Machine.ScreenReadResult, { status: "ok" }>, "png"> & { readonly png: Uint8Array };
+type DetachReason = import("zod").infer<typeof Machine.Events.Detached.schema>["reason"];
 export interface MachineHandle {
   readonly fs: {
     read(path: string, window?: { offset?: number; limit?: number }): Effect.Effect<ReadValue, MachineError>;
@@ -79,7 +82,10 @@ export interface MachineHandle {
   peekCode(cellId: string): Effect.Effect<Machine.PeekAnswer, MachineError>;
 }
 /** Attached enrollment, negotiated capabilities and optional resource observations. */
-export type MachineInfo = Machine.Info;
+export type MachineInfo = Machine.Info & {
+  readonly generation: number;
+  readonly peer: Machine.Offer["peer"];
+};
 export interface MachineHost {
   list(): MachineInfo[];
   place(request: HostPlacementRequest, workClass?: LeaseClass): HostPlacement;
@@ -102,11 +108,12 @@ export interface MachineHost {
   close(): Effect.Effect<void, MachineError>;
 }
 /** The per-connection transport surface every machine operation routes through. */
-type HostListener = Pick<IpcServer, "call" | "useConnection" | "peerFingerprintOf" | "disconnect">;
+type HostListener = Pick<IpcServer, "call" | "useConnection" | "isConnected" | "peerFingerprintOf" | "disconnect">;
 interface Attachment {
   readonly enrollment: Machine.Enrollment;
   readonly offer: Machine.Offer;
   readonly capabilities: readonly string[];
+  readonly generation: number;
   /** Registry key: `<listener label>:<listener connection id>` — unique across listeners. */
   readonly key: string;
   /** The listener-local connection id `server` understands. */
@@ -120,40 +127,69 @@ interface RequestSource {
   readonly server: HostListener;
 }
 
+function negotiate(offer: Machine.Offer, found: Machine.Enrollment | undefined, source: RequestSource) {
+  return Effect.gen(function* () {
+    if (found === undefined) return { status: "refused", reason: "machine_not_enrolled" } as const;
+    const enrollment = yield* Effect.try({ try: () => Machine.Enrollment.parse(found), catch: decodeMachineFailure("enrollment.decode") });
+    // Key pinning precedes contract negotiation so an intruder cannot displace a peer.
+    const presented = source.server.peerFingerprintOf(source.rawId);
+    if (presented !== undefined && presented !== enrollment.publicKey) return { status: "refused", reason: "peer_key_mismatch" } as const;
+    if (!Machine.supportedContractVersions.some((version) => version === offer.peer.contractVersion))
+      return { status: "refused", reason: "unsupported_contract" } as const;
+    const capabilities = Machine.effectiveCapabilities(enrollment, offer);
+    const exports = Machine.effectiveExports(enrollment, offer);
+    if (capabilities.kind === "machine_mismatch" || exports.kind === "machine_mismatch")
+      return { status: "refused", reason: "machine_mismatch" } as const;
+    return { enrollment, capabilities: capabilities.capabilities, exports: exports.exports };
+  });
+}
+
+function generationOf(store: AttachGenerationStore, offer: Machine.Offer, active: () => boolean): Effect.Effect<number | undefined, MachinesFailure> {
+  return Effect.gen(function* () {
+    let current = yield* store.current(offer.machineId);
+    if (!active()) return undefined;
+    if (offer.generation !== undefined) return offer.generation === current ? current : undefined;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const next = (current ?? 0) + 1;
+      if (yield* store.compareAndSet(offer.machineId, current, next)) return next;
+      if (attempt === 0) current = yield* store.current(offer.machineId);
+      if (!active()) return undefined;
+    }
+    return undefined;
+  });
+}
+
 export function createMachineHost(options: MachineHostOptions): Effect.Effect<MachineHost, MachineError, Scope.Scope> {
   return Effect.gen(function* () {
     const rows = yield* Effect.try({ try: () => Machine.CapacityRows.parse(options.capacity ?? []), catch: decodeMachineFailure("capacity.decode") });
+    const admission = yield* Semaphore.make(1);
     const attachments = new Map<string, Attachment>();
     const connectionByMachine = new Map<string, string>();
     /** Machines that attached at least once: their detached window reads `disconnected`. */
     const known = new Set<string>();
     const inFlight = new Map<string, Set<string>>();
     const handles = new Map<string, MachineHandle>();
+    const revoked = new Map<string, number>();
+    let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
     const reports = new Map<string, { readonly report: Machine.Report; readonly receivedAt: number }>();
     const staleAfterMs = options.staleAfterMs ?? REPORT_STALE_AFTER_MS;
     const capacity = createCapacity({ ...options, rows, list });
-    function detach(key: string, reason: import("zod").infer<typeof Machine.Events.Detached.schema>["reason"]): void {
+    function detach(key: string, reason: DetachReason): void {
       const attachment = attachments.get(key);
       if (attachment === undefined) return;
       attachments.delete(key);
       inFlight.delete(key);
       reports.delete(key);
-      capacity.detach(attachment.offer.machineId);
+      capacity.detach(attachment.offer.machineId, reason === "superseded" ? "stale_generation" : "disconnected");
       if (connectionByMachine.get(attachment.offer.machineId) === key) connectionByMachine.delete(attachment.offer.machineId);
       options.events.publish(Machine.Events.Detached, { machineId: attachment.offer.machineId, time: options.now(), reason });
     }
-    /**
-     * A live attachment on another connection is detached in favor of the new
-     * offer — unless the id is in `neverSupersede` (#1271): then the incumbent
-     * stays authoritative and the caller must refuse `already_attached`.
-     */
-    function supersedeIncumbent(machineId: string, sourceKey: string): boolean {
-      const stale = connectionByMachine.get(machineId);
-      if (stale === undefined || stale === sourceKey) return true;
-      if (options.neverSupersede?.includes(machineId) === true) return false;
-      detach(stale, "superseded_by_reattach");
-      return true;
+    function supersede(key: string, source: RequestSource): void {
+      const stale = attachments.get(key);
+      if (stale === undefined) return;
+      detach(key, "superseded");
+      if (key !== source.key) stale.server.disconnect(stale.rawId);
     }
     function callTool(call: Machine.ToolCall, key: string): Effect.Effect<Machine.ToolCallResult, MachineError> {
       return Effect.suspend(() => {
@@ -161,30 +197,48 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         return options.callTool(call);
       });
     }
+    function admissionValid(offer: Machine.Offer, source: RequestSource, revision: number | undefined): "closed" | "machine_not_enrolled" | undefined {
+      if (closed || !source.server.isConnected(source.rawId)) return "closed";
+      if (revision !== revoked.get(offer.machineId) || options.enrollment(offer.machineId) === undefined)
+        return "machine_not_enrolled";
+    }
+    function publishAttachment(offer: Machine.Offer, source: RequestSource, incumbent: string | undefined, generation: number, negotiated: {
+      readonly enrollment: Machine.Enrollment;
+      readonly capabilities: readonly Machine.CapabilityId[];
+      readonly exports: readonly Machine.ExportName[];
+    }): void {
+      if (incumbent !== undefined) supersede(incumbent, source);
+      supersede(source.key, source);
+      attachments.set(source.key, { enrollment: negotiated.enrollment, offer, generation, capabilities: negotiated.capabilities, ...source });
+      connectionByMachine.set(offer.machineId, source.key);
+      known.add(offer.machineId);
+      options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...negotiated.capabilities] });
+    }
     function attach(offer: Machine.Offer, respond: (result: Machine.AttachResult) => void, source: RequestSource): Effect.Effect<void, MachineError> {
       return Effect.gen(function* () {
-        const found = options.enrollment(offer.machineId);
-        if (found === undefined) { respond({ status: "refused", reason: "machine_not_enrolled" } satisfies Machine.AttachResult); return; }
-        const enrollment = yield* Effect.try({ try: () => Machine.Enrollment.parse(found), catch: decodeMachineFailure("enrollment.decode") });
-        // Pinned admission (#1270): a TCP peer is judged by its mutual-TLS key
-        // BEFORE anything else about the offer is honored. A mismatch admits
-        // nothing — the currently valid attachment (if any) stays authoritative.
-        const presented = source.server.peerFingerprintOf(source.rawId);
-        if (presented !== undefined && presented !== enrollment.publicKey) { respond({ status: "refused", reason: "peer_key_mismatch" } satisfies Machine.AttachResult); return; }
-        const outcome = Machine.effectiveCapabilities(enrollment, offer);
-        const exports = Machine.effectiveExports(enrollment, offer);
-        if (outcome.kind === "machine_mismatch" || exports.kind === "machine_mismatch") { respond({ status: "refused", reason: "machine_mismatch" } satisfies Machine.AttachResult); return; }
-        if (!supersedeIncumbent(offer.machineId, source.key)) {
+        const revision = revoked.get(offer.machineId);
+        const negotiated = yield* negotiate(offer, options.enrollment(offer.machineId), source);
+        if (negotiated.status === "refused") { respond(negotiated); return; }
+        const incumbent = connectionByMachine.get(offer.machineId);
+        if (offer.generation === undefined && incumbent !== undefined && options.neverSupersede?.includes(offer.machineId) === true) {
           respond({ status: "refused", reason: "already_attached" } satisfies Machine.AttachResult);
           return;
         }
-        detach(source.key, "superseded_by_reattach");
-        attachments.set(source.key, { enrollment, offer, capabilities: outcome.capabilities, ...source });
-        connectionByMachine.set(offer.machineId, source.key);
-        known.add(offer.machineId);
-        options.events.publish(Machine.Events.Attached, { machineId: offer.machineId, time: options.now(), effectiveCapabilities: [...outcome.capabilities] });
-        respond({ status: "attached", effectiveCapabilities: [...outcome.capabilities], effectiveExports: [...exports.exports] } satisfies Machine.AttachResult);
-      });
+        const generation = yield* generationOf(options.generations, offer, () =>
+          admissionValid(offer, source, revision) === undefined);
+        const state = admissionValid(offer, source, revision);
+        if (state === "closed") return;
+        if (state === "machine_not_enrolled") {
+          respond({ status: "refused", reason: "machine_not_enrolled" });
+          return;
+        }
+        if (generation === undefined) {
+          respond({ status: "refused", reason: "stale_generation" });
+          return;
+        }
+        publishAttachment(offer, source, incumbent, generation, negotiated);
+        respond({ status: "attached", generation, effectiveCapabilities: [...negotiated.capabilities], effectiveExports: [...negotiated.exports] } satisfies Machine.AttachResult);
+      }).pipe(admission.withPermits(1));
     }
     /**
      * One heartbeat (#1555). Only the connection that attached may report,
@@ -473,17 +527,20 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return handle;
     }
     const close = Effect.suspend(() => {
+      closed = true;
       for (const key of attachments.keys()) detach(key, "host_closed");
       return Effect.forEach(servers, (server) => server.close(), { discard: true }).pipe(Effect.mapError(transportFailure("host.close")));
     });
     yield* Effect.addFinalizer(() => Effect.orDie(close));
     function list(): MachineInfo[] {
-      return [...attachments.values()].map(({ enrollment, offer, capabilities, key }): MachineInfo => {
+      return [...attachments.values()].map(({ enrollment, offer, generation, capabilities, key }): MachineInfo => {
         const latest = reports.get(key);
         return {
           ...structuredClone(enrollment),
           tags: [...(enrollment.tags ?? [])],
           capabilities: [...capabilities],
+          generation,
+          peer: { ...offer.peer },
           os: offer.platform.split("-")[0] ?? offer.platform,
           arch: offer.platform.split("-").slice(1).join("-"),
           ...(offer.resources === undefined ? {} : { resources: { ...offer.resources } }),
@@ -499,6 +556,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     return {
       get, list, place: capacity.place, capacity: capacity.capacity, exports: exportsOf,
       unenroll(id, reason = "enrollment_removed") {
+        revoked.set(id, (revoked.get(id) ?? 0) + 1);
         const key = connectionByMachine.get(id);
         const attachment = key === undefined ? undefined : attachments.get(key);
         if (attachment === undefined) return;

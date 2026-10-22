@@ -75,7 +75,7 @@ type MachineDaemonOptions = DaemonConnection & {
   readonly id: () => string;
   /** Callback dispatcher bound (#1312): required, the composition chooses it. */
   readonly dispatcherBound: number;
-  readonly offer: Machine.Offer;
+  readonly offer: Omit<Machine.Offer, "peer" | "generation">;
   readonly fsExports?: ReadonlyMap<string, string>;
   readonly runner?: CodeRunner;
   /** Injected shell-out port for computer-use probes/commands; tests fake it. */
@@ -118,7 +118,7 @@ function escapesCanonicalRoot(absolute: string, root: string): boolean {
 
 export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effect<MachineDaemon, MachineError, Scope.Scope> {
   return Effect.gen(function* () {
-    const configured = yield* Effect.try({ try: () => Machine.Offer.parse(options.offer), catch: decodeMachineFailure("daemon.offer") });
+    const configured = yield* Effect.try({ try: () => Machine.Offer.omit({ peer: true, generation: true }).parse(options.offer), catch: decodeMachineFailure("daemon.offer") });
     const commands = options.commands ?? systemCommandRunner();
     const computer = createComputerUse({ runner: commands, id: options.id });
     // Clock precedence resolved AFTER the spread (#1603 r1): an explicit
@@ -131,9 +131,11 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     const resources = configured.resources ?? report?.probe.resources();
     const offer: Machine.Offer = {
       ...configured,
+      peer: { kind: "daemon", contractVersion: Machine.contractVersion },
       ...(resources === undefined ? {} : { resources }),
       offeredCapabilities: yield* pty.offeredCapabilities(yield* computer.offeredCapabilities(configured.offeredCapabilities)),
     };
+    let generation: number | undefined;
     const filesystem = yield* createFsDriver(options.fsExports ?? new Map());
     const dispatch = yield* makeDispatcher({ bound: options.dispatcherBound });
     const lifetime = new AbortController();
@@ -147,6 +149,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     const attached = yield* Deferred.make<void>();
     const closed = yield* Deferred.make<void, MachineError>();
     let closing = false;
+    let admissionFailure: MachinesFailure | undefined;
     const transportFailure = (operation: string) => (error: import("./ipc").IpcError) => new TransportFailure({ operation, message: error.message || String(error), cause: String(error) });
     let cancelReport: (() => void) | undefined;
     function stopReporting(): void {
@@ -167,7 +170,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     }
     const reconnector = options.reconnect === undefined ? undefined : createReconnector(options.reconnect, runAttempt);
     const close: Effect.Effect<void, MachineError> = Effect.suspend(() => {
-      if (closing) return Deferred.await(closed);
+      if (closing) return Deferred.await(closed).pipe(Effect.ignore);
       closing = true;
       reconnector?.stop();
       lifetime.abort();
@@ -178,7 +181,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
         yield* releaseClient;
         if (options.runner) yield* options.runner.close();
         yield* Effect.forEach([...pending], Deferred.await, { discard: true });
-      }).pipe(Effect.onExit((exit) => Deferred.done(closed, exit)));
+      }).pipe(Effect.onExit((exit) => Deferred.done(closed, admissionFailure === undefined ? exit : Exit.fail(admissionFailure))));
     });
     yield* Effect.addFinalizer(() => Effect.orDie(close));
     /**
@@ -399,11 +402,19 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
         error._tag === "IpcPeerKeyMismatchError"
           ? new MachineRefusalError({ reason: "peer_key_mismatch", message: error.message })
           : transportFailure("daemon.connect")(error)));
-      const raw = yield* typedCall(client, Machine.WireMethod.Attach, offer, options.attachTimeoutMs).pipe(Effect.mapError(transportFailure("daemon.attach")));
+      const raw = yield* typedCall(client, Machine.WireMethod.Attach, {
+        ...offer,
+        ...(generation === undefined ? {} : { generation }),
+      }, options.attachTimeoutMs).pipe(Effect.mapError(transportFailure("daemon.attach")));
       attachment = yield* Effect.try({ try: () => Machine.AttachResult.parse(raw), catch: decodeMachineFailure("daemon.attach.response") });
       attachmentReady = attachment.status === "attached";
       // The first heartbeat follows the attach at once (through the scheduler, never ambiently).
-      if (attachment.status === "attached") scheduleReport(0);
+      if (attachment.status === "attached") {
+        generation = attachment.generation;
+        scheduleReport(0);
+      } else if (attachment.reason === "stale_generation" || attachment.reason === "unsupported_contract") {
+        admissionFailure = new MachinesFailure({ operation: "daemon.attach", cause: attachment.reason });
+      }
     });
     /**
      * A scheduled reconnect attempt. Success resets the backoff counter; a
@@ -431,6 +442,7 @@ export function attachMachineDaemon(options: MachineDaemonOptions): Effect.Effec
     });
     return yield* Effect.gen(function* () {
       yield* establish;
+      if (admissionFailure !== undefined) return yield* Effect.fail(admissionFailure);
       return { get attachment() { return attachment; }, closed: Deferred.await(closed), close: () => close };
     }).pipe(Effect.ensuring(Deferred.succeed(attached, undefined)), Effect.onError(() => Effect.orDie(close)));
   });
