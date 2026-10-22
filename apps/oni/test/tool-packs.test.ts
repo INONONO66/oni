@@ -13,7 +13,9 @@ import { alarmDefinition } from "./helpers/alarm-definition";
 import { loadConfig } from "../src/config";
 import { socketPath } from "./helpers/socket-path";
 import { testSelfMachine } from "./helpers/self-machine";
+import { residentSuite } from "./helpers/resident-suite";
 
+const suite = residentSuite();
 const fixture = join(import.meta.dir, "fixtures/packs/tool/valid/echo");
 const file = join(fixture, "echo/manifest.json");
 const ids = new Set(["self"]);
@@ -184,14 +186,10 @@ test("loadConfig accepts an optional tool-pack directory", () => {
 
 test("production boot composes a configured pack before the machine port binds", async () => {
   const app = await startOni({
-    config: {
-      host: "127.0.0.1",
-      wsPort: 0,
-      kek: { kind: "locked", reason: "test fixture" },
-      model: { provider: "fake", id: "fixture", apiKey: "fixture" },
+    config: suite.config("oni-tool-packs-", {
       machines: { self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] },
       toolPacksDir: fixture,
-    },
+    }),
   });
   await app.stop();
 });

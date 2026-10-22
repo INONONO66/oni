@@ -90,6 +90,7 @@ export function residentSuite(afterStop?: () => Promise<void> | void): ResidentS
       return {
         catalogPath: join(directory, "catalog.sqlite"),
         sessionsDir: join(directory, "sessions"),
+        machineGenerationsPath: join(directory, "machines", "generations.json"),
         host: "127.0.0.1",
         wsPort: 0,
         kek: { kind: "locked", reason: "no vault key in this fixture" },

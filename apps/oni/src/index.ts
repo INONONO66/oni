@@ -57,6 +57,7 @@ import {
 } from "@oni/channels";
 
 import {
+  createFileGenerationStore,
   createMachineHost,
   MachinesFailure,
   type MachineError,
@@ -88,6 +89,7 @@ import {
   modelTransport,
   resolveAlarmSweep,
   resolveClusterStorage,
+  resolveMachineGenerationsPath,
   resolveSessionFork,
   resolveToolOutput,
   validateMachinePlane,
@@ -175,6 +177,7 @@ interface StartOptions {
 async function composeMachinePlane(
   runtime: AppRuntime,
   machines: NonNullable<OniConfig["machines"]>,
+  generationsPath: string,
   deps: {
     readonly enrollments: MachinePort["enrollments"];
     readonly events: BusEvent.Sink;
@@ -219,6 +222,7 @@ async function composeMachinePlane(
       yield* Effect.addFinalizer(() => Effect.sync(() => scheduler.close()));
       return yield* createMachineHost({
         listen: machines.listen,
+        generations: createFileGenerationStore({ path: generationsPath }),
         ...(machines.tls === undefined ? {} : { tls: machines.tls }),
         enrollment: (machineId) => {
           if (machineId === plane.self.id) return selfRecord;
@@ -708,7 +712,7 @@ export async function startOni(options: StartOptions = {}) {
     // The cell door is bound per cell rather than globally, so a cell serves
     // exactly the tools its own dispatcher holds.
     let cells: ComposedCodemode | undefined;
-    const machinery = await composeMachinePlane(runtime, machinesConfig, {
+    const machinery = await composeMachinePlane(runtime, machinesConfig, resolveMachineGenerationsPath(config), {
       enrollments,
       events: services.observations,
       id: services.entropy.id,

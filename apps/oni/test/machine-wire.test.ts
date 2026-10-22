@@ -6,10 +6,14 @@ import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";
 import { bounded } from "./helpers/protected-dispatch";
 import { attachMachineDaemon } from "../../../packages/machines/test/helpers/native";
+import { createFileGenerationStore } from "@oni/machines";
 import { nextFrame } from "./helpers/ws";
 import { machineWire } from "../src/composition/machine-wire";
+import { MachineResult } from "../src/bundles/provision/machine-schema";
+import minimalInfo from "../../../packages/protocol/fixtures/machine/valid/Info.minimal.json";
 import { planeOf, testPlane } from "./helpers/ledger";
 import { Bus } from "./helpers/bus";
+import { runEffect } from "./helpers/effect";
 
 const suite = residentSuite();
 
@@ -34,6 +38,8 @@ test("the authenticated gateway returns the live host list before chat", async (
       }),
     },
   });
+  if (config.machineGenerationsPath === undefined) throw new Error("missing generation store path");
+  expect(await runEffect(createFileGenerationStore({ path: config.machineGenerationsPath }).current("self"))).toBe(1);
   const daemon = await attachMachineDaemon({
     socketPath: machines.listen.unix ?? "",
     offer: { machineId: "wire-worker", daemonVersion: "test", offeredCapabilities: ["kernel.py"], offeredAt: 2, platform: "linux-arm64" },
@@ -46,11 +52,18 @@ test("the authenticated gateway returns the live host list before chat", async (
   expect(reply.type).toBe("machine_listed");
   if (reply.type !== "machine_listed") throw new Error(reply.detail);
   expect(reply.rows.map((row) => row.machineId)).toEqual(["self", "wire-worker"]);
+  expect(reply.rows.find((row) => row.machineId === "wire-worker")).toMatchObject({
+    generation: 1, peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+  });
   socket.send(JSON.stringify({ text: "List attached machines", eventId: "list-machines" }));
   const result = await bounded(execution.promise);
   expect(result.isError).not.toBe(true);
   if (result.content === undefined) throw new Error("missing machine list result");
-  expect(parseJson(z.object({ rows: z.array(Machine.Info) }), result.content)?.rows).toEqual(reply.rows);
+  const listed = parseJson(z.object({ rows: z.array(Machine.Info) }), result.content)?.rows;
+  expect(listed).toEqual(reply.rows);
+  expect(listed?.find((row) => row.machineId === "wire-worker")).toMatchObject({
+    generation: 1, peer: { kind: "daemon", contractVersion: Machine.contractVersion },
+  });
 });
 
 test("machine wire refuses malformed and unavailable requests while leaving other frames alone", () => {
@@ -62,6 +75,16 @@ test("machine wire refuses malformed and unavailable requests while leaving othe
   expect(machineWire('{"type":"machine_list","requestId":"absent"}', undefined))
     .toMatchObject({ type: "machine_list_refused", requestId: "absent", reason: "unavailable" });
   expect(machineWire('{"type":"automation_list","requestId":"other"}', undefined)).toBeUndefined();
+});
+
+test("legacy machine lists omit generation and peer on both app read surfaces", () => {
+  const gateway = Machine.Response.parse({ type: "machine_listed", requestId: "legacy", rows: [minimalInfo] });
+  const provision = MachineResult.parse({ op: "machine_list", result: { rows: [minimalInfo] } });
+  expect(gateway.type).toBe("machine_listed");
+  if (gateway.type !== "machine_listed") throw new Error(gateway.detail);
+  expect(gateway.rows[0]).toEqual(minimalInfo);
+  if (provision.op !== "machine_list") throw new Error("unexpected machine result");
+  expect(provision.result.rows[0]).toEqual(minimalInfo);
 });
 
 test("boot warns once for a changed live enrollment seed without overwriting stored authority", async () => {

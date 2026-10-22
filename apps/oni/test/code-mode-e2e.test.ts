@@ -16,6 +16,7 @@ type Sink = Core.LlmSink;
 import {
   attachMachineDaemon as attachDaemon,
   createMachineHost as createHost,
+  createMemoryGenerationStore,
   type MachineDaemon,
 } from "@oni/machines";
 import type { Machine, PlainObject } from "@oni/protocol";
@@ -482,6 +483,7 @@ test("the catalog remains available while machine execution refuses without atta
 async function e2eHost(callTool: Parameters<typeof createMachineHost>[0]["callTool"]) {
   const socketPath = testSocketPath();
   const host = await createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     listen: { unix: socketPath },
     enrollment: (machineId) => (machineId === MACHINE_ID ? enrollment : undefined),
@@ -917,6 +919,7 @@ test("a machine offering more than it is enrolled for keeps only the intersectio
   const socketPath = testSocketPath();
 
   const host = await createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     listen: { unix: socketPath },
     enrollment: () => ({ ...enrollment, allowedCapabilities: ["fs.read"] }),

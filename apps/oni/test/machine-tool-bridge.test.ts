@@ -2,7 +2,7 @@ import { runEffect, acquireEffect, acquireSyncEffect } from "./helpers/scoped-ef
 import { Effect } from "effect";
 import { createCodemode } from "@oni/codemode";
 import { describe, expect, test } from "bun:test";
-import { connectIpcClient, createMachineHost, typedCall } from "@oni/machines";
+import { connectIpcClient, createMachineHost, createMemoryGenerationStore, typedCall } from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { attachMachineDaemon } from "@oni/machines";
 import type { MachineHost } from "@oni/machines";
@@ -60,7 +60,9 @@ async function withBridge(
 
 /** The canonical daemon handshake: attach a live connection as machine m-1. */
 function attachAsBridgeMachine(client: Effect.Success<ReturnType<typeof connectIpcClient>>) {
-  return runEffect(typedCall(client, Machine.WireMethod.Attach, bridgeOffer(), 5000));
+  return runEffect(typedCall(client, Machine.WireMethod.Attach, {
+    ...bridgeOffer(), peer: { kind: "client", contractVersion: Machine.contractVersion },
+  }, 5000));
 }
 
 describe("code-mode tool bridge", () => {
@@ -460,6 +462,10 @@ describe("code-mode tool bridge", () => {
         ].join("\n"),
         timeoutMs: 15_000,
       }));
+      const outcome = cell.then(
+        (value) => ({ value }),
+        (error: Error) => ({ error }),
+      );
 
       // Take the machine over while the cell sits inside its first tool call.
       await firstCallEntered;
@@ -472,11 +478,14 @@ describe("code-mode tool bridge", () => {
       }));
       release();
 
-      // Being superseded revokes tools, but the cell still finishes on its
-      // own terms instead of hanging on an answer that will never come.
-      const result = await cell;
-      expect(result).toMatchObject({ status: "completed", value: "(1, 'lost')" });
+      // Supersession closes the old transport, so its in-flight cell fails
+      // once rather than waiting on a tool answer from the revoked daemon.
+      expect(await outcome).toMatchObject({
+        error: { _tag: "MachineRefusalError", reason: "disconnected" },
+      });
+      expect(calls).toBe(1);
     } finally {
+      release();
       await runEffect(first.close());
       if (second !== undefined) await runEffect(second.close());
       await runEffect(host.close());
@@ -608,7 +617,7 @@ describe("code-mode tool bridge", () => {
  */
 describe("bash session door", () => {
   const TMUX_SOCKET = `oo-1273-bridge-${process.pid}`;
-  const offer: Machine.Offer = {
+  const offer: Omit<Machine.Offer, "peer" | "generation"> = {
     machineId: "m-1",
     daemonVersion: "0.1.0",
     platform: "darwin",
@@ -625,6 +634,7 @@ describe("bash session door", () => {
   ) {
     const path = socketPath();
     const host = await acquireEffect(createMachineHost({
+      generations: createMemoryGenerationStore(),
       dispatcherBound: 8,
       callTool: refusingToolPort,
       listen: { unix: path },

@@ -7,6 +7,9 @@ import { startOni } from "../src/index";
 import { runEffect } from "./helpers/effect";
 import { socketPath } from "./helpers/socket-path";
 import { testSelfMachine } from "./helpers/self-machine";
+import { residentSuite } from "./helpers/resident-suite";
+
+const suite = residentSuite();
 
 test("the app machine host translates a codemode failure at its callback boundary", async () => {
   const createHost = Machines.createMachineHost;
@@ -23,12 +26,9 @@ test("the app machine host translates a codemode failure at its callback boundar
     }))),
   );
   try {
-    const app = await startOni({ config: {
-      host: "127.0.0.1", wsPort: 0,
-      kek: { kind: "locked", reason: "no vault key in this fixture" },
-      model: { provider: "fake", id: "fixture", apiKey: "fixture" },
+    const app = await startOni({ config: suite.config("oni-machine-composition-", {
       machines: { self: testSelfMachine(), listen: { unix: socketPath() }, enrolled: [] },
-    } });
+    }) });
     try {
       if (callTool === undefined) throw new Error("machine callback was not installed");
       expect(await runEffect(Effect.flip(callTool({ cellId: "cell", name: "read", arguments: {} })))).toMatchObject({

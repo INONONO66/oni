@@ -1367,7 +1367,7 @@ interface AppsSessionWriteSite {
  * Moving either line re-pins it here; any other write anywhere fails.
  */
 const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/oni/src/index.ts", line: 1485, receiver: "kernel", member: "commit" },
+  { file: "apps/oni/src/index.ts", line: 1489, receiver: "kernel", member: "commit" },
   { file: "apps/oni/src/composition/ingress-executor.ts", line: 62, receiver: "Core", member: "adoptedExecutor" },
 ];
 

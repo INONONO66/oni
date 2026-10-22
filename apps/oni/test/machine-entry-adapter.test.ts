@@ -3,7 +3,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMachineHost } from "@oni/machines";
+import { createMachineHost, createMemoryGenerationStore } from "@oni/machines";
 import { Machine } from "@oni/protocol";
 import { createCliDeps } from "../src/cli/main";
 import { socketPath } from "./helpers/socket-path";
@@ -15,6 +15,7 @@ test.each([false, true])("machine entry adapter handles enrollment %s", async (e
   const home = mkdtempSync(join(tmpdir(), "oni-machine-entry-"));
   const path = socketPath();
   const host = await acquireEffect(createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     callTool: refusingToolPort,
     listen: { unix: path },

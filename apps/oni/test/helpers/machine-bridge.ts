@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { acquireEffect, acquireSyncEffect } from "./effect";
 import { createCodemode } from "@oni/codemode";
-import { attachMachineDaemon, createMachineHost } from "@oni/machines";
+import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore } from "@oni/machines";
 import { testIds } from "./test-entropy";
 import type { Machine } from "@oni/protocol";
 import { refusingToolPort } from "./tool-port";
@@ -12,6 +12,7 @@ export function bridgeHost(
 ) {
   const callTool = options.callTool;
   return acquireEffect(createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     callTool: refusingToolPort,
     listen: { unix: socketPath },
@@ -42,7 +43,7 @@ export async function bridgeProbe(socketPath: string) {
   return { host, reached: () => reached };
 }
 
-export function bridgeOffer(): Machine.Offer {
+export function bridgeOffer(): Omit<Machine.Offer, "peer" | "generation"> {
   return {
     machineId: "m-1",
     daemonVersion: "0.1.0",

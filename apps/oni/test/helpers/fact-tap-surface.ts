@@ -109,6 +109,7 @@ try {
     config: {
       catalogPath,
       sessionsDir,
+      machineGenerationsPath: join(directory, "machines", "generations.json"),
       host: "127.0.0.1",
       wsPort: 0,
       wsToken: "fixture-token",

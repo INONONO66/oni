@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import { acquireEffect } from "./helpers/effect";
 import { Core } from "@oni/agent";
 const ToolRefused = Core.ToolRefused;
-import { attachMachineDaemon, createMachineHost, type MachineHandle } from "@oni/machines";
+import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore, type MachineHandle } from "@oni/machines";
 import { Machine, type PlainValue } from "@oni/protocol";
 import { parseLocus } from "../src/bundles/tools/locus/index";
 import { socketPath } from "./helpers/socket-path";
@@ -86,6 +86,7 @@ async function fixture(
   const machineId = explicit ? "c" : "self";
   const socket = socketPath();
   const host = await acquireEffect(createMachineHost({
+    generations: createMemoryGenerationStore(),
     dispatcherBound: 8,
     callTool: refusingToolPort,
     listen: { unix: socket },

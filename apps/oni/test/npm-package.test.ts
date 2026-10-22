@@ -35,6 +35,7 @@ describe("health endpoint", () => {
       config: {
         catalogPath: join(directory, "catalog.sqlite"),
         sessionsDir: join(directory, "sessions"),
+        machineGenerationsPath: join(directory, "machines", "generations.json"),
         host: "127.0.0.1",
         wsPort: 0,
         kek: { kind: "locked", reason: "no vault key in this fixture" },
@@ -64,6 +65,7 @@ describe("npm package staging", () => {
       ONI_MODELS_PATH: join(home, "models.json"),
       ONI_DISABLE_MODELS_FETCH: "1",
       ONI_MACHINES_SOCKET: join(home, "machines.sock"),
+      ONI_MACHINES_GENERATIONS: join(home, "machines", "generations.json"),
       // #1271: a boot without a machine plane refuses; the packaged smoke
       // boot carries a minimal self export.
       ONI_MACHINES_SELF: JSON.stringify({
