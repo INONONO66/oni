@@ -20,6 +20,11 @@
           },
           "type": "array"
         },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
         "status": {
           "const": "attached",
           "type": "string"
@@ -28,7 +33,8 @@
       "required": [
         "status",
         "effectiveCapabilities",
-        "effectiveExports"
+        "effectiveExports",
+        "generation"
       ],
       "type": "object"
     },
@@ -41,7 +47,9 @@
             "machine_mismatch",
             "peer_key_mismatch",
             "disconnected",
-            "already_attached"
+            "already_attached",
+            "unsupported_contract",
+            "stale_generation"
           ],
           "type": "string"
         },

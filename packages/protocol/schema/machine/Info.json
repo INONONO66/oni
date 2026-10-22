@@ -34,6 +34,11 @@
       "minimum": 0,
       "type": "number"
     },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "type": "integer"
+    },
     "live": {
       "additionalProperties": false,
       "properties": {
@@ -87,6 +92,28 @@
     },
     "os": {
       "type": "string"
+    },
+    "peer": {
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "daemon",
+            "client"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "contractVersion"
+      ],
+      "type": "object"
     },
     "publicKey": {
       "pattern": "^[0-9a-f]{64}$",

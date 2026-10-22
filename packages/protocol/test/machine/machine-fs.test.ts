@@ -22,6 +22,7 @@ const offer = {
   daemonVersion: "0.1.0",
   platform: "darwin-arm64",
   offeredAt: 2,
+  peer: { kind: "daemon", contractVersion: 2 },
 } satisfies Machine.Offer;
 
 describe("Machine.WellKnownCapability.fsRead", () => {
@@ -121,16 +122,24 @@ describe("machine wire compatibility", () => {
     }
   });
 
-  test("an Offer JSON written before exports existed still parses", () => {
-    const legacy: PlainValue = JSON.parse(
+  test("an Offer JSON without exports parses with no export set", () => {
+    const withoutExports: PlainValue = JSON.parse(
       '{"machineId":"mac-0","offeredCapabilities":["fs.read"],"daemonVersion":"0.1.0",' +
-        '"platform":"darwin-arm64","offeredAt":2}',
+        '"platform":"darwin-arm64","offeredAt":2,"peer":{"kind":"daemon","contractVersion":2}}',
     );
-    const result = Machine.Offer.safeParse(legacy);
+    const result = Machine.Offer.safeParse(withoutExports);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.exports).toBeUndefined();
     }
+  });
+
+  test("a contract-1 Offer JSON without a peer is refused at peer", () => {
+    const contractOne: PlainValue = JSON.parse(
+      '{"machineId":"mac-0","offeredCapabilities":["fs.read"],"daemonVersion":"0.1.0",' +
+        '"platform":"darwin-arm64","offeredAt":2}',
+    );
+    expectIssue(Machine.Offer.safeParse(contractOne), { path: "peer" });
   });
 
   test("an AttachResult without an export ceiling fails closed", () => {
@@ -145,6 +154,7 @@ describe("machine wire compatibility", () => {
       status: "attached",
       effectiveCapabilities: ["fs.read"],
       effectiveExports: ["notes"],
+      generation: 1,
     });
     expect(result.success).toBe(true);
   });

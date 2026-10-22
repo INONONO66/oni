@@ -11,6 +11,7 @@ import * as Contract from "./contract.js";
  */
 export namespace Machine {
   export const contractVersion = Contract.contractVersion;
+  export const supportedContractVersions = Contract.supportedContractVersions;
   export const Info = Gateway.Info;
   export type Info = Gateway.Info;
   export const Request = Gateway.Request;

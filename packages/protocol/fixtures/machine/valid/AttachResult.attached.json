@@ -1,5 +1,6 @@
 {
   "status": "attached",
   "effectiveCapabilities": ["fs.read"],
-  "effectiveExports": ["notes"]
+  "effectiveExports": ["notes"],
+  "generation": 1
 }

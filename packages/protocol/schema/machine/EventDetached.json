@@ -9,10 +9,11 @@
     "reason": {
       "enum": [
         "connection_closed",
-        "superseded_by_reattach",
         "host_closed",
         "enrollment_removed",
-        "enrollment_replaced"
+        "enrollment_replaced",
+        "superseded_by_reattach",
+        "superseded"
       ],
       "type": "string"
     },

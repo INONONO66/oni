@@ -1,0 +1,12 @@
+{
+  "machineId": "mac-0",
+  "offeredCapabilities": [],
+  "daemonVersion": "0.1.0",
+  "platform": "darwin-arm64",
+  "offeredAt": 1,
+  "peer": {
+    "kind": "daemon",
+    "contractVersion": 2
+  },
+  "generation": 0
+}
