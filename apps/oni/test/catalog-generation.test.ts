@@ -28,7 +28,7 @@ test("two turns retain one bundle-owned catalog; configure acquires a fresh gene
   );
   try {
     const handle = await acquireAppResource(runtime, Effect.gen(function* () {
-      seedKernelPolicyRows(plane.catalog.policies);
+      seedKernelPolicyRows(plane.updatePolicy);
       yield* (yield* GenerationLayers).initialize({ resident: [], child: [] });
       return yield* session({
         id: "catalog-once", role: "resident", tools: projectTools(schema).session,

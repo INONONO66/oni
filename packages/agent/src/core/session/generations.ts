@@ -10,6 +10,23 @@ import { GenerationOwnership, type CapturedGeneration, type GenerationServices }
 import { commitFoldBatch } from "../journal/compaction";
 import type { ResolvedSessionRuntime, SessionControllerState, SessionSystem } from "./runtime";
 
+/** Both configure callers preserve the adopted snapshot; authority and lifecycle stay with the caller. */
+export function prepareConfiguration(
+  before: SessionGeneration.Snapshot,
+  input: Omit<Parameters<typeof configureAction>[0], "snapshot"> & {
+    readonly tools: readonly SessionGeneration.Tool[];
+    readonly system: SessionSystem;
+  },
+) {
+  const { tools, system, ...action } = input;
+  const snapshot = generationSnapshot({
+    generation: before.generation + 1, revertTo: before.generation, tools, system,
+    policyGeneration: before.policyGeneration, bundles: before.bundles,
+    ...(before.manifestHash === undefined ? {} : { manifestHash: before.manifestHash }),
+  });
+  return { snapshot, action: configureAction({ ...action, snapshot }) };
+}
+
 export function createSessionConfiguration(
   kernel: SessionKernel,
   sessionId: string,
@@ -38,21 +55,13 @@ export function createSessionConfiguration(
       const previous = kernel.latestGenerationFor(sessionId);
       if (previous.generation !== before.generation)
         return yield* new AgentFailure({ operation: "session.configure", cause: "stale" });
-      const snapshot = generationSnapshot({
-        generation, revertTo: previous.generation, tools: nextTools,
-        system: nextSystem, policyGeneration: previous.policyGeneration,
-        bundles: previous.bundles,
-        // An app-level configure keeps the adopted manifest — dropping the hash
-        // would force a spurious compose adoption at next turn start.
-        ...(previous.manifestHash === undefined ? {} : { manifestHash: previous.manifestHash }),
-      });
-      const configured = configureAction({
+      const { snapshot, action } = prepareConfiguration(previous, {
         id: entropy(), sessionId, parentId: kernel.latestAction(sessionId)?.id ?? null,
-        operation, snapshot, at: clock(),
+        operation, tools: nextTools, system: nextSystem, at: clock(),
       });
       const commit = commitFoldBatch(kernel, {
         sessionId, owner, fence: state.fence, now: clock(), expectedRevision: current.revision,
-        actions: [configured], state: current.state,
+        actions: [action], state: current.state,
         generation: { toolsGeneration: snapshot.generation, systemHash: snapshot.systemHash, policyGeneration: snapshot.policyGeneration },
       }, runtime.compaction).pipe(Effect.mapError((error) => new CommitFailed({ error })));
       const committed = yield* runtime.generations.configure({ sessionId, generation }, snapshot, commit);

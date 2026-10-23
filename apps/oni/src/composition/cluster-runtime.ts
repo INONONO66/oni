@@ -15,9 +15,6 @@ import { Context, Deferred, Effect, Exit, Layer } from "effect";
 /** Services the cluster host contributes to the app runtime (entity client access). */
 export type ClusterServices = Core.ClusterServices;
 
-/** Per-session ledger file path — the one place the layout is spelled (core-owned). */
-export const sessionFilePath = Core.sessionFilePath;
-
 export type SessionKernel = Core.SessionReadModel;
 
 /**
@@ -43,9 +40,8 @@ interface AppCatalogStores {
  * catalog-backed channel store plane. Built once at the composition root and
  * threaded explicitly — no module-level state.
  */
-export interface AppLedgerPlane extends Omit<Core.LedgerPlane,
-  "catalog" | "catalogDatabase" | "handles" | "openKernel" | "sessionStore"
-  | "scanSessions" | "listSessions" | "releaseSession" | "discardSession"
+export interface AppLedgerPlane extends Pick<Core.LedgerHost,
+  "read" | "session" | "runtime" | "updatePolicy" | "transaction" | "close"
 > {
   /** Channels-owned store plane (#1317) attached to the catalog's database handle. */
   readonly channel: ChannelStore;
@@ -57,16 +53,24 @@ export interface AppLedgerPlane extends Omit<Core.LedgerPlane,
  * schema and adapters are channels-owned — attached here, once per plane,
  * without adopting the ledger's lifecycle (closing the plane closes the file).
  */
-export function withChannelStores(ledger: Core.LedgerPlane, now: () => number): AppLedgerPlane & Core.LedgerPlane {
-  const channel = openChannelStore(ledger.catalogDatabase, now);
+export function withChannelStores(ledger: Core.LedgerHost, now: () => number): AppLedgerPlane {
+  const { channel, machineEnrollments } = ledger.attach((database) => ({
+    channel: openChannelStore(database, now),
+    machineEnrollments: createMachineEnrollmentStore(database),
+  }));
   return {
-    ...ledger,
+    read: ledger.read,
+    session: ledger.session,
+    runtime: ledger.runtime,
+    updatePolicy: ledger.updatePolicy,
+    transaction: ledger.transaction,
+    close: ledger.close,
     channel,
     stores: {
       actors: createActorRegistry(channel),
       persons: createPersonStore(channel),
       instances: createChannelInstanceStore(channel),
-      machineEnrollments: createMachineEnrollmentStore(ledger.catalogDatabase),
+      machineEnrollments,
       secrets: createSecretStore(channel),
       channelGrants: createChannelGrantStore(channel),
     },

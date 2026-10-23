@@ -15,7 +15,7 @@ import { acquireAppResource, gatewayRuntime, runAppEffect } from "../src/gateway
 import { composedHolder } from "./helpers/bundle-fixture";
 import { allowConfigure } from "./helpers/generation-services";
 import { configureAuthority } from "../src/composition/generation-layers";
-const AppLedger = Core.Ledger;
+import { testLedgerStores as AppLedger } from "./helpers/ledger";
 import { Bus } from "./helpers/bus";
 
 test("AppLive retains distinct same-number session generations", async () => {
@@ -24,7 +24,7 @@ test("AppLive retains distinct same-number session generations", async () => {
     const values = await runAppEffect(runtime, Effect.scoped(Effect.gen(function* () {
       const generations = yield* GenerationLayers;
       const plane = yield* AppLedger;
-      const policyGeneration = seedKernelPolicyRows(plane.catalog.policies);
+      const policyGeneration = seedKernelPolicyRows(plane.updatePolicy);
       yield* generations.initialize({ resident: [], child: [] });
       for (const id of ["first", "second"]) yield* plane.openKernel(id).materialize({
         id, parentId: null, role: "resident", tools: [], system: { preset: id, blocks: [] },
@@ -50,7 +50,7 @@ test("generation composition rejects use before initialization and duplicate ini
     await runAppEffect(runtime, Effect.scoped(Effect.gen(function* () {
       const generations = yield* GenerationLayers;
       const plane = yield* AppLedger;
-      const policyGeneration = seedKernelPolicyRows(plane.catalog.policies);
+      const policyGeneration = seedKernelPolicyRows(plane.updatePolicy);
       yield* plane.openKernel("init").materialize({ id: "init", parentId: null, role: "resident", tools: [],
         system: { preset: "", blocks: [] }, policyGeneration, actionId: "init-create", at: 1 });
       expect(yield* Effect.flip(generations.capture({ sessionId: "init", generation: 1 }))).toMatchObject({ operation: "generation.initialize", cause: "not_initialized" });
@@ -84,7 +84,7 @@ test("concurrent captures and hibernation reuse one owner; failed candidate acqu
     const handle = await acquireAppResource(runtime, Effect.gen(function* () {
       yield* (yield* GenerationLayers).initialize({ resident: [], child: [] });
       const plane = yield* AppLedger;
-      seedKernelPolicyRows(plane.catalog.policies);
+      seedKernelPolicyRows(plane.updatePolicy);
       return yield* session({ id: "owners", role: "resident", bundles: ["probe"], runner: () => Effect.succeed({ kind: "result", text: "done" }) }, { approvalPolicy: APPROVAL_POLICY, authorizeConfigure: allowConfigure, openKernel: plane.openKernel, listSessions: plane.listSessions });
     }));
     const values = await runAppEffect(runtime, Effect.scoped(Effect.gen(function* () {
@@ -144,7 +144,7 @@ test("a capability omitted from the composition removes its points: tool rows fa
       // composition registers no tool points.
       let seedError: Error | undefined;
       try {
-        seedKernelPolicyRows(plane.catalog.policies, [], composedPointTable(reduced));
+        seedKernelPolicyRows(plane.updatePolicy, [], composedPointTable(reduced));
       } catch (error) {
         seedError = error instanceof Error ? error : new Error(String(error));
       }
@@ -172,7 +172,7 @@ test("a capability omitted from the composition removes its points: tool rows fa
     await runAppEffect(composed, Effect.scoped(Effect.gen(function* () {
       const generations = yield* GenerationLayers;
       const plane = yield* AppLedger;
-      seedKernelPolicyRows(plane.catalog.policies);
+      seedKernelPolicyRows(plane.updatePolicy);
       const generation = plane.catalog.policies.appendGeneration((current) => [
         ...current.map(({ generation: _generation, ...rest }) => rest),
         denyWrites,
@@ -196,7 +196,7 @@ test("a generation carrying a row outside the composition's point table fails cl
     await runAppEffect(runtime, Effect.scoped(Effect.gen(function* () {
       const generations = yield* GenerationLayers;
       const plane = yield* AppLedger;
-      seedKernelPolicyRows(plane.catalog.policies);
+      seedKernelPolicyRows(plane.updatePolicy);
       // A later generation smuggles in a row no registered point can own:
       // the generation Layer compiles against the composition's table and
       // must fail closed instead of defaulting capabilities present.
@@ -232,7 +232,7 @@ for (const verdict of ["require_approval", "deny"] as const) {
       const decisions = await runAppEffect(runtime, Effect.scoped(Effect.gen(function* () {
         const generations = yield* GenerationLayers;
         const plane = yield* AppLedger;
-        const policyGeneration = seedKernelPolicyRows(plane.catalog.policies, [{
+        const policyGeneration = seedKernelPolicyRows(plane.updatePolicy, [{
           name: `configure-${verdict}`, kind: "session.configure", phase: "pre", priority: 1_000,
           match: { encodingVersion: 1, value: { sessionId: "guarded" } },
           verdict: { encodingVersion: 1, value: verdict === "deny" ? { type: "deny", reason: "pinned" } : { type: "require_approval", reason: "pinned" } },
@@ -269,7 +269,7 @@ test("a composed bundle handler exposing apply registers as a transformer and on
       const plane = yield* AppLedger;
       // Rows referencing the bundle's handlers compile only when the capture
       // registered them: `apply` into transformers, `decide` into guards.
-      const policyGeneration = seedKernelPolicyRows(plane.catalog.policies, [
+      const policyGeneration = seedKernelPolicyRows(plane.updatePolicy, [
         {
           name: "mask-writes", kind: "tool", phase: "pre", priority: 1_000,
           match: { encodingVersion: 1, value: { op: "write" } },

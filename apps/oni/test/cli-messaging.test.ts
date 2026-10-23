@@ -33,9 +33,11 @@ const sealedOf = (rows: readonly Provisioning.ChannelInstance[]) => new Set(rows
 test("CLI readiness reads the declared catalog without modifying its bytes", async () => {
   const home = mkdtempSync(join(tmpdir(), "cli-readiness-"));
   const path = join(home, ".oni", "catalog.sqlite");
+  const previousCatalogPath = process.env.ONI_CATALOG_PATH;
   try {
     declareChannel(path, "webhook", { url: "http://127.0.0.1:1" });
     const before = readFileSync(path);
+    process.env.ONI_CATALOG_PATH = path;
 
     const facts = await createCliDeps(home).messagingFacts();
 
@@ -44,6 +46,8 @@ test("CLI readiness reads the declared catalog without modifying its bytes", asy
     expect(facts.persons).toEqual([]);
     expect(readFileSync(path)).toEqual(before);
   } finally {
+    if (previousCatalogPath === undefined) delete process.env.ONI_CATALOG_PATH;
+    else process.env.ONI_CATALOG_PATH = previousCatalogPath;
     rmSync(home, { recursive: true });
   }
 });

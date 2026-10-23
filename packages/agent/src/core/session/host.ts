@@ -1,9 +1,9 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import type { Database } from "bun:sqlite";
 import { type LedgerSession, type ObservationSink, SessionGeneration } from "@oni/protocol";
-import { type Crypto, Data, Deferred, Duration, Effect, Exit, Layer, type Scope } from "effect";
+import { Context, type Crypto, Data, Deferred, Duration, Effect, Exit, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { AlarmDrainConfig } from "../ports/alarm";
 import {
@@ -12,21 +12,22 @@ import {
   SessionEntity,
   SessionEntityContext,
 } from "./entity";
-import { AgentFailure, CommitFailed, thrownAsError } from "../ports/failure";
+import { AgentFailure, type SessionError, thrownAsError } from "../ports/failure";
+import type { LedgerError } from "../store/errors";
 import { Ledger } from "../ports/ports";
-import { adoptedExecutor, type ResolvedSessionRuntime, type SessionEntityPorts, type SessionRunner } from "./run";
+import { adoptedExecutor, outboundRedrivePort, type ResolvedSessionRuntime, type SessionEntityPorts, type SessionRunner } from "./run";
 import { type CatalogStore, openCatalogStore } from "../store/catalog";
 import * as SessionHandleStore from "../store/fence";
 import type { LedgerHandles } from "../store/services";
 import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../store/session-file";
 import type { ObservationFailurePort } from "../store/storage/sqlite-l0-observation";
 import { sessionIdProblem } from "./session-id";
-import { sessionReadModel } from "../read-model/session";
-import { configureAction, generationSnapshot, materializationSeed } from "../store/configure";
+import { sessionReadModel, type SessionReadModel } from "../read-model/session";
 import { createSession, type CreateSessionInput } from "./create";
+import { prepareConfiguration } from "./generations";
 import { forkSession, ForkRefused, type ForkInput } from "./fork";
 import { createSessionRequests, requestAuthorityKernel } from "./request";
-import type { SessionRuntime } from "./runtime";
+import { assembleSessionRuntime, type SessionHostRuntime, type SessionRuntimeOptions } from "./runtime";
 
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
@@ -54,23 +55,29 @@ export interface LedgerStoreConfig {
   readonly onObservationFailure?: ObservationFailurePort;
 }
 
-export interface LedgerPlane {
+export interface LedgerHost {
   readonly read: {
     readonly session: (sessionId: string) => ReturnType<typeof sessionReadModel>;
     readonly sessions: {
       readonly list: () => LedgerSession.Row[];
-      readonly get: (sessionId: string) => LedgerSession.Row | undefined;
     };
+    readonly activityAt: (sessionId: string) => number | undefined;
     readonly index: CatalogStore["sessionIndex"];
     readonly armedSessionIds: CatalogStore["armedSessionIds"];
-    readonly fact: (sessionId: string, key: string) => ReturnType<SessionStore["decisionFacts"]["head"]>;
+    scanRequests<A>(
+      read: (requests: Pick<SessionReadModel, "requestRows" | "requestById">, row: LedgerSession.Row) => A[],
+    ): A[];
   };
   session(sessionId: string): ReturnType<typeof ledgerSession>;
-  /** Core mechanics receive these ports as a unit; the app never opens their handles. */
-  readonly runtime: Pick<SessionRuntime, "openKernel" | "listSessions">;
-  requests(runtime: SessionRuntime): ReturnType<typeof createSessionRequests>;
-  readonly policies: CatalogStore["policies"];
+  runtime(options: SessionRuntimeOptions): SessionHostRuntime;
+  /** The caller attaches its own tables; Core retains database ownership and closure. */
+  attach<A>(tables: (database: Database) => A): A;
+  readonly updatePolicy: CatalogStore["policies"]["appendGeneration"];
   transaction<A>(operation: () => A): A;
+  close(): void;
+}
+
+export interface LedgerPlane extends LedgerHost {
   readonly catalog: CatalogStore;
   readonly catalogDatabase: Database;
   readonly handles: LedgerHandles;
@@ -94,6 +101,9 @@ export interface LedgerPlane {
 }
 
 export { Ledger };
+
+/** Internal host service, deliberately absent from the Core barrel. */
+export class LedgerStores extends Context.Service<LedgerStores, LedgerPlane>()("@oni/agent/core/LedgerStores") {}
 
 /** Application command port: entity activation, transport and mailbox ownership stay in Core. */
 export const sessionClient = Effect.map(SessionEntity.client, (client) => (sessionId: string) => {
@@ -286,24 +296,33 @@ function planeOver(
       session: (id) => sessionReadModel(opened(id).kernel),
       sessions: {
         list: () => scanSessions((_, row) => [row]),
-        get: (id) => scanSessions((_, row) => row.id === id ? [row] : [])[0],
       },
+      activityAt: (id) => sessionsDir === undefined
+        ? undefined
+        : statSync(sessionFilePath(sessionsDir, id), { throwIfNoEntry: false })?.mtimeMs,
       index: (id) => catalog.sessionIndex(id),
       armedSessionIds: () => catalog.armedSessionIds(),
-      fact: (id, key) => opened(id).store.decisionFacts.head(key),
+      scanRequests: (read) => scanSessions((kernel, row) => read({
+        requestRows: kernel.requestRows,
+        requestById: kernel.requestById,
+      }, row), new Set(catalog.requestFreeSessionIds())),
     },
     session: (id) => ledgerSession(
       plane, id, sessionsDir === undefined ? undefined : () => sessionFilePath(sessionsDir, id),
     ),
-    runtime: {
+    runtime: (options) => assembleSessionRuntime(options, {
       openKernel: (id) => plane.openKernel(id),
       listSessions: () => plane.listSessions(),
-    },
-    requests: (runtime) => createSessionRequests({
-      ...runtime,
-      openKernel: (id) => requestAuthorityKernel(plane.openKernel(id), id),
+    }, {
+      requests: (runtime, authority) => createSessionRequests(authority === "adopt" ? runtime : {
+        ...runtime,
+        openKernel: (id) => requestAuthorityKernel(plane.openKernel(id), id),
+      }),
+      turn: createSessionEntityRunTurn,
+      redrive: outboundRedrivePort,
     }),
-    policies: catalog.policies,
+    attach: (tables) => tables(catalog.database),
+    updatePolicy: (select) => catalog.policies.appendGeneration(select),
     transaction: catalog.transaction,
     catalog,
     catalogDatabase: catalog.database,
@@ -366,9 +385,8 @@ function retained(store: SessionStore): SessionStore {
 }
 
 /** One opener, one release; a typed refusal fails the layer, any other throw is a defect. */
-function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused> {
-  return Layer.effect(
-    Ledger,
+function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger | LedgerStores, OpenRefused> {
+  return Layer.effectContext(
     Effect.acquireRelease(
       Effect.suspend(() => {
         try {
@@ -378,7 +396,17 @@ function ledgerLayer(config: LedgerStoreConfig): Layer.Layer<Ledger, OpenRefused
         }
       }),
       (plane) => Effect.sync(() => plane.close()),
-    ),
+    ).pipe(Effect.map((plane) => Context.make(LedgerStores, plane).pipe(
+      Context.add(Ledger, {
+        read: plane.read,
+        session: plane.session,
+        runtime: plane.runtime,
+        attach: plane.attach,
+        updatePolicy: plane.updatePolicy,
+        transaction: plane.transaction,
+        close: plane.close,
+      }),
+    ))),
   );
 }
 
@@ -399,7 +427,7 @@ export function openLedger(
   const env = Layer.effect(
     SessionEntityContext,
     Effect.gen(function* () {
-      const plane = yield* Ledger;
+      const plane = yield* LedgerStores;
       return {
         owner: config.owner,
         clock: config.now,
@@ -418,16 +446,8 @@ export function openLedger(
 
 interface ConfigureToolsRuntime extends Pick<ResolvedSessionRuntime, "authorizeConfigure" | "clock" | "entropy"> {
   readonly generations: Pick<ResolvedSessionRuntime["generations"], "configure">;
-}
-
-/** Prepare a typed genesis value for admission without opening a store. */
-export function prepareSession(input: CreateSessionInput) {
-  const { id, parentId, role, genesis } = input;
-  const { tools, bundles, system, policyGeneration, manifestHash, ...identity } = genesis;
-  return materializationSeed({ id, parentId, role, ...identity }, generationSnapshot({
-    generation: 1, revertTo: 0, tools, bundles, system, policyGeneration,
-    ...(manifestHash === undefined ? {} : { manifestHash }),
-  }));
+  readonly commitFailure: (error: LedgerError) => SessionError;
+  readonly missingAuthority: (sessionId: string) => Error;
 }
 
 /** Host-owned operations close over store handles; callers supply product policy and values only. */
@@ -478,7 +498,7 @@ function configureTools(
     const kernel = plane.openKernel(sessionId);
     const row = kernel.row(sessionId);
     if (row.fenceOwner === null)
-      return yield* new AgentFailure({ operation: "session.configure", cause: "authority_unavailable" });
+      return yield* Effect.die(runtime.missingAuthority(sessionId));
     const before = kernel.latestGenerationFor(sessionId);
     const generation = before.generation + 1;
     const accepted = yield* runtime.authorizeConfigure({
@@ -486,18 +506,11 @@ function configureTools(
     });
     if (!accepted)
       return yield* new AgentFailure({ operation: "session.configure", cause: "denied" });
-    const snapshot = generationSnapshot({
-      generation,
-      revertTo: before.generation,
+    const { snapshot, action } = prepareConfiguration(before, {
+      id: runtime.entropy(), sessionId, parentId: kernel.latestAction(sessionId)?.id ?? null,
+      operation: "tools.add", at: runtime.clock(),
       tools: [...before.tools, ...additions.map((tool) => SessionGeneration.Tool.parse(tool))],
       system: { preset: before.systemPreset, blocks: before.systemBlocks },
-      policyGeneration: before.policyGeneration,
-      bundles: before.bundles,
-      ...(before.manifestHash === undefined ? {} : { manifestHash: before.manifestHash }),
-    });
-    const action = configureAction({
-      id: runtime.entropy(), sessionId, parentId: kernel.latestAction(sessionId)?.id ?? null,
-      operation: "tools.add", snapshot, at: runtime.clock(),
     });
     yield* runtime.generations.configure({ sessionId, generation }, snapshot,
       kernel.commit({
@@ -507,7 +520,7 @@ function configureTools(
           toolsGeneration: snapshot.generation, systemHash: snapshot.systemHash,
           policyGeneration: snapshot.policyGeneration,
         },
-      }).pipe(Effect.mapError((error) => new CommitFailed({ error }))),
+      }).pipe(Effect.mapError(runtime.commitFailure)),
     );
     return { generation: snapshot.generation, revertTo: snapshot.revertTo };
   });

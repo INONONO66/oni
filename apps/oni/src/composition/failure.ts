@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { Core } from "@oni/agent";
+import { AppInvariantError } from "../invariant";
 
 /**
  * The app's one foreign-boundary decoder: a thrown value from a `try` body
@@ -13,3 +15,9 @@ export function foreignFailure<F>(
     .preprocess(String, z.string())
     .transform((cause) => construct({ operation, cause })).parse;
 }
+
+/** Preserve the facade's failure and defect contract while Core owns the fenced write. */
+export const configureFailures = {
+  commitFailure: foreignFailure((fields) => new Core.AgentFailure(fields), "session.configure"),
+  missingAuthority: (id: string) => new AppInvariantError(`session has no activation authority: ${id}`),
+};

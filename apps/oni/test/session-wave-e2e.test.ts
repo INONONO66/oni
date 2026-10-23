@@ -19,7 +19,7 @@ import {
   type AnyToolDefinition,
   type PlainObject,
 } from "@oni/protocol";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { runAppEffect } from "../src/gateway";
 import { planeOf } from "./helpers/ledger";

@@ -14,7 +14,7 @@ type ObservationPublishFailure = Core.ObservationPublishFailure;
 import type { Delivery, ObservationSink } from "@oni/protocol";
 import { Effect, Fiber } from "effect";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
-import { createSessionEntityPortsSlot, interruptFailureCause } from "../src/composition/cluster-runtime";
+import { createSessionEntityPortsSlot, interruptFailureCause, withChannelStores } from "../src/composition/cluster-runtime";
 import { AdmissionFailure, DeliverRefused } from "../../../packages/agent/src/core/journal/messages";
 import { createAppLedger } from "./helpers/ledger";
 import { runEffect } from "./helpers/effect";
@@ -29,6 +29,27 @@ const REFUSING_SINK: ObservationSink = {
     throw new Error("sink failed");
   },
 };
+
+test("channel composition and assembled runtime expose no raw ledger writer", async () => {
+  const runtime = gatewayRuntime({ composed: composedHolder(), observations: Bus, now: () => 17 });
+  try {
+    const ledger = await runAppEffect(runtime, Core.Ledger);
+    const app = withChannelStores(ledger, () => 17);
+    const sessions = app.runtime({
+      approvalPolicy: APPROVAL_POLICY,
+      authorizeConfigure: () => Effect.succeed(true),
+    });
+    const turns = await runAppEffect(runtime, sessions.turns);
+    for (const surface of [ledger, app, sessions, sessions.options, turns]) {
+      expect(["catalog", "catalogDatabase", "handles", "openKernel", "sessionStore",
+        "policies", "commit", "materialize", "adoptFence", "scanSessions"]
+        .filter((key) => key in surface)).toEqual([]);
+    }
+    await runAppEffect(runtime, Core.closeSessions(sessions));
+  } finally {
+    await runtime.dispose();
+  }
+});
 
 const directories: string[] = [];
 afterAll(() => {

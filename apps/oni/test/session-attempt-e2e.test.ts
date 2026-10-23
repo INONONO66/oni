@@ -5,7 +5,7 @@ import { Auth } from "@oni/llm";
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";

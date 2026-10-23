@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { SQLiteError } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import { Core, Testing } from "../../../src";
 import { openLedgerPlane } from "../../../src/core/session/host";
 import type { CreateSessionInput } from "../../../src/core/session/create";
@@ -34,21 +34,14 @@ test.each([
   expect(state.plane.read.session(id).latestSettings(id)).toEqual({ steering: "one", followUp: "all" });
 });
 
-test("ledger reads list and get committed sessions, actions and decision facts without write capabilities", () => {
+test("ledger reads committed sessions and actions without write capabilities", () => {
   using state = fixture();
   runAgentSync(state.plane.session("s").create({ parentId: null, role: "resident", genesis: genesis("s") }));
-  const fact = { key: "route:s", type: "route.decided", data: { accepted: true }, timeCreated: 19 };
-  state.plane.session("s").decisions.record(fact);
-
   const reads = state.plane.read;
   expect(reads.sessions.list().map((row) => row.id)).toEqual(["s"]);
-  expect(reads.sessions.get("s")).toMatchObject({ id: "s", revision: 1 });
-  expect(reads.sessions.get("missing")).toBeUndefined();
   expect(reads.session("s").historyPage("s").actions.map((action) => action.id)).toEqual(["s:genesis"]);
   expect(reads.session("s").actionById("s:genesis")?.kind).toBe("session.configure");
   expect(reads.session("s").actionById("missing")).toBeUndefined();
-  expect(reads.fact("s", fact.key)).toMatchObject(fact);
-  expect(reads.fact("s", "missing")).toBeUndefined();
   expect("commit" in reads.session("s")).toBe(false);
   expect("adoptFence" in reads.session("s")).toBe(false);
 });
@@ -94,6 +87,10 @@ test("ledger.session fork copies the prefix and indexes the child through Core",
 });
 
 const configureRuntime = {
+  commitFailure: (error: Core.LedgerError) => new Core.AgentFailure({
+    operation: "session.configure", cause: String(error),
+  }),
+  missingAuthority: (id: string) => new Error(`session has no activation authority: ${id}`),
   authorizeConfigure: () => Effect.succeed(true),
   generations: { configure: <A>(_id: object, _snapshot: object, commit: Effect.Effect<A, Core.SessionError>) => commit },
   clock: () => 25,
@@ -115,17 +112,66 @@ test("ledger.session tools.add preserves the manifest and activation fence", () 
   });
 });
 
-test("ledger.session tools.add refuses authority changed during policy consultation", () => {
+test.each(["fence", "revision"] as const)("ledger.session tools.add preserves the facade failure on stale %s", (stale) => {
   using state = fixture();
   const { kernel } = activeSession(state.plane);
   const result = runAgentSync(Effect.result(state.plane.session("s").configureTools([], {
     ...configureRuntime,
-    authorizeConfigure: () => Testing.adoptSessionAuthority(kernel, "s", "successor").pipe(Effect.as(true)),
+    authorizeConfigure: () => (stale === "fence"
+      ? Testing.adoptSessionAuthority(kernel, "s", "successor").pipe(Effect.asVoid)
+      : kernel.commit({
+        sessionId: "s", owner: "writer", fence: kernel.row("s").fence,
+        expectedRevision: 1, state: "idle", now: 24,
+        actions: [{
+          id: "intervening", parentId: "s:genesis", sessionId: "s", kind: "prompt",
+          intent: { encodingVersion: 1, value: { content: "hello" } },
+          effect: { encodingVersion: 1, value: null }, irreversible: true, ts: 24,
+        }],
+      }).pipe(Effect.asVoid)).pipe(Effect.as(true)),
   })));
   expect(Result.isFailure(result) ? result.failure : undefined).toMatchObject({
-    _tag: "CommitFailed", error: { _tag: "CommitRefused" },
+    _tag: "AgentFailure", operation: "session.configure",
+    cause: String(new Core.CommitRefused({
+      sessionId: "s", reason: stale, expectedRevision: 1,
+      currentRevision: stale === "revision" ? 2 : 1,
+      fence: 1, currentFence: stale === "fence" ? 2 : 1,
+    })),
   });
   expect(state.plane.read.session("s").latestGenerationFor("s").generation).toBe(1);
+});
+
+test("ledger.session tools.add dies with the supplied facade invariant when authority is absent", () => {
+  using state = fixture();
+  runAgentSync(state.plane.session("s").create({ parentId: null, role: "resident", genesis: genesis("s") }));
+  const invariant = new Error("missing activation");
+  const exit = runAgentSync(Effect.exit(state.plane.session("s").configureTools([], {
+    ...configureRuntime,
+    missingAuthority: () => invariant,
+    authorizeConfigure: () => Effect.die(new Error("policy must not run without authority")),
+  })));
+  expect(Exit.isFailure(exit) ? exit.cause : undefined).toEqual(Cause.die(invariant));
+  expect(state.plane.read.session("s").row("s").revision).toBe(1);
+});
+
+test("ledger activity reads file metadata and leaves absent timestamps to the application", () => {
+  using state = fixture();
+  expect(state.plane.read.activityAt("memory")).toBeUndefined();
+  const directory = mkdtempSync(join(tmpdir(), "ledger-activity-"));
+  const plane = openLedgerPlane({ now: () => 17, sessions: { dir: directory } });
+  try {
+    expect(plane.read.activityAt("missing")).toBeUndefined();
+    runAgentSync(plane.session("s").create({ parentId: null, role: "resident", genesis: genesis("s") }));
+    const path = Core.sessionFilePath(directory, "s");
+    utimesSync(path, 20, 25);
+    expect(plane.read.activityAt("s")).toBe(25_000);
+    plane.close();
+    rmSync(directory, { recursive: true });
+    writeFileSync(directory, "not a directory");
+    expect(() => plane.read.activityAt("s")).toThrow(expect.objectContaining({ code: "ENOTDIR" }));
+  } finally {
+    plane.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("Core catalog reads reject writes and close their handle", () => {

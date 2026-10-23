@@ -15,11 +15,10 @@ type AppLedgerPlane = Parameters<typeof channelStoreSource>[0];
 export function residentGatewayPorts(plane: AppLedgerPlane, now: () => number) {
   return Effect.gen(function* () {
     const requests = channelRequests(
-      yield* Core.createSessionRequests({
+      yield* plane.runtime({
         approvalPolicy: APPROVAL_POLICY,
         authorizeConfigure: configureAuthority(yield* Core.GenerationLayers, plane.read.session),
-        ...plane.runtime,
-      }),
+      }).requests("adopt"),
     );
     return { requests, stores: createChannelStores(channelStoreSource(plane, now)) };
   });

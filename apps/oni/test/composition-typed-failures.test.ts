@@ -70,7 +70,7 @@ test("ingress admission creates and indexes the perimeter session once; a second
   // (genesis + catalog index in one write) and treats an existing perimeter
   // session as the idempotent outcome rather than a second materialization.
   const plane = testPlane();
-  seedKernelPolicyRows(plane.catalog.policies);
+  seedKernelPolicyRows(plane.updatePolicy);
   const services = acquireSyncEffect(generationServices({ clock: () => 100, plane }));
   try {
     expect(plane.catalog.sessionIndex(GATEWAY_INGRESS_SESSION)).toBeUndefined();
@@ -93,7 +93,7 @@ test("ingress admission creates and indexes the perimeter session once; a second
 
 test("ingress commit without a receipt becomes a typed corrupt-record commit failure", async () => {
   const plane = testPlane();
-  seedKernelPolicyRows(plane.catalog.policies);
+  seedKernelPolicyRows(plane.updatePolicy);
   const services = acquireSyncEffect(generationServices({ clock: () => 100, plane }));
   const kernel = plane.openKernel(GATEWAY_INGRESS_SESSION);
   const ingress = runSyncEffect(createIngressExecutor(plane).pipe(Effect.provide(services)));

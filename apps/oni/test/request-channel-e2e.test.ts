@@ -5,7 +5,7 @@ import { assertNoLegacyRequestStores } from "./helpers/storage-evidence";
 import { Bus } from "./helpers/bus";
 import { Core } from "@oni/agent";
 import { L0Observation } from "@oni/protocol";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { planeOf } from "./helpers/ledger";
 import { assistantMessage, requestToolStep } from "./helpers/assistant-message";

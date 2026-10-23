@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQLiteError } from "bun:sqlite";
-import { Context, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
+import { Context, Deferred, Effect, Exit, Fiber, Layer, Option, Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { SessionEntity } from "../../src/core/session/entity";
-import { Ledger, type LedgerConfig, OpenRefused, openLedger, openLedgerPlane } from "../../src/core/session/host";
+import { LedgerStores, type LedgerConfig, OpenRefused, openLedger, openLedgerPlane } from "../../src/core/session/host";
 import { createSession } from "../../src/core/session/create";
 import { createSessionRequests } from "../../src/core/session/request";
 import * as SessionFile from "../../src/core/store/session-file";
@@ -32,6 +32,7 @@ afterAll(() => {
 });
 
 const bunCrypto = BunTestCrypto;
+const Ledger = Effect.map(Effect.serviceOption(LedgerStores), Option.getOrThrow);
 
 /** Counts the session stores the host opens and still holds, free of process-wide descriptor noise. */
 function trackSessionStores() {
@@ -191,7 +192,7 @@ test("file mode: closing the scope releases the catalog exactly once (#1345 M1)"
   const layer = fileLayer({ catalogPath, sessionsDir });
   const scope = await runAgent(Scope.make());
   const context = await runAgent(Layer.buildWithScope(layer, scope));
-  const catalog = Context.get(context, Ledger).catalog;
+  const catalog = Option.getOrThrow(Context.getOption(context, LedgerStores)).catalog;
   const closes = spyOn(catalog, "close");
   await runAgent(
     Effect.gen(function* () {

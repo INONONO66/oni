@@ -25,7 +25,7 @@ import { Bus } from "./helpers/bus";
 import { L0Observation, Tool } from "@oni/protocol";
 import { z } from "zod";
 import { seedKernelPolicyRows } from "../src/composition/policy";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { createAppLedger, drainSession, resolvedRuntimeFor } from "./helpers/ledger";
 
@@ -188,7 +188,7 @@ for (const mode of ["after-wave", "partial-wave", "crash-window", "error-window"
     let unsubscribe: () => void = () => undefined;
     const drainScope = effectScope();
     try {
-      seedKernelPolicyRows(plane.catalog.policies);
+      seedKernelPolicyRows(plane.updatePolicy);
       const handle = await acquireEffect(
         session(
           { id: sessionId, role: "resident", runner, tools: projectTools(definitions).session },

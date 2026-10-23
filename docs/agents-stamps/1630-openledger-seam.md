@@ -1,1 +1,0 @@
-#1630 | core/1630-openledger-seam | 2026-10-23 | base aa3934bef (stacked on core/1630-ledger-hash-chain-removal) | draft PR tracked by branch | Core ledger session operations, read-only app projections, catalog reader and session command port; app store-write exceptions removed; receipt: /tmp/ulw-pi-core.mUdt8a/waves/wave-b/seam-impl.md.

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createSurfaceKeyStore } from "@oni/channels";
 import { canonicalDigest, Gateway } from "@oni/protocol";
 import { messageFixture } from "./helpers/message-fixture";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { messageMaterialization, prepareMessage } from "../src/composition/message-session";
 import { ADMISSION_DEPTH_MAX } from "../src/bundles/delegation-policy/index";

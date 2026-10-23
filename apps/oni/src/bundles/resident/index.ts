@@ -13,7 +13,7 @@ const withExecutor = Core.withExecutor;
 type ChatAgentConfig = Core.ChatAgentConfig;
 type Executor = Core.Executor;
 type SessionRunner = Core.SessionRunner;
-type SessionRuntime = Core.SessionRuntime;
+type SessionRuntimeOptions = Core.SessionRuntimeOptions;
 import {
   Operational,
   traceIdFromUuid,
@@ -382,7 +382,7 @@ export interface ResidentOptions {
   readonly presets: Readonly<Record<LedgerSession.Role, string>>;
   readonly id: () => string;
   readonly clock: () => number;
-  readonly sessionRuntime: SessionRuntime;
+  readonly sessionRuntime: SessionRuntimeOptions;
   /** The catalog's current policy generation; new sessions pin it at creation. */
   readonly policyGeneration: () => number;
   /**
@@ -567,7 +567,7 @@ export function createResident(options: ResidentOptions) {
       });
     },
     /**
-     * The rotation adoption face (#1255 S3): `SessionRuntime.composed.current()`.
+     * The rotation adoption face (#1255 S3): `SessionRuntimeOptions.composed.current()`.
      * Tools are the role union — the dispatcher still filters per role at
      * capture, and `manifestHash` equality keeps unchanged sessions append-free.
      */

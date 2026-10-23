@@ -7,7 +7,7 @@ import { createChannelStores } from "@oni/channels";
 import { Gateway, L0Observation } from "@oni/protocol";
 import { join } from "node:path";
 import { channelStoreSource } from "../src/gateway";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { messageFixture } from "./helpers/message-fixture";
 

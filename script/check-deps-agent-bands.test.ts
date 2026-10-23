@@ -527,11 +527,6 @@ test("#1355: inherited app-token growth reports the owner and both numbers", asy
   }
 });
 
-/** The #1346 gate's notice sink when a case asserts violations only. */
-const silent = (notice: string): void => {
-  if (notice.length === 0) throw new Error("empty notice");
-};
-
 test("#1346: session-store write calls are found by AST, wrapped or chained, never in prose", () => {
   const sites = appsSessionWriteSites(
     [
@@ -607,7 +602,7 @@ test("#1630: session writes and the retired contacts materialize name are both r
     "dir",
   );
   try {
-    const violations = await validateAppsSessionWrites(root, silent);
+    const violations = await validateAppsSessionWrites(root);
     expect(violations.filter((line) => line.includes("composition/x.ts:1 names kernel.commit"))).toHaveLength(1);
     expect(violations.filter((line) => line.includes("contacts.ts:1 names port.materialize"))).toHaveLength(1);
     expect(violations.some((line) => line.includes("sync.ts"))).toBe(false);
@@ -619,16 +614,14 @@ test("#1630: session writes and the retired contacts materialize name are both r
 test("#1630: a clean checkout requires neither former allow-listed write", async () => {
   const root = scratchAppsTree({ "index.ts": "export const noWrites = 1;\n" }, "file");
   try {
-    const violations = await validateAppsSessionWrites(root, silent);
+    const violations = await validateAppsSessionWrites(root);
     expect(violations).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-  const notices: string[] = [];
   const bare = scratchAppsTree({ "index.ts": "export const noWrites = 1;\n" });
   try {
-    expect(await validateAppsSessionWrites(bare, (notice) => notices.push(notice))).toEqual([]);
-    expect(notices).toHaveLength(1);
+    expect(await validateAppsSessionWrites(bare)).toEqual([]);
   } finally {
     rmSync(bare, { recursive: true, force: true });
   }
@@ -653,7 +646,7 @@ test("#1630: both former write exceptions are refused on their old lines or afte
   ).toEqual([[1, "Core", "adoptedExecutor"]]);
   const pinned = pinnedWritesTree(62);
   try {
-    expect(await validateAppsSessionWrites(pinned, silent)).toEqual([
+    expect(await validateAppsSessionWrites(pinned)).toEqual([
       expect.stringContaining("apps/oni/src/index.ts:1489 names kernel.commit"),
       expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 names Core.adoptedExecutor"),
     ]);
@@ -662,7 +655,7 @@ test("#1630: both former write exceptions are refused on their old lines or afte
   }
   const moved = pinnedWritesTree(63);
   try {
-    expect(await validateAppsSessionWrites(moved, silent)).toEqual([
+    expect(await validateAppsSessionWrites(moved)).toEqual([
       expect.stringContaining("apps/oni/src/index.ts:1489 names kernel.commit"),
       expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
     ]);
@@ -671,7 +664,7 @@ test("#1630: both former write exceptions are refused on their old lines or afte
   }
   const second = pinnedWritesTree(62, "const again = Core.adoptedExecutor(kernel, id, owner, clock, {});\n");
   try {
-    expect(await validateAppsSessionWrites(second, silent)).toEqual([
+    expect(await validateAppsSessionWrites(second)).toEqual([
       expect.stringContaining("apps/oni/src/index.ts:1489 names kernel.commit"),
       expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 names Core.adoptedExecutor"),
       expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),

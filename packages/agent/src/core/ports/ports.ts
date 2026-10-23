@@ -6,7 +6,7 @@ import type { SessionError } from "./failure";
 import type { GenerationHandlers } from "../composition/compose";
 import type { GenerationRawSlots } from "../session/run";
 import type { ToolDispatchDefinition } from "../loop/tool";
-import type { LedgerPlane } from "../session/host";
+import type { LedgerHost } from "../session/host";
 
 /** Package code never reads ambient crypto or random sources itself. */
 export interface EntropySource {
@@ -73,4 +73,4 @@ export class ToolCatalog extends Context.Service<
   { readonly definitions: readonly ToolDispatchDefinition[] }
 >()("@oni/agent/ToolCatalog") {}
 
-export class Ledger extends Context.Service<Ledger, LedgerPlane>()("@oni/agent/core/Ledger") {}
+export class Ledger extends Context.Service<Ledger, LedgerHost>()("@oni/agent/core/Ledger") {}

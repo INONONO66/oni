@@ -54,7 +54,7 @@ export function residentRunner(
     ...options.sessionRuntime,
   };
   const scope = effectScope();
-  seedKernelPolicyRows(plane.catalog.policies);
+  seedKernelPolicyRows(plane.updatePolicy);
   const tools = { ...testToolPorts, ...options.tools };
   // #1561: the session's tool faces and bodies come from the composed tool bundles.
   const composed = composedHolderOf(toolComposition(tools), alarmPortsSlot());

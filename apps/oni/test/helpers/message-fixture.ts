@@ -42,7 +42,7 @@ export function messageFixture(
   const catalogPath = join(directory, "catalog.sqlite");
   const sessionsDir = join(directory, "sessions");
   const plane = createAppLedger({ now: () => 100, catalogPath, sessionsDir, observationSink: Bus });
-  seedKernelPolicyRows(plane.catalog.policies);
+  seedKernelPolicyRows(plane.updatePolicy);
   const sessionId = "sender";
   const runtime: SessionRuntime = {
     approvalPolicy: APPROVAL_POLICY,

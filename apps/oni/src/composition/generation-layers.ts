@@ -14,7 +14,7 @@ const makeSessionGenerations = Core.makeSessionGenerations;
 const scopeObservation = Core.scopeObservation;
 type GenerationBundle = Core.GenerationBundle;
 type SessionError = Core.SessionError;
-type SessionRuntime = Core.SessionRuntime;
+type SessionRuntimeOptions = Core.SessionRuntimeOptions;
 
 import { LedgerAction, type AnyToolDefinition, type LedgerSession, type PlainValue, type SessionGeneration } from "@oni/protocol";
 import { type Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "effect";
@@ -284,7 +284,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
 export function configureAuthority(
   generations: Context.Service.Shape<typeof GenerationLayers>,
   openKernel: (sessionId: string) => SessionKernel,
-): SessionRuntime["authorizeConfigure"] {
+): SessionRuntimeOptions["authorizeConfigure"] {
   return (input) => Effect.scoped(Effect.gen(function* () {
     const captured = yield* generations.capture({
       sessionId: input.sessionId,
