@@ -1,10 +1,11 @@
 import { Effect } from "effect";
+import { z } from "zod";
 import { classifyFailure, retryAfterMs } from "../classify";
 import { type LlmError, ModelUnavailable } from "../errors";
 import { run, type Run, type RunInput } from "../run";
 import type { Sink } from "../sink";
 import { runCandidate, type RoutingCall } from "./candidate";
-import { candidates, type ChainRow, parseRows } from "./chain";
+import { candidates, type ChainRow, Row } from "./chain";
 import * as Circuit from "./circuit";
 import type { CredentialSlot } from "./credentials";
 import { decide, type RoutingFact } from "./decide";
@@ -40,7 +41,7 @@ function tryCandidate(call: RoutingCall, selector: string): Effect.Effect<Run.Ou
 }
 
 export function createRouter(binding: RoutingCall["binding"], options: RouterOptions = {}) {
-  const rows = parseRows(options.chains ?? []);
+  const rows = z.array(Row).parse(options.chains ?? []);
   const state: RoutingCall["state"] = {
     circuits: new Map(), credentials: new Map(), pins: new Map(), streaks: new Map(),
   };

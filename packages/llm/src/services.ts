@@ -15,9 +15,7 @@ import { createRouter } from "./router/stream-fn";
  * the core declares the port and its `Llm` tag, this package never imports
  * the core, and the composition root binds this service to that tag.
  *
- * Same-model retry admission belongs to the core loop. Configured routing
- * can replace a credential or candidate before streaming begins. The
- * contract takes no `authFilePath`: the credential file location is resolved
+ * The contract takes no `authFilePath`: the credential file location is resolved
  * once by the composition root and closed over by the implementation
  * (#1245), so consumers cannot redirect credential I/O.
  */

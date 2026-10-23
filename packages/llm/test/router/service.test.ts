@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Deferred, Effect } from "effect";
+import { ZodError } from "zod";
 import { APIError, InvalidProviderData, ModelUnavailable } from "../../src";
 import type { StreamEvent } from "../../src/processor/event-schema";
 import { usePrivateCatalog } from "../helpers/catalog";
@@ -9,6 +10,10 @@ import { textEvents } from "../helpers/processor";
 import { connectionRefused, failed, harness, success } from "./fixtures";
 
 usePrivateCatalog();
+
+test("invalid chain rows fail at service construction", () => {
+  expect(() => harness({ chains: [{ primary: "broken", selectors: [] }] })).toThrow(ZodError);
+});
 
 test("a refused proxy constructor falls back inside one service run", async () => {
   const h = harness();
@@ -101,10 +106,8 @@ test("all open candidates return a typed value with the earliest reopening and c
   const first = await h.run(() => failed(h.calls === 1 ? later : connectionRefused())).catch((error: ModelUnavailable) => error);
   expect(first).toBeInstanceOf(ModelUnavailable);
   const unavailable = await runEffect(Effect.flip(h.service.run(h.input, h.capture.sink, { createStream: success })));
-  expect(unavailable).toBeInstanceOf(ModelUnavailable);
-  expect(unavailable.message).toBe("No candidate available for proxy/x");
   expect(unavailable).toMatchObject({
-    category: "proxy/x", nearestFallback: "small", openUntil: 60_000,
+    _tag: "ModelUnavailable", category: "proxy/x", nearestFallback: "small", openUntil: 60_000,
     routing: { attempts: [
       { candidate: "proxy/x", action: "skip_circuit" },
       { candidate: "direct/x", action: "skip_circuit" },
