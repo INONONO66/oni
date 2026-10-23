@@ -229,7 +229,13 @@ const LegacyActionId = z.object({ id: z.string() });
 
 /** Read the parent's original identity from a consistent v2 or upgraded-v3 snapshot. */
 function legacyForkActionId(parentPath: string, digest: string): string | undefined {
-  using parent = new Database(parentPath, { readonly: true });
+  let connection: Database;
+  try {
+    connection = new Database(parentPath, { readonly: true });
+  } catch (error) {
+    throw unreadableSessionFile(parentPath, error instanceof Error ? error : new Error(String(error)));
+  }
+  using parent = connection;
   parent.run("PRAGMA busy_timeout = 5000");
   parent.run("BEGIN");
   try {
@@ -245,12 +251,6 @@ function legacyForkActionId(parentPath: string, digest: string): string | undefi
 
 /** Recheck the marker under the write lock so concurrent openers upgrade exactly once. */
 function upgradeSessionDatabase(db: Database, path: string): void {
-  const v3Statements = [
-    "DROP INDEX IF EXISTS action_hash_unique",
-    "ALTER TABLE action DROP COLUMN prev_hash",
-    "ALTER TABLE action DROP COLUMN action_hash",
-    "ALTER TABLE decision_fact DROP COLUMN row_hash",
-  ] as const;
   db.transaction(() => {
     const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
     if (version >= SESSION_FILE_SCHEMA_VERSION) return;
@@ -277,7 +277,12 @@ function upgradeSessionDatabase(db: Database, path: string): void {
           '$.forkedFrom.anchor', ?, '$.forkedFrom.parentHead', ?) WHERE id = ?`)
           .run(anchor, parentHead, pin.id);
       }
-      for (const statement of v3Statements) db.run(statement);
+      for (const statement of [
+        "DROP INDEX IF EXISTS action_hash_unique",
+        "ALTER TABLE action DROP COLUMN prev_hash",
+        "ALTER TABLE action DROP COLUMN action_hash",
+        "ALTER TABLE decision_fact DROP COLUMN row_hash",
+      ]) db.run(statement);
     }
     db.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`);
   }).immediate();

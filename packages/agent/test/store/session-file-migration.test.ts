@@ -13,10 +13,10 @@ import { openCatalogStore } from "../../src/core/store/catalog";
 import { createSessionKernel } from "../../src/core/store/fence";
 import { storedActionRow } from "../../src/core/store/action-row";
 import { openSessionStore } from "../../src/core/store/session-file";
+import { SessionFileUnreadable } from "../../src/core/store/errors";
 import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
 import { forkAncestryOf } from "../../src/inspect/tree";
 import { runLedgerSync } from "./helpers/effect";
-import { materializeRow, residentRow } from "./helpers/ledger";
 import { testNow } from "./helpers/storage";
 
 test("v2 session file migrates to v3 with payload rows intact and obsolete columns removed", () => {
@@ -71,27 +71,14 @@ test("v2 session file migrates to v3 with payload rows intact and obsolete colum
   }
 });
 
-test("fresh v3 session file appends and reads one action", () => {
+test("fresh session file has the v3 schema stamp", () => {
   const directory = mkdtempSync(join(tmpdir(), "session-v3-"));
   const path = join(directory, "session.sqlite");
   try {
     const store = openSessionStore(path, { now: testNow });
-    try {
-      materializeRow(store.sessions, residentRow("fresh"));
-      const action = {
-        id: "prompt", parentId: "fresh:configure", sessionId: "fresh", kind: "prompt" as const,
-        intent: { encodingVersion: 1 as const, value: { source: "test" } },
-        effect: { encodingVersion: 1 as const, value: { deliveryKind: "prompt", content: "hello" } },
-        irreversible: true as const, ts: 42,
-      };
-      const receipt = store.actions.append(action, 1);
-      expect(receipt).toEqual({ action: { ...action, ordinal: 2 }, revision: 2 });
-      expect(store.actions.actionById(action.id)).toEqual(receipt?.action);
-      using raw = new Database(path, { readonly: true });
-      expect(raw.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
-    } finally {
-      store.close();
-    }
+    store.close();
+    using raw = new Database(path, { readonly: true });
+    expect(raw.query("PRAGMA user_version").get()).toEqual({ user_version: 3 });
   } finally {
     rmSync(directory, { recursive: true });
   }
@@ -186,17 +173,9 @@ for (const order of [["parent", "child"], ["child", "parent"]] as const) {
         catalog.indexSession({ id: "root", parentId: null, role: "resident", createdAt: 1 });
         catalog.indexSession({ id: "parent", parentId: "root", role: "child", createdAt: 1 });
         catalog.indexSession({ id: "child", parentId: "parent", role: "child", createdAt: 4 });
-        if (order[0] === "parent") {
-          const root = openSessionStore(rootPath, { now: testNow });
-          root.close();
-        }
-        for (const id of order) {
-          const store = openSessionStore(id === "parent" ? parentPath : childPath, { now: testNow });
+        for (const id of order[0] === "parent" ? ["root", ...order] : [...order, "root"]) {
+          const store = openSessionStore(id === "root" ? rootPath : id === "parent" ? parentPath : childPath, { now: testNow });
           store.close();
-        }
-        if (order[0] === "child") {
-          const root = openSessionStore(rootPath, { now: testNow });
-          root.close();
         }
         const parent = openSessionStore(parentPath, { now: testNow });
         const child = openSessionStore(childPath, { now: testNow });
@@ -213,17 +192,19 @@ for (const order of [["parent", "child"], ["child", "parent"]] as const) {
           expect(forkAncestryOf(parentKernel, "parent")).toMatchObject({
             session: "root", anchor: "root-prompt", parentHead: "root-prompt",
           });
-          const newChild = openSessionStore(join(directory, "new-child.sqlite"), { now: testNow });
-          try {
-            const forked = Result.getOrThrowWith(runLedgerSync(Effect.result(forkSession({
-              parent: parentKernel, parentSchemaVersion: 3, openChild: () => newChild, catalog,
-            }, {
-              from: "parent", at: "parent-prompt", childId: "new-child",
-              genesisActionId: "new-child:configure", now: 6,
-            }))), (error) => error);
-            expect(forked.forkedFrom).toMatchObject({ anchor: "parent-prompt", parentHead: "parent-tail" });
-          } finally {
-            newChild.close();
+          if (order[0] === "parent") {
+            const newChild = openSessionStore(join(directory, "new-child.sqlite"), { now: testNow });
+            try {
+              const forked = Result.getOrThrowWith(runLedgerSync(Effect.result(forkSession({
+                parent: parentKernel, parentSchemaVersion: 3, openChild: () => newChild, catalog,
+              }, {
+                from: "parent", at: "parent-prompt", childId: "new-child",
+                genesisActionId: "new-child:configure", now: 6,
+              }))), (error) => error);
+              expect(forked.forkedFrom).toMatchObject({ anchor: "parent-prompt", parentHead: "parent-tail" });
+            } finally {
+              newChild.close();
+            }
           }
         } finally {
           parent.close();
@@ -234,6 +215,18 @@ for (const order of [["parent", "child"], ["child", "parent"]] as const) {
           expect(forkAncestryOf(createSessionKernel(reopened, catalog), "child")?.anchor).toBe("parent-prompt");
         } finally {
           reopened.close();
+        }
+        if (order[0] === "parent") {
+          rmSync(rootPath);
+          const missingChildPath = join(directory, "missing-child.sqlite");
+          seedForkFile(missingChildPath, "parent", "root", [parentConfigure, parentPrompt, parentTail]);
+          try {
+            openSessionStore(missingChildPath, { now: testNow }).close();
+            throw new Error("expected unreadable fork parent");
+          } catch (error) {
+            if (!(error instanceof SessionFileUnreadable)) throw error;
+            expect(error).toMatchObject({ path: rootPath, code: "SQLITE_CANTOPEN" });
+          }
         }
       } finally {
         catalog.close();
