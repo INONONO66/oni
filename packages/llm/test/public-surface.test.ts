@@ -62,6 +62,7 @@ describe("model barrel public surface", () => {
       "LlmRunFailure",
       "ModelCatalogError",
       "ModelResolutionError",
+      "ModelUnavailable",
       "ModelsDev",
       "NEAR_WINDOW_RATIO",
       "ProviderRow",
