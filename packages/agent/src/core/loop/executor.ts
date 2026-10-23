@@ -1,10 +1,10 @@
 import { Effect, Exit, Clock } from "effect";
 import { type ExecutionError, type CommitFailed, AgentFailure } from "../ports/failure";
 import { type LedgerAction, type PlainValue, canonicalDigest } from "@oni/protocol";
-import type { PolicyEvaluation } from "../gate/compile";
+import type { PolicyEvaluation } from "../gate/types";
 import { DEFAULT_TOOL_OUTPUT_BUDGET_BYTES, projectResultValue } from "../ports/tool-output";
 import { Entropy, ObservationSink, SessionLayer, type ProcessServices } from "../ports/ports";
-import { executionPoint } from "../gate/points";
+import { admit, executionPoint } from "../gate/bind";
 import type { Decision, DurableExecutor, ExecutionRequest, ExecutorOptions } from "./invocation";
 import { clonePlainValue, createExecutionRecord, createExecutionRecovery, settlePost } from "./record";
 import { createExecutionApprovals } from "./approval";
@@ -37,10 +37,6 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
     function consulted(kind: string, phase: "pre" | "post"): boolean {
     return executionPoint(kind, phase, options.policy.pointTable) !== undefined;
   }
-    function gatedByRegistry(evaluated: PolicyEvaluation, request: ExecutionRequest, phase: "pre" | "post"): PolicyEvaluation {
-    if (consulted(request.kind, phase)) return evaluated;
-    return { ...evaluated, verdict: "deny", reason: "unknown_point" };
-  }
   function decide(request: ExecutionRequest, phase: "pre" | "post", value: PlainValue,
     parentId = options.identity.parentActionId): Effect.Effect<Decision, CommitFailed> {
     return Effect.suspend(() => {
@@ -48,11 +44,7 @@ export function createExecutor(input: ExecutorOptions): Effect.Effect<DurableExe
         kind: request.kind, phase, op: request.op, role: options.identity.role, sessionId: options.identity.sessionId,
         ...(request.message === undefined ? {} : { message: request.message }), value,
       };
-      const evaluatedEffect = options.policy.evaluateEffect === undefined
-        ? Effect.sync(() => options.policy.evaluate(input))
-        : options.policy.evaluateEffect(input);
-      return evaluatedEffect.pipe(Effect.flatMap((evaluated) => {
-      const decision = gatedByRegistry(evaluated, request, phase);
+      return admit(options.policy, input).pipe(Effect.flatMap((decision) => {
       return record.commit({
         id: options.entropy(), parentId, sessionId: options.identity.sessionId, kind: "policy.decision",
         intent: { encodingVersion: 1, value: decisionIntentValue(request, phase, decision) },

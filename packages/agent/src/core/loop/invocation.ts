@@ -2,7 +2,7 @@ import type { LedgerError } from "../store/errors";
 import { Effect, type Scope, Context, Deferred, Exit, Option } from "effect";
 import { type ExecutionError, GenerationUnavailable, InvocationClosed } from "../ports/failure";
 import type { BusEvent, LedgerAction, LedgerSession, ObservationSink as ObservationPort, PlainValue, SessionTransition, Tool } from "@oni/protocol";
-import type { CompiledPolicySnapshot, PolicyEvaluationInput, PolicyEvaluation } from "../gate/compile";
+import type { PolicyBinding, PolicyEvaluationInput, PolicyEvaluation } from "../gate/types";
 import type { RetryAlarmPort } from "../ports/alarm";
 import type { WaveControl, Dispatcher } from "./tool";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -149,7 +149,7 @@ export interface ExecutorOptions {
 }
 
 export interface ResolvedExecutorOptions extends ExecutorOptions {
-  readonly policy: CompiledPolicySnapshot;
+  readonly policy: PolicyBinding;
   readonly observations: ObservationPort | BusEvent.Sink;
   readonly clock: () => number;
   readonly entropy: () => string;
@@ -195,7 +195,7 @@ export interface InvocationFrame {
   readonly [invocationLifetime]?: InvocationLifetime;
   readonly executor: Executor;
   readonly cell: Dispatcher;
-  readonly policy: CompiledPolicySnapshot;
+  readonly policy: PolicyBinding;
   readonly generation: CapturedGeneration;
 }
 

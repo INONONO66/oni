@@ -1,15 +1,11 @@
+import { assertPolicyRows, POINT_GENERATION_ROW, KERNEL_POLICY_REGISTRY, GateComposeError, PolicyCompileError } from "../src/core/gate/compile";
+import { policyPoint } from "../src/core/gate/compile";
+import { policySnapshot } from "./helpers/compiled-policy";
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  assertPointGenerationRows,
-  pointOfRow,
-  POINT_GENERATION_ROW,
-  translateLegacyPolicyRow,
-} from "../src/core/gate/migrate";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
-import { GateComposeError } from "../src/core/gate/points";
+
 import { openCatalogStore } from "../src/core/store/catalog";
 import { atGeneration, compaction, draft } from "./kernel/gate/row-fixtures";
 import { fullPointTable } from "./helpers/gate-rows";
@@ -42,7 +38,7 @@ function withCatalog<A>(run: (open: () => ReturnType<typeof openCatalogStore>) =
 
 /** The generation-1 kernel snapshot over `rows` with compaction mandatory, as a pinned restore compiles it. */
 const pinnedSnapshot = (...rows: Parameters<typeof atGeneration>[0][]) =>
-  compilePolicySnapshot({
+  policySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: rows.map((row) => atGeneration(row, 1)),
@@ -51,16 +47,16 @@ const pinnedSnapshot = (...rows: Parameters<typeof atGeneration>[0][]) =>
 
 describe("permission-row migration (#1251)", () => {
   it("maps every historical kind/phase pair the kernel ever wrote to a registered point", () => {
-    assertPointGenerationRows(LEGACY_ROWS, table);
-    expect(pointOfRow("compaction", "post")).toBe("compaction.post");
-    expect(pointOfRow("ingress", "pre")).toBe("ingress.pre");
-    expect(pointOfRow("alarm.fired", "post")).toBe("alarm.fired");
+    assertPolicyRows(LEGACY_ROWS, table);
+    expect(policyPoint("compaction", "post")).toBe("compaction.post");
+    expect(policyPoint("ingress", "pre")).toBe("ingress.pre");
+    expect(policyPoint("alarm.fired", "post")).toBe("alarm.fired");
   });
 
   it("rejects an unmappable historical row with `unknown_point`", () => {
     const row = draft("checkpoint", "fold.checkpoint", "pre", { type: "allow", reasonCodes: [] });
     try {
-      assertPointGenerationRows([row], table);
+      assertPolicyRows([row], table);
       throw new Error("expected unknown_point");
     } catch (error) {
       if (!GateComposeError.isInstance(error)) throw error;
@@ -68,7 +64,7 @@ describe("permission-row migration (#1251)", () => {
     }
   });
 
-  it("a base-era turn/post compaction deny keeps refusing summarization after conversion (#1251 r1)", () => {
+  it("refuses a stored compaction row until the named offline procedure replaces its address", () => {
     const deny = draft(
       "no-summaries",
       "turn",
@@ -76,19 +72,29 @@ describe("permission-row migration (#1251)", () => {
       { type: "deny", reason: "no summaries" },
       { match: { op: "compaction" }, priority: 2_000 },
     );
-    const converted = translateLegacyPolicyRow(deny);
+    expect(() => pinnedSnapshot(compaction, deny)).toThrow(expect.objectContaining({
+      data: {
+        code: "policy_row_migration_required",
+        generation: 1,
+        rowIndex: 1,
+        ruleName: "no-summaries",
+        procedureId: "policy-point-rows-v1",
+        message: "policy row 1 (no-summaries) requires migration policy-point-rows-v1",
+      },
+    }));
+    expect(() => pinnedSnapshot(compaction, deny)).toThrow(PolicyCompileError);
+    const converted = draft("no-summaries", "compaction", "pre",
+      { type: "deny", reason: "no summaries" }, { match: { op: "compact" }, priority: 2_000 });
     expect(converted).toMatchObject({ kind: "compaction", phase: "pre" });
     expect(converted.match.value).toEqual({ op: "compact" });
 
-    // Even an untouched historical generation translates at compile: the
-    // pinned snapshot keeps the base-era refusal on the compaction point.
-    const snapshot = pinnedSnapshot(compaction, deny);
+    const snapshot = pinnedSnapshot(compaction, converted);
     expect(snapshot.evaluate({ kind: "compaction", phase: "pre", op: "compact", value: {} }).verdict).toBe("deny");
     // The turn envelope itself is no longer governed by the converted row.
     expect(snapshot.evaluate({ kind: "turn", phase: "post", op: "finish", value: {} }).verdict).toBe("allow");
   });
 
-  it("a base-era turn/post restore deny keeps refusing restores with its real operation (#1251 r2)", () => {
+  it("refuses a stored restore row and accepts the explicit compaction address", () => {
     const deny = draft(
       "no-restore",
       "turn",
@@ -96,11 +102,20 @@ describe("permission-row migration (#1251)", () => {
       { type: "deny", reason: "pinned_projection" },
       { match: { op: "restore_context_projection" }, priority: 500 },
     );
-    const converted = translateLegacyPolicyRow(deny);
+    expect(() => pinnedSnapshot(compaction, deny)).toThrow(expect.objectContaining({
+      data: expect.objectContaining({
+        code: "policy_row_migration_required",
+        rowIndex: 1,
+        procedureId: "policy-point-rows-v1",
+      }),
+    }));
+    const converted = draft("no-restore", "compaction", "pre",
+      { type: "deny", reason: "pinned_projection" },
+      { match: { op: "restore_context_projection" }, priority: 500 });
     expect(converted).toMatchObject({ kind: "compaction", phase: "pre" });
     expect(converted.match.value).toEqual({ op: "restore_context_projection" });
 
-    const snapshot = pinnedSnapshot(compaction, deny);
+    const snapshot = pinnedSnapshot(compaction, converted);
     expect(
       snapshot.evaluate({ kind: "compaction", phase: "pre", op: "restore_context_projection", value: {} }),
     ).toMatchObject({ verdict: "deny", reason: "pinned_projection" });
@@ -110,7 +125,9 @@ describe("permission-row migration (#1251)", () => {
 
   it("a wildcard turn/post row still governs compaction operations as the old mapping consulted it (#1251 r2)", () => {
     const freeze = draft("frozen", "turn", "post", { type: "deny", reason: "frozen" }, { priority: 2_000 });
-    expect(translateLegacyPolicyRow(freeze)).toEqual(freeze);
+    const admitted = structuredClone(freeze);
+    assertPolicyRows([admitted], table);
+    expect(admitted).toEqual(freeze);
 
     const snapshot = pinnedSnapshot(compaction, freeze);
     for (const op of ["compact", "restore_context_projection"]) {
@@ -130,7 +147,7 @@ describe("permission-row migration (#1251)", () => {
 
       const generation = catalog.policies.appendGeneration((current) => {
         const drafts = current.map(({ generation: _generation, ...rest }) => rest);
-        assertPointGenerationRows(drafts, table);
+        assertPolicyRows(drafts, table);
         return [...drafts, POINT_GENERATION_ROW];
       });
       expect(generation).toBe(2);
@@ -155,7 +172,7 @@ describe("permission-row migration (#1251)", () => {
       expect(() =>
         catalog.policies.appendGeneration((current) => {
           const drafts = current.map(({ generation: _generation, ...rest }) => rest);
-          assertPointGenerationRows(drafts, table);
+          assertPolicyRows(drafts, table);
           return [...drafts, POINT_GENERATION_ROW];
         }),
       ).toThrow(GateComposeError);

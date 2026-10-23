@@ -15,7 +15,7 @@ const scopeObservation = Core.scopeObservation;
 type GenerationBundle = Core.GenerationBundle;
 type SessionError = Core.SessionError;
 type SessionRuntime = Core.SessionRuntime;
-const compilePolicySnapshot = Core.compilePolicySnapshot;
+
 import { LedgerAction, type AnyToolDefinition, type LedgerSession, type PlainValue, type SessionGeneration } from "@oni/protocol";
 import { type Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "effect";
 
@@ -163,9 +163,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
       // is the whole catalog; the snapshot's journaled faces pick this session's.
       const source = definitions;
       const catalog = Layer.sync(ToolCatalog, () => ({
-        definitions: Object.freeze(generation.tools.filter(
-          (tool) => offered.has(tool.name) && (tool.visibility.model.includes(role) || tool.visibility.cell.includes(role)),
-        )),
+        definitions: Core.filterLoadout(generation.tools, offered, role),
       }));
       let active = false;
       // One PubSub bus per generation (#1249): built in the generation Layer's
@@ -227,7 +225,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
       const layer = Layer.unwrap(Effect.gen(function* () {
         const registry = yield* GenerationHandlers;
         const policy = yield* Effect.try({
-          try: () => compilePolicySnapshot({ rows: plane.openKernel(sessionId).policyRows(snapshot.policyGeneration), generation: snapshot.policyGeneration, kinds: LedgerAction.Kind.options, registry, table: pointTable }),
+          try: () => Core.bind(Core.compile({ rows: plane.openKernel(sessionId).policyRows(snapshot.policyGeneration), generation: snapshot.policyGeneration, kinds: LedgerAction.Kind.options, table: pointTable }, registry)),
           catch: String,
         }).pipe(Effect.mapError((cause) => new AgentFailure({ operation: "generation.policy", cause })));
         return Layer.succeed(SessionLayer, { snapshot, policy });

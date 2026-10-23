@@ -1,3 +1,4 @@
+import type { PolicyBinding } from "../../src/core/gate/types";
 import { uniqueEntropy } from "./time";
 import { fencedExecutionLedger } from "./execution-reads";
 import { testExecutor } from "./executor";
@@ -13,7 +14,7 @@ import { AgentFailure } from "../../src/core/ports/failure";
 import { allowAllPolicy, fixtureHashes } from "./compiled-policy";
 import { fencedTurnFixture, fencedTurnIdentity } from "./fenced-writer";
 import { isolatedLedger } from "./isolated";
-import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
+
 export { createTestAgent, runTestAgent, runChatAttempts } from "./effect-g2";
 export const nullRetryAlarm: NonNullable<ExecutorOptions["retryAlarm"]> = {
   arm: () => Effect.void,
@@ -22,7 +23,7 @@ export const nullRetryAlarm: NonNullable<ExecutorOptions["retryAlarm"]> = {
 };
 export function recordingExecutor(
   options: {
-    policy?: CompiledPolicySnapshot;
+    policy?: PolicyBinding;
     onCommit?: (action: LedgerAction.Append) => void | Promise<void>;
     onObservation?: (name: string) => void;
     clock?: () => number;
@@ -53,7 +54,7 @@ export function recordingExecutor(
   return { executor, committed };
 }
 export function turnExecutor(
-  policy: CompiledPolicySnapshot,
+  policy: PolicyBinding,
   committed: LedgerAction.Append[] = [],
   overrides: Partial<ResolvedExecutorOptions> = {},
 ) {

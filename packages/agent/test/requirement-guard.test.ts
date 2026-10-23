@@ -1,12 +1,14 @@
+import { gateSnapshot } from "./helpers/gate-rows";
+import type { GateHandler } from "../src/core/gate/types";
 import { describe, expect, it } from "bun:test";
-import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
+
 import { fullPointTable, gateRow } from "./helpers/gate-rows";
 
 const table = fullPointTable();
 
 /** Compiles the single tool.pre `row` over `handlers` (generation 1) and decides a null tool.pre value. */
 function decideToolPre(row: Parameters<typeof gateRow>[1], handlers: ReadonlyMap<string, GateHandler>) {
-  const gate = compileGateRows({
+  const gate = gateSnapshot({
     table,
     rows: [gateRow("tool.pre", row)],
     handlers: [...handlers.keys()],
@@ -74,7 +76,7 @@ describe("requirement guard (#1251)", () => {
   });
 
   it("fails closed when a row's handler is not resolvable at decision time", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { id: "guard/tool.pre#2", how: { ref: "guard/gone" } })],
       handlers: ["guard/gone"],

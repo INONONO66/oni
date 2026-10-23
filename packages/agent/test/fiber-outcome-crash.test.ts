@@ -1,12 +1,14 @@
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
+import { policySnapshot } from "./helpers/compiled-policy";
 import { sessionTree as kernelSessionTree } from "./helpers/session-tree";
 import { testExecutor } from "./helpers/executor";
-import { KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
+
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommitRefused } from "../src/core/store/errors";
-import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
+
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { z } from "zod";
 import { ToolBodyFailed } from "../src/core/ports/failure";
@@ -55,7 +57,7 @@ test("interrupted fiber seals one interrupted action after its entry signal", ()
 test("pre denied commits its policy node and enters zero bodies", () => isolated(Effect.gen(function* () {
   const options = yield* nativeExecutorOptions();
   let bodies = 0;
-  const executor = testExecutor({ ...options, policy: compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY,
+  const executor = testExecutor({ ...options, policy: policySnapshot({ registry: KERNEL_POLICY_REGISTRY,
     generation: 1, rows: [...SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })), {
       name: "no-write", kind: "tool", phase: "pre", generation: 1, priority: 1,
       match: { encodingVersion: 1, value: { op: "write" } },

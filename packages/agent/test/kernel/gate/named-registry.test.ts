@@ -1,10 +1,12 @@
+import { policySnapshot } from "../../helpers/compiled-policy";
+import { createHandlerTable, KERNEL_POLICY_REGISTRY, HandlerTableError, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
+import type { ConsultInput, GateHandlerResult } from "../../../src/core/gate/types";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { canonicalDigest, type PlainValue, RowVerdict, RowVerdictRead, PolicyRow, type Storage } from "@oni/protocol";
-import { compilePolicySnapshot, createHandlerTable, KERNEL_POLICY_REGISTRY, HandlerTableError, SEEDED_POLICY_ROWS, type ConsultInput } from "../../../src/core/gate/compile";
+
 import { atGeneration, compaction, draft, withPolicyRows, type PolicyRowDraft } from "./row-fixtures";
 import { runTestPromise } from "../../helpers/isolated";
-import type { GateHandlerResult } from "../../../src/core/gate/compose";
 
 const input = {
   kind: "tool",
@@ -23,7 +25,7 @@ describe("immutable named policy registry", () => {
       ),
     ]);
     const bytes = JSON.stringify(source.rows(1));
-    const before = compilePolicySnapshot({ rows: source.rows(1), generation: 1, registry: KERNEL_POLICY_REGISTRY });
+    const before = policySnapshot({ rows: source.rows(1), generation: 1, registry: KERNEL_POLICY_REGISTRY });
     const generation = source.appendGeneration((current: readonly PolicyRow.Row[]) => current.map((row: PolicyRow.Row) => ({
       ...row, verdict: { ...row.verdict, value: RowVerdictRead.parse(row.verdict.value) },
     })));
@@ -34,7 +36,7 @@ describe("immutable named policy registry", () => {
       config: { paths: ["secret"] },
     });
     expect(JSON.stringify(source.rows(1))).toBe(bytes);
-    const after = compilePolicySnapshot({ rows: source.rows(2), generation: 2, registry: KERNEL_POLICY_REGISTRY });
+    const after = policySnapshot({ rows: source.rows(2), generation: 2, registry: KERNEL_POLICY_REGISTRY });
     expect(after.evaluate(input).value).toEqual(before.evaluate(input).value);
     expect(after.contentHash).not.toBe(before.contentHash);
   }));
@@ -50,7 +52,7 @@ describe("immutable named policy registry", () => {
         ? { type, ref: "demo/missing", metric: "fanout", limit: 2 }
         : { type, ref: "demo/missing" };
     expect(() =>
-      compilePolicySnapshot({
+      policySnapshot({
         generation: 7,
         registry: KERNEL_POLICY_REGISTRY,
         rows: [
@@ -82,7 +84,7 @@ describe("immutable named policy registry", () => {
         },
       ],
     };
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 7,
       registry,
       rows: [
@@ -120,7 +122,7 @@ describe("immutable named policy registry", () => {
         },
       ],
     };
-    const gated = compilePolicySnapshot({
+    const gated = policySnapshot({
       generation: 8,
       registry: gateRegistry,
       rows: [
@@ -161,7 +163,7 @@ describe("immutable named policy registry", () => {
         },
       ],
     };
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 9,
       registry,
       rows: [
@@ -208,7 +210,7 @@ describe("immutable named policy registry", () => {
       ],
     };
     const compile = (verdict: PlainValue) =>
-      compilePolicySnapshot({
+      policySnapshot({
         generation: 7,
         registry,
         rows: [atGeneration(compaction, 7), atGeneration(draft("bad", "tool", "pre", verdict), 7)],
@@ -260,7 +262,7 @@ describe("immutable named policy registry", () => {
         },
       ],
     };
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 9,
       registry,
       rows: [
@@ -342,7 +344,7 @@ describe("immutable named policy registry", () => {
         },
       ],
     });
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 10,
       registry,
       rows: [
@@ -420,8 +422,8 @@ describe("immutable named policy registry", () => {
         1,
       ),
     ];
-    const snapshot = compilePolicySnapshot({ generation: 1, registry, rows });
-    const reverse = compilePolicySnapshot({ generation: 1, registry, rows: [...rows].reverse() });
+    const snapshot = policySnapshot({ generation: 1, registry, rows });
+    const reverse = policySnapshot({ generation: 1, registry, rows: [...rows].reverse() });
     transformer.apply = () => "wrong";
     transformers.length = 0;
     config.nested[0] = "changed";
@@ -457,7 +459,7 @@ describe("immutable named policy registry", () => {
       ),
     ];
     const bytes = JSON.stringify(rows);
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 1,
       registry: KERNEL_POLICY_REGISTRY,
       rows,
@@ -472,7 +474,7 @@ describe("immutable named policy registry", () => {
       value: { keep: true },
     });
     expect(
-      compilePolicySnapshot({
+      policySnapshot({
         generation: 1,
         registry: KERNEL_POLICY_REGISTRY,
         rows: PolicyRow.Row.array().parse(JSON.parse(bytes)),
@@ -519,7 +521,7 @@ describe("immutable named policy registry", () => {
       obligations: [],
     });
     const config = { nested: [1], fields: ["keep"] };
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 1,
       registry,
       rows: [
@@ -557,7 +559,7 @@ describe("immutable named policy registry", () => {
       );
     });
     const bytes = JSON.stringify(historical);
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 1,
       registry: KERNEL_POLICY_REGISTRY,
       rows: PolicyRow.Row.array().parse(JSON.parse(bytes)),

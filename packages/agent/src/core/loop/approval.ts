@@ -1,7 +1,7 @@
 import { Effect, Deferred, Exit } from "effect";
 import { type ExecutionError, ExecutionApprovalError } from "../ports/failure";
 import { GateDecision, type LedgerAction, type PlainValue, type SessionTransition, canonicalDigest, PlainValueSchema, RowVerdictType, SessionHistory } from "@oni/protocol";
-import type { CompiledPolicySnapshot, PolicyEvaluation } from "../gate/compile";
+import type { PolicyBinding, PolicyEvaluation } from "../gate/types";
 import { onAbort } from "../ports/ports";
 import { createApprovalRequest } from "../journal/request-binding";
 import type * as SessionHandleStore from "../store/fence";
@@ -154,7 +154,7 @@ function recordedDecision(ledger: ExecutorOptions["ledger"], original: LedgerAct
 }
 
 export function recoverAdmission(
-  options: { readonly ledger: ExecutorOptions["ledger"]; readonly identity: ExecutorOptions["identity"]; readonly policy: CompiledPolicySnapshot },
+  options: { readonly ledger: ExecutorOptions["ledger"]; readonly identity: ExecutorOptions["identity"]; readonly policy: PolicyBinding },
   request: ExecutionRequest,
   original: LedgerAction.Node,
 ): Admitted {
@@ -185,7 +185,7 @@ function parseGateEvidence(gate: PlainValue): GateDecision {
 }
 
 function replayRecordedValue(
-  policy: CompiledPolicySnapshot,
+  policy: PolicyBinding,
   request: ExecutionRequest,
   identity: ExecutorOptions["identity"],
   recorded: GateDecision,

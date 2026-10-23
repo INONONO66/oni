@@ -4,7 +4,7 @@ import { canonicalDigest, type LedgerAction, type PlainValue } from "@oni/protoc
 
 import { type ExecutionError, AgentFailure } from "../ports/failure";
 
-import type { PolicyEvaluation } from "../gate/compile";
+import type { PolicyEvaluation } from "../gate/types";
 
 import { turnStopAction } from "../journal/turn-rows";
 

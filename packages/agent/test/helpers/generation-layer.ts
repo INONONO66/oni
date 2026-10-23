@@ -1,11 +1,12 @@
+import type { PolicyBinding } from "../../src/core/gate/types";
 import { Layer } from "effect";
-import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
+
 import type { AnyToolDefinition, SessionGeneration } from "@oni/protocol";
 import { SessionLayer, ToolCatalog } from "../../src/core/ports/ports";
 
 export interface AgentLayerOptions {
   readonly snapshot: SessionGeneration.Snapshot;
-  readonly policy: CompiledPolicySnapshot;
+  readonly policy: PolicyBinding;
   readonly definitions: readonly AnyToolDefinition[];
 }
 

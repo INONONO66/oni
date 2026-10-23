@@ -1,6 +1,8 @@
+import { policySnapshot } from "./compiled-policy";
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
 import { testExecutor } from "./executor";
 import { type ChatFixture as ChatAgentConfig, chatServices, fixtureCompactionPort, fixtureStopEvidence } from "./chat-services";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
+
 import { Effect } from "effect";
 import type { LlmSink as Sink } from "../../src/core/ports/llm";
 import type { ChatAgentInput } from "../../src/core/ports/types";
@@ -15,7 +17,7 @@ export function seededTestAgent(retryAlarm: NonNullable<ExecutorOptions["retryAl
     run(input: ChatAgentInput, sink?: Sink) {
       const record = recordingLedger();
       const executor = testExecutor({
-        policy: compilePolicySnapshot({
+        policy: policySnapshot({
           registry: KERNEL_POLICY_REGISTRY,
           generation: 1,
           rows: SEEDED_POLICY_ROWS.map((row: (typeof SEEDED_POLICY_ROWS)[number]) => ({

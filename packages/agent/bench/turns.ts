@@ -1,9 +1,11 @@
+import { policySnapshot } from "../test/helpers/compiled-policy";
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import { runAgentSync } from "../test/helpers/executor";
 import { chatServices, fixtureStopEvidence } from "../test/helpers/chat-services";
 import { allowConfigure, kernelRuntime, type SessionFixture, withSessionServices } from "../test/helpers/session-services";
 import { catalogLayer, executorLayer } from "../test/helpers/service-layers";
 import { Context, Effect, Exit, Layer, Scope } from "effect";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
+
 import { openCatalogStore } from "../src/core/store/catalog";
 import { openSessionStore } from "../src/core/store/session-file";
 import * as SessionHandleStore from "../src/core/store/fence";
@@ -36,7 +38,7 @@ const events: Context.Service.Shape<typeof ObservationSink> = {
 const model = { provider: "anthropic", id: mockProviderModel.id };
 const chatLayer = chatServices({ events, model, llm: mockLlm(completeModel) });
 // Production pins policy and acquires service Layers for a generation, not a model call.
-const policy = compilePolicySnapshot({
+const policy = policySnapshot({
   registry: KERNEL_POLICY_REGISTRY,
   generation: 1,
   rows: SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })),

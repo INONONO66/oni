@@ -1,6 +1,7 @@
+import { policySnapshot } from "../../helpers/compiled-policy";
 import { expect, test } from "bun:test";
 import type { PlainValue } from "@oni/protocol";
-import { compilePolicySnapshot } from "../../../src/core/gate/compile";
+
 import { atGeneration, compaction, draft } from "./row-fixtures";
 
 test("existing compiler executes the supplied captured named transform", () => {
@@ -25,7 +26,7 @@ test("existing compiler executes the supplied captured named transform", () => {
     ],
   };
 
-  const result = compilePolicySnapshot(options).evaluate({
+  const result = policySnapshot(options).evaluate({
     kind: "tool",
     phase: "pre",
     op: "bash",

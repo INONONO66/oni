@@ -1,8 +1,9 @@
+import { policySnapshot } from "./helpers/compiled-policy";
+import { createHandlerTable, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import { generationSnapshot } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { expect, test } from "bun:test";
 
-import { compilePolicySnapshot, createHandlerTable, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import type { PlainValue, PolicyRow } from "@oni/protocol";
 import { Clock, Effect, Layer } from "effect";
 import { z } from "zod";
@@ -56,7 +57,7 @@ function generationFixture(rows: readonly SeedRow[], bodies: PlainValue[]) {
     );
     const layer = Layer.effect(SessionLayer, Effect.gen(function* () {
       const composed = yield* GenerationHandlers;
-      return { snapshot, policy: compilePolicySnapshot({ registry: composed, rows: source.rows(policyGeneration), generation: policyGeneration }) };
+      return { snapshot, policy: policySnapshot({ registry: composed, rows: source.rows(policyGeneration), generation: policyGeneration }) };
     })).pipe(Layer.provideMerge(seed));
     const owner = yield* makeSessionGenerations({ id: { sessionId: fiberSessionId, generation: 1 }, snapshot, layer, activate: Effect.void });
     return yield* owner.capture();
@@ -112,7 +113,7 @@ for (const type of ["transform", "obligation"] as const) {
       : { type, ref: "demo/missing", metric: "fanout", limit: 2 };
     const source = isolatedLedger().catalog.policies;
     const generation = source.appendGeneration(() => [...SEEDED_POLICY_ROWS, policyRow("demo/missing-row", verdict)]);
-    expect(() => compilePolicySnapshot({
+    expect(() => policySnapshot({
       registry: KERNEL_POLICY_REGISTRY, generation, rows: source.rows(generation),
     })).toThrow(expect.objectContaining({
       data: expect.objectContaining({

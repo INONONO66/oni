@@ -1,11 +1,10 @@
+import { gateSnapshot } from "./helpers/gate-rows";
+import type { GateHandler } from "../src/core/gate/types";
+import { policySnapshot } from "./helpers/compiled-policy";
+import { createHandlerTable, KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
 import { describe, expect, it } from "bun:test";
 import type { PolicyRow } from "@oni/protocol";
-import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
-import {
-  compilePolicySnapshot,
-  createHandlerTable,
-  KERNEL_POLICY_REGISTRY,
-} from "../src/core/gate/compile";
+
 import { countingHandler, fullPointTable, gateRow, guardGate, rewriteChain } from "./helpers/gate-rows";
 
 const table = fullPointTable();
@@ -34,7 +33,7 @@ describe("decision replay (#1251)", () => {
       value: { model: "safe-model" },
       payload: { rewrote: true },
     }));
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("llm.pre", { do: "rewrite", how: { ref: "rewrite/model", fields: ["model"] } })],
       handlers: ["rewrite/model"],
@@ -86,7 +85,7 @@ describe("decision replay (#1251)", () => {
   });
 
   it("a changed matcher context is a different decision: the old record does not replay (#1251 r3)", () => {
-    const gate = compileGateRows<{ block: boolean }>({
+    const gate = gateSnapshot<{ block: boolean }>({
       table,
       rows: [gateRow("message.pre", { id: "guard/message.pre#7", how: { verdict: "deny" } })],
       handlers: [],
@@ -117,7 +116,7 @@ describe("decision replay (#1251)", () => {
   });
 
   it("a decision recorded under another generation never replays (#1251 r4)", () => {
-    const recordedBy = compileGateRows({
+    const recordedBy = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { id: "guard/tool.pre#1", how: { verdict: "allow" } })],
       handlers: [],
@@ -127,7 +126,7 @@ describe("decision replay (#1251)", () => {
     expect(first.decision.generation).toBe(1);
 
     // Generation 2 adds a deny on the same point; the gen-1 allow is void.
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.pre", { id: "guard/tool.pre#1", how: { verdict: "allow" } }),
@@ -144,7 +143,7 @@ describe("decision replay (#1251)", () => {
 
   it("treats an unrecorded handler response as observe-only: it cannot change the decision", () => {
     const silent: GateHandler = () => ({ verdict: "deny" });
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { id: "guard/tool.pre#9", how: { ref: "guard/silent" } })],
       handlers: ["guard/silent"],
@@ -181,7 +180,7 @@ describe("production snapshot replay (#1251 r3)", () => {
       ...KERNEL_POLICY_REGISTRY.transformers,
       { name: "demo/mask", apply: () => { calls += 1; return { text: "masked" }; } },
     ] });
-    const snapshot = compilePolicySnapshot({ registry, generation: 1, rows: rows(1) });
+    const snapshot = policySnapshot({ registry, generation: 1, rows: rows(1) });
     const first = snapshot.evaluate(input);
     expect(calls).toBe(1);
     expect(first.value).toEqual({ text: "masked" });
@@ -204,14 +203,14 @@ describe("production snapshot replay (#1251 r3)", () => {
       ...KERNEL_POLICY_REGISTRY.transformers,
       { name: "demo/mask", apply: () => ({ text: "masked" }) },
     ] });
-    const recordedBy = compilePolicySnapshot({ registry: working, generation: 1, rows: rows(1) });
+    const recordedBy = policySnapshot({ registry: working, generation: 1, rows: rows(1) });
     const first = recordedBy.evaluate(input);
 
     const broken = createHandlerTable({ ...KERNEL_POLICY_REGISTRY, transformers: [
       ...KERNEL_POLICY_REGISTRY.transformers,
       { name: "demo/mask", apply: () => { throw new Error("handler must not run during replay"); } },
     ] });
-    const snapshot = compilePolicySnapshot({ registry: broken, generation: 1, rows: rows(1) });
+    const snapshot = policySnapshot({ registry: broken, generation: 1, rows: rows(1) });
     const replayed = snapshot.evaluate({ ...input, recorded: first.gate });
     expect(replayed.replayed).toBe(true);
     expect(replayed.value).toEqual({ text: "masked" });
@@ -229,12 +228,12 @@ describe("production snapshot replay (#1251 r3)", () => {
         match: { encodingVersion: 1, value: {} },
         verdict: { encodingVersion: 1, value: { type: "allow" } } },
     ];
-    const generationOne = compilePolicySnapshot({ registry, generation: 1, rows: allowRows(1) });
+    const generationOne = policySnapshot({ registry, generation: 1, rows: allowRows(1) });
     const first = generationOne.evaluate(input);
     expect(first.verdict).toBe("allow");
 
     // Generation 2 introduces a deny for the same input.
-    const generationTwo = compilePolicySnapshot({ registry, generation: 2, rows: [
+    const generationTwo = policySnapshot({ registry, generation: 2, rows: [
       ...allowRows(2),
       { name: "freeze-writes", kind: "tool", phase: "pre", generation: 2, priority: 1,
         match: { encodingVersion: 1, value: { op: "write" } },

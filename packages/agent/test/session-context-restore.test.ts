@@ -186,11 +186,9 @@ describe("restore_context_projection", () => {
               foldSessionHistory("ctx", before),
             );
           }),
-        // The untouched base-era fixture: restore restrictions once
-        // lived on `turn/post` through the retired v3 point mapping.
-        // Migration must keep this exact historical row refusing restores.
+        // Restored generations carry the current compaction point address.
         [{
-          name: "no-restore", kind: "turn", phase: "post",
+          name: "no-restore", kind: "compaction", phase: "pre",
           match: { encodingVersion: 1, value: { op: "restore_context_projection" } },
           verdict: { encodingVersion: 1, value: { type: "deny", reason: "pinned_projection" } },
           priority: 500,

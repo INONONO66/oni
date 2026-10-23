@@ -1,5 +1,7 @@
+import { policySnapshot } from "./compiled-policy";
+import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { FakeLlmLive as LlmLive } from "./fake-llm";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
+
 import { canonicalDigest, Delivery, LedgerAction, SessionTransition, type LedgerSession, type ObservationSink as ObservationPort, type SessionGeneration } from "@oni/protocol";
 import { Clock, type Context, Effect, Layer, Scope, Semaphore } from "effect";
 import { GenerationHandlers } from "../../src/core/composition/compose";
@@ -103,7 +105,7 @@ function sessionServices(fixture: SessionFixture) {
         id: { sessionId, generation: snapshot.generation }, snapshot, activate: Effect.void,
         layer: Layer.mergeAll(
           Layer.unwrap(Effect.try({
-            try: () => compilePolicySnapshot({
+            try: () => policySnapshot({
               registry: KERNEL_POLICY_REGISTRY, kinds: LedgerAction.Kind.options,
               rows: fixture.openKernel("policy").policyRows(snapshot.policyGeneration),
               generation: snapshot.policyGeneration,

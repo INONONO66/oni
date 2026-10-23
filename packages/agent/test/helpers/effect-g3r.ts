@@ -1,14 +1,15 @@
+import type { PolicyBinding } from "../../src/core/gate/types";
 import { memoryExecutionReads } from "./execution-reads";
 import { testExecutor } from "./executor";
 import type { LedgerError } from "../../src/core/store/errors";
-import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
+
 import { LedgerAction } from "@oni/protocol";
 import { Effect } from "effect";
 import { compiledPolicy, fixtureHashes } from "./compiled-policy";
 
 /** Commit gates and refusals happen before persistence, as in the real ledger. */
 export function recoveryRecording(options: {
-  readonly policy?: CompiledPolicySnapshot;
+  readonly policy?: PolicyBinding;
   readonly beforeCommit?: (action: LedgerAction.Append) => Effect.Effect<void, LedgerError>;
 } = {}) {
   const committed: LedgerAction.Node[] = [];

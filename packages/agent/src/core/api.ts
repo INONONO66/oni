@@ -21,8 +21,8 @@ export { AlarmPort } from "./ports/alarm";
 // Consulted-gate port: what a hook-style capability needs to register an
 // asynchronous gate consultant without touching core internals.
 export type { ConsultantSeed } from "./composition/compose";
-export type { ConsultInput, NamedConsultant } from "./gate/registry";
-export type { GateHandlerResult } from "./gate/compose";
+export type { ConsultInput, NamedConsultant } from "./gate/types";
+export type { GateHandlerResult } from "./gate/types";
 // Tool-dispatcher port: what `plugins/tool` needs to construct dispatchers
 // through the core gate.
 export {

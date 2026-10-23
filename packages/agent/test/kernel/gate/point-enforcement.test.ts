@@ -1,6 +1,8 @@
-import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { KERNEL_POLICY_REGISTRY, PolicyCompileError, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
+import { policySnapshot } from "../../helpers/compiled-policy";
+import type { PolicyEvaluationInput } from "../../../src/core/gate/types";
 import { describe, expect, it, mock } from "bun:test";
-import { compilePolicySnapshot, PolicyCompileError, SEEDED_POLICY_ROWS, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
+
 import type { PolicyRow, Storage } from "@oni/protocol";
 import { atGeneration, compaction, draft, MemoryPolicyRows, withPolicyRows, type PolicyRowDraft } from "./row-fixtures";
 
@@ -38,7 +40,7 @@ describe("policy row compiler enforcement", () => {
 
   it("cannot disable the mandatory rule and fails closed with exact fields", () => {
     expect(() =>
-      compilePolicySnapshot({
+      policySnapshot({
         registry: KERNEL_POLICY_REGISTRY,
         generation: 1,
         rows: [],
@@ -60,7 +62,7 @@ describe("policy row compiler enforcement", () => {
       throw new Error("database unavailable");
     };
     const body = mock(() => "must not run");
-    expect(() => compilePolicySnapshot({
+    expect(() => policySnapshot({
       registry: KERNEL_POLICY_REGISTRY, rows: source.rows(9), generation: 9,
       mandatory: ["compaction"],
     }).evaluate(input)).toThrow("database unavailable");
@@ -72,7 +74,7 @@ describe("policy row compiler enforcement", () => {
       atGeneration(compaction, 1),
       atGeneration(draft("bad-kind", "extension.unregistered", "pre", { type: "allow" }), 1),
     ]);
-    expect(() => compilePolicySnapshot({
+    expect(() => policySnapshot({
       registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1,
       mandatory: ["compaction"],
     })).toThrow(expect.objectContaining({
@@ -101,7 +103,7 @@ describe("policy row compiler enforcement", () => {
     ],
   ] as const)("rejects an unregistered %s with exact machine fields", (_label: string, badRow: PolicyRowDraft, code: PolicyCompileError["code"]) => {
     expect(() =>
-      compilePolicySnapshot({
+      policySnapshot({
         registry: KERNEL_POLICY_REGISTRY,
         generation: 1,
         rows: [atGeneration(compaction, 1), atGeneration(badRow, 1)],
@@ -124,7 +126,7 @@ describe("policy row compiler enforcement", () => {
     ],
   ] as const)("rejects malformed rows with %s", (code: PolicyCompileError["code"], badRow: PolicyRow.Row) => {
     expect(() =>
-      compilePolicySnapshot({
+      policySnapshot({
         registry: KERNEL_POLICY_REGISTRY,
         generation: 1,
         rows: [atGeneration(compaction, 1), badRow],
@@ -136,7 +138,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("a lower-priority deny beats a higher-priority approval and both ids are recorded (#1251 r2)", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [
@@ -159,7 +161,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("requires approval before lower-priority rules can allow", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [
@@ -189,7 +191,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("skips redaction paths that traverse non-objects", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [
@@ -231,13 +233,13 @@ describe("policy row compiler enforcement", () => {
     }));
     expect(source.rows()).toEqual([]);
     expect(source.appendGeneration(() => [compaction])).toBe(1);
-    const snapshot = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1 });
+    const snapshot = policySnapshot({ registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1 });
     expect(snapshot.evaluate(input).verdict).toBe("allow");
     expect(source.appendGeneration(() => undefined)).toBe(1);
   }));
 
   it("ships every kernel limit as seeded policy data", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: SEEDED_POLICY_ROWS.map((row: PolicyRowDraft) => atGeneration(row, 1)),
@@ -259,7 +261,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("runs the named redactor only at complete object paths", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [
@@ -292,7 +294,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("orders by descending priority and deny outranks every other matched rule", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       mandatory: ["compaction"],
@@ -321,7 +323,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("matches op-specific and wildcard rows in one deterministic priority stage", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       mandatory: ["compaction"],
@@ -346,7 +348,7 @@ describe("policy row compiler enforcement", () => {
   });
 
   it("scopes a row to one inner operation of a multi-operation tool", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [

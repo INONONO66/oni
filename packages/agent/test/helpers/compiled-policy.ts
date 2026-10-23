@@ -1,12 +1,17 @@
-import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
-import { compilePolicySnapshot, type CompiledPolicySnapshot } from "../../src/core/gate/compile";
+import { KERNEL_POLICY_REGISTRY, compile } from "../../src/core/gate/compile";
+import type { PolicyBinding, PolicyRows, HandlerTable } from "../../src/core/gate/types";
+import { bind } from "../../src/core/gate/bind";
+export function policySnapshot({ registry, ...rows }: PolicyRows & { readonly registry: HandlerTable }): PolicyBinding {
+  return bind(compile(rows, registry));
+}
+
 import type { LedgerAction, PolicyRow } from "@oni/protocol";
 
 const mandatoryPolicyRow: PolicyRow.Row = {
   name: "compaction",
-  kind: "turn",
-  phase: "post",
-  match: { encodingVersion: 1, value: { op: "compaction" } },
+  kind: "compaction",
+  phase: "pre",
+  match: { encodingVersion: 1, value: { op: "compact" } },
   verdict: { encodingVersion: 1, value: { type: "allow" } },
   priority: 1000,
   generation: 1,
@@ -24,8 +29,8 @@ export const approveWriteRow: PolicyRow.Row = {
 };
 
 /** A compiled test policy with the mandatory row plus the supplied behavior rows. */
-export function compiledPolicy(rows: readonly PolicyRow.Row[] = []): CompiledPolicySnapshot {
-  return compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY,
+export function compiledPolicy(rows: readonly PolicyRow.Row[] = []): PolicyBinding {
+  return policySnapshot({ registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     mandatory: [],
     rows: [mandatoryPolicyRow, ...rows],

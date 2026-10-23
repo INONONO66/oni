@@ -1,3 +1,4 @@
+import { policySnapshot } from "../../../packages/agent/test/helpers/compiled-policy";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -850,7 +851,7 @@ test("H-3 e2e: a PreToolUse secrets-guard rewrite of bash.command reaches the ex
     });
     let sequence = 0;
     const executor = testExecutor({
-      policy: Core.compilePolicySnapshot({
+      policy: policySnapshot({
         registry,
         generation: 1,
         rows: [

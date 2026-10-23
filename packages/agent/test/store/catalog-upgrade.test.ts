@@ -1,9 +1,11 @@
+import { policySnapshot } from "../helpers/compiled-policy";
+import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
+
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { CatalogUpgradeRefused } from "../../src/core/store/errors";
 import { RETIRED_INGRESS_KIND, RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "./helpers/old-catalog";
@@ -41,7 +43,7 @@ test("v3 message match role bytes upgrade on disk and compile for the pinned gen
     const store = openCatalogStore(path, options);
     try {
       const rows = store.policies.rows(1);
-      expect(compilePolicySnapshot({ rows, generation: 1, registry: KERNEL_POLICY_REGISTRY }).generation).toBe(1);
+      expect(policySnapshot({ rows, generation: 1, registry: KERNEL_POLICY_REGISTRY }).generation).toBe(1);
       expect(rows.find((row) => row.name === "message-rule")?.match.value).toEqual({
         role: "child",
         message: {

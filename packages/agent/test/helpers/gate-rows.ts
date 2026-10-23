@@ -1,10 +1,15 @@
+import type { GateHandler, GatePointTable, PointRows, PointInput, EvaluationOptions } from "../../src/core/gate/types";
+import { composePointTable, KERNEL_CAPABILITY_POINTS, compile } from "../../src/core/gate/compile";
+import { evaluate } from "../../src/core/gate/evaluate";
+export function gateSnapshot<Context = never>({ handlers, ...source }: Omit<PointRows<Context>, "pointRows"> & { readonly handlers: readonly string[] }) {
+  const snapshot = compile({ ...source, pointRows: true }, { transformers: [], obligations: handlers.map((name) => ({ name })) });
+  return { generation: snapshot.generation,
+    rowsAt: (point: PointId) => (snapshot.byPoint.get(point) ?? []).map((entry) => entry.row),
+    decide: (point: PointId, input: Omit<PointInput<Context>, "point">, options?: EvaluationOptions) => evaluate(snapshot, { point, ...input }, options),
+  };
+}
+
 import type { GateRow, PlainValue, PointId } from "@oni/protocol";
-import { compileGateRows, type GateHandler } from "../../src/core/gate/compose";
-import {
-  composePointTable,
-  KERNEL_CAPABILITY_POINTS,
-  type GatePointTable,
-} from "../../src/core/gate/points";
 
 /** The fully composed table: eight core points plus the four built-in capabilities. */
 export function fullPointTable(): GatePointTable {
@@ -46,12 +51,12 @@ export function countingHandler(reply: (calls: number) => ReturnType<GateHandler
 
 /** One guard row on `point` consulting `ref`, compiled at `generation`. */
 export function guardGate(table: GatePointTable, ref: string, point: PointId = "tool.pre", generation = 1) {
-  return compileGateRows({ table, rows: [gateRow(point, { how: { ref } })], handlers: [ref], generation });
+  return gateSnapshot({ table, rows: [gateRow(point, { how: { ref } })], handlers: [ref], generation });
 }
 
 /** The single `audit/tool.pre#1` observe row consulting `audit/log`. */
 export function auditObserveGate(table: GatePointTable) {
-  return compileGateRows({
+  return gateSnapshot({
     table,
     rows: [gateRow("tool.pre", { id: "audit/tool.pre#1", do: "observe", how: { ref: "audit/log" } })],
     handlers: ["audit/log"],
@@ -61,7 +66,7 @@ export function auditObserveGate(table: GatePointTable) {
 
 /** The single `hooks/tool.pre#1` rewrite row over `command`, consulting `hook/process`. */
 export function commandRewriteGate(table: GatePointTable) {
-  return compileGateRows({
+  return gateSnapshot({
     table,
     rows: [
       gateRow("tool.pre", {
@@ -93,7 +98,7 @@ export function rewriteChain(table: GatePointTable, extra: Record<string, PlainV
     ["rewrite/upgrade", upgrade],
     ["rewrite/suffix", suffix],
   ]);
-  const gate = compileGateRows({
+  const gate = gateSnapshot({
     table,
     rows: [
       gateRow("llm.pre", { order: 1, do: "rewrite", how: { ref: "rewrite/upgrade", fields: ["model"] } }),

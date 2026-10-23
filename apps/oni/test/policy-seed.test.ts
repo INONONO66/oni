@@ -1,3 +1,4 @@
+import { policySnapshot } from "../../../packages/agent/test/helpers/compiled-policy";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -128,7 +129,7 @@ test("a complete latest generation plus an unmappable row still rejects the boot
   });
 });
 
-test("a base-era compaction deny converts at boot and keeps refusing summarization (#1251 r1)", () => {
+test("a base-era compaction deny refuses boot until the policy rows are converted offline", () => {
   withDatabase((open) => {
     const policies = open().policies;
     expect(seedKernelPolicyRows(policies, monitorRows)).toBe(1);
@@ -148,6 +149,17 @@ test("a base-era compaction deny converts at boot and keeps refusing summarizati
     ).toBe(true);
     const historical = JSON.stringify(policies.rows(2));
 
+    expect(() => seedKernelPolicyRows(policies, monitorRows)).toThrow(expect.objectContaining({
+      data: expect.objectContaining({
+        code: "policy_row_migration_required",
+        ruleName: "no-summaries",
+        procedureId: "policy-point-rows-v1",
+      }),
+    }));
+    expect(JSON.stringify(policies.rows(2))).toBe(historical);
+    policies.appendGeneration((current) => current.map((row) => row.name === "no-summaries"
+      ? { ...row, kind: "compaction", phase: "pre" as const, match: { encodingVersion: 1 as const, value: { op: "compact" } } }
+      : row));
     expect(seedKernelPolicyRows(policies, monitorRows)).toBe(3);
     // Historical bytes untouched; the latest generation carries the converted row.
     expect(JSON.stringify(policies.rows(2))).toBe(historical);
@@ -157,7 +169,7 @@ test("a base-era compaction deny converts at boot and keeps refusing summarizati
     });
 
     // The production compiler refuses summarization under the converted generation.
-    const refused = Core.compilePolicySnapshot({
+    const refused = policySnapshot({
       rows: policies.rows(3), generation: 3, registry: Core.KERNEL_POLICY_REGISTRY,
     }).evaluate({ kind: "compaction", phase: "pre", op: "compact", value: {} });
     expect(refused.verdict).toBe("deny");

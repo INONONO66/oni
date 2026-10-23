@@ -1,12 +1,13 @@
+import type { PolicyBinding } from "../../src/core/gate/types";
 import { testExecutor } from "./executor";
 import { Effect } from "effect";
 import type { LedgerAction } from "@oni/protocol";
-import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
+
 import { allowAllPolicy } from "./compiled-policy";
 import { recordingLedger } from "./recording-ledger";
 
 export { recordingLedger };
-export function recordingExecutor(options: { readonly policy?: CompiledPolicySnapshot; readonly onCommit?: (action: LedgerAction.Append) => void | Promise<void>; readonly onObservation?: (name: string) => void; readonly clock?: () => number } = {}) {
+export function recordingExecutor(options: { readonly policy?: PolicyBinding; readonly onCommit?: (action: LedgerAction.Append) => void | Promise<void>; readonly onObservation?: (name: string) => void; readonly clock?: () => number } = {}) {
   const record = recordingLedger();
   const executor = testExecutor({
     closeGraceMs: 0,

@@ -69,7 +69,7 @@ test.each([
 });
 
 test.each([
-  ["packages/agent/src/core/gate/match.ts", "allowlist.includes(actor);"],
+  ["packages/agent/src/core/gate/bind.ts", "allowlist.includes(actor);"],
   ["apps/oni/src/other.test.ts", 'const reasonCodes = ["stalled"];'],
   ["packages/agent/src/core/ports/reason-codes.ts", 'const reasonCodes = ["stalled"];'],
   ["packages/channels/src/telegram/other.ts", "evaluateTriggers(event);"],
@@ -93,7 +93,7 @@ test("guard lint rejects a missing pinned file before scanning", async () => {
 test("guard lint reports planted source violations in-process", async () => {
   const root = mkdtempSync(join(tmpdir(), "guard-lint-"));
   for (const file of [
-    "packages/agent/src/core/gate/match.ts",
+    "packages/agent/src/core/gate/bind.ts",
     "packages/channels/src/authn/decision.ts",
   ]) {
     const target = join(root, file);

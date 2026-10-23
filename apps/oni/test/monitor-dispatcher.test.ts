@@ -1,3 +1,4 @@
+import { policySnapshot } from "../../../packages/agent/test/helpers/compiled-policy";
 import { dispatcherFixture } from "./helpers/dispatcher-fixture";
 import { expect, test } from "bun:test";
 import { Bundle, Core } from "@oni/agent";
@@ -242,10 +243,10 @@ test("capability wakes spend the chain budget: prompt, re-arm, then exhaustion r
 });
 
 /** A compiled tool/pre snapshot the invocation frame carries into `evaluateGate`. */
-type PolicyRow = Parameters<typeof Core.compilePolicySnapshot>[0]["rows"][number];
+type PolicyRow = Parameters<typeof policySnapshot>[0]["rows"][number];
 
 function monitorPolicy(extraRows: readonly PolicyRow[] = []) {
-  return Core.compilePolicySnapshot({
+  return policySnapshot({
     registry: Core.KERNEL_POLICY_REGISTRY,
     generation: 1,
     mandatory: [],

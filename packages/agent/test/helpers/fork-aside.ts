@@ -1,5 +1,6 @@
+import type { NamedTransformer } from "../../src/core/gate/types";
 import type { SessionGeneration } from "@oni/protocol";
-import type { NamedTransformer } from "../../src/core/gate/registry";
+
 import { FORK_ASIDE_REF, forkAside } from "../../src/inspect/tree";
 
 /**

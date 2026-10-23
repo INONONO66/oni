@@ -1,16 +1,13 @@
+import { policySnapshot } from "../../helpers/compiled-policy";
+import { createHandlerTable, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
+import type { NamedTransformer } from "../../../src/core/gate/types";
 import { describe, expect, test } from "bun:test";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 import { FORK_ASIDE_REF, forkAncestryOf, forkAside } from "../../../src/inspect/tree";
 import { forkAsideTransformer } from "../../helpers/fork-aside";
 import { foldSessionHistory } from "../../../src/inspect/history";
-import {
-  compilePolicySnapshot,
-  createHandlerTable,
-  KERNEL_POLICY_REGISTRY,
-  SEEDED_POLICY_ROWS,
-} from "../../../src/core/gate/compile";
-import type { NamedTransformer } from "../../../src/core/gate/registry";
+
 import type { PolicyRow } from "@oni/protocol";
 
 /** One compiled generation: seeded kernel rows plus the given prompt.pre rows. */
@@ -18,7 +15,7 @@ function compiledWith(
   transformer: NamedTransformer,
   rows: readonly Omit<PolicyRow.Row, "generation">[],
 ) {
-  return compilePolicySnapshot({
+  return policySnapshot({
     registry: createHandlerTable({
       transformers: [...KERNEL_POLICY_REGISTRY.transformers, transformer],
       obligations: [...KERNEL_POLICY_REGISTRY.obligations],
