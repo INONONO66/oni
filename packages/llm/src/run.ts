@@ -13,8 +13,12 @@ import { Auth } from "./auth/storage";
 import { coerceApiError, decodeLlmFailure, errorFacts } from "./error";
 import { adaptStream, streamArguments } from "./provider/stream";
 import { isContextOverflow, retryAfterMs as providerRetryAfterMs } from "./classify";
+import type { RoutingFacts } from "./router/decide";
+import type { StreamEvent } from "./processor/event-schema";
 
 export interface RunInput {
+  /** An explicit turn identity keeps affinity across continuation calls. */
+  routing?: { readonly category?: string; readonly turn?: string };
   messages: Message.WithParts[];
   tools: Tool.Spec[];
   system?: string;
@@ -55,6 +59,8 @@ export interface RunInput {
 interface RunDependencies {
   /** For an isolated caller or test harness. */
   createStream?: Processor.ProcessorOptions["createStream"];
+  /** The router observes deltas before the processor buffers them. */
+  observeStream?: (stream: AsyncIterable<StreamEvent>) => AsyncIterable<StreamEvent>;
 }
 
 /** `run()` is the sole producer of this outcome vocabulary. */
@@ -69,11 +75,12 @@ export namespace Run {
     readonly credential: ReturnType<typeof Auth.reference> | null;
   }
 
-  export type Outcome =
+  export type Outcome = (
     | { readonly type: "stop"; readonly evidence?: AttemptEvidence }
     | { readonly type: "continue" }
     | { readonly type: "aborted"; readonly error?: Failure }
-    | { readonly type: "error"; readonly error: Failure };
+    | { readonly type: "error"; readonly error: Failure }
+  ) & { readonly routing?: RoutingFacts; readonly billedUsage?: AttemptEvidence["usage"] };
 }
 
 function assignWireToolNames(tools: Tool.Spec[]): {
@@ -191,7 +198,11 @@ export function run(
 
   const processor = Processor.create({
     // Call-local injection keeps harnesses isolated from Bun's process-wide module mocks.
-    createStream: dependencies.createStream ?? createStream,
+    createStream: (request) => (dependencies.createStream ?? createStream)(request).pipe(
+      Effect.map((stream) => ({
+        fullStream: dependencies.observeStream?.(stream.fullStream) ?? stream.fullStream,
+      })),
+    ),
     events: input.events,
     assistantMessage,
     sessionID,

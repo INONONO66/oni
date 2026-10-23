@@ -66,6 +66,10 @@ export function classifyFailure(facts: FailureFacts): FailureClass {
   if (errorFacts(facts.error).contentFiltered === true)
     return { kind: "terminal", reason: "validation_error", providerReason: "content_policy" };
   const api = apiCause(facts.error);
+  const routeFailure = api === undefined ||
+    (api.statusCode === undefined && api.responseBody === undefined && api.responseHeaders === undefined)
+    ? routingFailure(facts.error) : undefined;
+  if (routeFailure !== undefined) return routeFailure;
   const providerReason = classify(api);
   const reason = attemptReason(api);
   switch (providerReason) {
@@ -124,6 +128,27 @@ function answeredByTransport(data: ApiFailure): boolean {
 /** Bound traversal even for cyclic cause chains. */
 const MAX_CAUSE_DEPTH = 8;
 const Caused = z.object({ cause: z.instanceof(Object) });
+const RouteError = z.object({
+  _tag: z.string().optional(),
+  code: z.string().optional(),
+  name: z.string().optional(),
+});
+
+/** Transport codes and typed resolution failures carry routing facts without message matching. */
+function routingFailure(error: ProviderError | undefined): FailureClass | undefined {
+  let current = z.instanceof(Object).safeParse(error).data;
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined; depth += 1) {
+    const facts = RouteError.safeParse(current).data;
+    if (facts?._tag === "AuthResolutionError")
+      return { kind: "terminal", reason: "validation_error", providerReason: "non_retryable", status: 401 };
+    if (facts?._tag === "ModelResolutionError" || facts?.code === "ECONNREFUSED" || facts?.code === "ENOTFOUND")
+      return { kind: "terminal", reason: "transient_error", providerReason: "non_retryable", detail: "unavailable" };
+    if (facts?.code === "ETIMEDOUT" || facts?.code === "ECONNRESET" || facts?.name === "TimeoutError")
+      return { kind: "retryable", reason: facts.code === "ECONNRESET" ? "transient_error" : "timeout", providerReason: "server_error", instant: true };
+    current = nextCause(current);
+  }
+  return undefined;
+}
 
 function apiCause(error: ProviderError | undefined): ApiFailure | undefined {
   let current: object | undefined = z.instanceof(Object).safeParse(error).data;
@@ -151,6 +176,7 @@ function terminalClass(data: ApiFailure): ProviderReason | undefined {
   if (payloads.some(isBillingExhaustion)) return "billing";
   if (payloads.some((payload) => isContentPolicyRefusal(data.statusCode, payload)))
     return "content_policy";
+  if ([400, 401, 403, 404, 422].includes(data.statusCode ?? 0)) return "non_retryable";
   return data.isRetryable ? undefined : "non_retryable";
 }
 

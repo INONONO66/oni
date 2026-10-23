@@ -1,5 +1,6 @@
 import type { APICallError } from "ai";
 import { Data } from "effect";
+import type { RoutingFacts } from "./router/decide";
 
 /** A cause as one diagnostic line: strings verbatim, an Error as `Name: message` (name or message alone when the other is empty). */
 function renderBodyCause(cause: string | Error): string {
@@ -65,6 +66,16 @@ type RunFields = ProviderIdentity & {
 };
 export class LlmRunFailure extends Data.TaggedError("LlmRunFailure")<RunFields> {}
 
+export class ModelUnavailable extends Data.TaggedError("ModelUnavailable")<{
+  readonly cause?: never;
+  readonly category: string;
+  readonly nearestFallback: string | null;
+  readonly openUntil: number;
+  readonly routing: RoutingFacts;
+}> {
+  override get message(): string { return `No candidate available for ${this.category}`; }
+}
+
 type ResolutionFields = MessageFields & {
   readonly provider: string; readonly model: string;
   readonly reason: "provider_not_found" | "proxy_listing_failed" | "model_not_found";
@@ -96,5 +107,5 @@ type BoundaryFields = Diagnostic & {
 export class TransportFailure extends Data.TaggedError("TransportFailure")<BoundaryFields> {}
 export class InvalidProviderData extends Data.TaggedError("InvalidProviderData")<BoundaryFields> {}
 
-export type LlmError = LlmOperationFailure | APIError | LlmRunFailure | ModelResolutionError |
+export type LlmError = LlmOperationFailure | APIError | LlmRunFailure | ModelUnavailable | ModelResolutionError |
   AuthInvalidFileError | AuthResolutionError | ModelCatalogError | ProviderRowsError | ProxyModelsError | TransportFailure | InvalidProviderData;

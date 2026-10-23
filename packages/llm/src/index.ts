@@ -1,6 +1,6 @@
 export {
   APIError, AuthInvalidFileError, AuthResolutionError, InvalidProviderData, LlmOperationFailure, LlmRunFailure,
-  ModelCatalogError, ModelResolutionError, ProviderRowsError, ProxyModelsError, TransportFailure,
+  ModelCatalogError, ModelResolutionError, ModelUnavailable, ProviderRowsError, ProxyModelsError, TransportFailure,
 } from "./errors";
 export type { LlmError } from "./errors";
 export { coerceApiError } from "./error";

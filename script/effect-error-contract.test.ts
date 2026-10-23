@@ -22,6 +22,8 @@ const llm = {
   APIError: new Llm.APIError({ cause: sdkError({ ...message, isRetryable: true, statusCode: 429 }), provider: "provider", model: "model" }),
   LlmRunFailure: new Llm.LlmRunFailure({ ...message, usage, aborted: false, contextOverflow: false, visibleOutput: true }),
   ModelResolutionError: new Llm.ModelResolutionError({ ...message, provider: "provider", model: "model", reason: "model_not_found" }),
+  ModelUnavailable: new Llm.ModelUnavailable({ category: "chat", nearestFallback: null, openUntil: 60_000,
+    routing: { category: "chat", requested: "provider/model", attempts: [] } }),
   AuthInvalidFileError: new Llm.AuthInvalidFileError({ ...message, path: "auth.json" }),
   AuthResolutionError: new Llm.AuthResolutionError({ ...message, provider: "provider", reason: "missing_auth" }),
   ModelCatalogError: new Llm.ModelCatalogError({ ...message, source: "cache", path: "models.json" }),

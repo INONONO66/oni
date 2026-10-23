@@ -1,5 +1,11 @@
 # Implementation Status
 
+## #1630 model-call resilience router (epic #1630, PR #1631)
+
+On `core/1630-router-resilience` (#1630), configured `@oni/llm` routing selects ordered credential and model candidates within one call. HTTP status, body and headers outrank nested transport codes; reported usage proves context overflow before fallback. Selector circuits and credential re-probes release only their own half-open leases; failed probes reopen with exponential cooldown, shared blocked credentials retain their actual recovery deadlines, and the first accepted output establishes same-turn fallback affinity. Routed outcomes carry cumulative `billedUsage` across charged attempts separately from the final candidate's usage evidence; the core charges token budgets from the cumulative amount while measuring context from the final snapshot. Unconfigured calls retain their original single-attempt result shape. Router health and pins remain process-local, and the app's default binding does not configure chain rows.
+
+Router rows are not yet composed in `apps/oni` (the openLedger seam lane wires provider rows into `makeLlmService`); with no rows the port behaves exactly as before #1631.
+
 ## #1624 machine host admission: contract v2 peers and the attach generation
 
 On `feat/1624-machine-host-admission` (2026-10-22, base `5b4f2a253` after

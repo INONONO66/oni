@@ -6,15 +6,17 @@ import { resolveAuthFilePath, resolveProviderRows } from "./model/loader";
 import type { FailureClass, FailureFacts } from "./port";
 import { Provider } from "./provider";
 import { mergeRows, type ProviderRow } from "./provider/rows";
-import { run, type Run, type RunInput } from "./run";
+import type { run, Run, RunInput } from "./run";
 import type { Sink } from "./sink";
+import { createRouter } from "./router/stream-fn";
 
 /**
  * The call layer's service, shaped as the agent core's `LlmPort` (#1352):
  * the core declares the port and its `Llm` tag, this package never imports
  * the core, and the composition root binds this service to that tag.
  *
- * One attempt per `run`; retry admission belongs to the core loop. The
+ * Same-model retry admission belongs to the core loop. Configured routing
+ * can replace a credential or candidate before streaming begins. The
  * contract takes no `authFilePath`: the credential file location is resolved
  * once by the composition root and closed over by the implementation
  * (#1245), so consumers cannot redirect credential I/O.
@@ -35,11 +37,14 @@ export interface LlmService {
 export function makeLlmService(
   authFilePath = resolveAuthFilePath(),
   providers: readonly ProviderRow[] = resolveProviderRows(),
+  router?: Parameters<typeof createRouter>[1],
 ): LlmService {
   const rows = mergeRows(providers);
+  const resolveModel: LlmService["resolveModel"] = (ref, now) =>
+    Provider.resolveModel({ provider: ref.provider, id: ref.id, now, authFilePath, rows });
   return {
-    resolveModel: (ref, now) => Provider.resolveModel({ provider: ref.provider, id: ref.id, now, authFilePath, rows }),
-    run: (input, sink, dependencies) => run({ ...input, authFilePath }, sink, dependencies),
+    resolveModel,
+    run: createRouter({ authFilePath, resolveModel }, router),
     classifyFailure,
   };
 }
