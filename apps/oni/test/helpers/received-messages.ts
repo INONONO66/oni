@@ -1,5 +1,5 @@
 import { sessionTree } from "../../../../packages/agent/test/store/helpers/session-tree";
-import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 
 /** All received-message evidence in one session's chain (W5.2 delivery = prompt actions). */
 export function receivedMessages(plane: AppLedgerPlane, sessionId: string) {

@@ -6,7 +6,8 @@ export type DependencyBand = "none" | "any-except-self" | readonly string[];
 
 /** Cross-directory core value edges; type-only references do not participate. */
 export const AGENT_CORE_EDGES: Readonly<Record<string, readonly string[]>> = {
-  session: ["composition", "loop", "journal", "ports", "observation", "gate", "store"],
+  session: ["composition", "loop", "journal", "ports", "observation", "gate", "store", "read-model"],
+  "read-model": [],
   composition: ["ports", "gate"],
   loop: ["gate", "journal", "observation", "ports", "store"],
   journal: ["ports", "store"],

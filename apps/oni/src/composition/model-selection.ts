@@ -13,7 +13,7 @@ function record(value: PlainValue | undefined): PlainObject {
  * own selection.
  */
 export function pinnedModelSelection(
-  kernel: Core.SessionKernel,
+  kernel: Core.SessionReadModel,
   sessionId: string,
   turnId: string,
 ): Model.Ref | undefined {

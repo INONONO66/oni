@@ -2,7 +2,7 @@
 export const CORE_END_STATE_TARGETS = {
   rootFiles: ["api.ts", "index.ts"],
   schemaOwners: ["store/catalog.ts", "store/session-file/index.ts"],
-  bands: ["composition", "gate", "journal", "loop", "observation", "ports", "session", "store"],
+  bands: ["composition", "gate", "journal", "loop", "observation", "ports", "read-model", "session", "store"],
   workspaces: 9,
   namespaces: ["Bundle", "Core", "Inspect", "Testing"],
   inspectionImports: {
@@ -12,8 +12,8 @@ export const CORE_END_STATE_TARGETS = {
     "session/runtime.ts": 1,
   },
   historicalInspectionImports: 4,
-  appTokenPins: { "apps/oni/src/index.ts": 1 },
-  appTokenReason: "#1346: the one deferred tools.add configure commit; closure follows the apps/oni entity-seam ruling, follow-up issue to be filed by the lead",
+  appTokenPins: { "apps/oni/src/index.ts": 0 },
+  appTokenReason: "#1630: all app session writes cross the Core ledger boundary",
   forbiddenEdges: 0,
   cycles: 0,
   retiredTokens: 0,

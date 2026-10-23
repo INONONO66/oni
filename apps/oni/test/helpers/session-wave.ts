@@ -11,7 +11,7 @@ type LedgerError = Core.LedgerError;
 import { z } from "zod";
 import { eventSignal } from "./event-signal";
 import { runEffect, runSyncResult } from "./effect";
-import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 import type { ResidentSuite } from "./resident-suite";
 
 export function waveTool(

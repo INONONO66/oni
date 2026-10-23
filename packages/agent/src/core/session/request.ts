@@ -10,6 +10,7 @@ import { type SessionRuntime, getSessionHandle, adoptSessionAuthority } from "./
 import { Entropy, Ledger } from "../ports/ports";
 import { decideRequestTransition, type RequestDecision } from "./request-transition";
 import { releaseSessionKernel } from "../store/fence";
+import type { SessionReadModel } from "../read-model/session";
 
 export interface SessionRequestPort {
   list(): readonly SessionTransition.Request[];
@@ -124,10 +125,10 @@ export function createSessionRequests(runtime: SessionRuntime): Effect.Effect<Se
   const clock = yield* Clock.clockWith(Effect.succeed).pipe(Effect.map((service) => () => service.currentTimeMillisUnsafe()));
   const { id } = yield* Entropy;
   const ledger = Option.getOrUndefined(yield* Effect.serviceOption(Ledger));
-  const scan = <A>(read: (kernel: SessionKernel, row: { readonly id: string }) => A[]): A[] =>
+  const scan = <A>(read: (kernel: Pick<SessionReadModel, "requestRows" | "requestById">, row: { readonly id: string }) => A[]): A[] =>
     ledger === undefined
       ? runtime.listSessions().flatMap((row) => readKernel(runtime, row.id, (kernel) => read(kernel, row)))
-      : ledger.scanSessions(read, new Set(ledger.catalog.requestFreeSessionIds()));
+      : ledger.read.scanRequests(read);
   function transition(
     sessionId: string,
     payload: SessionTransition.Payload,

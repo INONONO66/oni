@@ -14,7 +14,7 @@ import { LlmCall, type Message, type Tool } from "@oni/protocol";
 import { z } from "zod";
 import { appFixture, testToolsBundle } from "./app-fixture";
 import { closeSocket, openSocket } from "./ws";
-import { sessionFilePath } from "../../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../../packages/agent/src/core/session/host";
 import { planeOf } from "./ledger";
 import { nextResidentTurn } from "./resident-turn";
 

@@ -23,7 +23,7 @@ import { Bundle, Core } from "@oni/agent";
 import { sessionTree } from "../../../packages/agent/test/store/helpers/session-tree";
 import { ComposedGeneration } from "../src/composition/composed";
 import { runAppEffect } from "../src/gateway";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { assistantMessage } from "./helpers/assistant-message";
 import { composeRowOf } from "./helpers/app-fixture";
 import { planeOf } from "./helpers/ledger";

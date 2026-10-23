@@ -1055,7 +1055,7 @@ function agentCoreValueViolations(filePath: string, source: string): string[] {
   const importer = rest.split("/")[0] ?? "";
   const allowed = AGENT_CORE_EDGES[importer];
   if (allowed === undefined && rest.includes("/"))
-    return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not one of the eight core directories`];
+    return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not a declared core directory`];
   if (allowed === undefined) return [];
   const violations: string[] = [];
   const specs = new Set([...valueImportSpecifiers(source), ...agentImports(filePath, source).filter((entry) => entry.lazy).map((entry) => entry.spec)]);
@@ -1356,26 +1356,6 @@ interface AppsSessionWriteSite {
   readonly member: string;
 }
 
-/**
- * #1346: the two app-side session-store writes that survive the cutover, by
- * exact source line. One is the deferred `tools.add` `session.configure`
- * commit (its input contract is parent-owned; it is not converted into a
- * signal). The other is the perimeter ingress executor's `Core.adoptedExecutor`
- * call: it DOES adopt a fence (`adoptSessionAuthority` inside the core) for
- * the request's writer and commits gate rows through the core's fenced door,
- * so it is counted here as the second scoped exception (review-1346-r2 M1).
- * Moving either line re-pins it here; any other write anywhere fails.
- */
-const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/oni/src/index.ts", line: 1489, receiver: "kernel", member: "commit" },
-  { file: "apps/oni/src/composition/ingress-executor.ts", line: 62, receiver: "Core", member: "adoptedExecutor" },
-];
-
-/** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
-const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [
-  { file: "apps/oni/src/bundles/provision/contacts.ts", receiver: "port", member: "materialize" },
-];
-
 /** The banned member a property or element access names, if any (`create` only off `sessionStore(...)`). */
 function bannedSessionWriteMember(
   access: ts.PropertyAccessExpression | ts.ElementAccessExpression,
@@ -1501,49 +1481,18 @@ class SessionWriteWalk {
 /**
  * #1346 ban: app sources create sessions through `Core.createSession` and
  * write through the Session entity's four RPCs; a direct session-store write
- * call outside the exact allow-list fails, and a stale allow-list line (the
- * pinned call moved or disappeared) fails inside a git checkout.
+ * call fails.
  */
 export async function validateAppsSessionWrites(
   root = ".",
-  warn: (notice: string) => void = console.warn,
 ): Promise<string[]> {
   const violations: string[] = [];
-  const used = new Set<AppsSessionWriteSite>();
   for await (const { filePath, source } of scanRepositorySources("apps/**/*.{ts,tsx}", root)) {
     for (const site of appsSessionWriteSites(source, filePath)) {
-      if (
-        APPS_SESSION_WRITE_EXCLUSIONS.some(
-          (entry) => entry.file === site.file && entry.receiver === site.receiver && entry.member === site.member,
-        )
-      )
-        continue;
-      const allowed = APPS_SESSION_WRITE_ALLOW_LIST.find(
-        (entry) =>
-          entry.file === site.file &&
-          entry.line === site.line &&
-          entry.receiver === site.receiver &&
-          entry.member === site.member,
-      );
-      if (allowed !== undefined) {
-        used.add(allowed);
-        continue;
-      }
       violations.push(
-        `VIOLATION: ${site.file}:${site.line} names ${site.receiver}.${site.member} — #1346: session writes ride Core.createSession or the Session entity RPCs; only the exact allow-listed sites may write directly`,
+        `VIOLATION: ${site.file}:${site.line} names ${site.receiver}.${site.member} — #1346: session writes ride Core.createSession or the Session entity RPCs`,
       );
     }
-  }
-  if (isGitCheckout(root)) {
-    for (const entry of APPS_SESSION_WRITE_ALLOW_LIST) {
-      if (!used.has(entry)) {
-        violations.push(
-          `VIOLATION: ${entry.file}:${entry.line} no longer names ${entry.receiver}.${entry.member} — #1346: the allow-listed write moved or disappeared; re-pin the exact line or drop the entry`,
-        );
-      }
-    }
-  } else {
-    warn(`NOTICE [check-deps] session-write allow-list presence not judged: ${root} is not a git checkout`);
   }
   return violations;
 }

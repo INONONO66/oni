@@ -5,7 +5,7 @@ const session = Testing.session;
 import { Deferred, Effect } from "effect";
 import { z } from "zod";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../../src/gateway";
-import { AppLedger } from "../../src/composition/cluster-runtime";
+import { testLedgerStores as AppLedger } from "./ledger";
 import { AppScope } from "../../src/runtime";
 import { seedKernelPolicyRows } from "../../src/composition/policy";
 import { auditBundle, composedHolder } from "./bundle-fixture";
@@ -24,7 +24,7 @@ await acquireAppResource(runtime, Effect.gen(function* () {
   const plane = yield* AppLedger;
   const generations = yield* GenerationLayers;
   yield* generations.initialize({ resident: [], child: [] });
-  seedKernelPolicyRows(plane.catalog.policies);
+  seedKernelPolicyRows(plane.updatePolicy);
   const entered = yield* Deferred.make<void>();
   const held = yield* Deferred.make<void>();
   const handle = yield* session({ id: "crash-session", role: "resident", bundles: ["audit-log"],

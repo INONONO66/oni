@@ -8,7 +8,7 @@ import { makeLlmService } from "@oni/llm";
 const defineTool = Core.defineTool;
 const eraseTool = Core.eraseTool;
 const Llm = Core.Llm;
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import { planeOf } from "./helpers/ledger";
 import { Effect, Layer } from "effect";
 import { z } from "zod";

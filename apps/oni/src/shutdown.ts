@@ -1,16 +1,14 @@
-import { Core } from "@oni/agent";
-const closeSessions = Core.closeSessions;
+import type { Core } from "@oni/agent";
 type SessionError = Core.SessionError;
-type SessionRuntime = Core.SessionRuntime;
 import { Effect, Result } from "effect";
 import { type AppLifecycleFailure, lifecycleFailure } from "./runtime";
 
-export function shutdownSessions(runtime: SessionRuntime, recovery: Promise<void>) {
+export function shutdownSessions(runtime: Pick<Core.SessionHostRuntime, "close">, recovery: Promise<void>) {
   // Recovery and retained raw work are owned by the app Scope, not this waiter.
   // Both waiters run to completion; any failure fails the whole with one Option per waiter.
   return Effect.all(
     [
-      closeSessions(runtime),
+      runtime.close(),
       Effect.tryPromise({ try: () => recovery, catch: lifecycleFailure("sessions.recovery") }),
     ],
     { concurrency: 2, mode: "result" },

@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Core } from "@oni/agent";
 import { z } from "zod";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";

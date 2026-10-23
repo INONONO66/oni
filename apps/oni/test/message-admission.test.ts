@@ -3,7 +3,7 @@ import { runEffect } from "./helpers/effect";
 import { expect, test } from "bun:test";
 import { Gateway } from "@oni/protocol";
 import { messageFixture } from "./helpers/message-fixture";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 
 import { storageDirectories } from "./helpers/storage-directories";
 import { actorMessage, ungrantedActor } from "./helpers/message-scenarios";

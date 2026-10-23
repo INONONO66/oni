@@ -9,7 +9,7 @@ import { Core } from "@oni/agent";
 const currentInvocation = Core.currentInvocation;
 type InvocationFrame = Core.InvocationFrame;
 import { Bus, newTraceId } from "./helpers/bus";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { planeOf } from "./helpers/ledger";
 type RunInput = Core.RunInput;
 type Sink = Core.LlmSink;

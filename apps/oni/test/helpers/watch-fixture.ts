@@ -10,7 +10,8 @@ import {
 import { createAlarmMonitorPorts, createLiveArmRegistry } from "../../src/bundles/alarms/index";
 import { cronPurposes } from "../../src/bundles/alarms/cron/index";
 import { monitorBundle, monitorPurposes } from "../../src/bundles/alarms/monitor/index";
-import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
+type SessionKernel = Core.SessionKernel;
 import { createAppLedger } from "./ledger";
 import type { MonitorPorts } from "../../src/bundles/alarms/monitor/ports";
 import type { ArmedWatch, WatchSources } from "../../src/composition/watch-sources";
@@ -56,7 +57,7 @@ export async function watchFixture(sessionId: string, owner: string): Promise<Wa
     },
     closeAll: () => Promise.resolve(),
   };
-  seedKernelPolicyRows(plane.catalog.policies, gateRowPolicySeeds({
+  seedKernelPolicyRows(plane.updatePolicy, gateRowPolicySeeds({
     rows: monitorBundle({ close: () => undefined }, () => undefined).rows,
     handlers: new Map(),
   }));

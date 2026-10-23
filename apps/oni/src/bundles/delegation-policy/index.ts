@@ -300,7 +300,7 @@ export function delegationPurposes(deps: DelegationDeadlineDeps): Bundle.AlarmBu
  * explicitly, so the parent folds it only at `turn_end`.
  */
 export function settleChild(
-  kernel: Core.SessionKernel,
+  kernel: Core.SessionReadModel,
   row: LedgerSession.Row,
   terminal: LedgerAction.Append,
   result: Core.SessionRunnerResult,

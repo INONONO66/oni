@@ -192,6 +192,7 @@ function wiredLayer(
 }
 
 export type AppServices =
+  | Core.Ledger
   | Entropy
   | ObservationSink
   | AppLedger

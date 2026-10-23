@@ -11,7 +11,7 @@ import type { Core } from "@oni/agent";
 type Sink = Core.LlmSink;
 import { createSurfaceKeyStore } from "@oni/channels";
 import { loadConfig, type OniConfig } from "../src/config";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import { planeOf } from "./helpers/ledger";
 import { assistantMessage } from "./helpers/assistant-message";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";

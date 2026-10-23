@@ -474,7 +474,7 @@ export type ToolOutputInspection =
  * identifier answers typed instead of throwing.
  */
 export function toolOutput(
-  kernel: SessionHandleStore.SessionKernel,
+  kernel: Pick<SessionHandleStore.SessionKernel, "toolOutput">,
   outputId: string,
 ): ToolOutputInspection {
   const stored = kernel.toolOutput(outputId);

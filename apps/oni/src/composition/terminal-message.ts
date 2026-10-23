@@ -3,12 +3,12 @@ import { Core } from "@oni/agent";
 import { APPROVAL_POLICY } from "./policy";
 const createExecutor = Core.createExecutor;
 const AgentFailure = Core.AgentFailure;
-type SessionRuntime = Core.SessionRuntime;
+type SessionRuntimeOptions = Core.SessionRuntimeOptions;
 import type { GatewayRouter } from "@oni/channels";
 import type { LedgerAction } from "@oni/protocol";
 import type { SessionKernel } from "./cluster-runtime";
 
-type OutboundInput = Parameters<NonNullable<SessionRuntime["dispatchOutbound"]>>[0];
+type OutboundInput = Parameters<NonNullable<SessionRuntimeOptions["dispatchOutbound"]>>[0];
 interface OutboundContext {
   readonly input: OutboundInput;
   readonly executor: Effect.Success<ReturnType<typeof createExecutor>>;
@@ -22,7 +22,7 @@ export function dispatchOutboundMessage(
   ingest: GatewayRouter["ingest"],
   openKernel: (sessionId: string) => SessionKernel,
   approvalPolicy: Core.ApprovalPolicy = APPROVAL_POLICY,
-): NonNullable<SessionRuntime["dispatchOutbound"]> {
+): NonNullable<SessionRuntimeOptions["dispatchOutbound"]> {
   return (input) => Effect.gen(function* () {
     const { message, ledger } = input;
     const source = openKernel(message.sourceSessionId);

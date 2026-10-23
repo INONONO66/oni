@@ -10,7 +10,7 @@ import { seedKernelPolicyRows } from "../src/composition/policy";
 import { localDelivery, testPlane } from "./helpers/ledger";
 
 const plane = testPlane();
-seedKernelPolicyRows(plane.catalog.policies);
+seedKernelPolicyRows(plane.updatePolicy);
 afterEach(() => {
   Bus.reset();
 });

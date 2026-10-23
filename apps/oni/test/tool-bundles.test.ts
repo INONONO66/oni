@@ -13,7 +13,7 @@ import { nextFrame } from "./helpers/ws";
 import { alarmDefinition } from "./helpers/alarm-definition";
 import { appManifest } from "../src/manifest";
 import { createSendMessageTool } from "../src/bundles/messaging/send-message/index";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 
 const suite = residentSuite();
 const TOKEN = "tool-bundle-test";

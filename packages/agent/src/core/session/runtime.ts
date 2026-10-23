@@ -1,5 +1,5 @@
 import type { ConfigureAuthority } from "../store/configure";
-import { Clock, Effect, type Context, type Fiber } from "effect";
+import { Clock, Effect, type Context, type Fiber, type Scope } from "effect";
 import { type SessionError, type ExecutionError, type RunnerOutputMissing, CommitFailed, type InboundAuthorityViolation } from "../ports/failure";
 import { type ExecutionLedger, type ExecutionApprovals, type ExecutionResult, type ExecutorOptions, type createRawSlots, createExecutor } from "../loop/executor";
 import type { SessionPolicyRefusal } from "../journal/messages";
@@ -15,6 +15,8 @@ import { Entropy, ObservationSink as ObservationService, GenerationLayers, type 
 import type { CompactionPortService } from "../ports/compaction-ports";
 import type { ApprovalPolicy } from "../composition/approval-policy";
 import { CorruptRecord, type LedgerError } from "../store/errors";
+import { sessionReadModel, type SessionReadModel } from "../read-model/session";
+import type { SessionRequestPort } from "./request";
 
 export interface SessionTool {
   readonly name: string;
@@ -110,7 +112,7 @@ export type SessionRunnerResult =
 
 export type SessionRunner = (input: SessionRunnerInput) => Effect.Effect<SessionRunnerResult, ExecutionError, RunnerServices>;
 
-export interface SessionRuntime {
+export interface SessionRuntimeOptions {
   /** Absent = compaction is off: a compaction append is a defect and a restore refuses typed. */
   readonly compaction?: CompactionPortService;
   /** Dispatches a committed source obligation through gateway admission; `ledger` is the source turn's fenced door. */
@@ -122,7 +124,7 @@ export interface SessionRuntime {
   readonly onDeliveryCommitted?: (sessionIds: readonly string[]) => void;
   /** App-injected child settlement at turn seal; absent = a child never writes to its parent. */
   readonly settleChild?: (
-    kernel: SessionKernel,
+    kernel: SessionReadModel,
     row: LedgerSession.Row,
     terminal: LedgerAction.Append,
     result: SessionRunnerResult,
@@ -144,14 +146,6 @@ export interface SessionRuntime {
     request: SessionTransition.Request,
   ) => Readonly<Record<string, number>>;
   readonly onRequestReady?: (sessionId: string) => void;
-  /**
-     * Fenced single-writer contract: every commit carries the fence adopted at
-     * activation, and the fence CAS (no heartbeat) is the takeover authority. A
-     * runner MUST honour aborts promptly: its late result is discarded.
-     */
-  readonly openKernel: (sessionId: string) => SessionKernel;
-  /** Catalog-backed enumeration of durable sessions this process can open. */
-  readonly listSessions: () => LedgerSession.Row[];
   readonly onHibernate?: (sessionId: string) => Effect.Effect<void, ExecutionError>;
   /**
    * Bounds only the caller-facing `close()` wait on an abort-ignoring runner; the turn continuation
@@ -163,6 +157,53 @@ export interface SessionRuntime {
    * compose configure before the turn captures its generation. Absent = static manifest.
    */
   readonly composed?: { readonly current: () => ComposedManifest | undefined };
+}
+
+/** Internal storage capabilities never leave the assembled host. */
+export interface SessionRuntime extends SessionRuntimeOptions {
+  readonly openKernel: (sessionId: string) => SessionKernel;
+  readonly listSessions: () => LedgerSession.Row[];
+}
+
+/** Product options and assembled operations; no store opener or resolved writer. */
+export interface SessionHostRuntime {
+  readonly options: SessionRuntimeOptions;
+  requests(authority: "borrow" | "adopt"): Effect.Effect<SessionRequestPort, never, Entropy>;
+  readonly turns: Effect.Effect<{
+    readonly dispatchOutbound: SessionEntityPorts["dispatchOutbound"];
+    run(runner: SessionRunner, scope: Scope.Scope): SessionEntityPorts["runTurn"];
+  }, never, SessionEntryServices>;
+  close(): Effect.Effect<void, SessionError>;
+}
+
+export function assembleSessionRuntime(
+  options: SessionRuntimeOptions,
+  stores: Pick<SessionRuntime, "openKernel" | "listSessions">,
+  operations: {
+    readonly requests: (runtime: SessionRuntime, authority: "borrow" | "adopt") => Effect.Effect<SessionRequestPort, never, Entropy>;
+    readonly turn: (runner: SessionRunner, runtime: ResolvedSessionRuntime, scope: Scope.Scope) => SessionEntityPorts["runTurn"];
+    readonly redrive: (runtime: ResolvedSessionRuntime) => SessionEntityPorts["dispatchOutbound"];
+  },
+): SessionHostRuntime {
+  const runtime: SessionRuntime = {
+    ...options,
+    ...stores,
+    get compaction() { return options.compaction; },
+    get composed() { return options.composed; },
+    ...(options.settleChild === undefined ? {} : {
+      settleChild: (kernel, row, terminal, result) =>
+        options.settleChild?.(sessionReadModel(kernel), row, terminal, result),
+    }),
+  };
+  return {
+    options,
+    requests: (authority) => operations.requests(runtime, authority),
+    turns: resolveSessionRuntime(runtime).pipe(Effect.map((resolved) => ({
+      dispatchOutbound: operations.redrive(resolved),
+      run: (runner, scope) => operations.turn(runner, resolved, scope),
+    }))),
+    close: () => closeSessions(runtime),
+  };
 }
 
 /** Journal-facing face of one composed `Generation`: recomputed from empty, never patched. */
@@ -431,7 +472,8 @@ export function getSessionHandle(id: string, runtime: SessionRuntime): SessionHa
   return handlePlanes.get(runtime)?.get(id);
 }
 
-export function closeSessions(runtime: SessionRuntime): Effect.Effect<void, SessionError> {
+export function closeSessions(runtime: SessionRuntime | SessionHostRuntime): Effect.Effect<void, SessionError> {
+  if ("close" in runtime) return runtime.close();
   return Effect.suspend(() => {
     const plane = handlePlanes.get(runtime);
     handlePlanes.delete(runtime);

@@ -10,14 +10,16 @@ type SessionError = Core.SessionError;
 type SessionRuntime = Core.SessionRuntime;
 type LedgerError = Core.LedgerError;
 import type { Delivery, ObservationSink as ObservationSinkPort, SessionTurn } from "@oni/protocol";
-import { Clock, Context, Effect, type Scope } from "effect";
+import { Clock, Context, Effect, Option, type Scope } from "effect";
+import { LedgerStores } from "../../../../packages/agent/src/core/session/host";
 import {
   AppLedger,
   type AppLedgerPlane,
   reportObservationPublishFailure,
-  type SessionKernel,
   withChannelStores,
 } from "../../src/composition/cluster-runtime";
+type SessionKernel = Core.SessionKernel;
+export type TestLedgerPlane = AppLedgerPlane & Core.LedgerPlane;
 import { ComposedGeneration } from "../../src/composition/composed";
 import { materializeDeliveryTarget, pendingDeliveryRow } from "../../src/composition/message-session";
 import type { AppRuntime } from "../../src/runtime";
@@ -39,27 +41,29 @@ export interface AppLedgerOptions {
  * over `Core.Ledger`, with the app's incident log as the failure port),
  * opened synchronously; the fixture owns `close`.
  */
-export function createAppLedger(options: AppLedgerOptions): AppLedgerPlane {
-  return withChannelStores(
-    Testing.openLedgerPlane({
+export function createAppLedger(options: AppLedgerOptions): TestLedgerPlane {
+  const ledger = Testing.openLedgerPlane({
       now: options.now,
       ...(options.catalogPath === undefined ? {} : { catalog: { path: options.catalogPath } }),
       ...(options.sessionsDir === undefined ? {} : { sessions: { dir: options.sessionsDir } }),
       ...(options.observationSink === undefined ? {} : { observationSink: options.observationSink }),
       onObservationFailure: options.onObservationFailure ?? reportObservationPublishFailure,
-    }),
-    options.now,
-  );
+    });
+  return { ...ledger, ...withChannelStores(ledger, options.now) };
 }
 
 /** A standalone app ledger plane for fixtures that never boot the runtime. */
-export function testPlane(options: Partial<AppLedgerOptions> = {}): AppLedgerPlane {
+export function testPlane(options: Partial<AppLedgerOptions> = {}): TestLedgerPlane {
   return createAppLedger({ ...options, now: options.now ?? testClock() });
 }
 
 /** The booted runtime's own plane — the one the entity and boot share. */
-export function planeOf(runtime: AppRuntime): Promise<AppLedgerPlane> {
-  return runRuntimeEffect(runtime, Effect.map(AppLedger, (plane) => plane));
+export const testLedgerStores = Effect.map(Effect.serviceOption(LedgerStores), Option.getOrThrow);
+
+export function planeOf(runtime: AppRuntime): Promise<TestLedgerPlane> {
+  return runRuntimeEffect(runtime, Effect.gen(function* () {
+    return { ...yield* testLedgerStores, ...yield* AppLedger };
+  }));
 }
 
 /**
@@ -88,7 +92,7 @@ export function adoptTestFence(
  * booted app (`startOni` in process-session-e2e, session-wave-e2e).
  */
 export function localDelivery(
-  plane: AppLedgerPlane,
+  plane: TestLedgerPlane,
   owner = "test-delivery",
   clock: () => number = () => Date.now(),
 ) {
@@ -125,7 +129,7 @@ export function resolvedRuntimeFor(
  * stop. Returns the latest turn terminal the drain settled.
  */
 export function drainSession(deps: {
-  readonly plane: AppLedgerPlane;
+  readonly plane: TestLedgerPlane;
   readonly sessionId: string;
   readonly runner: Core.SessionRunner;
   readonly runtime: ResolvedTestRuntime;

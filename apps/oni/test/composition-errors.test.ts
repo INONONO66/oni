@@ -9,7 +9,6 @@ import { Component } from "@oni/protocol";
 import { observeComponent } from "../src/observation/component";
 import { createResident } from "../src/composition/resident";
 import { allowConfigure } from "./helpers/generation-services";
-import { testPlane } from "./helpers/ledger";
 
 test("component failure observation preserves an unprintable rejection", async () => {
   const failure = {
@@ -46,7 +45,6 @@ test("component failure observation preserves an unprintable rejection", async (
 });
 
 test("resident genesis refuses unregistered runners before storage", () => {
-  const plane = testPlane();
   const resident = createResident({
     model: { provider: "fixture", id: "fixture" },
     apiKey: "fixture",
@@ -54,8 +52,6 @@ test("resident genesis refuses unregistered runners before storage", () => {
     sessionRuntime: {
       approvalPolicy: APPROVAL_POLICY,
       authorizeConfigure: allowConfigure,
-      openKernel: plane.openKernel,
-      listSessions: plane.listSessions,
     },
     policyGeneration: () => 1,
   });

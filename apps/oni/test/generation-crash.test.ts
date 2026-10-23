@@ -6,7 +6,7 @@ const SessionLayer = Core.SessionLayer;
 import { Effect } from "effect";
 import { z } from "zod";
 import { gatewayRuntime, runAppEffect } from "../src/gateway";
-import { AppLedger } from "../src/composition/cluster-runtime";
+import { testLedgerStores as AppLedger } from "./helpers/ledger";
 import { auditBundle, composedHolder } from "./helpers/bundle-fixture";
 import { eventSignal } from "./helpers/event-signal";
 import { residentSuite } from "./helpers/resident-suite";

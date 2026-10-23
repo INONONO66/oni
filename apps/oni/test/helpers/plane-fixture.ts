@@ -1,6 +1,6 @@
 import { afterEach, beforeEach } from "bun:test";
 import { createChannelStores } from "@oni/channels";
-import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 import { channelStoreSource } from "../../src/gateway";
 import { testPlane } from "./ledger";
 import { testClock } from "./test-entropy";

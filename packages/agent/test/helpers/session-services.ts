@@ -24,7 +24,7 @@ import type { SessionRunnerResult } from "../../src/core/session/run";
  * claims to mirror the shipped policy.
  */
 function fixtureSettleChild(
-  kernel: SessionKernel,
+  kernel: Pick<SessionKernel, "inputMessages">,
   row: LedgerSession.Row,
   terminal: LedgerAction.Append,
   result: SessionRunnerResult,

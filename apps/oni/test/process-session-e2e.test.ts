@@ -11,7 +11,7 @@ import { Bus } from "./helpers/bus";
 import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { sessionFilePath } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../../../packages/agent/src/core/session/host";
 import { receivedMessages } from "./helpers/received-messages";
 import { localDelivery, planeOf } from "./helpers/ledger";
 import { PROCESS_SESSION_NO_REQUEST_EXIT, type ProcessReplies, runProcessEntry, serveProcessSession, type ProcessSessionRequest } from "../src/process-entry";

@@ -123,7 +123,7 @@ test(`zero-grace close retains a raw tool lease (settle after turn: ${settleAfte
   const runtime = gatewayRuntime({ observations: Bus, now: () => 1000, composed: composedHolder({ bundles: [testToolsBundle([tool])] }) });
   await runAppBoot(runtime, Effect.void);
   const plane = await planeOf(runtime);
-  seedKernelPolicyRows(plane.catalog.policies);
+  seedKernelPolicyRows(plane.updatePolicy);
   const sessionRuntime: SessionRuntime = {
     approvalPolicy: APPROVAL_POLICY,
     authorizeConfigure: allowConfigure,
@@ -146,7 +146,7 @@ test(`zero-grace close retains a raw tool lease (settle after turn: ${settleAfte
     const kernel = plane.openKernel(handle.id);
     const lease = kernel.row(handle.id);
     expect(lease.fenceOwner).not.toBeNull();
-    await runAppEffect(runtime, shutdownSessions(sessionRuntime, Promise.resolve()));
+    await runAppEffect(runtime, shutdownSessions({ close: () => Core.closeSessions(sessionRuntime) }, Promise.resolve()));
     order.push("close.returned");
     await interrupted.promise;
     expect(kernel.row(handle.id)).toMatchObject({ fenceOwner: lease.fenceOwner, fence: lease.fence });

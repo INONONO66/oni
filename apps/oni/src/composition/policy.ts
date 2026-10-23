@@ -6,7 +6,6 @@ import {
   PointId,
   type PlainValue,
   type PolicyRow,
-  type Storage as ProtocolStorage,
 } from "@oni/protocol";
 import { z } from "zod";
 import { legacyPolicyAddress } from "../bundles/core-policy/index";
@@ -232,14 +231,14 @@ export const APPROVAL_POLICY: Core.ApprovalPolicy = SHIPPED_OWNER_POLICY.approva
 
 /** Seeds missing current rows; stored rows needing policy-point-rows-v1 refuse before writes. */
 export function seedKernelPolicyRows(
-  policies: ProtocolStorage.PolicyRowSubAdapter,
+  updatePolicy: Core.LedgerHost["updatePolicy"],
   bundleRows: readonly SeedRow[] = [],
   /** The composition's merged point table (#1251); the default is the full built-in composition this app ships. */
   table: Core.GatePointTable = composedPointTable(),
   ownerRows: readonly SeedRow[] = SHIPPED_OWNER_POLICY.rows,
 ): number {
   const kernelRows: readonly SeedRow[] = [...SEEDED_POLICY_ROWS, ...ownerRows, POINT_GENERATION_ROW];
-  return policies.appendGeneration((current) => {
+  return updatePolicy((current) => {
     assertPolicyRows(current, table);
     const next = new Map([...kernelRows, ...bundleRows].map((row) => [policyId(row), row]));
     // Preserve existing policy values and site-specific ids; fill missing mandatory ids.

@@ -175,10 +175,10 @@ export function toolPorts(
 
 /** Phase inputs captured from the kernel BEFORE the final consistency check. */
 interface PhaseSources {
-  readonly terminal: ReturnType<Core.SessionHandleStore.SessionKernel["latestTurnTerminal"]>;
-  readonly latest: ReturnType<Core.SessionHandleStore.SessionKernel["latestAction"]>;
-  readonly openTurnIntent: ReturnType<Core.SessionHandleStore.SessionKernel["actionById"]>;
-  readonly genesis: ReturnType<Core.SessionHandleStore.SessionKernel["latestAction"]>;
+  readonly terminal: ReturnType<Core.SessionReadModel["latestTurnTerminal"]>;
+  readonly latest: ReturnType<Core.SessionReadModel["latestAction"]>;
+  readonly openTurnIntent: ReturnType<Core.SessionReadModel["actionById"]>;
+  readonly genesis: ReturnType<Core.SessionReadModel["latestAction"]>;
 }
 
 /**
@@ -238,9 +238,9 @@ function outputRefOf(action: {
  * paging; an epoch change or a cursor ahead of the durable head is a typed gap.
  */
 export function readSessionCursor(
-  kernel: Core.SessionHandleStore.SessionKernel,
+  kernel: Core.SessionReadModel,
   input: SessionRead.Request,
-  openKernel?: (sessionId: string) => Core.SessionHandleStore.SessionKernel | undefined,
+  openKernel?: (sessionId: string) => Core.SessionReadModel | undefined,
 ): SessionRead.Response {
   const frame = SessionRead.Request.parse(input);
   const before = kernel.row(frame.sessionId);
@@ -326,9 +326,9 @@ export function readSessionCursor(
  * (direct reader callers) omits the key.
  */
 function childrenField(
-  kernel: Core.SessionHandleStore.SessionKernel,
+  kernel: Core.SessionReadModel,
   sessionId: string,
-  openKernel?: (childId: string) => Core.SessionHandleStore.SessionKernel | undefined,
+  openKernel?: (childId: string) => Core.SessionReadModel | undefined,
 ): { children?: NonNullable<SessionRead.Page["children"]> } {
   if (openKernel === undefined) return {};
   const children = kernel.childSessionsPage(sessionId, "", 64).flatMap((row) => {
@@ -359,7 +359,7 @@ export function webSocketCallbacks(
   runtime: AppRuntime,
   handler: WebSocketHandler,
   sink: Context.Service.Shape<typeof ObservationSink>,
-  openSession?: (sessionId: string) => Core.SessionHandleStore.SessionKernel | undefined,
+  openSession?: (sessionId: string) => Core.SessionReadModel | undefined,
   fork?: (request: SessionFork.Request) => Effect.Effect<SessionFork.Response>,
   automation?: {
     readonly respond: (request: Ingress.AutomationRequest, caller: "owner" | `session:${string}`) =>
@@ -552,7 +552,7 @@ export async function createMonitorPorts(
   );
   return createAlarmMonitorPorts({
     capability,
-    openKernel: plane.openKernel,
+    openKernel: plane.read.session,
     clock,
     entropy: entropy.id,
     run: <A>(effect: Effect.Effect<A, Error>, signal: AbortSignal): Promise<A> =>
@@ -674,7 +674,7 @@ export function channelTransaction(
   return (operation) =>
     Effect.try({
       try: () =>
-        plane.sessionStore(GATEWAY_INGRESS_SESSION).transaction(() =>
+        plane.session(GATEWAY_INGRESS_SESSION).transaction(() =>
           Result.getOrThrowWith(Effect.runSync(Effect.result(operation)), (error) => error),
         ),
       catch: decodeChannelFailure("message.transaction"),
@@ -683,7 +683,7 @@ export function channelTransaction(
 
 /** The perimeter's store source over the app plane (#1317): the channels-owned store plus the ingress session's decision facts. */
 export function channelStoreSource(plane: AppLedgerPlane, now: () => number): ChannelStoreSource {
-  const ingress = () => plane.sessionStore(GATEWAY_INGRESS_SESSION);
+  const ingress = plane.session(GATEWAY_INGRESS_SESSION);
   return {
     now,
     actorRegistry: plane.channel.actorRegistry,
@@ -693,9 +693,9 @@ export function channelStoreSource(plane: AppLedgerPlane, now: () => number): Ch
     egressBudget: plane.channel.egressBudget,
     surfaceKey: plane.channel.surfaceKey,
     get decisionFacts() {
-      return ingress().decisionFacts;
+      return ingress.decisions;
     },
-    transaction: <T>(operation: () => T): T => ingress().transaction(operation),
+    transaction: ingress.transaction,
   };
 }
 
@@ -753,7 +753,7 @@ export function createResidentGateway(
           const result = yield* (outbound?.executor ?? currentExecutor()).run(request, execute);
           return {
             ...result,
-            matchedRuleIds: messageDecisionRules(plane.openKernel(sender.id), sender.id, request),
+            matchedRuleIds: messageDecisionRules(plane.read.session(sender.id), sender.id, request),
           };
         }).pipe(Effect.mapError(decodeChannelFailure("message.run"))),
       observe: (sender, observation) =>

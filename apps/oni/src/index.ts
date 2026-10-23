@@ -15,7 +15,7 @@ import type { MachinePort } from "./bundles/provision/machines";
 import { automationJudge } from "./composition/automation-judge";
 import { createAutomationDelivery } from "./composition/automation-delivery";
 import { automationAlarm, type AlarmIngress } from "./composition/automation-alarm";
-import { foreignFailure } from "./composition/failure";
+import { configureFailures, foreignFailure } from "./composition/failure";
 import { shutdownSessions } from "./shutdown";
 import {
   AppScope,
@@ -25,7 +25,6 @@ import {
   lifecycleFailure,
 } from "./runtime";
 import { timingSafeEqual } from "node:crypto";
-import { statSync } from "node:fs";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { ownerPolicy } from "./composition/policy";
@@ -36,13 +35,11 @@ import { Core, Bundle } from "@oni/agent";
 const Entropy = Core.Entropy;
 const GenerationLayers = Core.GenerationLayers;
 const ObservationSink = Core.ObservationSink;
-const createSessionRequests = Core.createSessionRequests;
-const SessionEntity = Core.SessionEntity;
 type SessionHandle = Core.SessionHandle;
-type SessionRuntime = Core.SessionRuntime;
+type SessionHostRuntime = Core.SessionHostRuntime;
 const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
-import { canonicalJson, SessionGeneration, SessionTransition, type PlainValue } from "@oni/protocol";
+import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
 import {
   type ChannelDeliveryRoute,
   type ProviderTypingRoute,
@@ -111,9 +108,7 @@ import {
   AppLedger,
   createSessionLivePlane,
   interruptFailureCause,
-  requestAuthorityKernel,
   rescanOccurrences,
-  sessionFilePath,
 } from "./composition/cluster-runtime";
 import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
@@ -161,7 +156,7 @@ interface StartOptions {
   /** Native watch boundary; tests can model a stream that drops a create. */
   readonly pathWatch?: PathWatchInstaller;
   readonly sessionRuntime?: Pick<
-    SessionRuntime,
+    Core.SessionRuntimeOptions,
     "closeGraceMs" | "approvalTimeoutMs" | "retryAlarm" | "openIntent" | "onHibernate"
   >;
   readonly config?: OniConfig;
@@ -464,14 +459,14 @@ export async function startOni(options: StartOptions = {}) {
     // #1255 P3: compose owns the generation row tables — the composed
     // generation's gate rows seed the live policy plane, bundle-neutrally.
     seedKernelPolicyRows(
-      plane.catalog.policies,
+      plane.updatePolicy,
       gateRowPolicySeeds(services.composed.current().generation),
       services.pointTable,
       policy.rows,
     );
     // The Session entity client: THE delivery path for message and timer
     // traffic (W5.2 plan §1) — the RPC ack means the receiver committed.
-    const entityClient = await runAppBoot(runtime, SessionEntity.client);
+    const entityClient = await runAppBoot(runtime, Core.sessionClient);
     // #1258: bind the deadline cancel door — `signal{control: cancel}` through
     // the entity's one deliver door, keyed by the alarm occurrence.
     const cancelChildSession: DelegationDeadlineDeps["cancel"] = ({ child, occurrenceId }) =>
@@ -509,12 +504,12 @@ export async function startOni(options: StartOptions = {}) {
     const notifyLiveApprovals = (id: string): void => {
       const approvals = liveTurns.get(id)?.approvals;
       if (approvals === undefined) return;
-      for (const request of plane.openKernel(id).requestRows(id)) {
+      for (const request of plane.read.session(id).requestRows(id)) {
         if (request.mode === "approval") approvals.notify?.(request);
       }
     };
     const compactionVerbs = Bundle.compactionCapability().verbs;
-    const sessionRuntime: SessionRuntime = {
+    const sessionRuntime: SessionHostRuntime = plane.runtime({
       ...options.sessionRuntime,
       // #1309: the approval/budget product values come from the composed
       // approval-policy bundle; the core keeps no literal fallback.
@@ -529,17 +524,15 @@ export async function startOni(options: StartOptions = {}) {
           ? compactionVerbs
           : undefined;
       },
-      openKernel: plane.openKernel,
-      listSessions: plane.listSessions,
       dispatchOutbound: dispatchOutboundMessage(
         (...args) => messages.ingest(...args),
-        plane.openKernel,
+        plane.read.session,
         policy.approval,
       ),
       requestDomainRevisions: domainRevisions,
       onRequestReady: (id) => {
         notifyLiveApprovals(id);
-        sessionRuntime.onDeliveryCommitted?.([id]);
+        sessionRuntime.options.onDeliveryCommitted?.([id]);
       },
       // Entity sessions drain inside the delivering RPC before it acks; only
       // process-runner sessions still need this doorbell.
@@ -551,23 +544,20 @@ export async function startOni(options: StartOptions = {}) {
           try: () => authenticateOwner(credential, request.id),
           catch: () => new ExecutionApprovalError({ code: "unauthenticated" }),
         }),
-      authorizeConfigure: configureAuthority(services.generations, plane.openKernel),
+      authorizeConfigure: configureAuthority(services.generations, plane.read.session),
       // #1255 S3: the product's composed manifest, adopted at each session's
       // next turn start. Late-bound: the resident below owns the tool faces.
       composed: { current: () => residentAdoption?.() },
       // #1311: the product settlement fold injected into the core seam.
       settleChild,
-    };
+    });
     let residentAdoption: (() => Core.ComposedManifest | undefined) | undefined;
     // Request transitions never steal a live activation's fence: the borrowed
     // kernel view commits under the running turn's authority (idle sessions
     // keep the documented takeover adoption).
     const bootRequests = await runAppBoot(
       runtime,
-      createSessionRequests({
-        ...sessionRuntime,
-        openKernel: (id) => requestAuthorityKernel(plane.openKernel(id), id),
-      }),
+      sessionRuntime.requests("borrow"),
     );
     // An out-of-turn answer on an entity session must land through the
     // entity's own Resolve RPC (#1253): the RPC handler commits AND drains, so
@@ -663,7 +653,7 @@ export async function startOni(options: StartOptions = {}) {
       instances: plane.stores.instances,
       secrets: plane.stores.secrets,
       actors: plane.stores.actors,
-      transaction: plane.catalog.transaction,
+      transaction: plane.transaction,
       kek: config.kek,
       supervisor: {
         reconcile: () => liveSupervisor().reconcile(),
@@ -671,7 +661,7 @@ export async function startOni(options: StartOptions = {}) {
         status: () => liveSupervisor().status(),
         source: () => liveSupervisor().source(),
       },
-      materialize: materializeDeclaredPersons,
+      syncPersons: materializeDeclaredPersons,
       removeIdentity: plane.stores.actors.removeIdentity,
       // #1255 P4: bundle_enable/bundle_disable edit the off-list and re-run
       // compose. The swap is atomic — a ComposeRefused leaves the previous
@@ -701,7 +691,7 @@ export async function startOni(options: StartOptions = {}) {
           // The recomposed gate rows seed a fresh policy generation alongside
           // the swap, so adopted turns evaluate the matching row tables.
           seedKernelPolicyRows(
-            plane.catalog.policies,
+            plane.updatePolicy,
             gateRowPolicySeeds(generation),
             services.pointTable,
             policy.rows,
@@ -748,7 +738,7 @@ export async function startOni(options: StartOptions = {}) {
       // #1305: the prelude's tool_output resolves against the tenant session's own file.
       composeCodemode(host, {
         id: services.entropy.id, selfMachineId: machinery.self.machineId,
-        outputs: sessionOutputsSource(plane.openKernel),
+        outputs: sessionOutputsSource(plane.read.session),
       }),
     ); machinery.self.bindRunner(cells.runner);
 
@@ -787,7 +777,7 @@ export async function startOni(options: StartOptions = {}) {
       entityClient(sessionId).Alarm(occurrence, { discard: true });
     // #1512 r1 L6: one paged read; the cli runner resumes from the revision it last saw instead of rescanning.
     const childRowsAfter = (sessionId: string, afterRevision: number): { readonly rows: ChildRow[]; readonly revision: number } => {
-      const kernel = plane.openKernel(sessionId);
+      const kernel = plane.read.session(sessionId);
       const rows: ChildRow[] = [];
       let after = afterRevision;
       for (;;) {
@@ -966,8 +956,8 @@ export async function startOni(options: StartOptions = {}) {
           },
         },
       }),
-      sessionRuntime,
-      policyGeneration: () => plane.openKernel(GATEWAY_INGRESS_SESSION).currentPolicyGeneration(),
+      sessionRuntime: sessionRuntime.options,
+      policyGeneration: () => plane.read.session(GATEWAY_INGRESS_SESSION).currentPolicyGeneration(),
     });
 
     residentAdoption = () => resident.adoption();
@@ -1087,8 +1077,8 @@ export async function startOni(options: StartOptions = {}) {
     /** The runner block a session's current generation pins ("process" | "resident" | ...). */
     const sessionRunner = (id: string): string | undefined => {
       try {
-        return plane
-          .openKernel(id)
+        return plane.read
+          .session(id)
           .latestGenerationFor(id)
           .systemBlocks.find((block) => block.id === "runner" && block.source === "app:runner")
           ?.content;
@@ -1182,8 +1172,8 @@ export async function startOni(options: StartOptions = {}) {
           // #1600 lane R2: the Owner is always reachable by the Resident — a
           // drafted answer, a report, a question are the Owner's own mail.
           grants: () =>
-            plane
-              .listSessions()
+            plane.read.sessions
+              .list()
               .filter((row) => row.role === "resident")
               .flatMap((row) =>
                 plane.stores.persons
@@ -1211,28 +1201,20 @@ export async function startOni(options: StartOptions = {}) {
     // Bind the entity's composition-owned ports: turns run the Resident's
     // runner over the activation's kernel + fence; process-runner sessions
     // delegate to the child transport without committing under this fence.
-    const resolvedRuntime: Core.ResolvedSessionRuntime = {
-      ...sessionRuntime,
-      clock: services.now,
-      entropy: services.entropy.id,
-      observations: services.observations,
-      generations: services.generations,
-      services: services.context,
-    };
+    const turns = await runAppBoot(runtime, sessionRuntime.turns);
     services.entityPorts.bind({
-      approvalPolicy: sessionRuntime.approvalPolicy, dispatchOutbound: Core.outboundRedrivePort(resolvedRuntime),
+      approvalPolicy: sessionRuntime.options.approvalPolicy, dispatchOutbound: turns.dispatchOutbound,
       runTurn: (input) =>
         sessionRunner(input.authority.sessionId) === "process"
           ? Effect.tryPromise({
               try: () => processSessions.wake(input.authority.sessionId),
               catch: foreignFailure((fields) => new AgentFailure(fields), "process.wake"),
             }).pipe(Effect.asVoid)
-          : plane.turnPort(
+          : turns.run(
               liveTurns.wrapRunner(
                 input.authority.sessionId,
-                resident.runnerFor(input.kernel.row(input.authority.sessionId)),
+                resident.runnerFor(Core.sessionReadModel(input.kernel).row(input.authority.sessionId)),
               ),
-              resolvedRuntime,
               services.scope,
             )(input),
       requestDomainRevisions: domainRevisions,
@@ -1275,25 +1257,16 @@ export async function startOni(options: StartOptions = {}) {
     });
 
     // Boot alarm rescan (#1254 S3): wake every session that may hold armed
-    // alarms with an entity-internal `rescan` occurrence. Idleness is the
-    // session file's mtime; an in-memory plane has no idle sessions.
+    // alarms with an entity-internal `rescan` occurrence. Core reports
+    // activity; a missing timestamp counts as activity-now.
     {
       const sweep = resolveAlarmSweep(config);
       const bootNow = services.now();
-      const lastActivityAt = (id: string): number => {
-        if (config.sessionsDir === undefined) return bootNow;
-        // Idleness is the session file's mtime; a missing file counts as
-        // activity-now. Any other fs failure still fails the boot closed.
-        return (
-          statSync(sessionFilePath(config.sessionsDir, id), { throwIfNoEntry: false })?.mtimeMs ??
-          bootNow
-        );
-      };
       const rescans = rescanOccurrences({
-        armedSessionIds: plane.catalog.armedSessionIds(),
-        sessions: plane.listSessions().map((row) => ({
+        armedSessionIds: plane.read.armedSessionIds(),
+        sessions: plane.read.sessions.list().map((row) => ({
           id: row.id,
-          lastActivityAt: lastActivityAt(row.id),
+          lastActivityAt: plane.read.activityAt(row.id) ?? bootNow,
         })),
         sweep,
         bootId: services.entropy.id(),
@@ -1343,9 +1316,8 @@ export async function startOni(options: StartOptions = {}) {
     );
 
     const wsCallbacks = webSocketCallbacks(runtime, wsHandler, services.observations, (id) =>
-      plane.catalog.sessionIndex(id) === undefined ? undefined : plane.openKernel(id),
+      plane.read.index(id) === undefined ? undefined : plane.read.session(id),
       createSessionForkExecutor(plane, {
-        sessionsDir: config.sessionsDir,
         now: services.now,
         id: services.entropy.id,
       }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
@@ -1371,18 +1343,10 @@ export async function startOni(options: StartOptions = {}) {
      * The live-turn facade (replaces the deleted registry handle): approvals
      * reach the turn running inside the entity's delivering RPC through the
      * composition's live plane and interrupts ride the entity's `Deliver`
-     * door (#1346); only the `tools.add` configure commit still rides the
-     * activation's borrowed authority (the one allow-listed app commit). Only
+     * door (#1346); Core owns the `tools.add` configure operation. Only
      * live turns have a handle - a hibernated entity session answers through
      * the entity client instead.
      */
-    const borrowedAuthority = (id: string) => {
-      const kernel = plane.openKernel(id);
-      const row = kernel.row(id);
-      if (row.fenceOwner === null)
-        throw new AppInvariantError(`session has no activation authority: ${id}`);
-      return { kernel, row, owner: row.fenceOwner, fence: row.fence };
-    };
     const sessionFacade = (id: string): AppSessionHandle | undefined => {
       if (liveTurns.get(id) === undefined) return undefined;
       return {
@@ -1449,68 +1413,12 @@ export async function startOni(options: StartOptions = {}) {
           }),
         tools: {
           add: (additions) =>
-            Effect.gen(function* () {
-              const { kernel, row, owner, fence } = borrowedAuthority(id);
-              const before = kernel.latestGenerationFor(id);
-              const generation = before.generation + 1;
-              const accepted = yield* sessionRuntime.authorizeConfigure({
-                sessionId: id,
-                role: row.role,
-                operation: "tools.add",
-                generation,
-              });
-              if (!accepted)
-                return yield* Effect.fail(
-                  new AgentFailure({ operation: "session.configure", cause: "denied" }),
-                );
-              const snapshot = Core.SessionHandleStore.generationSnapshot({
-                generation,
-                revertTo: before.generation,
-                tools: [
-                  ...before.tools,
-                  ...additions.map((tool) => SessionGeneration.Tool.parse(tool)),
-                ],
-                system: { preset: before.systemPreset, blocks: before.systemBlocks },
-                policyGeneration: before.policyGeneration,
-                bundles: before.bundles,
-                // #1255: configure keeps the adopted manifest hash — dropping it
-                // would force a spurious compose adoption at next turn start.
-                ...(before.manifestHash === undefined ? {} : { manifestHash: before.manifestHash }),
-              });
-              const configured = Core.SessionHandleStore.configureAction({
-                id: services.entropy.id(),
-                sessionId: id,
-                parentId: kernel.latestAction(id)?.id ?? null,
-                operation: "tools.add",
-                snapshot,
-                at: services.now(),
-              });
-              const commit = kernel
-                .commit({
-                  sessionId: id,
-                  owner,
-                  fence,
-                  now: services.now(),
-                  expectedRevision: row.revision,
-                  actions: [configured],
-                  state: row.state,
-                  generation: {
-                    toolsGeneration: snapshot.generation,
-                    systemHash: snapshot.systemHash,
-                    policyGeneration: snapshot.policyGeneration,
-                  },
-                })
-                .pipe(
-                  Effect.mapError(
-                    foreignFailure((fields) => new AgentFailure(fields), "session.configure"),
-                  ),
-                );
-              yield* services.generations.configure(
-                { sessionId: id, generation },
-                snapshot,
-                commit,
-              );
-              return { generation: snapshot.generation, revertTo: snapshot.revertTo };
+            plane.session(id).configureTools(additions, {
+              ...configureFailures,
+              authorizeConfigure: sessionRuntime.options.authorizeConfigure,
+              generations: services.generations,
+              clock: services.now,
+              entropy: services.entropy.id,
             }),
         },
       };
