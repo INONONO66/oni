@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -8,6 +8,7 @@ import {
 import { agentSourceFacts, checkCoreEndState, cloneEndStateViolations } from "../../../script/check-core-end-state";
 import { coreGateFiles } from "../../../script/core-gate.test-helper";
 import { CORE_END_STATE_TARGETS } from "../../../script/core-end-state-targets";
+import ts from "typescript";
 
 const roots: string[] = [];
 const root = join(import.meta.dir, "../../..");
@@ -255,6 +256,16 @@ test("clone thresholds use raw counts and refuse absent census data", () => {
 test("real tree meets the exact structural targets", async () => {
   expect(await validateAgentCoreLayout(root)).toEqual([]);
   expect(await validateAgentBands(root)).toEqual([]);
+});
+
+test("loop gate imports are confined to the binding and shared types", () => {
+  const directory = join(root, "packages/agent/src/core/loop");
+  const violations = readdirSync(directory).filter((name) => name.endsWith(".ts")).flatMap((name) =>
+    ts.preProcessFile(readFileSync(join(directory, name), "utf8")).importedFiles
+      .filter(({ fileName }) => fileName.includes("/gate/") && !["../gate/bind", "../gate/types"].includes(fileName))
+      .map(({ fileName }) => `${name}: ${fileName}`),
+  );
+  expect(violations).toEqual([]);
 });
 
 test("real tree meets the terminal source and test targets", async () => {

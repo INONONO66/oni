@@ -73,7 +73,7 @@ authority explicit. A bundle has exactly four extension points:
 | Extension point | Contract | Source |
 | --- | --- | --- |
 | Tool catalog and system configuration | Every tool is bundle-owned: a generation's `ToolCatalog` is exactly the composed bundles' tools, so `provision{bundle_disable}` drops a tool from the next generation and a second bundle declaring the same name is the typed `duplicate` compose refusal. Recorded `session.configure` operations `tools.add`, `tools.remove` and `system.blocks.set` select the next generation, never replace an in-flight catalog. | `packages/agent/src/core/ports/ports.ts`, `packages/agent/src/core/session/run.ts`, `apps/oni/src/manifest.ts` |
-| Policy rows | Data-only pre/post verdicts are `allow`, `deny`, `require_approval`, `transform` or `obligation`. Named implementations come from the captured bundle Layer, not a callback-registration API. | `packages/agent/src/core/gate/compile.ts`, `packages/agent/src/core/bundle.ts` |
+| Policy rows | Data-only pre/post verdicts are `allow`, `deny`, `require_approval`, `transform` or `obligation`; consulted rows name handlers from the captured bundle Layer. One compiler admits rows, one evaluator folds decisions, and one binding connects them to the loop. | `packages/agent/src/core/gate/{compile,evaluate,bind,types}.ts` |
 | Observation subscriptions | `ObservationSink.subscribe` observes committed execution; it never decides admission or writes durable truth. Subscriptions belong to their Scope. | `packages/agent/src/core/observation/bus.ts`, `apps/oni/src/composition/generation-layers.ts` |
 | Entity mailbox messages | A bundle addresses a session through `send_message` / gateway ingestion and entity-owned mailbox admission at a step boundary, not an injected executor or direct ledger writer. | `apps/oni/src/bundles/messaging/send-message/index.ts`, `apps/oni/src/gateway.ts`, `packages/agent/src/core/session/entity.ts` |
 
@@ -192,6 +192,19 @@ The profile's Grant carries two fields evaluated together (formerly two separate
 **Social budget** bounds what the system spends of the Owner's reputation: per-contact outreach frequency caps, cooldowns, a do-not-contact list, and a per-channel disclosure policy. First contact with a stranger is approval-gated; replies within an existing thread are not. Where a platform forbids automation, egress degrades to owner-mediated send (the system drafts, the Owner taps send) — modeled as just another executor, not an exception.
 
 ### The gate's authority evaluation
+
+The kernel policy mechanism has two layers. `compile` receives a generation's
+rows and handler table, validates each row and projects it into the point table
+in one pass. `evaluate` matches those buckets, folds all matched rows and
+preserves the canonical input and content hashes used for replay. There is no
+second row compiler or evaluator. `bind.ts` supplies the loop's pre/post
+admission, synchronous replay, ordered asynchronous consultation and generation
+tool-loadout filter; loop modules import gate behavior only through that module.
+The persisted policy-row encoding remains `kind`/`phase`. Retired compaction
+addresses are refused with `PolicyCompileError`, code
+`policy_row_migration_required`, the original row index and procedure id
+`policy-point-rows-v1`; an operator converts those stored rows offline before
+the generation can load. The kernel never rewrites them while loading.
 
 Not a stored value — a computation performed per request, intersecting five dimensions:
 

@@ -28,7 +28,7 @@ const excludedSuffixes = [".d.ts", ".generated.ts", ".gen.ts"];
 // Only the canonical permission evaluator leaf may implement raw allowlist/denylist
 // membership; every public caller still routes through evaluatePermission
 // (the agent gate, the engine's owner since #498 W1; folded into agent by #1246).
-const canonicalPolicyEvaluator = new Set(["packages/agent/src/core/gate/match.ts"]);
+const canonicalPolicyEvaluator = new Set(["packages/agent/src/core/gate/bind.ts"]);
 const canonicalPolicyRequiredFiles = new Set(["packages/channels/src/authn/decision.ts"]);
 
 const listMembershipPattern = /\b(?:denylist|allowlist)\s*\??\.\s*includes\s*\(/g;

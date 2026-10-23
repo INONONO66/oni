@@ -1,3 +1,4 @@
+import { policySnapshot } from "../../../agent/test/helpers/compiled-policy";
 import { commitReceivedMessage, ledger, resetLedger } from "../helpers/ledger";
 import { Effect } from "effect";
 import { runEffect } from "../helpers/effect";
@@ -9,7 +10,6 @@ import { Channel, Ingress, Gateway, type Delivery } from "@oni/protocol";
 import { Core } from "@oni/agent";
 import { z } from "zod";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
-const compilePolicySnapshot = Core.compilePolicySnapshot;
 
 import { decodeChannelFailure } from "../../src/errors";
 import { Bus } from "../helpers/observation";
@@ -178,7 +178,7 @@ const sessionDenial = (id: string, targetKind: "actor" | "origin", check: "actor
 
 export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): GatewayRouter {
   const now = overrides.now ?? (() => 1);
-  const policy = compilePolicySnapshot({
+  const policy = policySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: [
@@ -192,10 +192,10 @@ export function makeRouter(overrides: Partial<GatewayRouterPorts> = {}): Gateway
       {
         generation: 1,
         name: "compaction",
-        kind: "turn",
-        phase: "post",
+        kind: "compaction",
+        phase: "pre",
         priority: 1000,
-        match: { encodingVersion: 1, value: { op: "compaction" } },
+        match: { encodingVersion: 1, value: { op: "compact" } },
         verdict: { encodingVersion: 1, value: { type: "allow" } },
       },
       ...Gateway.RuleTableA.shape.check.options.map(

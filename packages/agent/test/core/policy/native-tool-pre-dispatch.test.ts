@@ -1,12 +1,14 @@
+import { policySnapshot } from "../../helpers/compiled-policy";
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, createHandlerTable } from "../../../src/core/gate/compile";
 import { executionReads } from "../../helpers/execution-reads";
 import { sessionTree } from "../../helpers/session-tree";
 import { testExecutor, runAgentSync } from "../../helpers/executor";
 import { executorLayer, catalogLayer } from "../../helpers/service-layers";
 import { expect, test } from "bun:test";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
+
 import { PlainObjectSchema } from "@oni/protocol";
 import { Cause, Effect, Fiber } from "effect";
-import { createHandlerTable } from "../../../src/core/gate/compile";
+
 import { requestLedger, crashAfterRequestOpen, failure } from "../../helpers/effect-g1";
 import { z } from "zod";
 import { createExecutor } from "../../../src/core/loop/executor";
@@ -23,7 +25,7 @@ test("approval recovery executes recorded admitted bytes without transforming ag
     ...KERNEL_POLICY_REGISTRY.transformers,
     { name: "demo/normalize", apply: () => { transformations += 1; return { text: `admitted-${transformations}` }; } },
   ] });
-  const policy = compilePolicySnapshot({ registry, generation: 1, rows: [
+  const policy = policySnapshot({ registry, generation: 1, rows: [
     ...SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })),
     { name: "normalize", kind: "tool", phase: "pre", generation: 1, priority: 1,
       match: { encodingVersion: 1, value: { op: "write" } },
@@ -43,7 +45,7 @@ test("approval recovery executes recorded admitted bytes without transforming ag
   expect(transformations).toBe(1);
   // Recovery replays the committed gate decision: the transformer is gone
   // from this process (it throws), yet the recorded output still admits (r3).
-  const recoveredPolicy = compilePolicySnapshot({
+  const recoveredPolicy = policySnapshot({
     registry: createHandlerTable({ ...KERNEL_POLICY_REGISTRY, transformers: [
       ...KERNEL_POLICY_REGISTRY.transformers,
       { name: "demo/normalize", apply: () => { throw new Error("handler must not run during replay"); } },
@@ -102,7 +104,7 @@ for (const door of ["model", "cell", "wave"] as const) {
       const executor = testExecutor({
         identity: { sessionId: id, role: "resident", parentActionId: `${id}:configure` },
         clock: () => 100, entropy: () => `${id}:${++sequence}`, observations: { publish: () => undefined }, random: () => 0,
-        policy: compilePolicySnapshot({
+        policy: policySnapshot({
           registry: KERNEL_POLICY_REGISTRY, generation: 1, rows: [...SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })), {
             name: "redact-input", kind: "tool", phase: "pre", generation: 1, priority: 1,
             match: { encodingVersion: 1, value: { op: "echo" } },

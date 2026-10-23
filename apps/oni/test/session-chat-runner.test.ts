@@ -1,3 +1,5 @@
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../../packages/agent/src/core/gate/compile";
+import { policySnapshot } from "../../../packages/agent/test/helpers/compiled-policy";
 import { attemptIntentIds, isAttemptRow, isLogicalLlm } from "../../../packages/agent/test/helpers/llm-rows";
 import { runAgentSync } from "../../../packages/agent/test/helpers/executor";
 import { sessionTree } from "../../../packages/agent/test/helpers/session-tree";
@@ -5,7 +7,7 @@ import { pinnedModelSelection, restoreModelSelection } from "../src/composition/
 import { testTurnDispatcher } from "../../../packages/agent/test/helpers/service-layers";
 import { fixtureStopEvidence, prepareChatFixture } from "../../../packages/agent/test/helpers/chat-services";
 import { allowConfigure, isolatedRuntime, type SessionFixture as SessionRuntime, type SessionFixture, withSessionServices, } from "../../../packages/agent/test/helpers/session-services";
-import { KERNEL_POLICY_REGISTRY } from "../../../packages/agent/src/core/gate/compile";
+
 import { Cause, Effect, Exit } from "effect";
 import type { LlmSink, RunInput } from "../../../packages/agent/src/core/ports/llm";
 import { isolated, isolatedLedger } from "../../../packages/agent/test/helpers/isolated";
@@ -13,7 +15,6 @@ import { providerFailure } from "../../../packages/agent/test/helpers/mock-llm";
 import { seedPolicy } from "../../../packages/agent/test/helpers/seed-policy";
 import { describe, expect, it } from "bun:test";
 
-import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../../packages/agent/src/core/gate/compile";
 import { SessionTurn, type LedgerAction, type Model } from "@oni/protocol";
 import { closeSessions, createSessionChatRunner } from "../../../packages/agent/src/core/session/run";
 import type { Executor } from "../../../packages/agent/src/core/loop/executor";
@@ -24,7 +25,7 @@ import { turnExecutor, nullRetryAlarm, foreign } from "../../../packages/agent/t
 import { recordingChatRunner } from "../../../packages/agent/test/helpers/session-chat";
 import { completeModel, createStopOutcome, mockLlm, type MockLlmFn, mockProviderModel } from "../../../packages/agent/test/helpers/mock-llm";
 
-const policy = compilePolicySnapshot({
+const policy = policySnapshot({
   registry: KERNEL_POLICY_REGISTRY,
   generation: 0,
   rows: SEEDED_POLICY_ROWS.map(

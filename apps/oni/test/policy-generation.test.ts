@@ -1,3 +1,4 @@
+import { policySnapshot } from "../../../packages/agent/test/helpers/compiled-policy";
 import { expect, test } from "bun:test";
 import { Core } from "@oni/agent";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
@@ -37,7 +38,7 @@ test("an unresolved named ref in a ledger generation refuses compilation with ty
     match: { encodingVersion: 1, value: { op: "provision" } },
     verdict: { encodingVersion: 1, value: { type: "transform", ref: "app/not-registered" } },
   }]);
-  expect(() => Core.compilePolicySnapshot({
+  expect(() => policySnapshot({
     rows: source.rows(generation), generation, registry: KERNEL_POLICY_REGISTRY,
   })).toThrow(expect.objectContaining({
     data: expect.objectContaining({

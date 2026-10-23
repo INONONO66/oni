@@ -1,11 +1,8 @@
+import { gateSnapshot } from "./helpers/gate-rows";
+import { composePointTable, GateComposeError, KERNEL_CAPABILITY_POINTS } from "../src/core/gate/compile";
 import { describe, expect, it } from "bun:test";
 import { CORE_POINT_RECORDS } from "@oni/protocol";
-import { compileGateRows } from "../src/core/gate/compose";
-import {
-  composePointTable,
-  GateComposeError,
-  KERNEL_CAPABILITY_POINTS,
-} from "../src/core/gate/points";
+
 import { fullPointTable, gateRow } from "./helpers/gate-rows";
 
 function rejectionCode(run: () => void): string {
@@ -64,7 +61,7 @@ describe("point registration table (#1251)", () => {
 describe("gate-row compose rejections (#1251)", () => {
   const table = fullPointTable();
   const compile = (rows: readonly ReturnType<typeof gateRow>[], handlers: readonly string[] = []) =>
-    compileGateRows({ table, rows, handlers, generation: 1 });
+    gateSnapshot({ table, rows, handlers, generation: 1 });
 
   it("rejects a row on an off or absent capability's point with `unknown_point`, never a silent no-op", () => {
     const withoutAction = composePointTable({
@@ -73,7 +70,7 @@ describe("gate-row compose rejections (#1251)", () => {
     expect(withoutAction.has("action.pre")).toBe(false);
     expect(
       rejectionCode(() =>
-        compileGateRows({
+        gateSnapshot({
           table: withoutAction,
           rows: [gateRow("action.pre")],
           handlers: [],

@@ -16,7 +16,7 @@ import { AppInvariantError } from "../invariant";
 import shippedPolicy from "../../policy/owner-policy.json";
 import { composedPointTable } from "./point-table";
 
-const { SEEDED_POLICY_ROWS, assertPointGenerationRows, POINT_GENERATION_ROW, translateLegacyPolicyRow } = Core;
+const { SEEDED_POLICY_ROWS, assertPolicyRows, POINT_GENERATION_ROW } = Core;
 
 type SeedRow = Omit<PolicyRow.Row, "generation">;
 
@@ -230,15 +230,7 @@ export function ownerPolicy(path: string | undefined): OwnerPolicy {
 
 export const APPROVAL_POLICY: Core.ApprovalPolicy = SHIPPED_OWNER_POLICY.approval;
 
-/**
- * Seeds the kernel's mandatory generation into the catalog's policy plane and
- * converts the latest generation once into a validated fourteen-point
- * generation (#1251): historical generations keep their exact bytes, and a
- * latest row that cannot map to a registered point rejects the whole write
- * unit, failing the boot. The mandatory rows are the agent seed, the Owner
- * policy file's constant rows (#1572), and the point-generation row;
- * bundle-owned rows arrive through `bundleRows`.
- */
+/** Seeds missing current rows; stored rows needing policy-point-rows-v1 refuse before writes. */
 export function seedKernelPolicyRows(
   policies: ProtocolStorage.PolicyRowSubAdapter,
   bundleRows: readonly SeedRow[] = [],
@@ -248,20 +240,13 @@ export function seedKernelPolicyRows(
 ): number {
   const kernelRows: readonly SeedRow[] = [...SEEDED_POLICY_ROWS, ...ownerRows, POINT_GENERATION_ROW];
   return policies.appendGeneration((current) => {
-    // Convert the latest generation's semantics onto the fourteen-point
-    // contract and validate every row BEFORE any early return: a completed
-    // generation carrying an unmappable custom row still rejects the boot.
-    const converted = current.map((row) => translateLegacyPolicyRow(row));
-    assertPointGenerationRows(converted, table);
+    assertPolicyRows(current, table);
     const next = new Map([...kernelRows, ...bundleRows].map((row) => [policyId(row), row]));
     // Preserve existing policy values and site-specific ids; fill missing mandatory ids.
-    for (const row of converted) next.set(policyId(row), row);
+    for (const row of current) next.set(policyId(row), row);
     // The rows this boot writes must themselves map onto the composition's
     // points: a composition without a capability refuses its rows at seed.
-    assertPointGenerationRows([...next.values()], table);
-    // Identity compares the STORED rows: a conversion that changed any row's
-    // point identity must land as a new generation even when the converted
-    // set already matches the target.
+    assertPolicyRows([...next.values()], table);
     const storedIds = new Set(current.map(policyId));
     if (storedIds.size === next.size && [...next.keys()].every((id) => storedIds.has(id))) {
       return undefined;

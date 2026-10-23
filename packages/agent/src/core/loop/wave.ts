@@ -3,7 +3,7 @@ import * as Failure from "../ports/failure";
 import { thrownAsError } from "../ports/failure";
 import { type ExecutionError, type CommitFailed, ExecutionApprovalError, AgentFailure, Interrupted, OutcomeUnknown } from "../ports/failure";
 import { type LedgerAction, type PlainValue, type PlainObject, canonicalDigest, listenForAbort } from "@oni/protocol";
-import type { PolicyEvaluation } from "../gate/compile";
+import type { PolicyEvaluation } from "../gate/types";
 import type { WaveControl } from "./tool";
 import { BOUNDED_CONCURRENCY } from "../ports/ports";
 import { GenerationRawSlots, RawToolSlots, createRawSlots, immutableInput, type Admitted, type Decision, type ExecutionBatchItem, type ExecutionRequest, type ExecutionResult, type ResolvedExecutorOptions } from "./invocation";

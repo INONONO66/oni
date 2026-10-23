@@ -1,8 +1,10 @@
+import { policySnapshot } from "../../helpers/compiled-policy";
+import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { gateSnapshot } from "../../helpers/gate-rows";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import * as Protocol from "@oni/protocol";
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
-import { compileGateRows } from "../../../src/core/gate/compose";
+
 import { fullPointTable, gateRow } from "../../helpers/gate-rows";
 import { atGeneration, compaction, draft } from "../../kernel/gate/row-fixtures";
 import { runTestPromise } from "../../helpers/isolated";
@@ -20,7 +22,7 @@ function valueDigests(): number {
 
 describe("gate input digest", () => {
   test("evaluate computes the input digest exactly once and decide reuses it", () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 1,
       registry: KERNEL_POLICY_REGISTRY,
       rows: [atGeneration(compaction, 1), atGeneration(draft("allow", "tool", "pre", { type: "allow" }), 1)],
@@ -35,7 +37,7 @@ describe("gate input digest", () => {
   });
 
   test("every projected pass of evaluateEffect digests its input exactly once", async () => {
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       generation: 1,
       registry: {
         ...KERNEL_POLICY_REGISTRY,
@@ -67,7 +69,7 @@ describe("gate input digest", () => {
   });
 
   test("compiled gate rows digest the input only when no precomputed hash is supplied", () => {
-    const gate = compileGateRows({ table: fullPointTable(), rows: [gateRow("tool.pre")], handlers: [], generation: 1 });
+    const gate = gateSnapshot({ table: fullPointTable(), rows: [gateRow("tool.pre")], handlers: [], generation: 1 });
     const decideInput = { when: { op: "bash" }, value: { command: SENTINEL } };
 
     digest.mockClear();

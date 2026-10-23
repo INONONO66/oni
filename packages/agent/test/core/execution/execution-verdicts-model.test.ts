@@ -1,10 +1,12 @@
-import { testExecutor } from "../../helpers/executor";
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { policySnapshot } from "../../helpers/compiled-policy";
+import { testExecutor } from "../../helpers/executor";
+
 import { Effect, Fiber } from "effect";
 import { isolated } from "../../helpers/isolated";
 import { describe, expect, it, mock } from "bun:test";
 import { recordingLedger, runTestOperation, failure as effectFailure, foreign, } from "../../helpers/effect-g2";
-import { compilePolicySnapshot } from "../../../src/core/gate/compile";
+
 import { ToolBodyFailed } from "../../../src/core/ports/failure";
 import type { LedgerAction, PlainValue, PolicyRow } from "@oni/protocol";
 
@@ -30,13 +32,15 @@ function row(
 
 const mandatory: PolicyRow.Row = {
   ...row("compaction", "turn", "post", { type: "allow" }),
-  match: { encodingVersion: 1, value: { op: "compaction" } },
+  kind: "compaction",
+  phase: "pre",
+  match: { encodingVersion: 1, value: { op: "compact" } },
 };
 
 function harness(rows: readonly PolicyRow.Row[]) {
   const { committed: actions, ledger } = recordingLedger();
   const executor = testExecutor({
-    policy: compilePolicySnapshot({
+    policy: policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [mandatory, ...rows],
@@ -88,7 +92,7 @@ function revertBody() {
 
 /** The compiled snapshot holding only the mandatory compaction row. */
 function mandatoryOnlyPolicy() {
-  return compilePolicySnapshot({
+  return policySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: [mandatory],

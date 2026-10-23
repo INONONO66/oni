@@ -1,7 +1,7 @@
 import { Effect, Exit, Cause, Option } from "effect";
 import { type ExecutionError, PolicyDenied } from "../ports/failure";
 import { type LedgerAction, type PlainValue, type PlainObject, canonicalDigest } from "@oni/protocol";
-import type { PolicyEvaluation } from "../gate/compile";
+import type { PolicyEvaluation } from "../gate/types";
 import { attemptReason, decide as decideRetry, isInstantFailure, MAX_ATTEMPTS, type Decision as RetryDecision } from "./retry";
 import type { RetryReason } from "../ports/reason-codes";
 import type { FailureClass } from "../ports/llm";

@@ -1,4 +1,4 @@
-import type { HandlerTable as PolicyRegistry, NamedConsultant } from "../gate/compile";
+import type { HandlerTable as PolicyRegistry, NamedConsultant } from "../gate/types";
 import { canonicalDigest, CORE_POINT_RECORDS, type PlainValue } from "@oni/protocol";
 import { type Clock, Context, Effect, Schema, type Scope } from "effect";
 import {

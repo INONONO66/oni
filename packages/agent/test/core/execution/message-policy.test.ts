@@ -1,12 +1,14 @@
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
+import { policySnapshot } from "../../helpers/compiled-policy";
 import { messageSource } from "../../helpers/message-source";
 import { testExecutor } from "../../helpers/executor";
 import { chatServices, fixtureStopEvidence } from "../../helpers/chat-services";
-import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+
 import type { RunInput, LlmSink as Sink } from "../../../src/core/ports/llm";
 import { Effect } from "effect";
 import { isolated } from "../../helpers/isolated";
 import { expect, test } from "bun:test";
-import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../../src/core/gate/compile";
+
 import { LedgerAction } from "@oni/protocol";
 import { runAgent } from "../../../src/core/loop/turn";
 import { createAssistantMessage } from "../../../src/core/journal/message-factory";
@@ -18,7 +20,7 @@ import { TEST_BUDGET } from "../../helpers/approval-policy";
 // compile — the registry rejects the generation fail-closed at compose.
 test("a message post transform row rejects at compose: message has no post point", () => {
   expect(() =>
-    compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY,
+    policySnapshot({ registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       kinds: LedgerAction.Kind.options,
       rows: [
@@ -51,7 +53,7 @@ test("a message post transform row rejects at compose: message has no post point
 test("the canonical assistant text is never rewritten after the turn", async () => {
   const recording = recordingLedger();
   const executor = testExecutor({
-    policy: compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY,
+    policy: policySnapshot({ registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       kinds: LedgerAction.Kind.options,
       rows: [

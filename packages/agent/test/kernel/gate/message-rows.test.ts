@@ -1,6 +1,7 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { policySnapshot } from "../../helpers/compiled-policy";
 import { expect, test } from "bun:test";
-import { compilePolicySnapshot } from "../../../src/core/gate/compile";
+
 import { atGeneration, compaction, draft } from "./row-fixtures";
 
 const childRule = {
@@ -14,7 +15,7 @@ const childRule = {
 } as const;
 
 test("message policy selects child actor denial without matching external senders", () => {
-  const policy = compilePolicySnapshot({
+  const policy = policySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: [
@@ -68,7 +69,7 @@ test("message policy selects child actor denial without matching external sender
 });
 
 test("send_message cannot bypass admission by omitting its authenticated context", () => {
-  const policy = compilePolicySnapshot({
+  const policy = policySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: [atGeneration(compaction, 1)],
@@ -88,6 +89,6 @@ test("message post denial is rejected during compilation", () => {
     atGeneration(draft("late-denial", "message", "post", { type: "deny" }), 1),
   ];
   expect(() =>
-    compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, rows }),
+    policySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, rows }),
   ).toThrow(expect.objectContaining({ code: "invalid_verdict" }));
 });

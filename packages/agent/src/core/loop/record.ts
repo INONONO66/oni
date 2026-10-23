@@ -2,7 +2,7 @@ import { Effect, Cause } from "effect";
 import { renderBodyCause } from "../ports/failure";
 import { type ExecutionError, CommitFailed } from "../ports/failure";
 import { type BusEvent, type LedgerAction, type ObservationSink as ObservationPort, type PlainValue, Tool, type PlainObject, L0Observation, canonicalDigest } from "@oni/protocol";
-import type { PolicyEvaluation } from "../gate/compile";
+import type { PolicyEvaluation } from "../gate/types";
 import type { ExecutionRequest, ExecutionResult, ExecutorOptions, RecoveryClassification, ResolvedExecutorOptions, ToolObservationIdentity } from "./invocation";
 
 export function failureEvidence(error: ExecutionError): PlainObject {

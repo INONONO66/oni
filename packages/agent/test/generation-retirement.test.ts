@@ -1,10 +1,11 @@
+import { policySnapshot } from "./helpers/compiled-policy";
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import { generationSnapshot } from "../src/core/store/configure";
 import { testBus } from "./helpers/bus";
 import { isolated } from "./helpers/isolated";
 import { runAgentSync } from "./helpers/executor";
 import { expect, test } from "bun:test";
 
-import { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../src/core/gate/compile";
 import { Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect";
 import { makeSessionGenerations, GenerationRawSlots } from "../src/core/session/run";
 import { SessionLayer, ToolCatalog, ObservationSink } from "../src/core/ports/ports";
@@ -16,7 +17,7 @@ function generation(number: number, close: () => void) {
   return {
     id: { sessionId: "retirement", generation: number }, snapshot, activate: Effect.void,
     layer: Layer.mergeAll(
-      Layer.succeed(SessionLayer, { snapshot, policy: compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY,
+      Layer.succeed(SessionLayer, { snapshot, policy: policySnapshot({ registry: KERNEL_POLICY_REGISTRY,
         generation: 1, rows: SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })) }) }),
       Layer.succeed(ToolCatalog, { definitions: [] }), Layer.succeed(ObservationSink, testBus()),
       Layer.succeed(GenerationHandlers, KERNEL_POLICY_REGISTRY),

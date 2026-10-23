@@ -20,13 +20,9 @@ export {
   currentInvocation, forkInvocation,
   type InvocationFrame, type ExecutionApprovalRequest, type Executor,
 } from "./loop/executor";
-export { compilePolicySnapshot, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, type HandlerTable, type NamedTransformer, type NamedConsultant, type ConsultInput, type NamedGuard, type PolicyEvaluationInput } from "./gate/compile";
-export { decisionFromEvaluation, evaluatePermission } from "./gate/match";
-export {
-  composePointTable, executionPoint, GateComposeError, KERNEL_CAPABILITY_POINTS,
-  type CapabilityPointRegistration, type GatePointTable,
-} from "./gate/points";
-export { assertPointGenerationRows, POINT_GENERATION_ROW, translateLegacyPolicyRow } from "./gate/migrate";
+export { compile, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, composePointTable, GateComposeError, PolicyCompileError, KERNEL_CAPABILITY_POINTS, assertPolicyRows, POINT_GENERATION_ROW } from "./gate/compile";
+export { bind, filterLoadout, executionPoint, decisionFromEvaluation, evaluatePermission } from "./gate/bind";
+export type { HandlerTable, NamedTransformer, NamedConsultant, ConsultInput, NamedGuard, PolicyEvaluationInput, CapabilityPointRegistration, GatePointTable } from "./gate/types";
 export {
   currentExecutor, defineTool, eraseTool, projectTools,
   ToolRefused, type ToolProjections, type ProjectableTool,

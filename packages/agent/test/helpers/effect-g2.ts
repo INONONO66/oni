@@ -1,3 +1,4 @@
+import type { PolicyBinding } from "../../src/core/gate/types";
 import { answerThenCompaction } from "./durable-compaction";
 import { runChatAttempts } from "./chat-attempts";
 import { seededTestAgent } from "./seeded-test-agent";
@@ -16,7 +17,7 @@ import type {} from "../../src/core/session/run";
 import type { SessionRunnerInput, SessionRunnerResult } from "../../src/core/session/run";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import type { LedgerAction, SessionTransition } from "@oni/protocol";
-import type { CompiledPolicySnapshot } from "../../src/core/gate/compile";
+
 import type { ChatAgentInput } from "../../src/core/ports/types";
 import type { LlmSink as Sink } from "../../src/core/ports/llm";
 import type { ExecutorOptions, DurableExecutor } from "../../src/core/loop/executor";
@@ -61,7 +62,7 @@ export function recordingExecutor(
   return { committed: record.committed, executor };
 }
 
-export function turnExecutor(policy: CompiledPolicySnapshot) {
+export function turnExecutor(policy: PolicyBinding) {
   const record = recordingLedger();
   return {
     ...record,

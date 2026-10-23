@@ -1,9 +1,10 @@
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
+import { policySnapshot } from "./compiled-policy";
 import { executionReads } from "./execution-reads";
 import { isolatedLedger } from "./isolated";
 import { sessionTree } from "./session-tree";
 import type { ResolvedExecutorOptions } from "../../src/core/loop/executor";
-import { KERNEL_POLICY_REGISTRY } from "../../src/core/gate/compile";
-import { compilePolicySnapshot, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
+
 import { type LedgerAction, PlainObjectSchema } from "@oni/protocol";
 import { Effect } from "effect";
 import type { SessionKernel } from "../../src/core/session/entity";
@@ -11,7 +12,7 @@ import type { ExecutionLedger } from "../../src/core/loop/executor";
 import { TEST_APPROVAL_POLICY } from "../helpers/approval-policy";
 
 export const fiberSessionId = "fiber-session";
-export const nativePolicy = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY,
+export const nativePolicy = policySnapshot({ registry: KERNEL_POLICY_REGISTRY,
   generation: 1,
   rows: SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })),
 });

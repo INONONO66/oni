@@ -1,24 +1,27 @@
-import { runAgent, runAgentSync } from "./helpers/executor";
 import { KERNEL_POLICY_REGISTRY } from "../src/core/gate/compile";
+import { policySnapshot } from "./helpers/compiled-policy";
+import type { PolicyBinding } from "../src/core/gate/types";
+import { runAgent, runAgentSync } from "./helpers/executor";
+
 import { catalogLayer } from "./helpers/service-layers";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "bun:test";
 import { stringQueryTool, valueTool } from "./helpers/query-tool";
-import { compilePolicySnapshot, type CompiledPolicySnapshot } from "../src/core/gate/compile";
+
 import type { LedgerAction } from "@oni/protocol";
 import { createDispatcher } from "../src/plugins/tool";
 import { allowAllPolicy as allowAll, opPhaseOf } from "./helpers/compiled-policy";
 import { turnExecutor } from "./helpers/effect-g1";
 import { isolated } from "./helpers/isolated";
 
-const denyPre = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, mandatory: [], rows: [{
+const denyPre = policySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, mandatory: [], rows: [{
   name: "compaction", kind: "tool", phase: "pre", match: { encodingVersion: 1, value: { op: "echo" } },
   verdict: { encodingVersion: 1, value: { type: "deny", reason: "not_allowed" } }, priority: 1, generation: 1,
 }] });
 function echoTool(onRun: () => void) {
   return valueTool({ name: "echo", description: "Echo input", execute: async (value) => { onRun(); return value; } });
 }
-function durableExecutor(policy: CompiledPolicySnapshot, committed?: LedgerAction.Append[]) { return turnExecutor(policy, committed).executor; }
+function durableExecutor(policy: PolicyBinding, committed?: LedgerAction.Append[]) { return turnExecutor(policy, committed).executor; }
 function deniedDispatcher(executions: { count: number }) { return runAgentSync(createDispatcher({ executor: durableExecutor(denyPre) }).pipe(Effect.provide(catalogLayer([echoTool(() => { executions.count += 1; })])))); }
 const call = { id: "call-1", tool: "echo", input: { value: "secret" } };
 const context = { sessionId: "session-1", turnId: "turn-1" };

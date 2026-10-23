@@ -1,7 +1,9 @@
+import { gateSnapshot } from "./helpers/gate-rows";
+import type { GateHandler } from "../src/core/gate/types";
+import { GateComposeError } from "../src/core/gate/compile";
 import { describe, expect, it } from "bun:test";
 import { canonicalDigest, emittedRowKey } from "@oni/protocol";
-import { compileGateRows, type GateHandler } from "../src/core/gate/compose";
-import { GateComposeError } from "../src/core/gate/points";
+
 import {
   auditObserveGate,
   commandRewriteGate,
@@ -16,7 +18,7 @@ const table = fullPointTable();
 
 describe("gate decision fold (#1251)", () => {
   it("folds deny > require_approval > allow and records every matched row id in order", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.pre", { id: "a/tool.pre#1", order: 1, how: { verdict: "allow" } }),
@@ -33,7 +35,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("require_approval beats allow when nothing denies", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.pre", { how: { verdict: "require_approval" } }),
@@ -48,7 +50,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("matches rows on their `when` fields only", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { when: { op: "write" }, how: { verdict: "deny" } })],
       handlers: [],
@@ -65,7 +67,7 @@ describe("gate decision fold (#1251)", () => {
   it("records consulted handler payloads with their digests", () => {
     const payload = { risk: "low", checked: ["path"] };
     const handler: GateHandler = () => ({ verdict: "allow", payload });
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { how: { ref: "guard/scan" } })],
       handlers: ["guard/scan"],
@@ -95,7 +97,7 @@ describe("gate decision fold (#1251)", () => {
     // The reviewer's r5 probe row: ref plus a constant allow. It must refuse at
     // admission - it can never compile into a decidable gate that skips the guard.
     expect(() =>
-      compileGateRows({
+      gateSnapshot({
         table,
         rows: [gateRow("tool.pre", { how: { ref: "guard/check", verdict: "allow" } })],
         handlers: ["guard/check"],
@@ -178,7 +180,7 @@ describe("gate decision fold (#1251)", () => {
         value.input = "hijacked";
       return { payload: { seen: true } };
     };
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.pre", { id: "audit/tool.pre#3", do: "observe", how: { ref: "audit/mutate" } }),
@@ -203,7 +205,7 @@ describe("gate decision fold (#1251)", () => {
         value.input = "hijacked";
       return { verdict: "allow", payload: { ok: true } };
     };
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { how: { ref: "guard/scan" } })],
       handlers: ["guard/scan"],
@@ -221,7 +223,7 @@ describe("gate decision fold (#1251)", () => {
     const broken: GateHandler = () => {
       throw new Error("observer broke");
     };
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.pre", { id: "audit/tool.pre#4", do: "observe", how: { ref: "audit/broken" } }),
@@ -246,7 +248,7 @@ describe("gate decision fold (#1251)", () => {
       input.service("other/secrets");
       return { payload: { reached: true } };
     };
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.pre", { id: "audit/tool.pre#2", do: "observe", how: { ref: "audit/escape" } }),
@@ -267,7 +269,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("folds obligations and journals emit rows under deterministic idempotency keys", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("turn.post", { how: { verdict: "allow", metric: "continuations", limit: 8 } }),
@@ -295,7 +297,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("a consulted gate row is fail-closed: a prepared response without a verdict denies with one recorded fact (#1256 r3 H-3)", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("prompt.pre", { id: "hooks/prompt.pre#1", how: { ref: "hook/process" } })],
       handlers: ["hook/process"],
@@ -322,7 +324,7 @@ describe("gate decision fold (#1251)", () => {
   });
 
   it("a prepared observe-row result annotates with its payload; one without a payload is an unrecorded fact", () => {
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [
         gateRow("tool.post", { id: "hooks/tool.post#1", do: "observe", how: { ref: "hook/process" } }),
@@ -410,7 +412,7 @@ describe("gate decision fold (#1251)", () => {
 
   it("a sync gate handler answering without a verdict is equally fail-closed", () => {
     const handler: GateHandler = () => ({ payload: { note: "observed" } });
-    const gate = compileGateRows({
+    const gate = gateSnapshot({
       table,
       rows: [gateRow("tool.pre", { id: "probe/tool.pre#1", how: { ref: "guard/mute" } })],
       handlers: ["guard/mute"],

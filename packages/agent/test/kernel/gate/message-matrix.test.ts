@@ -1,11 +1,13 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { policySnapshot } from "../../helpers/compiled-policy";
+import type { PolicyEvaluationInput } from "../../../src/core/gate/types";
 import { expect, test } from "bun:test";
 import { Gateway } from "@oni/protocol";
-import { compilePolicySnapshot, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
+
 import { atGeneration, compaction, draft } from "./row-fixtures";
 
 function compiled(message: Gateway.RuleTableA | Gateway.RuleTableB) {
-  return compilePolicySnapshot({
+  return policySnapshot({
     registry: KERNEL_POLICY_REGISTRY,
     generation: 1,
     rows: [

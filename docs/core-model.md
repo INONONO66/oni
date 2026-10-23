@@ -51,11 +51,19 @@ Spawning a Worker for an atomic action is waste; doing multi-step work in the Ow
 
 Policy is not a gate-internal or Worker-only feature: it is the system-wide interception layer (LSM-style) around every actor and boundary. Resident, Worker, Jester, Governor, ingress, dispatch, memory, scheduling, tools, LLM connections, and writeback may each carry policy registrations selected by their actor profile and context. The protocol defines the policy decision and permission vocabulary; interception-point contracts are introduced with their first live consumer (#1246 deleted the consumerless ones). [Implementation Status](implementation-status.md) alone records which points have live consumers.
 
+The policy gate has two layers: `compile.ts` parses, validates and projects each
+captured row into its registered point bucket once; `evaluate.ts` matches and
+folds that snapshot. `bind.ts` connects the evaluator to the session loop's
+pre/post admission, ordered asynchronous consultations and captured tool
+loadout. Shared contracts live in `types.ts`. Stored rows needing the
+`policy-point-rows-v1` procedure fail closed with a typed row-indexed error;
+loading a generation never converts its rows.
+
 The rulebook:
 
-1. Compiled-row evaluation orders rows by descending priority, then rule name; the first matched deny or approval requirement stops evaluation. The unconsumed general effect-composition contract (**deny > pending > allow**, safe-deny effects and conflict merging) is withdrawn in #1030, not replaced by this row evaluator.
+1. Compiled-row evaluation orders rows by descending priority, then rule name, and records every matched row. The fold uses **deny > require_approval > allow**; a later allow cannot weaken an earlier refusal. Rewrites run in row order, and a recorded decision with the same generation and input identity replays its output without calling handlers.
 2. Engine failure: side-effect-boundary (pre) points **fail closed** with an incident event; post points fail open. Silent skips are forbidden.
-3. Hot-path discipline: policies are pure and synchronous — **a policy never calls an LLM**. LLM-grade watching is an actor's job: the kernel host invokes the Jester on bounded bus-derived input, and only the host may authorize speech; *policies block, actors assess, the host sends through the gate*.
+3. Hot-path discipline: the evaluator is synchronous; the binding resolves asynchronous consultants at their row position and supplies their recorded results to the same fold. **A policy never calls an LLM**. LLM-grade watching is an actor's job: the kernel host invokes the Jester on bounded bus-derived input, and only the host may authorize speech; *policies block, actors assess, the host sends through the gate*.
 4. No recursion: a policy returns a verdict and declares effects; it never invokes verbs. Effects are applied by the host.
 5. Effects outside a point's `allowedEffects` are rejected at registration, not dropped at runtime.
 6. Registering or changing a policy is itself a dispatched action: the Owner freely; the Governor autonomously only in the tightening direction; loosening requires Owner approval; nobody else at all.

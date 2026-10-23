@@ -1,3 +1,5 @@
+import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS } from "../../src/core/gate/compile";
+import { policySnapshot } from "./compiled-policy";
 import { generationSnapshot } from "../../src/core/store/configure";
 import { openCatalogStore } from "../../src/core/store/catalog";
 import { openSessionStore } from "../../src/core/store/session-file";
@@ -11,7 +13,7 @@ import {
   scopeObservation,
 } from "../../src/core/observation/bus";
 import { FakeLlmLive as LlmLive } from "./fake-llm";
-import { KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, compilePolicySnapshot } from "../../src/core/gate/compile";
+
 import { Entropy, GenerationOwnership, ObservationSink, SessionLayer, ToolCatalog, type GenerationServices, type RunnerServices } from "../../src/core/ports/ports";
 import { GenerationHandlers } from "../../src/core/composition/compose";
 import { makeSessionGenerations, type GenerationRawSlots } from "../../src/core/session/run";
@@ -94,7 +96,7 @@ export const runnerTestLayer = Layer.mergeAll(
   LlmLive, Layer.succeed(Entropy, entropySource("runner")),
   Layer.effectContext(Effect.gen(function* () {
     const snapshot = generationSnapshot({ generation: 1, revertTo: 0, tools: [], system: { preset: "", blocks: [] }, policyGeneration: 1 });
-    const policy = compilePolicySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, rows: SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })) });
+    const policy = policySnapshot({ registry: KERNEL_POLICY_REGISTRY, generation: 1, rows: SEEDED_POLICY_ROWS.map((row) => ({ ...row, generation: 1 })) });
     const sink = (yield* makeObservationBus({ id: entropySource("runner-event").id, now: () => 0 })).sink;
     const owner = yield* makeSessionGenerations({ id: { sessionId: "fixture", generation: 1 }, snapshot, activate: Effect.void,
       layer: Layer.mergeAll(Layer.succeed(SessionLayer, { snapshot, policy }), Layer.succeed(ToolCatalog, { definitions: [] }),

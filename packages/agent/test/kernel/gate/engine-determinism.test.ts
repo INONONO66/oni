@@ -1,6 +1,8 @@
 import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { policySnapshot } from "../../helpers/compiled-policy";
+import type { PolicyEvaluationInput } from "../../../src/core/gate/types";
 import { describe, expect, it } from "bun:test";
-import { compilePolicySnapshot, type PolicyEvaluationInput } from "../../../src/core/gate/compile";
+
 import type { PolicyRow, Storage } from "@oni/protocol";
 import { atGeneration, compaction, draft, MemoryPolicyRows, unrelatedRows, withPolicyRows } from "./row-fixtures";
 
@@ -36,7 +38,7 @@ function initialRows() {
 describe("compiled policy snapshot determinism", () => {
   it("pins a turn while the transactional writer advances new evaluators", () => withPolicyRows((source: Storage.PolicyRowSubAdapter) => {
     source.appendGeneration(() => initialRows());
-    const oldEvaluator = compilePolicySnapshot({
+    const oldEvaluator = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1,
       mandatory: ["compaction"],
     });
@@ -52,7 +54,7 @@ describe("compiled policy snapshot determinism", () => {
         { match: { op: "read" }, priority: 2_000 },
       ),
     ]);
-    const current = compilePolicySnapshot({
+    const current = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY, rows: source.rows(generation), generation,
       mandatory: ["compaction"],
     });
@@ -69,13 +71,13 @@ describe("compiled policy snapshot determinism", () => {
 
   it("derives the same content hash and result regardless of insertion order", () => {
     const rows = initialRows();
-    const forward = compilePolicySnapshot({
+    const forward = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows,
       mandatory: ["compaction"],
     });
-    const reverse = compilePolicySnapshot({
+    const reverse = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [...rows].reverse(),
@@ -88,7 +90,7 @@ describe("compiled policy snapshot determinism", () => {
 
   it("captures immutable row data without freezing caller-owned rows", () => {
     const rows = initialRows();
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows,
@@ -116,7 +118,7 @@ describe("compiled policy snapshot determinism", () => {
       },
     };
     const row = draft("redact-credentials", "tool", "post", verdict);
-    const snapshot = compilePolicySnapshot({
+    const snapshot = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY,
       generation: 1,
       rows: [atGeneration(compaction, 1), atGeneration(row, 1)],
@@ -142,7 +144,7 @@ describe("compiled policy snapshot determinism", () => {
   it("reads exactly one kind/phase/op bucket and never reads storage on the hot path", () => {
     const unrelated = unrelatedRows(220);
     const source = new MemoryPolicyRows([...initialRows(), ...unrelated]);
-    const evaluator = compilePolicySnapshot({
+    const evaluator = policySnapshot({
       registry: KERNEL_POLICY_REGISTRY, rows: source.rows(1), generation: 1,
       mandatory: ["compaction"],
     });

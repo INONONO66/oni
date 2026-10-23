@@ -1,6 +1,6 @@
 import { Context, Layer, Effect, type Scope } from "effect";
 import { listenForAbort, type AnyToolDefinition, type ObservationSink as ObservationPort, type SessionGeneration } from "@oni/protocol";
-import type { CompiledPolicySnapshot } from "../gate/compile";
+import type { PolicyBinding } from "../gate/types";
 import type { Llm } from "./llm";
 import type { SessionError } from "./failure";
 import type { GenerationHandlers } from "../composition/compose";
@@ -65,7 +65,7 @@ export class ObservationSink extends Context.Service<
 
 export class SessionLayer extends Context.Service<
   SessionLayer,
-  { readonly snapshot: SessionGeneration.Snapshot; readonly policy: CompiledPolicySnapshot }
+  { readonly snapshot: SessionGeneration.Snapshot; readonly policy: PolicyBinding }
 >()("@oni/agent/SessionLayer") {}
 
 export class ToolCatalog extends Context.Service<

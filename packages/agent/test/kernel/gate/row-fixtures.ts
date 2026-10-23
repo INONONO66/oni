@@ -76,8 +76,8 @@ export function unrelatedRows(count: number): PolicyRow.Row[] {
 
 export const compaction = draft(
   "compaction",
-  "turn",
-  "post",
+  "compaction",
+  "pre",
   { type: "allow" },
-  { match: { op: "compaction" }, priority: 1_000 },
+  { match: { op: "compact" }, priority: 1_000 },
 );

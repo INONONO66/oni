@@ -1,3 +1,4 @@
+import { policySnapshot } from "../../../../packages/agent/test/helpers/compiled-policy";
 import { APPROVAL_POLICY } from "../../src/composition/policy";
 import { Effect } from "effect";
 import { executorLayer } from "../../../../packages/agent/test/helpers/service-layers";
@@ -7,14 +8,13 @@ const createExecutor = Core.createExecutor;
 import { LedgerAction } from "@oni/protocol";
 import { fixtureHashes } from "../../../../packages/agent/test/helpers/compiled-policy";
 import { nullRetryAlarm } from "../../../../packages/agent/test/helpers/effect-g1";
-const compilePolicySnapshot = Core.compilePolicySnapshot;
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
 
 let ordinal = 0;
 
 /** The seeded policy rows compiled at generation 1: the real snapshot test executors enforce. */
-export const seededPolicy = compilePolicySnapshot({
+export const seededPolicy = policySnapshot({
   registry: KERNEL_POLICY_REGISTRY,
   generation: 1,
   mandatory: [],

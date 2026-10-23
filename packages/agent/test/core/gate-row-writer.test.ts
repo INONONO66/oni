@@ -1,3 +1,5 @@
+import { policySnapshot } from "../helpers/compiled-policy";
+import { createHandlerTable, KERNEL_POLICY_REGISTRY, SEEDED_POLICY_ROWS, compile } from "../../src/core/gate/compile";
 import { generationSnapshot } from "../../src/core/store/configure";
 import { expect, test } from "bun:test";
 import {
@@ -8,17 +10,8 @@ import {
   SessionHistory,
   type PolicyRow,
 } from "@oni/protocol";
-import {
-  compilePolicySnapshot,
-  createHandlerTable,
-  KERNEL_POLICY_REGISTRY,
-  SEEDED_POLICY_ROWS,
-} from "../../src/core/gate/compile";
-import { DEFAULT_COMPILE_KINDS, parseRow } from "../../src/core/gate/row-parse";
-import { projectGeneration } from "../../src/core/gate/project";
-import { GATE_ROW_WRITER_VERSION } from "../../src/core/ports/gate-rows";
-import { composePointTable, KERNEL_CAPABILITY_POINTS } from "../../src/core/gate/points";
 
+import { GATE_ROW_WRITER_VERSION } from "../../src/core/ports/gate-rows";
 
 const GENERATION = 1;
 
@@ -36,11 +29,7 @@ function seededRows(extra: readonly Omit<PolicyRow.Row, "generation">[] = []): P
 }
 
 function projected(rows: readonly PolicyRow.Row[]) {
-  const registry = createHandlerTable(KERNEL_POLICY_REGISTRY);
-  const kinds = new Set<string>(DEFAULT_COMPILE_KINDS);
-  const parsed = rows.map((row) => parseRow(row, GENERATION, kinds, registry));
-  const table = composePointTable({ capabilities: KERNEL_CAPABILITY_POINTS });
-  return projectGeneration(parsed, GENERATION, table, registry);
+  return compile({ rows, generation: GENERATION }, KERNEL_POLICY_REGISTRY);
 }
 
 /** A production-shaped message row whose rule table compiles to a per-row matcher. */
@@ -132,7 +121,7 @@ test("production row names (bundle ids, dotted) mint GateRowId-valid ids; the de
   // The approval round trip recoverAdmission performs: the committed gate
   // evidence must parse strictly (parseGateEvidence) and replay verbatim
   // (replayRecordedValue) — anything else throws stale_approval.
-  const snapshot = compilePolicySnapshot({
+  const snapshot = policySnapshot({
     registry: createHandlerTable(KERNEL_POLICY_REGISTRY),
     generation: GENERATION,
     rows,
@@ -149,7 +138,7 @@ test("production row names (bundle ids, dotted) mint GateRowId-valid ids; the de
 });
 
 test("a decision fact recorded under pre-cutover ids decodes and replays without rewriting its matchedRuleIds", () => {
-  const snapshot = compilePolicySnapshot({
+  const snapshot = policySnapshot({
     registry: createHandlerTable(KERNEL_POLICY_REGISTRY),
     generation: GENERATION,
     rows: seededRows([MATCHER_ROW]),

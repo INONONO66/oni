@@ -14,7 +14,7 @@ import { chmodSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { attachMachineDaemon } from "@oni/machines";
 import { L0Observation, Provisioning, type Tool } from "@oni/protocol";
-import { Effect } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { foldAlarmChains } from "../src/bundles/alarms/index";
 import { cliContactRowId, cliSessionName } from "../src/bundles/child-activity/contact/declaration";
 import { cliDeadlineChain, DELEGATION_DEADLINE } from "../src/bundles/delegation-policy/index";
@@ -30,7 +30,7 @@ import { ownerStart } from "./helpers/owner-start";
 import { receivedMessages } from "./helpers/received-messages";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 import { nextResidentTurn } from "./helpers/resident-turn";
-import { acquireEffect } from "./helpers/scoped-effect";
+import { runEffect } from "./helpers/effect";
 import { testSelfMachine } from "./helpers/self-machine";
 import { socketPath } from "./helpers/socket-path";
 import { testIds } from "./helpers/test-entropy";
@@ -129,14 +129,17 @@ async function bootContact(prefix: string, send: Tool.Call["input"]) {
     }),
     llm: scripted(send),
   });
-  await acquireEffect(attachMachineDaemon({
+  // Own the daemon here; a cached module's afterEach hook belongs to its first importing file.
+  const daemonScope = await runEffect(Scope.make());
+  suite.defer(() => runEffect(Scope.close(daemonScope, Exit.void)));
+  await runEffect(attachMachineDaemon({
     dispatcherBound: 8, socketPath: machinesSocket, id: testIds(`${prefix}-daemon`),
     offer: {
       machineId: MACHINE, daemonVersion: "0.1.0", platform: "darwin", offeredAt: 2000,
       offeredCapabilities: CAPABILITIES, exports: [{ name: "work", path: root }],
     },
     fsExports: new Map([["work", root]]), pty: { socketName },
-  }));
+  }).pipe(Scope.provide(daemonScope)));
   const plane = await planeOf(app.runtime);
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "owner-token"]);
   const request: Provisioning.ChannelDeclareRequest = {
