@@ -1,8 +1,6 @@
-import { AppInvariantError } from "../invariant";
 import { Core } from "@oni/agent";
 type SessionHandle = Core.SessionHandle;
 type SessionRunner = Core.SessionRunner;
-type SessionEntityPorts = Core.SessionEntityPorts;
 type ObservationPublishFailure = Core.ObservationPublishFailure;
 import { type ChannelStore, createActorRegistry, createChannelGrantStore, createChannelInstanceStore, createMachineEnrollmentStore, createPersonStore, createSecretStore, openChannelStore } from "@oni/channels";
 import { Context, Deferred, Effect, Exit, Layer } from "effect";
@@ -10,9 +8,8 @@ import { Context, Deferred, Effect, Exit, Layer } from "effect";
 /**
  * Cluster plane composition (W5.2 #1197 plan §1): the core host (`Core.openLedger`)
  * owns the catalog, the session files, the single-node runner and the Session
- * entity under one Scope; the app projects its channel-facing stores over the
- * same catalog handle. The cluster is host + mailbox + clock only; durability
- * is the ledger's hash chain.
+ * entity under one Scope; the app attaches its channel-facing stores to the
+ * same catalog. Core owns session files, transactions and authority.
  */
 
 /** Services the cluster host contributes to the app runtime (entity client access). */
@@ -21,7 +18,7 @@ export type ClusterServices = Core.ClusterServices;
 /** Per-session ledger file path — the one place the layout is spelled (core-owned). */
 export const sessionFilePath = Core.sessionFilePath;
 
-export type SessionKernel = Core.SessionKernel;
+export type SessionKernel = Core.SessionReadModel;
 
 /**
  * A publish that failed after its write committed is an incident for the
@@ -46,7 +43,10 @@ interface AppCatalogStores {
  * catalog-backed channel store plane. Built once at the composition root and
  * threaded explicitly — no module-level state.
  */
-export interface AppLedgerPlane extends Core.LedgerPlane {
+export interface AppLedgerPlane extends Omit<Core.LedgerPlane,
+  "catalog" | "catalogDatabase" | "handles" | "openKernel" | "sessionStore"
+  | "scanSessions" | "listSessions" | "releaseSession" | "discardSession"
+> {
   /** Channels-owned store plane (#1317) attached to the catalog's database handle. */
   readonly channel: ChannelStore;
   readonly stores: AppCatalogStores;
@@ -57,7 +57,7 @@ export interface AppLedgerPlane extends Core.LedgerPlane {
  * schema and adapters are channels-owned — attached here, once per plane,
  * without adopting the ledger's lifecycle (closing the plane closes the file).
  */
-export function withChannelStores(ledger: Core.LedgerPlane, now: () => number): AppLedgerPlane {
+export function withChannelStores(ledger: Core.LedgerPlane, now: () => number): AppLedgerPlane & Core.LedgerPlane {
   const channel = openChannelStore(ledger.catalogDatabase, now);
   return {
     ...ledger,
@@ -90,67 +90,7 @@ export function appLedgerLayer(now: () => number): Layer.Layer<AppLedger, never,
  * process's persisted messages as soon as it starts, before boot reaches the
  * binding); unbound use outside an activation dies typed — a wiring defect.
  */
-export interface SessionEntityPortsSlot {
-  readonly ports: SessionEntityPorts;
-  bind(ports: SessionEntityPorts): void;
-}
-
-export function createSessionEntityPortsSlot(): SessionEntityPortsSlot {
-  let bound: SessionEntityPorts | undefined;
-  const ready = Deferred.makeUnsafe<void>();
-  const resolve = (): SessionEntityPorts => {
-    if (bound === undefined) throw new AppInvariantError("session entity ports are not bound yet");
-    return bound;
-  };
-  return {
-    bind: (ports) => {
-      if (bound !== undefined) throw new AppInvariantError("session entity ports are already bound");
-      bound = ports;
-      Deferred.doneUnsafe(ready, Exit.succeed(undefined));
-    },
-    ports: {
-      ready: Deferred.await(ready),
-      // #1309: the policy is composition-owned data; reads delegate to the
-      // bound ports (an activation awaits `ready` before any port call).
-      get approvalPolicy() {
-        return resolve().approvalPolicy;
-      },
-      runTurn: (input) => Effect.suspend(() => resolve().runTurn(input)),
-      onRequestReady: (sessionId) => bound?.onRequestReady?.(sessionId),
-      requestDomainRevisions: (request) => resolve().requestDomainRevisions?.(request) ?? {},
-      sendAlarm: (sessionId, occurrence) =>
-        Effect.suspend(() => resolve().sendAlarm?.(sessionId, occurrence) ?? Effect.void),
-      // #1254 H3: live-arm registration delegates late like the other ports.
-      // An activation awaits `ready` before any port call, so boot has bound.
-      onLive: (sessionId, verbs) => resolve().onLive?.(sessionId, verbs) ?? (() => undefined),
-      // #1254 H1: post-commit arm notices follow the same late binding.
-      onArmed: (notice) => resolve().onArmed?.(notice),
-      // #1254 S4: capability + keep-alive observation delegate late like the
-      // turn port — purposes resolve against whatever boot bound (none = []).
-      alarmCapability: {
-        get purposes(): readonly string[] {
-          return bound?.alarmCapability?.purposes ?? [];
-        },
-        wake: (fired, ctx) =>
-          Effect.suspend(() => {
-            const capability = resolve().alarmCapability;
-            if (capability === undefined)
-              return Effect.die(new AppInvariantError("alarm capability wake without a bound capability"));
-            return capability.wake(fired, ctx);
-          }),
-      },
-      onKeepAlive: (enabled) => bound?.onKeepAlive?.(enabled),
-      // #1255 P3: the composed generation's deliver registrations and
-      // capability journal kinds, read per call so a recompose propagates.
-      get inputRegistrations(): readonly string[] | undefined {
-        return bound?.inputRegistrations;
-      },
-      get capabilityKinds(): readonly string[] | undefined {
-        return bound?.capabilityKinds;
-      },
-    },
-  };
-}
+export const createSessionEntityPortsSlot = Core.createSessionPortsSlot;
 
 // ─── #1254 S3: boot alarm rescan ───
 
@@ -237,7 +177,7 @@ export interface SessionLivePlane {
   wrapRunner(sessionId: string, runner: SessionRunner): SessionRunner;
 }
 
-type EntityClient = Effect.Success<typeof Core.SessionEntity.client>;
+type EntityClient = Effect.Success<typeof Core.sessionClient>;
 type InterruptFailure =
   | Effect.Error<ReturnType<ReturnType<EntityClient>["Deliver"]>>
   | Core.ExecutionError;
@@ -298,12 +238,3 @@ export function createSessionLivePlane(): SessionLivePlane {
       }),
   };
 }
-
-/**
- * Out-of-turn request authority over a possibly-live activation (W5.2 F5):
- * `createSessionRequests` adopts a fresh fence when no registry handle exists,
- * which would steal a running entity turn's authority and kill its wave. The
- * borrowing kernel view lives with the request authority in the agent package
- * so the decision seam and its regression tests share one implementation.
- */
-export const requestAuthorityKernel = Core.requestAuthorityKernel;

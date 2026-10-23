@@ -34,16 +34,16 @@ export function createIngressExecutor(
     const clock = yield* captureNow;
     const { id: nextId } = yield* Entropy;
     const composed = yield* ComposedGeneration;
-    const kernel = plane.openKernel(id);
+    const reads = plane.read.session(id);
     // #1346: the perimeter session is created through the one core creation
     // door (genesis row + catalog index in one write); an existing session
     // from an earlier boot is the idempotent outcome, while an orphan index
     // row with no genesis file fails boot typed (#1346 M3).
-    yield* Core.createSession(plane, {
-      id, parentId: null, role: "resident",
+    yield* plane.session(id).create({
+      parentId: null, role: "resident",
       genesis: {
         tools: [], bundles: composed.current().generation.bundles, system: { preset: "", blocks: [] },
-        policyGeneration: kernel.currentPolicyGeneration(), actionId: nextId(), at: clock(),
+        policyGeneration: reads.currentPolicyGeneration(), actionId: nextId(), at: clock(),
       },
     }).pipe(
       Effect.catchIf((error) => error.reason === "duplicate", () => Effect.void),
@@ -51,7 +51,7 @@ export function createIngressExecutor(
     );
     const serial = yield* Semaphore.make(1);
     return (_sender, request, body) => serial.withPermits(1)(Effect.scoped(Effect.gen(function* () {
-      const row = kernel.row(id);
+      const row = reads.row(id);
       const owner = nextId();
       const captured = yield* generations.capture({ sessionId: id, generation: row.toolsGeneration }).pipe(Effect.mapError((error) => new AgentFailure({ operation: "ingress.capture", cause: String(error) })));
       // The perimeter has no live turn and no entity activation: the core
@@ -59,12 +59,12 @@ export function createIngressExecutor(
       // executor over its own fenced door (#1346 M1). The app holds the
       // executor — run under the gate — never a ledger, fence or commit.
       const work = Effect.gen(function* () {
-      const executor = yield* Core.adoptedExecutor(kernel, id, owner, clock, {
+      const executor = yield* plane.session(id).executor(owner, clock, {
         approvalPolicy,
         identity: { sessionId: id, role: "resident", parentActionId: null },
       });
       return yield* executor.run(request, body).pipe(
-        Effect.map((result) => ({ ...result, matchedRuleIds: messageDecisionRules(kernel, id, request) })),
+        Effect.map((result) => ({ ...result, matchedRuleIds: messageDecisionRules(reads, id, request) })),
       );
       });
       return yield* captured.provide(work).pipe(Effect.provide(services));

@@ -7,6 +7,7 @@ export const coreGateFiles: Readonly<Record<string, string>> = {
   "packages/agent/src/core/loop/turn.ts": "export {};",
   "packages/agent/src/core/composition/compose.ts": "export {};",
   "packages/agent/src/core/observation/bus.ts": "export {};",
+  "packages/agent/src/core/read-model/session.ts": "export {};",
   "packages/agent/src/core/gate/compile.ts": "export {};",
   "packages/agent/src/core/store/catalog.ts": 'const schema = "CREATE TABLE catalog (id TEXT)";',
   "packages/agent/src/core/store/session-file/index.ts": 'const schema = "CREATE TABLE session (id TEXT)";',

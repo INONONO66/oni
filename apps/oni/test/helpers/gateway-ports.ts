@@ -17,9 +17,8 @@ export function residentGatewayPorts(plane: AppLedgerPlane, now: () => number) {
     const requests = channelRequests(
       yield* Core.createSessionRequests({
         approvalPolicy: APPROVAL_POLICY,
-        authorizeConfigure: configureAuthority(yield* Core.GenerationLayers, plane.openKernel),
-        openKernel: plane.openKernel,
-        listSessions: plane.listSessions,
+        authorizeConfigure: configureAuthority(yield* Core.GenerationLayers, plane.read.session),
+        ...plane.runtime,
       }),
     );
     return { requests, stores: createChannelStores(channelStoreSource(plane, now)) };

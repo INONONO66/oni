@@ -2,7 +2,6 @@ import { Effect } from "effect";
 import { Core } from "@oni/agent";
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
-const SessionEntity = Core.SessionEntity;
 import { Delivery, Gateway, SessionGeneration, type ConsumptionSettings, type LedgerSession } from "@oni/protocol";
 import { type ConversationBinding, SendAdmissionConflict, type createGatewayRouter } from "@oni/channels";
 import { z } from "zod";
@@ -39,7 +38,7 @@ const ExternalOrigin = z
  * gateway refuses the send as unbound. WebSocket owners read the turn stream.
  */
 function originBinding(
-  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  kernel: Core.SessionReadModel,
   send: Parameters<Ports["prepare"]>[1],
 ): ConversationBinding | undefined {
   if (send.to.kind !== "origin") return undefined;
@@ -60,7 +59,7 @@ function originBinding(
 }
 
 /** The Session entity client resolved once at boot (host-scoped). */
-type SessionEntityClient = Effect.Success<typeof SessionEntity.client>;
+type SessionEntityClient = Effect.Success<typeof Core.sessionClient>;
 
 export interface MessageDeliveryDeps {
   readonly plane: AppLedgerPlane;
@@ -104,11 +103,11 @@ export function materializeDeliveryTarget(
   return Effect.gen(function* () {
     const create = input.createSession;
     if (create === undefined) return;
-    if (plane.listSessions().some((row) => row.id === create.row.id)) return;
+    if (plane.read.sessions.list().some((row) => row.id === create.row.id)) return;
     const limits = input.limits;
     if (limits !== undefined && create.row.parentId !== null) {
-      const children = plane
-        .listSessions()
+      const children = plane.read.sessions
+        .list()
         .filter((row) => row.parentId === create.row.parentId);
       if (children.length >= limits.fanout)
         return yield* new AgentFailure({
@@ -123,8 +122,7 @@ export function materializeDeliveryTarget(
     // survive into the written configure row.
     const prepared = SessionGeneration.ConfigureIntent.safeParse(create.initialAction.intent.value);
     const settings = prepared.success ? prepared.data.settings : undefined;
-    yield* Core.createSession(plane, {
-      id: create.row.id,
+    yield* plane.session(create.row.id).create({
       parentId: create.row.parentId,
       role: create.row.role,
       genesis: {
@@ -247,29 +245,24 @@ export function messageMaterialization(
   readonly settings?: ConsumptionSettings;
 }) => LedgerSession.Materialize {
   return (input) => {
-    const snapshot = Core.SessionHandleStore.generationSnapshot({
-      generation: 1,
-      revertTo: 0,
-      tools: input.tools,
-      bundles: input.bundles ?? [],
-      ...(input.manifestHash === undefined ? {} : { manifestHash: input.manifestHash }),
-      system: {
-        preset: input.preset,
-        blocks: [{ id: "runner", source: "app:runner", content: input.runner }],
-      },
-      policyGeneration: currentPolicyGeneration(),
-    });
-    return Core.SessionHandleStore.materializationSeed(
-      {
-        id: input.id,
-        parentId: input.parentId,
-        role: input.role,
+    return Core.prepareSession({
+      id: input.id,
+      parentId: input.parentId,
+      role: input.role,
+      genesis: {
+        tools: [...input.tools],
+        bundles: input.bundles ?? [],
+        ...(input.manifestHash === undefined ? {} : { manifestHash: input.manifestHash }),
+        system: {
+          preset: input.preset,
+          blocks: [{ id: "runner", source: "app:runner", content: input.runner }],
+        },
+        policyGeneration: currentPolicyGeneration(),
         actionId: id(),
         at: input.at,
         ...(input.settings === undefined ? {} : { settings: input.settings }),
       },
-      snapshot,
-    );
+    });
   };
 }
 
@@ -314,8 +307,8 @@ function prepareExternal(
   target: string,
   messageId: string,
 ): Effect.Success<ReturnType<Ports["prepare"]>> {
-  const exists = plane.listSessions().some((row) => row.id === target);
-  const kernel = exists ? plane.openKernel(target) : undefined;
+  const exists = plane.read.sessions.list().some((row) => row.id === target);
+  const kernel = exists ? plane.read.session(target) : undefined;
   const source =
     kernel !== undefined && send.replyTo !== undefined
       ? kernel.messageActionByPlatformId(target, send.replyTo)
@@ -341,7 +334,7 @@ function prepareExternal(
 }
 
 function admissionBounds(
-  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  kernel: Core.SessionReadModel,
   source: LedgerSession.Row,
   send: Parameters<Ports["prepare"]>[1],
 ) {
@@ -390,7 +383,7 @@ function withinDeadline(
  */
 function ownerOriginTurn(
   plane: AppLedgerPlane,
-  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  kernel: Core.SessionReadModel,
   sessionId: string,
 ): boolean {
   // The running turn's intent names the deliveries it consumed — the same
@@ -428,7 +421,7 @@ const OwnerOrigin = z
 
 /** A new child's genesis and the fanout/depth limits the pinned policy declares for it; nothing for other targets. */
 function childCreation(
-  kernel: ReturnType<AppLedgerPlane["openKernel"]>,
+  kernel: Core.SessionReadModel,
   source: LedgerSession.Row,
   send: Parameters<Ports["prepare"]>[1],
   genesis: (
@@ -468,13 +461,13 @@ export function prepareMessage(
       if (sender.kind === "external") {
         return prepareExternal(plane, genesis, send, target, messageId);
       }
-      const kernel = plane.openKernel(sender.id);
+      const kernel = plane.read.session(sender.id);
       const source = kernel.row(sender.id);
       if (source.fenceOwner === null)
         return yield* new SendAdmissionConflict({ message: "session sender has no active lease" });
-      const rows = plane.listSessions();
+      const rows = plane.read.sessions.list();
       const recipient =
-        send.to.kind === "session" ? plane.openKernel(target).row(target) : undefined;
+        send.to.kind === "session" ? plane.read.session(target).row(target) : undefined;
       const origins = kernel.pendingMessages(sender.id).flatMap((row) => {
         const parsed = Delivery.MessageOrigin.safeParse(row.origin.value);
         return parsed.success ? [parsed.data] : [];

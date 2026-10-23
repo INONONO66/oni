@@ -1,6 +1,6 @@
 import { Bus } from "./bus";
 import { L0Observation, type SessionTurn } from "@oni/protocol";
-import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 import { eventSignal } from "./event-signal";
 
 /** A model turn completes in the ledger, not through an unsolicited external reply. */

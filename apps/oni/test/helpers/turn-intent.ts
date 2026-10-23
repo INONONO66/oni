@@ -1,6 +1,6 @@
 import type { LedgerAction } from "@oni/protocol";
 import { turnIntentAction as recordTurnIntent } from "../../../../packages/agent/src/core/journal/turn-rows";
-import type { SessionKernel } from "../../src/composition/cluster-runtime";
+type SessionKernel = import("@oni/agent").Core.SessionKernel;
 
 /** A committed-shape turn intent action rooted at the session's configure action. */
 export function turnIntentAction(

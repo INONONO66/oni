@@ -135,7 +135,7 @@ function declarePerson(
     createdBy: "resident",
     updatedAt: now(),
   });
-  port.materialize();
+  port.syncPersons();
   return {
     kind: "declared" as const,
     id: person.id,

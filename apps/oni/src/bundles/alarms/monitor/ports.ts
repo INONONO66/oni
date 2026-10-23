@@ -5,7 +5,7 @@ const ToolRefused = Core.ToolRefused;
 type LedgerError = Core.LedgerError;
 import { Alarm, Cron, type PlainValue, type ToolExecutionContext } from "@oni/protocol";
 import { z } from "zod";
-type SessionKernel = Core.SessionKernel;
+type SessionKernel = Core.SessionReadModel;
 
 /**
  * The monitor tool's Effect-free surface (boundary law R1): schemas, the
@@ -108,7 +108,7 @@ export async function armWatch(
 ) {
   const watch = Alarm.Watch.parse({ ...source, description });
   const kernel = ports.openKernel(context.sessionId);
-  const turn = Core.SessionHandleStore.turnIntent(kernel.actionById(context.turnId));
+  const turn = Core.turnIntent(kernel.actionById(context.turnId));
   if (turn === undefined) throw new ToolRefused("monitor", "no captured turn");
   const evaluation = evaluateGate(ports, context, watch);
   const limits = evaluation.obligations.filter(

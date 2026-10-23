@@ -13,7 +13,8 @@ import { compiledPolicy } from "../../../../packages/agent/test/helpers/compiled
 import { bounded } from "../../../../packages/agent/test/helpers/request-ledger";
 import { requestLedger } from "../../../../packages/agent/test/helpers/effect-g1";
 import { createRequestDomainRevisions } from "../../src/composition/request-domain-revisions";
-import type { AppLedgerPlane, SessionKernel } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
+type SessionKernel = import("@oni/agent").Core.SessionKernel;
 import { testPlane } from "./ledger";
 import { SHIPPED_OWNER_POLICY } from "../../src/composition/policy";
 import { executorLayer, catalogLayer } from "../../../../packages/agent/test/helpers/service-layers";

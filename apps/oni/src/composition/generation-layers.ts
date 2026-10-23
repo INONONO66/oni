@@ -156,7 +156,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
     return Effect.gen(function* () {
       if (definitions === undefined) return yield* new AgentFailure({ operation: "generation.initialize", cause: "not_initialized" });
       const generation = composed.current().generation;
-      const role = plane.openKernel(sessionId).row(sessionId).role;
+      const role = plane.read.session(sessionId).row(sessionId).role;
       const offered = new Set(snapshot.tools.map((tool) => tool.name));
       // #1561: every tool is bundle-owned. Compose already refused two bundles
       // declaring one name (typed `duplicate`), so the generation's tool table
@@ -190,7 +190,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
           const late = source.deliverLate;
           const consultClock = yield* Effect.serviceOption(HookConsultClock);
           const consultants = yield* acquireConsultants(generation, {
-            cursor: () => plane.openKernel(sessionId).latestAction(sessionId)?.ordinal ?? 0,
+            cursor: () => plane.read.session(sessionId).latestAction(sessionId)?.ordinal ?? 0,
             ...(Option.isSome(consultClock) ? { clock: consultClock.value } : {}),
             ...(late === undefined
               ? {}
@@ -205,11 +205,11 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
                 }),
           });
           return composedPolicyRegistry(generation, consultants, delegationGuardHandlers(catalogDelegationReads(
-            plane.listSessions,
+            plane.read.sessions.list,
             // #1258 M-4: a child is active while work is in flight — an open
             // turn or an undelivered input, both durable journal facts.
             (childId) => {
-              const kernel = plane.openKernel(childId);
+              const kernel = plane.read.session(childId);
               return kernel.latestOpenTurn(childId) !== undefined ||
                 kernel.pendingMessages(childId).length > 0;
             },
@@ -225,7 +225,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
       const layer = Layer.unwrap(Effect.gen(function* () {
         const registry = yield* GenerationHandlers;
         const policy = yield* Effect.try({
-          try: () => Core.bind(Core.compile({ rows: plane.openKernel(sessionId).policyRows(snapshot.policyGeneration), generation: snapshot.policyGeneration, kinds: LedgerAction.Kind.options, table: pointTable }, registry)),
+          try: () => Core.bind(Core.compile({ rows: plane.read.session(sessionId).policyRows(snapshot.policyGeneration), generation: snapshot.policyGeneration, kinds: LedgerAction.Kind.options, table: pointTable }, registry)),
           catch: String,
         }).pipe(Effect.mapError((cause) => new AgentFailure({ operation: "generation.policy", cause })));
         return Layer.succeed(SessionLayer, { snapshot, policy });
@@ -239,7 +239,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
       if (stopping) return yield* new AgentFailure({ operation: "generation.capture", cause: "draining" });
       let owner = managers.get(sessionId);
       if (owner === undefined) {
-        const initial = yield* bundle(sessionId, plane.openKernel(sessionId).latestGenerationFor(sessionId));
+        const initial = yield* bundle(sessionId, plane.read.session(sessionId).latestGenerationFor(sessionId));
         owner = yield* makeSessionGenerations(initial).pipe(Scope.provide(scope));
         managers.set(sessionId, owner);
       }
@@ -257,7 +257,7 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
     }),
     capture: (id: SessionGeneration.Id) => Effect.gen(function* () {
       const owner = yield* manager(id.sessionId);
-      const snapshot = plane.openKernel(id.sessionId).generationFor(id.sessionId, id.generation);
+      const snapshot = plane.read.session(id.sessionId).generationFor(id.sessionId, id.generation);
       if (snapshot === undefined) return yield* new GenerationUnavailable({ generation: id.generation });
       return yield* owner.capture(yield* bundle(id.sessionId, snapshot));
     }),

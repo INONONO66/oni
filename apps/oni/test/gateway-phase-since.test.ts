@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { LedgerAction, LedgerSession } from "@oni/protocol";
 import { adoptWriter, materializeSession } from "../../../packages/agent/test/store/helpers/session";
-import type { SessionKernel } from "../src/composition/cluster-runtime";
+type SessionKernel = import("@oni/agent").Core.SessionKernel;
 import { readSessionCursor } from "../src/gateway";
 import { testPlane } from "./helpers/ledger";
 import { runSyncEffect } from "./helpers/scoped-effect";

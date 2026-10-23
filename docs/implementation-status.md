@@ -1,5 +1,28 @@
 # Implementation Status
 
+## #1630 openLedger seam
+
+On `core/1630-openledger-seam` (2026-10-23, stacked on
+`core/1630-ledger-hash-chain-removal` at `aa3934bef`). The Core ledger exposes
+`session(id)` operations for creation, forks, configure, ingress execution and
+decision transactions. Creation keeps the existing genesis/index write unit;
+fork schema checks and `tools.add` authority now stay inside Core. The latter
+retains the activation fence and revision CAS across policy consultation and
+generation acquisition.
+
+App consumers read through `ledger.read` and `Core.SessionReadModel`, which
+exposes no commit or fence-adoption method. The CLI opens its readiness catalog
+through `Core.readCatalog`, which owns the read-only handle and closes it after
+the channels-owned readers finish. Core also owns the late-bound session ports
+and the application session command port. Channel table ownership stays in
+`packages/channels`; the app only attaches its adapters at composition.
+
+The app has no SQLite import, raw session-store access, `kernel.commit`,
+`catalog.indexSession`, or `materialize(...)` call. The dependency gate's two
+former app write exceptions and deferred commit pin are zero. The inspection
+helpers accept only the read capabilities they use. Router composition is
+excluded from this change; the existing two-argument model service is retained.
+
 ## #1630 action hash chain removed, session schema v3 (epic #1630, PR #1634)
 
 On `core/1630-ledger-hash-chain-removal` (2026-10-24, base `9fd758bcc` after #1631). Session files use schema version 3. Opening a supported older file retains the guarded alarm-strikes upgrade and removes action and decision row digests in the same immediate transaction as the version stamp. Historical fork ancestry pins, including copied configure rows, are converted from digests to the original parent action ids before digest columns are removed; upgraded parents retain a migration-only digest-to-id lookup for descendants that have not yet opened. Runtime ancestry and fork lookup use action ids only. Actions retain unique ids, session ordinals, payload columns, fenced commits and byte-equal replay comparison; decision facts remain first-writer-wins. Existing payload JSON outside converted fork pins is preserved. Compaction content digests, checkpoint-state validation and content-addressed tool outputs are unchanged. Evidence: packages/agent, protocol, channels and apps/oni (`--timeout 15000`) suites, check-types, lint, lint:tools and dead-exports exit 0 on the reviewed head; patch coverage against `origin/main` via `script/check-patch-coverage.ts`.
@@ -7,13 +30,6 @@ On `core/1630-ledger-hash-chain-removal` (2026-10-24, base `9fd758bcc` after #16
 ## #1630 policy gate fold: compile, evaluate, bind (epic #1630, PR #1632)
 
 On `core/1630-gate-fold` (2026-10-24, base `9fd758bcc` after #1631). `packages/agent/src/core/gate/` holds exactly `compile.ts`, `evaluate.ts`, `bind.ts` and `types.ts`: compilation parses, checks and buckets rows per point in one pass and publishes every row, bucket and lookup map deeply frozen (review H1); one evaluator owns matching, guarded responses, rewrites, observations, emissions and replay by recorded `inputHash`; the binding owns pre/post admission, ordered asynchronous consultation, synchronous approval replay and captured loadout filtering. The five-stage pipeline files (`admit`, `compose`, `fold`, `match`, `migrate`, `points`, `project`, `registry`, `row-parse`) and the v3 converter with its mapping table are deleted. Stored turn/post rows for compaction or restore_context_projection no longer convert at boot: compile refuses them with `PolicyCompileError` code `policy_row_migration_required`, carrying the zero-based `rowIndex` and procedure id `policy-point-rows-v1`; #1633 is the Owner's run of that procedure on the live catalog before this lands in a deployment. Current `PolicyRow` kind/phase storage is unchanged. Evidence: packages/agent, apps/oni and packages/channels suites, check-types, lint, lint:tools, deps, cycles and dead-exports exit 0 on the reviewed head; patch coverage against `origin/main` via `script/check-patch-coverage.ts`.
-
-||||||| parent of 17f4f30ef (docs(agent): stamp and implementation status for the hash chain removal (#1630))
-## #1630 model-call resilience router (epic #1630, PR #1631)
-
-On `core/1630-router-resilience` (#1630), configured `@oni/llm` routing selects ordered credential and model candidates within one call. HTTP status, body and headers outrank nested transport codes; reported usage proves context overflow before fallback. Selector circuits and credential re-probes release only their own half-open leases; failed probes reopen with exponential cooldown, shared blocked credentials retain their actual recovery deadlines, and the first accepted output establishes same-turn fallback affinity. Routed outcomes carry cumulative `billedUsage` across charged attempts separately from the final candidate's usage evidence; the core charges token budgets from the cumulative amount while measuring context from the final snapshot. Unconfigured calls retain their original single-attempt result shape. Router health and pins remain process-local, and the app's default binding does not configure chain rows.
-
-Router rows are not yet composed in `apps/oni` (the openLedger seam lane wires provider rows into `makeLlmService`); with no rows the port behaves exactly as before #1631.
 
 ## #1624 machine host admission: contract v2 peers and the attach generation
 

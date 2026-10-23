@@ -25,7 +25,8 @@ import { Bus } from "./helpers/bus";
 import { L0Observation, Tool } from "@oni/protocol";
 import { z } from "zod";
 import { seedKernelPolicyRows } from "../src/composition/policy";
-import { sessionFilePath, type AppLedgerPlane } from "../src/composition/cluster-runtime";
+import { sessionFilePath } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { createAppLedger, drainSession, resolvedRuntimeFor } from "./helpers/ledger";
 
 import { contentBlocks, messageStart, messageEnd, sseResponse } from "./helpers/anthropic-sse";

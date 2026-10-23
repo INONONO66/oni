@@ -9,7 +9,7 @@ import type { SessionKernel } from "../core/session/entity";
 
 /** Reads the fork pin off a session's genesis configure; null for a root. */
 export function forkAncestryOf(
-  kernel: SessionKernel,
+  kernel: Pick<SessionKernel, "historyPage">,
   sessionId: string,
 ): SessionGeneration.ForkAncestry | null {
   const genesis = kernel.historyPage(sessionId, { afterRevision: 0, limit: 1 }).actions[0];

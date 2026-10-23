@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Provisioning } from "@oni/protocol";
 import { messagingReadiness } from "../src/cli/messaging";
+import { createCliDeps } from "../src/cli/main";
+import { declareChannel } from "./helpers/declared-channel";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const instance = (
   id: string,
@@ -24,6 +29,24 @@ const person = (id: string, trustTier: Provisioning.Person["trustTier"], endpoin
 });
 
 const sealedOf = (rows: readonly Provisioning.ChannelInstance[]) => new Set(rows.flatMap((row) => (row.credentialRef === undefined ? [] : [row.credentialRef])));
+
+test("CLI readiness reads the declared catalog without modifying its bytes", async () => {
+  const home = mkdtempSync(join(tmpdir(), "cli-readiness-"));
+  const path = join(home, ".oni", "catalog.sqlite");
+  try {
+    declareChannel(path, "webhook", { url: "http://127.0.0.1:1" });
+    const before = readFileSync(path);
+
+    const facts = await createCliDeps(home).messagingFacts();
+
+    expect(facts.instances.map((row) => row.id)).toEqual(["channel:webhook:main"]);
+    expect([...facts.sealed]).toEqual(["secret:webhook-main"]);
+    expect(facts.persons).toEqual([]);
+    expect(readFileSync(path)).toEqual(before);
+  } finally {
+    rmSync(home, { recursive: true });
+  }
+});
 
 test("#1600 lane R4: nothing declared is the one-line answer, not a report", () => {
   expect(messagingReadiness({ instances: [], persons: [], sealed: new Set() })).toEqual({

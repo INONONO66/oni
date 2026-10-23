@@ -18,7 +18,7 @@ import { runEffect } from "./helpers/effect";
 import { afterEach, beforeEach, expect, it } from "bun:test";
 import { openCatalogStore } from "../../../packages/agent/src/core/store/catalog";
 import { openSessionStore } from "../../../packages/agent/src/core/store/session-file/index";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { testPlane } from "./helpers/ledger";
 const eraseTool = Core.eraseTool;
 import type { PlainObject } from "@oni/protocol";

@@ -81,7 +81,7 @@ function bindings(frame: InvocationFrame, id: () => string): NonNullable<RunOpti
  * (codemode maps that to the typed `unknown_output`).
  */
 export function sessionOutputsSource(
-  openKernel: (sessionId: string) => Core.SessionHandleStore.SessionKernel,
+  openKernel: (sessionId: string) => Core.SessionReadModel,
 ): (sessionId: string, outputId: string) => { readonly text: string; readonly bytes: number; readonly mediaType?: string } | undefined {
   return (sessionId, outputId) => {
     const inspected = Inspect.toolOutput(openKernel(sessionId), outputId);

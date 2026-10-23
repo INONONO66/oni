@@ -5,7 +5,7 @@ const session = Testing.session;
 import { Deferred, Effect } from "effect";
 import { z } from "zod";
 import { acquireAppResource, gatewayRuntime, runAppEffect } from "../../src/gateway";
-import { AppLedger } from "../../src/composition/cluster-runtime";
+const AppLedger = Core.Ledger;
 import { AppScope } from "../../src/runtime";
 import { seedKernelPolicyRows } from "../../src/composition/policy";
 import { auditBundle, composedHolder } from "./bundle-fixture";

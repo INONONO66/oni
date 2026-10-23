@@ -12,10 +12,9 @@
 import { Effect } from "effect";
 import { Core } from "@oni/agent";
 import type { SessionFork } from "@oni/protocol";
-import { type AppLedgerPlane, sessionFilePath } from "./cluster-runtime";
+import type { AppLedgerPlane } from "./cluster-runtime";
 
 export interface SessionForkOptions {
-  readonly sessionsDir?: string | undefined;
   /** Injected wall clock (#1245). */
   readonly now: () => number;
   /** Injected entropy for the child session and genesis action ids (#1245). */
@@ -35,31 +34,8 @@ export function createSessionForkExecutor(
       detail,
     });
     return Effect.suspend(() => {
-      // Fail-closed legacy handling (#1257): the read-only `PRAGMA
-      // user_version` probe runs before `openKernel` can open-for-write or
-      // stamp the parent file, so a legacy parent stays byte-identical.
-      const parentSchemaVersion =
-        options.sessionsDir === undefined
-          ? Core.SESSION_FILE_SCHEMA_VERSION
-          : Core.readSessionFileSchemaVersion(
-              sessionFilePath(options.sessionsDir, request.sessionId),
-            );
-      if (parentSchemaVersion !== Core.SESSION_FILE_SCHEMA_VERSION)
-        return Effect.succeed(
-          refused(
-            "schema_version",
-            `parent file schemaVersion ${parentSchemaVersion} is not ${Core.SESSION_FILE_SCHEMA_VERSION}`,
-          ),
-        );
-      return Core.forkSession(
+      return plane.session(request.sessionId).fork(
         {
-          parent: plane.openKernel(request.sessionId),
-          parentSchemaVersion,
-          openChild: () => plane.sessionStore(childId),
-          catalog: plane.catalog,
-        },
-        {
-          from: request.sessionId,
           at: request.at,
           childId,
           genesisActionId: `${childId}:genesis`,

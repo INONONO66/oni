@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Vault } from "@oni/channels";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { testPlane } from "./helpers/ledger";
 import { Actor, type Provisioning } from "@oni/protocol";
 import { declaredChannelProfile, validateProviderCredential } from "../src/channels";

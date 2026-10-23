@@ -449,7 +449,7 @@ test("#1343: a new app file starts at zero — one direct token fails the ratche
   }
 });
 
-test("#1355: retiring or deleting the inherited app owner requires lowering its pin", async () => {
+test("#1630: retiring or deleting the app owner passes at the zero pin", async () => {
   const cases: readonly Record<string, string>[] = [
     { "index.ts": "export const clean = true;\n" },
     { "process-entry.ts": "export const clean = true;\n" },
@@ -458,19 +458,19 @@ test("#1355: retiring or deleting the inherited app owner requires lowering its 
     const root = scratchAppsTree(files, "dir");
     try {
       const violations = await validateAppsAgentTokens(root);
-      expect(violations).toEqual([
-        "VIOLATION: apps/oni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
-      ]);
+      expect(violations).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   }
 });
 
-test("#1355: the unchanged inherited tools.add token remains exactly accounted for", async () => {
+test("#1630: the former tools.add token is refused at the zero pin", async () => {
   const root = scratchAppsTree({ "composition/ingress-executor.ts": "export const clean = true;\n", "index.ts": "kernel.commit(a);\n" }, "dir");
   try {
-    expect(await validateAppsAgentTokens(root)).toEqual([]);
+    expect(await validateAppsAgentTokens(root)).toEqual([
+      "VIOLATION: apps/oni/src/index.ts references 1 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -494,15 +494,13 @@ test("#1343: outside a checkout a stubbed pinned path passes, and the skip is on
   }
 });
 
-test("#1355: a worktree with no app tokens refuses inherited pin slack without notices", async () => {
+test("#1630: a worktree with no app tokens passes without notices", async () => {
   const root = scratchAppsTree({ "index.ts": "export {};\n" }, "file");
   const notices: string[] = [];
   try {
     const violations = await validateAppsAgentTokens(root, (notice) => notices.push(notice));
     expect(notices).toEqual([]);
-    expect(violations).toEqual([
-      "VIOLATION: apps/oni/src/index.ts token pin exceeds actual (1 > 0): lower the pin",
-    ]);
+    expect(violations).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -522,7 +520,7 @@ test("#1355: inherited app-token growth reports the owner and both numbers", asy
   try {
     const violations = await validateAppsAgentTokens(root);
     expect(violations).toContain(
-      "VIOLATION: apps/oni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 1 — shrink only, never grow",
+      "VIOLATION: apps/oni/src/index.ts references 3 direct agent-core tokens over the #1343 ratchet of 0 — shrink only, never grow",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -599,31 +597,30 @@ test("#1346 r1 M2: every spelling of a write door counts — element access, des
   ]);
 });
 
-test("#1346: a session write outside the exact allow-list line fails; the contacts materialize port is excluded", async () => {
+test("#1630: session writes and the retired contacts materialize name are both refused", async () => {
   const root = scratchAppsTree(
     {
       "composition/x.ts": "export const run = () => kernel.commit(action);\n",
       "bundles/provision/contacts.ts": "export const persons = () => port.materialize();\n",
+      "bundles/provision/sync.ts": "export const persons = () => port.syncPersons();\n",
     },
     "dir",
   );
   try {
     const violations = await validateAppsSessionWrites(root, silent);
     expect(violations.filter((line) => line.includes("composition/x.ts:1 names kernel.commit"))).toHaveLength(1);
-    expect(violations.some((line) => line.includes("contacts.ts"))).toBe(false);
+    expect(violations.filter((line) => line.includes("contacts.ts:1 names port.materialize"))).toHaveLength(1);
+    expect(violations.some((line) => line.includes("sync.ts"))).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("#1346: the allow-listed tools.add configure commit must still sit on its pinned line in a git checkout", async () => {
+test("#1630: a clean checkout requires neither former allow-listed write", async () => {
   const root = scratchAppsTree({ "index.ts": "export const noWrites = 1;\n" }, "file");
   try {
     const violations = await validateAppsSessionWrites(root, silent);
-    expect(violations).toEqual([
-      expect.stringContaining("apps/oni/src/index.ts:1489 no longer names kernel.commit"),
-      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
-    ]);
+    expect(violations).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -637,7 +634,7 @@ test("#1346: the allow-listed tools.add configure commit must still sit on its p
   }
 });
 
-/** The two pinned writes on their exact lines: the tools.add commit at index.ts:1489, the ingress adoption at ingress-executor.ts:62. */
+/** Former allow-list positions remain regression inputs; neither position grants an exception. */
 function pinnedWritesTree(ingressLine: number, extra = ""): string {
   return scratchAppsTree(
     {
@@ -648,7 +645,7 @@ function pinnedWritesTree(ingressLine: number, extra = ""): string {
   );
 }
 
-test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned to its exact line", async () => {
+test("#1630: both former write exceptions are refused on their old lines or after moving", async () => {
   expect(
     appsSessionWriteSites("Core.adoptedExecutor(kernel,id,owner,clock,{})", "apps/oni/src/probe.ts").map(
       (site) => [site.line, site.receiver, site.member],
@@ -656,15 +653,18 @@ test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned 
   ).toEqual([[1, "Core", "adoptedExecutor"]]);
   const pinned = pinnedWritesTree(62);
   try {
-    expect(await validateAppsSessionWrites(pinned, silent)).toEqual([]);
+    expect(await validateAppsSessionWrites(pinned, silent)).toEqual([
+      expect.stringContaining("apps/oni/src/index.ts:1489 names kernel.commit"),
+      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 names Core.adoptedExecutor"),
+    ]);
   } finally {
     rmSync(pinned, { recursive: true, force: true });
   }
   const moved = pinnedWritesTree(63);
   try {
     expect(await validateAppsSessionWrites(moved, silent)).toEqual([
+      expect.stringContaining("apps/oni/src/index.ts:1489 names kernel.commit"),
       expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
-      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 no longer names Core.adoptedExecutor"),
     ]);
   } finally {
     rmSync(moved, { recursive: true, force: true });
@@ -672,6 +672,8 @@ test("#1346 r2 M1: the perimeter adoptedExecutor adoption is counted and pinned 
   const second = pinnedWritesTree(62, "const again = Core.adoptedExecutor(kernel, id, owner, clock, {});\n");
   try {
     expect(await validateAppsSessionWrites(second, silent)).toEqual([
+      expect.stringContaining("apps/oni/src/index.ts:1489 names kernel.commit"),
+      expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:62 names Core.adoptedExecutor"),
       expect.stringContaining("apps/oni/src/composition/ingress-executor.ts:63 names Core.adoptedExecutor"),
     ]);
   } finally {

@@ -8,7 +8,6 @@ const createSessionRequests = Core.createSessionRequests;
 const currentExecutor = Core.currentExecutor;
 const AgentFailure = Core.AgentFailure;
 type AgentFailure = Core.AgentFailure;
-const SessionEntity = Core.SessionEntity;
 type SessionError = Core.SessionError;
 type SessionEntryServices = Core.SessionEntryServices;
 type SessionRuntime = Core.SessionRuntime;
@@ -122,9 +121,9 @@ export function serveProcessSession(
   // Fail closed before any entity wake: a session absent from the durable
   // plane is the typed child refusal here — the activation would otherwise
   // die building its handlers and the wake would never ack.
-  plane.openKernel(request.sessionId).row(request.sessionId);
+  plane.read.session(request.sessionId).row(request.sessionId);
   seedKernelPolicyRows(
-    plane.catalog.policies,
+    plane.policies,
     gateRowPolicySeeds(composed.current().generation),
     yield* AppPointTable,
     policy.rows,
@@ -132,16 +131,15 @@ export function serveProcessSession(
   const runtime: SessionRuntime = {
     // #1309: approval/budget policy values from the product bundle.
     approvalPolicy: policy.approval,
-    openKernel: plane.openKernel,
-    listSessions: plane.listSessions,
+    ...plane.runtime,
     processId: owner,
     onDeliveryCommitted: committed,
     dispatchOutbound: dispatchOutboundMessage(
       (...args) => gateway.ingest(...args),
-      plane.openKernel,
+      plane.read.session,
       policy.approval,
     ),
-    authorizeConfigure: configureAuthority(generations, plane.openKernel),
+    authorizeConfigure: configureAuthority(generations, plane.read.session),
     // #1311: the product settlement fold injected into the core seam.
     settleChild,
   };
@@ -169,7 +167,7 @@ export function serveProcessSession(
     sessionRuntime: runtime,
     tools,
     policyGeneration: () =>
-      plane.openKernel(GATEWAY_INGRESS_SESSION).currentPolicyGeneration(),
+      plane.read.session(GATEWAY_INGRESS_SESSION).currentPolicyGeneration(),
   });
   yield* generations.initialize({ resident: [], child: [] });
   const requests = yield* createSessionRequests(runtime);
@@ -191,7 +189,7 @@ export function serveProcessSession(
       if (sender.kind !== "session") return yield* Effect.die(new Error("process gateway requires a session sender"));
       return {
         ...result,
-        matchedRuleIds: messageDecisionRules(plane.openKernel(sender.id), sender.id, execution),
+        matchedRuleIds: messageDecisionRules(plane.read.session(sender.id), sender.id, execution),
       };
     }).pipe(Effect.mapError(decodeChannelFailure("message.run"))),
     requests: { ...channelRequests(requests), ...(answer === undefined ? {} : { answer: (input: SessionTransition.Answer) => Effect.tryPromise({ try: () => answer(input), catch: decodeChannelFailure("process.answer") }) }) },
@@ -218,14 +216,15 @@ export function serveProcessSession(
   let refused: SessionError | undefined;
   const runTurn: Core.SessionEntityPorts["runTurn"] = (input) =>
     Effect.suspend(() => {
-      const before = input.kernel.row(input.authority.sessionId).revision;
+      const reads = Core.sessionReadModel(input.kernel);
+      const before = reads.row(input.authority.sessionId).revision;
       return plane.turnPort(
-        resident.runnerFor(input.kernel.row(input.authority.sessionId)),
+        resident.runnerFor(reads.row(input.authority.sessionId)),
         resolved,
         scope,
       )({ ...input, detach: (body) => body }).pipe(
         Effect.catch((error) =>
-          input.kernel.row(input.authority.sessionId).revision === before
+          reads.row(input.authority.sessionId).revision === before
             ? Effect.die(error)
             : Effect.sync(() => {
                 refused ??= error;
@@ -239,7 +238,7 @@ export function serveProcessSession(
   const entityPorts: Core.SessionEntityPorts = { runTurn, approvalPolicy: runtime.approvalPolicy, dispatchOutbound: Core.outboundRedrivePort(resolved), get inputRegistrations(): readonly string[] { return ["prompt", "signal", ...composed.current().generation.inputs]; },
     get capabilityKinds(): readonly string[] { return Object.keys(composed.current().generation.kinds); } };
   binding.bind(entityPorts);
-  const entityClient = yield* SessionEntity.client;
+  const entityClient = yield* Core.sessionClient;
   const wake = entityClient(request.sessionId)
     .Alarm({
       occurrenceId: `${request.sessionId}:rescan:${entropy.id()}`,

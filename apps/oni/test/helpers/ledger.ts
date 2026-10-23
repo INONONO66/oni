@@ -15,9 +15,10 @@ import {
   AppLedger,
   type AppLedgerPlane,
   reportObservationPublishFailure,
-  type SessionKernel,
   withChannelStores,
 } from "../../src/composition/cluster-runtime";
+type SessionKernel = Core.SessionKernel;
+export type TestLedgerPlane = AppLedgerPlane & Core.LedgerPlane;
 import { ComposedGeneration } from "../../src/composition/composed";
 import { materializeDeliveryTarget, pendingDeliveryRow } from "../../src/composition/message-session";
 import type { AppRuntime } from "../../src/runtime";
@@ -39,7 +40,7 @@ export interface AppLedgerOptions {
  * over `Core.Ledger`, with the app's incident log as the failure port),
  * opened synchronously; the fixture owns `close`.
  */
-export function createAppLedger(options: AppLedgerOptions): AppLedgerPlane {
+export function createAppLedger(options: AppLedgerOptions): TestLedgerPlane {
   return withChannelStores(
     Testing.openLedgerPlane({
       now: options.now,
@@ -53,13 +54,15 @@ export function createAppLedger(options: AppLedgerOptions): AppLedgerPlane {
 }
 
 /** A standalone app ledger plane for fixtures that never boot the runtime. */
-export function testPlane(options: Partial<AppLedgerOptions> = {}): AppLedgerPlane {
+export function testPlane(options: Partial<AppLedgerOptions> = {}): TestLedgerPlane {
   return createAppLedger({ ...options, now: options.now ?? testClock() });
 }
 
 /** The booted runtime's own plane — the one the entity and boot share. */
-export function planeOf(runtime: AppRuntime): Promise<AppLedgerPlane> {
-  return runRuntimeEffect(runtime, Effect.map(AppLedger, (plane) => plane));
+export function planeOf(runtime: AppRuntime): Promise<TestLedgerPlane> {
+  return runRuntimeEffect(runtime, Effect.gen(function* () {
+    return { ...yield* Core.Ledger, ...yield* AppLedger };
+  }));
 }
 
 /**
@@ -88,7 +91,7 @@ export function adoptTestFence(
  * booted app (`startOni` in process-session-e2e, session-wave-e2e).
  */
 export function localDelivery(
-  plane: AppLedgerPlane,
+  plane: TestLedgerPlane,
   owner = "test-delivery",
   clock: () => number = () => Date.now(),
 ) {
@@ -125,7 +128,7 @@ export function resolvedRuntimeFor(
  * stop. Returns the latest turn terminal the drain settled.
  */
 export function drainSession(deps: {
-  readonly plane: AppLedgerPlane;
+  readonly plane: TestLedgerPlane;
   readonly sessionId: string;
   readonly runner: Core.SessionRunner;
   readonly runtime: ResolvedTestRuntime;

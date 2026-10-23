@@ -3,7 +3,7 @@ import { canonicalJson } from "@oni/protocol";
 import { Effect } from "effect";
 import { conflictRow, type ChildRow } from "./reconcile";
 
-type SessionClient = Effect.Success<typeof Core.SessionEntity.client>;
+type SessionClient = Effect.Success<typeof Core.sessionClient>;
 type Deliver = ReturnType<SessionClient>["Deliver"];
 type DeliveryPort = (input: Parameters<Deliver>[0]) => Effect.Effect<
   { readonly seq: number; readonly existed: boolean },

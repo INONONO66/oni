@@ -33,7 +33,7 @@ import { openResidentRequest } from "./helpers/open-resident-request";
 import { planeOf } from "./helpers/ledger";
 import { residentSuite, fakeProviderModel } from "./helpers/resident-suite";
 import { nextFrame } from "./helpers/ws";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 
 const suite = residentSuite();
 const TOKEN = "bundle-test";

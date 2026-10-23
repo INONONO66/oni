@@ -102,7 +102,7 @@ export interface ProvisionPort {
   readonly kek: KekResolution;
   readonly supervisor: Pick<ChannelSupervisor, "reconcile" | "resume" | "status" | "source">;
   /** Replays Person manifests into actor identity/endpoint facts (boot's materializer). */
-  readonly materialize: () => void;
+  readonly syncPersons: () => void;
   /** The composition recompose seam (#1255 P4): bundle_enable/bundle_disable run here. */
   readonly bundles: BundlePort;
   readonly removeIdentity: (id: string) => boolean;

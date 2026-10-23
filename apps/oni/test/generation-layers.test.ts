@@ -15,7 +15,7 @@ import { acquireAppResource, gatewayRuntime, runAppEffect } from "../src/gateway
 import { composedHolder } from "./helpers/bundle-fixture";
 import { allowConfigure } from "./helpers/generation-services";
 import { configureAuthority } from "../src/composition/generation-layers";
-import { AppLedger } from "../src/composition/cluster-runtime";
+const AppLedger = Core.Ledger;
 import { Bus } from "./helpers/bus";
 
 test("AppLive retains distinct same-number session generations", async () => {

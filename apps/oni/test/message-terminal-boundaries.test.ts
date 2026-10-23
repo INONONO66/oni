@@ -6,7 +6,7 @@ import { ownerStart } from "./helpers/owner-start";
 import { Bus, newTraceId } from "./helpers/bus";
 import { Core } from "@oni/agent";
 import { Gateway, L0Observation, SessionTransition } from "@oni/protocol";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { planeOf } from "./helpers/ledger";
 import { receivedMessages } from "./helpers/received-messages";
 import { assistantMessage, commissionInput, requestToolStep } from "./helpers/assistant-message";

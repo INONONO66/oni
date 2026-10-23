@@ -1055,7 +1055,7 @@ function agentCoreValueViolations(filePath: string, source: string): string[] {
   const importer = rest.split("/")[0] ?? "";
   const allowed = AGENT_CORE_EDGES[importer];
   if (allowed === undefined && rest.includes("/"))
-    return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not one of the eight core directories`];
+    return [`VIOLATION: ${filePath} — #1354 core layout: ${importer} is not a declared core directory`];
   if (allowed === undefined) return [];
   const violations: string[] = [];
   const specs = new Set([...valueImportSpecifiers(source), ...agentImports(filePath, source).filter((entry) => entry.lazy).map((entry) => entry.spec)]);
@@ -1357,24 +1357,13 @@ interface AppsSessionWriteSite {
 }
 
 /**
- * #1346: the two app-side session-store writes that survive the cutover, by
- * exact source line. One is the deferred `tools.add` `session.configure`
- * commit (its input contract is parent-owned; it is not converted into a
- * signal). The other is the perimeter ingress executor's `Core.adoptedExecutor`
- * call: it DOES adopt a fence (`adoptSessionAuthority` inside the core) for
- * the request's writer and commits gate rows through the core's fenced door,
- * so it is counted here as the second scoped exception (review-1346-r2 M1).
- * Moving either line re-pins it here; any other write anywhere fails.
+ * #1630: both former exceptions now live behind the Core ledger boundary.
+ * Every direct app-side session-store write fails.
  */
-const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [
-  { file: "apps/oni/src/index.ts", line: 1489, receiver: "kernel", member: "commit" },
-  { file: "apps/oni/src/composition/ingress-executor.ts", line: 62, receiver: "Core", member: "adoptedExecutor" },
-];
+const APPS_SESSION_WRITE_ALLOW_LIST: readonly AppsSessionWriteSite[] = [];
 
-/** #1346: unrelated same-named calls — the persons provisioning port's own `materialize()`. */
-const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [
-  { file: "apps/oni/src/bundles/provision/contacts.ts", receiver: "port", member: "materialize" },
-];
+/** No app call shares the retired store-operation names. */
+const APPS_SESSION_WRITE_EXCLUSIONS: readonly Omit<AppsSessionWriteSite, "line">[] = [];
 
 /** The banned member a property or element access names, if any (`create` only off `sessionStore(...)`). */
 function bannedSessionWriteMember(

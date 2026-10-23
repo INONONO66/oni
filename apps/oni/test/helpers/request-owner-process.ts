@@ -6,7 +6,7 @@ import { L0Observation, type PlainValue, type Tool } from "@oni/protocol";
 import { z } from "zod";
 import { dirname, join } from "node:path";
 import { appFixture } from "./app-fixture";
-import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 import { planeOf } from "./ledger";
 import { assistantMessage, requestToolStep } from "./assistant-message";
 import { testMachinesPlane } from "./self-machine";

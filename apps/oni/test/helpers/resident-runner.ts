@@ -18,7 +18,7 @@ import { createResident, type ResidentOptions } from "../../src/composition/resi
 import { runEffect, runSyncEffect } from "./effect";
 import { effectScope } from "./effect-scope";
 import { drainSession, localDelivery, resolvedRuntimeFor, testPlane } from "./ledger";
-import type { AppLedgerPlane } from "../../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./ledger";
 
 import { seedKernelPolicyRows } from "../../src/composition/policy";
 

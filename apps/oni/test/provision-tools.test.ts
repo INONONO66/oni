@@ -5,7 +5,7 @@ import { runEffect } from "./helpers/effect";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Vault } from "@oni/channels";
 import { testPlane } from "./helpers/ledger";
-import type { AppLedgerPlane } from "../src/composition/cluster-runtime";
+import type { TestLedgerPlane as AppLedgerPlane } from "./helpers/ledger";
 import { type PlainObject, Provisioning } from "@oni/protocol";
 import type { ChannelRuntimeStatus } from "../src/bundles/provision/supervisor";
 import { Core } from "@oni/agent";
@@ -68,7 +68,7 @@ function portWith(overrides: Partial<ProvisionPort> = {}): {
       status: () => supervisor.statuses,
       source: () => "declared",
     },
-    materialize: () => {
+    syncPersons: () => {
       supervisor.calls.push("materialize");
     },
     removeIdentity: (id) => {

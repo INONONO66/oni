@@ -92,7 +92,7 @@ const OriginConversation = z
 function externalReplyTarget(input: Parameters<SessionRunner>[0]): ReplyTarget | undefined {
   for (const message of [...input.messages].reverse()) {
     if (message.id === undefined) continue;
-    const origin = input.kernel.actionById(message.id)?.intent.value;
+    const origin = Core.sessionReadModel(input.kernel).actionById(message.id)?.intent.value;
     if (origin === null || typeof origin !== "object" || Array.isArray(origin)) continue;
     if (origin.kind !== "external" || typeof origin.surface !== "string" || origin.surface === "ws") continue;
     if (typeof origin.actorId !== "string" || typeof origin.externalId !== "string") continue;

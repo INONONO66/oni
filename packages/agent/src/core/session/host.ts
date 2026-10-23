@@ -1,7 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import type { Database } from "bun:sqlite";
-import type { LedgerSession, ObservationSink } from "@oni/protocol";
-import { type Crypto, Data, Duration, Effect, Layer, type Scope } from "effect";
+import { type LedgerSession, type ObservationSink, SessionGeneration } from "@oni/protocol";
+import { type Crypto, Data, Deferred, Duration, Effect, Exit, Layer, type Scope } from "effect";
 import { SingleRunner } from "effect/cluster";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -9,17 +9,24 @@ import type { AlarmDrainConfig } from "../ports/alarm";
 import {
   createSessionEntityLayer,
   createSessionEntityRunTurn,
+  SessionEntity,
   SessionEntityContext,
 } from "./entity";
-import { thrownAsError } from "../ports/failure";
+import { AgentFailure, CommitFailed, thrownAsError } from "../ports/failure";
 import { Ledger } from "../ports/ports";
-import type { ResolvedSessionRuntime, SessionEntityPorts, SessionRunner } from "./run";
+import { adoptedExecutor, type ResolvedSessionRuntime, type SessionEntityPorts, type SessionRunner } from "./run";
 import { type CatalogStore, openCatalogStore } from "../store/catalog";
 import * as SessionHandleStore from "../store/fence";
 import type { LedgerHandles } from "../store/services";
-import { openSessionStore, type SessionStore } from "../store/session-file";
+import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION, type SessionStore } from "../store/session-file";
 import type { ObservationFailurePort } from "../store/storage/sqlite-l0-observation";
 import { sessionIdProblem } from "./session-id";
+import { sessionReadModel } from "../read-model/session";
+import { configureAction, generationSnapshot, materializationSeed } from "../store/configure";
+import { createSession, type CreateSessionInput } from "./create";
+import { forkSession, ForkRefused, type ForkInput } from "./fork";
+import { createSessionRequests, requestAuthorityKernel } from "./request";
+import type { SessionRuntime } from "./runtime";
 
 const ENTITY_REAPER_INTERVAL_MS = 5_000;
 
@@ -48,6 +55,22 @@ export interface LedgerStoreConfig {
 }
 
 export interface LedgerPlane {
+  readonly read: {
+    readonly session: (sessionId: string) => ReturnType<typeof sessionReadModel>;
+    readonly sessions: {
+      readonly list: () => LedgerSession.Row[];
+      readonly get: (sessionId: string) => LedgerSession.Row | undefined;
+    };
+    readonly index: CatalogStore["sessionIndex"];
+    readonly armedSessionIds: CatalogStore["armedSessionIds"];
+    readonly fact: (sessionId: string, key: string) => ReturnType<SessionStore["decisionFacts"]["head"]>;
+  };
+  session(sessionId: string): ReturnType<typeof ledgerSession>;
+  /** Core mechanics receive these ports as a unit; the app never opens their handles. */
+  readonly runtime: Pick<SessionRuntime, "openKernel" | "listSessions">;
+  requests(runtime: SessionRuntime): ReturnType<typeof createSessionRequests>;
+  readonly policies: CatalogStore["policies"];
+  transaction<A>(operation: () => A): A;
   readonly catalog: CatalogStore;
   readonly catalogDatabase: Database;
   readonly handles: LedgerHandles;
@@ -71,6 +94,59 @@ export interface LedgerPlane {
 }
 
 export { Ledger };
+
+/** Application command port: entity activation, transport and mailbox ownership stay in Core. */
+export const sessionClient = Effect.map(SessionEntity.client, (client) => (sessionId: string) => {
+  const session = client(sessionId);
+  return { Deliver: session.Deliver, Resolve: session.Resolve, Alarm: session.Alarm };
+});
+
+class SessionBindingError extends Data.TaggedError("SessionBindingError")<{
+  readonly message: string;
+}> {}
+
+/** The host may activate before boot binds its product ports; readiness gates the first call. */
+export function createSessionPortsSlot() {
+  let bound: SessionEntityPorts | undefined;
+  const ready = Deferred.makeUnsafe<void>();
+  const resolve = (): SessionEntityPorts => {
+    if (bound === undefined)
+      throw new SessionBindingError({ message: "session entity ports are not bound yet" });
+    return bound;
+  };
+  const ports: SessionEntityPorts = {
+    ready: Deferred.await(ready),
+    get approvalPolicy() { return resolve().approvalPolicy; },
+    runTurn: (input) => Effect.suspend(() => resolve().runTurn(input)),
+    onRequestReady: (id) => bound?.onRequestReady?.(id),
+    requestDomainRevisions: (request) => resolve().requestDomainRevisions?.(request) ?? {},
+    sendAlarm: (id, occurrence) =>
+      Effect.suspend(() => resolve().sendAlarm?.(id, occurrence) ?? Effect.void),
+    onLive: (id, verbs) => resolve().onLive?.(id, verbs) ?? (() => undefined),
+    onArmed: (notice) => resolve().onArmed?.(notice),
+    alarmCapability: {
+      get purposes() { return bound?.alarmCapability?.purposes ?? []; },
+      wake: (fired, context) => Effect.suspend(() => {
+        const capability = resolve().alarmCapability;
+        return capability === undefined
+          ? Effect.die(new SessionBindingError({ message: "alarm capability wake without a bound capability" }))
+          : capability.wake(fired, context);
+      }),
+    },
+    onKeepAlive: (enabled) => bound?.onKeepAlive?.(enabled),
+    get inputRegistrations() { return bound?.inputRegistrations; },
+    get capabilityKinds() { return bound?.capabilityKinds; },
+  };
+  return {
+    ports,
+    bind: (next: SessionEntityPorts): void => {
+      if (bound !== undefined)
+        throw new SessionBindingError({ message: "session entity ports are already bound" });
+      bound = next;
+      Deferred.doneUnsafe(ready, Exit.succeed(undefined));
+    },
+  };
+}
 
 export class OpenRefused extends Data.TaggedError("OpenRefused")<{
   readonly code: "catalog" | "sessions";
@@ -205,7 +281,30 @@ function planeOver(
       }
     });
   }
-  return {
+  const plane: LedgerPlane = {
+    read: {
+      session: (id) => sessionReadModel(opened(id).kernel),
+      sessions: {
+        list: () => scanSessions((_, row) => [row]),
+        get: (id) => scanSessions((_, row) => row.id === id ? [row] : [])[0],
+      },
+      index: (id) => catalog.sessionIndex(id),
+      armedSessionIds: () => catalog.armedSessionIds(),
+      fact: (id, key) => opened(id).store.decisionFacts.head(key),
+    },
+    session: (id) => ledgerSession(
+      plane, id, sessionsDir === undefined ? undefined : () => sessionFilePath(sessionsDir, id),
+    ),
+    runtime: {
+      openKernel: (id) => plane.openKernel(id),
+      listSessions: () => plane.listSessions(),
+    },
+    requests: (runtime) => createSessionRequests({
+      ...runtime,
+      openKernel: (id) => requestAuthorityKernel(plane.openKernel(id), id),
+    }),
+    policies: catalog.policies,
+    transaction: catalog.transaction,
     catalog,
     catalogDatabase: catalog.database,
     handles: {
@@ -242,6 +341,7 @@ function planeOver(
       catalog.close();
     },
   };
+  return plane;
 }
 
 function readRow<A>(
@@ -314,4 +414,101 @@ export function openLedger(
     Layer.provideMerge(runner),
     Layer.provideMerge(ledgerLayer(config)),
   );
+}
+
+interface ConfigureToolsRuntime extends Pick<ResolvedSessionRuntime, "authorizeConfigure" | "clock" | "entropy"> {
+  readonly generations: Pick<ResolvedSessionRuntime["generations"], "configure">;
+}
+
+/** Prepare a typed genesis value for admission without opening a store. */
+export function prepareSession(input: CreateSessionInput) {
+  const { id, parentId, role, genesis } = input;
+  const { tools, bundles, system, policyGeneration, manifestHash, ...identity } = genesis;
+  return materializationSeed({ id, parentId, role, ...identity }, generationSnapshot({
+    generation: 1, revertTo: 0, tools, bundles, system, policyGeneration,
+    ...(manifestHash === undefined ? {} : { manifestHash }),
+  }));
+}
+
+/** Host-owned operations close over store handles; callers supply product policy and values only. */
+function ledgerSession(plane: LedgerPlane, sessionId: string, parentPath?: () => string) {
+  return {
+    create: (input: Omit<CreateSessionInput, "id">) => createSession(plane, { ...input, id: sessionId }),
+    fork: (input: Omit<ForkInput, "from">) => Effect.suspend(() => {
+      const version = parentPath === undefined
+        ? SESSION_FILE_SCHEMA_VERSION
+        : readSessionFileSchemaVersion(parentPath());
+      if (version !== SESSION_FILE_SCHEMA_VERSION)
+        return Effect.fail(new ForkRefused({
+          sessionId, reason: "schema_version",
+          detail: `parent file schemaVersion ${version} is not ${SESSION_FILE_SCHEMA_VERSION}`,
+        }));
+      return forkSession({
+        parent: plane.openKernel(sessionId),
+        parentSchemaVersion: version,
+        openChild: () => plane.sessionStore(input.childId),
+        catalog: plane.catalog,
+      }, { ...input, from: sessionId });
+    }),
+    executor: (
+      owner: string,
+      clock: () => number,
+      options: Parameters<typeof adoptedExecutor>[4],
+    ) => adoptedExecutor(plane.openKernel(sessionId), sessionId, owner, clock, options),
+    configureTools: (
+      additions: readonly SessionGeneration.Tool[],
+      runtime: ConfigureToolsRuntime,
+    ) => configureTools(plane, sessionId, additions, runtime),
+    decisions: {
+      head: (key: string) => plane.sessionStore(sessionId).decisionFacts.head(key),
+      record: (input: Parameters<ReturnType<LedgerPlane["sessionStore"]>["decisionFacts"]["record"]>[0]) =>
+        plane.sessionStore(sessionId).decisionFacts.record(input),
+    },
+    transaction: <A>(operation: () => A): A => plane.sessionStore(sessionId).transaction(operation),
+  };
+}
+
+function configureTools(
+  plane: LedgerPlane,
+  sessionId: string,
+  additions: readonly SessionGeneration.Tool[],
+  runtime: ConfigureToolsRuntime,
+) {
+  return Effect.gen(function* () {
+    const kernel = plane.openKernel(sessionId);
+    const row = kernel.row(sessionId);
+    if (row.fenceOwner === null)
+      return yield* new AgentFailure({ operation: "session.configure", cause: "authority_unavailable" });
+    const before = kernel.latestGenerationFor(sessionId);
+    const generation = before.generation + 1;
+    const accepted = yield* runtime.authorizeConfigure({
+      sessionId, role: row.role, operation: "tools.add", generation,
+    });
+    if (!accepted)
+      return yield* new AgentFailure({ operation: "session.configure", cause: "denied" });
+    const snapshot = generationSnapshot({
+      generation,
+      revertTo: before.generation,
+      tools: [...before.tools, ...additions.map((tool) => SessionGeneration.Tool.parse(tool))],
+      system: { preset: before.systemPreset, blocks: before.systemBlocks },
+      policyGeneration: before.policyGeneration,
+      bundles: before.bundles,
+      ...(before.manifestHash === undefined ? {} : { manifestHash: before.manifestHash }),
+    });
+    const action = configureAction({
+      id: runtime.entropy(), sessionId, parentId: kernel.latestAction(sessionId)?.id ?? null,
+      operation: "tools.add", snapshot, at: runtime.clock(),
+    });
+    yield* runtime.generations.configure({ sessionId, generation }, snapshot,
+      kernel.commit({
+        sessionId, owner: row.fenceOwner, fence: row.fence,
+        now: runtime.clock(), expectedRevision: row.revision, actions: [action], state: row.state,
+        generation: {
+          toolsGeneration: snapshot.generation, systemHash: snapshot.systemHash,
+          policyGeneration: snapshot.policyGeneration,
+        },
+      }).pipe(Effect.mapError((error) => new CommitFailed({ error }))),
+    );
+    return { generation: snapshot.generation, revertTo: snapshot.revertTo };
+  });
 }

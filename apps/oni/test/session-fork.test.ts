@@ -135,13 +135,8 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   // The two residual failure mappings through the SHIPPED executor (#1257
   // G-3): a typed non-refusal ledger failure and a thrown defect both come
   // back as `session_fork_refused(storage)` frames, never dropped frames.
-  const realStore = plane.sessionStore;
-  const brokenStore = spyOn(plane, "sessionStore").mockImplementation((id: string) => {
-    const store = realStore(id);
-    spyOn(store, "fork").mockImplementation(() =>
-      Effect.fail(new Core.CorruptRecord({ operation: "fork", id })));
-    return store;
-  });
+  const brokenStore = spyOn(plane.sessionStore("broken-child"), "fork").mockImplementation(() =>
+    Effect.fail(new Core.CorruptRecord({ operation: "fork", id: "broken-child" })));
   const storageRefusal = nextFrame(socket, (frame) => frame.type === "session_fork_refused");
   socket.send(JSON.stringify({
     type: "session_fork", sessionId, at: anchor.id, childId: "broken-child",
@@ -151,7 +146,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   });
   brokenStore.mockRestore();
 
-  const brokenKernel = spyOn(plane, "openKernel").mockImplementation(() => {
+  const brokenKernel = spyOn(plane.openKernel(sessionId), "historyPage").mockImplementation(() => {
     throw new Error("kernel exploded");
   });
   const defectRefusal = nextFrame(socket, (frame) => frame.type === "session_fork_refused");

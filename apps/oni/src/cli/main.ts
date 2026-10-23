@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { Database } from "bun:sqlite";
+import { Core } from "@oni/agent";
 import { createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore, OwnerLogins } from "@oni/channels";
 import { listenForAbort, type Machine, Provisioning } from "@oni/protocol";
 import { loadConfig } from "../config";
@@ -286,9 +286,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     const catalogPath = env.get("ONI_CATALOG_PATH")?.trim() || join(home, ".oni", "catalog.sqlite");
     if (!existsSync(catalogPath))
       throw new CliError(`no catalog at ${catalogPath}: nothing is declared yet (run the daemon once, then login or channel add)`);
-    const database = new Database(catalogPath, { readonly: true });
-    try {
-      database.run("PRAGMA query_only = 1");
+    return Core.readCatalog(catalogPath, (database) => {
       const channel = openChannelStore(database, () => Date.now());
       const instances = createChannelInstanceStore(channel).list();
       const secrets = createSecretStore(channel);
@@ -297,9 +295,7 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
         persons: createPersonStore(channel).list(),
         sealed: new Set(instances.flatMap((instance) => (instance.credentialRef !== undefined && secrets.get(instance.credentialRef) !== undefined ? [instance.credentialRef] : []))),
       };
-    } finally {
-      database.close();
-    }
+    });
   }
 
   return {
