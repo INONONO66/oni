@@ -1,4 +1,4 @@
-import { canonicalDigest, emittedRowKey, NamedError, PlainValueSchema, Policy, type PlainValue, type GateRow, type GateDecision, type GateVerdict, type EmitKind, type Gateway, type RowVerdict, type PointId } from "@oni/protocol";
+import { canonicalDigest, emittedRowKey, NamedError, PlainValueSchema, Policy, type PlainValue, type GateRow, type GateDecision, type GateVerdict, type EmitKind, type Gateway, type PointId } from "@oni/protocol";
 import { z } from "zod";
 import { policyPoint } from "./compile";
 import type {
@@ -356,12 +356,6 @@ function innerOperation(value: PlainValue): string | undefined {
   return typeof operation.op === "string" ? operation.op : undefined;
 }
 
-const VERDICT_PRECEDENCE: Record<"deny" | "require_approval" | "allow", readonly RowVerdict["type"][]> = {
-  deny: ["deny"],
-  require_approval: ["require_approval"],
-  allow: ["allow"],
-};
-
 function projectedWhenOf(input: PolicyEvaluationInput): Record<string, PlainValue> {
   const when: Record<string, PlainValue> = {};
   if (input.op !== undefined) when.op = input.op;
@@ -452,9 +446,8 @@ function projectedReason(
   verdict: "deny" | "require_approval" | "allow",
   matched: readonly CompiledRow[],
 ): string | undefined {
-  const types = VERDICT_PRECEDENCE[verdict];
   for (const row of matched) {
-    if (!types.includes(row.verdict.type)) continue;
+    if (row.verdict.type !== verdict) continue;
     if (row.verdict.type === "deny") return row.verdict.reason ?? "denied";
     if (row.verdict.type === "require_approval") return row.verdict.reason;
     if (row.verdict.type === "allow") {
