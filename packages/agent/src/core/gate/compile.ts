@@ -545,9 +545,7 @@ function immutableMap<K, V>(source: ReadonlyMap<K, V>): ReadonlyMap<K, V> {
     has: (key: K) => map.has(key),
     keys: () => map.keys(), values: () => map.values(),
     entries: () => map.entries(), [Symbol.iterator]: () => map[Symbol.iterator](),
-    forEach: (callback: (value: V, key: K, owner: ReadonlyMap<K, V>) => void, thisArg?: object) => map.forEach((value, key) => {
-      callback.call(thisArg, value, key, view);
-    }),
+    forEach: (callback: (value: V, key: K, owner: ReadonlyMap<K, V>) => void, thisArg?: object) => { for (const [key, value] of map) callback.call(thisArg, value, key, view); },
   });
   return view;
 }
