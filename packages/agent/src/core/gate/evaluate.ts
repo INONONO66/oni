@@ -1,11 +1,11 @@
-import { canonicalDigest, emittedRowKey, NamedError, type PlainValue, type GateRow, type GateDecision, type GateVerdict, type EmitKind, type Gateway, type RowVerdict, type PointId } from "@oni/protocol";
+import { canonicalDigest, emittedRowKey, NamedError, PlainValueSchema, Policy, type PlainValue, type GateRow, type GateDecision, type GateVerdict, type EmitKind, type Gateway, type RowVerdict, type PointId } from "@oni/protocol";
 import { z } from "zod";
 import { policyPoint } from "./compile";
 import type {
   CompiledPolicySnapshot, CompiledEntry, PolicyEvaluationInput,
   PolicyEvaluation, PointInput, EvaluationOptions, GateOutcome,
   GateHandler, GateHandlerResult, PreparedResults, FoldState,
-  MessagePolicyContext, CompiledRow,
+  MessagePolicyContext, CompiledRow, DeepReadonly,
 } from "./types";
 
 type HandlerResolver = ((ref: string) => GateHandler | undefined) | undefined;
@@ -108,7 +108,7 @@ function initialFoldState(value: PlainValue): FoldState {
 }
 
 function applyRow(
-  row: GateRow,
+  row: DeepReadonly<GateRow>,
   emit: EmitKind | undefined,
   state: FoldState,
   inputHash: string,
@@ -128,7 +128,7 @@ function applyRow(
       key: emittedRowKey(inputHash, row.id, state.emissions.length),
       kind: emit,
       rowId: row.id,
-      intent: row.how.intent ?? null,
+      intent: PlainValueSchema.parse(row.how.intent ?? null),
     });
     return;
   }
@@ -140,7 +140,7 @@ function applyRow(
 }
 
 function invokeGuarded(
-  row: GateRow,
+  row: DeepReadonly<GateRow>,
   handler: GateHandler,
   value: PlainValue,
   handlers: HandlerResolver,
@@ -149,7 +149,7 @@ function invokeGuarded(
   const allowed = new Set([row.how.ref, ...(row.how.requires ?? [])]);
   return handler({
     value: structuredClone(value),
-    params: row.how.params ?? null,
+    params: PlainValueSchema.parse(row.how.params ?? null),
     when: Object.freeze({ ...when }),
     service: (requested) => {
       const resolved = allowed.has(requested) ? handlers?.(requested) : undefined;
@@ -160,7 +160,7 @@ function invokeGuarded(
 }
 
 function observeRow(
-  row: GateRow,
+  row: DeepReadonly<GateRow>,
   state: FoldState,
   handlers: HandlerResolver,
   when: Readonly<Record<string, PlainValue>>,
@@ -199,7 +199,7 @@ function observeRow(
 }
 
 function consultRow(
-  row: GateRow,
+  row: DeepReadonly<GateRow>,
   ref: string,
   state: FoldState,
   handlers: HandlerResolver,
@@ -336,7 +336,7 @@ function decide<Context>(snapshot: CompiledPolicySnapshot<Context>, input: Point
             point,
             rowId: entry.row.id,
             ref: awaited,
-            params: entry.row.how.params ?? null,
+            params: PlainValueSchema.parse(entry.row.how.params ?? null),
             value: structuredClone(state.value),
           },
         };
@@ -416,7 +416,7 @@ export function evaluate<Context>(snapshot: CompiledPolicySnapshot<Context>, inp
       : [],
   );
   const effects = matched.flatMap((row) =>
-    row.verdict.type === "allow" ? (row.verdict.effects ?? []) : [],
+    row.verdict.type === "allow" ? (row.verdict.effects ?? []).map((effect) => Policy.PolicyEffect.parse(effect)) : [],
   );
   const verdict: PolicyEvaluation["verdict"] =
     outcome.decision.verdict !== "allow"

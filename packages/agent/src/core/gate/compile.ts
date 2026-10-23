@@ -11,7 +11,7 @@ import {
   type GatePointTable, type ComposePointTableOptions, type CapabilityPointRegistration,
   type HandlerTable, type NamedTransformer, type GateHandler, type CompiledRow,
   type CompiledEntry, type CompiledPolicySnapshot, type MessagePolicyContext,
-  type PointRows, type PolicyRows,
+  type PointRows, type PolicyRows, type DeepReadonly,
 } from "./types";
 export { GateComposeError, PolicyCompileError } from "./types";
 
@@ -103,7 +103,7 @@ export const KERNEL_POLICY_REGISTRY: HandlerTable = createHandlerTable({
 
 function wrapTransformer(transformer: NamedTransformer): GateHandler {
   return (input) => {
-    const output = transformer.apply(freezePlain(input.value), input.params ?? null);
+    const output = transformer.apply(freezeOwned(input.value), input.params ?? null);
     return {
       value: output,
       payload: { ref: transformer.name, output: canonicalDigest(output) },
@@ -316,7 +316,7 @@ function parseRow(
     kind: row.kind,
     phase: row.phase,
     priority: row.priority,
-    match: Object.freeze(match.data),
+    match: freezeOwned(match.data),
     verdict: resolveVerdict(immutableVerdict(verdict), row, generation, registry),
   });
 }
@@ -337,7 +337,7 @@ function readVerdict(row: PolicyRow.Row): RowVerdict {
 
 function immutableVerdict(verdict: RowVerdict): RowVerdict {
   const copy = structuredClone(verdict);
-  freezePlain(copy);
+  freezeOwned(copy);
   return copy;
 }
 
@@ -395,7 +395,7 @@ function contentIdentity(rows: readonly PolicyRow.Row[]): PlainValue {
       priority: row.priority,
     }));
 }
-function transformFields(config: PlainValue | undefined): string[] {
+function transformFields(config: DeepReadonly<PlainValue> | undefined): string[] {
   if (
     config === null ||
     typeof config !== "object" ||
@@ -403,8 +403,10 @@ function transformFields(config: PlainValue | undefined): string[] {
     config === undefined
   )
     return [];
-  const declared = Array.isArray(config.fields) ? config.fields : undefined;
-  const paths = Array.isArray(config.paths) ? config.paths : undefined;
+  const fields = "fields" in config ? config.fields : undefined;
+  const pathValues = "paths" in config ? config.paths : undefined;
+  const declared = Array.isArray(fields) ? fields : undefined;
+  const paths = Array.isArray(pathValues) ? pathValues : undefined;
   const segments = (declared ?? paths ?? []).flatMap((entry) =>
     typeof entry === "string"
       ? [declared === undefined ? (entry.split(".")[0] ?? entry) : entry]
@@ -413,13 +415,13 @@ function transformFields(config: PlainValue | undefined): string[] {
   return [...new Set(segments)];
 }
 
-function rewriteDoHow(verdict: { readonly ref: string; readonly config?: PlainValue }): Pick<GateRow, "do" | "how"> {
+function rewriteDoHow(verdict: { readonly ref: string; readonly config?: DeepReadonly<PlainValue> }): Pick<GateRow, "do" | "how"> {
   return {
     do: "rewrite",
     how: {
       ref: verdict.ref,
       fields: transformFields(verdict.config),
-      ...(verdict.config === undefined ? {} : { params: verdict.config }),
+      ...(verdict.config === undefined ? {} : { params: PlainValueSchema.parse(verdict.config) }),
     },
   };
 }
@@ -440,7 +442,7 @@ function projectedDoHow(row: CompiledRow): Pick<GateRow, "do" | "how"> {
         do: row.verdict.observe === true ? "observe" : "gate",
         how: {
           ref: row.verdict.ref,
-          ...(row.verdict.config === undefined ? {} : { params: row.verdict.config }),
+          ...(row.verdict.config === undefined ? {} : { params: PlainValueSchema.parse(row.verdict.config) }),
         },
       };
     case "transform":
@@ -483,8 +485,8 @@ export function compile<Context = MessagePolicyContext>(
     if (policy !== undefined) rowById.set(row.id, policy);
     const emit = admitRow(row, table, names);
     const bucket = byPoint.get(row.on) ?? [];
-    bucket.push({ row, emit, matcher: options.pointRows ? options.matchers?.get(row.id) : undefined,
-      ...(policy === undefined ? {} : { policy }) });
+    bucket.push(Object.freeze({ row: freezeOwned(row), emit, matcher: options.pointRows ? options.matchers?.get(row.id) : undefined,
+      ...(policy === undefined ? {} : { policy }) }));
     byPoint.set(row.on, bucket);
   }
   function compileStored(sourceRows: PolicyRows): void {
@@ -525,12 +527,35 @@ export function compile<Context = MessagePolicyContext>(
     compileStored(options);
   }
 
+  for (const bucket of byPoint.values()) Object.freeze(bucket);
   return Object.freeze({
     generation: options.generation,
     contentHash: canonicalDigest(options.pointRows ? options.rows.map((row) => ({ ...row })) : contentIdentity(options.rows)),
-    pointTable: table, byPoint, rowById, handlers,
-    consultants: new Map((registry.consultants ?? []).map((entry) => [entry.name, entry])),
+    pointTable: immutableMap(new Map([...table].map(([key, value]) => [key, freezeOwned(structuredClone(value))] as const))),
+    byPoint: immutableMap(byPoint), rowById: immutableMap(rowById), handlers: immutableMap(handlers),
+    consultants: immutableMap(new Map((registry.consultants ?? []).map((entry) => [entry.name, entry]))),
   });
+}
+
+function immutableMap<K, V>(source: ReadonlyMap<K, V>): ReadonlyMap<K, V> {
+  const map = Object.freeze(new Map(source));
+  const view: ReadonlyMap<K, V> = Object.freeze({
+    get size() { return map.size; },
+    get: (key: K) => map.get(key),
+    has: (key: K) => map.has(key),
+    keys: () => map.keys(), values: () => map.values(),
+    entries: () => map.entries(), [Symbol.iterator]: () => map[Symbol.iterator](),
+    forEach: (callback: (value: V, key: K, owner: ReadonlyMap<K, V>) => void, thisArg?: object) => map.forEach((value, key) => callback.call(thisArg, value, key, view)),
+  });
+  return view;
+}
+
+function freezeOwned<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) freezeOwned(item);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function refuseLegacyRow(row: Omit<PolicyRow.Row, "generation"> & { readonly generation?: number }, rowIndex: number): void {
@@ -549,14 +574,6 @@ export function assertPolicyRows(rows: readonly Omit<PolicyRow.Row, "generation"
       throw new GateComposeError({ code: "unknown_point", point: `${row.kind}.${row.phase}` });
   });
 }
-function freezePlain(value: PlainValue): PlainValue {
-  if (value !== null && typeof value === "object") {
-    for (const item of Object.values(value)) freezePlain(item);
-    Object.freeze(value);
-  }
-  return value;
-}
-
 type PolicyRowDraft = Omit<PolicyRow.Row, "generation">;
 export const SEEDED_POLICY_ROWS: readonly PolicyRowDraft[] = Object.freeze([
   { name: "compaction", kind: "compaction", phase: "pre" as const, match: { encodingVersion: 1 as const, value: {} },

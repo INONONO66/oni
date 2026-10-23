@@ -1,4 +1,5 @@
-import { KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { compile, KERNEL_POLICY_REGISTRY } from "../../../src/core/gate/compile";
+import { bind } from "../../../src/core/gate/bind";
 import { policySnapshot } from "../../helpers/compiled-policy";
 import type { PolicyEvaluationInput } from "../../../src/core/gate/types";
 import { describe, expect, it } from "bun:test";
@@ -106,6 +107,30 @@ describe("compiled policy snapshot determinism", () => {
     readRule.match.value = { op: "write" };
 
     expect(snapshot.evaluate(request)).toEqual(before);
+  });
+
+  it("keeps an existing binding unchanged when its published row is mutated", () => {
+    const rows = [
+      ...initialRows(),
+      atGeneration(draft("deny-read", "tool", "pre", { type: "deny", reason: "blocked" },
+        { match: { op: "read" }, priority: 2_000 }), 1),
+    ];
+    const snapshot = compile({ rows, generation: 1,
+      mandatory: ["compaction"] }, KERNEL_POLICY_REGISTRY);
+    const binding = bind(snapshot);
+    const before = binding.evaluate(request);
+    const entry = snapshot.byPoint.get("tool.pre")?.find((candidate) => candidate.policy?.name === "deny-read");
+    expect(entry?.policy?.name).toBe("deny-read");
+    expect(before.verdict).toBe("deny");
+    expect(() => Object.assign(entry?.row.how ?? {}, { verdict: "allow" })).toThrow(TypeError);
+    expect(Object.isFrozen(entry?.row.when)).toBe(true);
+    expect(Object.isFrozen(snapshot.byPoint.get("tool.pre"))).toBe(true);
+    expect(Reflect.get(snapshot.byPoint, "set")).toBeUndefined();
+    const after = binding.evaluate(request);
+    expect(after).toEqual(before);
+    expect([after.generation, after.snapshotHash, after.inputHash]).toEqual([
+      before.generation, before.snapshotHash, before.inputHash,
+    ]);
   });
 
   it("captures verdict data without aliasing caller-owned nested values", () => {

@@ -253,13 +253,19 @@ export interface CompiledRow {
     readonly operation?: string;
     readonly role?: LedgerSession.Role;
     readonly sessionId?: string;
-    readonly message?: Gateway.RuleTableA | Gateway.RuleTableB;
+    readonly message?: DeepReadonly<Gateway.RuleTableA | Gateway.RuleTableB>;
   };
-  readonly verdict: RowVerdict;
+  readonly verdict: DeepReadonly<RowVerdict>;
 }
 
+export type DeepReadonly<T> = T extends readonly (infer Item)[]
+  ? readonly DeepReadonly<Item>[]
+  : T extends object
+    ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+    : T;
+
 export interface CompiledEntry<Context> {
-  readonly row: GateRow;
+  readonly row: DeepReadonly<GateRow>;
   readonly emit: EmitKind | undefined;
   readonly matcher: ((context: Context | undefined) => boolean) | undefined;
   readonly policy?: CompiledRow;
