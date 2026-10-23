@@ -17,7 +17,6 @@ import {
   sendDeadline,
   sendPrompt,
   sessionFileFor,
-  verifyChain,
   waitUntil,
 } from "./cluster-runtime";
 
@@ -94,16 +93,15 @@ if (mode === "crash") {
         throw new Error(`expected one chain row for ${CRASH_MESSAGE_ID}, got ${appended.length}`);
       }
       console.log(
-        `REDELIVERED count=${appended.length} ordinal=${first.ordinal} action_hash=${first.action_hash}`,
+        `REDELIVERED count=${appended.length} ordinal=${first.ordinal} id=${first.id}`,
       );
 
       // 3. Real action shapes committed by the entity turn (F12 chain-level
-      //    evidence) and the whole chain re-verifies hash-by-hash. The seal is
+      //    evidence). The seal is
       //    awaited as the exact committed turn fact from the observation sink.
       yield* Effect.promise(() => boundedAwait("turn actions sealed on the chain", turnSealed.done, 30_000));
       const kinds = readChain(sessionFile, sessionId).map((row) => row.kind);
       console.log(`SHAPES count=${kinds.length} kinds=${kinds.join(",")}`);
-      console.log(`CHAIN_OK ${verifyChain(sessionFile, sessionId)}`);
 
       // 4. DeliverAt: a deadline occurrence for an unknown request folds to a
       //    recorded stale alarm fact, but must not be handed to the

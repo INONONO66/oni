@@ -1,7 +1,7 @@
 // W5.1 check2 as a package test (plan §4): SIGKILL mid-turn loses nothing —
 // the msg.received chain action is durable, the unacked envelope survives in
-// cluster_messages, redelivery dedupes against OUR chain (identical
-// action_hash), real turn shapes land on the chain (F12 chain-level evidence),
+// cluster_messages, redelivery preserves the exact stored row bytes,
+// real turn shapes land in the ledger,
 // DeliverAt honors its not-before residual, and a duplicate client send of the
 // same messageId yields exactly one chain row (R3).
 import { afterAll, expect, test } from "bun:test";
@@ -47,8 +47,6 @@ test("SIGKILL mid-turn: chain action durable, envelope unprocessed, redelivery d
   // The msg.received append committed durably before the kill.
   const appended = readChain(sessionFile, sessionId).filter((row) => row.id === "crash-m1");
   expect(appended).toHaveLength(1);
-  const durableHash = appended[0]?.action_hash ?? "";
-  expect(durableHash).toMatch(/^[0-9a-f]{64}$/);
 
   // The mailbox row survived the SIGKILL unprocessed (ack strictly after the
   // turn seal, check4 F2 ordering).
@@ -65,16 +63,16 @@ test("SIGKILL mid-turn: chain action durable, envelope unprocessed, redelivery d
   ]);
   if (exit !== 0) throw new Error(`restart child failed (exit ${exit}):\n${out}\n${err}`);
 
-  // Redelivered and deduped: same single chain row, identical action_hash.
-  expect(out).toMatch(new RegExp(`REDELIVERED count=1 ordinal=\\d+ action_hash=${durableHash}`));
+  // Redelivered and deduped: the same single row, including every payload byte.
+  expect(out).toContain(`REDELIVERED count=1 ordinal=${appended[0]?.ordinal} id=crash-m1`);
+  expect(readChain(sessionFile, sessionId).filter((row) => row.id === "crash-m1")).toEqual(appended);
 
   // F12: the recovered turn committed real action shapes (turn intent +
-  // terminal on the chain, not just the message append) and every hash links.
+  // terminal on the chain, not just the message append) with durable ordinals.
   const shapes = out.match(/SHAPES count=(\d+) kinds=(\S+)/);
   if (shapes === null) throw new Error(`missing SHAPES marker:\n${out}`);
   const kinds = (shapes[2] ?? "").split(",");
   expect(kinds.filter((kind) => kind === "turn").length).toBeGreaterThanOrEqual(1);
-  expect(out).toMatch(/CHAIN_OK [1-9]\d*/);
 
   // DeliverAt is a durable not-before clock: the recorded stale alarm fact
   // committed at or after the armed instant plus the 1500ms residual. The

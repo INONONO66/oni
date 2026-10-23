@@ -7,8 +7,8 @@ const { stores, child, fixture } = useForkFixture();
 
 describe("inspect tree (#1257)", () => {
   test("projects the ancestry tree with fork pins and asides from catalog edges", () => {
-    const parent = fixture.buildParent();
-    const receipt = fixture.forked(parent.hashOf("turn-1:terminal"));
+    fixture.buildParent();
+    const receipt = fixture.forked("turn-1:terminal");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
 
     // Ancestry reads the genesis pin; a root session has none.

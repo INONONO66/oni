@@ -21,17 +21,6 @@ export function readPlainJson(text: string): PlainValue | undefined {
   }
 }
 
-const sqliteNumeric = <Check extends z.ZodType<number, number>>(member: z.ZodType<number>, check: Check) =>
-  z.union([member, z.bigint()]).transform(Number).pipe(check);
-
-const SqliteCount = sqliteNumeric(
-  z.number().int(),
-  z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-);
-
-const SqliteEpochMs = sqliteNumeric(z.number(), z.number().finite().nonnegative());
-
-
 const actionRowSchema = LedgerAction.Node;
 
 const policyRowSchema = PolicyRow.Row;
@@ -45,25 +34,15 @@ export const ActionSqlRow = z.object({
   effect: z.string(),
   revert: z.string().nullable(),
   // Hot read path: single-layer checks instead of union/transform stacks
-  // (SqliteCount cost a >20% tree/history bench regression here). An
+  // (numeric transforms cost a >20% tree/history bench regression here). An
   // unexpected bigint fails closed.
   irreversible: z.union([z.literal(0), z.literal(1)]),
   encoding_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   ts: z.number().finite().nonnegative(),
   ordinal: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  prev_hash: z.string(),
-  action_hash: z.string(),
 });
 
 export type ActionSqlRow = z.infer<typeof ActionSqlRow>;
-
-/** Chain-verification boundary: safeIntegers bigint columns fold to the same numbers. */
-export const ActionSqlRowSafeIntegers = ActionSqlRow.extend({
-  irreversible: SqliteCount.pipe(z.union([z.literal(0), z.literal(1)])),
-  encoding_version: SqliteCount,
-  ts: SqliteEpochMs,
-  ordinal: SqliteCount,
-});
 
 export const SessionSqlRow = z.object({
   id: z.string(),
@@ -115,8 +94,6 @@ export function decodeSession(row: SessionSqlRow): LedgerSession.Row {
 }
 
 export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
-  // Version-1 input-plane payloads fold their retired field names strictly
-  // after the chain hash was computed over the stored bytes.
   const common = {
     id: row.id,
     parentId: row.parent_id,
@@ -126,8 +103,6 @@ export function decodeAction(row: ActionSqlRow): LedgerAction.Node {
     effect: { encodingVersion: row.encoding_version, value: parsePlainJson(row.effect) },
     ts: row.ts,
     ordinal: row.ordinal,
-    prevHash: row.prev_hash,
-    actionHash: row.action_hash,
   };
   return actionRowSchema.parse(
     row.revert === null

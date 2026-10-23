@@ -16,7 +16,7 @@ import { testPlatform } from "./helpers/platform";
 
 beforeEach(() => consoleStore.setState(() => INITIAL_CLIENT_STATE));
 
-const pin = { session: "durable", anchor: "hash-2", parentSeq: 3, parentHead: "head-3", copied: 4 };
+const pin = { session: "durable", anchor: "turn-1", parentSeq: 3, parentHead: "parent-latest", copied: 4 };
 
 /**
  * The gateway double: pages carry a boundary anchor; the fork answers in
@@ -31,8 +31,8 @@ function serveFork(script: "legs" | "children" = "legs") {
     script === "children" && forkCalls > 0
       ? {
           children: [
-            { sessionId: "child-1", anchor: "hash-2" },
-            { sessionId: "child-9", anchor: "hash-2" },
+            { sessionId: "child-1", anchor: "turn-1" },
+            { sessionId: "child-9", anchor: "turn-1" },
           ],
         }
       : {};
@@ -40,7 +40,7 @@ function serveFork(script: "legs" | "children" = "legs") {
     type: cursored ? "session_page" : "session_snapshot",
     sessionId, state: "idle", phase: "completed", phaseSince: 100,
     epoch: 1, afterRevision: 0, headRevision: 1, nextRevision: null,
-    actions: [{ revision: 1, actionId: "turn-1", kind: "turn", at: 120, forkAnchor: "hash-2" }],
+    actions: [{ revision: 1, actionId: "turn-1", kind: "turn", at: 120, forkAnchor: "turn-1" }],
     usage: [], toolWallMs: 0,
     ...(sessionId === "durable" ? childrenField() : {}),
   });
@@ -320,7 +320,7 @@ test("the parent page lists fork children and clicking one opens it", async () =
     await act(() => activateTab(parentTab?.id ?? ""));
     const entries = [...host.querySelectorAll<HTMLElement>('[data-ui="SessionContent.ForkChild"]')];
     expect(entries.map((entry) => entry.dataset.child)).toEqual(["child-1", "child-9"]);
-    expect(entries.map((entry) => entry.dataset.anchor)).toEqual(["hash-2", "hash-2"]);
+    expect(entries.map((entry) => entry.dataset.anchor)).toEqual(["turn-1", "turn-1"]);
 
     // The unbound historical child adopts a new local session and its tab.
     await settled(

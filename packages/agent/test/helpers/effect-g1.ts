@@ -11,7 +11,7 @@ import type { ExecutorOptions, ExecutionLedger } from "../../src/core/loop/execu
 import type {} from "../../src/core/session/run";
 import { commitSessionRequest } from "../../src/core/session/request";
 import { AgentFailure } from "../../src/core/ports/failure";
-import { allowAllPolicy, fixtureHashes } from "./compiled-policy";
+import { allowAllPolicy } from "./compiled-policy";
 import { fencedTurnFixture, fencedTurnIdentity } from "./fenced-writer";
 import { isolatedLedger } from "./isolated";
 
@@ -42,7 +42,7 @@ export function recordingExecutor(
             await options.onCommit?.(action);
           });
           ordinal += 1;
-          return { action: { ...action, ordinal, ...fixtureHashes(ordinal) }, revision: ordinal };
+          return { action: { ...action, ordinal }, revision: ordinal };
         }),
     },
     observations: { publish: (event) => options.onObservation?.(event.name) },
@@ -67,7 +67,7 @@ export function turnExecutor(
         Effect.sync(() => {
           committed.push(action);
           ordinal += 1;
-          return { action: { ...action, ordinal, ...fixtureHashes(ordinal) }, revision: ordinal };
+          return { action: { ...action, ordinal }, revision: ordinal };
         }),
     },
     observations: { publish: () => undefined },

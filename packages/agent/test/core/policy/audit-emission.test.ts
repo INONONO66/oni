@@ -28,7 +28,7 @@ it("awaits policy.decision commit before publishing its observation", async () =
         }
         appended.push(action);
         revision += 1;
-        return { action: { ...action, ordinal: revision, prevHash: "fixture-prev", actionHash: "fixture-hash" }, revision };
+        return { action: { ...action, ordinal: revision }, revision };
       });
     },
   };

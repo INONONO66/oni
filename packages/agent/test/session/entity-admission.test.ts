@@ -26,7 +26,6 @@ import {
   sendPrompt,
   sendResume,
   sessionFileFor,
-  verifyChain,
 } from "../helpers/cluster-runtime";
 
 type AdmissionSnapshot = Parameters<typeof decideSessionAdmission>[0];
@@ -483,9 +482,10 @@ describe("Integration: entity mailbox is a single writer with whole-backlog drai
       expect(start.startsWith("start:")).toBe(true);
       expect(end).toBe(`end:${start.slice("start:".length)}`);
     }
-    // OUR hash chain stayed linear under concurrency.
+    // Committed ordinals stay contiguous under concurrent delivery.
     const file = sessionFileFor(sessionsDir, "c1");
-    expect(verifyChain(file, "c1")).toBe(readChain(file, "c1").length);
+    const rows = readChain(file, "c1");
+    expect(rows.map((row) => row.ordinal)).toEqual(rows.map((_, index) => index + 1));
   }, 60_000);
 
   test("A17 integration: interrupted + backlog [prompt, resume] resumes and leaves the prompt pending (F4)", async () => {

@@ -55,10 +55,8 @@ export type Settings = z.infer<typeof Settings>;
 
 /**
  * Fork ancestry pinned at child genesis (#1257): the parent session, the
- * boundary anchor (the parent action hash forked at), the anchor's parent
- * ordinal, the parent chain head at fork time (so later parent appends cannot
- * alter verification) and how many parent rows were copied onto the child
- * chain after genesis.
+ * boundary action id, the anchor's parent ordinal, the latest parent action id
+ * at fork time and how many parent rows were copied after the child's genesis.
  */
 export const ForkedFrom = z
   .object({

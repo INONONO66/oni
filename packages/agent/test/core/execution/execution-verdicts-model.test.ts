@@ -206,8 +206,6 @@ describe("the single L2 executor's four-kind verdict model", () => {
                     action: {
                       ...action,
                       ordinal: revision,
-                      prevHash: "fixture-prev",
-                      actionHash: "fixture-hash",
                     },
                     revision,
                   } satisfies LedgerAction.Receipt;

@@ -205,7 +205,6 @@ test.each([
                 type: fault === "wrong_type" ? "other.fact" : "route.decided",
                 data: { invalid: true },
                 timeCreated: 1,
-                rowHash: "0".repeat(64),
               },
             };
           },

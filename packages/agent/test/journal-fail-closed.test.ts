@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { readChain } from "./helpers/cluster-runtime";
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { LedgerAction } from "@oni/protocol";
@@ -11,24 +11,8 @@ import { withDiskStores } from "./store/helpers/storage";
  * Fail-closed writes: the production commit path (kernel.commit →
  * commitSession → appendAction) validates every row body against its kind's
  * declared schema and refuses the whole commit on mismatch — the journal is
- * byte-identical afterwards (exact row count and hash head).
+ * byte-identical afterwards (exact persisted row bytes).
  */
-
-function journalState(path: string): { count: number; head: string | null } {
-  const db = new Database(path, { readonly: true });
-  try {
-    const count = db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM action").get()?.n ?? 0;
-    const head =
-      db
-        .query<{ action_hash: string }, []>(
-          "SELECT action_hash FROM action ORDER BY ordinal DESC LIMIT 1",
-        )
-        .get()?.action_hash ?? null;
-    return { count, head };
-  } finally {
-    db.close();
-  }
-}
 
 test("a schema-mismatching row refuses the whole production commit and leaves the journal unchanged", () => {
   withDiskStores("journal-fail-closed", ({ kernel, path }) => {
@@ -64,8 +48,8 @@ test("a schema-mismatching row refuses the whole production commit and leaves th
         ts: 3,
       },
     ];
-    const before = journalState(path);
-    expect(before.count).toBe(1); // the genesis configure row only
+    const before = readChain(path, "s1");
+    expect(before.length).toBe(1); // the genesis configure row only
     for (const bad of badRows) {
       const error = runLedgerSync(commitOne(bad).pipe(Effect.flip));
       expect(error).toBeInstanceOf(SchemaRefused);
@@ -74,8 +58,8 @@ test("a schema-mismatching row refuses the whole production commit and leaves th
         expect(error.actionId).toBe(bad.id);
       }
     }
-    // Nothing partial landed: exact row count and hash head are unchanged.
-    expect(journalState(path)).toEqual(before);
+    // Nothing partial landed: exact persisted row bytes are unchanged.
+    expect(readChain(path, "s1")).toEqual(before);
     // The same commit path still accepts a conforming row.
     runLedgerSync(
       commitOne({
@@ -89,8 +73,8 @@ test("a schema-mismatching row refuses the whole production commit and leaves th
         ts: 4,
       }),
     );
-    const after = journalState(path);
-    expect(after.count).toBe(2);
-    expect(after.head).not.toBe(before.head);
+    const after = readChain(path, "s1");
+    expect(after.length).toBe(2);
+    expect(after.at(-1)?.id).toBe("s1:good-prompt");
   });
 });

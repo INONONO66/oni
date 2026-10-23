@@ -98,7 +98,7 @@
   "DecisionFact.Outcome#exists": ["fact", "kind"],
   "DecisionFact.Outcome#recorded": ["fact", "kind"],
   "DecisionFact.Record": ["data", "key", "timeCreated", "type"],
-  "DecisionFact.Recorded": ["data", "key", "rowHash", "timeCreated", "type"],
+  "DecisionFact.Recorded": ["data", "key", "timeCreated", "type"],
   "Delivery.Commit": [
     "after",
     "content",
@@ -672,24 +672,19 @@
     "sessionId",
     "ts"
   ],
-  "LedgerAction.ChainVerdict#broken": ["actual", "expected", "kind", "ordinal"],
-  "LedgerAction.ChainVerdict#intact": ["head", "kind", "length"],
   "LedgerAction.Intent": ["op", "originalArgs", "phase", "value"],
   "LedgerAction.Node#0": [
-    "actionHash",
     "effect",
     "id",
     "intent",
     "kind",
     "ordinal",
     "parentId",
-    "prevHash",
     "revert",
     "sessionId",
     "ts"
   ],
   "LedgerAction.Node#1": [
-    "actionHash",
     "effect",
     "id",
     "intent",
@@ -697,7 +692,6 @@
     "kind",
     "ordinal",
     "parentId",
-    "prevHash",
     "sessionId",
     "ts"
   ],

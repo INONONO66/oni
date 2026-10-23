@@ -1,3 +1,4 @@
+import { readChain } from "../../helpers/cluster-runtime";
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
@@ -7,7 +8,7 @@ import { join } from "node:path";
 import { type LedgerAction, type SessionGeneration, SessionTurn } from "@oni/protocol";
 import { createSessionKernel } from "../../../src/core/store/fence";
 import { openCatalogStore } from "../../../src/core/store/catalog";
-import { actionPayloadBytes } from "../../../src/core/store/action-hash";
+import { actionPayloadBytes } from "../../../src/core/store/action-row";
 import { LedgerInvariant, SchemaRefused } from "../../../src/core/store/errors";
 import { openSessionStore, SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
 import { runLedgerSync } from "../helpers/effect";
@@ -134,7 +135,7 @@ test("createSessionKernel serves session facts from the session file and policy 
     );
     expect(committed.ok).toBe(true);
 
-    expect(kernel.verifyChain("s1")).toMatchObject({ kind: "intact", length: 2 });
+    expect(kernel.historyPage("s1").actions).toHaveLength(2);
     expect(kernel.getSnapshot("s1")).toMatchObject({
       id: "s1",
       state: "running",
@@ -157,7 +158,7 @@ test("createSessionKernel serves session facts from the session file and policy 
       timeCreated: 4,
     });
     expect(outcome.kind).toBe("recorded");
-    expect(session.decisionFacts.head("k1")?.rowHash).toBe(outcome.fact.rowHash);
+    expect(session.decisionFacts.head("k1")).toEqual(outcome.fact);
 
     // Policy rows come from the catalog, not the session file.
     expect(
@@ -207,22 +208,6 @@ function promptRowOfBytes(input: {
   return row;
 }
 
-function chainHead(path: string): { count: number; head: string | null } {
-  const raw = new Database(path, { readonly: true });
-  try {
-    const count = raw.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM action").get()?.n ?? 0;
-    const head =
-      raw
-        .query<{ action_hash: string }, []>(
-          "SELECT action_hash FROM action ORDER BY ordinal DESC LIMIT 1",
-        )
-        .get()?.action_hash ?? null;
-    return { count, head };
-  } finally {
-    raw.close();
-  }
-}
-
 test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` and nothing advances", () => {
   const directory = mkdtempSync(join(tmpdir(), "session-store-"));
   const path = join(directory, "s2.sqlite");
@@ -259,8 +244,8 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
     // The boundary itself, pinned as the issue's literal 1 MiB and not the constant: a payload of exactly 1_048_576 bytes lands.
     const atCap = promptRowOfBytes({ id: "s2:at-cap", sessionId: "s2", parentId: "s2:configure", bytes: 1_048_576 });
     expect(runLedgerSync(commit([atCap])).ok).toBe(true);
-    const settled = chainHead(path);
-    expect(settled.count).toBe(2);
+    const settled = readChain(path, "s2");
+    expect(settled.length).toBe(2);
     const revision = kernel.row("s2").revision;
 
     // One byte over: typed refusal on the existing error, before any chain mutation.
@@ -268,16 +253,16 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
     const refused = runLedgerSync(Effect.flip(commit([over])));
     expect(refused).toBeInstanceOf(SchemaRefused);
     expect(refused).toMatchObject({ sessionId: "s2", actionId: "s2:over", kind: "prompt", reason: "row_bytes" });
-    expect(chainHead(path)).toEqual(settled);
+    expect(readChain(path, "s2")).toEqual(settled);
     expect(kernel.row("s2").revision).toBe(revision);
 
     // Rollback of a batch: a conforming row ahead of the oversized one is rolled back with it.
     const small = promptRowOfBytes({ id: "s2:small", sessionId: "s2", parentId: "s2:at-cap", bytes: 256 });
     const batch = runLedgerSync(Effect.flip(commit([small, { ...over, parentId: "s2:small" }])));
     expect(batch).toMatchObject({ _tag: "SchemaRefused", actionId: "s2:over", reason: "row_bytes" });
-    expect(chainHead(path)).toEqual(settled);
+    expect(readChain(path, "s2")).toEqual(settled);
     expect(kernel.row("s2").revision).toBe(revision);
-    expect(kernel.verifyChain("s2")).toMatchObject({ kind: "intact", length: 2 });
+    expect(kernel.historyPage("s2").actions).toHaveLength(2);
     const reused = runLedgerSync(Effect.flip(commit([{ ...over, id: "s2:at-cap" }])));
     expect(reused).toMatchObject({ _tag: "SchemaRefused", actionId: "s2:at-cap", reason: "row_bytes" });
     expect(kernel.row("s2").revision).toBe(revision);
@@ -285,7 +270,7 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
     const mixed = runLedgerSync(Effect.flip(commit([{ ...small, id: "s2:at-cap" }, { ...over, parentId: "s2:at-cap" }])));
     expect(mixed).toBeInstanceOf(SchemaRefused);
     expect(mixed).toMatchObject({ _tag: "SchemaRefused", actionId: "s2:over", reason: "row_bytes" });
-    expect(chainHead(path)).toEqual(settled);
+    expect(readChain(path, "s2")).toEqual(settled);
     expect(kernel.row("s2").revision).toBe(revision);
 
     // The injected cap, not a literal: a store opened with a smaller cap refuses the same 256-byte row.
@@ -307,7 +292,7 @@ test("#1347 row cap: exactly the cap commits, one byte over refuses `row_bytes` 
         ),
       );
       expect(tightRefusal).toMatchObject({ _tag: "SchemaRefused", actionId: "s2:small", reason: "row_bytes" });
-      expect(chainHead(path)).toEqual(settled);
+      expect(readChain(path, "s2")).toEqual(settled);
     } finally {
       tight.close();
     }
@@ -336,13 +321,13 @@ test("#1347 row cap covers schema-exempt checkpoint rows and the materialize gen
     );
     expect(genesis).toMatchObject({ _tag: "SchemaRefused", actionId: "s3:configure", reason: "row_bytes" });
     expect(session.sessions.get("s3")).toBeUndefined();
-    expect(chainHead(path)).toEqual({ count: 0, head: null });
+    expect(readChain(path, "s3")).toEqual([]);
 
     const created = materializeSession(kernel, "s3");
     const adopted = runLedgerSync(
       kernel.adoptFence({ sessionId: "s3", owner: "owner", fence: created.fence + 1 }),
     );
-    const settled = chainHead(path);
+    const settled = readChain(path, "s3");
     const checkpoint: LedgerAction.Append = {
       id: "s3:checkpoint",
       parentId: "s3:configure",
@@ -367,7 +352,7 @@ test("#1347 row cap covers schema-exempt checkpoint rows and the materialize gen
       ),
     );
     expect(refused).toMatchObject({ _tag: "SchemaRefused", kind: "fold.checkpoint", reason: "row_bytes" });
-    expect(chainHead(path)).toEqual(settled);
+    expect(readChain(path, "s3")).toEqual(settled);
   }, { sessionFile: "s3.sqlite", session: { rowByteCap: 512 } });
 });
 

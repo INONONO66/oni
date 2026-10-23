@@ -1,7 +1,7 @@
 import { configurationSnapshot, configureAction } from "../store/configure";
 /**
- * The child genesis pins the parent, anchor, anchor parent ordinal and chain
- * head so later parent appends never alter the child's verification. Arms,
+ * The child genesis pins the parent, anchor action id, parent ordinal and latest
+ * action id so later parent appends never alter the child's history. Arms,
  * the armed index and checkpoint rows are never copied; copied input and
  * delivery rows are renamed `fork:<parent>:<id>` so a pre-fork key is admitted fresh.
  */
@@ -9,7 +9,7 @@ import { Data, Effect } from "effect";
 import type { LedgerAction, LedgerSession, PlainValue, SessionGeneration } from "@oni/protocol";
 import type { SessionKernel } from "../store/fence";
 
-import { actionPayloadBytes } from "../store/action-hash";
+import { actionPayloadBytes } from "../store/action-row";
 import { consumptionSettings } from "../journal/delivery";
 import type { LedgerError } from "../store/errors";
 import type { SessionForkReceipt, SessionIndexUnit, SessionStore } from "../store/session-file/index.js";
@@ -25,7 +25,6 @@ export const DEFAULT_FORK_COPY_BYTE_CAP = 4 * 1024 * 1024;
 
 export type ForkRefusalReason =
   | "parent_not_found"
-  | "parent_chain_broken"
   | "schema_version"
   | "anchor_not_found"
   | "anchor_not_boundary"
@@ -47,7 +46,7 @@ export class ForkRefused extends Data.TaggedError("ForkRefused")<{
 
 export interface ForkInput {
   readonly from: string;
-  /** The parent `actionHash` of a `turn{terminal}`, `prompt` or `compaction` row. */
+  /** The parent action id of a `turn{terminal}`, `prompt` or `compaction` row. */
   readonly at: string;
   /** Caller-minted (injected entropy). */
   readonly childId: string;
@@ -76,7 +75,7 @@ function plainObject(value: PlainValue): Record<string, PlainValue> | undefined 
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 }
 
-/** Only `turn{terminal}`, `prompt` and `compaction` hashes anchor a fork. */
+/** Only `turn{terminal}`, `prompt` and `compaction` actions anchor a fork. */
 export function isForkBoundary(action: LedgerAction.Node): boolean {
   if (action.kind === "prompt" || action.kind === "compaction") return true;
   return action.kind === "turn" && plainObject(action.effect.value)?.phase === "terminal";
@@ -151,7 +150,7 @@ function copyAction(
 function readParentPrefix(
   parent: SessionKernel,
   from: string,
-  anchorHash: string,
+  anchorId: string,
 ): { anchor: LedgerAction.Node | undefined; prefix: LedgerAction.Node[] } {
   const prefix: LedgerAction.Node[] = [];
   let afterRevision = 0;
@@ -159,7 +158,7 @@ function readParentPrefix(
     const page = parent.historyPage(from, { afterRevision, limit: 256 });
     for (const action of page.actions) {
       prefix.push(action);
-      if (action.actionHash === anchorHash) return { anchor: action, prefix };
+      if (action.id === anchorId) return { anchor: action, prefix };
     }
     if (page.nextRevision === null) return { anchor: undefined, prefix };
     afterRevision = page.nextRevision;
@@ -197,12 +196,8 @@ function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
   } catch {
     return refuse("parent_not_found", "parent session row is missing");
   }
-  const verdict = ports.parent.verifyChain(input.from);
-  if (verdict.kind === "broken")
-    return refuse("parent_chain_broken", `parent chain breaks at ordinal ${verdict.ordinal}`);
-  if (verdict.head === null) return refuse("anchor_not_found", "parent chain is empty");
   const { anchor, prefix } = readParentPrefix(ports.parent, input.from, input.at);
-  if (anchor === undefined) return refuse("anchor_not_found", `no parent action has hash ${input.at}`);
+  if (anchor === undefined) return refuse("anchor_not_found", `no parent action has id ${input.at}`);
   if (!isForkBoundary(anchor))
     return refuse(
       "anchor_not_boundary",
@@ -241,9 +236,9 @@ function planFork(ports: ForkPorts, input: ForkInput): ForkPlan | ForkRefused {
     snapshot,
     forkedFrom: {
       session: input.from,
-      anchor: anchor.actionHash,
+      anchor: anchor.id,
       parentSeq: anchor.ordinal,
-      parentHead: verdict.head,
+      parentHead: ports.parent.latestAction(input.from)?.id ?? anchor.id,
       copied: eligible.length,
     },
   };

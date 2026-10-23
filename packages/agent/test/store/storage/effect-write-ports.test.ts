@@ -168,6 +168,5 @@ test("successful writes return the existing adapter receipt and row values", () 
     sessionTree("session", f.adapter.actions).slice(1),
   );
   expect(result.receipts.map((receipt) => receipt.revision)).toEqual([2]);
-  expect(f.adapter.actions.verifyChain("session")).toMatchObject({ kind: "intact" });
   expect(f.observations.map((event) => event.id)).toEqual([GENESIS_ID, "action"]);
 });

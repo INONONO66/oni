@@ -7,10 +7,8 @@ import { SqlClient } from "effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { openSessionStore } from "../../src/core/store/session-file";
 import { runTestPromise } from "../helpers/isolated";
-import { createHash } from "node:crypto";
 import { DecisionFact } from "@oni/protocol";
 import { createDecisionFactPort } from "../../src/core/store/decision";
-import { computeDecisionFactHash } from "../../src/core/store/decision";
 import { testNow, useMemoryStores } from "./helpers/storage";
 
 const stores = useMemoryStores();
@@ -28,33 +26,13 @@ test("first writer wins and every outcome carries the exact recorded fact", () =
   const first = facts.record(input);
   expect(first).toEqual({
     kind: "recorded",
-    fact: {
-      ...input,
-      rowHash: computeDecisionFactHash({ ...input, data: JSON.stringify(input.data) }),
-    },
+    fact: input,
   });
   expect(DecisionFact.Outcome.parse(first)).toEqual(first);
   expect(
     facts.record({ ...input, type: "other", data: { changed: true }, timeCreated: 20 }),
   ).toEqual({ kind: "exists", fact: first.fact });
   expect(facts.head(input.key)).toEqual(first.fact);
-  const framed = JSON.stringify([
-    input.key,
-    input.type,
-    JSON.stringify(input.data),
-    input.timeCreated,
-  ]);
-  expect(first.fact.rowHash).toBe(createHash("sha256").update(framed).digest("hex"));
-  for (const changed of [
-    { key: "route:other" },
-    { type: "other" },
-    { data: "{}" },
-    { timeCreated: 11 },
-  ]) {
-    expect(
-      computeDecisionFactHash({ ...input, data: JSON.stringify(input.data), ...changed }),
-    ).not.toBe(first.fact.rowHash);
-  }
 });
 
 test("decision facts share the store transaction and roll back with it", () => {
@@ -94,18 +72,17 @@ test("decision_fact rows round-trip through Effect SqlClient in both directions"
     if (recorded.kind !== "recorded") throw new Error("expected recorded outcome");
     store.close();
 
-    type SqlRow = { key: string; type: string; data: string; row_hash: string; time_created: number };
+    type SqlRow = { key: string; type: string; data: string; time_created: number };
     const sqlLayer = SqliteClient.layer({ filename: path });
     const rows = await runTestPromise(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         const read = yield* sql<SqlRow>`
-          SELECT key, type, data, row_hash, time_created
+          SELECT key, type, data, time_created
           FROM decision_fact WHERE key = ${input.key}`;
         yield* sql`
-          INSERT INTO decision_fact (key, type, data, row_hash, time_created)
-          VALUES ('route:sql', 'route.decided', '{"via":"sql"}',
-                  ${computeDecisionFactHash({ key: "route:sql", type: "route.decided", data: '{"via":"sql"}', timeCreated: 20 })}, 20)`;
+          INSERT INTO decision_fact (key, type, data, time_created)
+          VALUES ('route:sql', 'route.decided', '{"via":"sql"}', 20)`;
         return read;
       }).pipe(Effect.provide(sqlLayer)),
     );
@@ -114,7 +91,6 @@ test("decision_fact rows round-trip through Effect SqlClient in both directions"
         key: input.key,
         type: input.type,
         data: JSON.stringify(input.data),
-        row_hash: recorded.fact.rowHash,
         time_created: input.timeCreated,
       },
     ]);
@@ -126,7 +102,6 @@ test("decision_fact rows round-trip through Effect SqlClient in both directions"
           key: "route:sql",
           type: "route.decided",
           data: { via: "sql" },
-          rowHash: computeDecisionFactHash({ key: "route:sql", type: "route.decided", data: '{"via":"sql"}', timeCreated: 20 }),
           timeCreated: 20,
         }),
       );

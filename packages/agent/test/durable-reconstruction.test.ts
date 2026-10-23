@@ -199,7 +199,6 @@ for (const field of ["state", "stateHash", "foldVersion", "revision"] as const) 
         });
         await isolatedRun(
           (ledger) => {
-            expect(ledger.kernel.verifyChain(reconstructionSession).kind).toBe("broken");
             expect(ledger.kernel.row(reconstructionSession).revision).toBe(cut.revision);
           },
           () => openCrashStores(dbPath),
@@ -212,7 +211,7 @@ for (const field of ["state", "stateHash", "foldVersion", "revision"] as const) 
   );
 }
 
-test("in-process reconstruction uses capped suffix reads and rejects a stale seed hash on an intact row chain", () => {
+test("in-process reconstruction uses capped suffix reads and rejects a stale seed hash on a committed row", () => {
   const directory = mkdtempSync(join(tmpdir(), "fold-in-process-"));
   const dbPath = join(directory, "kernel.sqlite");
   // One outer isolation over the file-backed stores; the in-process mains
@@ -295,7 +294,6 @@ test("in-process reconstruction uses capped suffix reads and rejects a stale see
           revision,
         );
         expect(corrupted).toBeDefined();
-        expect(isolation.kernel.verifyChain(reconstructionSession).kind).toBe("intact");
         const before = sessionTree(isolation.kernel, reconstructionSession);
         expect(() => hydrateSessionHistory(isolation.kernel, reconstructionSession)).toThrow(FoldCheckpointIntegrityError);
         expect(sessionTree(isolation.kernel, reconstructionSession)).toEqual(before);

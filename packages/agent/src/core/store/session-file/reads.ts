@@ -12,7 +12,7 @@ const OrdinalRow = z.object({ ordinal: z.number().int().positive() }).nullable()
 const PayloadBytesRow = z.object({ bytes: z.number().int().nonnegative() });
 const PolicyDecisionIntentRow = z.object({ intent: z.string() }).nullable();
 const PolicyDecisionIdentityRow = z.object({ matchedRuleIds: z.array(z.string()) });
-type Reads = Omit<Storage.ActionSubAdapter, "append" | "verifyChain">;
+type Reads = Omit<Storage.ActionSubAdapter, "append">;
 
 export const PENDING_MESSAGES_SQL = `
   SELECT a.* FROM action a WHERE a.session_id = ? AND a.kind IN ('prompt', 'signal', 'action')
@@ -442,7 +442,7 @@ export function createActionReads(db: Database, sink: ObservationSink): Reads {
         db
           .query(
             `SELECT id, parent_id, session_id, kind, intent, effect, revert,
-                  irreversible, encoding_version, ts, ordinal, prev_hash, action_hash
+                  irreversible, encoding_version, ts, ordinal
            FROM action WHERE session_id = ? AND ordinal > ? ORDER BY ordinal LIMIT ?`,
           )
           .all(sessionId, afterRevision, pageLimit),

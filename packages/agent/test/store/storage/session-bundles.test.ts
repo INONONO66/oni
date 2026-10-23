@@ -29,10 +29,9 @@ test("new session creation persists canonical bundle selection across reopen", (
   stores.reopen();
   expect(stores.kernel.latestGenerationFor("selected").bundles).toEqual(["audit-log", "zeta"]);
   expect(sessionTree("selected", stores.session.actions)).toEqual(actions);
-  expect(stores.kernel.verifyChain("selected")).toMatchObject({ kind: "intact", length: 1 });
 });
 
-test("historic configure bytes and hashes survive default empty bundle decoding and reopen", () => {
+test("historic configure bytes survive default empty bundle decoding and reopen", () => {
   const historic = {
     generation: 1,
     revertTo: 0,
@@ -73,8 +72,8 @@ test("historic configure bytes and hashes survive default empty bundle decoding 
   const readStoredAction = () => {
     using raw = new Database(stores.sessionPath);
     return z
-      .object({ effect: z.string(), action_hash: z.string() })
-      .parse(raw.query("SELECT effect, action_hash FROM action").get());
+      .object({ effect: z.string() })
+      .parse(raw.query("SELECT effect FROM action").get());
   };
   const before = readStoredAction();
   const actions = sessionTree("historic", stores.session.actions);
@@ -83,9 +82,5 @@ test("historic configure bytes and hashes survive default empty bundle decoding 
   expect(stores.kernel.latestGenerationFor("historic").bundles).toEqual([]);
   expect(readStoredAction()).toEqual(before);
   expect(sessionTree("historic", stores.session.actions)).toEqual(actions);
-  expect(stores.session.actions.verifyChain("historic")).toMatchObject({
-    kind: "intact",
-    length: 1,
-  });
   expect(SessionGeneration.Snapshot.parse(historic).bundles).toEqual([]);
 });

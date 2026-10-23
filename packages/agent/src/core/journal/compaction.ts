@@ -4,7 +4,7 @@ import { checkpointPolicy, foldHistoryState, foldSessionHistory, readHistoryChec
 import type { CompactionPortService } from "../ports/compaction-ports";
 import { AgentInvariantViolation } from "../ports/failure";
 import type { SessionKernel } from "../session/entity";
-import { actionPayloadBytes } from "../store/action-hash";
+import { actionPayloadBytes } from "../store/action-row";
 import { SchemaRefused, type LedgerError } from "../store/errors";
 import type { CommitReceipt } from "../store/services";
 
@@ -207,7 +207,7 @@ function planFoldBatch(
     const ordinal = input.expectedRevision + actions.length;
     state = foldHistoryState(
       input.sessionId,
-      [{ ...action, ordinal, prevHash: "", actionHash: "" }],
+      [{ ...action, ordinal }],
       state,
     );
     if (action.kind !== "fold.checkpoint") count += 1;

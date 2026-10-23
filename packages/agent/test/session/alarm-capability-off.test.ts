@@ -2,7 +2,7 @@
  * Capability-off conformance: with NO alarm capability composed, the two loop-owned purposes still work end to
  * end — a live `retry` occurrence delivers (drain wake) and a live `deadline` occurrence expires its open request
  * — and the whole flow is deterministic: two independently seeded worlds driven by the same injected clock
- * produce BYTE-EQUAL journals (every row id, ordinal, prev_hash and action_hash identical).
+ * produce BYTE-EQUAL journals (every payload column identical).
  */
 import { afterAll, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
@@ -14,7 +14,6 @@ import {
   runCluster,
   sendAlarm,
   sessionFileFor,
-  verifyChain,
   type ChainRow,
 } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/executor";
@@ -90,10 +89,6 @@ test("retry + deadline fire with no capability composed; two worlds yield byte-e
   expect(ids).toContain(`${requestId}:deadline:arm:2`);
   expect(ids).toContain(`${Alarm.occurrenceId(sessionId, `${requestId}:deadline`, 1, "deadline")}:delivered`);
 
-  // Determinism: every row (id, kind, ordinal, prev_hash, action_hash) is
-  // identical across the two worlds — action_hash covers the full row bytes.
+  // Every stored row, including payload bytes, is identical across worlds.
   expect(chainA).toEqual(chainB);
-  for (const world of worlds) {
-    expect(verifyChain(sessionFileFor(world.sessionsDir, sessionId), sessionId)).toBe(chainA.length);
-  }
 });

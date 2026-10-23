@@ -16,8 +16,8 @@ const firing = firedAction({
 });
 
 function evidence(action: LedgerAction.Append) {
-  const turn = LedgerAction.Node.parse({ ...arm, id: "turn", ordinal: 1, prevHash: "", actionHash: "" });
-  const committed = LedgerAction.Node.parse({ ...action, ordinal: 2, prevHash: "", actionHash: "" });
+  const turn = LedgerAction.Node.parse({ ...arm, id: "turn", ordinal: 1 });
+  const committed = LedgerAction.Node.parse({ ...action, ordinal: 2 });
   let reads = 0;
   const kernel: Pick<SessionKernel, "row" | "actionById" | "historyPage"> = {
     row: () => LedgerSession.Row.parse({

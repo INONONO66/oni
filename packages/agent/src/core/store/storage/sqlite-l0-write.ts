@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import { Journal, LedgerAction, type LedgerSession } from "@oni/protocol";
-import { actionPayloadBytes, computeActionHash, GENESIS_PREV_HASH, storedActionRow } from "../action-hash.js";
+import { actionPayloadBytes, storedActionRow } from "../action-row.js";
 import { SessionSqlRow, decodeSession } from "./sqlite-l0-rows";
 import { CorruptRecord, SchemaRefused } from "../errors";
 import type { RefuseWrite } from "./write-effect";
@@ -57,7 +57,7 @@ export const DEFAULT_ROW_BYTE_CAP = 1024 * 1024;
 
 /**
  * Fail-closed write (): every journal row body must satisfy its kind's
- * declared schema and the row byte cap before anything touches the chain;
+ * declared schema and the row byte cap before anything touches the ledger;
  * `fold.checkpoint` is schema-exempt but never outside the byte cap.
  */
 function refuseRow(
@@ -171,19 +171,12 @@ function appendValidatedAction(
     )
     .run(revision, action.sessionId, expectedRevision);
   if (updated.changes !== 1) return undefined;
-  const head = db
-    .query<{ action_hash: string }, [string]>(
-      "SELECT action_hash FROM action WHERE session_id = ? ORDER BY ordinal DESC LIMIT 1",
-    )
-    .get(action.sessionId);
-  const prevHash = head === null ? GENESIS_PREV_HASH : z.string().parse(head.action_hash);
-  const stored = storedActionRow(action, prevHash, revision);
-  const actionHash = computeActionHash(stored);
+  const stored = storedActionRow(action, revision);
   db.query(
     `INSERT INTO action (
          id, parent_id, session_id, kind, intent, effect, revert, irreversible,
-         encoding_version, ts, ordinal, prev_hash, action_hash
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         encoding_version, ts, ordinal
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     stored.id,
     stored.parent_id,
@@ -196,12 +189,10 @@ function appendValidatedAction(
     stored.encoding_version,
     stored.ts,
     stored.ordinal,
-    prevHash,
-    actionHash,
   );
   const delta = armedAlarmDelta(action);
   if (delta !== undefined) applyArmedAlarmDelta(db, delta);
-  const node = LedgerAction.Node.parse({ ...action, ordinal: revision, prevHash, actionHash });
+  const node = LedgerAction.Node.parse({ ...action, ordinal: revision });
   return { action: node, revision };
 }
 

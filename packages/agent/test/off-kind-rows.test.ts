@@ -15,12 +15,11 @@ import {
   runCluster,
   sendDeliver,
   sessionFileFor,
-  verifyChain,
 } from "./helpers/cluster-runtime";
 
 /**
  * Off-kind rows: rows already written by a now-off capability stay in
- * the journal byte-for-byte with their hashes intact, the fold treats them as
+ * the journal byte-for-byte unchanged, the fold treats them as
  * opaque (the off generation registers no reducer for the kind), and `deliver`
  * rejects that kind as input with the existing `unknown_kind` refusal.
  */
@@ -50,7 +49,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("off-capability rows stay opaque with hashes intact and deliver refuses the kind as unknown_kind", async () => {
+test("off-capability rows stay opaque with stored bytes intact and deliver refuses the kind as unknown_kind", async () => {
   const generationOn = await runTestPromise(compose(onManifest));
   const generationOff = await runTestPromise(compose(offManifest));
   // The composed tables drive both doors: deliver registrations and admission kinds.
@@ -96,12 +95,10 @@ test("off-capability rows stay opaque with hashes intact and deliver refuses the
   );
   expect((refusal as DeliverRefused).code).toBe("unknown_kind");
 
-  // The rows of the off capability stay byte-for-byte: no new facts, every
-  // action_hash/prev_hash link recomputes from the stored bytes.
+  // The rows of the off capability stay byte-for-byte: no new facts.
   const offChain = readChain(file, sessionId);
   expect(offChain.length).toBe(lengthBefore);
   expect(offChain.find((row) => row.id === "a1")).toEqual(actionRow);
-  expect(verifyChain(file, sessionId)).toBe(lengthBefore);
 
   // Opaque in the fold: the off generation registers no reducer for the kind,
   // and input admission over the composed kinds refuses a pending action row.

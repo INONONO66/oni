@@ -43,7 +43,7 @@ describe("Session.fork exclusions", () => {
   test("the fork drops a PRE-ANCHOR arm from the child index and chain", () => {
     const parent = fixture.buildParent();
     // Anchor at msg-2: the armed alarm PRECEDES the anchor, yet is excluded.
-    fixture.forked(parent.hashOf("msg-2"));
+    fixture.forked("msg-2");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
 
     // No arm row was copied and the child's armed-alarm index is empty; the
@@ -82,7 +82,7 @@ describe("Session.fork exclusions", () => {
       .historyPage(PARENT, { afterRevision: 0, limit: 50 })
       .actions.find((action) => action.id === "turn-2:terminal");
     if (anchor === undefined) throw new Error("second terminal missing");
-    fixture.forked(anchor.actionHash);
+    fixture.forked(anchor.id);
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
 
     // The fired row was copied; both arm rows were not.
@@ -105,8 +105,8 @@ describe("Session.fork exclusions", () => {
   });
 
   test("dedup rebuilds after genesis: a pre-fork idempotency key admits fresh", () => {
-    const parent = fixture.buildParent();
-    fixture.forked(parent.hashOf("turn-1:terminal"));
+    fixture.buildParent();
+    fixture.forked("turn-1:terminal");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
     const nodes = childKernel.historyPage(CHILD, { afterRevision: 0, limit: 50 }).actions;
 

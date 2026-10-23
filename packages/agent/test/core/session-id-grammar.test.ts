@@ -59,7 +59,7 @@ function forkWorld(name: string) {
       state: "idle",
     }),
   );
-  const anchor = kernel.latestAction("parent")?.actionHash;
+  const anchor = kernel.latestAction("parent")?.id;
   if (anchor === undefined) throw new Error("parent anchor missing");
   return { caseRoot, sessionsDir, plane, kernel, anchor };
 }

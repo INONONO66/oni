@@ -6,7 +6,6 @@ import { runSyncEffect } from "./effect";
 import { Core } from "@oni/agent";
 const createExecutor = Core.createExecutor;
 import { LedgerAction } from "@oni/protocol";
-import { fixtureHashes } from "../../../../packages/agent/test/helpers/compiled-policy";
 import { nullRetryAlarm } from "../../../../packages/agent/test/helpers/effect-g1";
 const KERNEL_POLICY_REGISTRY = Core.KERNEL_POLICY_REGISTRY;
 const SEEDED_POLICY_ROWS = Core.SEEDED_POLICY_ROWS;
@@ -26,7 +25,7 @@ export const fixtureLedger = {
     commit(action: Parameters<Parameters<typeof createExecutor>[0]["ledger"]["commit"]>[0]) {
       ordinal += 1;
       return Effect.succeed({
-        action: LedgerAction.Node.parse({ ...action, ordinal, ...fixtureHashes(ordinal) }),
+        action: LedgerAction.Node.parse({ ...action, ordinal }),
         revision: ordinal,
       });
     },

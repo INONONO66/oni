@@ -55,7 +55,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
 
   // A bogus anchor is a typed refusal, never a dropped frame.
   const refusedFrame = nextFrame(socket, (frame) => frame.type === "session_fork_refused");
-  socket.send(JSON.stringify({ type: "session_fork", sessionId, at: "no-such-hash" }));
+  socket.send(JSON.stringify({ type: "session_fork", sessionId, at: "no-such-action" }));
   expect(await refusedFrame).toMatchObject({
     type: "session_fork_refused",
     sessionId,
@@ -75,7 +75,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   const parentRefresh = nextFrame(socket, (frame) =>
     frame.type === "session_page" && frame.sessionId === sessionId);
   socket.send(JSON.stringify({
-    type: "session_fork", sessionId, at: anchor.actionHash, childId: "forked-child",
+    type: "session_fork", sessionId, at: anchor.id, childId: "forked-child",
   }));
   const forked = await forkedFrame;
   expect(forked).toMatchObject({
@@ -87,7 +87,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   if (forkedFrom === null || typeof forkedFrom !== "object" || Array.isArray(forkedFrom))
     throw new Error("session_forked carried no fork pin");
   expect(forkedFrom.session).toBe(sessionId);
-  expect(forkedFrom.anchor).toBe(anchor.actionHash);
+  expect(forkedFrom.anchor).toBe(anchor.id);
 
   // The subscribed parent is refreshed by the fork itself: same head (no
   // synthetic parent journal growth), no new actions, the child in `children`.
@@ -96,7 +96,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   expect(refreshed.headRevision).toBe(beforeFork.headRevision);
   expect(refreshed.actions).toEqual([]);
   expect(refreshed.children).toEqual([
-    { sessionId: "forked-child", anchor: anchor.actionHash },
+    { sessionId: "forked-child", anchor: anchor.id },
   ]);
 
   // The child's read page projects the ancestry and the history-only aside.
@@ -118,14 +118,14 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   // The parent page lists its fork children (#1257 H-2): the child id plus
   // the same anchor the fork pinned; the child's own page lists none.
   expect(SessionRead.Page.parse(parent).children).toEqual([
-    { sessionId: "forked-child", anchor: anchor.actionHash },
+    { sessionId: "forked-child", anchor: anchor.id },
   ]);
   expect("children" in page).toBeFalse();
   // Boundary rows (and only boundary rows) advertise their fork anchor, so a
-  // desktop reader can cite one without reconstructing hashes (#1257 M-3).
+  // desktop reader can cite one directly (#1257 M-3).
   const rows = SessionRead.Page.parse(parent).actions;
   const anchorRow = rows.find((row) => row.actionId === anchor.id);
-  expect(anchorRow?.forkAnchor).toBe(anchor.actionHash);
+  expect(anchorRow?.forkAnchor).toBe(anchor.id);
   for (const row of rows) {
     if (row.forkAnchor === undefined) continue;
     const node = kernel.actionById(row.actionId);
@@ -144,7 +144,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   });
   const storageRefusal = nextFrame(socket, (frame) => frame.type === "session_fork_refused");
   socket.send(JSON.stringify({
-    type: "session_fork", sessionId, at: anchor.actionHash, childId: "broken-child",
+    type: "session_fork", sessionId, at: anchor.id, childId: "broken-child",
   }));
   expect(await storageRefusal).toMatchObject({
     type: "session_fork_refused", sessionId, reason: "storage",
@@ -156,7 +156,7 @@ test("session_fork forks at a terminal anchor and the child page projects ancest
   });
   const defectRefusal = nextFrame(socket, (frame) => frame.type === "session_fork_refused");
   socket.send(JSON.stringify({
-    type: "session_fork", sessionId, at: anchor.actionHash, childId: "defect-child",
+    type: "session_fork", sessionId, at: anchor.id, childId: "defect-child",
   }));
   expect(await defectRefusal).toMatchObject({
     type: "session_fork_refused", sessionId, reason: "storage", detail: "kernel exploded",
@@ -208,7 +208,7 @@ test("session_fork refuses an over-limit copy under a configured byte cap", asyn
 
   const refusedFrame = nextFrame(socket, (frame) => frame.type === "session_fork_refused");
   socket.send(JSON.stringify({
-    type: "session_fork", sessionId, at: anchor.actionHash, childId: "capped-child",
+    type: "session_fork", sessionId, at: anchor.id, childId: "capped-child",
   }));
   expect(await refusedFrame).toMatchObject({
     type: "session_fork_refused",
@@ -250,7 +250,7 @@ test("session_fork refuses a legacy parent file without touching its bytes", asy
 
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, ["auth", "fork-token"]);
   const refusedFrame = nextFrame(socket, (frame) => frame.type === "session_fork_refused");
-  socket.send(JSON.stringify({ type: "session_fork", sessionId: "legacy-parent", at: "any-hash" }));
+  socket.send(JSON.stringify({ type: "session_fork", sessionId: "legacy-parent", at: "unused-anchor" }));
   expect(await refusedFrame).toMatchObject({
     type: "session_fork_refused",
     sessionId: "legacy-parent",

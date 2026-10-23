@@ -38,7 +38,7 @@ export namespace SessionRead {
       kind: LedgerAction.Kind,
       at: z.number().nonnegative(),
       /**
-       * Fork boundary anchor (#1257): the action hash a `session_fork.at`
+       * Fork boundary anchor (#1257): the action id a `session_fork.at`
        * request may cite. Present only on boundary rows (turn terminals,
        * prompts, compactions); every other row is byte-identical to the
        * pre-#1257 frame.
@@ -113,16 +113,16 @@ export namespace SessionRead {
 }
 
 /**
- * Fork wire surface (#1257): fork a session at a verifiable boundary anchor
- * (`at` is the parent action hash of a turn terminal, prompt or compaction
- * row) into a new session with its own chain. The response is the pinned
+ * Fork wire surface (#1257): fork a session at a boundary anchor
+ * (`at` is the parent action id of a turn terminal, prompt or compaction
+ * row) into a new session with its own history. The response is the pinned
  * ancestry or a typed refusal — never a silent success.
  */
 export namespace SessionFork {
   export const Request = z.object({
     type: z.literal("session_fork"),
     sessionId: Id,
-    /** The boundary anchor: a parent `actionHash`. */
+    /** The boundary anchor: a parent action id. */
     at: z.string().min(1),
     /** Caller-chosen child session id; the app mints one when absent. */
     childId: Id.optional(),
@@ -130,7 +130,7 @@ export namespace SessionFork {
   export type Request = z.infer<typeof Request>;
 
   export const Reason = z.enum([
-    "parent_not_found", "parent_chain_broken", "schema_version",
+    "parent_not_found", "schema_version",
     "anchor_not_found", "anchor_not_boundary", "byte_cap", "child_exists",
     "child_id_invalid", "output_missing", "storage",
   ]);
@@ -141,6 +141,7 @@ export namespace SessionFork {
     sessionId: Id,
     parentId: Id,
     forkedFrom: SessionGeneration.ForkAncestry,
+    /** The last copied action id in the child. */
     head: z.string().min(1),
   }).strict();
   export type Forked = z.infer<typeof Forked>;

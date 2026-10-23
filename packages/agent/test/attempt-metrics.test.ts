@@ -27,8 +27,6 @@ function result(id: string, parentId: string, evidence: LedgerAction.Node["effec
     ts: 1_000,
     intent: { encodingVersion: 1, value: { phase: "result" } },
     effect: { encodingVersion: 1, value: { phase: "result", evidence, usageProvenance } },
-    prevHash: "before",
-    actionHash: "after",
     irreversible: true,
   });
 }
@@ -78,7 +76,7 @@ test("metrics attribute settled attempts by purpose without counting enclosing r
       );
     }
     const rows = committed.map((action, index) => LedgerAction.Node.parse({
-      ...action, ordinal: index + 1, prevHash: "before", actionHash: "after",
+      ...action, ordinal: index + 1,
     }));
     const usage = attemptUsage(rows);
     expect(usage).toHaveLength(4);
@@ -174,7 +172,7 @@ test.each(["reported", "estimated", "unknown"] as const)(
     });
     yield* agent.run(runInput([{ role: "user", content: "hello" }]));
     const rows = committed.map((action, index) => LedgerAction.Node.parse({
-      ...action, ordinal: index + 1, prevHash: "before", actionHash: "after",
+      ...action, ordinal: index + 1,
     }));
     const usage = attemptUsage(rows);
     expect(usage).toHaveLength(1);

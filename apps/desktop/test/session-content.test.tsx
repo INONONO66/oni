@@ -98,10 +98,10 @@ test("the fork control cites the newest boundary anchor and ancestry renders as 
   const forks: [string, string][] = [];
   const session = makeSession({
     durableSessionId: "durable",
-    latestForkAnchor: "hash-2",
+    latestForkAnchor: "turn-1",
     ancestry: {
       parentId: "parent",
-      forkedFrom: { session: "parent", anchor: "hash-0", parentSeq: 3, parentHead: "head-3", copied: 4 },
+      forkedFrom: { session: "parent", anchor: "parent-turn", parentSeq: 3, parentHead: "parent-latest", copied: 4 },
       aside: "aside text",
     },
   });
@@ -120,11 +120,11 @@ test("the fork control cites the newest boundary anchor and ancestry renders as 
     // Parent-child inspection: the parent edge and anchor are data, not prose.
     const ancestry = host.querySelector<HTMLElement>('[data-ui="SessionContent.Ancestry"]');
     expect(ancestry?.getAttribute("data-parent")).toBe("parent");
-    expect(ancestry?.getAttribute("data-anchor")).toBe("hash-0");
+    expect(ancestry?.getAttribute("data-anchor")).toBe("parent-turn");
     const button = host.querySelector<HTMLElement>('[data-ui="SessionContent.Fork"]');
     expect(button).not.toBeNull();
     await act(() => button?.click());
-    expect(forks).toEqual([["durable", "hash-2"]]);
+    expect(forks).toEqual([["durable", "turn-1"]]);
   } finally {
     await act(() => root.unmount());
     host.remove();

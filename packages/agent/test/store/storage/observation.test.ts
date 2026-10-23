@@ -24,8 +24,6 @@ function action(
       irreversible: true,
       ts: 20,
       ordinal: 1,
-      prevHash: "previous",
-      actionHash: "current",
     }),
   };
 }
@@ -52,8 +50,8 @@ function requestRow(db: Database, intent: object = { value: { messageId: "platfo
   db.query(
     `INSERT INTO action (
       id, session_id, kind, intent, effect, irreversible, encoding_version,
-      ts, ordinal, prev_hash, action_hash
-    ) VALUES ('original', 'session', 'tool', ?, '{}', 1, 1, 8, 1, 'previous', 'current')`,
+      ts, ordinal
+    ) VALUES ('original', 'session', 'tool', ?, '{}', 1, 1, 8, 1)`,
   ).run(JSON.stringify(intent));
 }
 

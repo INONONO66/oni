@@ -41,7 +41,6 @@ describe("L0 ledger protocol", () => {
           type: "t",
           data,
           timeCreated: 1,
-          rowHash: "0".repeat(64),
         }).success,
       ).toBe(false);
     }
@@ -62,8 +61,6 @@ describe("L0 ledger protocol", () => {
           irreversible: true,
           ts: 100,
           ordinal: 1,
-          prevHash: "fixture-prev",
-          actionHash: "fixture-hash",
         }).kind,
       ).toBe(kind);
     }
@@ -77,8 +74,6 @@ describe("L0 ledger protocol", () => {
       effect: payload,
       ts: 100,
       ordinal: 1,
-      prevHash: "fixture-prev",
-      actionHash: "fixture-hash",
     } as const;
     expect(LedgerAction.Node.safeParse(base).success).toBe(false);
     expect(

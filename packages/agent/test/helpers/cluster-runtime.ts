@@ -1,3 +1,4 @@
+import type { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
 /**
  * Test cluster runtime hosting the REAL Session entity on a SingleRunner: sql message/runner storage plus the ledger
  * catalog schema in one catalog file, per-session ledger files under `sessionsDir`; every Effect runs through the
@@ -22,7 +23,6 @@ export function clusterTempDir(prefix: string): {
 
 import { Database } from "bun:sqlite";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { L0Write } from "../../src/core/store/session-file";
 import * as SessionHandleStore from "../../src/core/store/fence";
 import type { Delivery, ObservationSink } from "@oni/protocol";
 import { Clock, Context, Crypto, Duration, Effect, Layer, type Scope } from "effect";
@@ -608,15 +608,7 @@ export function sessionFileFor(sessionsDir: string, sessionId: string): string {
   return `${sessionsDir}/${sessionId}.sqlite`;
 }
 
-export interface ChainRow {
-  readonly id: string;
-  readonly kind: string;
-  readonly ordinal: number;
-  /** Commit clock time of the action — the recorded fact's own timestamp. */
-  readonly ts: number;
-  readonly prev_hash: string;
-  readonly action_hash: string;
-}
+export type ChainRow = ActionSqlRow;
 
 function withReadonly<A>(file: string, read: (db: Database) => A): A {
   const db = new Database(file, { readonly: true });
@@ -631,53 +623,10 @@ export function readChain(file: string, sessionId: string): ChainRow[] {
   return withReadonly(file, (db) =>
     db
       .query<ChainRow, [string]>(
-        "SELECT id, kind, ordinal, ts, prev_hash, action_hash FROM action WHERE session_id = ? ORDER BY ordinal ASC",
+        "SELECT * FROM action WHERE session_id = ? ORDER BY ordinal ASC",
       )
       .all(sessionId),
   );
-}
-
-interface RawActionRow {
-  readonly id: string;
-  readonly parent_id: string | null;
-  readonly session_id: string;
-  readonly kind: string;
-  readonly intent: string;
-  readonly effect: string;
-  readonly revert: string | null;
-  readonly irreversible: 0 | 1;
-  readonly encoding_version: number;
-  readonly ts: number;
-  readonly ordinal: number;
-  readonly prev_hash: string;
-  readonly action_hash: string;
-}
-
-/** Recompute every action_hash and prev_hash link from raw rows; returns length. */
-export function verifyChain(file: string, sessionId: string): number {
-  return withReadonly(file, (db) => {
-    const rows = db
-      .query<RawActionRow, [string]>(
-        "SELECT id, parent_id, session_id, kind, intent, effect, revert, irreversible, encoding_version, ts, ordinal, prev_hash, action_hash FROM action WHERE session_id = ? ORDER BY ordinal ASC",
-      )
-      .all(sessionId);
-    let prev: string = L0Write.GENESIS_PREV_HASH;
-    rows.forEach((row, index) => {
-      if (row.ordinal !== index + 1) {
-        throw new Error(`chain gap at index ${index}: ordinal ${row.ordinal}`);
-      }
-      if (row.prev_hash !== prev) {
-        throw new Error(`prev_hash link broken at ordinal ${row.ordinal}`);
-      }
-      const { action_hash, ...rest } = row;
-      const recomputed = L0Write.computeActionHash(rest);
-      if (recomputed !== action_hash) {
-        throw new Error(`action_hash mismatch at ordinal ${row.ordinal}`);
-      }
-      prev = action_hash;
-    });
-    return rows.length;
-  });
 }
 
 export interface ClusterMessageRow {

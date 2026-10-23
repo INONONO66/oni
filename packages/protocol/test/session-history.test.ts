@@ -15,8 +15,6 @@ function action(id: string, ordinal: number) {
     irreversible: true,
     ts: 100,
     ordinal,
-    prevHash: "fixture-prev",
-    actionHash: "fixture-hash",
   } as const;
 }
 

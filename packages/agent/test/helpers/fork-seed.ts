@@ -73,7 +73,7 @@ export function forkAtAction(
       },
       {
         from: parent.sessionId,
-        at: anchor.actionHash,
+        at: anchor.id,
         childId: input.childId,
         genesisActionId: `${input.childId}:genesis`,
         now: input.now ?? 10,
