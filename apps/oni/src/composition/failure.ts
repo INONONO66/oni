@@ -16,7 +16,6 @@ export function foreignFailure<F>(
     .transform((cause) => construct({ operation, cause })).parse;
 }
 
-/** Preserve the facade's failure and defect contract while Core owns the fenced write. */
 export const configureFailures = {
   commitFailure: foreignFailure((fields) => new Core.AgentFailure(fields), "session.configure"),
   missingAuthority: (id: string) => new AppInvariantError(`session has no activation authority: ${id}`),

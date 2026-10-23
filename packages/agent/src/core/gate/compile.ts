@@ -246,7 +246,7 @@ function admitRow(
   validateHow(row, handlers);
   return emit;
 }
-const DEFAULT_COMPILE_KINDS = ["prompt", "turn", "llm", "tool", "message", "compaction", "session.configure", "ingress"];
+const DEFAULT_COMPILE_KINDS = ["prompt", "turn", "llm", "tool", "message", "compaction", "session.configure"];
 const Match = z
   .object({
     op: z.string().min(1).optional(),
@@ -295,7 +295,17 @@ function parseRow(
       phase: row.phase,
     });
   }
-  const verdict = readVerdict(row);
+  const parsedVerdict = RowVerdictRead.safeParse(row.verdict.value);
+  if (!parsedVerdict.success) {
+    throw new PolicyCompileError({
+      code: "invalid_verdict",
+      generation: row.generation,
+      ruleName: row.name,
+      kind: row.kind,
+      phase: row.phase,
+    });
+  }
+  const verdict = parsedVerdict.data;
   if (
     row.kind === "message" &&
     match.data.op !== "assistant" &&
@@ -319,20 +329,6 @@ function parseRow(
     match: freezeOwned(match.data),
     verdict: resolveVerdict(immutableVerdict(verdict), row, generation, registry),
   });
-}
-
-function readVerdict(row: PolicyRow.Row): RowVerdict {
-  const verdict = RowVerdictRead.safeParse(row.verdict.value);
-  if (!verdict.success) {
-    throw new PolicyCompileError({
-      code: "invalid_verdict",
-      generation: row.generation,
-      ruleName: row.name,
-      kind: row.kind,
-      phase: row.phase,
-    });
-  }
-  return verdict.data;
 }
 
 function immutableVerdict(verdict: RowVerdict): RowVerdict {
@@ -363,23 +359,23 @@ function resolveVerdict(
       const transformer = registry.transformers.find(({ name }) => name === verdict.ref);
       if (transformer === undefined)
         throw unknownRef(row, generation, verdict.ref);
-      return Object.freeze(verdict);
+      return verdict;
     }
     case "obligation":
       if (!registry.obligations.some(({ name }) => name === verdict.ref))
         throw unknownRef(row, generation, verdict.ref);
-      return Object.freeze(verdict);
+      return verdict;
     case "consult":
       if (
         !(registry.consultants ?? []).some(({ name }) => name === verdict.ref) &&
         !(registry.guards ?? []).some(({ name }) => name === verdict.ref)
       )
         throw unknownRef(row, generation, verdict.ref);
-      return Object.freeze(verdict);
+      return verdict;
     case "allow":
     case "deny":
     case "require_approval":
-      return Object.freeze(verdict);
+      return verdict;
   }
 }
 

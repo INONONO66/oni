@@ -20,7 +20,7 @@ import { LedgerAction, type AnyToolDefinition, type LedgerSession, type PlainVal
 import { type Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "effect";
 
 import { catalogDelegationReads, delegationGuardHandlers } from "../bundles/delegation-policy/index";
-import { AppLedger, type SessionKernel } from "./cluster-runtime";
+import { AppLedger, type SessionReadModel } from "./cluster-runtime";
 import { ComposedGeneration, type ComposedContext } from "./composed";
 import { AppPointTable } from "./point-table";
 import { captureNow } from "./platform";
@@ -283,12 +283,12 @@ export const GenerationLayersLive = Layer.effect(GenerationLayers, Effect.gen(fu
  */
 export function configureAuthority(
   generations: Context.Service.Shape<typeof GenerationLayers>,
-  openKernel: (sessionId: string) => SessionKernel,
+  readSession: (sessionId: string) => SessionReadModel,
 ): SessionRuntimeOptions["authorizeConfigure"] {
   return (input) => Effect.scoped(Effect.gen(function* () {
     const captured = yield* generations.capture({
       sessionId: input.sessionId,
-      generation: openKernel(input.sessionId).latestGenerationFor(input.sessionId).generation,
+      generation: readSession(input.sessionId).latestGenerationFor(input.sessionId).generation,
     });
     const { policy } = yield* captured.provide(SessionLayer);
     const evaluationInput = {

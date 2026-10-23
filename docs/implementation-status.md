@@ -1,5 +1,25 @@
 # Implementation Status
 
+## #1630 slop follow-up (epic #1630, PR #1636)
+
+On `core/1630-slop-followup` (2026-10-24, base `76f91c63c` after #1635,
+PR #1636). Behavior-preserving slop removal over the merged campaign diff,
+net +118/-143: the gate's one-use verdict parser is inlined with the same
+`invalid_verdict` fields, verdict precedence is a direct type compare,
+`immutableVerdict` is the only freeze, and `ingress` leaves the default
+compile kinds because stored compilation always adds it; the llm router
+parses its `Row` schema once at construction and its tests assert the
+`_tag` and structured fields of `ModelUnavailable` instead of English
+text; the session-file migration inlines its v3 statements at the single
+transactional loop and its comments state the real order (session commit,
+then catalog indexing with compensation); `apps/oni` names the Core read projection
+`SessionReadModel`/`readSession` at every site while the writable
+test-kernel fixture keeps `openKernel`; `test/alarm-plane.test.ts` keeps one
+`verbOf` fixture. Review r1 reverted one error-contract change (a failed
+readonly fork-parent open still throws bun's `SQLiteError`) and restored the
+`assertPolicyRows` input-preservation assertion. No contract, schema or wire
+change.
+
 ## #1630 openLedger seam (epic #1630, PR #1635)
 
 On `core/1630-openledger-seam` (2026-10-24, base `e6b917455` after #1634,

@@ -4,7 +4,6 @@ import { z } from "zod";
 import { evaluate } from "./evaluate";
 import type { CompiledPolicySnapshot, GateHandlerResult, GatePointTable, PolicyBinding, PolicyEvaluation, PolicyEvaluationInput } from "./types";
 
-/** Bind one immutable generation to the loop's synchronous replay and ordered consultation. */
 export function bind(snapshot: CompiledPolicySnapshot): PolicyBinding {
   const evaluateEffect = (input: PolicyEvaluationInput): Effect.Effect<PolicyEvaluation> => Effect.suspend(() => {
     if (snapshot.consultants.size === 0) return Effect.sync(() => evaluate(snapshot, input));
@@ -39,7 +38,6 @@ export function admit(policy: PolicyBinding, input: PolicyEvaluationInput): Effe
     ? { ...decision, verdict: "deny" as const, reason: "unknown_point" } : decision));
 }
 
-/** A captured generation exposes only its offered tools with a door for the session's role. */
 export function filterLoadout<T extends Pick<AnyToolDefinition, "name" | "visibility">>(
   definitions: readonly T[], offered: ReadonlySet<string>, role: LedgerSession.Role,
 ): readonly T[] {

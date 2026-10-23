@@ -5,7 +5,7 @@ const ToolRefused = Core.ToolRefused;
 type LedgerError = Core.LedgerError;
 import { Alarm, Cron, type PlainValue, type ToolExecutionContext } from "@oni/protocol";
 import { z } from "zod";
-type SessionKernel = Core.SessionReadModel;
+type SessionReadModel = Core.SessionReadModel;
 
 /**
  * The monitor tool's Effect-free surface (boundary law R1): schemas, the
@@ -70,7 +70,7 @@ export interface MonitorPorts {
   readonly clock: () => number;
   readonly entropy: () => string;
   /** Handle-scoped chain reads for the arming session (W5.2 F1). */
-  readonly openKernel: (sessionId: string) => SessionKernel;
+  readonly readSession: (sessionId: string) => SessionReadModel;
 }
 
 export class MonitorRefused extends ToolRefused {
@@ -86,7 +86,7 @@ export class MonitorRefused extends ToolRefused {
  * generation's composed table, never an independent policy.
  */
 function evaluateGate(ports: MonitorPorts, context: ToolExecutionContext, value: PlainValue) {
-  const kernel = ports.openKernel(context.sessionId);
+  const kernel = ports.readSession(context.sessionId);
   const { policy } = currentInvocation();
   if (executionPoint("tool", "pre", policy.pointTable) === undefined)
     throw new ToolRefused("monitor", "tool.pre point unregistered");
@@ -107,7 +107,7 @@ export async function armWatch(
   context: ToolExecutionContext,
 ) {
   const watch = Alarm.Watch.parse({ ...source, description });
-  const kernel = ports.openKernel(context.sessionId);
+  const kernel = ports.readSession(context.sessionId);
   const turn = Core.turnIntent(kernel.actionById(context.turnId));
   if (turn === undefined) throw new ToolRefused("monitor", "no captured turn");
   const evaluation = evaluateGate(ports, context, watch);

@@ -240,7 +240,7 @@ function outputRefOf(action: {
 export function readSessionCursor(
   kernel: Core.SessionReadModel,
   input: SessionRead.Request,
-  openKernel?: (sessionId: string) => Core.SessionReadModel | undefined,
+  readSession?: (sessionId: string) => Core.SessionReadModel | undefined,
 ): SessionRead.Response {
   const frame = SessionRead.Request.parse(input);
   const before = kernel.row(frame.sessionId);
@@ -306,7 +306,7 @@ export function readSessionCursor(
     ...ancestryField(after.parentId, genesis),
     // Fork children projection (#1257): the inspect tree's direct children
     // (catalog parent edges + each child genesis pin); inspect surface only.
-    ...childrenField(kernel, frame.sessionId, openKernel),
+    ...childrenField(kernel, frame.sessionId, readSession),
     toolWallMs: toolWallMs(page.actions.flatMap((action) => {
       if (action.kind !== "tool" || action.parentId === null) return [];
       const effect = action.effect.value;
@@ -322,17 +322,17 @@ export function readSessionCursor(
  * Fork children projection for one page (#1257): the same parent->child edges
  * `Inspect.inspectTree` renders, flattened to one depth level. A child whose
  * kernel cannot open is skipped rather than failing the parent's read; a
- * commissioned (non-fork) child carries no anchor. Absent `openKernel`
+ * commissioned (non-fork) child carries no anchor. Absent `readSession`
  * (direct reader callers) omits the key.
  */
 function childrenField(
   kernel: Core.SessionReadModel,
   sessionId: string,
-  openKernel?: (childId: string) => Core.SessionReadModel | undefined,
+  readSession?: (childId: string) => Core.SessionReadModel | undefined,
 ): { children?: NonNullable<SessionRead.Page["children"]> } {
-  if (openKernel === undefined) return {};
+  if (readSession === undefined) return {};
   const children = kernel.childSessionsPage(sessionId, "", 64).flatMap((row) => {
-    const child = openKernel(row.id);
+    const child = readSession(row.id);
     if (child === undefined) return [];
     const forkedFrom = Inspect.forkAncestryOf(child, row.id);
     return [{ sessionId: row.id, ...(forkedFrom === null ? {} : { anchor: forkedFrom.anchor }) }];
@@ -552,7 +552,7 @@ export async function createMonitorPorts(
   );
   return createAlarmMonitorPorts({
     capability,
-    openKernel: plane.read.session,
+    readSession: plane.read.session,
     clock,
     entropy: entropy.id,
     run: <A>(effect: Effect.Effect<A, Error>, signal: AbortSignal): Promise<A> =>

@@ -258,7 +258,7 @@ export async function withEntityAlarmPorts<A>(
           return yield* Effect.die(new Error(`no live activation for ${sessionId}`));
         const ports = createAlarmMonitorPorts({
           capability,
-          openKernel: plane.openKernel,
+          readSession: plane.openKernel,
           clock: () => FIXTURE_BASE,
           entropy: () => "minted",
           run: (effect) => runEffect(effect),

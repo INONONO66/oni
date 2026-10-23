@@ -1,12 +1,12 @@
 import { AppInvariantError } from "../invariant";
 import { canonicalDigest } from "@oni/protocol";
 import type { createGatewayRouter } from "@oni/channels";
-import type { SessionKernel } from "./cluster-runtime";
+import type { SessionReadModel } from "./cluster-runtime";
 
 type Request = Parameters<Parameters<typeof createGatewayRouter>[0]["run"]>[1];
 
 export function messageDecisionRules(
-  kernel: SessionKernel,
+  kernel: SessionReadModel,
   sessionId: string,
   request: Request,
 ): readonly string[] {
