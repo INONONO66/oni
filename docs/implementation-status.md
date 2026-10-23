@@ -1,9 +1,9 @@
 # Implementation Status
 
-## #1630 openLedger seam
+## #1630 openLedger seam (epic #1630, PR #1635)
 
-On `core/1630-openledger-seam` (2026-10-23, stacked on
-`core/1630-ledger-hash-chain-removal` at `aa3934bef`). The Core ledger exposes
+On `core/1630-openledger-seam` (2026-10-24, base `e6b917455` after #1634,
+PR #1635). The Core ledger exposes
 `session(id)` operations for creation, forks, configure, ingress execution and
 decision transactions. Creation keeps the existing genesis/index write unit;
 fork schema checks and `tools.add` authority now stay inside Core. The latter
