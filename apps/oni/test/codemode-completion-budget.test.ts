@@ -8,7 +8,6 @@ import { attachMachineDaemon, createMachineHost, createMemoryGenerationStore, Ma
 import { LedgerAction, type Machine } from "@oni/protocol";
 import { catalogLayer, executorLayer } from "../../../packages/agent/test/helpers/service-layers";
 import { runnerTestLayer } from "../../../packages/agent/test/helpers/isolated";
-import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { composeCodemode } from "../src/composition/codemode";
 import { cellPorts } from "./helpers/cell-ports";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
@@ -59,7 +58,7 @@ test("two cells in one turn each own a full completion budget", async () => {
     sessionId: "budget-session", role: "resident", actionId: "one-turn",
     ledger: { commit: (append: LedgerAction.Append) => {
       const ordinal = actions.length + 1;
-      const action = LedgerAction.Node.parse({ ...append, ordinal, ...fixtureHashes(ordinal) });
+      const action = LedgerAction.Node.parse({ ...append, ordinal });
       actions.push(action);
       return Effect.succeed({ action, revision: ordinal });
     } },
@@ -139,7 +138,7 @@ test("a non-ToolRefused defect inside the cell door dies instead of folding to a
   const dispatcher = acquireSyncEffect(createTurnDispatcher({
     sessionId: "defect-session", role: "resident", actionId: "one-turn",
     ledger: { commit: (append: LedgerAction.Append) => Effect.succeed({
-      action: LedgerAction.Node.parse({ ...append, ordinal: sequence, ...fixtureHashes(sequence) }), revision: sequence,
+      action: LedgerAction.Node.parse({ ...append, ordinal: sequence }), revision: sequence,
     }) },
   }, { approvalPolicy: APPROVAL_POLICY }).pipe(
     Effect.provide(catalogLayer(definitions)),

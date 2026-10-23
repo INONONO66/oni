@@ -19,7 +19,7 @@ import { evaluateBudget } from "../src/core/loop/budget";
 import { testBudget } from "./helpers/approval-policy";
 import { runInput } from "./helpers/run-input";
 import { checkpointPolicy, DEFAULT_CHECKPOINT_POLICY, foldHistoryState, hydrateSessionHistory, RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
-import { actionPayloadBytes } from "../src/core/store/action-hash";
+import { actionPayloadBytes } from "../src/core/store/action-row";
 import { deliveryActions } from "../src/core/journal/delivery";
 import { foldCheckpointAction } from "../src/core/journal/compaction";
 import { turnTerminalAction } from "../src/core/journal/turn-rows";
@@ -363,7 +363,7 @@ test("#1347 an activation restore past `maxTailBytes` on a later page refuses ty
   expect(read).toEqual([0, 256, 0, 256, 512]);
   // Nothing durable changed; the same chain restores whole once the budget allows it.
   expect(kernel.row(id).revision).toBe(revision);
-  expect(kernel.verifyChain(id)).toMatchObject({ kind: "intact", length: revision });
+  expect(sessionTree(kernel, id)).toHaveLength(revision);
 }));
 
 /** One settled tool call whose result is `bytes` long: two executor-shaped rows, each under the row cap. */
@@ -468,7 +468,7 @@ test("#1347 a folded state past the row cap degrades explicitly: the checkpoint'
   const checkpointBytes = (content: string) =>
     actionPayloadBytes(foldCheckpointAction({
       sessionId: id, parentId: `${id}:big:delivery`, revision: revision + 1, at: 100, reason: "interval",
-      state: foldHistoryState(id, [...sessionTree(kernel, id), { ...prompt(content), ordinal: revision + 1, prevHash: "", actionHash: "" }]),
+      state: foldHistoryState(id, [...sessionTree(kernel, id), { ...prompt(content), ordinal: revision + 1 }]),
     }));
   const base = 500_000;
   const slope = checkpointBytes("x".repeat(base + 1)) - checkpointBytes("x".repeat(base));
@@ -504,7 +504,7 @@ test("#1347 a folded state past the row cap degrades explicitly: the checkpoint'
     message: `fold checkpoint refused (row_bytes): ${id}`,
     annotations: { sessionId: id, checkpointId: `${id}:fold:${revision + 1}`, checkpointBytes: ROW_CAP + overBy },
   }]);
-  expect(kernel.verifyChain(id)).toMatchObject({ kind: "intact", length: revision + 1 });
+  expect(sessionTree(kernel, id)).toHaveLength(revision + 1);
   // Nothing wedges: later rows keep landing at the threshold, each without a checkpoint, and the history still folds whole.
   expect(recording.commitBatch(paddingActions(id, turnId, 2)).ok).toBe(true);
   expect(kernel.row(id).revision).toBe(revision + 3);

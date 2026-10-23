@@ -8,8 +8,8 @@ function selection(actions: readonly LedgerAction.Node[], turnId: string) {
   return isolated((ledger) => Effect.gen(function* () {
     yield* ledger.kernel.materialize({ id: "session", parentId: null, role: "resident", tools: [], system: { preset: "", blocks: [] }, policyGeneration: 1, actionId: "initial", at: 1 });
     const adapter = ledger.session.actions;
-    for (const { ordinal, prevHash, actionHash, ...action } of actions) {
-      void ordinal; void prevHash; void actionHash;
+    for (const { ordinal, ...action } of actions) {
+      void ordinal;
       if (action.parentId !== null && ledger.kernel.actionById(action.parentId) === undefined) {
         expect(adapter.append({ id: action.parentId, sessionId: "session", parentId: null, kind: "turn", intent: { encodingVersion: 1, value: {} }, effect: { encodingVersion: 1, value: {} }, ts: 1, irreversible: true }, ledger.kernel.row("session").revision)).toBeDefined();
       }
@@ -32,8 +32,6 @@ function action(
     kind,
     ts: 1,
     ordinal: 1,
-    prevHash: "fixture-prev",
-    actionHash: "fixture-hash",
     intent: { encodingVersion: 1, value: intent },
     effect: { encodingVersion: 1, value: { phase: "pending" } },
     irreversible: true,

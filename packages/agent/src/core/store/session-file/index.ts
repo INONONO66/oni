@@ -10,7 +10,6 @@ import {
 
 import { z } from "zod";
 import { CatalogVersionRefused, CorruptRecord, CreateRefused, MaterializeRefused, SessionFileUnreadable, type LedgerError } from "../errors";
-import { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 import type { SessionWriteAdapter } from "../services";
 import { createSqliteDecisionFacts } from "../decision.js";
 import {
@@ -30,8 +29,6 @@ import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-
 import { createActions } from "./actions";
 import { createArmedAlarmPorts, type ArmedAlarmRow, type ArmedOccurrence } from "./alarms";
 import { createToolOutputs, type ToolOutputWrite, type ToolOutputsAdapter } from "./outputs";
-
-export { computeActionHash, GENESIS_PREV_HASH } from "../action-hash.js";
 
 /** Fresh per-session ledger file DDL (W5.2 ) — the only session-file */
 export const SESSION_FILE_SCHEMA: readonly string[] = [
@@ -65,12 +62,9 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
     encoding_version INTEGER NOT NULL CHECK (encoding_version = 1),
     ts INTEGER NOT NULL CHECK (ts >= 0),
     ordinal INTEGER NOT NULL CHECK (ordinal > 0),
-    prev_hash TEXT NOT NULL,
-    action_hash TEXT NOT NULL,
     CHECK ((revert IS NOT NULL) <> (irreversible = 1)),
     UNIQUE (session_id, ordinal)
   )`,
-  "CREATE UNIQUE INDEX IF NOT EXISTS action_hash_unique ON action(action_hash)",
   `CREATE INDEX IF NOT EXISTS idx_action_generation
      ON action(session_id, json_extract(effect, '$.snapshot.generation'), ordinal DESC)
      WHERE kind = 'session.configure' AND json_valid(effect)`,
@@ -103,7 +97,6 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
     key TEXT PRIMARY KEY,
     type TEXT NOT NULL,
     data TEXT NOT NULL,
-    row_hash TEXT NOT NULL,
     time_created INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS armed_alarms (
@@ -121,10 +114,10 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
 
 
 /**
- * Session-file schemaVersion () in `PRAGMA user_version`. v1 -> v2 is the one guarded upgrade
- * (`armed_alarms.strikes`, stamped in the same transaction); a newer-build file refuses to open (typed); fork refuses a differing marker.
+ * Session-file schemaVersion in `PRAGMA user_version`. Guarded upgrades add alarm strikes
+ * and remove row digests; a newer-build file refuses to open and fork refuses a differing marker.
  */
-export const SESSION_FILE_SCHEMA_VERSION = 2;
+export const SESSION_FILE_SCHEMA_VERSION = 3;
 
 const SessionUserVersion = z.object({ user_version: z.number().int().nonnegative() });
 
@@ -227,12 +220,21 @@ function openStampedSessionDatabase(path: string): Database {
 
 const ColumnName = z.object({ name: z.string() });
 
-/** The guarded column add and the stamp, one transaction. */
+/** Recheck the marker under the write lock so concurrent openers upgrade exactly once. */
 function upgradeSessionDatabase(db: Database): void {
+  const v3Statements = [
+    "DROP INDEX IF EXISTS action_hash_unique",
+    "ALTER TABLE action DROP COLUMN prev_hash",
+    "ALTER TABLE action DROP COLUMN action_hash",
+    "ALTER TABLE decision_fact DROP COLUMN row_hash",
+  ] as const;
   db.transaction(() => {
+    const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    if (version >= SESSION_FILE_SCHEMA_VERSION) return;
     const columns = ColumnName.array().parse(db.query("PRAGMA table_info(armed_alarms)").all());
     if (!columns.some((column) => column.name === "strikes"))
       db.run("ALTER TABLE armed_alarms ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0");
+    if (version > 0) for (const statement of v3Statements) db.run(statement);
     db.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`);
   }).immediate();
 }
@@ -272,7 +274,7 @@ export class StoreHandle {
 /**
  * Handle-scoped per-session ledger file (W5.2 review F1): one open handle per
  * `<sessionsDir>/<sessionId>.sqlite`, no process-global registration. Owns the
- * session row, the action hash chain and decision facts of exactly one session.
+ * session row, ordered actions and decision facts of exactly one session.
  */
 export class SessionStore extends StoreHandle {
   readonly sessions: SessionWriteAdapter;
@@ -314,8 +316,8 @@ export class SessionStore extends StoreHandle {
 
   /**
    * One atomic fork write (): the child genesis materialization plus the
-   * copied, rehashed pre-anchor rows land in a single transaction — a crashed
-   * fork leaves either a complete child chain or no child session row at all
+   * copied pre-anchor rows land in a single transaction — a crashed
+   * fork leaves either complete child history or no child session row at all
    * (session-file recovery needs no partial-fork repair path).
    */
   fork(input: SessionForkWrite): Effect.Effect<SessionForkReceipt, LedgerError> {
@@ -344,7 +346,7 @@ export class SessionStore extends StoreHandle {
         const row = selectSession(this.db, materialize.row.id);
         if (row === undefined)
           return refuse(new CorruptRecord({ operation: "session.fork", id: materialize.row.id }));
-        return { row, head: receipt.action.actionHash, copied: input.copies.length };
+        return { row, head: receipt.action.id, copied: input.copies.length };
       }, hasRequests),
     );
   }
@@ -428,7 +430,7 @@ interface SessionForkWrite {
   readonly index: SessionIndexUnit;
   /** The child's index creation stamp: the fork's `now`. */
   readonly createdAt: number;
-  /** Eligible pre-anchor parent rows, already remapped for the child chain. */
+  /** Eligible pre-anchor parent rows, already remapped for the child history. */
   readonly copies: readonly LedgerAction.Append[];
   /** : stored outputs the copied rows reference, copied under the same identifiers. */
   readonly outputs?: readonly ToolOutputWrite[];
@@ -436,7 +438,7 @@ interface SessionForkWrite {
 
 export interface SessionForkReceipt {
   readonly row: LedgerSession.Row;
-  /** The child chain head hash after genesis plus every copy. */
+  /** The last child action id after genesis plus every copy. */
   readonly head: string;
   readonly copied: number;
 }
@@ -467,13 +469,10 @@ export function openSessionStore(path: string, options: OpenSessionStoreOptions)
   );
 }
 
-/** Narrow l0 write-kernel surface (W5.2 review F6): fenced chain commits plus
- * the hash identity needed to verify them, without deep package imports. */
+/** Narrow l0 write-kernel surface: fenced commits without deep package imports. */
 export const L0Write = {
   commitSession,
   insertSession,
   selectSession,
-  GENESIS_PREV_HASH,
   DEFAULT_ROW_BYTE_CAP,
-  computeActionHash,
 } as const;

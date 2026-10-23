@@ -189,8 +189,6 @@ function makeSessionKernel(context: SessionKernelContext) {
       messageId: string,
     ): LedgerAction.Receipt | undefined =>
       requiredActionsIn(context).outboundReceipt(destinationSessionId, messageId),
-    verifyChain: (sessionId: string): LedgerAction.ChainVerdict =>
-      requiredActionsIn(context).verifyChain(sessionId),
     historyPage: (sessionId: string, request: SessionHistory.PageRequest = {}) =>
       historyPageIn(context, sessionId, request),
     requestStatesPage: (sessionId?: string, cursor = "", limit = 256) =>

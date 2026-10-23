@@ -3,7 +3,7 @@ import { canonicalDigest, type LedgerAction, PlainValueSchema, SessionTurn } fro
 import { Effect } from "effect";
 import { deliveryActions } from "../src/core/journal/delivery";
 import { turnIntentAction, turnTerminalAction } from "../src/core/journal/turn-rows";
-import { actionPayloadBytes } from "../src/core/store/action-hash";
+import { actionPayloadBytes } from "../src/core/store/action-row";
 import { configureAction } from "../src/core/store/configure";
 import { turnIntent } from "../src/core/store/session-reads";
 import { hydrateSessionHistory, restoreSessionHistory } from "../src/inspect/history";

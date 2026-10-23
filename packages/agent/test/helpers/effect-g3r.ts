@@ -5,7 +5,7 @@ import type { LedgerError } from "../../src/core/store/errors";
 
 import { LedgerAction } from "@oni/protocol";
 import { Effect } from "effect";
-import { compiledPolicy, fixtureHashes } from "./compiled-policy";
+import { compiledPolicy } from "./compiled-policy";
 
 /** Commit gates and refusals happen before persistence, as in the real ledger. */
 export function recoveryRecording(options: {
@@ -21,7 +21,7 @@ export function recoveryRecording(options: {
       commit: (action) => Effect.gen(function* () {
         yield* options.beforeCommit?.(action) ?? Effect.void;
         const ordinal = committed.length + 1;
-        const node = LedgerAction.Node.parse({ ...action, ordinal, ...fixtureHashes(ordinal) });
+        const node = LedgerAction.Node.parse({ ...action, ordinal });
         committed.push(node);
         return { action: node, revision: ordinal };
       }),

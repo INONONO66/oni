@@ -1,7 +1,7 @@
 /// <reference lib="es2022.object" />
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import type { LedgerSession } from "@oni/protocol";
+import type { LedgerAction, LedgerSession } from "@oni/protocol";
 import * as ledgerExports from "../../../src/core/store/session-file";
 import { bootstrapStoreDatabase } from "../../../src/core/store/session-file";
 import { SESSION_FILE_SCHEMA } from "../../../src/core/store/session-file";
@@ -26,8 +26,8 @@ test("967 exports expose only canonical session authority", () => {
 });
 
 // W5.2 review F6: the package index exports a narrow l0 write-kernel so no
-// consumer needs deep imports for fenced commits or chain-hash verification.
-test("L0Write commits a fenced action chained from the genesis hash", () => {
+// consumer needs deep imports for fenced commits.
+test("L0Write commits a fenced action with its serialized payload", () => {
   const { L0Write } = ledgerExports;
   const db = new Database(":memory:");
   try {
@@ -46,6 +46,16 @@ test("L0Write commits a fenced action chained from the genesis hash", () => {
     };
     expect(L0Write.insertSession(db, row)).toBe(true);
     expect(L0Write.selectSession(db, "surface-session")).toEqual(row);
+    const action: LedgerAction.Append = {
+      id: "surface-turn",
+      parentId: null,
+      sessionId: "surface-session",
+      kind: "turn",
+      intent: { encodingVersion: 1, value: { phase: "terminal" } },
+      effect: { encodingVersion: 1, value: { terminal: "result" } },
+      irreversible: true,
+      ts: 10,
+    };
     const result = L0Write.commitSession(
       db,
       {
@@ -54,18 +64,7 @@ test("L0Write commits a fenced action chained from the genesis hash", () => {
         fence: 1,
         now: 10,
         expectedRevision: 0,
-        actions: [
-          {
-            id: "surface-turn",
-            parentId: null,
-            sessionId: "surface-session",
-            kind: "turn",
-            intent: { encodingVersion: 1, value: { phase: "terminal" } },
-            effect: { encodingVersion: 1, value: { terminal: "result" } },
-            irreversible: true,
-            ts: 10,
-          },
-        ],
+        actions: [action],
         state: "idle",
       },
       { rowByteCap: L0Write.DEFAULT_ROW_BYTE_CAP },
@@ -76,23 +75,7 @@ test("L0Write commits a fenced action chained from the genesis hash", () => {
     if (result?.ok !== true) throw new Error("surface commit was refused");
     const [receipt] = result.receipts;
     if (receipt === undefined) throw new Error("surface commit produced no receipt");
-    expect(receipt.action.prevHash).toBe(L0Write.GENESIS_PREV_HASH);
-    expect(receipt.action.actionHash).toBe(
-      L0Write.computeActionHash({
-        id: "surface-turn",
-        parent_id: null,
-        session_id: "surface-session",
-        kind: "turn",
-        intent: JSON.stringify({ phase: "terminal" }),
-        effect: JSON.stringify({ terminal: "result" }),
-        revert: null,
-        irreversible: 1,
-        encoding_version: 1,
-        ts: 10,
-        ordinal: 1,
-        prev_hash: L0Write.GENESIS_PREV_HASH,
-      }),
-    );
+    expect(receipt.action).toEqual({ ...action, ordinal: 1 });
     expect(result.row.revision).toBe(1);
   } finally {
     db.close();

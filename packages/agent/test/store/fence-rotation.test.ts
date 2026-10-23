@@ -206,7 +206,6 @@ test("activation rotates and adopts the fence; every superseded writer is refuse
     expect(activate(catalog, kernel, "s1", "runner:e")).toBe(5);
     expect(() => adoptFence(kernel, "s1", "runner:d", lost)).toThrow("stale activation: 5 >= 4");
 
-    expect(kernel.verifyChain("s1")).toMatchObject({ kind: "intact" });
   } finally {
     world.close();
   }
@@ -300,7 +299,6 @@ test("concurrent activations from two processes: one winner, stale loser refused
     const { kernel } = world;
     expect(kernel.row("s2")).toMatchObject({ fenceOwner: winner.owner, fence: 2 });
     expect(kernel.actionById("race-1") ?? kernel.actionById("race-0")).toBeDefined();
-    expect(kernel.verifyChain("s2")).toMatchObject({ kind: "intact" });
 
     // Exactly one writer now: the loser's identity is refused stale, the winner's still commits.
     expect(
@@ -385,7 +383,6 @@ test("R8: kill inside the commit transaction leaves no partial action row", asyn
     // Nothing of the killed transaction survives: no action row, no revision bump.
     expect(kernel.actionById("r8-a1")).toBeUndefined();
     expect(kernel.row("s3").revision).toBe(row.revision);
-    expect(kernel.verifyChain("s3")).toMatchObject({ kind: "intact" });
 
     // The write lock died with the process: the holder commits the same action id cleanly.
     const retried = runLedgerSync(

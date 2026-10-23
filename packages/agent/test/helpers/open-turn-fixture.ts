@@ -13,7 +13,7 @@ export const fixtureGeneration = generationSnapshot({
 });
 
 export function fixtureNode(action: LedgerAction.Append): LedgerAction.Node {
-  return { ...action, ordinal: 1, prevHash: "prev", actionHash: "hash" };
+  return { ...action, ordinal: 1 };
 }
 
 /** Open turn "T" (result "R") for session "S" at ordinal 1. */

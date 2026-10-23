@@ -207,7 +207,7 @@ test("an empty same-epoch same-head continuation keeps the authoritative activit
 });
 
 test("forkSession resolves the gateway's typed answer and the read model exposes anchor and ancestry", async () => {
-  const pin = { session: "parent", anchor: "hash-0", parentSeq: 3, parentHead: "head-3", copied: 4 };
+  const pin = { session: "parent", anchor: "parent-turn", parentSeq: 3, parentHead: "parent-latest", copied: 4 };
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -220,9 +220,9 @@ test("forkSession resolves the gateway's typed answer and the read model exposes
             type: "session_snapshot", sessionId: "durable", state: "idle", phase: "completed",
             phaseSince: 100, epoch: 1, afterRevision: 0, headRevision: 3, nextRevision: null,
             actions: [
-              { revision: 1, actionId: "prompt-1", kind: "prompt", at: 100, forkAnchor: "hash-1" },
+              { revision: 1, actionId: "prompt-1", kind: "prompt", at: 100, forkAnchor: "prompt-1" },
               { revision: 2, actionId: "tool-1", kind: "tool", at: 110 },
-              { revision: 3, actionId: "turn-1", kind: "turn", at: 120, forkAnchor: "hash-2" },
+              { revision: 3, actionId: "turn-1", kind: "turn", at: 120, forkAnchor: "turn-1" },
             ],
             usage: [], toolWallMs: 0,
             ancestry: { parentId: "parent", forkedFrom: pin, aside: "aside text" },
@@ -248,18 +248,18 @@ test("forkSession resolves the gateway's typed answer and the read model exposes
   const page = await transport.readSession("durable");
   const model = sessionReadModel(local, page);
   // The NEWEST boundary row's anchor is where the desktop fork would cut.
-  expect(model.latestForkAnchor).toBe("hash-2");
+  expect(model.latestForkAnchor).toBe("turn-1");
   expect(model.ancestry).toEqual({ parentId: "parent", forkedFrom: pin, aside: "aside text" });
   expect(model.forkAside).toBe("aside text");
 
   const refused = await transport.forkSession({ sessionId: "durable", at: "bad" });
   expect(refused).toMatchObject({ type: "session_fork_refused", reason: "anchor_not_found" });
-  const forked = await transport.forkSession({ sessionId: "durable", at: "hash-2", childId: "child" });
+  const forked = await transport.forkSession({ sessionId: "durable", at: "turn-1", childId: "child" });
   expect(forked).toMatchObject({
     type: "session_forked",
     sessionId: "child",
     parentId: "durable",
-    forkedFrom: { ...pin, anchor: "hash-2" },
+    forkedFrom: { ...pin, anchor: "turn-1" },
   });
   // Adoption gives the child its own bound local handle and an open tab.
   const childLocalId = adoptForkedSession("child", "Fork of durable", 9);

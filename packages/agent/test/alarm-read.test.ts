@@ -14,7 +14,7 @@ function arm(ordinal: number, purpose: string, alarmId: string, at: number | nul
 }
 
 function node(action: LedgerAction.Append, ordinal: number): LedgerAction.Node {
-  return LedgerAction.Node.parse({ ...action, ordinal, prevHash: "", actionHash: "" });
+  return LedgerAction.Node.parse({ ...action, ordinal });
 }
 
 function chains(actions: readonly LedgerAction.Node[], afterRevision = 0, throughRevision = actions.length) {

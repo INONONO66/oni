@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { SessionKernel } from "../core/session/entity";
 import { AgentInvariantViolation } from "../core/ports/failure";
 import { canonicalDigest, type CheckpointPolicy, FoldCheckpoint, NamedError, Message, PlainValueSchema, Tool, toolResultText, type LedgerAction, type PlainObject, type PlainValue, } from "@oni/protocol";
-import { actionPayloadBytes } from "../core/store/action-hash";
+import { actionPayloadBytes } from "../core/store/action-row";
 
 /**
  * Canonical model-context fold over committed actions: delivered prompts,
@@ -281,9 +281,9 @@ export interface HydratedSessionHistory {
   readonly telemetry: RestoreTelemetry;
 }
 
-const validatedSeeds = new WeakMap<SessionKernel, { hash: string; seed: ReturnType<typeof checkpointSeed> }>();
+const validatedSeeds = new WeakMap<SessionKernel, { id: string; seed: ReturnType<typeof checkpointSeed> }>();
 const validatedSeed = (kernel: SessionKernel, sessionId: string, checkpoint: LedgerAction.Node) =>
-  validatedSeeds.get(kernel)?.hash === checkpoint.actionHash ? validatedSeeds.get(kernel)?.seed : validatedSeeds.set(kernel, { hash: checkpoint.actionHash, seed: checkpointSeed(sessionId, checkpoint) }).get(kernel)?.seed;
+  validatedSeeds.get(kernel)?.id === checkpoint.id ? validatedSeeds.get(kernel)?.seed : validatedSeeds.set(kernel, { id: checkpoint.id, seed: checkpointSeed(sessionId, checkpoint) }).get(kernel)?.seed;
 
 /** Validate the durable seed even when a commit does not need to materialize its suffix. */
 export function readHistoryCheckpoint(

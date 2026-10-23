@@ -9,8 +9,6 @@ import { makeSessionGenerations } from "../../src/core/session/run";
 
 import { canonicalDigest, FoldCheckpoint, Message, PlainObjectSchema, PlainValueSchema, type LedgerAction, } from "@oni/protocol";
 import { z } from "zod";
-import { computeActionHash, GENESIS_PREV_HASH } from "../../src/core/store/session-file";
-import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
 import { recordedCompaction, restoreContextRequest, restoredContextProjection, } from "../../src/plugins/compaction/restore";
 import { executeCompaction } from "../../src/plugins/compaction/execute-cut";
 import { GenerationUnavailable } from "../../src/core/ports/failure";
@@ -205,32 +203,13 @@ export function reconstructionCut(point: Point, dbPath: string, stop: Stop) {
   });
 }
 
-/** Deliberate storage fault, not a power-loss claim. Keep the action chain intact. */
+/** Deliberate storage fault, not a power-loss claim. */
 export function corruptCheckpoint(dbPath: string): void {
   const db = new Database(dbPath);
   try {
     db.run(
       "UPDATE action SET effect = json_set(effect, '$.result.stateHash', 'sha256:corrupt') WHERE kind = 'fold.checkpoint'",
     );
-    // Rehash the whole chain so only the checkpoint payload is faulted, never the linkage.
-    db.transaction(() => {
-      const rows = z
-        .array(ActionSqlRow)
-        .parse(db.query("SELECT * FROM action ORDER BY session_id, ordinal").all());
-      const previous = new Map<string, string>();
-      for (const row of rows) {
-        const prev = previous.get(row.session_id) ?? GENESIS_PREV_HASH;
-        const { action_hash: _stale, ...rest } = row;
-        const rehashed = { ...rest, prev_hash: prev };
-        const hash = computeActionHash(rehashed);
-        db.query("UPDATE action SET prev_hash = ?, action_hash = ? WHERE id = ?").run(
-          prev,
-          hash,
-          row.id,
-        );
-        previous.set(row.session_id, hash);
-      }
-    }).immediate();
   } finally {
     db.close();
   }

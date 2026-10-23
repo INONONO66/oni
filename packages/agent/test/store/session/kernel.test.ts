@@ -99,7 +99,7 @@ function materialize(id: string) {
 }
 
 function node(action: LedgerAction.Append, ordinal: number): LedgerAction.Node {
-  return { ...action, ordinal, prevHash: "fixture-prev", actionHash: "fixture-hash" };
+  return { ...action, ordinal };
 }
 
 function pinned(generation: SessionGeneration.Snapshot) {

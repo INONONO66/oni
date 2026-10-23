@@ -1,4 +1,4 @@
-import { computeActionHash, storedActionRow } from "../store/action-hash";
+import { storedActionRow } from "../store/action-row";
 import { CommitRefused, FenceRefused, type LedgerError } from "../store/errors";
 import { parsePlainJson } from "../store/storage/sqlite-l0-rows";
 import { Delivery, SessionTransition, type LedgerAction } from "@oni/protocol";
@@ -50,18 +50,17 @@ function replayedReceived(
   message: ReceivedEnvelope,
   delivery?: "steer" | "followUp",
   after?: number,
-): Effect.Effect<{ readonly ordinal: number; readonly actionHash: string } | undefined, DeliverRefused> {
+): Effect.Effect<{ readonly ordinal: number } | undefined, DeliverRefused> {
   return Effect.suspend(() => {
     const existing = handle.kernel.actionById(message.messageId);
     if (existing === undefined) return Effect.succeed(undefined);
     const candidate = receivedActionFor(
       handle.authority.sessionId, kind, message, existing.ts, delivery, after,
     );
-    const replayHash = computeActionHash(
-      storedActionRow(candidate, existing.prevHash, existing.ordinal),
-    );
-    return replayHash === existing.actionHash
-      ? Effect.succeed({ ordinal: existing.ordinal, actionHash: existing.actionHash })
+    const replay = JSON.stringify(storedActionRow(candidate, existing.ordinal));
+    const stored = JSON.stringify(storedActionRow(existing, existing.ordinal));
+    return replay === stored
+      ? Effect.succeed({ ordinal: existing.ordinal })
       : Effect.fail(new DeliverRefused({ code: "idempotency_conflict" }));
   });
 }
@@ -72,7 +71,7 @@ export function appendReceived(
   message: ReceivedEnvelope,
   delivery?: "steer" | "followUp",
   after?: number,
-): Effect.Effect<{ readonly ordinal: number; readonly actionHash: string; readonly deduped: boolean }, LedgerError | AdmissionFailure | DeliverRefused> {
+): Effect.Effect<{ readonly ordinal: number; readonly deduped: boolean }, LedgerError | AdmissionFailure | DeliverRefused> {
   return retryRevision(() => Effect.gen(function* () {
     const { kernel, authority, env } = handle;
     const replayed = yield* replayedReceived(handle, kind, message, delivery, after);
@@ -92,7 +91,7 @@ export function appendReceived(
     const receipt = committed.receipts[0];
     if (receipt === undefined)
       return yield* Effect.die(new Error(`commit returned no receipt: ${message.messageId}`));
-    return { ordinal: receipt.action.ordinal, actionHash: receipt.action.actionHash, deduped: false };
+    return { ordinal: receipt.action.ordinal, deduped: false };
   }));
 }
 

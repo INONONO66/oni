@@ -293,8 +293,8 @@ export function readSessionCursor(
       actionId: action.id,
       kind: action.kind,
       at: action.ts,
-      // Fork boundary anchors (#1257): the hashes a session_fork.at may cite.
-      ...(Core.isForkBoundary(action) ? { forkAnchor: action.actionHash } : {}),
+      // Fork boundary anchors: the action ids a session_fork.at may cite.
+      ...(Core.isForkBoundary(action) ? { forkAnchor: action.id } : {}),
       // #1305: surface a projected row's stored-output reference to readers.
       ...(outputRefOf(action) ?? {}),
     })),

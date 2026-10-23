@@ -15,8 +15,6 @@ export function messageExecutionReceipt(
       effect: { encodingVersion: 1, value: {} },
       irreversible: true,
       ordinal: 1,
-      prevHash: "fixture-prev",
-      actionHash: "fixture-hash",
       ts: 1,
     },
     revision: 1,

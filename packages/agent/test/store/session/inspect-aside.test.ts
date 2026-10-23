@@ -42,8 +42,8 @@ const { stores, child, fixture } = useForkFixture();
 
 describe("inspect aside (#1257)", () => {
   test("the aside is an inspect projection, never model context or compaction input", () => {
-    const parent = fixture.buildParent();
-    fixture.forked(parent.hashOf("turn-1:terminal"));
+    fixture.buildParent();
+    fixture.forked("turn-1:terminal");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
     const ancestry = forkAncestryOf(childKernel, CHILD);
     if (ancestry === null) throw new Error("child ancestry missing");
@@ -56,20 +56,14 @@ describe("inspect aside (#1257)", () => {
     // this same history, so the aside cannot leak there either.
     const actions = childKernel.historyPage(CHILD, { afterRevision: 0, limit: 50 }).actions;
     const messages = foldSessionHistory(CHILD, actions);
-    const rendered = JSON.stringify(messages);
-    expect(rendered).toContain("first");
-    expect(rendered).toContain("done");
-    // Structural exclusion by ancestry identity: none of the pin's facts —
-    // the anchor hash, the pinned parent head, the projected aside itself —
-    // appear anywhere in the folded model context.
-    expect(rendered).not.toContain(ancestry.anchor);
-    expect(rendered).not.toContain(ancestry.parentHead);
-    expect(rendered).not.toContain(JSON.stringify(aside).slice(1, -1));
+    const text = messages.flatMap((message) => message.parts.flatMap((part) =>
+      part.type === "text" ? [part.text] : []));
+    expect(text).toEqual(["first", "done"]);
   });
 
   test("a REGISTERED prompt.pre transform row promotes the aside through the compiled gate", () => {
-    const parent = fixture.buildParent();
-    fixture.forked(parent.hashOf("turn-1:terminal"));
+    fixture.buildParent();
+    fixture.forked("turn-1:terminal");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
     const ancestry = forkAncestryOf(childKernel, CHILD);
     if (ancestry === null) throw new Error("child ancestry missing");

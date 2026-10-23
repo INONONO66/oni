@@ -59,7 +59,6 @@ export namespace Storage {
       destinationSessionId: string,
       messageId: string,
     ): LedgerAction.Receipt | undefined;
-    verifyChain(sessionId: string): LedgerAction.ChainVerdict;
     /** Revision-ordered actions with `ordinal > afterRevision`, at most `limit` of them. */
     range(sessionId: string, afterRevision: number, limit: number): LedgerAction.Node[];
     /**

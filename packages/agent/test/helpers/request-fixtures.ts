@@ -29,8 +29,6 @@ export function invocationNode(input: {
     kind: "tool",
     ts: 1,
     ordinal: 1,
-    prevHash: "fixture-prev",
-    actionHash: "fixture-hash",
     intent: {
       encodingVersion: 1,
       value: {

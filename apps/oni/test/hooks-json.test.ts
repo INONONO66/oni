@@ -565,11 +565,10 @@ async function offCascadeConfigureRows(prefix: string) {
           intent: string;
           effect: string;
           ordinal: number;
-          action_hash: string;
         },
         [string]
       >(
-        "SELECT id, ts, parent_id, kind, intent, effect, ordinal, action_hash FROM action WHERE session_id = ? ORDER BY ordinal ASC",
+        "SELECT id, ts, parent_id, kind, intent, effect, ordinal FROM action WHERE session_id = ? ORDER BY ordinal ASC",
       )
       .all(sessionId);
   } finally {

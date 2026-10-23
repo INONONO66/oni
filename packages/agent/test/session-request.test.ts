@@ -77,8 +77,6 @@ it("records one canonical resolution and deduplicates equivalent input after res
   const persisted = result.actions.map((action, index) => ({
     ...action,
     ordinal: index + 2,
-    prevHash: "fixture-prev",
-    actionHash: "fixture-hash",
   }));
   const repeated = decide(
     { ...payload, answer: { ...payload.answer, receivedAt: 30 } },
@@ -293,8 +291,6 @@ it("proposes observed global approval count only for a new approval open", () =>
   const persisted = opened.actions.map((action, index) => ({
     ...action,
     ordinal: index + 2,
-    prevHash: "fixture-prev",
-    actionHash: "fixture-hash",
   }));
   expect(
     decideRequestTransition(command, {
@@ -335,8 +331,6 @@ it("pins unknown physical receipts and deduplicates without their local timestam
   const persisted = recorded.actions.map((action, index) => ({
     ...action,
     ordinal: index + 2,
-    prevHash: "fixture-prev",
-    actionHash: "fixture-hash",
   }));
   const repeated = decide(
     {

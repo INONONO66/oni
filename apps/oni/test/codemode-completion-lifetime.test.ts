@@ -15,7 +15,6 @@ import { z } from "zod";
 import { cellPorts } from "./helpers/cell-ports";
 import { composeCodemode } from "../src/composition/codemode";
 import { cellDaemonOptions } from "./helpers/cell-daemon";
-import { fixtureHashes } from "../../../packages/agent/test/helpers/compiled-policy";
 import { seededPolicy } from "./helpers/executor";
 import { bounded } from "./helpers/protected-dispatch";
 import { residentSuite } from "./helpers/resident-suite";
@@ -39,7 +38,7 @@ for (const stop of [false, true]) {
     const ledger: Parameters<typeof createTurnDispatcher>[0]["ledger"] = {
         commit(append: LedgerAction.Append) {
           const ordinal = actions.length + 1;
-          const action = LedgerAction.Node.parse({ ...append, ordinal, ...fixtureHashes(ordinal) });
+          const action = LedgerAction.Node.parse({ ...append, ordinal });
           actions.push(action);
           return Effect.succeed({ action, revision: action.ordinal });
         },

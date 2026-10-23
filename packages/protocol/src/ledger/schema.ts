@@ -13,7 +13,7 @@ export namespace DecisionFact {
     .strict();
   export type Record = z.infer<typeof Record>;
 
-  export const Recorded = Record.extend({ rowHash: z.string().length(64) }).strict();
+  export const Recorded = Record;
   export type Recorded = z.infer<typeof Recorded>;
 
   export const Outcome = z.discriminatedUnion("kind", [

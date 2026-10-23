@@ -26,14 +26,14 @@ function ledger(turns: number): { readonly db: Database; readonly close: () => v
   const insert = db.query(`
     INSERT INTO action
       (id, parent_id, session_id, kind, intent, effect, revert, irreversible,
-       encoding_version, ts, ordinal, prev_hash, action_hash)
-    VALUES (?, NULL, 's', ?, ?, ?, NULL, 1, 1, 1, ?, 'previous', ?)
+       encoding_version, ts, ordinal)
+    VALUES (?, NULL, 's', ?, ?, ?, NULL, 1, 1, 1, ?)
   `);
   db.transaction(() => {
     let ordinal = 0;
     const add = (id: string, kind: string, intent: object, effect: object) => {
       ordinal += 1;
-      insert.run(id, kind, JSON.stringify(intent), JSON.stringify(effect), ordinal, `hash-${ordinal}`);
+      insert.run(id, kind, JSON.stringify(intent), JSON.stringify(effect), ordinal);
     };
     for (let i = 0; i < turns; i += 1) {
       add(`input-${i}`, "prompt", {}, { deliveryKind: "prompt", content: `message-${i}` });

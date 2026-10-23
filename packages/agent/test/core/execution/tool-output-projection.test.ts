@@ -9,7 +9,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { canonicalDigest, canonicalJson, type LedgerAction, type PlainValue } from "@oni/protocol";
 import { useMemoryStores, testNow } from "../../store/helpers/storage";
-import { actionPayloadBytes } from "../../../src/core/store/action-hash";
+import { actionPayloadBytes } from "../../../src/core/store/action-row";
 import { L0Write } from "../../../src/core/store/session-file";
 import { materializeSession, adoptWriter } from "../../store/helpers/session";
 import { testExecutor } from "../../helpers/executor";

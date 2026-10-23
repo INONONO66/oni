@@ -134,17 +134,7 @@ function forkFixture(stores: LedgerStores, child: () => ChildStore) {
       at: 5,
     });
     commit(authority, [input, delivery, terminal, armed.action, pending]);
-    const nodes = stores.kernel.historyPage(PARENT, { afterRevision: 0, limit: 50 }).actions;
-    const byId = new Map(nodes.map((node) => [node.id, node]));
-    const hashOf = (id: string): string => {
-      const node = byId.get(id);
-      if (node === undefined) throw new Error(`missing parent node ${id}`);
-      return node.actionHash;
-    };
-    const verdict = stores.kernel.verifyChain(PARENT);
-    if (verdict.kind !== "intact" || verdict.head === null)
-      throw new Error("parent chain not intact");
-    return { authority, hashOf, head: verdict.head, occurrenceId: armed.occurrenceId };
+    return { authority, head: pending.id, occurrenceId: armed.occurrenceId };
   }
 
   function ports(overrides: Partial<ForkPorts> = {}): ForkPorts {

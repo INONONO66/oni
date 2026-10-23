@@ -23,7 +23,6 @@ import {
   readChain,
   resolvedRunner,
   sessionFileClosed,
-  verifyChain,
 } from "../helpers/cluster-runtime";
 import { runAgent } from "../helpers/isolated";
 
@@ -178,7 +177,7 @@ test("file mode: one scope opens catalog, runner storage and entity; the deliver
   const receipt = await runAgent(program);
   expect(receipt.existed).toBe(false);
   const file = join(sessionsDir, `${sessionId}.sqlite`);
-  expect(verifyChain(file, sessionId)).toBeGreaterThanOrEqual(2);
+  expect(readChain(file, sessionId).length).toBeGreaterThanOrEqual(2);
   expect(readChain(file, sessionId).some((row) => row.id === "m1")).toBe(true);
   expect(clusterMessages(catalogPath, "Session").length).toBeGreaterThan(0);
   await runAgent(Scope.close(scope, Exit.void));
@@ -239,15 +238,14 @@ test("memory mode: the entity and the plane share one in-memory store per sessio
         const kernel = ledger.openKernel(sessionId);
         return {
           receipt,
-          verdict: kernel.verifyChain(sessionId),
+          page: kernel.historyPage(sessionId),
           inputs: kernel.inputMessages(sessionId).length,
         };
       }).pipe(Effect.provide(layer)),
     ),
   );
   expect(seen.receipt.existed).toBe(false);
-  expect(seen.verdict.kind).toBe("intact");
-  expect(seen.verdict.kind === "intact" && seen.verdict.length).toBeGreaterThanOrEqual(2);
+  expect(seen.page.actions.length).toBeGreaterThanOrEqual(2);
   expect(seen.inputs).toBe(1);
 });
 
@@ -401,7 +399,7 @@ const settleOnClock = <A, E, R>(program: Effect.Effect<A, E, R>, label: string) 
     return yield* Fiber.join(fiber);
   });
 
-test("file mode: a rebuilt host on the same paths lists the session, verifies its chain and commits a new deliver (#1345 M3a)", async () => {
+test("file mode: a rebuilt host on the same paths lists the session, reads its history and commits a new deliver (#1345 M3a)", async () => {
   const { catalogPath, sessionsDir } = home("reopen");
   const sessionId = "reopen-session";
   const host = () => fileLayer({ catalogPath, sessionsDir });
@@ -421,20 +419,18 @@ test("file mode: a rebuilt host on the same paths lists the session, verifies it
         const ledger = yield* Ledger;
         const listed = ledger.listSessions().map((row) => row.id);
         const scannedClosed = sessionFileClosed(join(sessionsDir, `${sessionId}.sqlite`));
-        const before = ledger.openKernel(sessionId).verifyChain(sessionId);
+        const before = ledger.openKernel(sessionId).historyPage(sessionId);
         const receipt = yield* deliverPrompt(sessionId, "m2");
-        const after = ledger.openKernel(sessionId).verifyChain(sessionId);
+        const after = ledger.openKernel(sessionId).historyPage(sessionId);
         return { listed, scannedClosed, before, receipt, after };
       }).pipe(Effect.provide(host())),
     ),
   );
   expect(second.listed).toEqual([sessionId]);
   expect(second.scannedClosed).toBe(true);
-  expect(second.before.kind).toBe("intact");
   expect(second.receipt.existed).toBe(false);
-  expect(second.after.kind).toBe("intact");
-  const lengthBefore = second.before.kind === "intact" ? second.before.length : -1;
-  expect(second.after.kind === "intact" && second.after.length).toBeGreaterThan(lengthBefore);
+  const lengthBefore = second.before.actions.length;
+  expect(second.after.actions.length).toBeGreaterThan(lengthBefore);
   const ids = readChain(join(sessionsDir, `${sessionId}.sqlite`), sessionId).map((row) => row.id);
   expect(ids).toContain("m1");
   expect(ids).toContain("m2");
@@ -470,7 +466,7 @@ test("memory mode: a passivated activation's successor continues the chain on th
         yield* materialize(sessionId);
         const first = yield* settleOnClock(deliverPrompt(sessionId, "m1"), "first deliver");
         const activationsAfterFirst = activations;
-        const lengthAfterFirst = ledger.openKernel(sessionId).verifyChain(sessionId);
+        const lengthAfterFirst = ledger.openKernel(sessionId).historyPage(sessionId);
         // Idle past entityIdleMs: only the reaper, on the test clock, passivates.
         yield* stepClockUntil(Deferred.isDone(passivated), "passivation");
         const second = yield* settleOnClock(deliverPrompt(sessionId, "m2"), "second deliver");
@@ -481,7 +477,7 @@ test("memory mode: a passivated activation's successor continues the chain on th
           activationsAfterFirst,
           activations,
           lengthAfterFirst,
-          verdict: kernel.verifyChain(sessionId),
+          page: kernel.historyPage(sessionId),
           inputs: kernel.inputMessages(sessionId).length,
         };
       }).pipe(Effect.provide(layer)),
@@ -491,10 +487,8 @@ test("memory mode: a passivated activation's successor continues the chain on th
   expect(seen.second.existed).toBe(false);
   expect(seen.activationsAfterFirst).toBe(1);
   expect(seen.activations).toBe(2);
-  expect(seen.lengthAfterFirst.kind).toBe("intact");
-  expect(seen.verdict.kind).toBe("intact");
-  const lengthBefore = seen.lengthAfterFirst.kind === "intact" ? seen.lengthAfterFirst.length : -1;
-  expect(seen.verdict.kind === "intact" && seen.verdict.length).toBeGreaterThan(lengthBefore);
+  const lengthBefore = seen.lengthAfterFirst.actions.length;
+  expect(seen.page.actions.length).toBeGreaterThan(lengthBefore);
   expect(seen.inputs).toBe(2);
 });
 
@@ -533,12 +527,12 @@ test("file mode: five passivation cycles with late plane-resolved readers hold n
     Effect.gen(function* () {
       const ledger = yield* Ledger;
       yield* materialize(sessionId);
-      const cycles: { passivated: number; resolved: number; verdict: string }[] = [];
+      const cycles: { passivated: number; resolved: number; id: string }[] = [];
       for (let cycle = 0; cycle < 5; cycle += 1) {
         yield* deliverAndPassivate(sessionId, `m${cycle}`);
         const passivated = stores.live();
-        const verdict = ledger.openKernel(sessionId).verifyChain(sessionId).kind;
-        cycles.push({ passivated, resolved: stores.live(), verdict });
+        const id = ledger.openKernel(sessionId).row(sessionId).id;
+        cycles.push({ passivated, resolved: stores.live(), id });
       }
       ledger.releaseSession(sessionId);
       return { cycles, released: stores.live(), opened: stores.opened() };
@@ -546,7 +540,7 @@ test("file mode: five passivation cycles with late plane-resolved readers hold n
   )).finally(stores.restore);
   // Each cycle opens the entity's own handle, closes it with the memo, and reopens one memo for the late reader.
   expect(seen.cycles).toEqual(
-    Array.from({ length: 5 }, () => ({ passivated: 0, resolved: 1, verdict: "intact" })),
+    Array.from({ length: 5 }, () => ({ passivated: 0, resolved: 1, id: sessionId })),
   );
   expect({ released: seen.released, opened: seen.opened }).toEqual({ released: 0, opened: 11 });
 });
@@ -559,12 +553,12 @@ test("file mode: a kernel held across a passivation fails on use", async () => {
       yield* materialize(sessionId);
       const held = ledger.openKernel(sessionId);
       yield* deliverAndPassivate(sessionId, "first");
-      expect(() => held.verifyChain(sessionId)).toThrow(RangeError);
-      expect(() => held.verifyChain(sessionId)).toThrow("Cannot use a closed database");
-      return { fresh: ledger.openKernel(sessionId).verifyChain(sessionId).kind };
+      expect(() => held.historyPage(sessionId)).toThrow(RangeError);
+      expect(() => held.historyPage(sessionId)).toThrow("Cannot use a closed database");
+      return { fresh: ledger.openKernel(sessionId).row(sessionId).id };
     }).pipe(Effect.provide(passivatingFileLedger("held-across"))),
   ));
-  expect(outcome.fresh).toBe("intact");
+  expect(outcome.fresh).toBe(sessionId);
 });
 
 test("late binding: an activation holds on the slot's ready gate and runs the delivered turn exactly once after bind", async () => {

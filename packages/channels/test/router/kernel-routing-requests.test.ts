@@ -257,7 +257,7 @@ test.each(["throw", "wrong_type"] as const)("route correction %s fails closed", 
     record: (fact: Parameters<typeof facts.record>[0]) => {
       if (fact.type !== Ingress.ROUTE_NOT_DELIVERED_FACT_TYPE) return facts.record(fact);
       if (fault === "throw") throw new Error("correction unavailable");
-      return { kind: "exists", fact: { ...fact, type: "other.fact", rowHash: "0".repeat(64) } };
+      return { kind: "exists", fact: { ...fact, type: "other.fact" } };
     },
   }));
   expect(await effectFailure(kernelRouter().ingest(sender, facts("reply")))).toMatchObject({

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect, Logger, References } from "effect";
 import { logRestoredHistory } from "../src/core/session/recovery";
-import { actionPayloadBytes } from "../src/core/store/action-hash";
+import { actionPayloadBytes } from "../src/core/store/action-row";
 import { RestoreRefused, restoreSessionHistory } from "../src/inspect/history";
 import { isolatedRun, runTestSync } from "./helpers/isolated";
 import { paddingActions } from "./helpers/reconstruction-fixture";

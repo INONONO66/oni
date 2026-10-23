@@ -62,11 +62,6 @@ export function opPhaseOf(action: LedgerAction.Append): string {
   return "unmatched";
 }
 
-/** Fixture chain links: tests here assert executor behaviour, not the ledger's hash owner. */
-export function fixtureHashes(ordinal: number) {
-  return { prevHash: `fixture-hash-${ordinal - 1}`, actionHash: `fixture-hash-${ordinal}` };
-}
-
 /** A manually released commit boundary for deterministic record-before-publish tests. */
 export function actionCommitGate(expectedOpPhase: string): {
   readonly reached: Promise<void>;

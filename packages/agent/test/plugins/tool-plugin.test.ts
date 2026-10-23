@@ -93,8 +93,6 @@ describe("plugins/tool dispatcher export (#1316)", () => {
           revert: payload,
           ts: 1,
           ordinal,
-          prevHash: "",
-          actionHash: "",
         });
         const cursors: number[] = [];
         const fullPage = Array.from({ length: 256 }, (_, index) => node(index + 1));

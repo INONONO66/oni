@@ -27,8 +27,6 @@ function node(input: {
     ts: 1_000 + input.seq,
     intent: { encodingVersion: 1, value: input.intent ?? {} },
     effect: { encodingVersion: 1, value: input.effect ?? {} },
-    prevHash: "before",
-    actionHash: "after",
     irreversible: true,
   });
 }

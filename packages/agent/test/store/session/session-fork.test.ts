@@ -62,16 +62,13 @@ describe("Session.fork", () => {
     }
   });
 
-  test("forks at a turn terminal into an independently verifiable child chain", () => {
+  test("forks at a turn terminal into an independent child history", () => {
     const parent = fixture.buildParent();
-    const receipt = fixture.forked(parent.hashOf("turn-1:terminal"));
+    const receipt = fixture.forked("turn-1:terminal");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
 
-    // The child chain verifies on its own hashes, with its own head.
-    const verdict = childKernel.verifyChain(CHILD);
-    if (verdict.kind !== "intact") throw new Error("child chain not intact");
-    expect(verdict.head).toBe(receipt.head);
-    expect(verdict.head).not.toBe(parent.head);
+    expect(childKernel.latestAction(CHILD)?.id).toBe(receipt.head);
+    expect(receipt.head).not.toBe(parent.head);
 
     // Genesis pins the parent, the anchor, its ordinal and the parent head.
     const nodes = childKernel.historyPage(CHILD, { afterRevision: 0, limit: 50 }).actions;
@@ -84,7 +81,7 @@ describe("Session.fork", () => {
     expect(intent.operation).toBe("fork");
     expect(intent.forkedFrom).toEqual({
       session: PARENT,
-      anchor: parent.hashOf("turn-1:terminal"),
+      anchor: "turn-1:terminal",
       parentSeq: 4,
       parentHead: parent.head,
       copied: 4,
@@ -113,7 +110,7 @@ describe("Session.fork", () => {
     expect(stores.catalog.sessionIndex(CHILD)).toMatchObject({ parentId: PARENT, createdAt: 100 });
     expect(stores.catalog.childSessionsPage(PARENT, "", 10).map((row) => row.id)).toEqual([CHILD]);
 
-    // A later parent append is independent: the pinned child chain still verifies.
+    // A later parent append leaves every copied child row unchanged.
     fixture.commit(parent.authority, [
       receivedMessageAction({
         id: "msg-3",
@@ -125,18 +122,16 @@ describe("Session.fork", () => {
         at: 6,
       }),
     ]);
-    expect(childKernel.verifyChain(CHILD)).toEqual({ kind: "intact", head: receipt.head, length: 5 });
+    expect(sessionTree(childKernel, CHILD)).toEqual(nodes);
     expect(receipt.forkedFrom.parentHead).toBe(parent.head);
   });
 
-  test("accepts prompt anchors; compaction hashes are boundaries by rule", () => {
-    const parent = fixture.buildParent();
+  test("accepts prompt anchors; compaction actions are boundaries by rule", () => {
+    fixture.buildParent();
     // A prompt row (here the pending msg-2) is a legal boundary anchor.
-    const receipt = fixture.forked(parent.hashOf("msg-2"));
-    expect(receipt.forkedFrom.anchor).toBe(parent.hashOf("msg-2"));
+    const receipt = fixture.forked("msg-2");
+    expect(receipt.forkedFrom.anchor).toBe("msg-2");
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
-    const verdict = childKernel.verifyChain(CHILD);
-    expect(verdict.kind).toBe("intact");
     // The arm between terminal and msg-2 is still excluded from the copy.
     const nodes = childKernel.historyPage(CHILD, { afterRevision: 0, limit: 50 }).actions;
     expect(nodes.some((node) => node.kind === "alarm")).toBeFalse();
@@ -144,7 +139,7 @@ describe("Session.fork", () => {
     const compaction: LedgerAction.Node = {
       id: "cut", parentId: null, sessionId: PARENT, kind: "compaction",
       intent: { encodingVersion: 1, value: {} }, effect: { encodingVersion: 1, value: {} },
-      irreversible: true, ts: 1, ordinal: 1, prevHash: "p", actionHash: "h",
+      irreversible: true, ts: 1, ordinal: 1,
     };
     expect(isForkBoundary(compaction)).toBeTrue();
     expect(isForkBoundary({ ...compaction, kind: "alarm" })).toBeFalse();
@@ -185,12 +180,10 @@ describe("Session.fork", () => {
     if (compactionRow === undefined) throw new Error("no executed compaction row on the parent chain");
     expect(isForkBoundary(compactionRow)).toBeTrue();
 
-    const receipt = fixture.forked(compactionRow.actionHash);
-    expect(receipt.forkedFrom.anchor).toBe(compactionRow.actionHash);
+    const receipt = fixture.forked(compactionRow.id);
+    expect(receipt.forkedFrom.anchor).toBe(compactionRow.id);
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
-    const verdict = childKernel.verifyChain(CHILD);
-    if (verdict.kind !== "intact") throw new Error("child chain not intact");
-    expect(verdict.head).toBe(receipt.head);
+    expect(childKernel.latestAction(CHILD)?.id).toBe(receipt.head);
     // The anchor compaction row itself was copied and closes the child chain.
     const nodes = childKernel.historyPage(CHILD, { afterRevision: 0, limit: 50 }).actions;
     expect(nodes.at(-1)?.id).toBe(compactionRow.id);
@@ -199,15 +192,15 @@ describe("Session.fork", () => {
   });
 
   test("refuses a mid-turn anchor and an unknown anchor", () => {
-    const parent = fixture.buildParent();
-    const armHash = parent.hashOf("alarm-1:arm:1");
-    expect(fixture.refusalOf(fixture.fork(armHash)).reason).toBe("anchor_not_boundary");
-    expect(fixture.refusalOf(fixture.fork("no-such-hash")).reason).toBe("anchor_not_found");
+    fixture.buildParent();
+    const armId = "alarm-1:arm:1";
+    expect(fixture.refusalOf(fixture.fork(armId)).reason).toBe("anchor_not_boundary");
+    expect(fixture.refusalOf(fixture.fork("no-such-action")).reason).toBe("anchor_not_found");
   });
 
   test("the copy cap is generation configuration: a pinned 16-byte cap refuses, the default accepts", () => {
     const parent = fixture.buildParent();
-    const anchor = parent.hashOf("turn-1:terminal");
+    const anchor = "turn-1:terminal";
     // Under the default generation (no pinned cap) the same fork is accepted.
     expect(fixture.forked(anchor).childId).toBe(CHILD);
     // Pin a 16-byte cap on the parent generation: a real configure row, the
@@ -262,25 +255,18 @@ describe("Session.fork", () => {
       previous = id;
     }
     fixture.commit(parent.authority, extras);
-    const verdict = stores.kernel.verifyChain(PARENT);
-    if (verdict.kind !== "intact" || verdict.head === null)
-      throw new Error("parent chain not intact after bulk append");
-
-    // The chain head is the last bulk prompt: a legal boundary on page two.
-    const receipt = fixture.forked(verdict.head);
-    expect(receipt.forkedFrom.anchor).toBe(verdict.head);
+    // The last bulk prompt is a legal boundary on page two.
+    const receipt = fixture.forked("bulk-259");
+    expect(receipt.forkedFrom.anchor).toBe("bulk-259");
     // 266 parent rows minus the excluded arm row were copied.
     expect(receipt.forkedFrom.copied).toBe(265);
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
-    expect(childKernel.verifyChain(CHILD)).toEqual({
-      kind: "intact",
-      head: receipt.head,
-      length: 266,
-    });
+    expect(sessionTree(childKernel, CHILD)).toHaveLength(266);
+    expect(childKernel.latestAction(CHILD)?.id).toBe(receipt.head);
   });
 
   test("refuses a real old-schemaVersion parent file and leaves its bytes identical", () => {
-    const parent = fixture.buildParent();
+    fixture.buildParent();
     // A REAL legacy fixture file on disk: tables and rows, but no
     // schemaVersion marker (user_version 0, not SESSION_FILE_SCHEMA_VERSION).
     const directory = mkdtempSync(join(tmpdir(), "fork-legacy-"));
@@ -297,7 +283,7 @@ describe("Session.fork", () => {
       const probed = readSessionFileSchemaVersion(legacyPath);
       expect(probed).not.toBe(SESSION_FILE_SCHEMA_VERSION);
       const refusal = fixture.refusalOf(
-        fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: probed }),
+        fixture.fork("turn-1:terminal", { parentSchemaVersion: probed }),
       );
       expect(refusal.reason).toBe("schema_version");
 
@@ -314,14 +300,16 @@ describe("Session.fork", () => {
     }
   });
 
-  test("#1347 a real version-1 parent file upgrades to v2 before the fork's read-only probe", () => {
-    const parent = fixture.buildParent();
+  test("#1347 a real version-1 parent file upgrades through v2 to v3 before the fork's read-only probe", () => {
+    fixture.buildParent();
     const directory = mkdtempSync(join(tmpdir(), "fork-v1-"));
     try {
-      // A REAL v1 session file: this build's DDL minus `strikes`, stamped 1,
+      // A historical session schema without `strikes`, stamped 1,
       // with one armed occurrence waiting in the index.
       const v1Path = join(directory, "v1-parent.sqlite");
       const v1 = new Database(v1Path);
+      v1.exec(readFileSync(join(import.meta.dir, "../helpers/session-v2.sql"), "utf8"));
+      v1.run("DROP TABLE armed_alarms");
       v1.run("CREATE TABLE armed_alarms (alarm_id TEXT PRIMARY KEY, occurrence_id TEXT NOT NULL UNIQUE, fire_at INTEGER NOT NULL)");
       v1.run("INSERT INTO armed_alarms VALUES ('alarm-1', 'occ-1', 500)");
       v1.run("PRAGMA user_version = 1");
@@ -341,13 +329,13 @@ describe("Session.fork", () => {
       // reports the current marker, so the fork admits the parent.
       const probed = readSessionFileSchemaVersion(v1Path);
       expect(probed).toBe(SESSION_FILE_SCHEMA_VERSION);
-      expect(rawUserVersion()).toBe(2);
+      expect(rawUserVersion()).toBe(3);
       const upgraded = new Database(v1Path, { readonly: true });
       const Column = z.object({ name: z.string() });
       expect(Column.array().parse(upgraded.query("PRAGMA table_info(armed_alarms)").all()).map((c) => c.name)).toEqual(["alarm_id", "occurrence_id", "fire_at", "strikes"]);
       expect(upgraded.query("SELECT strikes FROM armed_alarms WHERE occurrence_id = 'occ-1'").get()).toEqual({ strikes: 0 });
       upgraded.close();
-      expect(Result.getOrThrowWith(fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: probed }), (error) => error).forkedFrom.copied).toBe(4);
+      expect(Result.getOrThrowWith(fixture.fork("turn-1:terminal", { parentSchemaVersion: probed }), (error) => error).forkedFrom.copied).toBe(4);
 
       // Idempotent: a second probe is a pure read-only read of the stamp.
       const sha256 = () => createHash("sha256").update(readFileSync(v1Path)).digest("hex");
@@ -390,8 +378,8 @@ describe("Session.fork", () => {
       });
       expect(readSessionFileSchemaVersion(newerPath)).toBe(SESSION_FILE_SCHEMA_VERSION + 1);
       expect(sha256()).toBe(before);
-      const parent = fixture.buildParent();
-      expect(fixture.refusalOf(fixture.fork(parent.hashOf("turn-1:terminal"), { parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION + 1 })).reason).toBe("schema_version");
+      fixture.buildParent();
+      expect(fixture.refusalOf(fixture.fork("turn-1:terminal", { parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION + 1 })).reason).toBe("schema_version");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -415,7 +403,7 @@ describe("Session.fork", () => {
       const upgraded = openCatalogStore(catalogPath, { now: testNow });
       try {
         expect(upgraded.sessionIndex(PARENT)).toMatchObject({ parentId: "root", role: "child" });
-        const receipt = fixture.forked(parent.hashOf("turn-1:terminal"), { catalog: upgraded });
+        const receipt = fixture.forked("turn-1:terminal", { catalog: upgraded });
         expect(receipt.parentId).toBe(PARENT);
         // The child's role comes from the parent's session-file row, not the
         // catalog; its index row lands under the rebuilt CHECK beside the rewritten parent.
@@ -433,19 +421,20 @@ describe("Session.fork", () => {
         ],
       });
       // The parent chain is untouched by the catalog rewrite.
-      expect(stores.kernel.verifyChain(PARENT)).toMatchObject({ kind: "intact", head: parent.head });
+      expect(stores.kernel.latestAction(PARENT)?.id).toBe(parent.head);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
-  test("refuses an existing child id and leaves the first chain intact", () => {
-    const parent = fixture.buildParent();
-    const anchor = parent.hashOf("turn-1:terminal");
-    const first = fixture.forked(anchor);
-    expect(fixture.refusalOf(fixture.fork(anchor)).reason).toBe("child_exists");
+  test("refuses an existing child id and leaves the first child history unchanged", () => {
+    fixture.buildParent();
+    const anchor = "turn-1:terminal";
+    fixture.forked(anchor);
     const childKernel = SessionHandleStore.createSessionKernel(child(), stores.catalog);
-    expect(childKernel.verifyChain(CHILD)).toEqual({ kind: "intact", head: first.head, length: 5 });
+    const before = sessionTree(childKernel, CHILD);
+    expect(fixture.refusalOf(fixture.fork(anchor)).reason).toBe("child_exists");
+    expect(sessionTree(childKernel, CHILD)).toEqual(before);
   });
 });
 
@@ -462,7 +451,7 @@ describe("Session.fork generation pin", () => {
       id: `${PARENT}:configure-late`, sessionId: PARENT,
       parentId: stores.kernel.latestAction(PARENT)?.id ?? null, operation: "compose", snapshot: late, at: 14,
     })]);
-    const receipt = fixture.forked(parent.hashOf("turn-1:terminal"));
+    const receipt = fixture.forked("turn-1:terminal");
     const childGeneration = SessionHandleStore.createSessionKernel(child(), stores.catalog).latestGenerationFor(CHILD);
     console.info(`A6 fork pin rowToolsGeneration=${receipt.row.toolsGeneration} childGeneration=${childGeneration.generation} parentLatest=${late.generation}`);
     expect([pinned.generation, late.generation]).toEqual([1, 2]);

@@ -647,7 +647,6 @@ async function recoverReconstructionCell(point: z.infer<typeof reconstructionPoi
     const { before, full, projection } = durable;
     if (point === "fold_checkpoint_tampered_before_load") {
       expect(recovered).toMatchObject({ refusal: "FoldCheckpointIntegrityError", runnerCount: 0, loaded: null, rangeReads: [] });
-      expect(ledger.kernel.verifyChain(sessionId).kind).toBe("intact");
       return "rejected";
     }
     if (point === "captured_generation_missing_after_restart") {

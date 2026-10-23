@@ -3,7 +3,6 @@ import { LedgerAction, type ObservationSink, type Storage as ProtocolStorage } f
 import { appendAction, type AppendLimits } from "../storage/sqlite-l0-write.js";
 import { reportCommitted, type ObservationFailurePort } from "../storage/sqlite-l0-observation.js";
 import { createActionReads } from "./reads";
-import { verifyChain } from "./verify";
 
 export function createActions(
   db: Database,
@@ -19,9 +18,6 @@ export function createActions(
       const receipt = transaction(() => appendAction(db, parsed, expectedRevision, limits));
       if (receipt !== undefined) reportCommitted(db, observationSink, onObservationFailure, receipt);
       return receipt;
-    },
-    verifyChain(sessionId) {
-      return verifyChain(db, sessionId);
     },
   };
 }

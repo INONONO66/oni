@@ -98,7 +98,7 @@
   "DecisionFact.Outcome#exists": ["fact", "kind"],
   "DecisionFact.Outcome#recorded": ["fact", "kind"],
   "DecisionFact.Record": ["data", "key", "timeCreated", "type"],
-  "DecisionFact.Recorded": ["data", "key", "rowHash", "timeCreated", "type"],
+  "DecisionFact.Recorded": ["data", "key", "timeCreated", "type"],
   "Delivery.Commit": [
     "after",
     "content",
@@ -672,24 +672,19 @@
     "sessionId",
     "ts"
   ],
-  "LedgerAction.ChainVerdict#broken": ["actual", "expected", "kind", "ordinal"],
-  "LedgerAction.ChainVerdict#intact": ["head", "kind", "length"],
   "LedgerAction.Intent": ["op", "originalArgs", "phase", "value"],
   "LedgerAction.Node#0": [
-    "actionHash",
     "effect",
     "id",
     "intent",
     "kind",
     "ordinal",
     "parentId",
-    "prevHash",
     "revert",
     "sessionId",
     "ts"
   ],
   "LedgerAction.Node#1": [
-    "actionHash",
     "effect",
     "id",
     "intent",
@@ -697,7 +692,6 @@
     "kind",
     "ordinal",
     "parentId",
-    "prevHash",
     "sessionId",
     "ts"
   ],
@@ -744,6 +738,7 @@
   "Machine.AttachResult#attached": [
     "effectiveCapabilities",
     "effectiveExports",
+    "generation",
     "status"
   ],
   "Machine.AttachResult#refused": ["reason", "status"],
@@ -756,6 +751,7 @@
     "slots"
   ],
   "Machine.CapacityRow#1": ["classCosts", "memReserveBytes", "slots", "tag"],
+  "Machine.CellOutput": ["stderr", "stdout", "truncated"],
   "Machine.CellRequest": ["cellId", "code", "tenant", "timeoutMs"],
   "Machine.CellResult#cancelled": ["cellId", "output", "status"],
   "Machine.CellResult#completed": ["cellId", "output", "status", "value"],
@@ -826,10 +822,12 @@
     "arch",
     "capabilities",
     "enrolledAt",
+    "generation",
     "live",
     "machineId",
     "name",
     "os",
+    "peer",
     "publicKey",
     "resources",
     "tags"
@@ -854,9 +852,11 @@
   "Machine.Offer": [
     "daemonVersion",
     "exports",
+    "generation",
     "machineId",
     "offeredAt",
     "offeredCapabilities",
+    "peer",
     "platform",
     "resources"
   ],
