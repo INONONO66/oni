@@ -14,10 +14,6 @@ import { createRouter } from "./router/stream-fn";
  * The call layer's service, shaped as the agent core's `LlmPort` (#1352):
  * the core declares the port and its `Llm` tag, this package never imports
  * the core, and the composition root binds this service to that tag.
- *
- * The contract takes no `authFilePath`: the credential file location is resolved
- * once by the composition root and closed over by the implementation
- * (#1245), so consumers cannot redirect credential I/O.
  */
 export interface LlmService {
   readonly resolveModel: (ref: Model.Ref, now: () => number) => Effect.Effect<Provider.Model, LlmError>;

@@ -13,7 +13,6 @@ import { openCatalogStore } from "../../src/core/store/catalog";
 import { createSessionKernel } from "../../src/core/store/fence";
 import { storedActionRow } from "../../src/core/store/action-row";
 import { openSessionStore } from "../../src/core/store/session-file";
-import { SessionFileUnreadable } from "../../src/core/store/errors";
 import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
 import { forkAncestryOf } from "../../src/inspect/tree";
 import { runLedgerSync } from "./helpers/effect";
@@ -215,18 +214,6 @@ for (const order of [["parent", "child"], ["child", "parent"]] as const) {
           expect(forkAncestryOf(createSessionKernel(reopened, catalog), "child")?.anchor).toBe("parent-prompt");
         } finally {
           reopened.close();
-        }
-        if (order[0] === "parent") {
-          rmSync(rootPath);
-          const missingChildPath = join(directory, "missing-child.sqlite");
-          seedForkFile(missingChildPath, "parent", "root", [parentConfigure, parentPrompt, parentTail]);
-          try {
-            openSessionStore(missingChildPath, { now: testNow }).close();
-            throw new Error("expected unreadable fork parent");
-          } catch (error) {
-            if (!(error instanceof SessionFileUnreadable)) throw error;
-            expect(error).toMatchObject({ path: rootPath, code: "SQLITE_CANTOPEN" });
-          }
         }
       } finally {
         catalog.close();

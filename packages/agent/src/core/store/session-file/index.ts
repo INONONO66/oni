@@ -30,7 +30,7 @@ import { createActions } from "./actions";
 import { createArmedAlarmPorts, type ArmedAlarmRow, type ArmedOccurrence } from "./alarms";
 import { createToolOutputs, type ToolOutputWrite, type ToolOutputsAdapter } from "./outputs";
 
-/** Fresh per-session ledger file DDL (W5.2 ) — the only session-file */
+/** Fresh per-session ledger file DDL. */
 export const SESSION_FILE_SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS session (
     id TEXT PRIMARY KEY,
@@ -229,13 +229,7 @@ const LegacyActionId = z.object({ id: z.string() });
 
 /** Read the parent's original identity from a consistent v2 or upgraded-v3 snapshot. */
 function legacyForkActionId(parentPath: string, digest: string): string | undefined {
-  let connection: Database;
-  try {
-    connection = new Database(parentPath, { readonly: true });
-  } catch (error) {
-    throw unreadableSessionFile(parentPath, error instanceof Error ? error : new Error(String(error)));
-  }
-  using parent = connection;
+  using parent = new Database(parentPath, { readonly: true });
   parent.run("PRAGMA busy_timeout = 5000");
   parent.run("BEGIN");
   try {
@@ -329,7 +323,7 @@ export class SessionStore extends StoreHandle {
   readonly sessions: SessionWriteAdapter;
   readonly actions: ProtocolStorage.ActionSubAdapter;
   readonly decisionFacts: ProtocolStorage.DecisionFactSubAdapter;
-  /**  S3: the durable armed-alarm index of this session file. */
+  /** The durable armed-alarm index of this session file. */
   readonly armedAlarms: () => readonly ArmedAlarmRow[];
   /** The current occurrence of one alarm chain by primary key. */
   readonly armedAlarm: (alarmId: string) => ArmedOccurrence | undefined;
@@ -337,7 +331,7 @@ export class SessionStore extends StoreHandle {
   readonly strikeArmedAlarm: (occurrenceId: string) => number | undefined;
   /** Moves one armed occurrence to `at` with strikes reset; false when the index lacks it. */
   readonly requeueArmedAlarm: (occurrenceId: string, at: number) => boolean;
-  /** : content-addressed tool output bytes of this session file. */
+  /** Content-addressed tool output bytes of this session file. */
   readonly toolOutputs: ToolOutputsAdapter;
   private readonly onObservationFailure: ObservationFailurePort;
   private readonly limits: AppendLimits;
@@ -364,7 +358,7 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * One atomic fork write (): the child genesis materialization plus the
+   * One atomic child-file fork write: genesis materialization plus the
    * copied pre-anchor rows land in a single transaction — a crashed
    * fork leaves either complete child history or no child session row at all
    * (session-file recovery needs no partial-fork repair path).
@@ -389,7 +383,7 @@ export class SessionStore extends StoreHandle {
             return refuse(new CorruptRecord({ operation: "session.fork", id: copy.id }));
           receipt = appended;
         }
-        // : outputs referenced by copied rows land in the same atomic
+        // Outputs referenced by copied rows land in the same atomic
         // write, so a forked child never carries a dangling outputRef.
         for (const output of input.outputs ?? []) this.toolOutputs.put(output);
         const row = selectSession(this.db, materialize.row.id);
@@ -401,8 +395,8 @@ export class SessionStore extends StoreHandle {
   }
 
   /**
-   * One creation write: the genesis row commits inside the catalog index transaction, so a duplicate on
-   * either plane refuses typed with zero new facts, but the two files are not one atomic unit (see `indexed`).
+   * Genesis commits in the session file before catalog indexing. A refused catalog
+   * index compensates by deleting the session row; the two files are not one atomic unit.
    */
   create(input: SessionCreateWrite): Effect.Effect<SessionCreateReceipt, LedgerError> {
     return writeEffect("session.create", (refuse: RefuseWrite) => {
@@ -447,7 +441,7 @@ export class SessionStore extends StoreHandle {
   }
 }
 
-/** The catalog side of one creation: its write unit and index insert (`CatalogStore`, structurally). */
+/** The catalog index unit opened after the session-file write commits. */
 export interface SessionIndexUnit {
   readonly transaction: <T>(operation: () => T) => T;
   readonly indexSession: (input: {
@@ -459,7 +453,7 @@ export interface SessionIndexUnit {
   }) => boolean;
 }
 
-/** The atomic genesis-plus-index write `createSession` hands the store. */
+/** The session-first creation input followed by catalog indexing with compensation. */
 export interface SessionCreateWrite {
   readonly materialize: LedgerSession.Materialize;
   readonly index: SessionIndexUnit;
@@ -472,16 +466,16 @@ export interface SessionCreateReceipt {
   readonly receipt: LedgerAction.Receipt;
 }
 
-/** The atomic child write `Session.fork` hands the child store (). */
+/** The child-file fork write followed by catalog indexing with compensation. */
 interface SessionForkWrite {
   readonly materialize: LedgerSession.Materialize;
-  /** The catalog unit the child's index row lands in, enclosing the child write. */
+  /** The catalog unit for indexing after the child-file write commits. */
   readonly index: SessionIndexUnit;
   /** The child's index creation stamp: the fork's `now`. */
   readonly createdAt: number;
   /** Eligible pre-anchor parent rows, already remapped for the child history. */
   readonly copies: readonly LedgerAction.Append[];
-  /** : stored outputs the copied rows reference, copied under the same identifiers. */
+  /** Stored outputs the copied rows reference, copied under the same identifiers. */
   readonly outputs?: readonly ToolOutputWrite[];
 }
 
@@ -500,7 +494,7 @@ export interface SessionForkReceipt {
 const DROP_OBSERVATION_FAILURES: ObservationFailurePort = () => undefined;
 
 interface OpenSessionStoreOptions {
-  /** Injected wall clock (): the store never reads ambient time. */
+  /** Injected wall clock: the store never reads ambient time. */
   readonly now: () => number;
   readonly observationSink?: ObservationSink;
   readonly onObservationFailure?: ObservationFailurePort;

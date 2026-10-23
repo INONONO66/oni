@@ -26,6 +26,14 @@ const watchSpec = (notificationLimit: number) => ({
   notificationLimit,
 });
 
+const verbOf =
+  (calls: string[], occurrenceId: string): Core.ArmVerb =>
+  (input) =>
+    Effect.sync(() => {
+      calls.push(occurrenceId);
+      return { alarmId: input.alarmId ?? "minted", occurrenceId, armSeq: 1 };
+    });
+
 test("the live arm registry binds continuations to the authorizing activation's turn (H3)", async () => {
   const registry = createLiveArmRegistry();
   const armInput = {
@@ -40,21 +48,14 @@ test("the live arm registry binds continuations to the authorizing activation's 
   expect(refused.code).toBe("not_live");
   // A registered activation's verb commits only for the turn it owns.
   const calls: string[] = [];
-  const verbOf =
-    (occurrenceId: string): Core.ArmVerb =>
-    (input) =>
-      Effect.sync(() => {
-        calls.push(occurrenceId);
-        return { alarmId: input.alarmId ?? "minted", occurrenceId, armSeq: 1 };
-      });
   const release = registry.onLive(SESSION, {
-    arm: verbOf("occ-old"),
+    arm: verbOf(calls, "occ-old"),
     ownsTurn: (turnId) => turnId === "t1",
   });
   // A continuation minted under the old activation's turn t1 — NOT yet executed.
   const continuation = registry.arm(SESSION, "t1")(armInput);
   // The successor activation registers; it owns t2, never t1.
-  registry.onLive(SESSION, { arm: verbOf("occ-new"), ownsTurn: (turnId) => turnId === "t2" });
+  registry.onLive(SESSION, { arm: verbOf(calls, "occ-new"), ownsTurn: (turnId) => turnId === "t2" });
   // Executing the stale continuation refuses stale_activation (r3 H1: the
   // activation binding is the primary guard): it is never re-resolved to the
   // successor and NEITHER verb commits anything.
@@ -82,21 +83,14 @@ test("r3 H1: a recovered turn never lets an old activation's continuation borrow
     payload: {},
   };
   const calls: string[] = [];
-  const verbOf =
-    (occurrenceId: string): Core.ArmVerb =>
-    (input) =>
-      Effect.sync(() => {
-        calls.push(occurrenceId);
-        return { alarmId: input.alarmId ?? "minted", occurrenceId, armSeq: 1 };
-      });
   // Recovery retains the open turn id (core/recovery resumeTurn): BOTH the old
   // activation and its successor own the SAME durable turn token.
   const ownsPersisted = (turnId: string) => turnId === "persisted-turn";
-  registry.onLive(SESSION, { arm: verbOf("occ-old"), ownsTurn: ownsPersisted });
+  registry.onLive(SESSION, { arm: verbOf(calls, "occ-old"), ownsTurn: ownsPersisted });
   // A continuation minted under the old activation — NOT yet executed.
   const continuation = registry.arm(SESSION, "persisted-turn")(armInput);
   // The successor activation recovers the same turn and registers.
-  registry.onLive(SESSION, { arm: verbOf("occ-successor"), ownsTurn: ownsPersisted });
+  registry.onLive(SESSION, { arm: verbOf(calls, "occ-successor"), ownsTurn: ownsPersisted });
   // The zombie's deferred execution is a typed refusal: the successor's verb
   // is NEVER called and nothing is appended.
   const outcome = runSyncResult(continuation);
@@ -112,16 +106,9 @@ test("r4 H1: a watch continuation built under the old activation never commits t
   const registry = createLiveArmRegistry();
   const calls: string[] = [];
   const installs: string[] = [];
-  const verbOf =
-    (occurrenceId: string): Core.ArmVerb =>
-    (input) =>
-      Effect.sync(() => {
-        calls.push(occurrenceId);
-        return { alarmId: input.alarmId ?? "minted", occurrenceId, armSeq: 1 };
-      });
   // Recovery retains the open turn id: BOTH activations own `persisted-turn`.
   const ownsPersisted = (turnId: string) => turnId === "persisted-turn";
-  registry.onLive(SESSION, { arm: verbOf("occ-old"), ownsTurn: ownsPersisted });
+  registry.onLive(SESSION, { arm: verbOf(calls, "occ-old"), ownsTurn: ownsPersisted });
   const watch = Bundle.createWatchVerb(registry.arm, {
     install: ({ watchId }) =>
       Effect.sync(() => {
@@ -137,7 +124,7 @@ test("r4 H1: a watch continuation built under the old activation never commits t
     now: 1,
   });
   // The successor activation recovers the same turn and registers.
-  registry.onLive(SESSION, { arm: verbOf("occ-successor"), ownsTurn: ownsPersisted });
+  registry.onLive(SESSION, { arm: verbOf(calls, "occ-successor"), ownsTurn: ownsPersisted });
   // Executing the stale watch is a typed refusal through the COMPOSED verb
   // (r4 H1): the authorizing arm is minted at watch invocation, never
   // re-minted from the durable turn id after suspension — zero arm calls on

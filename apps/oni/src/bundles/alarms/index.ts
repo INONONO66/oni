@@ -102,7 +102,6 @@ const RETIRED_STATUS: Record<string, WatchState["status"]> = {
   timeout: "fired",
 };
 
-/** Projects one alarm chain into the monitor tool's watch state. */
 export function watchStateOf(chain: AlarmChainView, sessionId: string): WatchState {
   const retiredReason =
     typeof chain.latest.payload.reason === "string" ? chain.latest.payload.reason : undefined;
@@ -161,7 +160,6 @@ function chainSpec(deps: AlarmMonitorDeps, sessionId: string, id: string) {
   }
 }
 
-/** The monitor tool's ports over the alarm capability (chain facts + native sources). */
 export function createAlarmMonitorPorts(deps: AlarmMonitorDeps): MonitorPorts {
   const state = (sessionId: string, id: string) =>
     watchStateOf(requireChain(deps, sessionId, id), sessionId);

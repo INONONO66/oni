@@ -123,7 +123,9 @@ describe("permission-row migration (#1251)", () => {
 
   it("a wildcard turn/post row still governs compaction operations as the old mapping consulted it (#1251 r2)", () => {
     const freeze = draft("frozen", "turn", "post", { type: "deny", reason: "frozen" }, { priority: 2_000 });
-    assertPolicyRows([freeze], table);
+    const admitted = structuredClone(freeze);
+    assertPolicyRows([admitted], table);
+    expect(admitted).toEqual(freeze);
 
     const snapshot = pinnedSnapshot(compaction, freeze);
     for (const op of ["compact", "restore_context_projection"]) {
