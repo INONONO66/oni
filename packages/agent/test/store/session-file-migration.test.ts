@@ -1,11 +1,21 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { Effect, Result } from "effect";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { LedgerAction } from "@oni/protocol";
 import { z } from "zod";
+import { forkSession } from "../../src/core/session/fork";
+import { configureAction, generationSnapshot } from "../../src/core/store/configure";
+import { openCatalogStore } from "../../src/core/store/catalog";
+import { createSessionKernel } from "../../src/core/store/fence";
+import { storedActionRow } from "../../src/core/store/action-row";
 import { openSessionStore } from "../../src/core/store/session-file";
 import { ActionSqlRow } from "../../src/core/store/storage/sqlite-l0-rows";
+import { forkAncestryOf } from "../../src/inspect/tree";
+import { runLedgerSync } from "./helpers/effect";
 import { materializeRow, residentRow } from "./helpers/ledger";
 import { testNow } from "./helpers/storage";
 
@@ -86,3 +96,150 @@ test("fresh v3 session file appends and reads one action", () => {
     rmSync(directory, { recursive: true });
   }
 });
+
+const snapshot = generationSnapshot({
+  generation: 1, revertTo: 0, tools: [], system: { preset: "test", blocks: [] },
+  policyGeneration: 0,
+});
+
+function seedForkFile(path: string, id: string, parentId: string | null, actions: readonly LedgerAction.Append[]) {
+  using raw = new Database(path);
+  raw.exec(readFileSync(join(import.meta.dir, "helpers/session-v2.sql"), "utf8"));
+  raw.run("DELETE FROM action");
+  raw.run("DELETE FROM session");
+  raw.query("INSERT INTO session (id, parent_id, role, revision) VALUES (?, ?, ?, ?)")
+    .run(id, parentId, parentId === null ? "resident" : "child", actions.length);
+  const hashes = new Map<string, string>();
+  let previous = "oni:l0:genesis:v1";
+  const insert = raw.prepare(
+    `INSERT INTO action (id, parent_id, session_id, kind, intent, effect, revert,
+       irreversible, encoding_version, ts, ordinal, prev_hash, action_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const [index, action] of actions.entries()) {
+    const row = storedActionRow(action, index + 1);
+    const hash = createHash("sha256").update(JSON.stringify([
+      previous, row.id, row.parent_id, row.session_id, row.kind, row.intent,
+      row.effect, row.revert, row.irreversible, row.encoding_version, row.ts, row.ordinal,
+    ])).digest("hex");
+    insert.run(row.id, row.parent_id, row.session_id, row.kind, row.intent, row.effect,
+      row.revert, row.irreversible, row.encoding_version, row.ts, row.ordinal, previous, hash);
+    hashes.set(action.id, hash);
+    previous = hash;
+  }
+  return hashes;
+}
+
+for (const order of [["parent", "child"], ["child", "parent"]] as const) {
+  test(`v2 fork pins migrate to action ids when opened ${order.join(" then ")}`, () => {
+    const directory = mkdtempSync(join(tmpdir(), "session-fork-v2-"));
+    const rootPath = join(directory, "root.sqlite");
+    const parentPath = join(directory, "parent.sqlite");
+    const childPath = join(directory, "child.sqlite");
+    const rootConfigure = configureAction({
+      id: "root:configure", sessionId: "root", parentId: null,
+      operation: "create", snapshot, at: 1,
+    });
+    const rootPrompt: LedgerAction.Append = {
+      id: "root-prompt", parentId: "root:configure", sessionId: "root",
+      kind: "prompt", intent: { encodingVersion: 1, value: { source: "test" } },
+      effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: "root" } },
+      irreversible: true, ts: 2,
+    };
+    const parentPrompt: LedgerAction.Append = {
+      id: "parent-prompt", parentId: "parent:configure", sessionId: "parent",
+      kind: "prompt", intent: { encodingVersion: 1, value: { source: "test" } },
+      effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: "anchor" } },
+      irreversible: true, ts: 2,
+    };
+    const parentTail: LedgerAction.Append = {
+      ...parentPrompt, id: "parent-tail", parentId: "parent-prompt", ts: 3,
+      effect: { encodingVersion: 1, value: { deliveryKind: "prompt", content: "tail" } },
+    };
+    try {
+      const rootHashes = seedForkFile(rootPath, "root", null, [rootConfigure, rootPrompt]);
+      const rootAnchor = rootHashes.get("root-prompt");
+      if (rootAnchor === undefined) throw new Error("historical root hash missing");
+      const parentPin = {
+        session: "root", anchor: rootAnchor, parentSeq: 2, parentHead: rootAnchor, copied: 2,
+      };
+      const parentConfigure = configureAction({
+        id: "parent:configure", sessionId: "parent", parentId: null,
+        operation: "fork", snapshot, forkedFrom: parentPin, at: 1,
+      });
+      const hashes = seedForkFile(parentPath, "parent", "root", [parentConfigure, parentPrompt, parentTail]);
+      const anchor = hashes.get("parent-prompt");
+      const head = hashes.get("parent-tail");
+      if (anchor === undefined || head === undefined) throw new Error("historical fork hashes missing");
+      const forkedFrom = { session: "parent", anchor, parentSeq: 2, parentHead: head, copied: 2 };
+      const childConfigure = configureAction({
+        id: "child:configure", sessionId: "child", parentId: null,
+        operation: "fork", snapshot, forkedFrom, at: 4,
+      });
+      const copiedConfigure = configureAction({
+        id: "copied:configure", sessionId: "child", parentId: "child:configure",
+        operation: "fork", snapshot, forkedFrom: parentPin, at: 5,
+      });
+      seedForkFile(childPath, "child", "parent", [childConfigure, copiedConfigure]);
+      const catalog = openCatalogStore(":memory:", { now: testNow });
+      try {
+        catalog.indexSession({ id: "root", parentId: null, role: "resident", createdAt: 1 });
+        catalog.indexSession({ id: "parent", parentId: "root", role: "child", createdAt: 1 });
+        catalog.indexSession({ id: "child", parentId: "parent", role: "child", createdAt: 4 });
+        if (order[0] === "parent") {
+          const root = openSessionStore(rootPath, { now: testNow });
+          root.close();
+        }
+        for (const id of order) {
+          const store = openSessionStore(id === "parent" ? parentPath : childPath, { now: testNow });
+          store.close();
+        }
+        if (order[0] === "child") {
+          const root = openSessionStore(rootPath, { now: testNow });
+          root.close();
+        }
+        const parent = openSessionStore(parentPath, { now: testNow });
+        const child = openSessionStore(childPath, { now: testNow });
+        try {
+          const childKernel = createSessionKernel(child, catalog);
+          expect(forkAncestryOf(childKernel, "child")).toEqual({
+            session: "parent", anchor: "parent-prompt", parentSeq: 2,
+            parentHead: "parent-tail", copied: 2,
+          });
+          expect(child.actions.actionById("copied:configure")?.intent.value).toMatchObject({
+            forkedFrom: { session: "root", anchor: "root-prompt", parentHead: "root-prompt" },
+          });
+          const parentKernel = createSessionKernel(parent, catalog);
+          expect(forkAncestryOf(parentKernel, "parent")).toMatchObject({
+            session: "root", anchor: "root-prompt", parentHead: "root-prompt",
+          });
+          const newChild = openSessionStore(join(directory, "new-child.sqlite"), { now: testNow });
+          try {
+            const forked = Result.getOrThrowWith(runLedgerSync(Effect.result(forkSession({
+              parent: parentKernel, parentSchemaVersion: 3, openChild: () => newChild, catalog,
+            }, {
+              from: "parent", at: "parent-prompt", childId: "new-child",
+              genesisActionId: "new-child:configure", now: 6,
+            }))), (error) => error);
+            expect(forked.forkedFrom).toMatchObject({ anchor: "parent-prompt", parentHead: "parent-tail" });
+          } finally {
+            newChild.close();
+          }
+        } finally {
+          parent.close();
+          child.close();
+        }
+        const reopened = openSessionStore(childPath, { now: testNow });
+        try {
+          expect(forkAncestryOf(createSessionKernel(reopened, catalog), "child")?.anchor).toBe("parent-prompt");
+        } finally {
+          reopened.close();
+        }
+      } finally {
+        catalog.close();
+      }
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+}

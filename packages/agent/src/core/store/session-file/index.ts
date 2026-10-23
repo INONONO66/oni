@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import {
   LedgerAction,
   LedgerSession,
@@ -207,7 +207,7 @@ function openStampedSessionDatabase(path: string): Database {
       });
     }
     bootstrapStoreDatabase(db, SESSION_FILE_SCHEMA);
-    if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db);
+    if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db, path);
     ready = true;
   } finally {
     if (!ready) {
@@ -219,9 +219,32 @@ function openStampedSessionDatabase(path: string): Database {
 }
 
 const ColumnName = z.object({ name: z.string() });
+const LegacyForkPin = z.object({
+  id: z.string(),
+  parentSession: z.string().min(1).regex(/^[^/\\\0]+$/).refine((id) => id !== "." && id !== ".."),
+  anchor: z.string(),
+  parentHead: z.string(),
+});
+const LegacyActionId = z.object({ id: z.string() });
+
+/** Read the parent's original identity from a consistent v2 or upgraded-v3 snapshot. */
+function legacyForkActionId(parentPath: string, digest: string): string | undefined {
+  using parent = new Database(parentPath, { readonly: true });
+  parent.run("PRAGMA busy_timeout = 5000");
+  parent.run("BEGIN");
+  try {
+    const version = SessionUserVersion.parse(parent.query("PRAGMA user_version").get()).user_version;
+    const sql = version < SESSION_FILE_SCHEMA_VERSION
+      ? "SELECT id FROM action WHERE action_hash = ?"
+      : "SELECT action_id AS id FROM legacy_fork_digest WHERE digest = ?";
+    return LegacyActionId.nullable().parse(parent.query(sql).get(digest))?.id;
+  } finally {
+    parent.run("ROLLBACK");
+  }
+}
 
 /** Recheck the marker under the write lock so concurrent openers upgrade exactly once. */
-function upgradeSessionDatabase(db: Database): void {
+function upgradeSessionDatabase(db: Database, path: string): void {
   const v3Statements = [
     "DROP INDEX IF EXISTS action_hash_unique",
     "ALTER TABLE action DROP COLUMN prev_hash",
@@ -234,7 +257,28 @@ function upgradeSessionDatabase(db: Database): void {
     const columns = ColumnName.array().parse(db.query("PRAGMA table_info(armed_alarms)").all());
     if (!columns.some((column) => column.name === "strikes"))
       db.run("ALTER TABLE armed_alarms ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0");
-    if (version > 0) for (const statement of v3Statements) db.run(statement);
+    if (version > 0) {
+      db.run("CREATE TABLE legacy_fork_digest (digest TEXT PRIMARY KEY, action_id TEXT NOT NULL)");
+      db.run("INSERT INTO legacy_fork_digest SELECT action_hash, id FROM action");
+      const pins = LegacyForkPin.array().parse(db.query(`
+        SELECT id, json_extract(intent, '$.forkedFrom.session') AS parentSession,
+          json_extract(intent, '$.forkedFrom.anchor') AS anchor,
+          json_extract(intent, '$.forkedFrom.parentHead') AS parentHead
+        FROM action WHERE kind = 'session.configure'
+          AND json_type(intent, '$.forkedFrom') = 'object'
+      `).all());
+      for (const pin of pins) {
+        const parentPath = join(dirname(path), `${pin.parentSession}.sqlite`);
+        const anchor = legacyForkActionId(parentPath, pin.anchor);
+        const parentHead = legacyForkActionId(parentPath, pin.parentHead);
+        if (anchor === undefined || parentHead === undefined)
+          throw new CorruptRecord({ operation: "session.upgrade", id: pin.id });
+        db.query(`UPDATE action SET intent = json_set(intent,
+          '$.forkedFrom.anchor', ?, '$.forkedFrom.parentHead', ?) WHERE id = ?`)
+          .run(anchor, parentHead, pin.id);
+      }
+      for (const statement of v3Statements) db.run(statement);
+    }
     db.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`);
   }).immediate();
 }
