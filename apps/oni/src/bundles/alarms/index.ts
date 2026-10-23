@@ -3,7 +3,7 @@ import { Alarm, Cron, Journal, type PlainObject, PlainObjectSchema } from "@oni/
 import { Effect } from "effect";
 import { MonitorRefused, type MonitorPorts, type WatchState } from "./monitor/ports";
 import { CRON_SOURCE, CRON_TICK, CronPayload } from "./cron/index";
-import type { SessionKernel } from "../../composition/cluster-runtime";
+import type { SessionReadModel } from "../../composition/cluster-runtime";
 
 /**
  * The app's alarm plane (#1254): every lifecycle fact is one `alarm{arm}` /
@@ -19,7 +19,7 @@ export type AlarmChainView = Core.AlarmChainView;
 export const foldAlarmChains = Core.foldAlarmChains;
 
 /** `Core.AlarmChainReads` over the fold: what the chain guard consults at delivery. */
-export function alarmChainReads(kernel: SessionKernel, sessionId: string): Core.AlarmChainReads {
+export function alarmChainReads(kernel: SessionReadModel, sessionId: string): Core.AlarmChainReads {
   const chains = foldAlarmChains(kernel, sessionId);
   const settled = new Set<string>();
   for (const chain of chains.values()) for (const id of chain.settled) settled.add(id);
@@ -128,21 +128,21 @@ export function watchStateOf(chain: AlarmChainView, sessionId: string): WatchSta
 
 interface AlarmMonitorDeps {
   readonly capability: Bundle.AlarmCapabilityDefinition;
-  readonly openKernel: (sessionId: string) => SessionKernel;
+  readonly readSession: (sessionId: string) => SessionReadModel;
   readonly clock: () => number;
   readonly entropy: () => string;
   readonly run: <A>(effect: Effect.Effect<A, Error>, signal: AbortSignal) => Promise<A>;
 }
 
 function requireChain(deps: AlarmMonitorDeps, sessionId: string, id: string): AlarmChainView {
-  const chain = foldAlarmChains(deps.openKernel(sessionId), sessionId).get(id);
+  const chain = foldAlarmChains(deps.readSession(sessionId), sessionId).get(id);
   if (chain === undefined) throw new MonitorRefused(new Error(`unknown watch: ${id}`));
   return chain;
 }
 
 /** The last committed arm payload that still carries the chain's spec (watch) or cron fields. */
 function chainSpec(deps: AlarmMonitorDeps, sessionId: string, id: string) {
-  const kernel = deps.openKernel(sessionId);
+  const kernel = deps.readSession(sessionId);
   let found: PlainObject | undefined;
   let after = 0;
   for (;;) {
@@ -188,7 +188,7 @@ export function createAlarmMonitorPorts(deps: AlarmMonitorDeps): MonitorPorts {
   return {
     clock: deps.clock,
     entropy: deps.entropy,
-    openKernel: deps.openKernel,
+    readSession: deps.readSession,
     async create(input, signal) {
       if (input.kind === "cron") {
         const { expr, tz } = input;
@@ -229,7 +229,7 @@ export function createAlarmMonitorPorts(deps: AlarmMonitorDeps): MonitorPorts {
       const arm = deps.capability.verbs.arm(sessionId, turnId);
       const chain = requireChain(deps, sessionId, id);
       if (chain.latest.at !== null) await retire(arm, chain, "cancel", signal);
-      const chains = foldAlarmChains(deps.openKernel(sessionId), sessionId);
+      const chains = foldAlarmChains(deps.readSession(sessionId), sessionId);
       const timeout = chains.get(`${id}:timeout`);
       if (timeout !== undefined && timeout.latest.at !== null)
         await retire(arm, timeout, "cancel", signal);

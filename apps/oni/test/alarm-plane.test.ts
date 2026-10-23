@@ -431,7 +431,7 @@ test("r5 H1: cancel's timeout retire never borrows a successor activation's auth
     });
     const ports = createAlarmMonitorPorts({
       capability: { ...fx.capability, verbs: { ...fx.capability.verbs, arm: registry.arm } },
-      openKernel: fx.plane.openKernel,
+      readSession: fx.plane.openKernel,
       clock: () => FIXTURE_BASE,
       entropy: () => "unused",
       run: (effect) => runEffect(effect),

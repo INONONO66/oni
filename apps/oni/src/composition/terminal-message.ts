@@ -6,7 +6,7 @@ const AgentFailure = Core.AgentFailure;
 type SessionRuntimeOptions = Core.SessionRuntimeOptions;
 import type { GatewayRouter } from "@oni/channels";
 import type { LedgerAction } from "@oni/protocol";
-import type { SessionKernel } from "./cluster-runtime";
+import type { SessionReadModel } from "./cluster-runtime";
 
 type OutboundInput = Parameters<NonNullable<SessionRuntimeOptions["dispatchOutbound"]>>[0];
 interface OutboundContext {
@@ -20,12 +20,12 @@ export const outboundMessage = Context.Reference<OutboundContext | undefined>("@
 /** The gateway admits recorded bytes; the receiver, not this source, owns its delivery queue. */
 export function dispatchOutboundMessage(
   ingest: GatewayRouter["ingest"],
-  openKernel: (sessionId: string) => SessionKernel,
+  readSession: (sessionId: string) => SessionReadModel,
   approvalPolicy: Core.ApprovalPolicy = APPROVAL_POLICY,
 ): NonNullable<SessionRuntimeOptions["dispatchOutbound"]> {
   return (input) => Effect.gen(function* () {
     const { message, ledger } = input;
-    const source = openKernel(message.sourceSessionId);
+    const source = readSession(message.sourceSessionId);
     // #1346: the source turn's own fenced ledger records the outbound
     // admission; this dispatcher copies no authority and sees no revision.
     const executor = yield* createExecutor({
@@ -51,7 +51,7 @@ export function dispatchOutboundMessage(
       if (admitted.status === "blocked_pre") return yield* new AgentFailure({ operation: "message.outbound", cause: "outbound gateway admission refused" });
       const receipt =
         context.receipt ??
-        openKernel(message.destinationSessionId).outboundReceipt(
+        readSession(message.destinationSessionId).outboundReceipt(
           message.destinationSessionId,
           message.messageId,
         );

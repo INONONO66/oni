@@ -229,11 +229,9 @@ export function ownerPolicy(path: string | undefined): OwnerPolicy {
 
 export const APPROVAL_POLICY: Core.ApprovalPolicy = SHIPPED_OWNER_POLICY.approval;
 
-/** Seeds missing current rows; stored rows needing policy-point-rows-v1 refuse before writes. */
 export function seedKernelPolicyRows(
   updatePolicy: Core.LedgerHost["updatePolicy"],
   bundleRows: readonly SeedRow[] = [],
-  /** The composition's merged point table (#1251); the default is the full built-in composition this app ships. */
   table: Core.GatePointTable = composedPointTable(),
   ownerRows: readonly SeedRow[] = SHIPPED_OWNER_POLICY.rows,
 ): number {

@@ -15,7 +15,7 @@ import { Context, Deferred, Effect, Exit, Layer } from "effect";
 /** Services the cluster host contributes to the app runtime (entity client access). */
 export type ClusterServices = Core.ClusterServices;
 
-export type SessionKernel = Core.SessionReadModel;
+export type SessionReadModel = Core.SessionReadModel;
 
 /**
  * A publish that failed after its write committed is an incident for the
