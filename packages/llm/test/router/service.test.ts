@@ -102,6 +102,7 @@ test("all open candidates return a typed value with the earliest reopening and c
   expect(first).toBeInstanceOf(ModelUnavailable);
   const unavailable = await runEffect(Effect.flip(h.service.run(h.input, h.capture.sink, { createStream: success })));
   expect(unavailable).toBeInstanceOf(ModelUnavailable);
+  expect(unavailable.message).toBe("No candidate available for proxy/x");
   expect(unavailable).toMatchObject({
     category: "proxy/x", nearestFallback: "small", openUntil: 60_000,
     routing: { attempts: [
