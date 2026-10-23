@@ -23,18 +23,18 @@ function tryCandidate(call: RoutingCall, selector: string): Effect.Effect<Run.Ou
     return Effect.succeed(undefined);
   }
   circuits.set(selector, leased);
-  return runCandidate(call, selector).pipe(
+  return runCandidate(call, selector, leased).pipe(
     Effect.catch((error: LlmError) => {
       const failure = classifyFailure({ error, now: call.input.now() });
       const decision = decide(failure, "pre_request", retryAfterMs(error, call.input.now));
       if (decision.action !== "swap_model" && decision.action !== "swap_credential") return Effect.fail(error);
       call.facts.push({ candidate: selector, failure, action: "swap_model" });
-      circuits.set(selector, Circuit.open(leased, call.input.now()));
+      if (circuits.get(selector) === leased) circuits.set(selector, Circuit.open(leased, call.input.now()));
       return Effect.succeed(undefined);
     }),
     Effect.ensuring(Effect.sync(() => {
-      const state = circuits.get(selector) ?? Circuit.closed;
-      circuits.set(selector, { ...state, halfOpenLeased: false });
+      if (circuits.get(selector) === leased && leased.halfOpenLeased)
+        circuits.set(selector, { ...leased, halfOpenLeased: false });
     })),
   );
 }
@@ -52,6 +52,7 @@ export function createRouter(binding: RoutingCall["binding"], options: RouterOpt
       const facts: RoutingFact[] = [];
       const call: RoutingCall = {
         input, sink, dependencies, binding, state, facts, primary,
+        billedUsage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
         slots: options.credentials ?? [], billingPin: false,
         turn: input.routing?.turn ?? input.trace.runId,
         previous: state.pins.get(input.trace.sessionId),

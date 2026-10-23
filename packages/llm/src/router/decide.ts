@@ -1,3 +1,4 @@
+import type { Token } from "@oni/protocol";
 import type { FailureClass } from "../port";
 
 export type Phase = "pre_request" | "streaming";
@@ -32,6 +33,7 @@ export interface RoutingFact {
   readonly candidate: string;
   readonly credential?: string;
   readonly failure?: FailureClass;
+  readonly usage?: Token.ProviderUsage;
   readonly action: Decision["action"] | "try" | "selected" | "skip_circuit";
 }
 

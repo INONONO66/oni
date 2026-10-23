@@ -112,10 +112,12 @@ export interface AttemptEvidence {
 }
 
 export type RunResult =
-  | { readonly type: "stop"; readonly evidence?: AttemptEvidence | undefined }
-  | { readonly type: "continue" }
-  | { readonly type: "aborted"; readonly error?: LlmRunFailure | undefined }
-  | { readonly type: "error"; readonly error: LlmRunFailure };
+  (
+    | { readonly type: "stop"; readonly evidence?: AttemptEvidence | undefined }
+    | { readonly type: "continue" }
+    | { readonly type: "aborted"; readonly error?: LlmRunFailure | undefined }
+    | { readonly type: "error"; readonly error: LlmRunFailure }
+  ) & { readonly billedUsage?: AttemptUsage | undefined };
 
 /** What the loop knows about a settled attempt; the port reads provider facts out of `error` itself. */
 export interface FailureFacts {

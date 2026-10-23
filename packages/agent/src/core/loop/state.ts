@@ -1,6 +1,6 @@
 import type { Message, TraceContext } from "@oni/protocol";
 import { stopState, type StopState } from "./stop";
-import { accumulateUsage, type RunInput, type LlmSink as Sink } from "../ports/llm";
+import { accumulateUsage, type AttemptUsage, type RunInput, type LlmSink as Sink } from "../ports/llm";
 import { createBudgetState, recordTokenUsage, recordTurn, restoreBudgetState, type BudgetState, effectiveMaxToolCalls } from "./budget";
 import { AgentInvariantViolation } from "../ports/failure";
 import type { AgentResult, AgentStep, ChatAgentInput, TokenUsage, ObservedChatAgentConfig } from "../ports/types";
@@ -206,6 +206,19 @@ function recordAssistantTokenDelta(
 ): void {
   accumulateUsage(state.totalUsage, usage);
   state.budgetState = recordTokenUsage(state.budgetState, usage.inputTokens, usage.outputTokens);
+}
+
+export function recordBilledUsage(state: RunState, turn: TurnArtifacts, billed: AttemptUsage | undefined): void {
+  if (billed === undefined) return;
+  const delta = {
+    inputTokens: billed.inputTokens - turn.turnUsage.inputTokens,
+    outputTokens: billed.outputTokens - turn.turnUsage.outputTokens,
+    reasoningTokens: billed.reasoningTokens - (turn.turnUsage.reasoningTokens ?? 0),
+    cacheReadTokens: billed.cacheReadTokens - (turn.turnUsage.cacheReadTokens ?? 0),
+    cacheWriteTokens: billed.cacheWriteTokens - (turn.turnUsage.cacheWriteTokens ?? 0),
+  };
+  accumulateUsage(turn.turnUsage, delta);
+  recordAssistantTokenDelta(state, delta);
 }
 
 function setLastAssistantText(state: RunState, text: string): void {

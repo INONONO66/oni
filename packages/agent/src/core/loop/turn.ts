@@ -12,7 +12,7 @@ import { failureFacts, MAX_ATTEMPTS, observeRetry } from "./retry";
 import { settleModelTools, assertToolExecutor, assertUnambiguousToolMetadata } from "./tool";
 import { Entropy, ObservationSink } from "../ports/ports";
 import { ExecutorContext, type Executor } from "./executor";
-import { advanceRunTurn, appendRunMessages, appendRunStep, assistantTextOf, buildTurn, createRunState, disarmWindowYield, nonEmptyString, recordRunAttempt, recordRunWindow, requireTrace, resetModelWindowGuards, runResult, type RunState, type RunTrace, type TurnArtifacts } from "./state";
+import { advanceRunTurn, appendRunMessages, appendRunStep, assistantTextOf, buildTurn, createRunState, disarmWindowYield, nonEmptyString, recordBilledUsage, recordRunAttempt, recordRunWindow, requireTrace, resetModelWindowGuards, runResult, type RunState, type RunTrace, type TurnArtifacts } from "./state";
 import { emitErrorRetry, emitRunCompleted, emitRunFailed, emitRunStarted, emitTurnComplete, emitTurnStart, type AgentRunBase } from "./../observation/turn-events";
 
 function recordAssistant(
@@ -300,6 +300,7 @@ function runModelStep(
         return Effect.void;
       }),
       body: () => Effect.suspend(() => llm.run(prepared.runInput, prepared.trackingSink)).pipe(
+        Effect.tap((result) => Effect.sync(() => recordBilledUsage(state, prepared, result.billedUsage))),
         Effect.mapError(modelFailure),
         Effect.flatMap((result) => settleAttempt(llm, model, result)),
       ),

@@ -80,7 +80,7 @@ export namespace Run {
     | { readonly type: "continue" }
     | { readonly type: "aborted"; readonly error?: Failure }
     | { readonly type: "error"; readonly error: Failure }
-  ) & { readonly routing?: RoutingFacts };
+  ) & { readonly routing?: RoutingFacts; readonly billedUsage?: AttemptEvidence["usage"] };
 }
 
 function assignWireToolNames(tools: Tool.Spec[]): {

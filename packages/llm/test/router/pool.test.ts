@@ -88,6 +88,105 @@ test("only one concurrent call obtains an expired circuit probe", async () => {
   expect(await first).toMatchObject({ type: "stop", routing: { selected: "proxy/x" } });
 });
 
+test("an older call cannot release a newer half-open circuit probe", async () => {
+  const h = harness({ chains: [{ primary: "proxy/x", selectors: ["proxy/x"] }],
+    credentials: [{ provider: "proxy", auth: { type: "api", key: "one" } }] });
+  const oldEntered = await runEffect(Deferred.make<void>());
+  const oldRelease = await runEffect(Deferred.make<void>());
+  const controller = new AbortController();
+  h.input.signal = controller.signal;
+  const old = h.run((request) => Effect.gen(function* () {
+    yield* Deferred.succeed(oldEntered, undefined);
+    yield* Deferred.await(oldRelease);
+    return yield* success(request);
+  }));
+  await runEffect(Deferred.await(oldEntered));
+  h.input.signal = undefined;
+  await expect(h.run(() => failed(connectionRefused()))).rejects.toBeInstanceOf(ModelUnavailable);
+  h.advance(60_000);
+  const probeEntered = await runEffect(Deferred.make<void>());
+  const probeRelease = await runEffect(Deferred.make<void>());
+  const probe = h.run((request) => Effect.gen(function* () {
+    yield* Deferred.succeed(probeEntered, undefined);
+    yield* Deferred.await(probeRelease);
+    return yield* success(request);
+  }));
+  await runEffect(Deferred.await(probeEntered));
+  controller.abort();
+  await runEffect(Deferred.succeed(oldRelease, undefined));
+  expect(await old).toMatchObject({ type: "aborted" });
+  try {
+    await expect(h.run(success)).rejects.toBeInstanceOf(ModelUnavailable);
+    expect(h.calls).toBe(3);
+  } finally {
+    await runEffect(Deferred.succeed(probeRelease, undefined));
+    await probe;
+  }
+});
+
+test("an older call cannot release another selector's credential re-probe", async () => {
+  const h = harness({ chains: [
+    { primary: "proxy/x", selectors: ["proxy/x"] },
+    { primary: "proxy/y", selectors: ["proxy/y"] },
+  ], credentials: [{ provider: "proxy", auth: { type: "api", key: "one" } }] });
+  const oldEntered = await runEffect(Deferred.make<void>());
+  const oldRelease = await runEffect(Deferred.make<void>());
+  const controller = new AbortController();
+  h.input.signal = controller.signal;
+  const old = h.run((request) => Effect.gen(function* () {
+    yield* Deferred.succeed(oldEntered, undefined);
+    yield* Deferred.await(oldRelease);
+    return yield* success(request);
+  }));
+  await runEffect(Deferred.await(oldEntered));
+  h.input.signal = undefined;
+  h.input.model = { id: "y", providerID: "proxy", name: "y" };
+  await expect(h.run(() => failed(apiError({ message: "denied", statusCode: 401, isRetryable: false }))))
+    .rejects.toBeInstanceOf(ModelUnavailable);
+  h.advance(60_000);
+  h.input.model = { id: "x", providerID: "proxy", name: "x" };
+  const probeEntered = await runEffect(Deferred.make<void>());
+  const probeRelease = await runEffect(Deferred.make<void>());
+  const probe = h.run((request) => Effect.gen(function* () {
+    yield* Deferred.succeed(probeEntered, undefined);
+    yield* Deferred.await(probeRelease);
+    return yield* success(request);
+  }));
+  await runEffect(Deferred.await(probeEntered));
+  controller.abort();
+  await runEffect(Deferred.succeed(oldRelease, undefined));
+  expect(await old).toMatchObject({ type: "aborted" });
+  try {
+    await expect(h.run(success)).rejects.toBeInstanceOf(ModelUnavailable);
+    expect(h.calls).toBe(3);
+  } finally {
+    await runEffect(Deferred.succeed(probeRelease, undefined));
+    await probe;
+  }
+});
+
+test("a failed half-open server probe reopens with the next cooldown", async () => {
+  const h = harness({ chains: [{ primary: "proxy/x", selectors: ["proxy/x"] }],
+    credentials: [{ provider: "proxy", auth: { type: "api", key: "one" } }] });
+  await expect(h.run(() => failed(connectionRefused()))).rejects.toBeInstanceOf(ModelUnavailable);
+  h.advance(60_000);
+  const unavailable = apiError({ message: "unavailable", statusCode: 503, isRetryable: true });
+  expect(await h.run(() => failed(unavailable))).toMatchObject({ type: "error" });
+  await expect(h.run(success)).rejects.toMatchObject({ _tag: "ModelUnavailable", openUntil: 180_000 });
+  expect(h.calls).toBe(2);
+});
+
+test("shared blocked credential supplies the earliest usable candidate deadline", async () => {
+  const h = harness({ chains: [{ primary: "proxy/x", selectors: ["proxy/x", "proxy/y"] }],
+    credentials: [{ provider: "proxy", auth: { type: "api", key: "one" } }] });
+  const billed = apiError({ message: "monthly usage limit", statusCode: 429, isRetryable: true,
+    responseHeaders: { "retry-after-ms": "900000" } });
+  await expect(h.run(() => failed(billed))).rejects.toMatchObject({
+    _tag: "ModelUnavailable", openUntil: 900_000,
+  });
+  expect(h.calls).toBe(1);
+});
+
 test.each([undefined, "60000"])("billing fallback pin with reset %s restores only recoverable originals", async (reset) => {
   const h = harness();
   const exhausted = apiError({ message: "billing required", statusCode: 402, isRetryable: false,

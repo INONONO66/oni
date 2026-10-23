@@ -49,6 +49,19 @@ describe("run terminal message result contract", () => {
     });
   });
 
+  it("charges cumulative billed usage while retaining the final model's context snapshot", async () => {
+    const result = await isolated(
+      agent(async (_input: RunInput, sink: Sink) => {
+        sink.onMessage(assistantTextSnapshot("answer", 10, 5));
+        return { type: "stop", billedUsage: {
+          inputTokens: 110, outputTokens: 45, reasoningTokens: 0,
+          cacheReadTokens: 0, cacheWriteTokens: 0,
+        } };
+      }).run(runInput([{ role: "user", content: "count" }])),
+    );
+    expect(result.usage).toMatchObject({ inputTokens: 110, outputTokens: 45, totalTokens: 155 });
+  });
+
   it("reports a budget error without calling the provider when the turn budget is zero", async () => {
     let calls = 0;
     const configured = createTestAgent({

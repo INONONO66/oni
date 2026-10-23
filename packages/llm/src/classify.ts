@@ -66,7 +66,9 @@ export function classifyFailure(facts: FailureFacts): FailureClass {
   if (errorFacts(facts.error).contentFiltered === true)
     return { kind: "terminal", reason: "validation_error", providerReason: "content_policy" };
   const api = apiCause(facts.error);
-  const routeFailure = routingFailure(facts.error);
+  const routeFailure = api === undefined ||
+    (api.statusCode === undefined && api.responseBody === undefined && api.responseHeaders === undefined)
+    ? routingFailure(facts.error) : undefined;
   if (routeFailure !== undefined) return routeFailure;
   const providerReason = classify(api);
   const reason = attemptReason(api);
