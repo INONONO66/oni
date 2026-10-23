@@ -738,7 +738,6 @@
   "Machine.AttachResult#attached": [
     "effectiveCapabilities",
     "effectiveExports",
-    "generation",
     "status"
   ],
   "Machine.AttachResult#refused": ["reason", "status"],
@@ -751,7 +750,6 @@
     "slots"
   ],
   "Machine.CapacityRow#1": ["classCosts", "memReserveBytes", "slots", "tag"],
-  "Machine.CellOutput": ["stderr", "stdout", "truncated"],
   "Machine.CellRequest": ["cellId", "code", "tenant", "timeoutMs"],
   "Machine.CellResult#cancelled": ["cellId", "output", "status"],
   "Machine.CellResult#completed": ["cellId", "output", "status", "value"],
@@ -822,12 +820,10 @@
     "arch",
     "capabilities",
     "enrolledAt",
-    "generation",
     "live",
     "machineId",
     "name",
     "os",
-    "peer",
     "publicKey",
     "resources",
     "tags"
@@ -852,11 +848,9 @@
   "Machine.Offer": [
     "daemonVersion",
     "exports",
-    "generation",
     "machineId",
     "offeredAt",
     "offeredCapabilities",
-    "peer",
     "platform",
     "resources"
   ],
