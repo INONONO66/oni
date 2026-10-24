@@ -31,6 +31,11 @@ JUnit supplies the executed test files, retaining Bun's package ignore rules
 without removing source or candidate inventory. Probe failures retain process
 and JUnit evidence; failed reach copies are unregistered during cleanup.
 
+Macro reach corrected on `fix/mutation-reach-macro`: the reach overlay leaves
+macro call sites unprobed while measuring other sites in the same module.
+The Bun child fixture loads a macro module and records an ordinary probe;
+a complete mutation campaign is not established.
+
 Statement probes corrected on `fix/mutation-statement-probes-20260914`:
 block-owned statements retain their lexical position, including `super()`
 with TypeScript parameter properties. Entry markers precede overlapping

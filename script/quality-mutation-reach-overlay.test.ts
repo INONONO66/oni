@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeOverlay, encodeOverlay, installOverlay, OVERLAY_ENVIRONMENT, reachPlugin, type ReachOverlay, stagePreload } from "./quality-mutation-reach-overlay";
+import { instrument, sha256 } from "./run-quality-mutations";
 
 const OVERLAY_MODULE = join(import.meta.dir, "quality-mutation-reach-overlay.ts");
 
@@ -65,4 +66,78 @@ test("reach overlay serves instrumented twins by resolved path and leaves the co
 	writeFileSync(overlayPath, encodeOverlay(overlay));
 	expect(installOverlay({ [OVERLAY_ENVIRONMENT]: overlayPath }, register)).toEqual(overlay.paths);
 	expect(installed).toEqual(["quality-mutation-reach"]);
+});
+
+test.each([
+	{
+		name: "named import",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "default import",
+		source: 'import inline from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "namespace import",
+		source: 'import * as macros from "./macro" with { type: "macro" };\nexport const run = macros.inline("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "parenthesized callee",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = (inline)("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "non-null callee",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline!("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "compile-time argument dependency",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nconst value = "fixture";\nexport const run = inline(value) + 42;\n',
+		argument: "value", dependency: '"fixture"', shadow: "",
+	},
+	{
+		name: "shadowed ordinary callee",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\nexport const shadow = (inline: (value: string) => string) => inline("runtime");\n',
+		argument: '"fixture"', dependency: "", shadow: '"runtime"',
+	},
+])("macro imports load under the instrumented reach overlay: $name", ({ source, argument, dependency, shadow }) => {
+	const temporary = mkdtempSync(join(tmpdir(), "omo-reach-macro-"));
+	try {
+		const root = join(temporary, "fixture");
+		const path = "src/a.ts";
+		const marker = join(temporary, "ordinary");
+		const overlay: ReachOverlay = { root, instrumented: join(temporary, "instrumented"), paths: [path] };
+		mkdirSync(join(root, "src"), { recursive: true });
+		mkdirSync(join(overlay.instrumented, "src"), { recursive: true });
+		writeFileSync(join(root, path), source);
+		writeFileSync(join(root, "src/macro.ts"), 'export function inline(value: string): string { return value; }\nexport default inline;\n');
+		writeFileSync(join(root, "src/a.test.ts"), `import { expect, test } from "bun:test"; import { run${shadow ? ", shadow" : ""} } from "./a"; test("macro", () => { expect(run).toBe("fixture42"); ${shadow ? 'expect(shadow((value) => value)).toBe("runtime");' : ""} });\n`);
+		const start = source.indexOf(argument, source.indexOf("export const run"));
+		const site = (id: string, offset: number, length: number) => ({
+			id, path, sourceSha256: sha256(source),
+			site: { start: offset, end: offset + length, mode: "expression" as const }, tests: [],
+		});
+		writeFileSync(join(overlay.instrumented, path), instrument(source, [
+			site("macro", start, argument.length),
+			site("ordinary", source.indexOf("42"), 2),
+			...(dependency ? [site("dependency", source.indexOf(dependency), dependency.length)] : []),
+			...(shadow ? [site("shadow", source.indexOf(shadow), shadow.length)] : []),
+		], temporary));
+		const overlayPath = join(temporary, "overlay.txt");
+		writeFileSync(overlayPath, encodeOverlay(overlay));
+		const run = Bun.spawnSync([process.execPath, "test", "./src/a.test.ts"], {
+			cwd: root, timeout: 15_000,
+			env: { ...process.env, [OVERLAY_ENVIRONMENT]: overlayPath, BUN_OPTIONS: `--preload=${stagePreload(temporary)}` },
+			stdout: "pipe", stderr: "pipe",
+		});
+		expect(run.exitCode).toBe(0);
+		expect(existsSync(marker)).toBe(true);
+		expect(existsSync(join(temporary, "macro"))).toBe(false);
+		if (dependency) expect(existsSync(join(temporary, "dependency"))).toBe(false);
+		if (shadow) expect(existsSync(join(temporary, "shadow"))).toBe(true);
+	} finally { rmSync(temporary, { recursive: true, force: true }); }
 });
