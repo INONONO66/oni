@@ -858,7 +858,7 @@ and inherited-child attribution. On Bun 1.4.1/macOS, the isolated real boot grap
 for an unrelated test, and native LCOV parses without escaping the root.
 A complete mutation campaign is not established.
 
-## Model consumption of inbound media (PR #PRNUM)
+## Model consumption of inbound media (PR #1651)
 
 On `feat/g2-model-consumption` (2026-10-25, base `87f8f33c8` after #1645, no
 issue). `packages/llm` catalog rows carry `input` modalities (`text`, `image`,
