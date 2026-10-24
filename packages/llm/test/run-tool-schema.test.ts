@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { useStreamCapture } from "./helpers/stream-capture";
 
 const breakpoint = { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } };
@@ -50,6 +51,14 @@ describe("run schema-only tools and cache breakpoints", () => {
         providerOptions: breakpoint,
       },
     ]);
+    expect(capture.args.messages).toEqual([]);
+  });
+
+  test("orphan media never invents a user message", async () => {
+    await capture.run({
+      media: { parts: [{ messageId: "missing", parts: [{ kind: "image", ref: "image" }] }],
+        bytes: () => Effect.die(new Error("orphan bytes must not be read")) },
+    });
     expect(capture.args.messages).toEqual([]);
   });
 });

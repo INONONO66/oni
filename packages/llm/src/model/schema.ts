@@ -1,15 +1,30 @@
 import { z } from "zod";
 
+export const Modality = z.enum(["text", "image", "audio", "video"]);
+export type Modality = z.infer<typeof Modality>;
+
 export const CatalogModel = z.object({
   id: z.string(),
   name: z.string(),
   family: z.string().optional(),
   limit: z.object({ context: z.number() }).optional(),
   provider: z.object({ npm: z.string() }).optional(),
+  /** What the model reads; absent is text only (see `Capability.accepts`). */
+  input: z.array(Modality).optional(),
 });
 
 const PrototypeKey = new Set(["__proto__", "constructor", "prototype"]);
-const RemoteModel = CatalogModel.omit({ provider: true });
+// The remote catalog nests modalities and lists kinds (pdf) no row speaks for;
+// a cache written by this package already carries the flat `input` row.
+export const RemoteModel = CatalogModel.omit({ provider: true })
+  .extend({ modalities: z.object({ input: z.array(z.string()) }).optional() })
+  .transform(({ modalities, ...model }) => {
+    const input = model.input ?? modalities?.input.flatMap((kind) => {
+      const known = Modality.safeParse(kind);
+      return known.success ? [known.data] : [];
+    });
+    return input === undefined ? model : { ...model, input };
+  });
 const SupportedSdk = new Set<string>(["@ai-sdk/anthropic", "@ai-sdk/openai"]);
 const RemoteProvider = z.object({
   id: z.string().optional(),

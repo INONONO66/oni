@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { resolveAuthFilePath } from "@oni/llm";
 import { loadConfig, modelTransport } from "../src/config";
 
 const KEYS = [
@@ -13,6 +14,7 @@ const KEYS = [
   "ONI_MODEL_HEADERS",
   "ONI_MODEL_FALLBACKS",
   "GATEWAY_API_KEY",
+  "ONI_AUTH_FILE",
 ] as const;
 
 let saved: Record<string, string | undefined>;
@@ -81,6 +83,29 @@ describe("ONI_PROVIDERS_PATH", () => {
       headers: { "x-tenant": "acme", "x-extra": "kept" },
       fallbacks: [{ provider: "gateway", id: "gw-2" }],
     });
+  });
+
+  it("hands speech-to-text the rows only when one names a transcription model", () => {
+    process.env.GATEWAY_API_KEY = "sk-row";
+    useRows(JSON.stringify({ providers: [gatewayRow] }));
+    expect(loadConfig().model.transcriptionRows).toBeUndefined();
+
+    const sttRow = { ...gatewayRow, npm: "@ai-sdk/openai" as const, transcription: "whisper-large" };
+    useRows(JSON.stringify({ providers: [sttRow] }));
+    const config = loadConfig();
+    expect(config.model.transcriptionRows).toEqual([sttRow]);
+  });
+
+  it("uses one auth path resolution for chat and speech-to-text with a padded override", () => {
+    process.env.ONI_MODEL_API_KEY = "sk-test";
+    process.env.ONI_AUTH_FILE = ` ${join(directory, "auth.json")} `;
+    const config = loadConfig();
+    const chatPath = resolveAuthFilePath();
+    const sttPath = resolveAuthFilePath();
+    expect(config).not.toHaveProperty("authFilePath");
+    expect(chatPath).toBe(resolve(process.env.ONI_AUTH_FILE));
+    expect(isAbsolute(sttPath)).toBe(true);
+    expect(sttPath).toBe(chatPath);
   });
 
   it.each([

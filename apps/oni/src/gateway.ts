@@ -1,5 +1,6 @@
 import type { MachineHost } from "@oni/machines";
 import { machineWire } from "./composition/machine-wire";
+import type { WsParts } from "./composition/ws-parts";
 import type { ComposedCodemode } from "./composition/codemode";
 import type { ToolPorts } from "./composition/catalog";
 import type { createCompletionPort } from "./composition/completion";
@@ -372,6 +373,7 @@ export function webSocketCallbacks(
     readonly respond: (request: Provisioning.ChannelDeclareRequest, caller: "owner" | `session:${string}`) =>
       Effect.Effect<Provisioning.ChannelDeclareResponse>;
   },
+  parts?: WsParts,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -452,6 +454,11 @@ export function webSocketCallbacks(
           ws.send(JSON.stringify(machine));
           return Promise.resolve();
         }
+        const captured = parts?.capture(ws.data.externalId, data);
+        if (captured !== undefined && "type" in captured) {
+          ws.send(JSON.stringify(captured));
+          return Promise.resolve();
+        }
         const settled = runtime.runPromise(
           handler.handleFrame(ws.data, data).pipe(
             Effect.matchEffect({
@@ -519,7 +526,10 @@ export function webSocketCallbacks(
         );
         const tracked: Promise<void> = settled
           .catch(() => undefined)
-          .finally(() => void inflight.delete(tracked));
+          .finally(() => {
+            captured?.release();
+            inflight.delete(tracked);
+          });
         inflight.add(tracked);
         return settled;
       },

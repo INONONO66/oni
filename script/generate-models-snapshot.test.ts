@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PlainValueSchema } from "../packages/protocol/src/json.js";
+import { Catalog } from "../packages/llm/src/model/schema.js";
 
 const roots: string[] = [];
 
@@ -42,6 +43,50 @@ const catalog = {
   },
   ignored: { id: "ignored", name: "Not bundled", env: [], npm: "x", models: {} },
 };
+
+test("preserves nested and flat input rows without inventing absent capabilities", async () => {
+  const remote = {
+    ...catalog,
+    anthropic: {
+      ...catalog.anthropic,
+      models: {
+        "claude-example": {
+          id: "claude-example",
+          name: "Claude Example",
+          modalities: { input: ["text", "image", "pdf"] },
+        },
+      },
+    },
+    openai: {
+      ...catalog.openai,
+      models: {
+        "gpt-example": { id: "gpt-example", name: "GPT Example", input: ["text", "audio"] },
+        "plain-example": { id: "plain-example", name: "Plain Example" },
+      },
+    },
+  };
+  let written = "";
+  const fetchCall = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(async () => Response.json(remote), { preconnect: globalThis.fetch.preconnect }),
+  );
+  const writeCall = spyOn(Bun, "write").mockImplementation(async (_path, data) => {
+    written = String(data);
+    return written.length;
+  });
+  const log = spyOn(console, "log").mockImplementation(() => undefined);
+  try {
+    const { main } = await import("./generate-models-snapshot");
+    expect(await main()).toBe(0);
+  } finally {
+    fetchCall.mockRestore();
+    writeCall.mockRestore();
+    log.mockRestore();
+  }
+  const projected = Catalog.parse(JSON.parse(written));
+  expect(projected.anthropic?.models["claude-example"]?.input).toEqual(["text", "image"]);
+  expect(projected.openai?.models["gpt-example"]?.input).toEqual(["text", "audio"]);
+  expect(projected.openai?.models["plain-example"]?.input).toBeUndefined();
+});
 
 test("projects the bundled providers of the models.dev catalog into the snapshot", async () => {
   const server = Bun.serve({ port: 0, fetch: () => Response.json(catalog) });

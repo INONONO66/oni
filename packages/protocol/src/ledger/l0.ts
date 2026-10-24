@@ -7,6 +7,7 @@ import { Message as ModelMessage } from "../message/index.js";
 import { Journal } from "../journal/index.js";
 import { Delivery as DeliveryWidth, EncodedPayload } from "../journal/declaration.js";
 import { ForkedFrom, Settings as ConsumptionSettings } from "../journal/core/session-configure.js";
+import { MediaPart } from "../gateway/media.js";
 
 export { SessionTransition } from "./session-transition.js";
 
@@ -623,6 +624,12 @@ export namespace Delivery {
   })
     .extend({
       parentActionId: NullableIdentifier.default(null),
+      /**
+       * Media riding beside `content` for the model call only: `Row` has no
+       * such field, so the ledger fold never learns a modality and `content`
+       * stays the text a replay reads.
+       */
+      parts: z.array(MediaPart).readonly().optional(),
       sender: z
         .object({
           sessionId: Identifier,

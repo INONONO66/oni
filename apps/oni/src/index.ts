@@ -20,6 +20,7 @@ import { shutdownSessions } from "./shutdown";
 import {
   AppScope,
   SessionEntityBinding,
+  DeliveryMediaRegistry,
   type AppRuntime,
   type AppServices,
   lifecycleFailure,
@@ -113,6 +114,11 @@ import { captureNow, effectScheduler } from "./composition/platform";
 import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
 import { inboxHandler } from "./composition/attachments";
+import { type MediaInputPorts, inboxPartBytes, mediaDerive } from "./composition/media-input";
+import type { DeliveryMedia } from "./composition/delivery-media";
+import { makeStt, resolveAuthFilePath } from "@oni/llm";
+import type { Channel } from "@oni/protocol";
+import { type WsParts, wsParts } from "./composition/ws-parts";
 import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
@@ -437,6 +443,7 @@ export async function startOni(options: StartOptions = {}) {
           // Late-bound entity ports: the runtime mounts the entity layer over
           // this seam; the real turn/timer ports resolve below.
           entityPorts: yield* SessionEntityBinding,
+          media: yield* DeliveryMediaRegistry,
         };
       }),
     );
@@ -982,6 +989,15 @@ export async function startOni(options: StartOptions = {}) {
     const generationDefinitions: GenerationDefinitions = { resident: [], child: [], deliverLate };
     await runAppBoot(runtime, services.generations.initialize(generationDefinitions));
 
+    inboundMedia(config, machinery.inbox, tools.machines, services.media, (warning) =>
+      services.observations.publish(Operational.Events.Warn, {
+        traceId: traceIdFromUuid(services.entropy.id()),
+        time: services.now(),
+        component: "server",
+        msg: "inbound media degraded",
+        context: { code: warning.code, ref: warning.ref, err: warning.detail },
+      }),
+    );
     // One physical platform message reaches routing once (#1569 lane 6): a
     // mention of the Owner in a channel the bot is in is observed by both
     // instances, and the first observer's copy is the one admitted; only that
@@ -1053,6 +1069,7 @@ export async function startOni(options: StartOptions = {}) {
     });
     channelSupervisor = supervisor;
     const processSessions = createProcessSessionTransport({
+      media: { registry: services.media, run: (effect, signal) => runAppEffect(runtime, effect, signal) },
       answer: (answer) =>
         runAppEffect(runtime, requests.answer({ ...answer, receivedAt: services.now() })),
       // #1346: a process child's deliveries are admitted here, through the
@@ -1094,7 +1111,7 @@ export async function startOni(options: StartOptions = {}) {
       if (sessionRunner(id) !== "process") return Promise.resolve();
       return processSessions.wake(id).catch((error: Error) => incident("process session wake failed", error));
     };
-    const deliveryDeps = { plane, client: entityClient, clock: services.now };
+    const deliveryDeps = { plane, client: entityClient, clock: services.now, media: services.media };
     const commitDelivery = createAutomationDelivery(
       deliveryDeps, channelStores.automations,
     );
@@ -1294,9 +1311,13 @@ export async function startOni(options: StartOptions = {}) {
     );
     await supervisor.reconcile();
 
+    const wsMedia = wsParts();
     wsHandler = new WebSocketHandler(
-      ({ sender, facts }) =>
-        messages.ingest(sender, facts).pipe(
+      (inbound) =>
+        Effect.suspend(() => {
+          const message = withWsParts(wsMedia, inbound);
+          return messages.ingest(message.sender, message.facts);
+        }).pipe(
           Effect.flatMap((admission) =>
             admission.status === "blocked_pre"
               ? Effect.fail(
@@ -1323,7 +1344,7 @@ export async function startOni(options: StartOptions = {}) {
         now: services.now,
         id: services.entropy.id,
       }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
-      { respond: channelWire(provisioningPort, services.now) });
+      { respond: channelWire(provisioningPort, services.now) }, wsMedia);
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,
@@ -1534,6 +1555,30 @@ export interface AppSessionHandle {
   readonly tools: {
     add: SessionHandle["tools"]["add"];
   };
+}
+
+function inboundMedia(
+  config: OniConfig,
+  inbox: string | undefined,
+  machines: MediaInputPorts["files"]["machines"],
+  media: DeliveryMedia,
+  warn: MediaInputPorts["warn"],
+): void {
+  if (inbox === undefined || machines === undefined) return;
+  media.bind(inboxPartBytes({ machines }, inbox), mediaDerive({
+    files: { machines },
+    root: inbox,
+    stt: makeStt({
+      authFilePath: resolveAuthFilePath(),
+      ...(config.model.transcriptionRows === undefined ? {} : { rows: config.model.transcriptionRows }),
+    }),
+    warn,
+  }));
+}
+
+function withWsParts(parts: WsParts, { sender, facts }: Channel.InboundMessage): Channel.InboundMessage {
+  const taken = sender.kind === "external" ? parts.take(sender.externalId, facts.eventId) : undefined;
+  return taken === undefined ? { sender, facts } : { sender, facts: { ...facts, attachments: taken } };
 }
 
 function processSessionPromptOptions(

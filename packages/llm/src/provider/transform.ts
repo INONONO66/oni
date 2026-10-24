@@ -29,9 +29,6 @@ export namespace ProviderTransform {
         }
         if (!Array.isArray(msg.content)) return msg;
 
-        // toModelMessages emits user/system content as strings (handled
-        // above), so array content only ever arrives on assistant/tool
-        // messages — the roles the empty-part filter and rebuild handle.
         if (msg.role !== "assistant" && msg.role !== "tool") return msg;
 
         const filtered = msg.content.filter((part) => {

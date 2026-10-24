@@ -2,6 +2,7 @@ import type { Message, PlainObject } from "@oni/protocol";
 import type { ModelMessage } from "ai";
 import type { Provider } from "../provider";
 import { ProviderTransform } from "../provider/transform";
+import type { UserBlock } from "./parts";
 
 export type SDKMessage = ModelMessage;
 export type SystemMessage = Extract<SDKMessage, { role: "system" }>;
@@ -143,20 +144,24 @@ function assembleAssistantMessages(
   return textContent.length > 0 ? [{ role: "assistant", content: textContent.join("\n") }] : [];
 }
 
-function messageToSDK(msg: Message.WithParts, model: Provider.Model): SDKMessage[] {
-  if (msg.parts.length === 0) return [];
+function messageToSDK(msg: Message.WithParts, model: Provider.Model, blocks: readonly UserBlock[]): SDKMessage[] {
   if (msg.info.role === "assistant") {
     return buildAssistantMessage({ info: msg.info, parts: msg.parts }, model);
   }
   const content = msg.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n");
+  if (blocks.length > 0) return [{
+    role: "user",
+    content: [...(content.length > 0 ? [{ type: "text" as const, text: content }] : []), ...blocks],
+  }];
   return content.length > 0 ? [{ role: "user", content }] : [];
 }
 
 export function toModelMessages(
   messagesWithParts: Message.WithParts[],
   model: Provider.Model,
+  blocksById?: ReadonlyMap<string, readonly UserBlock[]>,
 ): SDKMessage[] {
   const coreMessages: SDKMessage[] = [];
-  for (const msg of messagesWithParts) coreMessages.push(...messageToSDK(msg, model));
+  for (const msg of messagesWithParts) coreMessages.push(...messageToSDK(msg, model, blocksById?.get(msg.info.id) ?? []));
   return ProviderTransform.normalizeMessages(coreMessages, model);
 }

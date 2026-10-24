@@ -1,6 +1,7 @@
 import { AppInvariantError } from "./invariant";
 import { Core } from "@oni/agent";
-import { makeLlmService } from "@oni/llm";
+import { type LlmService, makeLlmService } from "@oni/llm";
+import { Operational } from "@oni/protocol";
 type Entropy = Core.Entropy;
 type EntropySource = Core.EntropySource;
 const ObservationSink = Core.ObservationSink;
@@ -16,6 +17,8 @@ export const LlmLive = Layer.sync(Core.Llm, () => makeLlmService());
 import { pid } from "node:process";
 import { type Clock, Context, Data, Effect, Layer, type ManagedRuntime, type Scope, flow } from "effect";
 import { BunCrypto } from "./composition/cluster-crypto";
+import { type DeliveryMedia, deliveryMedia, mediaLlm } from "./composition/delivery-media";
+import type { ProcessMedia } from "./composition/process-replies";
 import {
   type AppLedger,
   appLedgerLayer,
@@ -54,6 +57,11 @@ export class SessionEntityBinding extends Context.Service<
   SessionEntityBinding,
   { bind(ports: SessionEntityPorts): void }
 >()("@oni/oni/SessionEntityBinding") {}
+
+/** The runtime's one delivery-media registry: commits remember parts into it, the bound Llm reads them back. */
+export class DeliveryMediaRegistry extends Context.Service<DeliveryMediaRegistry, DeliveryMedia>()(
+  "@oni/oni/DeliveryMediaRegistry",
+) {}
 
 export interface AppRuntimeOptions {
   /** Catalog SQLite file (session index + cluster mailbox); absent = in-memory. */
@@ -97,6 +105,7 @@ export interface AppRuntimeOptions {
   readonly hookClock?: Clock.Clock;
   readonly observations?: Context.Service.Shape<typeof ObservationSink>;
   readonly llm?: Layer.Layer<Llm>;
+  readonly media?: ProcessMedia;
   /**
    * Effect logger provided under every runtime layer, so fibers the cluster host forks at
    * construction inherit it too; absent = the default console logger on stdout.
@@ -181,14 +190,51 @@ function wiredLayer(
     ports: seam.ports,
   }).pipe(Layer.orDie, Layer.provide(hostClock), Layer.provide(BunCrypto));
   const binding = Layer.succeed(SessionEntityBinding, { bind: seam.bind });
+  const media = deliveryMedia();
+  const remote = options.media;
+  if (remote !== undefined) media.bind(remote.bytes, remote.derive);
+  const llm = Layer.sync(Core.Llm, () => {
+    const service = mediaLlm(makeLlmService(), media);
+    if (remote === undefined) return service;
+    return processMediaLlm(service, media, remote);
+  });
   const app = Layer.mergeAll(
     Layer.effect(AppScope, Effect.scope).pipe(Layer.provideMerge(generations)),
-    options.llm ?? LlmLive,
+    options.llm ?? llm,
     binding,
+    Layer.succeed(DeliveryMediaRegistry, media),
     pointTable,
   ).pipe(Layer.provideMerge(ledger));
   const root = options.now === undefined ? app : Layer.mergeAll(app, wallClockLayer(now));
   return options.logger === undefined ? root : root.pipe(Layer.provideMerge(options.logger));
+}
+
+function processMediaLlm(service: LlmService, media: DeliveryMedia, remote: ProcessMedia): LlmService {
+  // The registry itself tracks successful lookups; its FIFO eviction makes an
+  // ID unseen again. Empty or failed lookups have a separate 256-ID FIFO.
+  const empty = new Set<string>();
+  return {
+    ...service,
+    run: (input, sink, dependencies) => Effect.suspend(() => {
+      const ids = [...new Set(input.messages.filter((message) => message.info.role === "user")
+        .map((message) => message.info.id))].filter((id) => !empty.has(id) && media.recall(id) === undefined);
+      return Effect.forEach(ids, (id) => remote.load(media, [id]).pipe(
+        Effect.catch((error) => Effect.sync(() => input.events.publish(Operational.Events.Warn, {
+          traceId: input.trace.traceId, sessionId: input.trace.sessionId, time: input.now(),
+          component: "process.media", msg: "input media metadata unavailable",
+          context: { messageId: id, err: String(error) },
+        }))),
+        Effect.tap(() => Effect.sync(() => {
+          if (media.recall(id) !== undefined) return;
+          empty.add(id);
+          for (const oldest of empty) {
+            if (empty.size <= 256) break;
+            empty.delete(oldest);
+          }
+        })),
+      ), { discard: true }).pipe(Effect.andThen(service.run(input, sink, dependencies)));
+    }),
+  };
 }
 
 export type AppServices =
@@ -202,6 +248,7 @@ export type AppServices =
   | ComposedGeneration
   | GenerationLayers
   | SessionEntityBinding
+  | DeliveryMediaRegistry
   | ClusterServices;
 type AppRuntimeError = AppLifecycleFailure | LedgerError | SessionError;
 export type AppRuntime = ManagedRuntime.ManagedRuntime<AppServices, AppRuntimeError>;

@@ -158,26 +158,27 @@ function setCached<T>(cache: Map<string, T>, key: string, value: T, maxEntries: 
   }
 }
 
-/**
- * The row's API surface picks the model constructor. A proxy-minted
- * credential speaks Chat Completions, so a responses row downgrades to chat
- * under proxy auth.
- */
+/** Proxy credentials speak Chat; the OpenAI SDK's undeclared surface is Responses. */
+export function effectiveStyle(model: Provider.Model, auth: Auth.Info): "chat" | "responses" | undefined {
+  if (model.api?.npm !== "@ai-sdk/openai") return undefined;
+  return auth.type === "proxy" ? "chat" : model.api.style ?? "responses";
+}
+
 function resolveLanguageModel(
   sdk: ProviderSDK,
   model: Provider.Model,
   modelID: string,
   auth: Auth.Info,
 ): ResolvedLanguageModel {
-  const declared = model.api?.style;
-  if (declared === undefined) return sdk.languageModel(modelID);
+  const style = effectiveStyle(model, auth);
+  if (style === undefined && model.api?.style === undefined) return sdk.languageModel(modelID);
   if (!("responses" in sdk)) {
     throw new ModelResolutionError({
       provider: model.providerID,
       model: modelID,
       reason: "model_not_found",
-      message: `The ${declared} API requires the @ai-sdk/openai package, not ${model.api?.npm}`,
+      message: `The ${model.api?.style} API requires the @ai-sdk/openai package, not ${model.api?.npm}`,
     });
   }
-  return auth.type === "proxy" || declared === "chat" ? sdk.chat(modelID) : sdk.responses(modelID);
+  return style === "chat" ? sdk.chat(modelID) : sdk.responses(modelID);
 }

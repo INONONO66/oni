@@ -59,11 +59,25 @@ function writeCache(path: string, catalog: Catalog): Effect.Effect<void, LlmErro
     Effect.asVoid,
   );
 }
+/** A cache written before capability rows existed keeps the bundled `input` row of every model the snapshot knows; nothing is written back. */
+function overlayBundledInput(cached: Catalog, bundled: Catalog): Catalog {
+  return Object.fromEntries(Object.entries(cached).map(([providerID, provider]) => [
+    providerID,
+    {
+      ...provider,
+      models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => {
+        const input = bundled[providerID]?.models[modelID]?.input;
+        return [modelID, model.input === undefined && input !== undefined ? { ...model, input } : model];
+      })),
+    },
+  ]));
+}
 function loadCatalog(loadSnapshot: () => Promise<Catalog>): Effect.Effect<Catalog, LlmError> {
+  const bundled = Effect.tryPromise({ try: loadSnapshot, catch: decodeLlmFailure("catalog.snapshot") });
   return Effect.gen(function* () {
     const path = process.env.ONI_MODELS_PATH ?? DEFAULT_CACHE_PATH;
     const cached = yield* readCache(path);
-    if (cached !== undefined && Object.keys(cached).length > 0) return cached;
+    if (cached !== undefined && Object.keys(cached).length > 0) return overlayBundledInput(cached, yield* bundled);
     if (!process.env.ONI_DISABLE_MODELS_FETCH) {
       // A typed `remote` refusal continues to the bundled snapshot; `cache` and
       // `cache_write` refusals propagate untouched.
@@ -80,7 +94,7 @@ function loadCatalog(loadSnapshot: () => Promise<Catalog>): Effect.Effect<Catalo
         return remote;
       }
     }
-    return yield* Effect.tryPromise({ try: loadSnapshot, catch: decodeLlmFailure("catalog.snapshot") });
+    return yield* bundled;
   });
 }
 /** Each owner lazily loads one catalog, including concurrent requests. */

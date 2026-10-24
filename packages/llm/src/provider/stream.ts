@@ -9,6 +9,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { toModelMessages, type SystemMessage } from "../message";
+import type { UserBlock } from "../message/parts";
 import { ProviderEvent, type StreamEvent } from "../processor/event-schema";
 import type { RunInput } from "../run";
 import type { getLanguage } from "./sdk";
@@ -49,6 +50,7 @@ export function streamArguments(
   abortSignal: AbortSignal,
   names: string[],
   model: ReturnType<typeof getLanguage>,
+  blocksById?: ReadonlyMap<string, readonly UserBlock[]>,
 ): Parameters<typeof streamText>[0] {
   const cacheOptions = ProviderTransform.anthropicCacheOptions(input.model);
   const instructions: SystemMessage[] = system
@@ -57,7 +59,7 @@ export function streamArguments(
   return {
     model,
     ...(instructions.length > 0 && { instructions }),
-    messages: toModelMessages(input.messages, input.model),
+    messages: toModelMessages(input.messages, input.model, blocksById),
     tools: streamTools(input.tools, names, input.model),
     toolChoice: input.toolChoice,
     ...(input.maxTokens === undefined ? {} : { maxOutputTokens: input.maxTokens }),

@@ -1,4 +1,4 @@
-import type { BusEvent, Message, PlainObject, Tool } from "@oni/protocol";
+import type { BusEvent, Gateway, Message, PlainObject, Tool } from "@oni/protocol";
 import { LlmCall, type Transcript } from "@oni/protocol";
 import { Effect } from "effect";
 import { streamText } from "ai";
@@ -6,9 +6,10 @@ import { LlmRunFailure, InvalidProviderData, type LlmError } from "./errors";
 import type { Sink } from "./sink";
 import { Processor } from "./processor";
 import { toModelMessages } from "./message";
+import { type PartBytes, type PartDerive, resolveMessageParts } from "./message/parts";
 import type { Provider } from "./provider";
 import { ProviderTransform } from "./provider/transform";
-import { getLanguage, type Transport } from "./provider/sdk";
+import { effectiveStyle, getLanguage, type Transport } from "./provider/sdk";
 import { Auth } from "./auth/storage";
 import { coerceApiError, decodeLlmFailure, errorFacts } from "./error";
 import { adaptStream, streamArguments } from "./provider/stream";
@@ -43,6 +44,12 @@ export interface RunInput {
   shouldYield?: () => boolean;
   /** The shape is the provider's; forwarded verbatim. */
   providerOptions?: PlainObject;
+  /** The host hands parts, a byte source and a derivation; this package projects them for each selected model. */
+  media?: {
+    readonly parts: ReadonlyArray<{ readonly messageId: string; readonly parts: readonly Gateway.MediaPart[] }>;
+    readonly bytes: PartBytes;
+    readonly derive?: PartDerive;
+  };
   /** Required: the host injects it so identical runs are reproducible. */
   now: () => number;
   /** Required for the same reason as `now`. */
@@ -187,8 +194,12 @@ export function run(
     );
     credential = Auth.reference(auth);
 
+    const effectiveModel = model.api === undefined ? model : {
+      ...model, api: { ...model.api, style: effectiveStyle(model, auth) },
+    };
+    const blocksById = yield* resolveMessageParts({ ...input, model: effectiveModel });
     const streamResult = yield* Effect.try({
-      try: () => streamText(streamArguments(input, streamInput.system, abortSignal, wireNames, getLanguage(model, auth, input.transport))),
+      try: () => streamText(streamArguments(input, streamInput.system, abortSignal, wireNames, getLanguage(model, auth, input.transport), blocksById)),
       catch: decodeLlmFailure("provider.stream"),
     });
     return { fullStream: adaptStream(streamResult.fullStream) };

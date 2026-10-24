@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { PlainObject } from "@oni/protocol";
 import { Effect } from "effect";
 import { ModelsDev } from "../../src/model";
+import { Capability } from "../../src/model/capability";
 import { ModelCatalogError } from "../../src/errors";
 import { Catalog } from "../../src/model/schema";
 import { resetCatalog } from "../helpers/model-loader";
@@ -175,6 +176,30 @@ describe("ModelsDev catalog loading", () => {
         npm: "@ai-sdk/openai",
         models: {},
       });
+    });
+
+    it("fills known missing capabilities from the bundled snapshot without changing unknown models", async () => {
+      await writeCacheCatalog({
+        openai: {
+          id: "openai",
+          name: "OpenAI",
+          env: ["OPENAI_API_KEY"],
+          npm: "@ai-sdk/openai",
+          models: {
+            "gpt-4o": { id: "gpt-4o", name: "Cached GPT-4o" },
+            "local-model": { id: "local-model", name: "Local Model" },
+          },
+        },
+      });
+
+      const data = await runEffect(ModelsDev.get());
+      expect(data.openai?.models["gpt-4o"]?.input).toEqual(["text", "image"]);
+      expect(Capability.accepts(data.openai?.models["gpt-4o"] ?? {}, { kind: "image", mime: "image/png" })).toBe(true);
+      expect(data.openai?.models["local-model"]?.input).toBeUndefined();
+      expect(Capability.accepts(data.openai?.models["local-model"] ?? {}, { kind: "image", mime: "image/png" })).toBe(false);
+      const path = process.env.ONI_MODELS_PATH;
+      if (path === undefined) throw new Error("cache path missing");
+      expect(Catalog.parse(await Bun.file(path).json()).openai?.models["gpt-4o"]?.input).toBeUndefined();
     });
 
     it("refuses a cache file whose trusted provider is malformed with a typed cache error", async () => {

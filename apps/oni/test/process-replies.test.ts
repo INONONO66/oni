@@ -1,26 +1,13 @@
 import { expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import type { Delivery, SessionTransition } from "@oni/protocol";
-import { createProcessReplyChannel } from "../src/composition/process-replies";
+import type { Delivery } from "@oni/protocol";
+import { createProcessReplyChannel, ProcessReplyError } from "../src/composition/process-replies";
+import { deliveryMedia } from "../src/composition/delivery-media";
+import { z } from "zod";
+import { Effect, Logger } from "effect";
 import { runEffect } from "./helpers/effect";
 import { bounded } from "./helpers/protected-dispatch";
-
-const answer: SessionTransition.Answer = {
-  inputId: "message",
-  requestId: "request",
-  sessionId: "receiver",
-  receivedAt: 1,
-  principal: { kind: "session", principalId: "child", evidenceId: "terminal" },
-  bindingDigest: "binding",
-  inputHash: "input",
-  effectHash: "effect",
-  generation: 1,
-  toolsHash: "tools",
-  domainRevisions: {},
-  decision: "answer",
-  allowedAction: "report_result",
-  content: "answer",
-};
+import { answer } from "./helpers/child-answer";
 
 const commit: Delivery.Commit = {
   id: "delivery",
@@ -33,10 +20,10 @@ const commit: Delivery.Commit = {
 };
 const deliver = { kind: "prompt", body: JSON.stringify({ content: "hello" }), source: JSON.stringify(commit.origin.value), idempotencyKey: commit.id };
 
-function fixture() {
+function fixture(onWrite?: (line: string) => void) {
   const input = new PassThrough();
   const output: string[] = [];
-  const channel = createProcessReplyChannel(input, (line) => output.push(line), runEffect);
+  const channel = createProcessReplyChannel(input, (line) => { output.push(line); onWrite?.(line); }, runEffect);
   return {
     input,
     output,
@@ -64,6 +51,107 @@ test("process receiving transport correlates replies without minting another req
     `${JSON.stringify({ ok: true, inputId: answer.inputId, resolution: "duplicate" })}\n`,
   );
   expect(await bounded(retry)).toBe("duplicate");
+});
+
+const MediaRequest = z.object({
+  kind: z.enum(["request_media", "request_bytes"]), inputId: z.string(),
+  messageId: z.string().optional(), ref: z.string().optional(),
+});
+
+test("media and bytes share correlation with an answer without changing message identity", async () => {
+  using f = fixture((line) => {
+    const frame = MediaRequest.safeParse(JSON.parse(line));
+    if (!frame.success) return;
+    const request = frame.data;
+    const value = request.kind === "request_media"
+      ? { parts: [{ kind: "image", ref: "mac:/inbox/a.png" }] }
+      : { bytes: Buffer.from([0, 255, 1]).toString("base64"), mime: "image/png" };
+    f.input.write(`${JSON.stringify({ ok: true, inputId: request.inputId, ...value })}\n`);
+  });
+  f.input.write("initial\n");
+  await f.channel.first;
+  const registry = deliveryMedia();
+  const answering = f.channel.answer(answer);
+  await runEffect(f.channel.media.load(registry, ["delivery-id"]));
+  expect(registry.recall("delivery-id")).toEqual([{ kind: "image", ref: "mac:/inbox/a.png" }]);
+  expect(await runEffect(f.channel.media.bytes("mac:/inbox/a.png")))
+    .toEqual({ bytes: new Uint8Array([0, 255, 1]), mime: "image/png" });
+  expect(f.output.slice(1).map((line) => MediaRequest.parse(JSON.parse(line)))).toMatchObject([
+    { kind: "request_media", messageId: "delivery-id" }, { kind: "request_bytes", ref: "mac:/inbox/a.png" },
+  ]);
+  f.input.write(`${JSON.stringify({ ok: true, inputId: answer.inputId, resolution: "resolved" })}\n`);
+  expect(await answering).toBe("resolved");
+});
+
+test.each(["media", "bytes"] as const)("wrong %s receipt fails its typed pending operation", async (operation) => {
+  using f = fixture((line) => {
+    const { inputId } = MediaRequest.parse(JSON.parse(line));
+    f.input.write(`${JSON.stringify({ ok: true, inputId, resolution: "resolved" })}\n`);
+  });
+  f.input.write("initial\n");
+  await f.channel.first;
+  const result = operation === "media"
+    ? runEffect(f.channel.media.load(deliveryMedia(), ["m"]))
+    : runEffect(f.channel.media.bytes("ref"));
+  await expect(result).rejects.toMatchObject({ name: "ProcessReplyError", code: "invalid_receipt" });
+});
+
+test.each(["unbound", "read_failed", "too_large"] as const)("byte refusal preserves the parent's %s code", async (code) => {
+  using f = fixture((line) => {
+    const { inputId } = MediaRequest.parse(JSON.parse(line));
+    f.input.write(`${JSON.stringify({ ok: false, inputId, code, error: "source refused" })}\n`);
+  });
+  f.input.write("initial\n");
+  await f.channel.first;
+  await expect(runEffect(f.channel.media.bytes("ref"))).rejects.toMatchObject({
+    name: "ProcessReplyError", code, message: "source refused",
+  });
+});
+
+test.each(["media", "bytes"] as const)("parent close settles %s waits and refuses requests after close", async (operation) => {
+  const written = Promise.withResolvers<void>();
+  using f = fixture(() => written.resolve());
+  f.input.write("initial\n");
+  await f.channel.first;
+  const request = () => operation === "media"
+    ? runEffect(f.channel.media.load(deliveryMedia(), ["m"]))
+    : runEffect(f.channel.media.bytes("ref"));
+  const waiting = request().then(() => undefined, (error: Error) => error);
+  await written.promise;
+  f.input.end();
+  expect(await bounded(waiting)).toMatchObject({ name: "ProcessReplyError", code: "closed" });
+  await expect(request()).rejects.toBeInstanceOf(ProcessReplyError);
+});
+
+test("invalid base64 cannot enter a byte source", async () => {
+  using f = fixture((line) => {
+    const { inputId } = MediaRequest.parse(JSON.parse(line));
+    f.input.write(`${JSON.stringify({ ok: true, inputId, bytes: "%%%", mime: "image/png" })}\n`);
+  });
+  f.input.write("initial\n");
+  await f.channel.first;
+  await expect(runEffect(f.channel.media.bytes("ref"))).rejects.toMatchObject({ code: "invalid_receipt" });
+});
+
+test.each(["parts", "wrong"] as const)("a derive reply with %s and absent model metadata stays typed", async (mode) => {
+  using f = fixture((line) => {
+    const frame = z.object({ kind: z.literal("request_derive"), inputId: z.string(), model: z.object({}).strict() }).parse(JSON.parse(line));
+    f.input.write(`${JSON.stringify({
+      ok: true, inputId: frame.inputId, ...(mode === "parts" ? { parts: [] } : { resolution: "resolved" }),
+    })}\n`);
+  });
+  f.input.write("initial\n");
+  await f.channel.first;
+  const warnings: string[] = [];
+  const logger = Logger.make((entry) => {
+    if (entry.logLevel === "Warn") warnings.push(z.array(z.union([
+      z.string(), z.object({ ref: z.string(), err: z.string() }).transform((context) => context.err),
+    ])).parse(entry.message).join("\n"));
+  });
+  expect(await runEffect(f.channel.media.derive({ kind: "audio", ref: "note" }, {})
+    .pipe(Effect.provide(Logger.layer([logger]))))).toEqual({ parts: [] });
+  expect(warnings).toHaveLength(mode === "parts" ? 0 : 1);
+  if (mode === "wrong") expect(warnings[0]).toContain("ProcessReplyError: process derive receipt carries no parts");
 });
 
 test("process receiving refusal reaches the source instead of becoming an acknowledgement", async () => {

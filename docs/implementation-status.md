@@ -858,6 +858,44 @@ and inherited-child attribution. On Bun 1.4.1/macOS, the isolated real boot grap
 for an unrelated test, and native LCOV parses without escaping the root.
 A complete mutation campaign is not established.
 
+## Model consumption of inbound media (PR #PRNUM)
+
+On `feat/g2-model-consumption` (2026-10-25, base `87f8f33c8` after #1645, no
+issue). `packages/llm` catalog rows carry `input` modalities (`text`, `image`,
+`audio`, `video`), overlaid from the bundled snapshot when a cached
+catalog predates the field, and `Capability.accepts(model, {kind, mime})`
+admits an image or audio format against the effective call surface the SDK
+selector picks in `provider/sdk.ts` (a proxy row and a declared `chat` row
+call chat completions, everything else calls responses), so an audio file part
+is never sent to a surface that rejects it. `RunInput.media = {parts, bytes,
+derive?}` is resolved inside `run()` after router selection: the caller's
+`PartDerive` runs only for the modality or format misses of the chosen
+candidate (`message/parts.ts`); `stt.ts` is the transcription port the app
+binds. `apps/oni` keeps the per-session
+`DeliveryMediaRegistry` (`composition/delivery-media.ts`: remember, recall,
+bind) and passes `mediaDerive` as `input.media.derive`; `composition/
+media-input.ts` sniffs the MIME type from bytes (an `ftyp` brand table maps
+M4A/M4B to `audio/mp4`, `qt` to `video/quicktime`, `3gp*` brands; the MPEG
+frame sync rejects reserved version, layer, bitrate and sampling fields),
+derives a transcript from audio and sampled frames from video, and caches each
+derivation per ref; `runtime.ts` loads media metadata lazily per
+history message through one seen-set path, a lookup failure logged as a
+warning instead of a Die; a process child requests bytes and derivations over
+`request_media`, `request_bytes` and `request_derive` frames
+(`composition/process-replies.ts`: 50 MiB cap, 30 s receipt deadline, expired
+request ids retained so a late valid receipt is discarded instead of closing
+the reply channel). Review rounds r1 (2 High, 4 Medium) and r2 (4 High,
+1 Medium) were fixed in the same tree. Not established: a live Resident proof
+(the hub route is blocked on #1647/#1648) and a derivation against a real STT
+model (blocked on the realtime key, #1641). Receipts:
+`packages/llm/test/{run-media,stt}.test.ts`,
+`packages/llm/test/model/capability.test.ts`,
+`packages/llm/test/message/parts.test.ts`,
+`packages/llm/test/provider/media-wire.test.ts`,
+`packages/protocol/test/media-part.test.ts`,
+`apps/oni/test/{delivery-media,media-input,ws-parts}.test.ts`,
+`apps/oni/test/{process-media,process-media-transport,process-replies-timeout}.test.ts`.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

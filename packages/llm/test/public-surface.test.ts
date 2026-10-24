@@ -50,13 +50,15 @@ describe("model barrel public surface", () => {
 
     // Then: only the call layer's entry points are exposed: the
     // port-shaped service factory, the pure classifier, the credential store,
-    // the catalog seam, the one-attempt `run`, and the typed errors. The `Llm`
+    // the catalog seam, the one-attempt `run`, the modality fold and input-part
+    // resolution, the speech-to-text port, and the typed errors. The `Llm`
     // tag is the agent core's; `Provider` stays inside the package.
     expect(publicKeys).toEqual([
       "APIError",
       "Auth",
       "AuthInvalidFileError",
       "AuthResolutionError",
+      "Capability",
       "InvalidProviderData",
       "LlmOperationFailure",
       "LlmRunFailure",
@@ -73,7 +75,10 @@ describe("model barrel public surface", () => {
       "coerceApiError",
       "isContextOverflow",
       "makeLlmService",
+      "makeStt",
       "readProviderRows",
+      "resolveAuthFilePath",
+      "resolveInputParts",
       "run",
     ]);
   });

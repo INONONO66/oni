@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
 // Fetch the models.dev catalog and retain only metadata consumed by the agent model plane.
-import { CatalogModel } from "../packages/llm/src/model/schema.js";
+import { RemoteModel } from "../packages/llm/src/model/schema.js";
 import { PlainValueSchema, type PlainObject } from "../packages/protocol/src/json.js";
 import { z } from "zod";
 
 const BUNDLED_PROVIDERS = ["anthropic", "openai"] as const;
 const SNAPSHOT_PATH = "packages/llm/src/model/models-snapshot.json";
-const SourceModel = CatalogModel.extend({
+const SourceModel = RemoteModel.and(z.object({
   release_date: z.string().optional(),
   status: z.string().optional(),
-});
+  provider: z.object({ npm: z.string() }).optional(),
+}));
 type SourceModel = z.infer<typeof SourceModel>;
 const SourceProvider = z.object({
   id: z.string(),
@@ -66,6 +67,7 @@ function projectModel(model: SourceModel): PlainObject {
     id: model.id,
     name: model.name,
     ...(model.family === undefined ? {} : { family: model.family }),
+    ...(model.input === undefined ? {} : { input: model.input }),
     ...(model.release_date === undefined ? {} : { release_date: model.release_date }),
     ...(model.status === undefined ? {} : { status: model.status }),
     ...(model.limit?.context === undefined ? {} : { limit: { context: model.limit.context } }),

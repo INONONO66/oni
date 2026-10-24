@@ -1,10 +1,14 @@
 import { z } from "zod";
-import { Delivery, SessionTransition } from "@oni/protocol";
-import { CauseText } from "../thrown";
+import { Delivery, Gateway, SessionTransition } from "@oni/protocol";
+import { Effect } from "effect";
+import { CauseText, ThrownError } from "../thrown";
 import type { ProcessDelivery, ProcessSessionRequest } from "../process-entry";
+import type { DeliveryMedia } from "./delivery-media";
+import { MEDIA_BYTE_CAP } from "./media";
+import { ProcessReplyError, type ProcessReplyReceipt, RECEIPT_DEADLINE_MS } from "./process-replies";
 
 // Promise band (#1423): the `Bun.spawn` stdin/stdout byte streams force this transport onto
-// Promises; Effect takes over only inside the injected `answer` call, so no session state
+// Promises; Effect takes over through injected calls, so no session state
 // or request resolution logic belongs here.
 
 /** The parent-side child-transport contract broke: an impostor answer or an abnormal exit. */
@@ -22,6 +26,15 @@ const DeliverPayload = z
   .strict();
 const ProcessOutput = z.union([
   Doorbell,
+  z.object({ kind: z.literal("request_media"), inputId: z.string().min(1), messageId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("request_bytes"), inputId: z.string().min(1), ref: z.string().min(1) }).strict(),
+  z.object({
+    kind: z.literal("request_derive"), inputId: z.string().min(1), ref: z.string().min(1), part: Gateway.MediaPart,
+    model: z.object({
+      input: z.array(z.enum(["text", "image", "audio", "video"])).optional(),
+      api: z.object({ npm: z.string(), style: z.enum(["responses", "chat"]).optional() }).strict().optional(),
+    }).strict(),
+  }).strict().refine((request) => request.ref === request.part.ref),
   z
     .object({
       kind: z.literal("request_answer"),
@@ -38,23 +51,6 @@ const ProcessOutput = z.union([
     })
     .strict(),
 ]);
-export const ProcessReplyReceipt = z.union([
-  z
-    .object({
-      ok: z.literal(true),
-      inputId: z.string().min(1),
-      resolution: SessionTransition.Resolution,
-    })
-    .strict(),
-  z
-    .object({
-      ok: z.literal(true),
-      inputId: z.string().min(1),
-      row: Delivery.Row,
-    })
-    .strict(),
-  z.object({ ok: z.literal(false), inputId: z.string().min(1), error: z.string() }).strict(),
-]);
 
 /** A process is only a transport for the same durable session runner. */
 export function createProcessSessionTransport(options: {
@@ -63,12 +59,59 @@ export function createProcessSessionTransport(options: {
   readonly committed: (sessionIds: readonly string[]) => void;
   readonly answer: (answer: SessionTransition.Answer) => Promise<SessionTransition.Resolution>;
   readonly deliver: (input: ProcessDelivery) => Promise<Delivery.Row>;
+  readonly media?: {
+    readonly registry: DeliveryMedia;
+    readonly run: <A, E>(effect: Effect.Effect<A, E>, signal: AbortSignal) => Promise<A>;
+  };
 }) {
   const children = new Map<string, { close: () => void; done: Promise<void> }>();
-  async function receive(line: string, sessionId: string, write: (value: string) => void) {
+  function readBounded<A, E>(ref: string, effect: Effect.Effect<A, E>) {
+    return effect.pipe(Effect.timeoutOrElse({
+      duration: RECEIPT_DEADLINE_MS,
+      orElse: () => Effect.fail(new ProcessReplyError("timeout", `process media operation timed out: ${ref}`)),
+    }));
+  }
+  async function readBytes(ref: string, signal: AbortSignal) {
+    const source = options.media?.registry.bytes();
+    if (source === undefined || options.media === undefined)
+      throw new ProcessReplyError("unbound", `process media byte source unbound: ${ref}`);
+    const result = await options.media.run(readBounded(ref, Effect.suspend(() => source(ref))), signal);
+    if (result.bytes.byteLength > MEDIA_BYTE_CAP)
+      throw new ProcessReplyError("too_large", `process media exceeds ${MEDIA_BYTE_CAP} bytes: ${ref}`);
+    return { bytes: Buffer.from(result.bytes).toString("base64"), mime: result.mime };
+  }
+  async function readDerivation(request: Extract<z.infer<typeof ProcessOutput>, { kind: "request_derive" }>, signal: AbortSignal) {
+    const derive = options.media?.registry.derive();
+    if (derive === undefined || options.media === undefined)
+      throw new ProcessReplyError("unbound", `process media derivation unbound: ${request.ref}`);
+    const result = await options.media.run(readBounded(request.ref, Effect.suspend(() => derive(request.part, request.model))), signal);
+    return { ...result, parts: [...result.parts] };
+  }
+  async function receive(line: string, sessionId: string, channel: { write(value: string): void; signal: AbortSignal }) {
+    const write = (receipt: z.infer<typeof ProcessReplyReceipt>) => {
+      if (channel.signal.aborted) throw new ProcessSessionError(`session process closed: ${sessionId}`);
+      channel.write(`${JSON.stringify(receipt)}\n`);
+    };
     const output = ProcessOutput.parse(JSON.parse(line));
     if ("sessionIds" in output) {
       options.committed(output.sessionIds);
+      return;
+    }
+    if (output.kind === "request_media") {
+      write({ ok: true, inputId: output.inputId, parts: [...(options.media?.registry.recall(output.messageId) ?? [])] });
+      return;
+    }
+    if (output.kind === "request_bytes" || output.kind === "request_derive") {
+      const operation = output.kind === "request_bytes"
+        ? readBytes(output.ref, channel.signal)
+        : readDerivation(output, channel.signal);
+      write(await operation.then(
+        (value) => ({ ok: true as const, inputId: output.inputId, ...value }),
+        ThrownError.transform((error) => ({
+          ok: false as const, inputId: output.inputId, error: error.message,
+          code: error instanceof ProcessReplyError ? error.code : "read_failed" as const,
+        })).parse,
+      ));
       return;
     }
     if (output.kind === "request_deliver") {
@@ -79,7 +122,7 @@ export function createProcessSessionTransport(options: {
         (row) => ({ ok: true as const, inputId: commit.id, row }),
         CauseText.transform((error) => ({ ok: false as const, inputId: commit.id, error })).parse,
       );
-      write(`${JSON.stringify(receipt)}\n`);
+      write(receipt);
       return;
     }
     const answer = output.answer;
@@ -93,7 +136,7 @@ export function createProcessSessionTransport(options: {
       (resolution) => ({ ok: true as const, inputId: answer.inputId, resolution }),
       CauseText.transform((error) => ({ ok: false as const, inputId: answer.inputId, error })).parse,
     );
-    write(`${JSON.stringify(receipt)}\n`);
+    write(receipt);
   }
   return {
     wake(sessionId: string): Promise<void> {
@@ -104,6 +147,8 @@ export function createProcessSessionTransport(options: {
         stdout: "pipe",
         stderr: "inherit",
       });
+      const controller = new AbortController();
+      void child.exited.then(() => controller.abort());
       child.stdin.write(`${JSON.stringify({ ...options.child, sessionId })}\n`);
       const done = (async () => {
         const reader = child.stdout.getReader();
@@ -118,8 +163,9 @@ export function createProcessSessionTransport(options: {
             while (end >= 0) {
               const line = buffer.slice(0, end);
               buffer = buffer.slice(end + 1);
-              await receive(line, sessionId, (value) => {
-                child.stdin.write(value);
+              await receive(line, sessionId, {
+                signal: controller.signal,
+                write: (value) => { child.stdin.write(value); },
               });
               end = buffer.indexOf("\n");
             }
@@ -129,11 +175,12 @@ export function createProcessSessionTransport(options: {
         } finally {
           reader.releaseLock();
           if (child.exitCode === null) child.kill();
+          await child.exited;
           child.stdin.end();
           children.delete(sessionId);
         }
       })();
-      children.set(sessionId, { close: () => child.kill(), done });
+      children.set(sessionId, { close: () => { controller.abort(); child.kill(); }, done });
       return done;
     },
     async close(): Promise<void> {
