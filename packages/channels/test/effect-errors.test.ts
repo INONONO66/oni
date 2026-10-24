@@ -5,6 +5,7 @@ import type { ChannelError } from "../src/errors";
 
 const failures = {
   AttachmentRefused: new Errors.AttachmentRefused({ reason: "too_large", maxBytes: 2 }),
+  MediaTooLarge: new Errors.MediaTooLarge({ kind: "audio", bytes: 3, limit: 2 }),
   AutomationEnableRefused: new Errors.AutomationEnableRefused({
     id: "fixture",
     reason: "approval_required",

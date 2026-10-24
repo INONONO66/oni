@@ -36,6 +36,23 @@ describe("Slack outbound calls through the SDK", () => {
     ]);
   });
 
+  test.each(["audio", "video"] as const)("uploads %s bytes through uploadFile like a file", async (kind) => {
+    const fake = fakeSlackSdk();
+    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
+      ...injectedOptions(),
+      media: async () => ({ bytes: new Uint8Array([5, 6]), name: `clip.${kind}`, mime: `${kind}/mp4` }),
+    });
+    const media: Outbound.Payload = {
+      kind: "message",
+      parts: [{ kind, ref: "/clip", name: `clip.${kind}`, durationMs: 4_000, caption: "hear this" }],
+    };
+    expect(await runtime.deliveryRoute?.("T1:U1", media, `upload-${kind}`, { channelId: "C1", threadId: "42.0" }))
+      .toEqual({ value: "accepted" });
+    expect(fake.client.calls).toEqual([
+      { method: "uploadFile", args: ["C1", [5, 6], `clip.${kind}`, { thread_ts: "42.0", initial_comment: "hear this" }] },
+    ]);
+  });
+
   test("uses the short emoji name in addReaction", async () => {
     const fake = fakeSlackSdk();
     const runtime = createSlackProvider(fake.sdk).create(

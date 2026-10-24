@@ -1,4 +1,5 @@
 import type { Channel } from "@oni/protocol";
+import { kindOfMime } from "../../support/media-kind";
 import type { InboundNormalizer } from "../../types";
 import type { DiscordInteraction, DiscordMessage, DiscordReaction } from "./types";
 
@@ -63,11 +64,7 @@ export class DiscordNormalizer
     const attachments = reaction
       ? []
       : (message.attachments ?? []).map((attachment) => ({
-          kind: attachment.content_type?.startsWith("image/")
-            ? ("image" as const)
-            : attachment.content_type?.startsWith("audio/")
-              ? ("audio" as const)
-              : ("file" as const),
+          kind: kindOfMime(attachment.content_type),
           ref: attachment.url,
           name: attachment.filename,
           ...(attachment.content_type === undefined ? {} : { mime: attachment.content_type }),

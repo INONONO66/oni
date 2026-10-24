@@ -20,11 +20,11 @@ export interface MediaBytes {
 }
 
 /**
- * Resolves an image or file part's `ref` (a path on the attached machine or
+ * Resolves a media part's `ref` (a path on the attached machine or
  * an https URL) to its bytes at delivery time. The composition root owns
  * this: drivers never read a filesystem or fetch beyond their platform API.
  */
-export type MediaResolver = (part: Outbound.Part & { kind: "image" | "file" }) => Promise<MediaBytes>;
+export type MediaResolver = (part: Outbound.Part & { kind: "image" | "file" | "audio" | "video" }) => Promise<MediaBytes>;
 
 /**
  * The composition root's bounds on one authenticated download: the most

@@ -6,8 +6,9 @@ import { runEffect } from "../../helpers/effect";
 import { seededRequests } from "../../helpers/requests";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createExistingAgentMessaging } from "../../../src/router/messaging/send";
-import { buildGrant, buildSendInput, registerAgentFixture } from "../../helpers/messaging";
-import { resetStores } from "../_router-fixture";
+import { buildAwaitedSendInput, buildGrant, buildSendInput, registerAgentFixture } from "../../helpers/messaging";
+import { makeRouter, resetStores } from "../_router-fixture";
+import type { ChannelDeliveryRoute } from "../../../src/router/message-ports";
 
 beforeEach(() => {
   resetStores();
@@ -17,6 +18,51 @@ beforeEach(() => {
 afterEach(() => {
   resetLedger();
 });
+
+for (const input of [buildSendInput(), buildAwaitedSendInput()]) {
+  test(`${input.operation} send receipt preserves the provider refusal reason`, async () => {
+    const messaging = createExistingAgentMessaging({
+      requests: channelRequests(seededRequests()),
+      stores: ledger().stores,
+      transaction: channelTransaction,
+      grants: () => [buildGrant("grant:sender->target")],
+      publish: () => undefined,
+      deliver: () => ({ value: "rejected", reason: "media_too_large audio 60>50" }),
+    });
+    const receipt = await runEffect(messaging.send(input));
+    expect(receipt).toMatchObject({
+      kind: "sent",
+      operation: input.operation,
+      delivery: "rejected",
+      reason: "media_too_large audio 60>50",
+    });
+  });
+
+  test(`${input.operation} router actor delivery preserves the provider refusal reason`, async () => {
+    const router = makeRouter({
+      messaging: {
+        grants: () => [buildGrant("grant:sender->target")],
+        deliveryRoutes: new Map<string, ChannelDeliveryRoute>([
+          ["qa", async () => ({ value: "rejected", reason: "media_too_large audio 60>50" })],
+        ]),
+      },
+    });
+    const result = await runEffect(router.ingest(
+      { kind: "session", id: input.senderId },
+      {
+        to: { kind: "actor", actorId: input.target.actorId },
+        type: "message",
+        content: { kind: "message", parts: [{ kind: "audio", ref: "/voice.ogg" }] },
+        ...(input.requestSpec === undefined ? {} : { deadline: input.requestSpec.deadline }),
+      },
+    ));
+    expect(result.status === "executed" ? result.delivery : result).toStrictEqual({
+      kind: "actor",
+      value: "rejected",
+      reason: "media_too_large audio 60>50",
+    });
+  });
+}
 
 for (const value of ["accepted", "rejected", "unknown"] as const) {
   test(`actor transport preserves the ${value} receipt under a stable idempotency key`, async () => {

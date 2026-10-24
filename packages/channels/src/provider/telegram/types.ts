@@ -22,6 +22,23 @@ const TelegramEntitySchema = z.object({
   user: TelegramUserSchema.optional(),
 });
 
+/** A played file; `duration` is in seconds. */
+interface TelegramTimedFile {
+  file_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+  duration?: number;
+}
+
+const TelegramTimedFileSchema = z.object({
+  file_id: z.string(),
+  file_name: z.string().optional(),
+  mime_type: z.string().optional(),
+  file_size: z.number().optional(),
+  duration: z.number().optional(),
+});
+
 export interface TelegramMessage {
   message_id: number;
   from?: z.infer<typeof TelegramUserSchema>;
@@ -33,8 +50,11 @@ export interface TelegramMessage {
   caption_entities?: z.infer<typeof TelegramEntitySchema>[];
   photo?: { file_id: string; file_size?: number }[];
   document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
-  voice?: { file_id: string; mime_type?: string; file_size?: number };
-  audio?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  voice?: TelegramTimedFile;
+  audio?: TelegramTimedFile;
+  video?: TelegramTimedFile;
+  video_note?: TelegramTimedFile;
+  animation?: TelegramTimedFile;
   sticker?: { file_id: string; is_animated?: boolean; is_video?: boolean; file_size?: number };
   reply_to_message?: TelegramMessage;
   message_thread_id?: number;
@@ -62,21 +82,11 @@ const TelegramMessageSchema: z.ZodType<TelegramMessage> = z.lazy(() =>
         file_size: z.number().optional(),
       })
       .optional(),
-    voice: z
-      .object({
-        file_id: z.string(),
-        mime_type: z.string().optional(),
-        file_size: z.number().optional(),
-      })
-      .optional(),
-    audio: z
-      .object({
-        file_id: z.string(),
-        file_name: z.string().optional(),
-        mime_type: z.string().optional(),
-        file_size: z.number().optional(),
-      })
-      .optional(),
+    voice: TelegramTimedFileSchema.optional(),
+    audio: TelegramTimedFileSchema.optional(),
+    video: TelegramTimedFileSchema.optional(),
+    video_note: TelegramTimedFileSchema.optional(),
+    animation: TelegramTimedFileSchema.optional(),
     sticker: z
       .object({
         file_id: z.string(),

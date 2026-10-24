@@ -91,7 +91,7 @@
       "dependencies": {
         "@oni/agent": "workspace:*",
         "@oni/protocol": "workspace:*",
-        "agent-messenger": "github:INONONO66/agent-messenger#f04de196ac267872373b05de58b9f1623ec7e02d",
+        "agent-messenger": "github:INONONO66/agent-messenger#2e97492a9ff80cef98fe7790144d846e974cb83e",
         "effect": "4.0.0-rc.118",
         "zod": "^4.5.4",
       },
@@ -801,7 +801,7 @@
 
     "agent-base": ["agent-base@6.0.2", "", { "dependencies": { "debug": "4" } }, "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ=="],
 
-    "agent-messenger": ["agent-messenger@github:INONONO66/agent-messenger#f04de19", { "dependencies": { "@hapi/boom": "^10.0.1", "@slack/web-api": "^6.9.0", "@whiskeysockets/baileys": "^7.0.0-rc.9", "blessed": "^0.1.81", "bson": "^6.10.4", "classic-level": "^3.0.0", "commander": "^11.1.0", "crypto-js": "^4.2.0", "curve25519-js": "^0.0.4", "jsqr": "^1.4.0", "node-bignumber": "^1.2.2", "node-int64": "^0.4.0", "node-jose": "^2.2.0", "pino": "^10.3.1", "pngjs": "^7.0.0", "qrcode": "^1.5.4", "thrift": "^0.20.0", "tough-cookie": "^6.0.2", "tweetnacl": "^1.0.3", "webex-message-handler": "^0.6.10", "ws": "^8.19.0", "zod": "^4.3.6" }, "optionalDependencies": { "koffi": "^2.15.2", "prebuilt-tdlib": "0.1008062.2" }, "bin": { "agent-channeltalk": "dist/src/platforms/channeltalk/cli.js", "agent-channeltalkbot": "dist/src/platforms/channeltalkbot/cli.js", "agent-discord": "dist/src/platforms/discord/cli.js", "agent-discordbot": "dist/src/platforms/discordbot/cli.js", "agent-imessage": "dist/src/platforms/imessage/cli.js", "agent-instagram": "dist/src/platforms/instagram/cli.js", "agent-kakaotalk": "dist/src/platforms/kakaotalk/cli.js", "agent-line": "dist/src/platforms/line/cli.js", "agent-messenger": "dist/src/cli.js", "agent-slack": "dist/src/platforms/slack/cli.js", "agent-slackbot": "dist/src/platforms/slackbot/cli.js", "agent-teams": "dist/src/platforms/teams/cli.js", "agent-telegram": "dist/src/platforms/telegram/cli.js", "agent-telegrambot": "dist/src/platforms/telegrambot/cli.js", "agent-webex": "dist/src/platforms/webex/cli.js", "agent-webexbot": "dist/src/platforms/webexbot/cli.js", "agent-wechatbot": "dist/src/platforms/wechatbot/cli.js", "agent-whatsapp": "dist/src/platforms/whatsapp/cli.js", "agent-whatsappbot": "dist/src/platforms/whatsappbot/cli.js", "amsg": "dist/src/cli.js" } }, "INONONO66-agent-messenger-f04de19", "sha512-qhYsOhHl5K04njQOf01meBjLz4uiwemB2eqwere9fkE3X3VMrBLSNbDyqIUYlGMk0waOkbOqqfRZ9OHlQMHhOg=="],
+    "agent-messenger": ["agent-messenger@github:INONONO66/agent-messenger#2e97492", { "dependencies": { "@hapi/boom": "^10.0.1", "@slack/web-api": "^6.9.0", "@whiskeysockets/baileys": "^7.0.0-rc.9", "blessed": "^0.1.81", "bson": "^6.10.4", "classic-level": "^3.0.0", "commander": "^11.1.0", "crypto-js": "^4.2.0", "curve25519-js": "^0.0.4", "jsqr": "^1.4.0", "node-bignumber": "^1.2.2", "node-int64": "^0.4.0", "node-jose": "^2.2.0", "pino": "^10.3.1", "pngjs": "^7.0.0", "qrcode": "^1.5.4", "thrift": "^0.20.0", "tough-cookie": "^6.0.2", "tweetnacl": "^1.0.3", "webex-message-handler": "^0.6.10", "ws": "^8.19.0", "zod": "^4.3.6" }, "optionalDependencies": { "koffi": "^2.15.2", "prebuilt-tdlib": "0.1008062.2" }, "bin": { "agent-channeltalk": "dist/src/platforms/channeltalk/cli.js", "agent-channeltalkbot": "dist/src/platforms/channeltalkbot/cli.js", "agent-discord": "dist/src/platforms/discord/cli.js", "agent-discordbot": "dist/src/platforms/discordbot/cli.js", "agent-imessage": "dist/src/platforms/imessage/cli.js", "agent-instagram": "dist/src/platforms/instagram/cli.js", "agent-kakaotalk": "dist/src/platforms/kakaotalk/cli.js", "agent-line": "dist/src/platforms/line/cli.js", "agent-messenger": "dist/src/cli.js", "agent-slack": "dist/src/platforms/slack/cli.js", "agent-slackbot": "dist/src/platforms/slackbot/cli.js", "agent-teams": "dist/src/platforms/teams/cli.js", "agent-telegram": "dist/src/platforms/telegram/cli.js", "agent-telegrambot": "dist/src/platforms/telegrambot/cli.js", "agent-webex": "dist/src/platforms/webex/cli.js", "agent-webexbot": "dist/src/platforms/webexbot/cli.js", "agent-wechatbot": "dist/src/platforms/wechatbot/cli.js", "agent-whatsapp": "dist/src/platforms/whatsapp/cli.js", "agent-whatsappbot": "dist/src/platforms/whatsappbot/cli.js", "amsg": "dist/src/cli.js" } }, "INONONO66-agent-messenger-2e97492", "sha512-/tsahuiFYtNGxs7FbmoXl6Lztbz62ai7nHh+F/mnYeJ0ZOI7kJS86qbwp7oJKBiiM27RdONn4Iw+bFCXK7PhSw=="],
 
     "ai": ["ai@7.0.93", "", { "dependencies": { "@ai-sdk/gateway": "4.0.75", "@ai-sdk/provider": "4.0.10", "@ai-sdk/provider-utils": "5.0.36" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-CJss6zb9mlltk/mCr8qom20NBnqEQxVawkqwtT62tCwsxilZpXfHNRMRwcS3XRpzdP1kEluVuDBUayYWEEd95g=="],
 
@@ -1475,11 +1475,11 @@
 
     "@img/sharp-wasm32/@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
-    "@oni/agent/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+    "@oni/agent/@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
     "@oni/app/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
-    "@oni/channels/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+    "@oni/channels/@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
     "@oni/codemode/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
@@ -1555,11 +1555,11 @@
 
     "webex-message-handler/undici": ["undici@8.12.1", "", {}, "sha512-usz3OVQBeh1LxNn0DzU0voLXMgn5CU/WUdpBsY6Ti5afNao+vTkmn4H/NxoXolc10cOqe2+YIG0Hspq2rsl64w=="],
 
-    "@oni/agent/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+    "@oni/agent/@types/bun/bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
     "@oni/app/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
-    "@oni/channels/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+    "@oni/channels/@types/bun/bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
     "@oni/codemode/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 

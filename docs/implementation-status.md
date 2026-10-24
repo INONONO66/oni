@@ -794,6 +794,36 @@ suites: `packages/channels` 1010 pass, `apps/oni` 1032 pass,
 0 fail. Not in this lane: the remaining #1600 lanes (reply door, dead
 paths, the first live run).
 
+## Media parts: audio and video on every fork platform (PR #1643)
+
+On `feat/g1-media-parts` (2026-10-25, base `cd71e4bda` after #1619, no
+issue). `Outbound.Part` gains `kind: audio` (`voice`, `durationMs`,
+caption) and `kind: video` (`durationMs`, caption), with matching `Audio` and
+`Video` catalog elements. Inbound attachments gain the `video` kind plus
+`durationMs` and `voice`. `MediaLimits` carries `audioBytes` and `videoBytes`:
+Telegram 50 MB, Slack 1 GiB, Discord 20 MiB, and the new
+`KAKAOTALK_MEDIA_LIMITS` (image 10 MB, file/audio/video 50 MB), the KakaoTalk
+figures declared rather than platform-verified because the fork's LOCO upload
+enforces no cap. An oversize part is the typed `MediaTooLarge {kind, bytes,
+limit}`, folded into a `not_sent` receipt with `reason: media_too_large <kind>
+<bytes>><limit>`; `Outbound.Receipt` declares the optional `reason`, carried
+through the send receipt and actor delivery result to the `send_message`
+tool result. A rejection without a reason keeps the generic refusal text.
+Telegram sends audio through `sendAudio`, a voice note through `sendVoice` and
+video through `sendVideo`, `duration` rounded from `durationMs` (fork dist pin
+`2e97492a9ff80cef98fe7790144d846e974cb83e`); Slack and Discord upload audio
+and video exactly as they upload a file; KakaoTalk Owner delivery sends
+`sendPhoto`/`sendVideo`/`sendAudio`/`sendFile` and the caption as a following
+text message. `apps/oni`'s media resolver honors declared MIME types for audio
+and video. Not in this change: model consumption of audio or video (no STT, no
+frame sampling) and a KakaoTalk download client. Receipts:
+`packages/protocol/test/{outbound,message}.test.ts`,
+`packages/protocol/test/send-message.test.ts`,
+`packages/channels/test/{telegram,slack,discord}-media.test.ts`,
+`packages/channels/test/{translate,kakaotalk-owner,inbound-attachments}.test.ts`,
+`packages/channels/test/router/messaging/actor-receipt.test.ts`,
+`apps/oni/test/{media-resolver,attachment-inbox,send-message-contacts}.test.ts`.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

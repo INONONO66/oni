@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type FilePorts, filesystem } from "../bundles/tools/core/filesystem";
 
 /**
- * The composition root's media resolver (#1497): an image or file part's
+ * The composition root's media resolver (#1497): an outbound media part's
  * `ref` is a path on an attached machine or an https URL, and the channel
  * driver receives bytes only at delivery time. Promise-shaped because the
  * drivers' `MediaResolver` port is; the machine read goes through the same
@@ -45,8 +45,13 @@ const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   gz: "application/gzip",
   mp4: "video/mp4",
   mp3: "audio/mpeg",
+  m4a: "audio/mp4",
   ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/ogg",
   wav: "audio/wav",
+  webm: "video/webm",
+  mov: "video/quicktime",
 };
 
 export function mediaMime(name: string): string {
@@ -55,14 +60,16 @@ export function mediaMime(name: string): string {
   return MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
 }
 
-type MediaPart = Outbound.Part & { kind: "image" | "file" };
+type MediaPart = Outbound.Part & { kind: "image" | "file" | "audio" | "video" };
 
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 
 function declaredMime(part: MediaPart): string | undefined {
-  return part.kind === "file" ? part.mime : undefined;
+  return part.kind === "file" || part.kind === "audio" || part.kind === "video"
+    ? part.mime
+    : undefined;
 }
 
 export function mediaBounds(signal = AbortSignal.timeout(MEDIA_FETCH_TIMEOUT_MS)): AttachmentBounds {

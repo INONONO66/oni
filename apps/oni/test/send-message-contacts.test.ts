@@ -242,6 +242,28 @@ test("#1600 lane R3: an actor delivery the platform rejected, or whose outcome i
   });
 });
 
+test("a rejected actor send returns the provider refusal reason to the tool caller", async () => {
+  const tool = createSendMessageTool({
+    ingest: async () => ({
+      status: "executed",
+      handle: { messageId: "m-1", target: "person:peer" },
+      delivery: { kind: "actor", value: "rejected", reason: "media_too_large audio 60>50" },
+    }),
+  }, () => 1_000);
+  const result = await tool.execute(tool.input.parse({
+    to: { kind: "contact", id: "person:peer" },
+    message: {
+      root: "audio",
+      elements: { audio: { type: "Audio", props: { ref: "/voice.ogg" }, children: [] } },
+    },
+  }), context);
+  expect(result).toStrictEqual({
+    contact: "person:peer",
+    status: "not_sent",
+    reason: "media_too_large audio 60>50",
+  });
+});
+
 test("#1569 lane 8: a letter to a reachable Person with no active budget suspends for the Owner's consent, bound to the Person row; connector contacts, sessions, budgeted and unreachable Persons never wait; the kernel's answer is the consent fact", async () => {
   const ingested: Gateway.SendMessage[] = [];
   const port: MessagePort = {
@@ -312,6 +334,32 @@ test("#1569 lane 8: a letter to a reachable Person with no active budget suspend
     await stale.close();
   }
   plane.close();
+});
+
+test("the tool input accepts catalog audio durations and forwards them to the gateway", async () => {
+  const ingested: Parameters<MessagePort["ingest"]>[1][] = [];
+  const tool = createSendMessageTool({
+    ingest: async (_sender, message) => {
+      ingested.push(message);
+      return {
+        status: "executed",
+        handle: { messageId: "m-audio", target: "person:peer" },
+        delivery: { kind: "actor", value: "accepted" },
+      };
+    },
+  }, () => 1_000);
+  const spec: Outbound.Spec = {
+    root: "audio",
+    elements: { audio: { type: "Audio", props: { ref: "/voice.ogg", durationMs: 65_000 }, children: [] } },
+  };
+  const input = tool.input.parse({ to: { kind: "contact", id: "person:peer" }, message: spec });
+  expect(input.message).toStrictEqual(spec);
+  await tool.execute(input, context);
+  expect(ingested).toStrictEqual([{
+    to: { kind: "actor", actorId: "person:peer" },
+    type: "message",
+    content: { kind: "message", spec },
+  }]);
 });
 
 test("the tool routes CLI contacts through connectors and everything else through the gateway door as one payload", async () => {

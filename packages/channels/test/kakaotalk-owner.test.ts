@@ -3,6 +3,7 @@ import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryNotSent } from "../src/errors";
 import type { OwnerPosture } from "../src/provider/contract";
+import { KAKAOTALK_MEDIA_LIMITS } from "../src/provider/kakaotalk/format";
 import { KakaoTalkOwnerAdapter } from "../src/provider/kakaotalk/owner";
 import { KakaoTalkOwnerError, kakaoTalkOwnerSdk } from "../src/provider/kakaotalk/owner-sdk";
 import { createKakaoTalkProvider } from "../src/provider/kakaotalk/provider";
@@ -139,6 +140,94 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     expect(client.of("sendTyping").map((call) => call.args)).toEqual([["chat-dm"]]);
   });
 
+  it.each([
+    { kind: "audio", method: "sendAudio" },
+    { kind: "video", method: "sendVideo" },
+  ] as const)("uploads $kind bytes through $method, then its caption as the text after it", async ({ kind, method }) => {
+    const fake = fakeKakaoTalkOwnerSdk({ chats: CHATS });
+    const adapter = new KakaoTalkOwnerAdapter(CREDENTIALS, SEND_ONLY, noopPublish, {
+      ...injectedOptions(immediate),
+      media: async () => ({ bytes: new Uint8Array([3, 4]), name: `clip.${kind}`, mime: `${kind}/mp4` }),
+    }, fake.sdk);
+    await adapter.start("boot");
+    const payload: Outbound.Payload = {
+      kind: "message",
+      parts: [{ kind, ref: "/clip", name: `clip.${kind}`, durationMs: 5_000, caption: "this one" }],
+    };
+    expect(await adapter.deliver("2002", payload, `k-${kind}`, { channelId: "chat-dm" }))
+      .toEqual({ value: "sent", externalMessageId: "log-2" });
+    expect(fake.client.calls.slice(2)).toEqual([
+      { method, args: ["chat-dm", [3, 4], `clip.${kind}`] },
+      { method: "sendMessage", args: ["chat-dm", "this one"] },
+    ]);
+  });
+
+  it("retains a media key when COMPLETE is missing, but releases a proven refusal", async () => {
+    const missing = fakeKakaoTalkOwnerSdk({ chats: CHATS, upload: { success: false, status_code: 0 } });
+    const rejected = fakeKakaoTalkOwnerSdk({ chats: CHATS, upload: { success: false, status_code: -500 } });
+    const options = {
+      ...injectedOptions(immediate),
+      media: async () => ({ bytes: new Uint8Array([3, 4]), name: "clip.mp4", mime: "video/mp4" }),
+    };
+    const payload: Outbound.Payload = { kind: "message", parts: [{ kind: "video", ref: "/clip" }] };
+    const uncertain = new KakaoTalkOwnerAdapter(CREDENTIALS, SEND_ONLY, noopPublish, options, missing.sdk);
+    const refused = new KakaoTalkOwnerAdapter(CREDENTIALS, SEND_ONLY, noopPublish, options, rejected.sdk);
+    await uncertain.start("boot");
+    await refused.start("boot");
+
+    expect(await uncertain.deliver("2002", payload, "media-key", { channelId: "chat-dm" })).toEqual({ value: "unknown" });
+    expect(await uncertain.deliver("2002", payload, "media-key", { channelId: "chat-dm" })).toEqual({ value: "unknown" });
+    expect(missing.client.of("sendVideo")).toHaveLength(1);
+    expect(await refused.deliver("2002", payload, "refused-key", { channelId: "chat-dm" })).toEqual({ value: "not_sent" });
+  });
+
+  it("records a prefix and an accepted upload when the trailing caption is refused", async () => {
+    const warnings: { readonly msg: string; readonly context?: object }[] = [];
+    const fake = fakeKakaoTalkOwnerSdk({
+      chats: CHATS,
+      send: (text) => text === "caption" ? { success: false, status_code: -500 } : undefined,
+    });
+    const adapter = new KakaoTalkOwnerAdapter(CREDENTIALS, SEND_ONLY, (event, data) => {
+      if (event.name !== Operational.Events.Warn.name) return;
+      warnings.push(Operational.Events.Warn.schema.parse(data));
+    }, {
+      ...injectedOptions(immediate),
+      media: async () => ({ bytes: new Uint8Array([3, 4]), name: "clip.mp4", mime: "video/mp4" }),
+    }, fake.sdk);
+    await adapter.start("boot");
+    const payload: Outbound.Payload = {
+      kind: "message",
+      parts: [{ kind: "text", text: "prefix" }, { kind: "video", ref: "/clip", caption: "caption" }],
+    };
+
+    expect(await adapter.deliver("2002", payload, "caption-key", { channelId: "chat-dm" })).toEqual({ value: "unknown" });
+    expect(warnings).toContainEqual(expect.objectContaining({
+      msg: "partial message delivery",
+      context: expect.objectContaining({
+        acceptedChunks: [{ index: 1, externalMessageId: "log-1" }, { index: 2, externalMessageId: "log-2" }],
+        attemptedChunks: 3,
+        totalChunks: 3,
+      }),
+    }));
+    expect(await adapter.deliver("2002", payload, "caption-key", { channelId: "chat-dm" })).toEqual({ value: "unknown" });
+    expect(fake.client.calls.slice(2).map((call) => call.method)).toEqual(["sendMessage", "sendVideo", "sendMessage"]);
+  });
+
+  it("a pushed media message carrying a LOCO URL becomes a typed attachment; one without a URL carries none", async () => {
+    const { listener, next } = await started();
+    const video = next();
+    listener.message({
+      chat_id: "chat-dm", log_id: "log-v", author_id: 2002, message: "", message_type: 3,
+      attachment: { url: "https://talk.kakao/clip.mp4", mt: "video/mp4", s: 77 },
+    });
+    expect((await video).facts.attachments).toEqual([
+      { kind: "video", ref: "https://talk.kakao/clip.mp4", mime: "video/mp4", bytes: 77 },
+    ]);
+    const bare = next();
+    listener.message({ chat_id: "chat-dm", log_id: "log-a", author_id: 2002, message: "voice", message_type: 5, attachment: { k: "key" } });
+    expect((await bare).facts.attachments).toBeUndefined();
+  });
+
   it("a refused send is not_sent, a preflight refusal is not_sent, a thrown send is unknown (the SDK may have re-run it), a socket closed before the reply is unknown and never re-sent", async () => {
     const refused = await started(SEND_ONLY, { chats: CHATS, send: { success: false, status_code: -500 } });
     expect((await refused.adapter.deliver("2002", Outbound.payload("x"), "k-1", { channelId: "chat-dm" })).value).toBe("not_sent");
@@ -207,10 +296,10 @@ describe("KakaoTalkOwnerAdapter: the Owner's own account as the kakaotalk:owner 
     expect(refusing.stopped).toBe(1);
   });
 
-  it("the provider is Owner-only: the owner arm builds the instance with delivery and typing; the bot arm refuses", () => {
+  it("the provider is Owner-only: the owner arm builds the instance with delivery, media and typing; the bot arm refuses", () => {
     const owner = fakeKakaoTalkOwnerSdk();
     const provider = createKakaoTalkProvider(owner.sdk);
-    expect(provider.owner?.capabilities).toEqual({ deliver: true, react: false, media: false, typing: true });
+    expect(provider.owner?.capabilities).toEqual({ deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true });
     expect(provider.owner?.listen).toBe(true);
     expect(provider.owner?.credentials.safeParse(CREDENTIALS).success).toBe(true);
     expect(provider.owner?.credentials.safeParse({ oauthToken: "o", userId: "1" }).success).toBe(true);

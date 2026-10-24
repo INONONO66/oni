@@ -21,6 +21,12 @@ export class AttachmentRefused extends Data.TaggedError("AttachmentRefused")<{
   readonly maxBytes: number;
 }> {}
 
+export class MediaTooLarge extends Data.TaggedError("MediaTooLarge")<{
+  readonly kind: "image" | "file" | "audio" | "video";
+  readonly bytes: number;
+  readonly limit: number;
+}> {}
+
 export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
   readonly reason: "approval_required" | "not_found";
   readonly id: string;
@@ -104,6 +110,7 @@ export type ChannelError =
   | AutomationEnableRefused
   | DeliveryNotSent
   | AttachmentRefused
+  | MediaTooLarge
   | InvalidInbound
   | DiscordApiError
   | DiscordHandlerMissingError

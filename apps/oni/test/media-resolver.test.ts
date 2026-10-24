@@ -1,5 +1,5 @@
 /**
- * #1497 media resolver: an image/file part's `ref` becomes bytes only at
+ * #1497 media resolver: an outbound media part's `ref` becomes bytes only at
  * delivery time, from an attached machine (the `read` tool's door) or an
  * https URL; anything else is a typed refusal before any channel call.
  */
@@ -77,7 +77,7 @@ async function refusal(resolve: Resolve, part: Parameters<Resolve>[0]): Promise<
 test("a machine path is read whole through the daemon's bounded reads; name and mime follow the part or the path", async () => {
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5]);
   const resolve = createMediaResolver(
-    ports(machineWith({ "/tmp/shot.png": png, "/tmp/report": png }, 4)),
+    ports(machineWith({ "/tmp/shot.png": png, "/tmp/report": png, "/tmp/note.m4a": png }, 4)),
   );
   expect(await resolve({ kind: "image", ref: "/tmp/shot.png" })).toEqual({
     bytes: png,
@@ -99,6 +99,18 @@ test("a machine path is read whole through the daemon's bounded reads; name and 
   expect(
     await resolve({ kind: "file", ref: "/tmp/report", name: "notes.unknownext" }),
   ).toMatchObject({ mime: "application/octet-stream" });
+  expect(
+    await resolve({
+      kind: "audio",
+      ref: "box:/tmp/note.m4a",
+      name: "voice.bin",
+      mime: "audio/ogg",
+    }),
+  ).toEqual({
+    bytes: png,
+    name: "voice.bin",
+    mime: "audio/ogg",
+  });
 });
 
 test("an oversize machine file is refused on stat, before any byte is read", async () => {
@@ -122,6 +134,10 @@ test("an https URL is fetched; non-https schemes, private hosts, failed fetches 
       return Promise.resolve(
         new Response("x", { headers: { "content-length": String(MEDIA_BYTE_CAP + 1) } }),
       );
+    if (input.pathname === "/clips/demo.mov")
+      return Promise.resolve(
+        new Response(new Uint8Array([9]), { headers: { "content-type": "video/quicktime" } }),
+      );
     return Promise.resolve(
       new Response(new Uint8Array([7, 8]), {
         headers: { "content-type": "image/webp; charset=binary" },
@@ -133,6 +149,11 @@ test("an https URL is fetched; non-https schemes, private hosts, failed fetches 
     bytes: new Uint8Array([7, 8]),
     name: "cat.webp",
     mime: "image/webp",
+  });
+  expect(await resolve({ kind: "video", ref: "https://cdn.test/clips/demo.mov" })).toEqual({
+    bytes: new Uint8Array([9]),
+    name: "demo.mov",
+    mime: "video/quicktime",
   });
   expect(await refusal(resolve, { kind: "image", ref: "http://cdn.test/cat.png" })).toBe("scheme");
   expect(await refusal(resolve, { kind: "image", ref: "ftp://cdn.test/cat.png" })).toBe("scheme");
@@ -157,6 +178,7 @@ test("an https URL is fetched; non-https schemes, private hosts, failed fetches 
   );
   expect(calls).toEqual([
     "https://cdn.test/pics/cat.webp?x=1",
+    "https://cdn.test/clips/demo.mov",
     "https://cdn.test/missing",
     "https://cdn.test/big",
   ]);
@@ -254,6 +276,11 @@ test("redirects are followed hop by hop with every hop admitted; the final hop n
 test("mime follows the extension table and falls back to octet-stream", () => {
   expect(mediaMime("a.JPG")).toBe("image/jpeg");
   expect(mediaMime("archive.tar.gz")).toBe("application/gzip");
+  expect(mediaMime("voice.m4a")).toBe("audio/mp4");
+  expect(mediaMime("voice.oga")).toBe("audio/ogg");
+  expect(mediaMime("voice.opus")).toBe("audio/ogg");
+  expect(mediaMime("clip.webm")).toBe("video/webm");
+  expect(mediaMime("clip.mov")).toBe("video/quicktime");
   expect(mediaMime("noext")).toBe("application/octet-stream");
 });
 

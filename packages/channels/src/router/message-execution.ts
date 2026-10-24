@@ -238,7 +238,15 @@ function executeActorSend(
       Effect.flatMap((receipt) =>
         receipt.kind === "denied"
           ? Effect.fail(new SendAdmissionConflict({ message: `actor send admission changed: ${receipt.code}` }))
-          : Effect.succeed<PlainValue>({ status: "executed", handle, delivery: { kind: "actor", value: receipt.delivery } }),
+          : Effect.succeed<PlainValue>({
+              status: "executed",
+              handle,
+              delivery: {
+                kind: "actor",
+                value: receipt.delivery,
+                ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
+              },
+            }),
       ),
     );
 }

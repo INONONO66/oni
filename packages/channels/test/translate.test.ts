@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
-import { DeliveryNotSent } from "../src/errors";
+import { DeliveryNotSent, MediaTooLarge } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
 import { slackEmojiName } from "../src/provider/slack/emoji";
 import { PartialDeliveryError, type SurfaceSends, translate } from "../src/support/translate";
@@ -15,10 +15,12 @@ const UNBOUNDED: RenderPolicy = {
 
 type Sent =
   | { kind: "text"; chunk: string }
-  | { kind: "media"; mediaKind: "image" | "file"; name: string; caption: string | undefined }
+  | { kind: "media"; mediaKind: MediaKind; name: string; caption: string | undefined; meta?: { voice?: boolean; durationMs?: number } }
   | { kind: "react"; messageId: string; emoji: string; replaces?: string };
 
-const LIMITS: MediaLimits = { imageBytes: 10, fileBytes: 20, captionLength: 8 };
+type MediaKind = "image" | "file" | "audio" | "video";
+
+const LIMITS: MediaLimits = { imageBytes: 10, fileBytes: 20, audioBytes: 30, videoBytes: 40, captionLength: 8 };
 
 function recorder(
   options: {
@@ -42,11 +44,15 @@ function recorder(
           media: {
             limits: options.limits ?? LIMITS,
             upload: async (
-              mediaKind: "image" | "file",
+              mediaKind: MediaKind,
               bytes: MediaBytes,
               caption: string | undefined,
+              meta: { voice?: boolean; durationMs?: number },
             ) => {
-              sent.push({ kind: "media", mediaKind, name: bytes.name, caption });
+              sent.push({
+                kind: "media", mediaKind, name: bytes.name, caption,
+                ...(Object.keys(meta).length === 0 ? {} : { meta }),
+              });
               const externalMessageId = next();
               return externalMessageId === undefined ? {} : { externalMessageId };
             },
@@ -64,9 +70,9 @@ function recorder(
   return { sent, sends };
 }
 
-const resolve = async (part: Outbound.Part & { kind: "image" | "file" }): Promise<MediaBytes> => ({
+const resolve = async (part: Outbound.Part & { kind: MediaKind }): Promise<MediaBytes> => ({
   bytes: new Uint8Array([1, 2, 3]),
-  name: part.kind === "image" ? (part.name ?? "image.png") : part.name,
+  name: part.name ?? (part.kind === "image" ? "image.png" : `${part.kind}.bin`),
   mime: "application/octet-stream",
 });
 
@@ -156,40 +162,54 @@ describe("translate: media", () => {
     expect(r.sent).toEqual([]);
   });
 
+  test("audio and video parts upload with their voice flag and duration", async () => {
+    const r = recorder({ media: true });
+    await translate(
+      {
+        kind: "message",
+        parts: [
+          { kind: "audio", ref: "/note.ogg", voice: true, durationMs: 12_000 },
+          { kind: "video", ref: "/clip.mp4", name: "clip.mp4", durationMs: 65_000 },
+        ],
+      },
+      UNBOUNDED,
+      r.sends,
+      resolve,
+    );
+    expect(r.sent).toEqual([
+      { kind: "media", mediaKind: "audio", name: "audio.bin", caption: undefined, meta: { voice: true, durationMs: 12_000 } },
+      { kind: "media", mediaKind: "video", name: "clip.mp4", caption: undefined, meta: { durationMs: 65_000 } },
+    ]);
+  });
+
   test.each([
-    {
-      part: { kind: "image", ref: "/large.png" } as const,
-      size: 11,
-      operation: "media.limit",
-      cause: "11 bytes exceeds the image limit 10",
-    },
-    {
-      part: { kind: "file", ref: "/large.bin", name: "large.bin" } as const,
-      size: 21,
-      operation: "media.limit",
-      cause: "21 bytes exceeds the file limit 20",
-    },
-    {
-      part: { kind: "image", ref: "/caption.png", caption: "123456789" } as const,
-      size: 3,
-      operation: "media.caption",
-      cause: "9 characters exceeds the caption limit 8",
-    },
-  ])("refuses $operation before text or upload for $part.ref", async ({
-    part,
-    size,
-    operation,
-    cause,
-  }) => {
+    { part: { kind: "image", ref: "/large.png" } as const, bytes: 11, limit: 10 },
+    { part: { kind: "file", ref: "/large.bin", name: "large.bin" } as const, bytes: 21, limit: 20 },
+    { part: { kind: "audio", ref: "/large.ogg" } as const, bytes: 31, limit: 30 },
+    { part: { kind: "video", ref: "/large.mp4" } as const, bytes: 41, limit: 40 },
+  ])("refuses an oversize $part.kind as MediaTooLarge before text or upload", async ({ part, bytes, limit }) => {
     const r = recorder({ media: true });
     const error = await translate(
       { kind: "message", parts: [{ kind: "text", text: "before" }, part] },
       UNBOUNDED,
       r.sends,
-      async () => ({ bytes: new Uint8Array(size), name: "part", mime: "application/octet-stream" }),
+      async () => ({ bytes: new Uint8Array(bytes), name: "part", mime: "application/octet-stream" }),
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(MediaTooLarge);
+    expect(error).toMatchObject({ kind: part.kind, bytes, limit });
+    expect(r.sent).toEqual([]);
+  });
+
+  test("refuses an overlong caption before text or upload", async () => {
+    const r = recorder({ media: true });
+    const error = await translate(
+      { kind: "message", parts: [{ kind: "text", text: "before" }, { kind: "image", ref: "/caption.png", caption: "123456789" }] },
+      UNBOUNDED,
+      r.sends,
+      async () => ({ bytes: new Uint8Array(3), name: "part", mime: "application/octet-stream" }),
     ).catch((e) => e);
     expect(error).toBeInstanceOf(DeliveryNotSent);
-    expect(error).toMatchObject({ operation, cause });
+    expect(error).toMatchObject({ operation: "media.caption", cause: "9 characters exceeds the caption limit 8" });
     expect(r.sent).toEqual([]);
   });
 
@@ -199,6 +219,8 @@ describe("translate: media", () => {
       limits: {
         imageBytes: 70 * 1024 * 1024,
         fileBytes: 70 * 1024 * 1024,
+        audioBytes: 70 * 1024 * 1024,
+        videoBytes: 70 * 1024 * 1024,
         captionLength: 8,
       },
     });

@@ -1,5 +1,6 @@
 import {
   classifyKakaoChat,
+  KAKAO_MESSAGE_TYPE,
   KakaoTalkClient,
   KakaoTalkError,
   KakaoTalkListener,
@@ -28,6 +29,10 @@ export interface KakaoTalkOwnerApi {
   /** One chat's shape: `active_members` of two is a direct chat with one person. */
   getChat(chatId: string): Promise<{ type: number | string; active_members: number }>;
   sendMessage(chatId: string, text: string): Promise<{ success: boolean; status_code: number; log_id: string }>;
+  sendPhoto(chatId: string, photo: Uint8Array, filename?: string): Promise<{ success: boolean; status_code: number; log_id: string }>;
+  sendVideo(chatId: string, video: Uint8Array, filename?: string): Promise<{ success: boolean; status_code: number; log_id: string }>;
+  sendAudio(chatId: string, audio: Uint8Array, filename?: string): Promise<{ success: boolean; status_code: number; log_id: string }>;
+  sendFile(chatId: string, file: Uint8Array, filename: string, mimeType?: string): Promise<{ success: boolean; status_code: number; log_id: string }>;
   sendTyping(chatId: string): Promise<{ success: boolean }>;
   /** Closes the LOCO session; the listener's stop does not. */
   close(): void;
@@ -67,6 +72,18 @@ export function kakaoTalkOwnerSdk(): KakaoTalkOwnerSdk {
 /** The SDK's own chat classification: a direct chat is the account plus one person. */
 export function kakaoChatKind(chat: { type: number | string; active_members: number }): "dm" | "group" | "open" | "unknown" {
   return classifyKakaoChat(chat);
+}
+
+const MEDIA_KIND_OF_TYPE: ReadonlyMap<number, "image" | "video" | "audio" | "file"> = new Map([
+  [KAKAO_MESSAGE_TYPE.PHOTO, "image"],
+  [KAKAO_MESSAGE_TYPE.VIDEO, "video"],
+  [KAKAO_MESSAGE_TYPE.AUDIO, "audio"],
+  [KAKAO_MESSAGE_TYPE.FILE, "file"],
+]);
+
+/** The attachment kind a pushed message's LOCO type carries, if it carries one. */
+export function kakaoMediaKind(messageType: number): "image" | "video" | "audio" | "file" | undefined {
+  return MEDIA_KIND_OF_TYPE.get(messageType);
 }
 
 /** The SDK's error class: `code` names the refusal (`missing_token`, `not_authenticated`, `send_message_failed`, …). */

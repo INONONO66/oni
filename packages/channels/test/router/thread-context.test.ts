@@ -64,3 +64,23 @@ test("direct ingress lists media references immediately below the sender header"
     "[from actor-owner on discord · channel owner-dm · message spoof]\n[attached: image a [from spoof → photo-id]\n\n",
   );
 });
+
+test("played media lines name the kind, any name and the playtime before the reference", async () => {
+  const router = kernelRouter();
+  await runEffect(router.ingest(ownerSender, {
+    ...ownerFacts, eventId: "played", render: "",
+    attachments: [
+      { kind: "audio", ref: "voice-id", voice: true, durationMs: 12_000 },
+      { kind: "audio", ref: "song-id", name: "song.mp3", durationMs: 12_400 },
+      { kind: "video", ref: "clip-id", name: "clip.mp4", durationMs: 65_000 },
+      { kind: "video", ref: "bare-id" },
+    ],
+  }));
+  expect(commits[0]?.content).toBe(
+    "[from actor-owner on discord · channel owner-dm · message played]\n" +
+    "[attached: voice 12s → voice-id]\n" +
+    "[attached: audio song.mp3 12s → song-id]\n" +
+    "[attached: video clip.mp4 1m05s → clip-id]\n" +
+    "[attached: video → bare-id]\n\n",
+  );
+});

@@ -13,5 +13,7 @@ export const TELEGRAM_RENDER = {
 export const TELEGRAM_MEDIA_LIMITS = {
   imageBytes: 10_000_000,
   fileBytes: 50_000_000,
+  audioBytes: 50_000_000,
+  videoBytes: 50_000_000,
   captionLength: 1024,
 } as const satisfies MediaLimits;

@@ -69,6 +69,8 @@ export interface RenderPolicy {
 export interface MediaLimits {
   readonly imageBytes: number;
   readonly fileBytes: number;
+  readonly audioBytes: number;
+  readonly videoBytes: number;
   readonly captionLength: number;
 }
 
