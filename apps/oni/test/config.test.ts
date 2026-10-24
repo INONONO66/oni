@@ -830,7 +830,24 @@ describe("machines self enrollment config (#1271)", () => {
   it("rejects a relative attachment inbox", () => {
     process.env.ONI_MACHINES_SELF = selfEnv;
     process.env.ONI_MACHINES_INBOX = "inbox";
-    expect(loadConfig).toThrow("ONI_MACHINES_INBOX must be an absolute path: inbox");
+    expect(loadConfig).toThrow(ConfigurationError);
+    expect(loadConfig).toThrow("machines.inbox must be an absolute path: inbox");
+  });
+
+  it.each(["relative", "/srv/../inbox", "/srv/in\0box"])("refuses injected inbox %p before boot", (inbox) => {
+    expect(() => validateMachinePlane({
+      self: { capabilities: ["fs.write"], exports: selfExports },
+      listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox,
+    })).toThrow(expect.objectContaining({
+      name: "OniConfigurationError", data: expect.objectContaining({ code: "invalid_machines_inbox" }),
+    }));
+  });
+
+  it("an inbox alone configures the plane and requires self", () => {
+    process.env.ONI_MACHINES_INBOX = "/srv/inbox";
+    expect(loadConfig).toThrow(expect.objectContaining({
+      name: "OniConfigurationError", data: expect.objectContaining({ code: "invalid_machines_self" }),
+    }));
   });
 });
 

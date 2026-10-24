@@ -5,6 +5,9 @@ import {
   DiscordIntent,
 } from "agent-messenger/discordbot";
 import type { DiscordBotListenerEventMap } from "agent-messenger/discordbot";
+import { DiscordApiError } from "../../errors";
+import { transportFailure, type TransportFailure } from "../../support/transport-failure";
+import { z } from "zod";
 
 /**
  * The slice of the agent-messenger Discord bot SDK this surface speaks
@@ -73,33 +76,33 @@ export const DISCORD_INTENTS: number =
 
 export function discordSdk(): DiscordSdk {
   return {
-    client: () => new DiscordBotClient({ retries: 0 }),
-    // The listener only ever receives the client this same factory built.
-    listener: (client, options) =>
-      new DiscordBotListener(client as DiscordBotClient, { intents: options.intents }),
+    client: () => new CheckedDiscordBotClient({ retries: 0 }),
+    listener: (client, options) => {
+      if (!(client instanceof DiscordBotClient))
+        throw new DiscordApiError({ message: "Discord listener requires its SDK client" });
+      return new DiscordBotListener(client, { intents: options.intents });
+    },
   };
 }
 
-const SDK_PREFLIGHT = new Set([
-  "not_authenticated",
-  "missing_token",
-  "invalid_token",
-  "empty_message",
-  "file_too_large",
-]);
-const NEVER_CONNECTED = /\b(ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b/;
+const MessageReceipt = z.object({ id: z.string().min(1) });
 
-export type DiscordFailure = "rejected" | "not_connected" | "uncertain";
-
-function isDiscordError(error: Error): error is DiscordBotError {
-  return error instanceof DiscordBotError;
+export function checkedDiscordReceipt<T>(message: T): T {
+  if (!MessageReceipt.safeParse(message).success)
+    throw new DiscordApiError({ message: "Discord response carried no string id" });
+  return message;
 }
+
+class CheckedDiscordBotClient extends DiscordBotClient {
+  override async createMessage(...args: Parameters<DiscordBotClient["createMessage"]>) {
+    return checkedDiscordReceipt(await super.createMessage(...args));
+  }
+}
+
+export type DiscordFailure = TransportFailure;
 
 export function classifyDiscordFailure(error: Error): DiscordFailure {
-  if (!isDiscordError(error)) return "uncertain";
-  if (error.httpStatus !== undefined && error.httpStatus >= 400 && error.httpStatus < 500)
-    return "rejected";
-  if (NEVER_CONNECTED.test(error.message) || NEVER_CONNECTED.test(error.code))
-    return "not_connected";
-  return SDK_PREFLIGHT.has(error.code) ? "rejected" : "uncertain";
+  return error instanceof DiscordBotError ? transportFailure(error) : "uncertain";
 }
+
+export { DiscordBotClient, DiscordBotListener };

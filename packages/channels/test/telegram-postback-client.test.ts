@@ -1,14 +1,25 @@
 import { expect, test } from "bun:test";
 import { TelegramAdapter } from "../src/provider/telegram/surface";
 import { injectedOptions } from "./helpers/injected";
-import { fakeTelegramSdk } from "./helpers/telegram-sdk";
+import { FakeTelegramListener } from "./helpers/telegram-sdk";
+import { telegramSdk } from "../src/provider/telegram/sdk";
+import { recordHttp } from "./helpers/http";
+import { bounded } from "./helpers/bounded";
 
 test("TelegramAdapter acknowledges a callback query through the SDK client", async () => {
-  const fake = fakeTelegramSdk();
-  const adapter = new TelegramAdapter("token", {}, () => undefined, injectedOptions(), fake.sdk);
-  adapter.onMessage(async () => undefined);
+  const listener = new FakeTelegramListener();
+  const entered = Promise.withResolvers<void>();
+  const ack = Promise.withResolvers<Response>();
+  const handled = Promise.withResolvers<void>();
+  let handoffs = 0;
+  const wire = recordHttp(() => { entered.resolve(); return ack.promise; });
+  const adapter = new TelegramAdapter("token", {}, () => undefined, injectedOptions(), {
+    ...telegramSdk(), listener: () => listener,
+  });
+  adapter.onMessage(async () => { handoffs++; handled.resolve(); });
+  try {
   await adapter.start("boot");
-  fake.listener.update({
+  listener.update({
     update_id: 1,
     callback_query: {
       id: "callback-1",
@@ -24,6 +35,17 @@ test("TelegramAdapter acknowledges a callback query through the SDK client", asy
       },
     },
   });
-  await Promise.resolve();
-  expect(fake.client.calls.map(({ method }) => method)).toContain("answerCallbackQuery");
+  await bounded(entered.promise);
+  expect(handoffs).toBe(0);
+  expect(wire.requests).toHaveLength(1);
+  expect(wire.requests[0]?.url).toEndWith("/answerCallbackQuery");
+  expect(await wire.requests[0]?.json()).toEqual({ callback_query_id: "callback-1" });
+  ack.resolve(Response.json({ ok: true, result: true }));
+  await bounded(handled.promise);
+  expect(handoffs).toBe(1);
+  } finally {
+    ack.resolve(Response.json({ ok: true, result: true }));
+    adapter.stop("stop");
+    wire.restore();
+  }
 });

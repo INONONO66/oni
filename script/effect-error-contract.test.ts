@@ -97,6 +97,7 @@ const agent = {
 const channels = {
   ChannelsFailure: new Channels.ChannelsFailure(diagnostic),
   DeliveryNotSent: new Channels.DeliveryNotSent(diagnostic),
+  AttachmentRefused: new Channels.AttachmentRefused({ reason: "too_large", maxBytes: 1 }),
   AutomationEnableRefused: new Channels.AutomationEnableRefused({ reason: "not_found", id: "automation" }),
   AutomationConfigurationError: new Channels.AutomationConfigurationError({ reason: "store_unconfigured" }),
   InvalidInbound: new Channels.InvalidInbound({ operation: "frame", reason: "invalid_json" }),

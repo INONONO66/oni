@@ -555,6 +555,12 @@ export interface MachinePlane {
 export function validateMachinePlane(
   machines: NonNullable<OniConfig["machines"]>,
 ): MachinePlane {
+  if (machines.inbox !== undefined && !Machine.AbsolutePath.safeParse(machines.inbox).success) {
+    throw new ConfigurationError({
+      code: "invalid_machines_inbox",
+      message: `machines.inbox must be an absolute path: ${machines.inbox}`,
+    });
+  }
   const parsed = SelfMachine.safeParse(machines.self);
   if (!parsed.success) {
     throw new ConfigurationError({
@@ -764,7 +770,7 @@ function machinesTcpFromEnv(env: Record<string, string | undefined>) {
  * to the self id), `ONI_MACHINES_ENROLLED` admits remote machines,
  * `ONI_MACHINES_INBOX` names the existing absolute directory on the
  * default machine that receives inbound chat attachments. Any
- * of the three configures the plane; a configured plane without self is a
+ * of these configures the plane; a configured plane without self is a
  * contradiction, because boot attaches the in-process daemon unconditionally.
  */
 function machinesFromEnv(
@@ -776,13 +782,7 @@ function machinesFromEnv(
   const capacity = parseEnvJson("ONI_MACHINES_CAPACITY", Machine.CapacityRows, env);
   const defaultMachine = env.ONI_MACHINES_DEFAULT?.trim() || undefined;
   const inbox = env.ONI_MACHINES_INBOX?.trim() || undefined;
-  if (inbox !== undefined && !Machine.AbsolutePath.safeParse(inbox).success) {
-    throw new ConfigurationError({
-      code: "invalid_machines_inbox",
-      message: `ONI_MACHINES_INBOX must be an absolute path: ${inbox}`,
-    });
-  }
-  if (self === undefined && enrolled === undefined && defaultMachine === undefined && capacity === undefined) return undefined;
+  if (self === undefined && enrolled === undefined && defaultMachine === undefined && capacity === undefined && inbox === undefined) return undefined;
   if (self === undefined) {
     throw new ConfigurationError({
       code: "invalid_machines_self",

@@ -16,6 +16,11 @@ export class DeliveryNotSent extends Data.TaggedError("DeliveryNotSent")<
   z.infer<typeof ChannelsFailureFields>
 > {}
 
+export class AttachmentRefused extends Data.TaggedError("AttachmentRefused")<{
+  readonly reason: "too_large" | "aborted";
+  readonly maxBytes: number;
+}> {}
+
 export class AutomationEnableRefused extends Data.TaggedError("AutomationEnableRefused")<{
   readonly reason: "approval_required" | "not_found";
   readonly id: string;
@@ -98,6 +103,7 @@ export type ChannelError =
   | AutomationConfigurationError
   | AutomationEnableRefused
   | DeliveryNotSent
+  | AttachmentRefused
   | InvalidInbound
   | DiscordApiError
   | DiscordHandlerMissingError

@@ -1,6 +1,8 @@
-import type { AttachmentFetch, MediaResolver } from "@oni/channels";
+import { createHash } from "node:crypto";
+import type { AttachmentFetch, MediaBytes } from "@oni/channels";
 import { type BusEvent, type Channel, type Gateway, Operational } from "@oni/protocol";
 import { type FilePorts, defaultMachineOf, filesystem } from "../bundles/tools/core/filesystem";
+import { assertMediaSize, type createMediaResolver, mediaBounds } from "./media";
 
 /**
  * Inbound attachments land on the attached machine before the Resident sees
@@ -18,7 +20,8 @@ export interface AttachmentInbox {
   /** Existing absolute directory on the default machine. */
   readonly root: string;
   readonly files: FilePorts;
-  readonly media: MediaResolver;
+  readonly media: ReturnType<typeof createMediaResolver>;
+  readonly downloadSignal?: () => AbortSignal;
   readonly publish: BusEvent.Sink["publish"];
   readonly now: () => number;
 }
@@ -28,7 +31,7 @@ type Attachment = NonNullable<Gateway.IngressFacts["attachments"]>[number];
 /** One path segment: the platform's own name with everything but a conservative character set folded away. */
 function safeName(name: string): string {
   const folded = name.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+/, "");
-  return folded === "" ? "attachment" : folded;
+  return folded === "" ? "attachment" : folded.slice(0, 120);
 }
 
 function isUrl(ref: string): boolean {
@@ -38,21 +41,31 @@ function isUrl(ref: string): boolean {
 async function fetchBytes(
   attachment: Attachment,
   fetchRef: AttachmentFetch | undefined,
-  media: MediaResolver,
-): Promise<{ bytes: Uint8Array; name: string } | undefined> {
+  inbox: AttachmentInbox,
+): Promise<MediaBytes | undefined> {
+  const bounds = mediaBounds(inbox.downloadSignal?.());
   if (fetchRef !== undefined) {
-    const fetched = await fetchRef(attachment.ref);
-    return { bytes: fetched.bytes, name: attachment.name ?? fetched.name };
+    const fetched = await fetchRef(attachment.ref, bounds);
+    assertMediaSize(attachment.ref, fetched.bytes.byteLength, bounds.maxBytes);
+    return { ...fetched, name: attachment.name ?? fetched.name };
   }
   if (!isUrl(attachment.ref)) return undefined;
   const url = new URL(attachment.ref);
-  const fetched = await media({
+  const fetched = await inbox.media({
     kind: "file",
     ref: attachment.ref,
     name: attachment.name ?? (url.pathname.slice(url.pathname.lastIndexOf("/") + 1) || "attachment"),
     ...(attachment.mime === undefined ? {} : { mime: attachment.mime }),
-  });
-  return { bytes: fetched.bytes, name: fetched.name };
+  }, bounds);
+  assertMediaSize(attachment.ref, fetched.bytes.byteLength, bounds.maxBytes);
+  return fetched;
+}
+
+function storageKey(facts: Gateway.IngressFacts, index: number, ref: string): string {
+  return createHash("sha256").update(JSON.stringify([
+    facts.surface, facts.receivedBy ?? "bot", facts.workspaceId ?? null,
+    facts.channelId, facts.eventId, index, ref,
+  ])).digest("hex");
 }
 
 /** Wraps the Resident handler so every attachment the inbox can hold is on the machine when the message arrives. */
@@ -68,14 +81,18 @@ export function withAttachmentInbox(
     const stored: Attachment[] = [];
     for (const [index, attachment] of attachments.entries()) {
       try {
-        const fetched = await fetchBytes(attachment, fetchRef, inbox.media);
+        const fetched = await fetchBytes(attachment, fetchRef, inbox);
         if (fetched === undefined) {
           stored.push(attachment);
           continue;
         }
-        const locus = `${machine}:${inbox.root}/${safeName(`${message.facts.eventId}-${index}-${fetched.name}`)}`;
-        await filesystem(locus, inbox.files).write(fetched.bytes);
-        stored.push({ ...attachment, ref: locus, name: fetched.name, bytes: fetched.bytes.byteLength });
+        const key = storageKey(message.facts, index, attachment.ref);
+        const locus = `${machine}:${inbox.root}/${key}-${safeName(fetched.name)}`;
+        await filesystem(locus, inbox.files).write(fetched.bytes, { create: "exclusive" });
+        stored.push({
+          ...attachment, ref: locus, name: fetched.name,
+          mime: attachment.mime ?? fetched.mime, bytes: fetched.bytes.byteLength,
+        });
       } catch (error) {
         inbox.publish(Operational.Events.Warn, {
           traceId: message.facts.eventId,

@@ -27,11 +27,21 @@ export interface MediaBytes {
 export type MediaResolver = (part: Outbound.Part & { kind: "image" | "file" }) => Promise<MediaBytes>;
 
 /**
+ * The composition root's bounds on one authenticated download: the most
+ * bytes it will store and the signal that abandons the platform call.
+ */
+export interface AttachmentBounds {
+  readonly maxBytes: number;
+  readonly signal: AbortSignal;
+}
+
+/**
  * Fetches one inbound attachment's bytes by the reference the driver's
  * normalizer put on the message, through the platform's own authenticated
- * download; a driver whose references are public URLs offers none.
+ * download, refusing with a typed error once the bytes exceed the bounds; a
+ * driver whose references are public URLs offers none.
  */
-export type AttachmentFetch = (ref: string) => Promise<MediaBytes>;
+export type AttachmentFetch = (ref: string, bounds: AttachmentBounds) => Promise<MediaBytes>;
 
 /**
  * Raw platform payload → Channel.InboundMessage.

@@ -4,6 +4,7 @@ import * as Errors from "../src/errors";
 import type { ChannelError } from "../src/errors";
 
 const failures = {
+  AttachmentRefused: new Errors.AttachmentRefused({ reason: "too_large", maxBytes: 2 }),
   AutomationEnableRefused: new Errors.AutomationEnableRefused({
     id: "fixture",
     reason: "approval_required",

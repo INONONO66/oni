@@ -1,4 +1,4 @@
-import type { MediaBytes, MediaResolver } from "@oni/channels";
+import type { AttachmentBounds, MediaBytes } from "@oni/channels";
 import { NamedError, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { type FilePorts, filesystem } from "../bundles/tools/core/filesystem";
@@ -65,12 +65,14 @@ function declaredMime(part: MediaPart): string | undefined {
   return part.kind === "file" ? part.mime : undefined;
 }
 
-function tooLarge(ref: string, detail: string): MediaRefused {
-  return new MediaRefused({
-    code: "too_large",
-    ref,
-    detail: `${detail} exceeds ${MEDIA_BYTE_CAP} bytes`,
-  });
+export function mediaBounds(signal = AbortSignal.timeout(MEDIA_FETCH_TIMEOUT_MS)): AttachmentBounds {
+  return { maxBytes: MEDIA_BYTE_CAP, signal };
+}
+
+export function assertMediaSize(ref: string, size: number, maxBytes = MEDIA_BYTE_CAP): void {
+  if (size > maxBytes) {
+    throw new MediaRefused({ code: "too_large", ref, detail: `${size} exceeds ${maxBytes} bytes` });
+  }
 }
 
 /** Loopback, link-local and private ranges: the kernel host's own network is never posted to a chat. */
@@ -101,13 +103,14 @@ async function fetchHops(
   ref: string,
   url: URL,
   fetchImpl: MediaFetch,
+  signal: AbortSignal,
 ): Promise<{ response: Response; at: URL }> {
   let current = url;
   for (let hop = 0; hop <= REDIRECT_HOPS; hop += 1) {
     admitUrl(ref, current);
     const response = await fetchImpl(current, {
       redirect: "manual",
-      signal: AbortSignal.timeout(MEDIA_FETCH_TIMEOUT_MS),
+      signal,
     }).catch((error) => {
       throw new MediaRefused({ code: "fetch_failed", ref, detail: String(error) });
     });
@@ -131,34 +134,43 @@ async function fetchHops(
 }
 
 /** Reads the body in chunks and stops at the cap, so a chunked or lying server never fills memory. */
-async function boundedBody(ref: string, response: Response): Promise<Uint8Array> {
-  const declared = Number(response.headers.get("content-length") ?? 0);
-  if (declared > MEDIA_BYTE_CAP) throw tooLarge(ref, `declared ${declared}`);
-  if (response.body === null) return new Uint8Array();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return Buffer.concat(chunks);
-    total += value.byteLength;
-    if (total > MEDIA_BYTE_CAP) {
-      await reader.cancel();
-      throw tooLarge(ref, "body");
+async function boundedBody(ref: string, response: Response, bounds: AttachmentBounds): Promise<Uint8Array> {
+  const reader = response.body?.getReader();
+  try {
+    assertMediaSize(ref, Number(response.headers.get("content-length") ?? 0), bounds.maxBytes);
+    if (reader === undefined) return new Uint8Array();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      bounds.signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      if (done) return Buffer.concat(chunks);
+      total += value.byteLength;
+      assertMediaSize(ref, total, bounds.maxBytes);
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    await reader?.cancel().catch((cancelError) => {
+      throw new MediaRefused({ code: "fetch_failed", ref, detail: `${String(error)}; cancel: ${String(cancelError)}` });
+    });
+    if (error instanceof MediaRefused) throw error;
+    throw new MediaRefused({ code: "fetch_failed", ref, detail: String(error) });
+  } finally {
+    reader?.releaseLock();
   }
 }
 
-async function fromUrl(part: MediaPart, url: URL, fetchImpl: MediaFetch): Promise<MediaBytes> {
-  const { response, at } = await fetchHops(part.ref, url, fetchImpl);
-  if (!response.ok)
+async function fromUrl(part: MediaPart, url: URL, fetchImpl: MediaFetch, bounds: AttachmentBounds): Promise<MediaBytes> {
+  const { response, at } = await fetchHops(part.ref, url, fetchImpl, bounds.signal);
+  if (!response.ok) {
+    await response.body?.cancel();
     throw new MediaRefused({
       code: "fetch_failed",
       ref: part.ref,
       detail: `HTTP ${response.status}`,
     });
-  const bytes = await boundedBody(part.ref, response);
+  }
+  const bytes = await boundedBody(part.ref, response, bounds);
   const name = part.name ?? (basename(at.pathname) || "download");
   const header = response.headers.get("content-type")?.split(";")[0]?.trim();
   const mime =
@@ -170,7 +182,7 @@ async function fromUrl(part: MediaPart, url: URL, fetchImpl: MediaFetch): Promis
 async function fromMachine(part: MediaPart, ports: FilePorts): Promise<MediaBytes> {
   const file = filesystem(part.ref, ports);
   const size = await file.size();
-  if (size > MEDIA_BYTE_CAP) throw tooLarge(part.ref, `${size} bytes`);
+  assertMediaSize(part.ref, size);
   const bytes = await file.read();
   const name = part.name ?? basename(part.ref);
   return { bytes, name, mime: declaredMime(part) ?? mediaMime(name) };
@@ -192,9 +204,9 @@ export type MediaFetch = (url: URL, init: RequestInit) => Promise<Response>;
 export function createMediaResolver(
   ports: FilePorts,
   fetchImpl: MediaFetch = fetch,
-): MediaResolver {
-  return (part) => {
+) {
+  return (part: MediaPart, bounds: AttachmentBounds = mediaBounds()): Promise<MediaBytes> => {
     const url = asUrl(part.ref);
-    return url === undefined ? fromMachine(part, ports) : fromUrl(part, url, fetchImpl);
+    return url === undefined ? fromMachine(part, ports) : fromUrl(part, url, fetchImpl, bounds);
   };
 }

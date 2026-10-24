@@ -1,6 +1,4 @@
-import type { DiscordBotListenerEventMap } from "agent-messenger/discordbot";
-import { DiscordBotError } from "agent-messenger/discordbot";
-import { sdkResponse } from "./sdk-script";
+import type { DiscordBotEventMap as DiscordBotListenerEventMap } from "../../src/provider/discord/sdk";
 import type { DiscordBotApi, DiscordBotEvents, DiscordSdk } from "../../src/provider/discord/sdk";
 
 type Handler = (...args: never[]) => void;
@@ -69,7 +67,7 @@ export class FakeDiscordListener implements DiscordBotEvents {
 
 export class FakeDiscordClient implements DiscordBotApi {
   readonly logins: string[] = [];
-  readonly calls: Array<{ method: string; channelId?: string; messageId?: string; emoji?: string }> = [];
+  readonly calls: Array<{ method: string; channelId?: string; messageId?: string; emoji?: string; type?: number }> = [];
   private readonly failures = new Map<string, Error>();
 
   fail(method: string, error: Error): void {
@@ -101,28 +99,13 @@ export class FakeDiscordClient implements DiscordBotApi {
   createMessage(channelId: string, _options: { content?: string }): Promise<{ id: string }> {
     this.calls.push({ method: "createMessage", channelId });
     this.check("createMessage");
-    return this.respond("createMessage", { id: "m-17" });
+    return Promise.resolve({ id: "m-17" });
   }
 
   createDm(userId: string): Promise<{ id: string }> {
     this.check("createDm");
     this.calls.push({ method: "createDm", channelId: userId });
-    return this.respond("createDm", { id: "D-owner" });
-  }
-
-  private async respond<T extends { id: string }>(method: string, fallback: T): Promise<T> {
-    let response: Response | undefined;
-    try {
-      response = await sdkResponse();
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      const code = "code" in error && typeof error.code === "string" ? error.code : "request_error";
-      throw new DiscordBotError(error.message, code);
-    }
-    if (response === undefined) return fallback;
-    if (!response.ok) throw new DiscordBotError(`${method} refused`, "api_error", { httpStatus: response.status });
-    const body = (await response.json()) as { id?: string };
-    return { id: body.id ?? fallback.id } as T;
+    return Promise.resolve({ id: "D-owner" });
   }
 
   triggerTyping(channelId: string): Promise<void> {
@@ -131,8 +114,8 @@ export class FakeDiscordClient implements DiscordBotApi {
     return Promise.resolve();
   }
 
-  async respondToInteraction(id: string, token: string): Promise<void> {
-    this.calls.push({ method: "respondToInteraction", messageId: id, emoji: token });
+  async respondToInteraction(id: string, token: string, type = 6): Promise<void> {
+    this.calls.push({ method: "respondToInteraction", messageId: id, emoji: token, type });
     this.check(`respondToInteraction:${id}`);
   }
 

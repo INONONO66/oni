@@ -68,6 +68,7 @@ const libc = dlopen(libcPath, {
   readdir: { args: [FFIType.ptr], returns: FFIType.ptr },
   closedir: { args: [FFIType.ptr], returns: FFIType.i32 },
   renameat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32, FFIType.cstring], returns: FFIType.i32 },
+  linkat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
   unlinkat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
   ...(process.platform === "darwin"
     ? { __error: { args: [], returns: FFIType.ptr } }
@@ -184,6 +185,7 @@ function openSymlinkAt(dirfd: number, name: string): number | undefined {
 }
 
 function refusalForOpenError(errorNumber: number, shown: string): Refusal {
+  if (errorNumber === 17) return refused("already_exists", `path already exists: ${shown}`);
   if (errorNumber === 2 || errorNumber === 20) {
     return refused("not_found", `path not found: ${shown}`);
   }
@@ -247,6 +249,7 @@ function walk(
   shown: string,
   targetFlags: number,
   testHooks: FsDriverTestHooks,
+  followLinks = true,
 ): WalkResult {
   let pending = [...initialSegments];
   let traversed: string[] = [];
@@ -286,6 +289,7 @@ function walk(
       continue;
     }
 
+    if (!followLinks) return fail(refusalForOpenError(opened.errno, shown));
     const expanded = expandWalkLink(
       root,
       traversed,
@@ -473,8 +477,10 @@ function entryAt(dirfd: number, name: string): { name: string; kind: EntryKind; 
  * Symlinks are expanded lexically and every expansion restarts at the root fd,
  * so no pathname is checked and then resolved again for use.
  */
-function openFlags(op: Machine.FsRequest["op"]): number {
-  return op === "write" ? constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK : O_TARGET;
+function openFlags(op: Machine.FsRequest["op"], exclusive = false): number {
+  return op === "write"
+    ? constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK | (exclusive ? constants.O_EXCL : 0)
+    : O_TARGET;
 }
 
 function executeWrite(target: OpenedTarget, data: Buffer, shown: string): Machine.FsResult {
@@ -564,7 +570,7 @@ export function createFsDriver(
   type Transfer = {
     fd: number;
     mode: "read" | "write";
-    destination?: { dirfd: number; targetName: string; tempName: string };
+    destination?: { dirfd: number; targetName: string; tempName: string; exclusive: boolean };
     begin: string;
     size: number;
     offset: number;
@@ -584,7 +590,7 @@ export function createFsDriver(
     if (root === undefined) return streamRefused("export_not_available");
     const segments = requestSegments(request.path);
     if (segments === undefined) return streamRefused("path_escapes_export");
-    if (request.mode === "write") return openWriteTemp(root, segments, request.transferId);
+    if (request.mode === "write") return openWriteTemp(root, segments, request.transferId, request.create === "exclusive");
     const target = walk(root, segments, false, false, displayPath(request.path), openFlags(request.mode), testHooks);
     if (isRefusal(target)) return { status: "refused", reason: target.reason, message: target.message };
     let retained = false;
@@ -598,32 +604,34 @@ export function createFsDriver(
       if (!retained) closeSync(target.fd);
     }
   }
-  function checkWriteTarget(dirfd: number, targetName: string): StreamRefusal | undefined {
+  function checkWriteTarget(dirfd: number, targetName: string, exclusive: boolean): StreamRefusal | undefined {
+    const occupied = exclusive ? "already_exists" : "wrong_kind";
+    const symlink = exclusive ? "already_exists" : "path_escapes_export";
     const existing = openAt(dirfd, targetName, O_TARGET | O_NOFOLLOW | O_CLOEXEC);
     if ("fd" in existing) {
       try {
-        return fstatSync(existing.fd).isFile() ? undefined : streamRefused("wrong_kind");
+        return !exclusive && fstatSync(existing.fd).isFile() ? undefined : streamRefused(occupied);
       } finally {
         closeSync(existing.fd);
       }
     }
-    if ("target" in readLinkAt(dirfd, targetName)) return streamRefused("path_escapes_export");
+    if ("target" in readLinkAt(dirfd, targetName)) return streamRefused(symlink);
     return existing.errno === 2 ? undefined : streamRefused("io_error");
   }
-  function openWriteTemp(root: Root, segments: readonly string[], transferId: string): (OpenedTarget & { destination: NonNullable<Transfer["destination"]> }) | StreamRefusal {
+  function openWriteTemp(root: Root, segments: readonly string[], transferId: string, exclusive: boolean): (OpenedTarget & { destination: NonNullable<Transfer["destination"]> }) | StreamRefusal {
     if (segments.length === 0) return streamRefused("wrong_kind");
-    const parent = walk(root, segments.slice(0, -1), true, false, segments.join("/"), O_TARGET, testHooks);
+    const parent = walk(root, segments.slice(0, -1), true, false, segments.join("/"), O_TARGET, testHooks, !exclusive);
     if (isRefusal(parent)) return { status: "refused", reason: parent.reason, message: parent.message };
     let retained = false;
     try {
       const targetName = segments.at(-1) as string;
-      const refusal = checkWriteTarget(parent.fd, targetName);
+      const refusal = checkWriteTarget(parent.fd, targetName, exclusive);
       if (refusal !== undefined) return refusal;
       const tempName = `.oni-transfer-${createHash("sha256").update(transferId).digest("hex").slice(0, 32)}`;
       const staged = openAt(parent.fd, tempName, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_CLOEXEC | constants.O_NONBLOCK);
       if (!("fd" in staged)) return streamRefused("io_error");
       retained = true;
-      return { fd: staged.fd, destination: { dirfd: parent.fd, targetName, tempName } };
+      return { fd: staged.fd, destination: { dirfd: parent.fd, targetName, tempName, exclusive } };
     } finally {
       if (!retained) closeSync(parent.fd);
     }
@@ -719,6 +727,14 @@ export function createFsDriver(
     }
     return { status: "finished" };
   }
+  function publishTransfer(destination: NonNullable<Transfer["destination"]>): StreamRefusal | undefined {
+    // linkat publishes without replacing a leaf created after begin; the
+    // pinned parent also prevents a directory swap from redirecting it.
+    const result = destination.exclusive
+      ? libc.symbols.linkat(destination.dirfd, cString(destination.tempName), destination.dirfd, cString(destination.targetName), 0)
+      : libc.symbols.renameat(destination.dirfd, cString(destination.tempName), destination.dirfd, cString(destination.targetName));
+    return result === 0 ? undefined : streamRefused(errno() === 17 ? "already_exists" : "io_error");
+  }
   function finishTransfer(transferId: string): Machine.FsStreamResult {
     const transfer = transfers.get(transferId);
     if (transfer === undefined) return streamRefused("transfer_not_found");
@@ -731,9 +747,9 @@ export function createFsDriver(
       const destination = transfer.destination;
       if (destination !== undefined) {
         fsyncSync(transfer.fd);
-        if (libc.symbols.renameat(destination.dirfd, cString(destination.tempName), destination.dirfd, cString(destination.targetName)) !== 0)
-          return streamRefused("io_error");
-        published = true;
+        const refusal = publishTransfer(destination);
+        if (refusal !== undefined) return refusal;
+        published = !destination.exclusive;
       }
       return { status: "finished" };
     } finally {
@@ -770,6 +786,7 @@ export function createFsDriver(
     }
 
     const data = request.op === "write" ? Buffer.from(request.data, "base64") : undefined;
+    const exclusive = request.op === "write" && request.create === "exclusive";
     if (data !== undefined && data.length > Machine.FS_WRITE_MAX_BYTES) {
       return refused("too_large", "write exceeds socket byte cap");
     }
@@ -779,8 +796,9 @@ export function createFsDriver(
       request.op === "list",
       request.op === "stat",
       shown,
-      openFlags(request.op),
+      openFlags(request.op, exclusive),
       testHooks,
+      !exclusive,
     );
 
     if (isRefusal(target)) return target;

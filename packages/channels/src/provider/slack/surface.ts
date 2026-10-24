@@ -8,7 +8,8 @@ import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import { SLACK_MEDIA_LIMITS, SLACK_RENDER } from "./format";
 import { slackEmojiName } from "./emoji";
-import type { MediaBytes, PublishPort } from "../../types";
+import type { AttachmentBounds, MediaBytes, PublishPort } from "../../types";
+import { attachmentDownload } from "../../support/attachment-download";
 import type { ProviderOptions } from "../contract";
 import {
   classifySlackFailure,
@@ -46,8 +47,8 @@ const THREAD_HISTORY_LIMIT = 20;
 export class SlackAdapter implements Channel.Surface {
   readonly id = "slack:bot";
 
-  async download(fileId: string): Promise<MediaBytes> {
-    const { buffer, file } = await this.client.downloadFile(fileId);
+  async download(fileId: string, bounds: AttachmentBounds): Promise<MediaBytes> {
+    const { buffer, file } = await attachmentDownload(bounds, () => this.client.downloadFile(fileId, bounds));
     return { bytes: buffer, name: file.name ?? fileId, mime: file.mimetype ?? "application/octet-stream" };
   }
 

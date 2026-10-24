@@ -80,7 +80,7 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
   it("acknowledges a component interaction through the API before handoff and warn-drops a refusal", async () => {
     const calls: string[] = [];
     const warned = Promise.withResolvers<string>();
-    const { client, listener, next } = await started((event, data) => {
+    const { client, listener, next, inbound } = await started((event, data) => {
       const observed = z
         .object({ msg: z.string(), context: z.object({ err: z.string().optional() }).optional() })
         .parse(data);
@@ -105,8 +105,22 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
         components: [{ components: [{ custom_id: "approve", label: "Approve" }] }],
       },
     });
+    const entered = Promise.withResolvers<void>();
+    const ack = Promise.withResolvers<void>();
+    const respond = client.respondToInteraction.bind(client);
+    client.respondToInteraction = async (id, token, type) => {
+      calls.push(`ack:${type}`);
+      entered.resolve();
+      await ack.promise;
+      await respond(id, token, type);
+      calls.push("ack-complete");
+    };
     const facts = next();
     listener.dispatch("INTERACTION_CREATE", interaction("accepted"));
+    await bounded(entered.promise);
+    expect(inbound).toHaveLength(0);
+    expect(calls).toEqual(["ack:6"]);
+    ack.resolve();
     expect(await facts).toMatchObject({
       facts: {
         event: "postback",
@@ -121,7 +135,8 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
       "respondToInteraction",
       "respondToInteraction",
     ]);
-    expect(calls).toEqual(["handoff"]);
+    expect(calls).toEqual(["ack:6", "ack-complete", "handoff", "ack:6"]);
+    expect(client.calls.map(({ type }) => type)).toEqual([6, 6]);
   });
 
   it("ignores interactions that are not component taps without calling the API", async () => {
@@ -133,7 +148,6 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
       user: { id: "user", username: "Sender" },
       data: { name: "deploy" },
     });
-    await bounded(Promise.resolve());
     expect(client.calls).toHaveLength(0);
     expect(inbound).toHaveLength(0);
   });

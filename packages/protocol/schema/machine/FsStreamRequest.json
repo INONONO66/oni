@@ -4,6 +4,10 @@
     {
       "additionalProperties": false,
       "properties": {
+        "create": {
+          "const": "exclusive",
+          "type": "string"
+        },
         "export": {
           "maxLength": 64,
           "pattern": "^[a-z][a-z0-9_-]*$",

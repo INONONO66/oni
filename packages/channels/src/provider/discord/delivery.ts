@@ -21,20 +21,23 @@ export interface DiscordDelivery {
 }
 
 /** A DM channel is created once per delivery (and once per typing turn), never per pulse. */
-export function discordDmChannel(
+export async function discordDmChannel(
   client: DiscordClient,
   classify: (error: Error) => DiscordFailure,
   externalId: string,
 ): Promise<string> {
-  return discordCall(
-    client,
-    classify,
-    "discord.createDmChannel",
-    "createDm" in client ? () => client.createDm(externalId) : () => client.createDM(externalId),
-  ).then((channel) => {
-    if (channel.id === undefined) throw new DiscordApiError({ message: "Discord DM channel response carried no string id" });
+  try {
+    const channel = await discordCall(
+      classify,
+      "discord.createDmChannel",
+      "createDm" in client ? () => client.createDm(externalId) : () => client.createDM(externalId),
+    );
+    if (typeof channel?.id !== "string" || channel.id.length === 0)
+      throw new DiscordApiError({ message: "Discord DM channel response carried no string id" });
     return channel.id;
-  });
+  } catch (error) {
+    throw new DeliveryNotSent({ operation: "discord.createDmChannel", cause: String(error) });
+  }
 }
 
 /**
@@ -65,7 +68,7 @@ export function deliverThroughDiscord(
         DISCORD_RENDER,
         {
           text: async (chunk) => {
-            const message = await discordCall(client, delivery.classify, "discord.createMessage", () =>
+            const message = await discordCall(delivery.classify, "discord.createMessage", () =>
               client.createMessage(channelId, {
                 content: chunk,
                 ...(conversation?.replyToMessageId === undefined
@@ -78,7 +81,7 @@ export function deliverThroughDiscord(
           media: {
             limits: DISCORD_MEDIA_LIMITS,
             upload: async (_kind, bytes, caption) => {
-              const message = await discordCall(client, delivery.classify, "discord.createMessage", () =>
+              const message = await discordCall(delivery.classify, "discord.createMessage", () =>
                 client.createMessage(channelId, {
                   ...(caption === undefined ? {} : { content: caption }),
                   files: [{ data: bytes.bytes, filename: bytes.name, contentType: bytes.mime }],
@@ -94,13 +97,11 @@ export function deliverThroughDiscord(
           react: async (messageId, emoji, replaces) => {
             if (replaces !== undefined)
               await discordCall(
-                client,
                 delivery.classify,
                 "discord.removeReaction",
-                () => client.removeReaction(channelId, messageId, replaces),
-                true,
+                () => removeSettledReaction(() => client.removeReaction(channelId, messageId, replaces)),
               );
-            await discordCall(client, delivery.classify, "discord.addReaction", () =>
+            await discordCall(delivery.classify, "discord.addReaction", () =>
               client.addReaction(channelId, messageId, emoji),
             );
           },
@@ -117,23 +118,27 @@ export function deliverThroughDiscord(
 }
 
 async function discordCall<T>(
-  _client: DiscordClient,
   classify: (error: Error) => DiscordFailure,
   operation: string,
   call: () => Promise<T>,
-  settled404 = false,
 ): Promise<T> {
   try {
     return await call();
   } catch (error) {
     if (!(error instanceof Error)) throw error;
-    const status = "httpStatus" in error && typeof error.httpStatus === "number" ? error.httpStatus : undefined;
-    if (settled404 && status === 404) return undefined as T;
     const failure = classify(error);
     if (failure === "not_connected") throw new DeliveryNotSent({ operation, cause: String(error) });
     throw new DiscordApiError({
       message: String(error),
       rejected: failure === "rejected",
     });
+  }
+}
+
+async function removeSettledReaction(remove: () => Promise<void>): Promise<void> {
+  try {
+    await remove();
+  } catch (error) {
+    if (!(error instanceof Error && "httpStatus" in error && error.httpStatus === 404)) throw error;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DiscordBotClient, DiscordBotListener } from "agent-messenger/discordbot";
+import { DiscordBotClient, DiscordBotListener } from "../src/provider/discord/sdk";
 import { DISCORD_INTENTS, discordSdk } from "../src/provider/discord/sdk";
 
 /**

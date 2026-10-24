@@ -171,11 +171,21 @@ describe("TelegramAdapter over the agent-messenger long-poll listener", () => {
   });
 
   it("a callback whose answer is still in flight at stop() still hands off: the SDK has already confirmed the update", async () => {
-    const { listener, adapter, next, inbound } = await started();
+    const { client, listener, adapter, next, inbound } = await started();
+    const entered = Promise.withResolvers<void>();
+    const ack = Promise.withResolvers<boolean>();
+    client.answerCallbackQuery = () => {
+      entered.resolve();
+      return ack.promise;
+    };
     const facts = next();
     listener.update({ update_id: 10, callback_query: callback("late") });
+    await bounded(entered.promise);
+    expect(inbound).toHaveLength(0);
     adapter.stop("stop");
     expect(listener.stopped).toBe(1);
+    expect(inbound).toHaveLength(0);
+    ack.resolve(true);
     expect((await facts).facts.eventId).toBe("late");
     expect(inbound).toHaveLength(1);
   });

@@ -1,6 +1,6 @@
 export { WebSocketHandler } from "./websocket.js";
 export type { WsConnection } from "./websocket.js";
-export { AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
+export { AttachmentRefused, AutomationConfigurationError, ChannelsFailure, decodeChannelFailure, SendAdmissionConflict } from "./errors.js";
 export type { ChannelError } from "./errors.js";
 export type { AccountIdentity, ChannelProvider, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute } from "./provider/contract.js";
 export { OwnerPosture } from "./provider/contract.js";
@@ -8,7 +8,7 @@ export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
 export { inboundOnce } from "./support/inbound-once.js";
 export { activeBudgetFor } from "./router/messaging/admission.js";
 export { typingPulse } from "./support/typing-pulse.js";
-export type { AttachmentFetch, EffectRunner, MediaBytes, MediaResolver } from "./types.js";
+export type { AttachmentBounds, AttachmentFetch, EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";
 export { createWebhookProvider } from "./provider/webhook/provider.js";
 export { createWebhookSender, signWebhookBody, type WebhookFetch, type WebhookSender } from "./provider/webhook/outbound.js";

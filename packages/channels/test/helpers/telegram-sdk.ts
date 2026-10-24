@@ -1,12 +1,10 @@
-import type { TelegramBotListenerEventMap } from "agent-messenger/telegrambot";
-import { TelegramBotError } from "agent-messenger/telegrambot";
+import type { TelegramBotEventMap as TelegramBotListenerEventMap } from "../../src/provider/telegram/sdk";
 import type { PlainValue } from "@oni/protocol";
 import type {
   TelegramBotApi,
   TelegramBotEvents,
   TelegramSdk,
 } from "../../src/provider/telegram/sdk";
-import { sdkResponse } from "./sdk-script";
 
 type Handler = (...args: never[]) => void;
 
@@ -87,19 +85,19 @@ export class FakeTelegramClient implements TelegramBotApi {
   sendMessage(chatId: string | number, text: string, options?: object): Promise<{ message_id: number | string }> {
     this.calls.push({ method: "sendMessage", chatId, options: { text, ...options } });
     this.check("sendMessage");
-    return this.respond({ message_id: 42 });
+    return Promise.resolve({ message_id: 42 });
   }
 
   sendPhoto(chatId: string | number, _photo: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; message_thread_id?: number }): Promise<{ message_id: number | string }> {
     this.check("sendPhoto");
     this.calls.push({ method: "sendPhoto", chatId, options });
-    return this.respond({ message_id: 17 });
+    return Promise.resolve({ message_id: 17 });
   }
 
   sendDocument(chatId: string | number, _file: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; message_thread_id?: number }): Promise<{ message_id: number | string }> {
     this.check("sendDocument");
     this.calls.push({ method: "sendDocument", chatId, options });
-    return this.respond({ message_id: 17 });
+    return Promise.resolve({ message_id: 17 });
   }
 
   setMessageReaction(chatId: string | number, messageId: number, reaction: { type: "emoji"; emoji: string }[]): Promise<boolean> {
@@ -125,21 +123,6 @@ export class FakeTelegramClient implements TelegramBotApi {
     return Promise.resolve(true);
   }
 
-  private async respond<T extends { message_id: number | string }>(fallback: T): Promise<T> {
-    let response: Response | undefined;
-    try {
-      response = await sdkResponse();
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      const code = "code" in error && typeof error.code === "string" ? error.code : "request_error";
-      throw new TelegramBotError(error.message, code);
-    }
-    if (response === undefined) return fallback;
-    if (!response.ok) throw new TelegramBotError("request refused", "api_error", { httpStatus: response.status });
-    const body = (await response.json()) as { result?: { message_id?: number | string } };
-    const value = body.result?.message_id;
-    return { message_id: value === undefined ? fallback.message_id : value } as T;
-  }
 }
 
 export function fakeTelegramSdk(listener?: FakeTelegramListener): {

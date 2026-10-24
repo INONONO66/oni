@@ -99,7 +99,7 @@ export function createSlackProvider(
       const surface = new SlackAdapter(credentials, config, publish, options, sdk);
       return {
         surface,
-        attachments: (ref) => surface.download(ref),
+        attachments: (ref, bounds) => surface.download(ref, bounds),
         deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
           surface
             .deliver(externalId, payload, idempotencyKey, conversation)

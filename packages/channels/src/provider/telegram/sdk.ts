@@ -4,6 +4,10 @@ import {
   TelegramBotListener,
 } from "agent-messenger/telegrambot";
 import type { TelegramBotListenerEventMap } from "agent-messenger/telegrambot";
+import { TelegramApiError } from "../../errors";
+import { transportFailure, type TransportFailure } from "../../support/transport-failure";
+import type { AttachmentBounds } from "../../types";
+import { z } from "zod";
 
 /**
  * The slice of the agent-messenger Telegram bot SDK this surface speaks
@@ -26,12 +30,12 @@ export interface TelegramBotApi {
   sendPhoto(
     chatId: string | number,
     photo: string | { data: Uint8Array; filename: string; contentType?: string },
-    options?: { caption?: string; message_thread_id?: number },
+    options?: { caption?: string; message_thread_id?: number; reply_to_message_id?: number },
   ): Promise<{ message_id?: string | number }>;
   sendDocument(
     chatId: string | number,
     file: string | { data: Uint8Array; filename: string; contentType?: string },
-    options?: { caption?: string; message_thread_id?: number },
+    options?: { caption?: string; message_thread_id?: number; reply_to_message_id?: number },
   ): Promise<{ message_id?: string | number }>;
   setMessageReaction(
     chatId: string | number,
@@ -44,7 +48,7 @@ export interface TelegramBotApi {
     options?: { message_thread_id?: number },
   ): Promise<boolean>;
   answerCallbackQuery(id: string): Promise<boolean>;
-  downloadFile(fileId: string): Promise<{ buffer: Uint8Array; file: { file_path?: string } }>;
+  downloadFile(fileId: string, bounds: AttachmentBounds): Promise<{ buffer: Uint8Array; file: { file_path?: string }; contentType?: string }>;
 }
 
 /** The SDK's listener event map, re-exported so the surface never imports the SDK itself. */
@@ -82,40 +86,62 @@ export const TELEGRAM_ALLOWED_UPDATES: readonly string[] = [
 
 export function telegramSdk(): TelegramSdk {
   return {
-    client: () => new TelegramBotClient({ retries: 0 }),
-    // The listener only ever receives the client this same factory built.
-    listener: (client, options) =>
-      new TelegramBotListener(client as TelegramBotClient, {
+    client: () => new CheckedTelegramClient({ retries: 0 }),
+    listener: (client, options) => {
+      if (!(client instanceof TelegramBotClient))
+        throw new TelegramApiError({ message: "Telegram listener requires its SDK client" });
+      return new TelegramBotListener(client, {
         allowedUpdates: [...options.allowedUpdates],
-      }),
+      });
+    },
   };
 }
 
 /** Codes after which the SDK listener has stopped polling for good: a revoked token or a second poller. */
 const LISTENER_TERMINAL = new Set(["unauthorized", "conflict"]);
 
-const SDK_PREFLIGHT = new Set([
-  "not_authenticated",
-  "missing_token",
-  "invalid_token",
-  "empty_message",
-  "file_too_large",
-]);
-const NEVER_CONNECTED = /\b(ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b/;
+const MessageReceipt = z.object({ message_id: z.union([z.string().min(1), z.number()]) });
 
-export type TelegramFailure = "rejected" | "not_connected" | "uncertain";
+function checkedReceipt<T>(message: T): T {
+  if (!MessageReceipt.safeParse(message).success)
+    throw new TelegramApiError({ message: "Telegram response carried no message id" });
+  return message;
+}
+
+function checkedAck(ack: boolean): boolean {
+  if (ack !== true) throw new TelegramApiError({ message: "Telegram response did not acknowledge the operation" });
+  return ack;
+}
+
+class CheckedTelegramClient extends TelegramBotClient {
+  override async sendMessage(...args: Parameters<TelegramBotClient["sendMessage"]>) {
+    return checkedReceipt(await super.sendMessage(...args));
+  }
+  override async sendPhoto(...args: Parameters<TelegramBotClient["sendPhoto"]>) {
+    return checkedReceipt(await super.sendPhoto(...args));
+  }
+  override async sendDocument(...args: Parameters<TelegramBotClient["sendDocument"]>) {
+    return checkedReceipt(await super.sendDocument(...args));
+  }
+  override async setMessageReaction(...args: Parameters<TelegramBotClient["setMessageReaction"]>) {
+    return checkedAck(await super.setMessageReaction(...args));
+  }
+  override async sendChatAction(...args: Parameters<TelegramBotClient["sendChatAction"]>) {
+    return checkedAck(await super.sendChatAction(...args));
+  }
+  override async answerCallbackQuery(...args: Parameters<TelegramBotClient["answerCallbackQuery"]>) {
+    return checkedAck(await super.answerCallbackQuery(...args));
+  }
+}
+
+export type TelegramFailure = TransportFailure;
 
 export function classifyTelegramFailure(error: Error): TelegramFailure {
-  if (!(error instanceof TelegramBotError)) return "uncertain";
-  if (error.httpStatus !== undefined && error.httpStatus >= 400 && error.httpStatus < 500)
-    return "rejected";
-  if (NEVER_CONNECTED.test(error.message) || NEVER_CONNECTED.test(error.code))
-    return "not_connected";
-  return SDK_PREFLIGHT.has(error.code) ? "rejected" : "uncertain";
+  return error instanceof TelegramBotError ? transportFailure(error) : "uncertain";
 }
 
 export function isTelegramTerminal(error: Error): boolean {
   return error instanceof TelegramBotError && LISTENER_TERMINAL.has(error.code);
 }
 
-export { TelegramBotError };
+export { TelegramBotError, TelegramBotClient, TelegramBotListener };

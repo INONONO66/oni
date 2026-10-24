@@ -1,0 +1,7 @@
+{
+  "op": "write",
+  "export": "notes",
+  "path": "inbox/a.txt",
+  "data": "aGk=",
+  "create": "exclusive"
+}

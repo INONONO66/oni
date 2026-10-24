@@ -25,7 +25,8 @@ import {
   TelegramUpdateSchema,
 } from "./types";
 import type { ProviderOptions } from "../contract";
-import type { MediaBytes, PublishPort } from "../../types";
+import type { AttachmentBounds, MediaBytes, PublishPort } from "../../types";
+import { attachmentDownload } from "../../support/attachment-download";
 
 /**
  * Telegram over the agent-messenger bot SDK's long-poll listener (#1569): the
@@ -45,10 +46,13 @@ import type { MediaBytes, PublishPort } from "../../types";
 export class TelegramAdapter implements Channel.Surface {
   readonly id = "telegram:bot";
 
-  async download(fileId: string): Promise<MediaBytes> {
-    const { buffer, file } = await this.bot.downloadFile(fileId);
+  async download(fileId: string, bounds: AttachmentBounds): Promise<MediaBytes> {
+    await this.ready;
+    const { buffer, file, contentType } = await attachmentDownload(bounds, () => this.bot.downloadFile(fileId, bounds));
     const path = file.file_path ?? fileId;
-    return { bytes: buffer, name: path.slice(path.lastIndexOf("/") + 1), mime: "application/octet-stream" };
+    const responseMime = contentType?.split(";")[0];
+    const mime = responseMime && responseMime !== "application/octet-stream" ? responseMime : Bun.file(path).type;
+    return { bytes: buffer, name: path.slice(path.lastIndexOf("/") + 1), mime };
   }
   private readonly bot: TelegramBotApi;
   private readonly ready: Promise<void>;
@@ -303,6 +307,7 @@ export class TelegramAdapter implements Channel.Surface {
     const options = {
       ...(caption === undefined ? {} : { caption }),
       ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+      ...(conversation?.replyToMessageId === undefined ? {} : { reply_to_message_id: Number(conversation.replyToMessageId) }),
     };
     return this.call(`telegram.${kind === "image" ? "sendPhoto" : "sendDocument"}`, () =>
       kind === "image"

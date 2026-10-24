@@ -1,6 +1,7 @@
 import { SlackBotClient, SlackBotError, SlackBotListener } from "agent-messenger/slackbot";
 import type { SlackBotListenerEventMap } from "agent-messenger/slackbot";
 import { SlackApiError } from "../../errors";
+import type { AttachmentBounds } from "../../types";
 
 /**
  * The slice of the agent-messenger Slack bot SDK this surface speaks (#1569).
@@ -45,11 +46,13 @@ export interface SlackBotApi {
    * `reactions.add` take a channel id and refuse a bare user id.
    */
   openDm(userId: string): Promise<string>;
-  downloadFile(fileId: string): Promise<{ buffer: Uint8Array; file: { name?: string; mimetype?: string } }>;
+  downloadFile(fileId: string, bounds: AttachmentBounds): Promise<{ buffer: Uint8Array; file: { name?: string; mimetype?: string } }>;
 }
 
 /** What one `slack_event` carries: Events API args with an ack, or a bare envelope the SDK did not type. */
 export type SlackEventArgs = SlackBotListenerEventMap["slack_event"][0];
+export type SlackBotEventMap = SlackBotListenerEventMap;
+export { SlackBotClient, SlackBotListener };
 /** The Events API member of `SlackEventArgs`: the one carrying the ack. */
 export type SlackEventsApiArgs = Extract<
   SlackEventArgs,

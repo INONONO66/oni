@@ -1,6 +1,8 @@
 import { DiscordClient, DiscordError, DiscordListener, loginWithRemoteAuth } from "agent-messenger/discord";
 import type { DiscordListenerEventMap } from "agent-messenger/discord";
-import type { DiscordApi } from "./sdk";
+import { checkedDiscordReceipt, type DiscordApi } from "./sdk";
+import { DiscordApiError } from "../../errors";
+import { transportFailure, type TransportFailure } from "../../support/transport-failure";
 
 /**
  * The slice of the agent-messenger Discord USER SDK the Owner instance
@@ -34,32 +36,29 @@ export interface DiscordOwnerSdk {
 
 export function discordOwnerSdk(): DiscordOwnerSdk {
   return {
-    client: () => new DiscordClient({ retries: 0 }),
-    // The listener only ever receives the client this same factory built.
-    listener: (client) => new DiscordListener(client as unknown as DiscordClient),
+    client: () => new CheckedDiscordOwnerClient({ retries: 0 }),
+    listener: (client) => {
+      if (!(client instanceof DiscordClient))
+        throw new DiscordApiError({ message: "Discord listener requires its SDK client" });
+      return new DiscordListener(client);
+    },
   };
 }
 
-const SDK_PREFLIGHT = new Set([
-  "not_authenticated",
-  "missing_token",
-  "invalid_token",
-  "empty_message",
-  "file_too_large",
-]);
-const NEVER_CONNECTED = /\b(ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b/;
-
-export type DiscordOwnerFailure = "rejected" | "not_connected" | "uncertain";
-
-export function classifyDiscordOwnerFailure(error: Error): DiscordOwnerFailure {
-  if (!(error instanceof DiscordError)) return "uncertain";
-  if (error.httpStatus !== undefined && error.httpStatus >= 400 && error.httpStatus < 500)
-    return "rejected";
-  if (NEVER_CONNECTED.test(error.message) || NEVER_CONNECTED.test(error.code))
-    return "not_connected";
-  return SDK_PREFLIGHT.has(error.code) ? "rejected" : "uncertain";
+class CheckedDiscordOwnerClient extends DiscordClient {
+  override async createMessage(...args: Parameters<DiscordClient["createMessage"]>) {
+    return checkedDiscordReceipt(await super.createMessage(...args));
+  }
 }
 
+export type DiscordOwnerFailure = TransportFailure;
+
+export function classifyDiscordOwnerFailure(error: Error): DiscordOwnerFailure {
+  const normalized = error instanceof DiscordError
+    ? error
+    : new DiscordError(error.message, "network_error", { cause: error });
+  return transportFailure(normalized);
+}
 
 /**
  * The Owner's own sign-in (#1569 lane 5b): Discord's remote-auth QR, shown

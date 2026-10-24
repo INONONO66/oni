@@ -800,15 +800,25 @@ On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below a
 main (PRs #1586–#1597); this section is the one place the shipped state is
 summarized, and the per-lane sections under it are the receipts. Messenger
 I/O is the repository's agent-messenger fork pinned by commit in
-`packages/channels/package.json` (byte uploads, `retries` per client — set to
-zero on every client so custody stays one physical attempt — Telegram
+`packages/channels/package.json` (byte uploads, per-client retry control:
+Discord bot, Discord Owner and Telegram bot SDK clients set `retries: 0`;
+Slack pins its inner Web API client to one attempt but retains the SDK's
+three-attempt retry loop for explicit 429 refusals — Telegram
 `getFile`/`answerCallbackQuery`/`sendChatAction`, Discord typing/DM/interaction
 responses, errors carrying `httpStatus`/`retryAfter`); the hand-rolled Discord
 and Telegram REST clients are gone and every REST call goes through the SDK
-seam. Inbound attachments are stored on the default machine's
-`ONI_MACHINES_INBOX` through `ProviderRuntime.attachments` (Telegram,
-Slack with `files:read`, Discord CDN) by `composition/attachments.ts`, with
-the reference rewritten to `<machine>:<path>`; receipts
+seam. When `ONI_MACHINES_INBOX` (or `machines.inbox`) is configured,
+`composition/attachments.ts` best-effort stores inbound attachments on the
+default machine before handoff and rewrites successful references to
+`<machine>:<path>`. Telegram `file_id` and Slack file IDs use the bot's
+authenticated `ProviderRuntime.attachments` download (Slack needs
+`files:read`); public URLs such as Discord CDN links use the composition
+media resolver. Slack Owner exposes no attachment download port, and
+private-URL-only references cannot be fetched through the bot's file-ID
+download; those references remain as received. A failed fetch or write keeps
+the original reference and warns. Authenticated downloads are bounded by the
+50 MiB media cap and a deadline; inbox storage keys distinguish conversations,
+and exclusive-create writes refuse an existing leaf or symlink. Receipts:
 `apps/oni/test/attachment-inbox.test.ts`, `test/config.test.ts`.
 Before that, messenger I/O was `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per
 messenger provider (Slack, Discord, Telegram, Instagram, KakaoTalk), under
