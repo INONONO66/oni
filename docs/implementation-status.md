@@ -802,8 +802,8 @@ summarized, and the per-lane sections under it are the receipts. Messenger
 I/O is the repository's agent-messenger fork pinned by commit in
 `packages/channels/package.json` (byte uploads, per-client retry control:
 Discord bot, Discord Owner and Telegram bot SDK clients set `retries: 0`;
-Slack pins its inner Web API client to one attempt but retains the SDK's
-three-attempt retry loop for explicit 429 refusals — Telegram
+Slack pins its inner Web API client to one attempt but retains up to three
+SDK retries after an explicit 429 refusal — Telegram
 `getFile`/`answerCallbackQuery`/`sendChatAction`, Discord typing/DM/interaction
 responses, errors carrying `httpStatus`/`retryAfter`); the hand-rolled Discord
 and Telegram REST clients are gone and every REST call goes through the SDK
@@ -817,7 +817,7 @@ media resolver. Slack Owner exposes no attachment download port, and
 private-URL-only references cannot be fetched through the bot's file-ID
 download; those references remain as received. A failed fetch or write keeps
 the original reference and warns. Authenticated downloads are bounded by the
-50 MiB media cap and a deadline; inbox storage keys distinguish conversations,
+50 MiB media cap and a 30-second deadline; conversation-scoped hashed inbox keys distinguish messages,
 and exclusive-create writes refuse an existing leaf or symlink. Receipts:
 `apps/oni/test/attachment-inbox.test.ts`, `test/config.test.ts`.
 Before that, messenger I/O was `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per

@@ -41,7 +41,6 @@ const AgentFailure = Core.AgentFailure;
 const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
 import {
-  type AttachmentFetch,
   type ChannelDeliveryRoute,
   type ProviderTypingRoute,
   type GatewayRouter,
@@ -115,7 +114,7 @@ import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
 import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
-import { withAttachmentInbox } from "./composition/attachments";
+import { inboxHandler } from "./composition/attachments";
 import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
@@ -1009,14 +1008,7 @@ export async function startOni(options: StartOptions = {}) {
     // reconcile and every tool-driven mutation run the SAME diff over
     // declared ChannelInstances, the only source of external channel config.
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
-    const inboxRoot = machinery.inbox;
-    const inboxMachines = tools.machines;
-    const inbox = inboxRoot === undefined || inboxMachines === undefined ? undefined
-      : (fetch: AttachmentFetch | undefined, handler: Channel.MessageHandler) => withAttachmentInbox({
-          root: inboxRoot, files: { machines: inboxMachines },
-          media: createMediaResolver({ machines: inboxMachines }),
-          publish: services.observations.publish, now: services.now,
-        }, fetch, handler);
+    const inbox = inboxHandler(machinery.inbox, tools.machines, services.observations.publish, services.now);
     const supervisor = createChannelSupervisor({
       desired: () =>
         desiredChannels(

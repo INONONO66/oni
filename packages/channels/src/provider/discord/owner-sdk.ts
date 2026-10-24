@@ -34,14 +34,16 @@ export interface DiscordOwnerSdk {
   listener(client: DiscordOwnerApi): DiscordOwnerEvents;
 }
 
+function ownerListener(client: DiscordOwnerApi): DiscordOwnerEvents {
+  if (!(client instanceof DiscordClient))
+    throw new DiscordApiError({ message: "Discord listener requires its SDK client" });
+  return new DiscordListener(client);
+}
+
 export function discordOwnerSdk(): DiscordOwnerSdk {
   return {
     client: () => new CheckedDiscordOwnerClient({ retries: 0 }),
-    listener: (client) => {
-      if (!(client instanceof DiscordClient))
-        throw new DiscordApiError({ message: "Discord listener requires its SDK client" });
-      return new DiscordListener(client);
-    },
+    listener: ownerListener,
   };
 }
 

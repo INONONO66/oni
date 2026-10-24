@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AttachmentFetch } from "@oni/channels";
 import { MachineRefusalError } from "@oni/machines";
 import { Operational, type Channel, type Gateway } from "@oni/protocol";
-import { type AttachmentInbox, withAttachmentInbox } from "../src/composition/attachments";
+import { type AttachmentInbox, inboxHandler, withAttachmentInbox } from "../src/composition/attachments";
 import { MEDIA_BYTE_CAP, MediaRefused } from "../src/composition/media";
 import type { FilePorts } from "../src/bundles/tools/core/filesystem";
 import { eventSignal } from "./helpers/event-signal";
@@ -63,6 +67,41 @@ function harness(write?: ToolMachine["fs"]["write"]) {
 
 const download: AttachmentFetch = (ref) =>
   Promise.resolve({ bytes: Buffer.from(ref), name: "report.pdf", mime: "application/pdf" });
+
+test.each(["root", "machines"] as const)("an inbox without %s leaves the channel handler unwrapped", (missing) => {
+  const { inbox } = harness();
+  expect(inboxHandler(
+    missing === "root" ? undefined : inbox.root,
+    missing === "machines" ? undefined : inbox.files.machines,
+    inbox.publish,
+    inbox.now,
+  )).toBeUndefined();
+});
+
+test("the configured inbox handler stores fetched attachments on the machine before delivery", async () => {
+  const root = mkdtempSync(join(tmpdir(), "oni-inbox-"));
+  try {
+    const { inbox, received, handler, warnings } = harness(async (path, data, options) => {
+      await writeFile(path, data, { flag: options?.create === "exclusive" ? "wx" : "w" });
+      return { op: "write", bytesWritten: data.byteLength };
+    });
+    const machines = inbox.files.machines;
+    if (machines === undefined) throw new Error("inbox test requires a machine");
+    const factory = inboxHandler(root, machines, inbox.publish, inbox.now);
+    if (factory === undefined) throw new Error("configured inbox handler missing");
+    const wrapped = factory(download, handler);
+
+    await wrapped(inboundWith([{ kind: "file", ref: "attachment-bytes" }]));
+
+    const stored = received[0]?.facts.attachments?.[0];
+    expect(stored?.ref).toMatch(new RegExp(`^mac:${root}/[a-f0-9]{64}-report\\.pdf$`));
+    expect(stored).toMatchObject({ name: "report.pdf", mime: "application/pdf", bytes: 16 });
+    expect(await readFile(stored?.ref.slice("mac:".length) ?? "")).toEqual(Buffer.from("attachment-bytes"));
+    expect(warnings).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("provider bytes and MIME reach the machine before the handler completes", async () => {
   const entered = eventSignal<void>("write entered");

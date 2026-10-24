@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { AttachmentFetch, MediaBytes } from "@oni/channels";
 import { type BusEvent, type Channel, type Gateway, Operational } from "@oni/protocol";
 import { type FilePorts, defaultMachineOf, filesystem } from "../bundles/tools/core/filesystem";
-import { assertMediaSize, type createMediaResolver, mediaBounds } from "./media";
+import { assertMediaSize, createMediaResolver, mediaBounds } from "./media";
 
 /**
  * Inbound attachments land on the attached machine before the Resident sees
@@ -24,6 +24,28 @@ export interface AttachmentInbox {
   readonly downloadSignal?: () => AbortSignal;
   readonly publish: BusEvent.Sink["publish"];
   readonly now: () => number;
+}
+
+export function inboxHandlerFactory(
+  input: Pick<AttachmentInbox, "root" | "publish" | "now"> & { readonly machines: NonNullable<FilePorts["machines"]> },
+): (fetch: AttachmentFetch | undefined, handler: Channel.MessageHandler) => Channel.MessageHandler {
+  return (fetch, handler) => withAttachmentInbox({
+    root: input.root,
+    files: { machines: input.machines },
+    media: createMediaResolver({ machines: input.machines }),
+    publish: input.publish,
+    now: input.now,
+  }, fetch, handler);
+}
+
+export function inboxHandler(
+  root: AttachmentInbox["root"] | undefined,
+  machines: FilePorts["machines"],
+  publish: AttachmentInbox["publish"],
+  now: AttachmentInbox["now"],
+): ReturnType<typeof inboxHandlerFactory> | undefined {
+  if (root === undefined || machines === undefined) return undefined;
+  return inboxHandlerFactory({ root, machines, publish, now });
 }
 
 type Attachment = NonNullable<Gateway.IngressFacts["attachments"]>[number];
