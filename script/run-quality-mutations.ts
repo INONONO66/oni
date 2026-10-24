@@ -1069,6 +1069,41 @@ export function instrument(source: string, sites: ReachSite[], directory: string
 	edits.sort((a, b) => b.offset - a.offset || b.order - a.order);
 	return edits.reduce((result, edit) => replace(result, edit.offset, edit.offset, edit.text), source);
 }
+// An isolated `bun test` can load a large import graph before Bun has compiled
+// its first macro call, leaving that call at runtime with no import binding.
+// Prime literal calls before the reach overlay is installed, so the primer
+// itself cannot claim any candidate's marker.
+export function stageMacroPreload(files: { path: string; source: string }[], target: string): string | null {
+	const statements: string[] = [];
+	for (const file of files) {
+		const parsed = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
+		for (const statement of parsed.statements) {
+			if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
+				!statement.attributes?.elements.some((attribute) =>
+					attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "macro")) continue;
+			const names = statement.importClause?.namedBindings;
+			if (!names || !ts.isNamedImports(names)) continue;
+			const bindings = new Set(names.elements.map((element) => element.name.text));
+			let call: ts.CallExpression | undefined;
+			const visit = (node: ts.Node): void => {
+				if (!call && ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+					bindings.has(node.expression.text) && node.arguments.every((argument) =>
+						ts.isStringLiteral(argument) || ts.isNumericLiteral(argument)))
+					call = node;
+				else ts.forEachChild(node, visit);
+			};
+			visit(parsed);
+			if (!call) continue;
+			const specifier = statement.moduleSpecifier;
+			statements.push(replace(statement.getText(parsed), specifier.getStart(parsed) - statement.getStart(parsed),
+				specifier.end - statement.getStart(parsed), JSON.stringify(resolve(dirname(file.path), specifier.text))));
+			statements.push(`void ${call.getText(parsed)};`);
+		}
+	}
+	if (!statements.length) return null;
+	writeFileSync(target, `${statements.join("\n")}\n`);
+	return target;
+}
 function gitCopyCommand(root: string, args: string[]): string {
 	const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
 	if (result.status !== 0) return fail("executionCopy", result.stderr || String(result.error));
@@ -1384,8 +1419,10 @@ async function buildReachMap(options: Options, frozen: string, temporary: string
 	// Probes are served by a module-load overlay, so the reach copy keeps the
 	// frozen bytes for tests that read their own sources as text.
 	const overlay: ReachOverlay = { root: directory, instrumented: join(temporary, "reach-instrumented"), paths: [] };
+	const macroSources: { path: string; source: string }[] = [];
 	for (const [candidatePath, rows] of byPath) {
 		const source = mutationSource(directory, candidatePath);
+		macroSources.push(source);
 		const unique = [...new Map(rows.map((row) => [`${row.site.start}:${row.site.end}:${row.site.mode}`, row])).values()];
 		const target = join(overlay.instrumented, relative(directory, source.path));
 		mkdirSync(dirname(target), { recursive: true });
@@ -1394,9 +1431,10 @@ async function buildReachMap(options: Options, frozen: string, temporary: string
 	}
 	const overlayFile = join(temporary, "reach-overlay.txt");
 	writeFileSync(overlayFile, encodeOverlay(overlay));
+	const macroPreload = stageMacroPreload(macroSources, join(temporary, "reach-macros.ts"));
 	const environment = {
 		[OVERLAY_ENVIRONMENT]: overlayFile,
-		BUN_OPTIONS: `${process.env.BUN_OPTIONS ?? ""} --preload=${stagePreload(temporary)}`.trim(),
+		BUN_OPTIONS: `${process.env.BUN_OPTIONS ?? ""} ${macroPreload ? `--preload=${macroPreload}` : ""} --preload=${stagePreload(temporary)}`.trim(),
 	};
 	const map = new Map<string, ProbeEvidence>();
 	for (const candidate of candidates) map.set(candidate.id, { reached: false, markerSha256: sha256(""), tests: [] });

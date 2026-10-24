@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeOverlay, encodeOverlay, installOverlay, OVERLAY_ENVIRONMENT, reachPlugin, type ReachOverlay, stagePreload } from "./quality-mutation-reach-overlay";
-import { instrument, sha256 } from "./run-quality-mutations";
+import { instrument, sha256, stageMacroPreload } from "./run-quality-mutations";
 
 const OVERLAY_MODULE = join(import.meta.dir, "quality-mutation-reach-overlay.ts");
 
@@ -139,5 +139,50 @@ test.each([
 		expect(existsSync(join(temporary, "macro"))).toBe(false);
 		if (dependency) expect(existsSync(join(temporary, "dependency"))).toBe(false);
 		if (shadow) expect(existsSync(join(temporary, "shadow"))).toBe(true);
+	} finally { rmSync(temporary, { recursive: true, force: true }); }
+});
+
+test("an isolated Bun child expands a macro in an instrumented preset initializer", () => {
+	const temporary = mkdtempSync(join(tmpdir(), "omo-reach-macro-init-"));
+	try {
+		const root = join(temporary, "fixture");
+		const path = "src/roles.ts";
+		const source = 'import { roleText } from "./embed" with { type: "macro" };\nexport const preset = roleText("resident") + " ready";\n';
+		const macro = 'export function roleText(name: string): string { return name.toUpperCase(); }\n';
+		const instrumented = join(temporary, "instrumented");
+		mkdirSync(join(root, "src"), { recursive: true });
+		mkdirSync(join(instrumented, "src"), { recursive: true });
+		mkdirSync(join(temporary, "markers"));
+		writeFileSync(join(root, path), source);
+		writeFileSync(join(root, "src/embed.ts"), macro);
+		writeFileSync(join(root, "src/roles.test.ts"),
+			'import { expect, test } from "bun:test"; import { preset } from "./roles"; test("preset", () => expect(preset).toBe("RESIDENT ready"));\n');
+		const ordinary = source.indexOf('" ready"');
+		const macroArgument = source.indexOf('"resident"');
+		const site = (id: string, start: number, end: number) => ({
+			id, path, sourceSha256: sha256(source),
+			site: { start, end, mode: "expression" as const }, tests: [],
+		});
+		writeFileSync(join(instrumented, path), instrument(source, [
+			site("macro", macroArgument, macroArgument + '"resident"'.length),
+			site("ordinary", ordinary, ordinary + '" ready"'.length),
+		], join(temporary, "markers")));
+		writeFileSync(join(instrumented, "src/embed.ts"), instrument(macro, [
+			{ id: "implementation", path: "src/embed.ts", sourceSha256: sha256(macro),
+				site: { start: macro.indexOf("name.toUpperCase()"), end: macro.indexOf("name.toUpperCase()") + "name.toUpperCase()".length, mode: "expression" }, tests: [] },
+		], join(temporary, "markers")));
+		const overlayPath = join(temporary, "overlay.txt");
+		writeFileSync(overlayPath, encodeOverlay({ root, instrumented, paths: [path, "src/embed.ts"] }));
+		const primer = stageMacroPreload([{ path: join(root, path), source }], join(temporary, "macros.ts"));
+		expect(primer).not.toBeNull();
+		const run = Bun.spawnSync([process.execPath, "test", "./src/roles.test.ts"], {
+			cwd: root, timeout: 15_000,
+			env: { ...process.env, [OVERLAY_ENVIRONMENT]: overlayPath,
+				BUN_OPTIONS: `--preload=${primer} --preload=${stagePreload(temporary)}` },
+			stdout: "pipe", stderr: "pipe",
+		});
+		expect(run.exitCode).toBe(0);
+		expect(existsSync(join(temporary, "markers", "ordinary"))).toBe(true);
+		expect(existsSync(join(temporary, "markers", "macro"))).toBe(false);
 	} finally { rmSync(temporary, { recursive: true, force: true }); }
 });

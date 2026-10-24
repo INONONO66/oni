@@ -846,6 +846,15 @@ chain exit 0 (protocol 947, channels 1117, machines 341, apps/oni 1165 tests).
 Not established: the scoped mutation run, because every campaign currently dies
 in reach discovery on Bun macro imports (#1644, fix in PR #1645).
 
+The #1644 reach follow-up on `fix/1644-reach-macro-const-init` (2026-10-25,
+PR pending) primes literal macro calls before the reach overlay is registered.
+The isolated boot test also fails on the uninstrumented copy: Bun leaves
+`roleText("resident")` unexpanded when that import graph is the first macro
+consumer in the test process. A preceding macro call restores expansion;
+the primer runs without candidate probes, and the instrumented boot test
+passes with the real `roles.ts` and `embed.ts` sites. A complete campaign
+is not established.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
