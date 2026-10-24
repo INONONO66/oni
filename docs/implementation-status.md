@@ -847,13 +847,16 @@ Not established: the scoped mutation run, because every campaign currently dies
 in reach discovery on Bun macro imports (#1644, fix in PR #1645).
 
 The #1644 reach follow-up on `fix/1644-reach-macro-const-init` (2026-10-25,
-PR pending) primes literal macro calls before the reach overlay is registered.
-The isolated boot test also fails on the uninstrumented copy: Bun leaves
-`roleText("resident")` unexpanded when that import graph is the first macro
-consumer in the test process. A preceding macro call restores expansion;
-the primer runs without candidate probes, and the instrumented boot test
-passes with the real `roles.ts` and `embed.ts` sites. A complete campaign
-is not established.
+PR #1649) discovers named literal macro calls from the source inventory,
+independently of selected candidates. The staged preload installs the overlay
+before priming instrumented implementations, suppressing marker writes only
+during priming in each Bun process. Priming is confined to execution-copy
+processes; inherited external fixture children retain local LCOV sources.
+Executable regressions cover colliding import names, shadowed ordinary calls
+and inherited-child attribution. On Bun 1.4.1/macOS, the isolated real boot graph passes with only
+`embed.ts` instrumented: implementation reach is present for boot and absent
+for an unrelated test, and native LCOV parses without escaping the root.
+A complete mutation campaign is not established.
 
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 

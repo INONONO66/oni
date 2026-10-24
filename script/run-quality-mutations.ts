@@ -955,9 +955,10 @@ function caseInsertion(source: string, site: Site): number {
 // write: probed test fixtures wrap `fs.writeFileSync` on the builtin module
 // object, so a probe inside such a wrapper re-enters it through the write and
 // must find its marker already claimed instead of recursing.
+const MACRO_PRIMING = "QUALITY_MUTATION_MACRO_PRIMING";
 export function probeText(marker: string): string {
 	const path = JSON.stringify(marker);
-	return `(globalThis.Reflect.has(globalThis,${path})||(globalThis.Reflect.set(globalThis,${path},1),globalThis.process.getBuiltinModule("node:fs").writeFileSync(${path},"1")))`;
+	return `(globalThis.process.env.${MACRO_PRIMING}==="1"||globalThis.Reflect.has(globalThis,${path})||(globalThis.Reflect.set(globalThis,${path},1),globalThis.process.getBuiltinModule("node:fs").writeFileSync(${path},"1")))`;
 }
 function instrumentSingle(source: string, site: Site, marker: string): string {
 	const probe = probeText(marker);
@@ -987,8 +988,7 @@ function reachInsertions(source: string, row: ReachSite, directory: string, inde
 		{ offset: site.end, order: -index - 1, text: single.slice(site.end + added - closeLength, site.end + added) },
 	];
 }
-export function instrument(source: string, sites: ReachSite[], directory: string): string {
-	const parsed = ts.createSourceFile("reach.ts", source, ts.ScriptTarget.Latest, true);
+function reachChecker(parsed: ts.SourceFile): ts.TypeChecker {
 	const options: ts.CompilerOptions = { noLib: true, noResolve: true };
 	const compilerHost = ts.createCompilerHost(options);
 	const getSourceFile = compilerHost.getSourceFile;
@@ -997,70 +997,81 @@ export function instrument(source: string, sites: ReachSite[], directory: string
 		getSourceFile: (file, languageVersion, onError, shouldCreateNewSourceFile) =>
 			file === parsed.fileName ? parsed : getSourceFile(file, languageVersion, onError, shouldCreateNewSourceFile),
 	};
-	const checker = ts.createProgram([parsed.fileName], options, host).getTypeChecker();
+	return ts.createProgram([parsed.fileName], options, host).getTypeChecker();
+}
+function macroImport(statement: ts.Node): statement is ts.ImportDeclaration & { moduleSpecifier: ts.StringLiteral } {
+	return ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) &&
+		!statement.importClause?.isTypeOnly && !!statement.attributes?.elements.some((attribute) =>
+			attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "macro");
+}
+function macroSymbols(parsed: ts.SourceFile, checker: ts.TypeChecker) {
 	const macroBindings = new Set<ts.Symbol>();
 	const macroNamespaces = new Set<ts.Symbol>();
+	const add = (name: ts.Identifier, symbols: Set<ts.Symbol>): void => {
+		const symbol = checker.getSymbolAtLocation(name);
+		if (symbol) symbols.add(symbol);
+	};
 	for (const statement of parsed.statements) {
-		if (!ts.isImportDeclaration(statement) ||
-			!statement.attributes?.elements.some((attribute) =>
-				attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "macro")) continue;
+		if (!macroImport(statement)) continue;
 		const clause = statement.importClause;
-		if (clause?.name) {
-			const symbol = checker.getSymbolAtLocation(clause.name);
-			if (symbol) macroBindings.add(symbol);
-		}
+		if (clause?.name) add(clause.name, macroBindings);
 		if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings))
-			for (const binding of clause.namedBindings.elements) {
-				const symbol = checker.getSymbolAtLocation(binding.name);
-				if (symbol) macroBindings.add(symbol);
-			}
-		if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-			const symbol = checker.getSymbolAtLocation(clause.namedBindings.name);
-			if (symbol) macroNamespaces.add(symbol);
-		}
+			for (const binding of clause.namedBindings.elements) add(binding.name, macroBindings);
+		if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings))
+			add(clause.namedBindings.name, macroNamespaces);
 	}
+	return { macroBindings, macroNamespaces };
+}
+function macroProtectedSpans(parsed: ts.SourceFile, checker: ts.TypeChecker) {
+	const { macroBindings, macroNamespaces } = macroSymbols(parsed, checker);
 	const protectedSpans: { start: number; end: number }[] = [];
-	if (macroBindings.size || macroNamespaces.size) {
-		const unwrap = (expression: ts.Expression): ts.Expression => {
-			let current = expression;
-			while (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current))
-				current = current.expression;
-			return current;
-		};
-		const dependencies = new Set<ts.Symbol>();
-		const protectDependencies = (node: ts.Node): void => {
-			if (ts.isIdentifier(node)) {
-				const symbol = checker.getSymbolAtLocation(node);
-				if (symbol && !dependencies.has(symbol)) {
-					dependencies.add(symbol);
-					for (const declaration of symbol.declarations ?? []) {
-						if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) continue;
-						const statement = declaration.parent.parent;
-						protectedSpans.push({ start: statement.getStart(parsed), end: statement.end });
-						ts.forEachChild(declaration.initializer, protectDependencies);
-					}
+	if (!macroBindings.size && !macroNamespaces.size) return protectedSpans;
+	const unwrap = (expression: ts.Expression): ts.Expression => {
+		let current = expression;
+		while (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current))
+			current = current.expression;
+		return current;
+	};
+	const dependencies = new Set<ts.Symbol>();
+	const protectDependencies = (node: ts.Node): void => {
+		if (ts.isIdentifier(node)) {
+			const symbol = checker.getSymbolAtLocation(node);
+			if (symbol && !dependencies.has(symbol)) {
+				dependencies.add(symbol);
+				for (const declaration of symbol.declarations ?? []) {
+					if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) continue;
+					const statement = declaration.parent.parent;
+					protectedSpans.push({ start: statement.getStart(parsed), end: statement.end });
+					ts.forEachChild(declaration.initializer, protectDependencies);
 				}
 			}
-			ts.forEachChild(node, protectDependencies);
-		};
-		const visit = (node: ts.Node): void => {
-			if (ts.isCallExpression(node)) {
-				const callee = unwrap(node.expression);
-				const owner = ts.isPropertyAccessExpression(callee) ? unwrap(callee.expression) : undefined;
-				const binding = ts.isIdentifier(callee) ? checker.getSymbolAtLocation(callee) : undefined;
-				const namespace = owner && ts.isIdentifier(owner) ? checker.getSymbolAtLocation(owner) : undefined;
-				const direct = binding && macroBindings.has(binding);
-				const member = namespace && macroNamespaces.has(namespace);
-				if (direct || member) {
-					protectedSpans.push({ start: node.getStart(parsed), end: node.end });
-					for (const argument of node.arguments) protectDependencies(argument);
-					return;
-				}
-			}
+		}
+		ts.forEachChild(node, protectDependencies);
+	};
+	const visit = (node: ts.Node): void => {
+		if (!ts.isCallExpression(node)) {
 			ts.forEachChild(node, visit);
-		};
-		visit(parsed);
-	}
+			return;
+		}
+		const callee = unwrap(node.expression);
+		const owner = ts.isPropertyAccessExpression(callee) ? unwrap(callee.expression) : undefined;
+		const binding = ts.isIdentifier(callee) ? checker.getSymbolAtLocation(callee) : undefined;
+		const namespace = owner && ts.isIdentifier(owner) ? checker.getSymbolAtLocation(owner) : undefined;
+		const direct = binding && macroBindings.has(binding);
+		const member = namespace && macroNamespaces.has(namespace);
+		if (direct || member) {
+			protectedSpans.push({ start: node.getStart(parsed), end: node.end });
+			for (const argument of node.arguments) protectDependencies(argument);
+			return;
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(parsed);
+	return protectedSpans;
+}
+export function instrument(source: string, sites: ReachSite[], directory: string): string {
+	const parsed = ts.createSourceFile("reach.ts", source, ts.ScriptTarget.Latest, true);
+	const protectedSpans = macroProtectedSpans(parsed, reachChecker(parsed));
 	// Macro expansion evaluates arguments and their referenced local initializers at build time.
 	const ordered = sites.filter(({ site }) =>
 		!protectedSpans.some((span) => site.start <= span.end && site.end >= span.start))
@@ -1069,40 +1080,66 @@ export function instrument(source: string, sites: ReachSite[], directory: string
 	edits.sort((a, b) => b.offset - a.offset || b.order - a.order);
 	return edits.reduce((result, edit) => replace(result, edit.offset, edit.offset, edit.text), source);
 }
-// An isolated `bun test` can load a large import graph before Bun has compiled
-// its first macro call, leaving that call at runtime with no import binding.
-// Prime literal calls before the reach overlay is installed, so the primer
-// itself cannot claim any candidate's marker.
+function macroPrimingCall(parsed: ts.SourceFile, checker: ts.TypeChecker, names: ts.NamedImports) {
+	const bindings = new Map<ts.Symbol, ts.ImportSpecifier>();
+	for (const binding of names.elements) {
+		const symbol = checker.getSymbolAtLocation(binding.name);
+		if (symbol && !binding.isTypeOnly) bindings.set(symbol, binding);
+	}
+	function visit(node: ts.Node): { call: ts.CallExpression; binding: ts.ImportSpecifier } | undefined {
+		if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+			const symbol = checker.getSymbolAtLocation(node.expression);
+			const binding = symbol && bindings.get(symbol);
+			if (binding && node.arguments.every((argument) => ts.isStringLiteral(argument) || ts.isNumericLiteral(argument)))
+				return { call: node, binding };
+		}
+		return ts.forEachChild(node, visit);
+	}
+	return visit(parsed);
+}
+function macroPrimingStatements(file: { path: string; source: string }, statements: string[]): void {
+	const parsed = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
+	const imports = parsed.statements.filter(macroImport);
+	if (!imports.length) return;
+	const checker = reachChecker(parsed);
+	for (const statement of imports) {
+		const names = statement.importClause?.namedBindings;
+		if (!names || !ts.isNamedImports(names)) continue;
+		const selected = macroPrimingCall(parsed, checker, names);
+		if (!selected) continue;
+		const alias = `reachMacro${statements.length}`;
+		const exported = (selected.binding.propertyName ?? selected.binding.name).getText(parsed);
+		const specifier = JSON.stringify(resolve(dirname(file.path), statement.moduleSpecifier.text));
+		statements.push(`import { ${exported} as ${alias} } from ${specifier} with { type: "macro" };`);
+		statements.push(`void ${alias}(${selected.call.arguments.map((argument) => argument.getText(parsed)).join(",")});`);
+	}
+}
+// Bun can leave the first macro in an isolated large import graph unexpanded.
+// Warm the instrumented module, but let only subsequent consumer calls claim reach.
 export function stageMacroPreload(files: { path: string; source: string }[], target: string): string | null {
 	const statements: string[] = [];
-	for (const file of files) {
-		const parsed = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
-		for (const statement of parsed.statements) {
-			if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
-				!statement.attributes?.elements.some((attribute) =>
-					attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "macro")) continue;
-			const names = statement.importClause?.namedBindings;
-			if (!names || !ts.isNamedImports(names)) continue;
-			const bindings = new Set(names.elements.map((element) => element.name.text));
-			let call: ts.CallExpression | undefined;
-			const visit = (node: ts.Node): void => {
-				if (!call && ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
-					bindings.has(node.expression.text) && node.arguments.every((argument) =>
-						ts.isStringLiteral(argument) || ts.isNumericLiteral(argument)))
-					call = node;
-				else ts.forEachChild(node, visit);
-			};
-			visit(parsed);
-			if (!call) continue;
-			const specifier = statement.moduleSpecifier;
-			statements.push(replace(statement.getText(parsed), specifier.getStart(parsed) - statement.getStart(parsed),
-				specifier.end - statement.getStart(parsed), JSON.stringify(resolve(dirname(file.path), specifier.text))));
-			statements.push(`void ${call.getText(parsed)};`);
+	for (const file of files) macroPrimingStatements(file, statements);
+	if (!statements.length) return null;
+	const preload = stagePreload(dirname(target));
+	// Macros cannot execute from node_modules. Compile an in-memory module only
+	// inside the execution copy; inherited fixture children must not load it.
+	appendFileSync(preload, `
+const macroOverlayPath = process.env[OVERLAY_ENVIRONMENT];
+if (macroOverlayPath) {
+	const executionRoot = realpathSync(decodeOverlay(readFileSync(macroOverlayPath, "utf8")).root);
+	const cwd = realpathSync(process.cwd());
+	if (cwd === executionRoot || cwd.startsWith(executionRoot + "/")) {
+		process.env.${MACRO_PRIMING} = "1";
+		const primer = URL.createObjectURL(new Blob([${JSON.stringify(statements.join("\n"))}], { type: "text/javascript" }));
+		try { await import(primer); }
+		finally {
+			URL.revokeObjectURL(primer);
+			delete process.env.${MACRO_PRIMING};
 		}
 	}
-	if (!statements.length) return null;
-	writeFileSync(target, `${statements.join("\n")}\n`);
-	return target;
+}
+`);
+	return preload;
 }
 function gitCopyCommand(root: string, args: string[]): string {
 	const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
@@ -1409,7 +1446,7 @@ function recordReach(map: Map<string, ProbeEvidence>, candidates: Candidate[], o
 		evidence.markerSha256 = sha256(readFileSync(marker, "utf8"));
 	}
 }
-async function buildReachMap(options: Options, frozen: string, temporary: string, candidates: Candidate[], tests: string[], executionTreeSha256: string): Promise<{ map: Map<string, ProbeEvidence>; receipt: ReachMap }> {
+async function buildReachMap(options: Options, frozen: string, temporary: string, candidates: Candidate[], tests: string[], executionTreeSha256: string, inventory: Inventory): Promise<{ map: Map<string, ProbeEvidence>; receipt: ReachMap }> {
 	const directory = join(temporary, "reach"), markers = join(directory, "markers");
 	copyExecution(frozen, directory);
 	mkdirSync(markers, { recursive: true });
@@ -1419,10 +1456,8 @@ async function buildReachMap(options: Options, frozen: string, temporary: string
 	// Probes are served by a module-load overlay, so the reach copy keeps the
 	// frozen bytes for tests that read their own sources as text.
 	const overlay: ReachOverlay = { root: directory, instrumented: join(temporary, "reach-instrumented"), paths: [] };
-	const macroSources: { path: string; source: string }[] = [];
 	for (const [candidatePath, rows] of byPath) {
 		const source = mutationSource(directory, candidatePath);
-		macroSources.push(source);
 		const unique = [...new Map(rows.map((row) => [`${row.site.start}:${row.site.end}:${row.site.mode}`, row])).values()];
 		const target = join(overlay.instrumented, relative(directory, source.path));
 		mkdirSync(dirname(target), { recursive: true });
@@ -1431,10 +1466,13 @@ async function buildReachMap(options: Options, frozen: string, temporary: string
 	}
 	const overlayFile = join(temporary, "reach-overlay.txt");
 	writeFileSync(overlayFile, encodeOverlay(overlay));
+	const macroSources = inventory.files
+		.filter((file) => file.language === "typescript" || file.language === "javascript")
+		.map((file) => mutationSource(directory, file.path));
 	const macroPreload = stageMacroPreload(macroSources, join(temporary, "reach-macros.ts"));
 	const environment = {
 		[OVERLAY_ENVIRONMENT]: overlayFile,
-		BUN_OPTIONS: `${process.env.BUN_OPTIONS ?? ""} ${macroPreload ? `--preload=${macroPreload}` : ""} --preload=${stagePreload(temporary)}`.trim(),
+		BUN_OPTIONS: `${process.env.BUN_OPTIONS ?? ""} --preload=${macroPreload ?? stagePreload(temporary)}`.trim(),
 	};
 	const map = new Map<string, ProbeEvidence>();
 	for (const candidate of candidates) map.set(candidate.id, { reached: false, markerSha256: sha256(""), tests: [] });
@@ -2663,7 +2701,7 @@ async function campaign(options: Options): Promise<number> {
 		const selected = selectedCandidates(options, enumerated.candidates);
 		const reachPool = shardProgress ? pending : selected;
 		const reachCandidates = reachPool.filter((candidate) => !candidate.operator.startsWith("py-"));
-		const reach = errors.length || !baseline ? { map: new Map<string, ProbeEvidence>(), receipt: null } : await buildReachMap(options, frozen, temporary, reachCandidates, baseline.files, executionTreeSha256);
+		const reach = errors.length || !baseline ? { map: new Map<string, ProbeEvidence>(), receipt: null } : await buildReachMap(options, frozen, temporary, reachCandidates, baseline.files, executionTreeSha256, inventory);
 		removeExecution(join(temporary, "reach"));
 		compilerWorker = errors.length || !executionRequired ? null : new MutationCompilerWorker(frozen, contract, inventory, executionTreeSha256, options.timeout * Math.max(1, contract.projects.length));
 		const executionContext: ExecutionContext = {

@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { decodeOverlay, encodeOverlay, installOverlay, OVERLAY_ENVIRONMENT, reachPlugin, type ReachOverlay, stagePreload } from "./quality-mutation-reach-overlay";
 import { instrument, sha256, stageMacroPreload } from "./run-quality-mutations";
+import { parseNativeLcov } from "./quality-native-lcov";
 
 const OVERLAY_MODULE = join(import.meta.dir, "quality-mutation-reach-overlay.ts");
 
@@ -142,47 +143,109 @@ test.each([
 	} finally { rmSync(temporary, { recursive: true, force: true }); }
 });
 
-test("an isolated Bun child expands a macro in an instrumented preset initializer", () => {
+function reachSite(id: string, path: string, source: string, needle: string): Parameters<typeof instrument>[1][number] {
+	const start = source.indexOf(needle);
+	expect(start).toBeGreaterThanOrEqual(0);
+	return { id, path, sourceSha256: sha256(source), site: { start, end: start + needle.length, mode: "expression" }, tests: [] };
+}
+
+async function runReachTest(cwd: string, test: string, overlay: string, preload: string, output: string) {
+	const run = Bun.spawn([process.execPath, "--smol", "test", "--timeout", "15000",
+		"--reporter=junit", `--reporter-outfile=${join(output, "tests.xml")}`, test,
+		"--coverage", "--coverage-reporter=lcov", `--coverage-dir=${output}`], {
+		cwd, signal: AbortSignal.timeout(15_000),
+		env: { ...process.env, [OVERLAY_ENVIRONMENT]: overlay, BUN_OPTIONS: `--preload=${preload}` },
+		stdout: "pipe", stderr: "pipe",
+	});
+	const [exit, stdout, stderr] = await Promise.all([run.exited, new Response(run.stdout).text(), new Response(run.stderr).text()]);
+	expect({ exit, stdout: exit ? stdout : "", stderr: exit ? stderr : "" }).toEqual({ exit: 0, stdout: "", stderr: "" });
+	return readFileSync(join(output, "lcov.info"), "utf8");
+}
+
+test.each(["consumer", "unrelated", "inherited", "external"])("macro priming attributes only consumer reach: %s", async (selection) => {
 	const temporary = mkdtempSync(join(tmpdir(), "omo-reach-macro-init-"));
 	try {
 		const root = join(temporary, "fixture");
-		const path = "src/roles.ts";
-		const source = 'import { roleText } from "./embed" with { type: "macro" };\nexport const preset = roleText("resident") + " ready";\n';
-		const macro = 'export function roleText(name: string): string { return name.toUpperCase(); }\n';
+		const source = 'import { roleText } from "./embed" with { type: "macro" };\nexport const shadow = (roleText: (s: string) => string) => roleText("invalid");\nexport const preset = roleText("resident") + " ready";\n';
+		const macro = 'export function roleText(name: string): string { if (name !== "resident") throw new Error("unexpected macro input"); return name.toUpperCase(); }\n';
 		const instrumented = join(temporary, "instrumented");
-		mkdirSync(join(root, "src"), { recursive: true });
-		mkdirSync(join(instrumented, "src"), { recursive: true });
-		mkdirSync(join(temporary, "markers"));
-		writeFileSync(join(root, path), source);
-		writeFileSync(join(root, "src/embed.ts"), macro);
+		const markers = join(temporary, "markers");
+		mkdirSync(markers);
+		const sources: { path: string; source: string }[] = [];
+		const paths: string[] = [];
+		for (const directory of ["src", "other"]) {
+			const path = `${directory}/roles.ts`, implementation = `${directory}/embed.ts`;
+			mkdirSync(join(root, directory), { recursive: true });
+			mkdirSync(join(instrumented, directory), { recursive: true });
+			writeFileSync(join(root, path), source);
+			writeFileSync(join(root, implementation), macro);
+			writeFileSync(join(instrumented, path), instrument(source, [
+				reachSite(`${directory}-macro`, path, source, '"resident"'),
+				reachSite(`${directory}-ordinary`, path, source, '" ready"'),
+			], markers));
+			writeFileSync(join(instrumented, implementation), instrument(macro, [
+				reachSite(`${directory}-implementation`, implementation, macro, "name.toUpperCase()"),
+			], markers));
+			sources.push({ path: join(root, path), source });
+			paths.push(path, implementation);
+		}
 		writeFileSync(join(root, "src/roles.test.ts"),
-			'import { expect, test } from "bun:test"; import { preset } from "./roles"; test("preset", () => expect(preset).toBe("RESIDENT ready"));\n');
-		const ordinary = source.indexOf('" ready"');
-		const macroArgument = source.indexOf('"resident"');
-		const site = (id: string, start: number, end: number) => ({
-			id, path, sourceSha256: sha256(source),
-			site: { start, end, mode: "expression" as const }, tests: [],
-		});
-		writeFileSync(join(instrumented, path), instrument(source, [
-			site("macro", macroArgument, macroArgument + '"resident"'.length),
-			site("ordinary", ordinary, ordinary + '" ready"'.length),
-		], join(temporary, "markers")));
-		writeFileSync(join(instrumented, "src/embed.ts"), instrument(macro, [
-			{ id: "implementation", path: "src/embed.ts", sourceSha256: sha256(macro),
-				site: { start: macro.indexOf("name.toUpperCase()"), end: macro.indexOf("name.toUpperCase()") + "name.toUpperCase()".length, mode: "expression" }, tests: [] },
-		], join(temporary, "markers")));
+			'import { expect, test } from "bun:test"; import { preset } from "./roles"; import { preset as other } from "../other/roles"; test("preset", () => { expect(preset).toBe("RESIDENT ready"); expect(other).toBe(preset); });\n');
+		const unrelated = 'import { expect, test } from "bun:test"; import { value } from "./value"; test("unrelated", () => expect(value).toBe(1));\n';
+		writeFileSync(join(root, "src/value.ts"), "export const value = 1;\n");
+		writeFileSync(join(root, "src/unrelated.test.ts"), unrelated);
+		writeFileSync(join(root, "src/inherited.test.ts"), `
+import { expect, test } from "bun:test";
+test("inherited preload", async () => {
+	const child = Bun.spawn([process.execPath, "test", "./src/unrelated.test.ts"], {
+		env: process.env, stdout: "pipe", stderr: "pipe", signal: AbortSignal.timeout(10000),
+	});
+	const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+	expect({ exit, stdout: exit ? stdout : "", stderr: exit ? stderr : "" }).toEqual({ exit: 0, stdout: "", stderr: "" });
+});
+`);
+		const external = join(temporary, "fixture-sibling");
+		mkdirSync(external);
+		writeFileSync(join(external, "value.ts"), "export const value = 1;\n");
+		writeFileSync(join(external, "unrelated.test.ts"), unrelated);
 		const overlayPath = join(temporary, "overlay.txt");
-		writeFileSync(overlayPath, encodeOverlay({ root, instrumented, paths: [path, "src/embed.ts"] }));
-		const primer = stageMacroPreload([{ path: join(root, path), source }], join(temporary, "macros.ts"));
-		expect(primer).not.toBeNull();
-		const run = Bun.spawnSync([process.execPath, "test", "./src/roles.test.ts"], {
-			cwd: root, timeout: 15_000,
-			env: { ...process.env, [OVERLAY_ENVIRONMENT]: overlayPath,
-				BUN_OPTIONS: `--preload=${primer} --preload=${stagePreload(temporary)}` },
-			stdout: "pipe", stderr: "pipe",
-		});
-		expect(run.exitCode).toBe(0);
-		expect(existsSync(join(temporary, "markers", "ordinary"))).toBe(true);
-		expect(existsSync(join(temporary, "markers", "macro"))).toBe(false);
+		writeFileSync(overlayPath, encodeOverlay({ root, instrumented, paths }));
+		const primer = stageMacroPreload(sources, join(temporary, "macros.ts"));
+		if (!primer) throw new Error("macro primer missing");
+		const testPath = selection === "consumer" ? "./src/roles.test.ts" : `./src/${selection}.test.ts`;
+		const lcov = await runReachTest(selection === "external" ? external : root,
+			selection === "external" ? "./unrelated.test.ts" : testPath, overlayPath, primer, temporary);
+		const records = parseNativeLcov(lcov, ".");
+		expect(records.length).toBeGreaterThan(0);
+		if (selection === "external") expect(records.map((record) => record.path)).toEqual(["value.ts"]);
+		expect(readdirSync(markers).sort()).toEqual(selection === "consumer"
+			? ["other-implementation", "other-ordinary", "src-implementation", "src-ordinary"] : []);
+	} finally { rmSync(temporary, { recursive: true, force: true }); }
+});
+
+test.each(["boot", "unrelated"])("real isolated boot graph retains implementation attribution: %s", async (selection) => {
+	const temporary = mkdtempSync(join(tmpdir(), "oni-reach-boot-"));
+	try {
+		const root = resolve(import.meta.dir, ".."), path = "apps/oni/src/bundles/prompt/embed.ts";
+		const source = readFileSync(join(root, path), "utf8");
+		const consumer = join(root, "apps/oni/src/bundles/prompt/roles.ts");
+		const instrumented = join(temporary, "instrumented"), markers = join(temporary, "markers");
+		mkdirSync(markers);
+		mkdirSync(dirname(join(instrumented, path)), { recursive: true });
+		writeFileSync(join(instrumented, path), instrument(source, [
+			reachSite("implementation", path, source, `readFileSync(join(import.meta.dir, "..", "..", "..", "prompts", "roles", \`\${name}.md\`), "utf-8")`),
+		], markers));
+		const overlay = join(temporary, "overlay.txt");
+		writeFileSync(overlay, encodeOverlay({ root, instrumented, paths: [path] }));
+		const primer = stageMacroPreload([
+			{ path: join(root, path), source }, { path: consumer, source: readFileSync(consumer, "utf8") },
+		], join(temporary, "macros.ts"));
+		if (!primer) throw new Error("macro primer missing");
+		const unrelated = join(temporary, "unrelated.test.ts");
+		writeFileSync(unrelated, 'import { expect, test } from "bun:test"; test("unrelated", () => expect(1).toBe(1));\n');
+		const lcov = await runReachTest(join(root, "apps/oni"),
+			selection === "boot" ? "./test/boot-cleanup-failures.test.ts" : unrelated, overlay, primer, temporary);
+		expect(parseNativeLcov(lcov, "apps/oni").length).toBeGreaterThan(0);
+		expect(readdirSync(markers)).toEqual(selection === "boot" ? ["implementation"] : []);
 	} finally { rmSync(temporary, { recursive: true, force: true }); }
 });
