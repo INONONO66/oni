@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { type Channel, Operational } from "@oni/protocol";
 import { z } from "zod";
 import { DiscordAdapter } from "../src/provider/discord/surface";
@@ -9,11 +9,6 @@ import { FakeDiscordListener, READY, fakeDiscordSdk } from "./helpers/discord-sd
 import { injectedOptions } from "./helpers/injected";
 
 const noopPublish: PublishPort = () => undefined;
-const realFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
-
 /** One started adapter over the scripted SDK listener, with an inbound queue. */
 async function started(publish: PublishPort = noopPublish, listener?: FakeDiscordListener) {
   const fake = fakeDiscordSdk(listener);
@@ -84,18 +79,8 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
 
   it("acknowledges a component interaction through the API before handoff and warn-drops a refusal", async () => {
     const calls: string[] = [];
-    const callbacks: { path: string; body: object }[] = [];
-    globalThis.fetch = Object.assign(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const path = String(input);
-        callbacks.push({ path, body: JSON.parse(String(init?.body)) });
-        calls.push(`ack:${path.includes("/refused/") ? "refused" : "accepted"}`);
-        return new Response(null, { status: path.includes("/refused/") ? 403 : 204 });
-      },
-      { preconnect: realFetch.preconnect },
-    );
     const warned = Promise.withResolvers<string>();
-    const { listener, next } = await started((event, data) => {
+    const { client, listener, next } = await started((event, data) => {
       const observed = z
         .object({ msg: z.string(), context: z.object({ err: z.string().optional() }).optional() })
         .parse(data);
@@ -129,26 +114,18 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
         postback: { id: "approve", label: "Approve", messageRef: "sent" },
       },
     });
+    client.fail("respondToInteraction:refused", new Error("refused"));
     listener.dispatch("INTERACTION_CREATE", interaction("refused"));
     expect(await bounded(warned.promise)).not.toContain("/refused/token/");
-    expect(calls).toEqual(["ack:accepted", "handoff", "ack:refused"]);
-    expect(callbacks.map((call) => call.path)).toEqual([
-      "https://discord.com/api/v10/interactions/accepted/token/callback",
-      "https://discord.com/api/v10/interactions/refused/token/callback",
+    expect(client.calls.map(({ method }) => method)).toEqual([
+      "respondToInteraction",
+      "respondToInteraction",
     ]);
-    expect(callbacks.every((call) => JSON.stringify(call.body) === '{"type":6}')).toBe(true);
+    expect(calls).toEqual(["handoff"]);
   });
 
   it("ignores interactions that are not component taps without calling the API", async () => {
-    let requests = 0;
-    globalThis.fetch = Object.assign(
-      async () => {
-        requests += 1;
-        return new Response(null, { status: 204 });
-      },
-      { preconnect: realFetch.preconnect },
-    );
-    const { listener, inbound } = await started();
+    const { client, listener, inbound } = await started();
     listener.dispatch("INTERACTION_CREATE", {
       id: "slash",
       token: "token",
@@ -157,7 +134,7 @@ describe("DiscordAdapter over the agent-messenger gateway listener", () => {
       data: { name: "deploy" },
     });
     await bounded(Promise.resolve());
-    expect(requests).toBe(0);
+    expect(client.calls).toHaveLength(0);
     expect(inbound).toHaveLength(0);
   });
 

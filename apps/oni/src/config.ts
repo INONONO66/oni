@@ -20,6 +20,7 @@ export const ConfigurationError = NamedError.create(
       "retired_env",
       "invalid_fork_copy_byte_cap",
       "invalid_machines_default",
+      "invalid_machines_inbox",
       "invalid_machines_self",
       "invalid_machines_tcp",
       "invalid_model_fallbacks",
@@ -112,6 +113,12 @@ export interface OniConfig {
     };
     /** The machine a prefix-less path resolves to; defaults to the self id. */
     readonly default?: string;
+    /**
+     * An existing absolute directory on the default machine where inbound
+     * chat attachments are written before the Resident sees them; absent,
+     * attachments stay as the platform's own references.
+     */
+    readonly inbox?: string;
     /**
      * Where the host accepts daemons. Unix is always bound (same-box daemons
      * stay zero-config); tcp appears only when the Owner configured the full
@@ -535,6 +542,7 @@ export interface MachinePlane {
     readonly exports: readonly { readonly name: string; readonly path: string }[];
   };
   readonly defaultMachine: string;
+  readonly inbox?: string;
 }
 
 /**
@@ -572,7 +580,7 @@ export function validateMachinePlane(
       message: `machines.default is not an enrolled machine: ${defaultMachine}`,
     });
   }
-  return { self, defaultMachine };
+  return { self, defaultMachine, ...(machines.inbox === undefined ? {} : { inbox: machines.inbox }) };
 }
 const SocialBudgets = z.array(Gateway.SocialBudget);
 
@@ -753,7 +761,9 @@ function machinesTcpFromEnv(env: Record<string, string | undefined>) {
 /**
  * Env mapping (#1271): `ONI_MACHINES_SELF` declares the host's own
  * machine, `ONI_MACHINES_DEFAULT` names the prefix-less target (defaults
- * to the self id), `ONI_MACHINES_ENROLLED` admits remote machines. Any
+ * to the self id), `ONI_MACHINES_ENROLLED` admits remote machines,
+ * `ONI_MACHINES_INBOX` names the existing absolute directory on the
+ * default machine that receives inbound chat attachments. Any
  * of the three configures the plane; a configured plane without self is a
  * contradiction, because boot attaches the in-process daemon unconditionally.
  */
@@ -765,6 +775,13 @@ function machinesFromEnv(
   const enrolled = parseEnvJson("ONI_MACHINES_ENROLLED", Enrollments, env);
   const capacity = parseEnvJson("ONI_MACHINES_CAPACITY", Machine.CapacityRows, env);
   const defaultMachine = env.ONI_MACHINES_DEFAULT?.trim() || undefined;
+  const inbox = env.ONI_MACHINES_INBOX?.trim() || undefined;
+  if (inbox !== undefined && !Machine.AbsolutePath.safeParse(inbox).success) {
+    throw new ConfigurationError({
+      code: "invalid_machines_inbox",
+      message: `ONI_MACHINES_INBOX must be an absolute path: ${inbox}`,
+    });
+  }
   if (self === undefined && enrolled === undefined && defaultMachine === undefined && capacity === undefined) return undefined;
   if (self === undefined) {
     throw new ConfigurationError({
@@ -777,6 +794,7 @@ function machinesFromEnv(
   const machines: NonNullable<OniConfig["machines"]> = {
     self,
     ...(defaultMachine === undefined ? {} : { default: defaultMachine }),
+    ...(inbox === undefined ? {} : { inbox }),
     listen: { unix, ...(network === undefined ? {} : { tcp: network.tcp }) },
     ...(network === undefined ? {} : { tls: network.tls }),
     enrolled: enrolled ?? [],

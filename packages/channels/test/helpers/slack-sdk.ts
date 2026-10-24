@@ -138,6 +138,11 @@ export class FakeSlackClient implements SlackBotApi {
     return this.record("login", [credentials.token], this);
   }
 
+  downloadFile(fileId: string): Promise<{ buffer: Uint8Array; file: { name?: string; mimetype?: string } }> {
+    this.calls.push({ method: "downloadFile", args: [fileId] });
+    return Promise.resolve({ buffer: new TextEncoder().encode(fileId), file: { name: `${fileId}.txt`, mimetype: "text/plain" } });
+  }
+
   testAuth(): Promise<{ user_id: string; team_id: string }> {
     return this.record("testAuth", [], this.script.identity ?? { user_id: "UBOT", team_id: "T9" });
   }

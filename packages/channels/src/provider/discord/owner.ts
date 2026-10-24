@@ -8,7 +8,6 @@ import { type ListenerCustody, listenerCustody } from "../../support/sdk-listene
 import { newTraceId } from "../../support/trace";
 import type { PublishPort } from "../../types";
 import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
-import { DiscordClient } from "./client";
 import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
 import { DiscordNormalizer } from "./normalizer";
 import {
@@ -16,14 +15,15 @@ import {
   type DiscordOwnerEventMap,
   type DiscordOwnerSdk,
   discordOwnerSdk,
+  classifyDiscordOwnerFailure,
 } from "./owner-sdk";
 import { type DiscordMessage, DiscordMessageSchema } from "./types";
 
 /**
  * Discord as the Owner's own account (#1569 lane 6): the `discord:owner`
  * instance, logged in with the vault-opened account token the remote-auth
- * login produced. Delivery and typing ride the package's REST client under
- * the bare token (one physical attempt per idempotency key); intake is the
+ * login produced. Delivery and typing ride the SDK client under the bare
+ * token with retries disabled; intake is the
  * account's gateway listener under the declared posture: by default a DM to
  * the Owner or a mention of the Owner reaches the Resident, received by
  * the Owner; the account's own messages never do. Reactions are not intake:
@@ -35,8 +35,8 @@ export class DiscordOwnerAdapter implements Channel.Surface {
   /** The surface contract's config: an Owner instance carries its posture instead. */
   readonly config: Channel.Config = {};
 
-  private readonly client: DiscordClient;
   private readonly account: DiscordOwnerApi;
+  private readonly ready: Promise<void>;
   private readonly sdk: DiscordOwnerSdk;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
@@ -46,15 +46,15 @@ export class DiscordOwnerAdapter implements Channel.Surface {
   private selfId: string | null = null;
 
   constructor(
-    private readonly credentials: { token: string },
+    readonly credentials: { token: string },
     readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     sdk: DiscordOwnerSdk = discordOwnerSdk(),
   ) {
     this.sdk = sdk;
-    this.client = new DiscordClient(credentials.token, publish, options.run, "user");
     this.account = sdk.client();
+    this.ready = this.account.login(credentials).then(() => undefined);
     this.dedupe = new Dedupe(options.now);
   }
 
@@ -69,9 +69,9 @@ export class DiscordOwnerAdapter implements Channel.Surface {
    * error before it.
    */
   async start(traceId: string): Promise<void> {
-    await this.account.login(this.credentials);
+    await this.ready;
     // The identity check rides the package's client: one attempt, no hidden sleeps.
-    const identity = await this.client.me(traceId);
+    const identity = await this.account.testAuth();
     this.selfId = identity.id;
     this.normalizer = new DiscordNormalizer(identity.id);
     const listens = this.posture.intake !== "none" && this.handler !== null;
@@ -175,14 +175,24 @@ export class DiscordOwnerAdapter implements Channel.Surface {
 
   async openTyping(externalId: string, conversation?: Gateway.Conversation): Promise<Gateway.Conversation> {
     if (conversation !== undefined) return conversation;
-    return { channelId: await discordDmChannel(this.client, externalId, newTraceId(this.options.id)) };
+    await this.ready;
+    return {
+      channelId: await discordDmChannel(this.account, classifyDiscordOwnerFailure, externalId),
+    };
   }
 
   typing(conversation: Gateway.Conversation): Promise<void> {
-    return this.client.typing(conversation.channelId, newTraceId(this.options.id));
+    return this.account.triggerTyping(conversation.channelId);
   }
 
   private delivery(): DiscordDelivery {
-    return { client: this.client, outbound: this.outbound, publish: this.publish, options: this.options };
+    return {
+      client: this.account,
+      ready: this.ready,
+      classify: classifyDiscordOwnerFailure,
+      outbound: this.outbound,
+      publish: this.publish,
+      options: this.options,
+    };
   }
 }

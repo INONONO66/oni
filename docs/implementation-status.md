@@ -799,7 +799,18 @@ paths, the first live run).
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
 main (PRs #1586–#1597); this section is the one place the shipped state is
 summarized, and the per-lane sections under it are the receipts. Messenger
-I/O is `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per
+I/O is the repository's agent-messenger fork pinned by commit in
+`packages/channels/package.json` (byte uploads, `retries` per client — set to
+zero on every client so custody stays one physical attempt — Telegram
+`getFile`/`answerCallbackQuery`/`sendChatAction`, Discord typing/DM/interaction
+responses, errors carrying `httpStatus`/`retryAfter`); the hand-rolled Discord
+and Telegram REST clients are gone and every REST call goes through the SDK
+seam. Inbound attachments are stored on the default machine's
+`ONI_MACHINES_INBOX` through `ProviderRuntime.attachments` (Telegram,
+Slack with `files:read`, Discord CDN) by `composition/attachments.ts`, with
+the reference rewritten to `<machine>:<path>`; receipts
+`apps/oni/test/attachment-inbox.test.ts`, `test/config.test.ts`.
+Before that, messenger I/O was `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per
 messenger provider (Slack, Discord, Telegram, Instagram, KakaoTalk), under
 `support/sdk-listener.ts` custody; GitHub, Linear, webhook and A2A are
 hand-rolled over fetch and webhook ingress. The SDK's own credential store

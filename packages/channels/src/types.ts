@@ -10,17 +10,6 @@ import type { Effect } from "effect";
 export type PublishPort = BusEvent.Sink["publish"];
 
 /**
- * Platform API calls: send messages, typing indicators, authentication, rate limiting.
- * MUST NOT: parse inbound payloads, manage adapter lifecycle, call IngressEngine.
- * `send` returns the platform message id when the channel API provides one
- * (Discord and Telegram do); awaited-delivery correlation records it.
- */
-export interface ChannelClient {
-  /** `traceId` is the causing occurrence's trace (D11) — the inbound message for replies, the surface's documented origin mint for outbound sends; retries of one send share it. */
-  send(channelId: string, text: string, traceId: string): Promise<string | undefined>;
-}
-
-/**
  * The bytes behind one outbound media part, with the name and mime the
  * platform upload names them by.
  */
@@ -36,6 +25,13 @@ export interface MediaBytes {
  * this: drivers never read a filesystem or fetch beyond their platform API.
  */
 export type MediaResolver = (part: Outbound.Part & { kind: "image" | "file" }) => Promise<MediaBytes>;
+
+/**
+ * Fetches one inbound attachment's bytes by the reference the driver's
+ * normalizer put on the message, through the platform's own authenticated
+ * download; a driver whose references are public URLs offers none.
+ */
+export type AttachmentFetch = (ref: string) => Promise<MediaBytes>;
 
 /**
  * Raw platform payload → Channel.InboundMessage.

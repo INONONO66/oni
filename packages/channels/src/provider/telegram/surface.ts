@@ -6,12 +6,12 @@ import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../.
 import { requireHandler } from "../../support/handler-frame";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { translate } from "../../support/translate";
-import { RateLimited, TelegramApiError } from "../../errors";
+import { DeliveryNotSent, RateLimited, TelegramApiError } from "../../errors";
 import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format";
-import { TelegramClient } from "./client";
 import { TelegramNormalizer } from "./normalizer";
 import {
   isTelegramTerminal,
+  classifyTelegramFailure,
   TELEGRAM_ALLOWED_UPDATES,
   type TelegramBotApi,
   type TelegramBotEventMap,
@@ -25,15 +25,15 @@ import {
   TelegramUpdateSchema,
 } from "./types";
 import type { ProviderOptions } from "../contract";
-import type { PublishPort } from "../../types";
+import type { MediaBytes, PublishPort } from "../../types";
 
 /**
  * Telegram over the agent-messenger bot SDK's long-poll listener (#1569): the
  * SDK owns `getUpdates`, its backoff and the offset; this surface owns the
  * bot identity (from the listener's `getMe`), facts-only normalization,
  * inbound dedupe, callback acks, delivery custody and rendering. REST stays
- * on the package's own client over `fetch-retry` (one physical attempt per
- * key). Every update is read off the raw `telegram_update` event through the
+ * through the SDK client with retries disabled, one physical attempt per key.
+ * Every update is read off the raw `telegram_update` event through the
  * surface's own schema because `message_reaction` is not a typed SDK event.
  * The SDK advances the offset before dispatch, so a failed handoff is an
  * Operational Error with the dedupe claim released, not a platform redelivery
@@ -44,8 +44,14 @@ import type { PublishPort } from "../../types";
  */
 export class TelegramAdapter implements Channel.Surface {
   readonly id = "telegram:bot";
-  private readonly client: TelegramClient;
+
+  async download(fileId: string): Promise<MediaBytes> {
+    const { buffer, file } = await this.bot.downloadFile(fileId);
+    const path = file.file_path ?? fileId;
+    return { bytes: buffer, name: path.slice(path.lastIndexOf("/") + 1), mime: "application/octet-stream" };
+  }
   private readonly bot: TelegramBotApi;
+  private readonly ready: Promise<void>;
   private readonly dedupe: Dedupe;
   private readonly outbound = new DeliveryReconciliation();
   private custody: ListenerCustody | null = null;
@@ -53,15 +59,15 @@ export class TelegramAdapter implements Channel.Surface {
   private handler: Channel.MessageHandler | null = null;
 
   constructor(
-    private readonly token: string,
+    readonly token: string,
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     private readonly sdk: TelegramSdk = telegramSdk(),
   ) {
     this.dedupe = new Dedupe(options.now);
-    this.client = new TelegramClient(token, publish, options.now, options.run);
     this.bot = sdk.client();
+    this.ready = this.bot.login({ token }).then(() => undefined);
   }
 
   onMessage(handler: Channel.MessageHandler): void {
@@ -71,7 +77,7 @@ export class TelegramAdapter implements Channel.Surface {
   /** Settles on the listener's `connected` (after its `getMe`); an error before it fails this start. */
   async start(traceId: string): Promise<void> {
     requireHandler(this.handler, "telegram");
-    await this.bot.login({ token: this.token });
+    await this.ready;
     const listener = this.sdk.listener(this.bot, { allowedUpdates: TELEGRAM_ALLOWED_UPDATES });
     const custody = listenerCustody<TelegramBotEventMap>(listener, {
       label: "telegram poll",
@@ -137,8 +143,7 @@ export class TelegramAdapter implements Channel.Surface {
     const callback = update.data.callback_query;
     if (callback === undefined) return;
     // This acknowledgment only dismisses the client spinner; a refusal must not block the handoff.
-    void this.client
-      .answerCallbackQuery(callback.id, traceId)
+    void this.call("telegram.answerCallbackQuery", () => this.bot.answerCallbackQuery(callback.id))
       .catch((error) => {
         this.publish(Operational.Events.Warn, {
           traceId,
@@ -187,32 +192,37 @@ export class TelegramAdapter implements Channel.Surface {
     return deliverKeyed(
       this.outbound,
       idempotencyKey,
-      (traceId) =>
-        translate(
+      async (traceId) => {
+        await this.ready;
+        return await translate(
           payload,
           TELEGRAM_RENDER,
           {
-            text: (chunk) => this.client.sendMarkdown(chatId, chunk, traceId, conversation),
+            text: (chunk) => this.sendMarkdown(chatId, chunk, traceId, conversation),
             media: {
               limits: TELEGRAM_MEDIA_LIMITS,
               upload: async (kind, bytes, caption) => {
-                const externalMessageId = await this.client.sendMedia(
+                const externalMessageId = await this.sendMedia(
                   chatId,
                   kind,
                   bytes,
                   caption,
-                  traceId,
                   conversation,
                 );
                 return externalMessageId === undefined ? {} : { externalMessageId };
               },
             },
             // setMessageReaction sets the bot's whole reaction list, so `replaces` needs no second call.
-            react: (messageId, emoji) => this.client.react(chatId, messageId, emoji, traceId),
+            react: (messageId, emoji) =>
+              this.call("telegram.setMessageReaction", () =>
+                this.bot.setMessageReaction(chatId, Number(messageId), [{ type: "emoji", emoji }]),
+              ).then(() => undefined),
           },
           this.options.media,
-        ),
+        );
+      },
       (error) =>
+        classifyTelegramFailure(error) === "rejected" ||
         (error instanceof TelegramApiError && error.rejected) ||
         (error instanceof RateLimited && error.status === 429),
       this.publish,
@@ -229,7 +239,88 @@ export class TelegramAdapter implements Channel.Surface {
   }
 
   typing(conversation: Gateway.Conversation): Promise<void> {
-    return this.client.typing(conversation.channelId, newTraceId(this.options.id), conversation);
+    return this.call("telegram.sendChatAction", () =>
+      this.bot.sendChatAction(
+        conversation.channelId,
+        "typing",
+        conversation.threadId === undefined
+          ? undefined
+          : { message_thread_id: Number(conversation.threadId) },
+      ),
+    ).then(() => undefined);
+  }
+
+  private async sendMarkdown(
+    channelId: string,
+    text: string,
+    traceId: string,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    try {
+      return await this.sendMessage(channelId, text, "MarkdownV2", conversation);
+    } catch (error) {
+      if (
+        !(
+          error instanceof TelegramApiError &&
+          error.rejected === true &&
+          /can't parse entities/i.test(error.message)
+        )
+      )
+        throw error;
+      this.publish(Operational.Events.Warn, {
+        traceId,
+        time: this.options.now(),
+        component: "server",
+        msg: "telegram markdown rejected — delivered as plain text",
+        context: { err: String(error) },
+      });
+      return await this.sendMessage(channelId, text, undefined, conversation);
+    }
+  }
+
+  private sendMessage(
+    channelId: string,
+    text: string,
+    parseMode: "MarkdownV2" | undefined,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    return this.call("telegram.sendMessage", () =>
+      this.bot.sendMessage(channelId, text, {
+        ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
+        ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+        ...(conversation?.replyToMessageId === undefined ? {} : { reply_to_message_id: Number(conversation.replyToMessageId) }),
+      }),
+    ).then((message) => message.message_id === undefined ? undefined : String(message.message_id));
+  }
+
+  private sendMedia(
+    channelId: string,
+    kind: "image" | "file",
+    media: { readonly bytes: Uint8Array; readonly name: string; readonly mime: string },
+    caption: string | undefined,
+    conversation?: Gateway.Conversation,
+  ): Promise<string | undefined> {
+    const options = {
+      ...(caption === undefined ? {} : { caption }),
+      ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
+    };
+    return this.call(`telegram.${kind === "image" ? "sendPhoto" : "sendDocument"}`, () =>
+      kind === "image"
+        ? this.bot.sendPhoto(channelId, { data: media.bytes, filename: media.name, contentType: media.mime }, options)
+        : this.bot.sendDocument(channelId, { data: media.bytes, filename: media.name, contentType: media.mime }, options),
+    ).then((message) => message.message_id === undefined ? undefined : String(message.message_id));
+  }
+
+  private async call<T>(operation: string, action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      const failure = classifyTelegramFailure(error);
+      if (failure === "not_connected")
+        throw new DeliveryNotSent({ operation, cause: String(error) });
+      throw new TelegramApiError({ message: String(error), rejected: failure === "rejected" });
+    }
   }
 
   private async handleMessage(

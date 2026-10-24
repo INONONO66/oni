@@ -1,19 +1,17 @@
-import { DiscordClient, DiscordListener, loginWithRemoteAuth } from "agent-messenger/discord";
+import { DiscordClient, DiscordError, DiscordListener, loginWithRemoteAuth } from "agent-messenger/discord";
 import type { DiscordListenerEventMap } from "agent-messenger/discord";
+import type { DiscordApi } from "./sdk";
 
 /**
  * The slice of the agent-messenger Discord USER SDK the Owner instance
- * speaks (#1569 lane 6): the gateway listener and the login that holds its
- * token. Every request — the identity check at start included — rides the
- * package's own `DiscordClient` under the account token, for the same
- * reason as the bot: the SDK client re-sends 429/5xx up to three times
- * with no off switch, and custody allows one physical attempt per
- * idempotency key. The SDK classes satisfy these shapes structurally; tests
- * pass scripted fakes.
+ * speaks (#1569 lane 6): the gateway listener and one-attempt REST client.
+ * Every request — the identity check at start included — rides the same
+ * account token through this seam. The SDK classes satisfy these shapes
+ * structurally; tests pass scripted fakes.
  */
-export interface DiscordOwnerApi {
-  /** Holds the token the gateway identifies with; no request leaves here. */
-  login(credentials: { token: string }): Promise<object>;
+export interface DiscordOwnerApi extends Omit<DiscordApi, "createDm"> {
+  createDM(userId: string): Promise<{ id?: string }>;
+  testAuth(): Promise<{ id: string; username: string }>;
 }
 
 /** The SDK's user-gateway event map, re-exported so the surface never imports the SDK itself. */
@@ -36,11 +34,32 @@ export interface DiscordOwnerSdk {
 
 export function discordOwnerSdk(): DiscordOwnerSdk {
   return {
-    client: () => new DiscordClient(),
+    client: () => new DiscordClient({ retries: 0 }),
     // The listener only ever receives the client this same factory built.
-    listener: (client) => new DiscordListener(client as DiscordClient),
+    listener: (client) => new DiscordListener(client as unknown as DiscordClient),
   };
 }
+
+const SDK_PREFLIGHT = new Set([
+  "not_authenticated",
+  "missing_token",
+  "invalid_token",
+  "empty_message",
+  "file_too_large",
+]);
+const NEVER_CONNECTED = /\b(ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b/;
+
+export type DiscordOwnerFailure = "rejected" | "not_connected" | "uncertain";
+
+export function classifyDiscordOwnerFailure(error: Error): DiscordOwnerFailure {
+  if (!(error instanceof DiscordError)) return "uncertain";
+  if (error.httpStatus !== undefined && error.httpStatus >= 400 && error.httpStatus < 500)
+    return "rejected";
+  if (NEVER_CONNECTED.test(error.message) || NEVER_CONNECTED.test(error.code))
+    return "not_connected";
+  return SDK_PREFLIGHT.has(error.code) ? "rejected" : "uncertain";
+}
+
 
 /**
  * The Owner's own sign-in (#1569 lane 5b): Discord's remote-auth QR, shown

@@ -45,6 +45,7 @@ const ENV_KEYS = [
   "ONI_PROMPTS_DIR",
   "ONI_SKILLS_DIR",
   "ONI_MACHINES_DEFAULT",
+  "ONI_MACHINES_INBOX",
   "ONI_MACHINES_ENROLLED",
   "ONI_MACHINES_CAPACITY",
   "ONI_MACHINES_SELF",
@@ -816,6 +817,20 @@ describe("machines self enrollment config (#1271)", () => {
     if (machines === undefined) throw new Error("machines plane expected");
     expect(machines.default).toBe("alpha");
     expect(validateMachinePlane(machines).defaultMachine).toBe("alpha");
+  });
+
+  it("carries an absolute attachment inbox into the plane", () => {
+    process.env.ONI_MACHINES_SELF = selfEnv;
+    process.env.ONI_MACHINES_INBOX = "/srv/inbox";
+    const machines = loadConfig().machines;
+    if (machines === undefined) throw new Error("machines plane expected");
+    expect(validateMachinePlane(machines).inbox).toBe("/srv/inbox");
+  });
+
+  it("rejects a relative attachment inbox", () => {
+    process.env.ONI_MACHINES_SELF = selfEnv;
+    process.env.ONI_MACHINES_INBOX = "inbox";
+    expect(loadConfig).toThrow("ONI_MACHINES_INBOX must be an absolute path: inbox");
   });
 });
 

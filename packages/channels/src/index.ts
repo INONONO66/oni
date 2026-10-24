@@ -8,7 +8,7 @@ export { OwnerLogins, type OwnerLogin } from "./provider/owner-login.js";
 export { inboundOnce } from "./support/inbound-once.js";
 export { activeBudgetFor } from "./router/messaging/admission.js";
 export { typingPulse } from "./support/typing-pulse.js";
-export type { EffectRunner, MediaBytes, MediaResolver } from "./types.js";
+export type { AttachmentFetch, EffectRunner, MediaBytes, MediaResolver } from "./types.js";
 export { ChannelProviders } from "./provider/registry.js";
 export { createWebhookProvider } from "./provider/webhook/provider.js";
 export { createWebhookSender, signWebhookBody, type WebhookFetch, type WebhookSender } from "./provider/webhook/outbound.js";

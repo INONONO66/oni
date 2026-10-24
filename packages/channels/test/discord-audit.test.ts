@@ -1,8 +1,7 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { injectedOptions, testRun } from "./helpers/injected";
+import { describe, expect, it } from "bun:test";
+import { injectedOptions } from "./helpers/injected";
 import { Operational } from "@oni/protocol";
-import { DiscordClient } from "../src/provider/discord/client";
-import { DiscordApiError, DiscordHandlerMissingError } from "../src/errors";
+import { DiscordHandlerMissingError } from "../src/errors";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { bounded } from "./helpers/bounded";
 import { fakeDiscordSdk } from "./helpers/discord-sdk";
@@ -13,10 +12,6 @@ const message = {
   author: { id: "user-1", username: "user" },
   content: "hello",
 };
-const realFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
 
 describe("Discord audit regressions", () => {
   it("releases a rejected ingress attempt for platform redelivery", async () => {
@@ -44,16 +39,6 @@ describe("Discord audit regressions", () => {
     fake.listener.dispatch("MESSAGE_CREATE", message);
     await bounded(retried.promise);
     expect(handlerAttempts).toBe(2);
-  });
-
-  it("throws a typed error when a Discord API request fails", async () => {
-    globalThis.fetch = Object.assign(async () => new Response("forbidden", { status: 403 }), {
-      preconnect: realFetch.preconnect,
-    });
-    const client = new DiscordClient("token", () => undefined, testRun);
-    await expect(client.send("channel-1", "hello", "trace-1")).rejects.toBeInstanceOf(
-      DiscordApiError,
-    );
   });
 
   it("throws a typed error when start has no message handler", async () => {

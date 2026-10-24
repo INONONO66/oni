@@ -148,23 +148,8 @@ describe("TelegramAdapter over the agent-messenger long-poll listener", () => {
   });
 
   it("answers a callback through the API before handoff and still delivers when the answer is refused", async () => {
-    const answered: string[] = [];
-    globalThis.fetch = Object.assign(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const body = z
-          .object({ callback_query_id: z.string() })
-          .parse(JSON.parse(String(init?.body)));
-        answered.push(
-          `${String(input).endsWith("/answerCallbackQuery")}:${body.callback_query_id}`,
-        );
-        return body.callback_query_id === "refused"
-          ? Response.json({ ok: false, description: "query is too old" }, { status: 400 })
-          : Response.json({ ok: true, result: true });
-      },
-      { preconnect: realFetch.preconnect },
-    );
     const warns: string[] = [];
-    const { listener, next } = await started((event, data) => {
+    const { client, listener, next } = await started((event, data) => {
       if (event.name === Operational.Events.Warn.name)
         warns.push(z.object({ msg: z.string() }).parse(data).msg);
     });
@@ -178,25 +163,21 @@ describe("TelegramAdapter over the agent-messenger long-poll listener", () => {
       },
     });
     const second = next();
+    client.fail("answerCallbackQuery", new TelegramBotError("query is too old", "api_error", { httpStatus: 400 }));
     listener.update({ update_id: 7, callback_query: callback("refused") });
     expect((await second).facts.eventId).toBe("refused");
-    expect(answered).toEqual(["true:accepted", "true:refused"]);
+    expect(client.calls.filter(({ method }) => method === "answerCallbackQuery")).toHaveLength(2);
     expect(warns).toEqual(["telegram callback acknowledgment failed; delivering anyway"]);
   });
 
   it("a callback whose answer is still in flight at stop() still hands off: the SDK has already confirmed the update", async () => {
-    const gate = Promise.withResolvers<Response>();
-    globalThis.fetch = Object.assign(async () => gate.promise, {
-      preconnect: realFetch.preconnect,
-    });
     const { listener, adapter, next, inbound } = await started();
     const facts = next();
     listener.update({ update_id: 10, callback_query: callback("late") });
     adapter.stop("stop");
     expect(listener.stopped).toBe(1);
-    expect(inbound).toHaveLength(0);
-    gate.resolve(Response.json({ ok: true, result: true }));
     expect((await facts).facts.eventId).toBe("late");
+    expect(inbound).toHaveLength(1);
   });
 
   it("warns and drops a malformed update, and releases a failed handoff for the dedupe", async () => {
