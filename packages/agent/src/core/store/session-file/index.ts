@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   LedgerAction,
   LedgerSession,
@@ -116,7 +117,7 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
 /** Session-file schemaVersion in `PRAGMA user_version`; only this stamp can open. */
 export const SESSION_FILE_SCHEMA_VERSION = 3;
 
-const SessionUserVersion = z.object({ user_version: z.number().int().nonnegative() });
+const SessionUserVersion = z.object({ user_version: z.number().int() });
 
 /** The `readonly` `PRAGMA user_version` read behind the probe; a missing file reads as 0. */
 function probeSessionFileSchemaVersion(path: string): number {
@@ -128,8 +129,17 @@ function probeSessionFileSchemaVersion(path: string): number {
   }
   let db: Database | undefined;
   try {
-    db = new Database(path, { readonly: true });
-    return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    try {
+      db = new Database(path, { readonly: true });
+      return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "SQLITE_CANTOPEN") ||
+        existsSync(`${path}-wal`) || existsSync(`${path}-shm`)) throw error;
+      db?.close();
+      // A checkpointed WAL file cannot open readonly without sidecars.
+      db = new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true });
+      return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    }
   } catch (error) {
     throw unreadableSessionFile(path, error instanceof Error ? error : new Error(String(error)));
   } finally {
@@ -185,17 +195,17 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
 function openStampedSessionDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const fresh = path !== ":memory:" && !existsSync(path);
+  const version = fresh || path === ":memory:" ? 0 : probeSessionFileSchemaVersion(path);
+  if (version !== 0 && version !== SESSION_FILE_SCHEMA_VERSION) {
+    throw new CatalogVersionRefused({
+      fileVersion: version,
+      codeVersion: SESSION_FILE_SCHEMA_VERSION,
+      operation: "openSessionStore",
+    });
+  }
   const db = new Database(path);
   let ready = false;
   try {
-    const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-    if (version !== 0 && version !== SESSION_FILE_SCHEMA_VERSION) {
-      throw new CatalogVersionRefused({
-        fileVersion: version,
-        codeVersion: SESSION_FILE_SCHEMA_VERSION,
-        operation: "openSessionStore",
-      });
-    }
     bootstrapStoreDatabase(db, version === 0
       ? [...SESSION_FILE_SCHEMA, `PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`]
       : SESSION_FILE_SCHEMA);

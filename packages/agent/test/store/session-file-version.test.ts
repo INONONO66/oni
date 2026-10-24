@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CatalogVersionRefused } from "../../src/core/store/errors";
@@ -21,7 +21,7 @@ test("a fresh session file is stamped and reopens at v3", () => {
   }
 });
 
-for (const version of [2, SESSION_FILE_SCHEMA_VERSION + 1]) {
+for (const version of [-1, 2, SESSION_FILE_SCHEMA_VERSION + 1]) {
   test(`a session file stamped ${version} is refused without modification`, () => {
     const directory = mkdtempSync(join(tmpdir(), "session-version-"));
     const path = join(directory, "session.sqlite");
@@ -49,3 +49,25 @@ for (const version of [2, SESSION_FILE_SCHEMA_VERSION + 1]) {
     }
   });
 }
+
+test("a checkpointed WAL session file is refused without creating sidecars", () => {
+  const directory = mkdtempSync(join(tmpdir(), "session-wal-version-"));
+  const path = join(directory, "session.sqlite");
+  try {
+    const raw = new Database(path);
+    raw.run("PRAGMA journal_mode = WAL");
+    raw.run("PRAGMA user_version = 2");
+    raw.run("CREATE TABLE marker (id INTEGER)");
+    raw.run("PRAGMA wal_checkpoint(TRUNCATE)");
+    raw.close();
+    rmSync(`${path}-wal`, { force: true });
+    rmSync(`${path}-shm`, { force: true });
+    const before = readFileSync(path);
+
+    expect(() => openSessionStore(path, { now: testNow })).toThrow(CatalogVersionRefused);
+    expect(readdirSync(directory)).toEqual(["session.sqlite"]);
+    expect(readFileSync(path)).toEqual(before);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});

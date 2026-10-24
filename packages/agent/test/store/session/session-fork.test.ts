@@ -1,20 +1,22 @@
 import { configureAction, generationSnapshot } from "../../../src/core/store/configure";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { SessionGeneration, type LedgerAction } from "@oni/protocol";
-import { testNow } from "../helpers/storage";
+import { testNow, withDiskStores } from "../helpers/storage";
+import { adoptWriter, materializeSession } from "../helpers/session";
 import { CHILD, PARENT, useForkFixture } from "../helpers/fork-fixture";
 import { RETIRED_ROLE, rawCatalogRows, writeOldCatalog } from "../helpers/old-catalog";
 import { openCatalogStore } from "../../../src/core/store/catalog";
 import * as SessionHandleStore from "../../../src/core/store/fence";
 import { openSessionStore, readSessionFileSchemaVersion, SESSION_FILE_SCHEMA_VERSION } from "../../../src/core/store/session-file";
 import { receivedMessageAction } from "../../../src/core/journal/delivery";
+import { forkAncestryOf } from "../../../src/inspect/tree";
 import { forkSession, isForkBoundary } from "../../../src/core/session/fork";
 import { allowAllPolicy } from "../../helpers/compiled-policy";
 import { answerThenCompaction } from "../../helpers/durable-compaction";
@@ -33,6 +35,55 @@ const ForkGenesisIntent = z.looseObject({
 const DeliveryIntent = z.looseObject({ deliveryId: z.string() });
 
 describe("Session.fork", () => {
+  test("reads a persisted child fork anchor after reopening its file", () => {
+    withDiskStores("fork-reopen", ({ kernel, catalog, directory }) => {
+      materializeSession(kernel, PARENT);
+      const authority = adoptWriter(kernel, PARENT);
+      const anchor = "parent-prompt";
+      Result.getOrThrowWith(runLedgerSync(Effect.result(kernel.commit({
+        sessionId: PARENT,
+        owner: authority.owner,
+        fence: authority.fence,
+        now: 2,
+        expectedRevision: kernel.row(PARENT).revision,
+        actions: [receivedMessageAction({
+          id: anchor,
+          sessionId: PARENT,
+          kind: "prompt",
+          content: "fork here",
+          origin: { encodingVersion: 1, value: { source: "test" } },
+          parentActionId: `${PARENT}:configure`,
+          at: 2,
+        })],
+        state: "idle",
+      }))), (error) => error);
+      const childPath = join(directory, "child.sqlite");
+      const childStore = openSessionStore(childPath, { now: testNow });
+      try {
+        Result.getOrThrowWith(runLedgerSync(Effect.result(forkSession({
+          parent: kernel,
+          parentSchemaVersion: SESSION_FILE_SCHEMA_VERSION,
+          openChild: () => childStore,
+          catalog,
+        }, {
+          from: PARENT,
+          at: anchor,
+          childId: CHILD,
+          genesisActionId: `${CHILD}:genesis`,
+          now: 3,
+        }))), (error) => error);
+      } finally {
+        childStore.close();
+      }
+      const reopened = openSessionStore(childPath, { now: testNow });
+      try {
+        expect(forkAncestryOf(SessionHandleStore.createSessionKernel(reopened, catalog), CHILD)?.anchor).toBe(anchor);
+      } finally {
+        reopened.close();
+      }
+    });
+  });
+
   test("a locked schema file retains SQLite errno rather than appearing unstamped", () => {
     const directory = mkdtempSync(join(tmpdir(), "fork-locked-"));
     const path = join(directory, "locked.sqlite");
