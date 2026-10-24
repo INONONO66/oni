@@ -988,7 +988,32 @@ function reachInsertions(source: string, row: ReachSite, directory: string, inde
 	];
 }
 export function instrument(source: string, sites: ReachSite[], directory: string): string {
-	const ordered = [...sites].sort((a, b) => a.site.start - b.site.start || b.site.end - a.site.end);
+	const parsed = ts.createSourceFile("reach.ts", source, ts.ScriptTarget.Latest, true);
+	const macroBindings = new Set<string>();
+	for (const statement of parsed.statements) {
+		if (!ts.isImportDeclaration(statement) ||
+			!statement.attributes?.elements.some((attribute) =>
+				attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "macro")) continue;
+		const clause = statement.importClause;
+		if (clause?.name) macroBindings.add(clause.name.text);
+		if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings))
+			for (const binding of clause.namedBindings.elements) macroBindings.add(binding.name.text);
+	}
+	const macroCalls: { start: number; end: number }[] = [];
+	if (macroBindings.size) {
+		const visit = (node: ts.Node): void => {
+			if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+				macroBindings.has(node.expression.text))
+				macroCalls.push({ start: node.getStart(parsed), end: node.end });
+			ts.forEachChild(node, visit);
+		};
+		visit(parsed);
+	}
+	// Bun expands macro calls only while their argument syntax remains intact.
+	// Sites inside them retain noCoverage; other sites in the same file still report reach.
+	const ordered = sites.filter(({ site }) =>
+		!macroCalls.some((call) => site.start >= call.start && site.end <= call.end))
+		.sort((a, b) => a.site.start - b.site.start || b.site.end - a.site.end);
 	const edits = ordered.flatMap((row, index) => reachInsertions(source, row, directory, index));
 	edits.sort((a, b) => b.offset - a.offset || b.order - a.order);
 	return edits.reduce((result, edit) => replace(result, edit.offset, edit.offset, edit.text), source);
