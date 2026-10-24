@@ -1,4 +1,4 @@
-import { DeliveryNotSent } from "../errors";
+import { DeliveryNotSent, MediaTooLarge } from "../errors";
 import { Operational, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
@@ -8,6 +8,8 @@ import { newTraceId } from "./trace";
 export const DeliveryReceipt = z.object({
   value: z.enum(["sent", "not_sent", "unknown"]),
   externalMessageId: z.string().optional(),
+  /** Why a send was refused, where the refusal names a limit the sender can respect next time. */
+  reason: z.string().optional(),
 });
 export type DeliveryReceipt = z.infer<typeof DeliveryReceipt>;
 
@@ -118,6 +120,11 @@ export function deliverKeyed(
         });
         return { value: "unknown" };
       }
+      if (error instanceof MediaTooLarge)
+        return {
+          value: "not_sent",
+          reason: `media_too_large ${error.kind} ${error.bytes}>${error.limit}`,
+        };
       if (isNotSent(error, isRejected)) return { value: "not_sent" };
       return unknownNotice(traceId, String(error));
     }

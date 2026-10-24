@@ -205,10 +205,10 @@ export class TelegramAdapter implements Channel.Surface {
             text: (chunk) => this.sendMarkdown(chatId, chunk, traceId, conversation),
             media: {
               limits: TELEGRAM_MEDIA_LIMITS,
-              upload: async (kind, bytes, caption) => {
+              upload: async (kind, bytes, caption, meta) => {
                 const externalMessageId = await this.sendMedia(
                   chatId,
-                  kind,
+                  { kind, ...meta },
                   bytes,
                   caption,
                   conversation,
@@ -299,21 +299,28 @@ export class TelegramAdapter implements Channel.Surface {
 
   private sendMedia(
     channelId: string,
-    kind: "image" | "file",
+    part: { readonly kind: "image" | "file" | "audio" | "video"; readonly voice?: boolean; readonly durationMs?: number },
     media: { readonly bytes: Uint8Array; readonly name: string; readonly mime: string },
     caption: string | undefined,
     conversation?: Gateway.Conversation,
   ): Promise<string | undefined> {
     const options = {
       ...(caption === undefined ? {} : { caption }),
+      ...(part.durationMs === undefined ? {} : { duration: Math.round(part.durationMs / 1000) }),
       ...(conversation?.threadId === undefined ? {} : { message_thread_id: Number(conversation.threadId) }),
       ...(conversation?.replyToMessageId === undefined ? {} : { reply_to_message_id: Number(conversation.replyToMessageId) }),
     };
-    return this.call(`telegram.${kind === "image" ? "sendPhoto" : "sendDocument"}`, () =>
-      kind === "image"
-        ? this.bot.sendPhoto(channelId, { data: media.bytes, filename: media.name, contentType: media.mime }, options)
-        : this.bot.sendDocument(channelId, { data: media.bytes, filename: media.name, contentType: media.mime }, options),
-    ).then((message) => message.message_id === undefined ? undefined : String(message.message_id));
+    const file = { data: media.bytes, filename: media.name, contentType: media.mime };
+    const method = telegramMediaMethod(part.kind, part.voice === true);
+    const sends = {
+      sendPhoto: () => this.bot.sendPhoto(channelId, file, options),
+      sendDocument: () => this.bot.sendDocument(channelId, file, options),
+      sendAudio: () => this.bot.sendAudio(channelId, file, options),
+      sendVoice: () => this.bot.sendVoice(channelId, file, options),
+      sendVideo: () => this.bot.sendVideo(channelId, file, options),
+    };
+    return this.call(`telegram.${method}`, sends[method])
+      .then((message) => message.message_id === undefined ? undefined : String(message.message_id));
   }
 
   private async call<T>(operation: string, action: () => Promise<T>): Promise<T> {
@@ -344,4 +351,12 @@ export class TelegramAdapter implements Channel.Surface {
     });
     await requireHandler(this.handler, "telegram")(inbound);
   }
+}
+
+function telegramMediaMethod(
+  kind: "image" | "file" | "audio" | "video",
+  voice: boolean,
+): "sendPhoto" | "sendDocument" | "sendAudio" | "sendVoice" | "sendVideo" {
+  if (kind === "audio") return voice ? "sendVoice" : "sendAudio";
+  return kind === "image" ? "sendPhoto" : kind === "video" ? "sendVideo" : "sendDocument";
 }

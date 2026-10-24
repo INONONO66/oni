@@ -13,5 +13,7 @@ export const SLACK_RENDER = {
 export const SLACK_MEDIA_LIMITS = {
   imageBytes: 1024 * 1024 * 1024,
   fileBytes: 1024 * 1024 * 1024,
+  audioBytes: 1024 * 1024 * 1024,
+  videoBytes: 1024 * 1024 * 1024,
   captionLength: 4000,
 } as const satisfies MediaLimits;

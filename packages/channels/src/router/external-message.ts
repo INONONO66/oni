@@ -247,6 +247,19 @@ function oneLine(value: string): string {
   return value.replace(/\s+/g, " ").replaceAll("]", "").trim();
 }
 
+/** Seconds under a minute, else minutes and two-digit seconds: `12s`, `1m05s`. */
+function playtime(durationMs: number): string {
+  const seconds = Math.round(durationMs / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+function attachedLine(attachment: NonNullable<Gateway.IngressFacts["attachments"]>[number]): string {
+  const label = attachment.voice === true ? "voice"
+    : `${attachment.kind}${attachment.name === undefined ? "" : ` ${oneLine(attachment.name)}`}`;
+  const length = attachment.durationMs === undefined ? "" : ` ${playtime(attachment.durationMs)}`;
+  return `[attached: ${label}${length} → ${oneLine(attachment.ref)}]`;
+}
+
 function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from: string | undefined): string {
   const thread = freshSession ? (facts.context?.thread ?? []) : [];
   const quoted = facts.context?.quoted;
@@ -254,8 +267,7 @@ function promptContent(facts: Gateway.IngressFacts, freshSession: boolean, from:
   const header = from === undefined ? [] : [
     `[from ${from} on ${facts.surface} · channel ${facts.channelId} · message ${facts.eventId}${threadId === undefined ? "" : ` · thread ${threadId}`}]`,
   ];
-  const attached = (facts.attachments ?? []).map((attachment) =>
-    `[attached: ${attachment.kind}${attachment.name === undefined ? "" : ` ${oneLine(attachment.name)}`} → ${oneLine(attachment.ref)}]`);
+  const attached = (facts.attachments ?? []).map(attachedLine);
   return [
     ...(header.length + attached.length === 0 ? [] : [[...header, ...attached].join("\n")]),
     ...(thread.length === 0 ? [] : [

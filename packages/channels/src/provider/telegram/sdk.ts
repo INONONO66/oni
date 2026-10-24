@@ -37,6 +37,9 @@ export interface TelegramBotApi {
     file: string | { data: Uint8Array; filename: string; contentType?: string },
     options?: { caption?: string; message_thread_id?: number; reply_to_message_id?: number },
   ): Promise<{ message_id?: string | number }>;
+  sendAudio(chatId: string | number, audio: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id?: string | number }>;
+  sendVoice(chatId: string | number, voice: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id?: string | number }>;
+  sendVideo(chatId: string | number, video: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id?: string | number }>;
   setMessageReaction(
     chatId: string | number,
     messageId: number,
@@ -122,6 +125,15 @@ class CheckedTelegramClient extends TelegramBotClient {
   }
   override async sendDocument(...args: Parameters<TelegramBotClient["sendDocument"]>) {
     return checkedReceipt(await super.sendDocument(...args));
+  }
+  override async sendAudio(...args: Parameters<TelegramBotClient["sendAudio"]>) {
+    return checkedReceipt(await super.sendAudio(...args));
+  }
+  override async sendVoice(...args: Parameters<TelegramBotClient["sendVoice"]>) {
+    return checkedReceipt(await super.sendVoice(...args));
+  }
+  override async sendVideo(...args: Parameters<TelegramBotClient["sendVideo"]>) {
+    return checkedReceipt(await super.sendVideo(...args));
   }
   override async setMessageReaction(...args: Parameters<TelegramBotClient["setMessageReaction"]>) {
     return checkedAck(await super.setMessageReaction(...args));

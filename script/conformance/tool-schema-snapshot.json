@@ -405,6 +405,8 @@
                           "Table",
                           "Image",
                           "File",
+                          "Audio",
+                          "Video",
                           "Buttons",
                           "Button",
                           "Card",

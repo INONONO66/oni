@@ -84,6 +84,7 @@ function deliverSend(
 ): Effect.Effect<{
   readonly request: SessionTransition.Request | undefined;
   readonly value: "accepted" | "rejected" | "unknown";
+  readonly reason?: string;
 }, ChannelError> {
   return Effect.gen(function* () {
   const delivery = yield* Effect.tryPromise({ try: async () => ports.deliver({
@@ -96,7 +97,8 @@ function deliverSend(
     ...(request === undefined ? {} : { requestId: request.requestId }),
   }), catch: decodeChannelFailure("message.deliver") });
   const value = delivery.value;
-  if (request === undefined) return { request, value };
+  const outcome = { value, ...(delivery.reason === undefined ? {} : { reason: delivery.reason }) };
+  if (request === undefined) return { request, ...outcome };
   const recorded = yield* ports.requests.receipt({
     inputId: canonicalKey([
       input.messageId,
@@ -114,7 +116,7 @@ function deliverSend(
     value,
     at: input.at,
   });
-  return { request: recorded, value };
+  return { request: recorded, ...outcome };
   });
 }
 
@@ -143,6 +145,7 @@ function recordSent(
       kind: "sent",
       operation: "awaited",
       delivery,
+      ...(delivered.reason === undefined ? {} : { reason: delivered.reason }),
       messageId: input.messageId,
       senderId: input.senderId,
       grantId: grant.id,
@@ -155,6 +158,7 @@ function recordSent(
     kind: "sent",
     operation: "fire_and_forget",
     delivery,
+    ...(delivered.reason === undefined ? {} : { reason: delivered.reason }),
     messageId: input.messageId,
     senderId: input.senderId,
     grantId: grant.id,

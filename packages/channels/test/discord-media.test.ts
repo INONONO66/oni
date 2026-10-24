@@ -37,6 +37,45 @@ describe("Discord outbound SDK requests", () => {
     } finally { wire.restore(); }
   });
 
+  test.each([
+    { kind: "audio", name: "note.ogg", mime: "audio/ogg" },
+    { kind: "video", name: "clip.webm", mime: "video/webm" },
+  ] as const)("uploads $kind bytes as a files[0] attachment", async ({ kind, name, mime }) => {
+    const wire = recordHttp(() => Response.json({ id: "m-18" }));
+    try {
+      const runtime = createDiscordProvider().create(
+        { token: "dc-test" }, {}, () => undefined,
+        { ...injectedOptions(), media: async () => ({ bytes: new Uint8Array([6, 7]), name, mime }) },
+      );
+      expect(await runtime.deliveryRoute?.("U1", {
+        kind: "message",
+        parts: [{ kind, ref: "/clip", name, durationMs: 3_000 }],
+      }, `media-${kind}`, { channelId: "C1" })).toEqual({ value: "accepted", externalMessageId: "m-18" });
+      const form = await wire.requests[0]?.formData();
+      const file = form?.get("files[0]");
+      if (!(file instanceof File)) throw new Error("Missing file");
+      expect(file.name).toBe(name);
+      expect(file.type).toBe(mime);
+      expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([6, 7]);
+    } finally { wire.restore(); }
+  });
+
+  test("an oversize video is rejected before any request, its reason naming the limit", async () => {
+    const wire = recordHttp(() => Response.json({ id: "never" }));
+    try {
+      const limit = 20 * 1024 * 1024;
+      const runtime = createDiscordProvider().create(
+        { token: "dc-test" }, {}, () => undefined,
+        { ...injectedOptions(), media: async () => ({ bytes: new Uint8Array(limit + 1), name: "big.mp4", mime: "video/mp4" }) },
+      );
+      const receipt = await runtime.deliveryRoute?.("U1", {
+        kind: "message", parts: [{ kind: "video", ref: "/big.mp4" }],
+      }, "media-big", { channelId: "C1" });
+      expect(receipt).toEqual({ value: "rejected", reason: `media_too_large video ${limit + 1}>${limit}` });
+      expect(wire.requests).toHaveLength(0);
+    } finally { wire.restore(); }
+  });
+
   test.each([404, 403, 503])("replacement deletion HTTP %i only settles an absent reaction", async (status) => {
     const wire = recordHttp((request) => request.method === "DELETE"
       ? Response.json({ message: "deletion refused" }, { status })

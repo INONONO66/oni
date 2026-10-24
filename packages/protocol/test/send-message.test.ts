@@ -218,6 +218,23 @@ describe("gateway ingest", () => {
     }
   });
 
+  test("actor delivery accepts an optional refusal reason and still rejects unknown keys", () => {
+    const result = {
+      status: "executed",
+      handle,
+      delivery: { kind: "actor", value: "rejected", reason: "media_too_large audio 60>50" },
+    } satisfies Gateway.IngestResult;
+    expect(Gateway.IngestResult.parse(result)).toStrictEqual(result);
+    expect(issues(Gateway.IngestResult.safeParse({
+      ...result,
+      delivery: { ...result.delivery, extra: true },
+    }))).toEqual([{ code: "unrecognized_keys", path: ["delivery"], keys: ["extra"] }]);
+    expect(issues(Gateway.IngestResult.safeParse({
+      ...result,
+      delivery: { ...result.delivery, reason: 42 },
+    }))).toEqual([{ code: "invalid_type", path: ["delivery", "reason"] }]);
+  });
+
   test("only actor executed delivery carries the three exhaustive receipt values", () => {
     for (const value of ["accepted", "rejected", "unknown"] as const) {
       const result = { status: "executed", handle, delivery: { kind: "actor", value } } as const;

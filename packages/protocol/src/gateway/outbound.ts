@@ -29,7 +29,28 @@ const ImagePart = z
 const FilePart = z
   .object({ kind: z.literal("file"), ref: Ref, name: Id, mime: Id.optional(), caption: z.string().optional() })
   .strict();
-const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, FilePart]);
+const AudioPart = z
+  .object({
+    kind: z.literal("audio"),
+    ref: Ref,
+    name: Id.optional(),
+    mime: Id.optional(),
+    caption: z.string().optional(),
+    voice: z.boolean().optional(),
+    durationMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+const VideoPart = z
+  .object({
+    kind: z.literal("video"),
+    ref: Ref,
+    name: Id.optional(),
+    mime: Id.optional(),
+    caption: z.string().optional(),
+    durationMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, FilePart, AudioPart, VideoPart]);
 
 /** A letter is ordered parts or one catalog spec (#1545), never both. */
 const MessageSchema = z
@@ -55,6 +76,8 @@ const ReceiptSchema = z
   .object({
     value: z.enum(["accepted", "rejected", "unknown"]),
     externalMessageId: Id.optional(),
+    /** Why a send was rejected, when the refusal names a limit the sender can respect next time. */
+    reason: z.string().optional(),
   })
   .strict();
 
@@ -74,6 +97,10 @@ function partText(part: MessagePart): string {
       return `[image${part.name === undefined ? "" : `: ${part.name}`}] ${part.ref}${captionLine(part.caption)}`;
     case "file":
       return `[file: ${part.name}] ${part.ref}${captionLine(part.caption)}`;
+    case "audio":
+      return `${part.voice === true ? "[voice]" : `[audio${part.name === undefined ? "" : `: ${part.name}`}]`} ${part.ref}${captionLine(part.caption)}`;
+    case "video":
+      return `[video${part.name === undefined ? "" : `: ${part.name}`}] ${part.ref}${captionLine(part.caption)}`;
   }
 }
 
@@ -82,6 +109,32 @@ type Chunk = string | MessagePart;
 
 function tableChunk(props: { columns: { header: string }[]; rows: string[][] }): string {
   return [props.columns.map((column) => column.header).join(" | "), ...props.rows.map((row) => row.join(" | "))].join("\n");
+}
+
+function compactPart(part: MessagePart): MessagePart {
+  return PartSchema.parse(Object.fromEntries(Object.entries(part).filter(([, value]) => value !== undefined)));
+}
+
+function buttonChunk(element: Extract<catalogModule.Element, { type: "Button" }>): Chunk[] {
+  return ["url" in element.props ? `[${element.props.label}](${element.props.url})` : `[${element.props.label}]`];
+}
+
+function cardChunks(element: Extract<catalogModule.Element, { type: "Card" }>): Chunk[] {
+  const { title, image, body } = element.props;
+  const picture: Chunk[] = image === undefined ? [] : [{ kind: "image", ref: image }];
+  return [title, ...picture, ...(body === undefined ? [] : [body])];
+}
+
+function pollChunk(element: Extract<catalogModule.Element, { type: "Poll" }>): Chunk[] {
+  const options = element.props.options.map((option) => `- ${option}`).join("\n");
+  return [`${element.props.question}${element.props.multi === true ? " (choose any)" : ""}\n${options}`];
+}
+
+function statusChunks(element: Extract<catalogModule.Element, { type: "Status" }>): Chunk[] {
+  return [
+    `${element.props.kind.toUpperCase()}: ${element.props.title}`,
+    ...(element.props.body === undefined ? [] : [element.props.body]),
+  ];
 }
 
 function elementChunks(element: catalogModule.Element): Chunk[] {
@@ -103,22 +156,18 @@ function elementChunks(element: catalogModule.Element): Chunk[] {
       const { ref, name, mime } = element.props;
       return [mime === undefined ? { kind: "file", ref, name } : { kind: "file", ref, name, mime }];
     }
+    case "Audio":
+      return [compactPart({ kind: "audio", ...element.props })];
+    case "Video":
+      return [compactPart({ kind: "video", ...element.props })];
     case "Button":
-      return ["url" in element.props ? `[${element.props.label}](${element.props.url})` : `[${element.props.label}]`];
-    case "Card": {
-      const { title, image, body } = element.props;
-      const picture: Chunk[] = image === undefined ? [] : [{ kind: "image", ref: image }];
-      return [title, ...picture, ...(body === undefined ? [] : [body])];
-    }
-    case "Poll": {
-      const options = element.props.options.map((option) => `- ${option}`).join("\n");
-      return [`${element.props.question}${element.props.multi === true ? " (choose any)" : ""}\n${options}`];
-    }
+      return buttonChunk(element);
+    case "Card":
+      return cardChunks(element);
+    case "Poll":
+      return pollChunk(element);
     case "Status":
-      return [
-        `${element.props.kind.toUpperCase()}: ${element.props.title}`,
-        ...(element.props.body === undefined ? [] : [element.props.body]),
-      ];
+      return statusChunks(element);
     case "Divider":
       return ["---"];
     default:

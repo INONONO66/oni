@@ -1,5 +1,5 @@
 import { Outbound } from "@oni/protocol";
-import { DeliveryNotSent } from "../errors";
+import { DeliveryNotSent, MediaTooLarge } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
 import { chunkMarkdown } from "./format/chunk";
@@ -14,7 +14,7 @@ import { chunkMarkdown } from "./format/chunk";
  * Folding rules:
  * - Adjacent text/code parts join into one markdown text, rendered through
  *   the surface's dialect and split at its message limit.
- * - An image/file part uploads through `media` where the surface and the
+ * - An image/file/audio/video part uploads through `media` where the surface and the
  *   composition root both support it; otherwise its reference line stays in
  *   the text so the person still receives what was meant.
  * - Media bytes resolve before the first send: a bad reference refuses the
@@ -45,11 +45,27 @@ interface SendAck {
   readonly externalMessageId?: string;
 }
 
+type MediaPart = Extract<Outbound.Part, { kind: "image" | "file" | "audio" | "video" }>;
+
+/** What an audio or video upload may tell the platform beyond its bytes. */
+interface MediaMeta {
+  readonly voice?: boolean;
+  readonly durationMs?: number;
+}
+
 type MediaUpload = (
-  kind: "image" | "file",
+  kind: MediaPart["kind"],
   bytes: MediaBytes,
   caption: string | undefined,
+  meta: MediaMeta,
 ) => Promise<SendAck>;
+
+const LIMIT_OF = {
+  image: "imageBytes",
+  file: "fileBytes",
+  audio: "audioBytes",
+  video: "videoBytes",
+} as const satisfies Record<MediaPart["kind"], keyof MediaLimits>;
 
 /** The bytes one letter may hold in memory before its first send. */
 const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
@@ -57,7 +73,7 @@ const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
 /** The surface's physical primitives, already bound to the delivery's channel and thread. */
 export interface SurfaceSends {
   readonly text: (chunk: string) => Promise<string | undefined>;
-  readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits };
+  readonly media?: { readonly upload: MediaUpload; readonly limits: MediaLimits; readonly captionAsText?: boolean };
   readonly react?: (messageId: string, emoji: string, replaces?: string) => Promise<void>;
 }
 
@@ -71,9 +87,10 @@ type Step =
   | { readonly kind: "text"; readonly chunk: string }
   | {
       readonly kind: "media";
-      readonly part: Extract<Outbound.Part, { kind: "image" | "file" }>;
+      readonly part: MediaPart;
       readonly bytes: MediaBytes;
       readonly upload: MediaUpload;
+      readonly caption: string | undefined;
     };
 
 function textSteps(parts: Outbound.Part[], render: RenderPolicy): Step[] {
@@ -93,6 +110,7 @@ async function plan(
         readonly upload: MediaUpload;
         readonly limits: MediaLimits;
         readonly resolve: MediaResolver;
+        readonly captionAsText?: boolean;
       }
     | undefined,
 ): Promise<Step[]> {
@@ -110,12 +128,9 @@ async function plan(
     const bytes = await media.resolve(part).catch((error) => {
       throw new DeliveryNotSent({ operation: "media.resolve", cause: String(error) });
     });
-    const limit = part.kind === "image" ? media.limits.imageBytes : media.limits.fileBytes;
+    const limit = media.limits[LIMIT_OF[part.kind]];
     if (bytes.bytes.byteLength > limit)
-      throw new DeliveryNotSent({
-        operation: "media.limit",
-        cause: `${bytes.bytes.byteLength} bytes exceeds the ${part.kind} limit ${limit}`,
-      });
+      throw new MediaTooLarge({ kind: part.kind, bytes: bytes.bytes.byteLength, limit });
     if (part.caption !== undefined && part.caption.length > media.limits.captionLength)
       throw new DeliveryNotSent({
         operation: "media.caption",
@@ -127,14 +142,24 @@ async function plan(
         operation: "media.limit",
         cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}`,
       });
-    steps.push({ kind: "media", part, bytes, upload: media.upload });
+    steps.push({ kind: "media", part, bytes, upload: media.upload, caption: media.captionAsText ? undefined : part.caption });
+    if (media.captionAsText && part.caption !== undefined)
+      steps.push({ kind: "text", chunk: part.caption });
   }
   steps.push(...textSteps(pending, render));
   return steps;
 }
 
+function metaOf(part: MediaPart): MediaMeta {
+  if (part.kind === "image" || part.kind === "file") return {};
+  return {
+    ...(part.kind === "audio" && part.voice === true ? { voice: true } : {}),
+    ...(part.durationMs === undefined ? {} : { durationMs: part.durationMs }),
+  };
+}
+
 async function runStep(step: Step, text: SurfaceSends["text"]): Promise<SendAck> {
-  if (step.kind === "media") return step.upload(step.part.kind, step.bytes, step.part.caption);
+  if (step.kind === "media") return step.upload(step.part.kind, step.bytes, step.caption, metaOf(step.part));
   const externalMessageId = await text(step.chunk);
   return externalMessageId === undefined ? {} : { externalMessageId };
 }

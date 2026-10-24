@@ -124,11 +124,13 @@ const IngressFacts = z
       messageRef: Id.optional(),
     }).strict().optional(),
     attachments: z.array(z.object({
-      kind: z.enum(["image", "audio", "file"]),
+      kind: z.enum(["image", "audio", "video", "file"]),
       ref: Id,
       name: z.string().min(1).optional(),
       mime: z.string().min(1).optional(),
       bytes: z.number().int().nonnegative().optional(),
+      durationMs: z.number().int().nonnegative().optional(),
+      voice: z.boolean().optional(),
     }).strict()).readonly().optional(),
     // What the person could see that the model has not: the thread's earlier
     // messages (shown once, when the thread's session starts) and the message
@@ -148,7 +150,7 @@ const IngressFacts = z
 const Delivery = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("session") }).strict(),
   z
-    .object({ kind: z.literal("actor"), value: z.enum(["accepted", "rejected", "unknown"]) })
+    .object({ kind: z.literal("actor"), value: z.enum(["accepted", "rejected", "unknown"]), reason: z.string().optional() })
     .strict(),
 ]);
 const Result = z.discriminatedUnion("status", [

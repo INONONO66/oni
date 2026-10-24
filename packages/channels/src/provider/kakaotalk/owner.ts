@@ -1,4 +1,5 @@
 import { Duration, Effect } from "effect";
+import { z } from "zod";
 import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { ChannelsFailure, DeliveryNotSent } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
@@ -8,9 +9,9 @@ import { handoffInbound } from "../../support/inbound-handoff";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
-import type { PublishPort } from "../../types";
+import type { MediaBytes, PublishPort } from "../../types";
 import type { AccountIdentity, OwnerPosture, ProviderOptions } from "../contract";
-import { KAKAOTALK_RENDER } from "./format";
+import { KAKAOTALK_MEDIA_LIMITS, KAKAOTALK_RENDER } from "./format";
 import {
   type KakaoTalkDeviceType,
   type KakaoTalkMessage,
@@ -19,6 +20,7 @@ import {
   type KakaoTalkOwnerEvents,
   type KakaoTalkOwnerSdk,
   kakaoChatKind,
+  kakaoMediaKind,
   kakaoTalkOwnerSdk,
 } from "./owner-sdk";
 
@@ -39,6 +41,36 @@ const REJECTED = new Set(["missing_token", "missing_user_id", "not_authenticated
 
 /** The SDK's own synthetic answer for a request whose socket closed before the reply: the WRITE may have landed. */
 const CONNECTION_CLOSED_STATUS = -1;
+
+/** A pushed media message's LOCO extra: only one already carrying a download URL becomes an attachment. */
+const LocoMedia = z.object({
+  url: z.string().min(1),
+  name: z.string().min(1).optional(),
+  mt: z.string().min(1).optional(),
+  s: z.number().int().nonnegative().optional(),
+});
+
+function kakaoAttachments(message: KakaoTalkMessage) {
+  const kind = kakaoMediaKind(message.message_type);
+  const media = LocoMedia.safeParse(message.attachment);
+  if (kind === undefined || !media.success) return [];
+  const { url, name, mt, s } = media.data;
+  return [{
+    kind,
+    ref: url,
+    ...(name === undefined ? {} : { name }),
+    ...(mt === undefined ? {} : { mime: mt }),
+    ...(s === undefined ? {} : { bytes: s }),
+  }];
+}
+
+/** A send's settled answer: its log id, or the failure the status proves. */
+function settled(sent: { success: boolean; status_code: number; log_id: string }, operation: string, media = false): string {
+  if (sent.success) return sent.log_id;
+  if (sent.status_code === CONNECTION_CLOSED_STATUS || (media && sent.status_code === 0))
+    throw new ChannelsFailure({ operation, cause: media && sent.status_code === 0 ? "media COMPLETE acknowledgement missing" : "connection closed before the reply" });
+  throw new DeliveryNotSent({ operation, cause: `status ${sent.status_code}` });
+}
 
 function kakaoCode(error: Error): string | undefined {
   const code = (error as Error & { readonly code?: string }).code;
@@ -63,7 +95,8 @@ function kakaoCode(error: Error): string | undefined {
  * `not_sent`. One physical attempt per idempotency key: the SDK re-runs a
  * send once when the session died under it, so a thrown send is `unknown`,
  * never retried here, and so is a send whose socket closed before the
- * reply. No media upload, no reactions.
+ * reply. Media goes up through the SDK's LOCO upload, its caption as the
+ * text message after it; no reactions.
  */
 export class KakaoTalkOwnerAdapter implements Channel.Surface {
   readonly id = "kakaotalk:owner";
@@ -220,6 +253,7 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
         const dm = kind === "dm";
         if (dm) this.directChats.set(authorId, message.chat_id);
         const mentioned = this.nickname !== null && message.message.includes(`@${this.nickname}`);
+        const attachments = kakaoAttachments(message);
         if (this.posture.intake !== "all" && !(dm || mentioned)) return;
         await requireHandler(this.handler, "kakaotalk:owner")({
           sender: { kind: "external", surface: "kakaotalk", externalId: authorId },
@@ -234,6 +268,7 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
             receivedBy: "owner",
             payload: { ...message, attachment: message.attachment === null ? null : JSON.stringify(message.attachment) },
             render: message.message,
+            ...(attachments.length === 0 ? {} : { attachments }),
           },
         });
       },
@@ -267,15 +302,19 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
       this.outbound,
       idempotencyKey,
       async () =>
-        await translate(payload, KAKAOTALK_RENDER, {
-          text: async (chunk) => {
-            const sent = await this.client.sendMessage(chatId, chunk);
-            if (sent.success) return sent.log_id;
-            if (sent.status_code === CONNECTION_CLOSED_STATUS)
-              throw new ChannelsFailure({ operation: "kakaotalk.sendMessage", cause: "connection closed before the reply" });
-            throw new DeliveryNotSent({ operation: "kakaotalk.sendMessage", cause: `status ${sent.status_code}` });
+        await translate(
+          payload,
+          KAKAOTALK_RENDER,
+          {
+            text: async (chunk) => settled(await this.client.sendMessage(chatId, chunk), "kakaotalk.sendMessage"),
+            media: {
+              limits: KAKAOTALK_MEDIA_LIMITS,
+              captionAsText: true,
+              upload: (kind, bytes) => this.upload(chatId, kind, bytes),
+            },
           },
-        }),
+          this.options.media,
+        ),
       (error) => {
         const code = kakaoCode(error);
         return code !== undefined && REJECTED.has(code);
@@ -283,6 +322,20 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
       this.publish,
       this.options,
     );
+  }
+
+  private async upload(
+    chatId: string,
+    kind: "image" | "file" | "audio" | "video",
+    media: MediaBytes,
+  ): Promise<{ externalMessageId: string }> {
+    const sends = {
+      image: () => this.client.sendPhoto(chatId, media.bytes, media.name),
+      video: () => this.client.sendVideo(chatId, media.bytes, media.name),
+      audio: () => this.client.sendAudio(chatId, media.bytes, media.name),
+      file: () => this.client.sendFile(chatId, media.bytes, media.name, media.mime),
+    };
+    return { externalMessageId: settled(await sends[kind](), `kakaotalk.upload.${kind}`, true) };
   }
 
   /** The typing indicator rides the conversation's chat; a cold turn needs a known direct chat. */

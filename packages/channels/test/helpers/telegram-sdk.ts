@@ -100,6 +100,24 @@ export class FakeTelegramClient implements TelegramBotApi {
     return Promise.resolve({ message_id: 17 });
   }
 
+  sendAudio(chatId: string | number, _audio: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number }): Promise<{ message_id: number | string }> {
+    this.check("sendAudio");
+    this.calls.push({ method: "sendAudio", chatId, options });
+    return Promise.resolve({ message_id: 18 });
+  }
+
+  sendVoice(chatId: string | number, _voice: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number }): Promise<{ message_id: number | string }> {
+    this.check("sendVoice");
+    this.calls.push({ method: "sendVoice", chatId, options });
+    return Promise.resolve({ message_id: 19 });
+  }
+
+  sendVideo(chatId: string | number, _video: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number }): Promise<{ message_id: number | string }> {
+    this.check("sendVideo");
+    this.calls.push({ method: "sendVideo", chatId, options });
+    return Promise.resolve({ message_id: 20 });
+  }
+
   setMessageReaction(chatId: string | number, messageId: number, reaction: { type: "emoji"; emoji: string }[]): Promise<boolean> {
     this.check("setMessageReaction");
     this.calls.push({ method: "setMessageReaction", chatId, options: { messageId, reaction } });

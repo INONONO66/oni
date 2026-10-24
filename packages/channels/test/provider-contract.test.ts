@@ -287,6 +287,8 @@ describe("provider conformance", () => {
         }
         expect(media.imageBytes).toBeGreaterThan(0);
         expect(media.fileBytes).toBeGreaterThan(0);
+        expect(media.audioBytes).toBeGreaterThan(0);
+        expect(media.videoBytes).toBeGreaterThan(0);
         expect(media.captionLength).toBeGreaterThan(0);
       });
       test("preconditions are a verbatim operator checklist", () => {

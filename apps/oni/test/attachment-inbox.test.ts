@@ -161,6 +161,27 @@ test.each([download, undefined])("explicit inbound MIME outranks fetched MIME", 
   expect(received[0]?.facts.attachments?.[0]?.mime).toBe("text/plain");
 });
 
+test("a fetched voice video keeps its media metadata after moving to the inbox", async () => {
+  const { inbox, received, handler } = harness();
+  await withAttachmentInbox(inbox, download, handler)(inboundWith([{
+    kind: "video",
+    ref: "video-ref",
+    name: "voice-video.mov",
+    mime: "video/quicktime",
+    durationMs: 12_000,
+    voice: true,
+  }]));
+  expect(received[0]?.facts.attachments?.[0]).toMatchObject({
+    kind: "video",
+    ref: expect.stringMatching(/^mac:\/inbox\//),
+    name: "voice-video.mov",
+    mime: "video/quicktime",
+    bytes: 9,
+    durationMs: 12_000,
+    voice: true,
+  });
+});
+
 test("equal message IDs and names in different chats retain both byte sets", async () => {
   const { written, inbox, received, handler } = harness();
   const wrapped = withAttachmentInbox(inbox, download, handler);

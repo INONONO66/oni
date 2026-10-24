@@ -21,7 +21,9 @@ export interface KakaoScript {
   /** The shape of each chat the fake knows; an unknown chat makes `getChat` throw. */
   readonly chats?: Readonly<Record<string, { type: number | string; active_members: number }>>;
   /** A scripted send outcome: a thrown error, or a refused status (the SDK's synthetic −1 is a socket closed before the reply). */
-  readonly send?: Error | { readonly success: false; readonly status_code: number };
+  readonly send?: Error | { readonly success: false; readonly status_code: number }
+    | ((text: string) => Error | { readonly success: false; readonly status_code: number } | undefined);
+  readonly upload?: { readonly success: false; readonly status_code: number };
 }
 
 /** A scripted stand-in for the SDK client (#1569 lane 7): every call recorded, chats and sends scripted. */
@@ -50,9 +52,32 @@ export class FakeKakaoTalkOwnerClient implements KakaoTalkOwnerApi {
 
   sendMessage(chatId: string, text: string): Promise<{ success: boolean; status_code: number; log_id: string }> {
     this.calls.push({ method: "sendMessage", args: [chatId, text] });
-    const outcome = this.script.send;
+    const outcome = typeof this.script.send === "function" ? this.script.send(text) : this.script.send;
     if (outcome instanceof Error) return Promise.reject(outcome);
     if (outcome !== undefined) return Promise.resolve({ ...outcome, log_id: "" });
+    this.counter += 1;
+    return Promise.resolve({ success: true, status_code: 0, log_id: `log-${this.counter}` });
+  }
+
+  sendPhoto(chatId: string, photo: Uint8Array, filename?: string): Promise<{ success: boolean; status_code: number; log_id: string }> {
+    return this.upload("sendPhoto", [chatId, [...photo], filename ?? null]);
+  }
+
+  sendVideo(chatId: string, video: Uint8Array, filename?: string): Promise<{ success: boolean; status_code: number; log_id: string }> {
+    return this.upload("sendVideo", [chatId, [...video], filename ?? null]);
+  }
+
+  sendAudio(chatId: string, audio: Uint8Array, filename?: string): Promise<{ success: boolean; status_code: number; log_id: string }> {
+    return this.upload("sendAudio", [chatId, [...audio], filename ?? null]);
+  }
+
+  sendFile(chatId: string, file: Uint8Array, filename: string, mimeType?: string): Promise<{ success: boolean; status_code: number; log_id: string }> {
+    return this.upload("sendFile", [chatId, [...file], filename, mimeType ?? null]);
+  }
+
+  private upload(method: string, args: readonly PlainValue[]): Promise<{ success: boolean; status_code: number; log_id: string }> {
+    this.calls.push({ method, args });
+    if (this.script.upload !== undefined) return Promise.resolve({ ...this.script.upload, log_id: "" });
     this.counter += 1;
     return Promise.resolve({ success: true, status_code: 0, log_id: `log-${this.counter}` });
   }

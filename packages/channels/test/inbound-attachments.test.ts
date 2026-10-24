@@ -12,7 +12,7 @@ const slack = new SlackNormalizer({ botUserId: "UBOT", team: "T1" });
 const discord = new DiscordNormalizer("bot");
 
 /**
- * Telegram Message, PhotoSize, Document, Audio, Voice and Sticker fields:
+ * Telegram Message, PhotoSize, Document, Audio, Voice, Video, VideoNote, Animation and Sticker fields:
  * https://core.telegram.org/bots/api#message
  */
 describe("Telegram incoming media", () => {
@@ -27,10 +27,18 @@ describe("Telegram incoming media", () => {
       [{ kind: "file", ref: "doc", name: "report.pdf", mime: "application/pdf", bytes: 90 }]],
     ["document sent as a file but holding an image", { document: { file_id: "scan", file_name: "scan.png", mime_type: "image/png" } },
       [{ kind: "image", ref: "scan", name: "scan.png", mime: "image/png" }]],
-    ["voice", { voice: { file_id: "voice", mime_type: "audio/ogg", file_size: 8 } },
-      [{ kind: "audio", ref: "voice", mime: "audio/ogg", bytes: 8 }]],
-    ["audio", { audio: { file_id: "song", file_name: "song.mp3", mime_type: "audio/mpeg", file_size: 20 } },
-      [{ kind: "audio", ref: "song", name: "song.mp3", mime: "audio/mpeg", bytes: 20 }]],
+    ["voice", { voice: { file_id: "voice", mime_type: "audio/ogg", file_size: 8, duration: 12 } },
+      [{ kind: "audio", ref: "voice", mime: "audio/ogg", bytes: 8, durationMs: 12_000, voice: true }]],
+    ["audio", { audio: { file_id: "song", file_name: "song.mp3", mime_type: "audio/mpeg", file_size: 20, duration: 200 } },
+      [{ kind: "audio", ref: "song", name: "song.mp3", mime: "audio/mpeg", bytes: 20, durationMs: 200_000 }]],
+    ["video", { video: { file_id: "clip", file_name: "clip.mp4", mime_type: "video/mp4", file_size: 30, duration: 65 } },
+      [{ kind: "video", ref: "clip", name: "clip.mp4", mime: "video/mp4", bytes: 30, durationMs: 65_000 }]],
+    ["video note", { video_note: { file_id: "round", file_size: 40, duration: 9 } },
+      [{ kind: "video", ref: "round", bytes: 40, durationMs: 9_000 }]],
+    ["animation", {
+      animation: { file_id: "gif", file_name: "loop.mp4", mime_type: "video/mp4", duration: 3 },
+      document: { file_id: "gif", file_name: "loop.mp4", mime_type: "video/mp4" },
+    }, [{ kind: "video", ref: "gif", name: "loop.mp4", mime: "video/mp4", durationMs: 3_000 }]],
     ["sticker", { sticker: { file_id: "sticker" } },
       [{ kind: "image", ref: "sticker", mime: "image/webp" }]],
   ] as const)("preserves a %s without a text body", (_label, media, expected) => {
@@ -68,6 +76,7 @@ describe("Slack incoming files", () => {
         { url_private_download: "https://files.slack.com/private/photo", mimetype: "image/png", name: "photo.png", size: 12 },
         { url_private_download: "https://files.slack.com/private/audio", mimetype: "audio/mpeg", name: "note.mp3", size: 13 },
         { url_private_download: "https://files.slack.com/private/file", mimetype: "application/pdf", name: "report.pdf", size: 14 },
+        { url_private_download: "https://files.slack.com/private/video", mimetype: "video/mp4", name: "clip.mp4", size: 15 },
         { id: "F-ext", url_private: "https://files.slack.com/private/ext", name: "ext.txt" },
         { id: "F-stub", name: "stub" },
         { name: "no-handle" },
@@ -79,6 +88,7 @@ describe("Slack incoming files", () => {
       { kind: "image", ref: "https://files.slack.com/private/photo", mime: "image/png", name: "photo.png", bytes: 12 },
       { kind: "audio", ref: "https://files.slack.com/private/audio", mime: "audio/mpeg", name: "note.mp3", bytes: 13 },
       { kind: "file", ref: "https://files.slack.com/private/file", mime: "application/pdf", name: "report.pdf", bytes: 14 },
+      { kind: "video", ref: "https://files.slack.com/private/video", mime: "video/mp4", name: "clip.mp4", bytes: 15 },
       { kind: "file", ref: "F-ext", name: "ext.txt" },
       { kind: "file", ref: "F-stub", name: "stub" },
     ]);
@@ -97,6 +107,7 @@ describe("Discord incoming attachments", () => {
         { url: "https://cdn.discordapp.com/a.png", content_type: "image/png", filename: "a.png", size: 9 },
         { url: "https://cdn.discordapp.com/b.ogg", content_type: "audio/ogg", filename: "b.ogg", size: 11 },
         { url: "https://cdn.discordapp.com/c.pdf", content_type: "application/pdf", filename: "c.pdf", size: 12 },
+        { url: "https://cdn.discordapp.com/d.webm", content_type: "video/webm", filename: "d.webm", size: 13 },
       ],
     });
     const inbound = discord.normalize(message);
@@ -105,6 +116,7 @@ describe("Discord incoming attachments", () => {
       { kind: "image", ref: "https://cdn.discordapp.com/a.png", name: "a.png", mime: "image/png", bytes: 9 },
       { kind: "audio", ref: "https://cdn.discordapp.com/b.ogg", name: "b.ogg", mime: "audio/ogg", bytes: 11 },
       { kind: "file", ref: "https://cdn.discordapp.com/c.pdf", name: "c.pdf", mime: "application/pdf", bytes: 12 },
+      { kind: "video", ref: "https://cdn.discordapp.com/d.webm", name: "d.webm", mime: "video/webm", bytes: 13 },
     ]);
   });
 });

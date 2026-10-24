@@ -1,4 +1,5 @@
 import type { Channel } from "@oni/protocol";
+import { kindOfMime } from "../../support/media-kind";
 import type { InboundNormalizer } from "../../types";
 import type { SlackInteraction, SlackMessageEvent } from "./types";
 
@@ -14,8 +15,7 @@ function slackAttachments(files: NonNullable<SlackMessageEvent["files"]>) {
     // private URLs answer only with the bot token anyway.
     const ref = file.id ?? file.url_private_download ?? file.url_private;
     return ref === undefined ? [] : [{
-      kind: file.mimetype?.startsWith("image/") ? "image" as const
-        : file.mimetype?.startsWith("audio/") ? "audio" as const : "file" as const,
+      kind: kindOfMime(file.mimetype),
       ref,
       ...(file.mimetype === undefined ? {} : { mime: file.mimetype }),
       ...(file.name === undefined ? {} : { name: file.name }),

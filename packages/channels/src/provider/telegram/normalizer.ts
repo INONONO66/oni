@@ -1,4 +1,5 @@
 import { type Channel, Gateway } from "@oni/protocol";
+import { kindOfMime } from "../../support/media-kind";
 import type { InboundNormalizer } from "../../types";
 import type { TelegramCallback, TelegramMessage, TelegramReaction } from "./types";
 
@@ -7,9 +8,11 @@ interface TelegramNormalizerContext {
   botUsername: string;
 }
 
+type AttachmentKind = "image" | "audio" | "video" | "file";
+
 function fileAttachment(
-  kind: "image" | "audio" | "file",
-  file: { file_id: string; file_name?: string; mime_type?: string; file_size?: number },
+  kind: AttachmentKind,
+  file: { file_id: string; file_name?: string; mime_type?: string; file_size?: number; duration?: number },
   mime = file.mime_type,
 ) {
   return {
@@ -17,11 +20,12 @@ function fileAttachment(
     ...(file.file_name === undefined ? {} : { name: file.file_name }),
     ...(mime === undefined ? {} : { mime }),
     ...(file.file_size === undefined ? {} : { bytes: file.file_size }),
+    ...(file.duration === undefined ? {} : { durationMs: file.duration * 1000 }),
   };
 }
 
-function kindOfMime(mime: string | undefined): "image" | "audio" | "file" {
-  return mime?.startsWith("image/") ? "image" : mime?.startsWith("audio/") ? "audio" : "file";
+function timed(kind: AttachmentKind, file: TelegramMessage["video"]) {
+  return file === undefined ? undefined : fileAttachment(kind, file);
 }
 
 function telegramAttachments(message: TelegramMessage) {
@@ -29,9 +33,14 @@ function telegramAttachments(message: TelegramMessage) {
   const sticker = message.sticker;
   return [
     photo === undefined ? undefined : fileAttachment("image", photo),
-    message.document === undefined ? undefined : fileAttachment(kindOfMime(message.document.mime_type), message.document),
-    message.voice === undefined ? undefined : fileAttachment("audio", message.voice),
-    message.audio === undefined ? undefined : fileAttachment("audio", message.audio),
+    // Telegram repeats an animation as `document` for older clients; the animation is the one attachment.
+    message.document === undefined || message.animation !== undefined
+      ? undefined : fileAttachment(kindOfMime(message.document.mime_type), message.document),
+    message.voice === undefined ? undefined : { ...fileAttachment("audio", message.voice), voice: true },
+    timed("audio", message.audio),
+    timed("video", message.video),
+    timed("video", message.video_note),
+    timed("video", message.animation),
     sticker === undefined || sticker.is_animated || sticker.is_video
       ? undefined : fileAttachment("image", sticker, "image/webp"),
   ].filter((entry) => entry !== undefined);

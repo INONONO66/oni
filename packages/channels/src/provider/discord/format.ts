@@ -13,5 +13,7 @@ export const DISCORD_RENDER = {
 export const DISCORD_MEDIA_LIMITS = {
   imageBytes: 20 * 1024 * 1024,
   fileBytes: 20 * 1024 * 1024,
+  audioBytes: 20 * 1024 * 1024,
+  videoBytes: 20 * 1024 * 1024,
   captionLength: 2000,
 } as const satisfies MediaLimits;

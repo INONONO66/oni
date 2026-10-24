@@ -26,9 +26,17 @@ describe("Outbound (#1497)", () => {
     expect(issues({ kind: "message" })).toEqual(["custom:a message carries exactly one of parts or spec"]);
     expect(issues({ kind: "message", parts, spec })).toEqual(["custom:a message carries exactly one of parts or spec"]);
     expect(Outbound.Message.parse({ kind: "message", spec })).toEqual({ kind: "message", spec });
-    expect(Outbound.Part.safeParse({ kind: "audio", ref: "x" }).success).toBe(false);
+    expect(Outbound.Part.safeParse({ kind: "audio", ref: "x", voice: "yes" }).success).toBe(false);
     expect(Outbound.Part.safeParse({ kind: "text", text: "a", thread: "t" }).success).toBe(false);
     expect(Outbound.Part.safeParse({ kind: "file", ref: "x" }).success).toBe(false);
+  });
+
+  test("audio voice notes and videos parse as media parts", () => {
+    const parts: Outbound.Part[] = [
+      { kind: "audio", ref: "/tmp/voice.ogg", voice: true, durationMs: 4_200 },
+      { kind: "video", ref: "/tmp/clip.mp4", name: "clip.mp4", mime: "video/mp4", durationMs: 12_000 },
+    ];
+    expect(Outbound.Message.parse({ kind: "message", parts })).toEqual({ kind: "message", parts });
   });
 
   test("the text reading keeps every part visible: code fenced, media named by reference", () => {
@@ -41,6 +49,9 @@ describe("Outbound (#1497)", () => {
         { kind: "image", ref: "/tmp/a.png", name: "a.png", caption: "shot" },
         { kind: "image", ref: "/tmp/b.png" },
         { kind: "file", ref: "/tmp/r.pdf", name: "r.pdf" },
+        { kind: "audio", ref: "/tmp/voice.ogg", voice: true },
+        { kind: "audio", ref: "/tmp/song.mp3", name: "song.mp3", caption: "listen" },
+        { kind: "video", ref: "/tmp/clip.mp4", caption: "watch" },
       ],
     });
     expect(text).toBe(
@@ -51,6 +62,9 @@ describe("Outbound (#1497)", () => {
         "[image: a.png] /tmp/a.png\nshot",
         "[image] /tmp/b.png",
         "[file: r.pdf] /tmp/r.pdf",
+        "[voice] /tmp/voice.ogg",
+        "[audio: song.mp3] /tmp/song.mp3\nlisten",
+        "[video] /tmp/clip.mp4\nwatch",
       ].join("\n\n"),
     );
     expect(Outbound.text({ kind: "react", messageId: "m-1", emoji: "\u{1F44D}" })).toBe(
@@ -253,6 +267,47 @@ describe("Outbound (#1497)", () => {
     expect(Outbound.parts({ kind: "message", parts })).toEqual(parts);
   });
 
+  test.each(["Audio", "Video"] as const)("%s catalog durations parse and survive the part fold", (type) => {
+    for (const durationMs of [0, 65_000]) {
+      const spec = Outbound.Spec.parse({
+        root: "media",
+        elements: { media: { type, props: { ref: "/clip", durationMs }, children: [] } },
+      });
+      expect(Outbound.parts({ kind: "message", spec })).toStrictEqual([
+        { kind: type === "Audio" ? "audio" : "video", ref: "/clip", durationMs },
+      ]);
+    }
+    for (const durationMs of [-1, 1.5]) {
+      expect(Outbound.Spec.safeParse({
+        root: "media",
+        elements: { media: { type, props: { ref: "/clip", durationMs }, children: [] } },
+      }).success).toBe(false);
+    }
+  });
+
+  test("audio and video catalog elements fold into parts with defined props only", () => {
+    const spec: Outbound.Spec = {
+      root: "stack",
+      elements: {
+        stack: { type: "Stack", props: {}, children: ["voice", "clip"] },
+        voice: {
+          type: "Audio",
+          props: { ref: "/tmp/voice.ogg", voice: true, name: undefined, mime: undefined, durationMs: undefined },
+          children: [],
+        },
+        clip: {
+          type: "Video",
+          props: { ref: "/tmp/clip.mp4", name: undefined, mime: undefined, durationMs: undefined },
+          children: [],
+        },
+      },
+    };
+    expect(Outbound.parts({ kind: "message", spec })).toStrictEqual([
+      { kind: "audio", ref: "/tmp/voice.ogg", voice: true },
+      { kind: "video", ref: "/tmp/clip.mp4" },
+    ]);
+  });
+
   test("a spec carries only the fields the catalog defines, and ids stay names", () => {
     const markdown = { type: "Markdown", props: { text: "x" }, children: [] };
     const issues = (spec: JsonValue) =>
@@ -311,6 +366,10 @@ describe("Outbound (#1497)", () => {
       externalMessageId: "7",
     });
     expect(Outbound.Receipt.parse({ value: "rejected" })).toEqual({ value: "rejected" });
+    expect(Outbound.Receipt.parse({ value: "rejected", reason: "media_too_large audio 60>50" })).toEqual({
+      value: "rejected",
+      reason: "media_too_large audio 60>50",
+    });
     expect(Outbound.Receipt.safeParse({ value: "accepted", externalMessageIds: ["7"] }).success).toBe(false);
   });
 });

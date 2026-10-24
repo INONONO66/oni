@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ChannelsFailure } from "../../errors.js";
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import type { ChannelProvider, OwnerArm } from "../contract.js";
-import { KAKAOTALK_RENDER } from "./format.js";
+import { KAKAOTALK_MEDIA_LIMITS, KAKAOTALK_RENDER } from "./format.js";
 import { type KakaoTalkOwnerCredentials, KakaoTalkOwnerAdapter } from "./owner.js";
 import { type KakaoTalkOwnerSdk, kakaoTalkOwnerSdk } from "./owner-sdk.js";
 
@@ -27,7 +27,7 @@ function createKakaoTalkOwnerArm(sdk: KakaoTalkOwnerSdk = kakaoTalkOwnerSdk()): 
       "the Owner accepts automation under their own account: one session per device slot, a second login on the same slot kicks this one",
       "AGENT_MESSENGER_CONFIG_DIR names where the SDK keeps the LOCO sync state (no secret)",
     ],
-    capabilities: { deliver: true, react: false, media: false, typing: true },
+    capabilities: { deliver: true, react: false, media: KAKAOTALK_MEDIA_LIMITS, typing: true },
     listen: true,
     create(credentials, posture, publish, options) {
       const surface = new KakaoTalkOwnerAdapter(credentials, posture, publish, options, sdk);

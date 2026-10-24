@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { ZodError } from "zod";
+import { Gateway } from "../src/gateway/index.js";
 import { Message } from "../src/message/index.js";
 
 const base = { id: "p-1", sessionID: "ses-1", messageID: "msg-1" };
@@ -399,5 +400,27 @@ describe("Message.WithParts", () => {
 
   test("rejects missing parts", () => {
     expect(() => Message.WithParts.parse({ info: userInfo })).toThrow(ZodError);
+  });
+});
+
+describe("Gateway.IngressFacts", () => {
+  test("parses video and voice audio attachments", () => {
+    const facts = Gateway.IngressFacts.parse({
+      eventId: "in-1",
+      surface: "telegram",
+      channelId: "chat-1",
+      addressees: [],
+      dm: true,
+      payload: {},
+      render: "media",
+      attachments: [
+        { kind: "video", ref: "video-1", durationMs: 12_000 },
+        { kind: "audio", ref: "audio-1", voice: true, durationMs: 4_200 },
+      ],
+    });
+    expect(facts.attachments).toEqual([
+      { kind: "video", ref: "video-1", durationMs: 12_000 },
+      { kind: "audio", ref: "audio-1", voice: true, durationMs: 4_200 },
+    ]);
   });
 });
