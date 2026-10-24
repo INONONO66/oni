@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, SQLiteError } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -129,17 +129,8 @@ function probeSessionFileSchemaVersion(path: string): number {
   }
   let db: Database | undefined;
   try {
-    try {
-      db = new Database(path, { readonly: true });
-      return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "SQLITE_CANTOPEN") ||
-        existsSync(`${path}-wal`) || existsSync(`${path}-shm`)) throw error;
-      db?.close();
-      // A checkpointed WAL file cannot open readonly without sidecars.
-      db = new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true });
-      return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-    }
+    db = new Database(path, { readonly: true });
+    return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
   } catch (error) {
     throw unreadableSessionFile(path, error instanceof Error ? error : new Error(String(error)));
   } finally {
@@ -191,21 +182,41 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
   }).immediate();
 }
 
-/** Refuse every differing stamped version before DDL; stamp fresh files with their schema. */
-function openStampedSessionDatabase(path: string): Database {
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-  const fresh = path !== ":memory:" && !existsSync(path);
-  const version = fresh || path === ":memory:" ? 0 : probeSessionFileSchemaVersion(path);
-  if (version !== 0 && version !== SESSION_FILE_SCHEMA_VERSION) {
+/** Immutable reads see checkpointed content only; the writable fallback reads the live version. */
+function stampedVersion(path: string): number | null {
+  let db: Database | undefined;
+  try {
+    db = new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true });
+    return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+  } catch (error) {
+    if (error instanceof SQLiteError) return null;
+    throw error;
+  } finally {
+    db?.close();
+  }
+}
+
+function refuseSessionFileVersion(version: number): void {
+  if (version !== 0 && version !== SESSION_FILE_SCHEMA_VERSION)
     throw new CatalogVersionRefused({
       fileVersion: version,
       codeVersion: SESSION_FILE_SCHEMA_VERSION,
       operation: "openSessionStore",
     });
-  }
+}
+
+/** Refuse every differing stamped version before DDL; stamp fresh files with their schema. */
+function openStampedSessionDatabase(path: string): Database {
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  const fresh = path !== ":memory:" && !existsSync(path);
+  const preflight = fresh || path === ":memory:" ? 0 : stampedVersion(path);
+  if (preflight !== null) refuseSessionFileVersion(preflight);
   const db = new Database(path);
   let ready = false;
   try {
+    const version = preflight ?? SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    refuseSessionFileVersion(version);
+    // Every DDL statement is IF NOT EXISTS, so a checkpoint-only 0 read is safe to bootstrap.
     bootstrapStoreDatabase(db, version === 0
       ? [...SESSION_FILE_SCHEMA, `PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`]
       : SESSION_FILE_SCHEMA);
