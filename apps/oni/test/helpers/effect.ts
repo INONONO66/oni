@@ -21,6 +21,13 @@ export function runEffect<A, E>(effect: Effect.Effect<A, E, never>): Promise<A> 
   );
 }
 
+/** The `media.run` port of a process-session transport: the test boundary that honors the abort signal. */
+export function runAbortableEffect<A, E>(effect: Effect.Effect<A, E, never>, signal: AbortSignal): Promise<A> {
+  return Effect.runPromise(Effect.result(effect), { signal }).then((result) =>
+    Result.getOrThrowWith(result, (error) => error),
+  );
+}
+
 /** Synchronous storage setup, preserving the typed failure at the test boundary. */
 export function runSyncEffect<A, E>(effect: Effect.Effect<A, E, never>): A {
   return Result.getOrThrowWith(Effect.runSync(Effect.result(effect)), (error) => error);

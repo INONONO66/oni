@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { deliveryMedia, mediaLlm } from "../src/composition/delivery-media";
 import { DeliveryMediaRegistry } from "../src/runtime";
 import { Bus } from "./helpers/bus";
-import { runRuntimeEffect } from "./helpers/effect";
+import { runEffect, runRuntimeEffect } from "./helpers/effect";
 import { eventSignal } from "./helpers/event-signal";
 import { fakeProviderModel, residentSuite } from "./helpers/resident-suite";
 
@@ -50,7 +50,7 @@ function harness() {
   });
   const sink = { onMessage: () => undefined, onToolCall: () => undefined, onToolResult: () => undefined };
   const dependencies = {};
-  const run = (input: RunInput) => Effect.runPromise(llm.run(input, sink, dependencies));
+  const run = (input: RunInput) => runEffect(llm.run(input, sink, dependencies));
   return { media, calls, call, run, llm, service, sink, dependencies };
 }
 
@@ -125,7 +125,7 @@ test("media is recalled when the delegate effect executes", async () => {
   const pending = h.llm.run(h.call([user("u1")]), h.sink);
   h.media.remember("u1", [png]);
   h.media.bind(bytes);
-  await Effect.runPromise(pending);
+  await runEffect(pending);
   expect(h.calls[0]?.[0].media).toEqual({ parts: [{ messageId: "u1", parts: [png] }], bytes });
 });
 
@@ -158,11 +158,11 @@ test("boot binds derivation while ingress preserves raw video for the selected c
     `[attached: video 1s \u2192 ${part.ref}]\n\ninspect video`,
   ]);
   expect(media.recall(message.info.id)).toEqual([part]);
-  expect(await Effect.runPromise(derive(part, { input: ["text"] }))).toEqual({ text: "[video 1s, 0 frames]", parts: [] });
+  expect(await runEffect(derive(part, { input: ["text"] }))).toEqual({ text: "[video 1s, 0 frames]", parts: [] });
   const warning = eventSignal<ReturnType<typeof Operational.Events.Warn.schema.parse>>("derivative warning");
   suite.defer(Bus.subscribe(Operational.Events.Warn, (event) => {
     if (event.context?.ref === `self:${inbox}/missing.wav`) warning.resolve(event);
   }));
-  expect(await Effect.runPromise(derive({ kind: "audio", ref: `self:${inbox}/missing.wav` }, { input: ["text"] }))).toEqual({ parts: [] });
+  expect(await runEffect(derive({ kind: "audio", ref: `self:${inbox}/missing.wav` }, { input: ["text"] }))).toEqual({ parts: [] });
   expect((await warning.promise).context?.code).toBe("transcript_failed");
 });

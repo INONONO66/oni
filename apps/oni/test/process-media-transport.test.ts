@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { Gateway } from "@oni/protocol";
 import { z } from "zod";
 import type { PartBytes } from "@oni/llm";
@@ -8,7 +8,7 @@ import { ProcessReplyReceipt } from "../src/composition/process-replies";
 import { deliveryMedia } from "../src/composition/delivery-media";
 import { MEDIA_BYTE_CAP } from "../src/composition/media";
 import { bounded } from "./helpers/protected-dispatch";
-import { testClockRuntime } from "./helpers/effect";
+import { runAbortableEffect, testClockRuntime } from "./helpers/effect";
 
 type TransportOptions = Parameters<typeof createProcessSessionTransport>[0];
 
@@ -26,8 +26,7 @@ function fixture(scenario: string, source?: PartBytes, run?: NonNullable<Transpo
     },
     media: {
       registry,
-      run: run ?? ((effect, signal) => Effect.runPromise(Effect.result(effect), { signal })
-        .then((result) => Result.getOrThrowWith(result, (error) => error))),
+      run: run ?? runAbortableEffect,
     },
     committed: (ids) => received.push(...ids),
     answer: async () => { throw new Error("unexpected answer"); },

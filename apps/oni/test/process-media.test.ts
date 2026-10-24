@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { readFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { type Gateway, Operational } from "@oni/protocol";
 import { Core } from "@oni/agent";
 import { z } from "zod";
 import { deliveryMedia } from "../src/composition/delivery-media";
 import { createProcessSessionTransport } from "../src/composition/process-session";
 import { messageFixture } from "./helpers/message-fixture";
-import { appRuntime, closeAcquiredEffects, runRuntimeEffect } from "./helpers/effect";
+import { appRuntime, closeAcquiredEffects, runAbortableEffect, runRuntimeEffect } from "./helpers/effect";
 import { boundToolHolder } from "./helpers/tool-ports";
 import { bounded } from "./helpers/protected-dispatch";
 import { contentBlocks, messageStart, messageEnd, sseResponse } from "./helpers/anthropic-sse";
@@ -185,8 +185,7 @@ test.each(["bound", "unbound", "derived"] as const)("real process entry carries 
     },
     media: {
       registry,
-      run: (effect, signal) => Effect.runPromise(Effect.result(effect), { signal })
-        .then((result) => Result.getOrThrowWith(result, (error) => error)),
+      run: runAbortableEffect,
     },
     committed: () => { throw new Error("resident fixture must not deliver"); },
     answer: async () => { throw new Error("resident fixture must not answer"); },
