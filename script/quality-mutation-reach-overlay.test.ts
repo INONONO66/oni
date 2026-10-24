@@ -75,6 +75,11 @@ test.each([
 		argument: '"fixture"', dependency: "", shadow: "",
 	},
 	{
+		name: "default import",
+		source: 'import inline from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
 		name: "namespace import",
 		source: 'import * as macros from "./macro" with { type: "macro" };\nexport const run = macros.inline("fixture") + 42;\n',
 		argument: '"fixture"', dependency: "", shadow: "",
@@ -109,7 +114,7 @@ test.each([
 		mkdirSync(join(root, "src"), { recursive: true });
 		mkdirSync(join(overlay.instrumented, "src"), { recursive: true });
 		writeFileSync(join(root, path), source);
-		writeFileSync(join(root, "src/macro.ts"), 'export function inline(value: string): string { return value; }\n');
+		writeFileSync(join(root, "src/macro.ts"), 'export function inline(value: string): string { return value; }\nexport default inline;\n');
 		writeFileSync(join(root, "src/a.test.ts"), `import { expect, test } from "bun:test"; import { run${shadow ? ", shadow" : ""} } from "./a"; test("macro", () => { expect(run).toBe("fixture42"); ${shadow ? 'expect(shadow((value) => value)).toBe("runtime");' : ""} });\n`);
 		const start = source.indexOf(argument, source.indexOf("export const run"));
 		const site = (id: string, offset: number, length: number) => ({
