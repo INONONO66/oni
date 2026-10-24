@@ -1,6 +1,7 @@
-import { Database } from "bun:sqlite";
+import { Database, SQLiteError } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   LedgerAction,
   LedgerSession,
@@ -30,7 +31,7 @@ import { createActions } from "./actions";
 import { createArmedAlarmPorts, type ArmedAlarmRow, type ArmedOccurrence } from "./alarms";
 import { createToolOutputs, type ToolOutputWrite, type ToolOutputsAdapter } from "./outputs";
 
-/** Fresh per-session ledger file DDL. */
+/** Per-session ledger file DDL. */
 export const SESSION_FILE_SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS session (
     id TEXT PRIMARY KEY,
@@ -113,13 +114,10 @@ export const SESSION_FILE_SCHEMA: readonly string[] = [
 ];
 
 
-/**
- * Session-file schemaVersion in `PRAGMA user_version`. Guarded upgrades add alarm strikes
- * and remove row digests; a newer-build file refuses to open and fork refuses a differing marker.
- */
+/** Session-file schemaVersion in `PRAGMA user_version`; only this stamp can open. */
 export const SESSION_FILE_SCHEMA_VERSION = 3;
 
-const SessionUserVersion = z.object({ user_version: z.number().int().nonnegative() });
+const SessionUserVersion = z.object({ user_version: z.number().int() });
 
 /** The `readonly` `PRAGMA user_version` read behind the probe; a missing file reads as 0. */
 function probeSessionFileSchemaVersion(path: string): number {
@@ -148,15 +146,8 @@ function unreadableSessionFile(path: string, error: Error): SessionFileUnreadabl
   });
 }
 
-/**
- * SchemaVersion probe before a fork: reads only `PRAGMA user_version` through a `readonly` open,
- * so an unstamped legacy parent (0) and a newer-build file are never modified nor their tables read.
- * An older stamped file (1 ≤ v < this schema) upgrades through the guarded path, then re-probes. Missing: 0.
- */
+/** Read-only schemaVersion probe before a fork; a missing file reads as 0. */
 export function readSessionFileSchemaVersion(path: string): number {
-  const version = probeSessionFileSchemaVersion(path);
-  if (version === 0 || version >= SESSION_FILE_SCHEMA_VERSION) return version;
-  closeStoreDatabase(openStampedSessionDatabase(path));
   return probeSessionFileSchemaVersion(path);
 }
 
@@ -191,23 +182,44 @@ export function bootstrapStoreDatabase(db: Database, schema: readonly string[]):
   }).immediate();
 }
 
-/** Newer-build marker: typed `CatalogVersionRefused` before any DDL, stamp or read, no handle survives; else bootstrap and upgrade. */
+/** Immutable reads see checkpointed content only; the writable fallback reads the live version. */
+function stampedVersion(path: string): number | null {
+  let db: Database | undefined;
+  try {
+    db = new Database(`${pathToFileURL(path).href}?immutable=1`, { readonly: true });
+    return SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+  } catch (error) {
+    if (error instanceof SQLiteError) return null;
+    throw error;
+  } finally {
+    db?.close();
+  }
+}
+
+function refuseSessionFileVersion(version: number): void {
+  if (version !== 0 && version !== SESSION_FILE_SCHEMA_VERSION)
+    throw new CatalogVersionRefused({
+      fileVersion: version,
+      codeVersion: SESSION_FILE_SCHEMA_VERSION,
+      operation: "openSessionStore",
+    });
+}
+
+/** Refuse every differing stamped version before DDL; stamp fresh files with their schema. */
 function openStampedSessionDatabase(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const fresh = path !== ":memory:" && !existsSync(path);
+  const preflight = fresh || path === ":memory:" ? 0 : stampedVersion(path);
+  if (preflight !== null) refuseSessionFileVersion(preflight);
   const db = new Database(path);
   let ready = false;
   try {
-    const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-    if (version > SESSION_FILE_SCHEMA_VERSION) {
-      throw new CatalogVersionRefused({
-        fileVersion: version,
-        codeVersion: SESSION_FILE_SCHEMA_VERSION,
-        operation: "openSessionStore",
-      });
-    }
-    bootstrapStoreDatabase(db, SESSION_FILE_SCHEMA);
-    if (version < SESSION_FILE_SCHEMA_VERSION) upgradeSessionDatabase(db, path);
+    const version = preflight ?? SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
+    refuseSessionFileVersion(version);
+    // Every DDL statement is IF NOT EXISTS, so a checkpoint-only 0 read is safe to bootstrap.
+    bootstrapStoreDatabase(db, version === 0
+      ? [...SESSION_FILE_SCHEMA, `PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`]
+      : SESSION_FILE_SCHEMA);
     ready = true;
   } finally {
     if (!ready) {
@@ -216,70 +228,6 @@ function openStampedSessionDatabase(path: string): Database {
     }
   }
   return db;
-}
-
-const ColumnName = z.object({ name: z.string() });
-const LegacyForkPin = z.object({
-  id: z.string(),
-  parentSession: z.string().min(1).regex(/^[^/\\\0]+$/).refine((id) => id !== "." && id !== ".."),
-  anchor: z.string(),
-  parentHead: z.string(),
-});
-const LegacyActionId = z.object({ id: z.string() });
-
-/** Read the parent's original identity from a consistent v2 or upgraded-v3 snapshot. */
-function legacyForkActionId(parentPath: string, digest: string): string | undefined {
-  using parent = new Database(parentPath, { readonly: true });
-  parent.run("PRAGMA busy_timeout = 5000");
-  parent.run("BEGIN");
-  try {
-    const version = SessionUserVersion.parse(parent.query("PRAGMA user_version").get()).user_version;
-    const sql = version < SESSION_FILE_SCHEMA_VERSION
-      ? "SELECT id FROM action WHERE action_hash = ?"
-      : "SELECT action_id AS id FROM legacy_fork_digest WHERE digest = ?";
-    return LegacyActionId.nullable().parse(parent.query(sql).get(digest))?.id;
-  } finally {
-    parent.run("ROLLBACK");
-  }
-}
-
-/** Recheck the marker under the write lock so concurrent openers upgrade exactly once. */
-function upgradeSessionDatabase(db: Database, path: string): void {
-  db.transaction(() => {
-    const version = SessionUserVersion.parse(db.query("PRAGMA user_version").get()).user_version;
-    if (version >= SESSION_FILE_SCHEMA_VERSION) return;
-    const columns = ColumnName.array().parse(db.query("PRAGMA table_info(armed_alarms)").all());
-    if (!columns.some((column) => column.name === "strikes"))
-      db.run("ALTER TABLE armed_alarms ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0");
-    if (version > 0) {
-      db.run("CREATE TABLE legacy_fork_digest (digest TEXT PRIMARY KEY, action_id TEXT NOT NULL)");
-      db.run("INSERT INTO legacy_fork_digest SELECT action_hash, id FROM action");
-      const pins = LegacyForkPin.array().parse(db.query(`
-        SELECT id, json_extract(intent, '$.forkedFrom.session') AS parentSession,
-          json_extract(intent, '$.forkedFrom.anchor') AS anchor,
-          json_extract(intent, '$.forkedFrom.parentHead') AS parentHead
-        FROM action WHERE kind = 'session.configure'
-          AND json_type(intent, '$.forkedFrom') = 'object'
-      `).all());
-      for (const pin of pins) {
-        const parentPath = join(dirname(path), `${pin.parentSession}.sqlite`);
-        const anchor = legacyForkActionId(parentPath, pin.anchor);
-        const parentHead = legacyForkActionId(parentPath, pin.parentHead);
-        if (anchor === undefined || parentHead === undefined)
-          throw new CorruptRecord({ operation: "session.upgrade", id: pin.id });
-        db.query(`UPDATE action SET intent = json_set(intent,
-          '$.forkedFrom.anchor', ?, '$.forkedFrom.parentHead', ?) WHERE id = ?`)
-          .run(anchor, parentHead, pin.id);
-      }
-      for (const statement of [
-        "DROP INDEX IF EXISTS action_hash_unique",
-        "ALTER TABLE action DROP COLUMN prev_hash",
-        "ALTER TABLE action DROP COLUMN action_hash",
-        "ALTER TABLE decision_fact DROP COLUMN row_hash",
-      ]) db.run(statement);
-    }
-    db.run(`PRAGMA user_version = ${SESSION_FILE_SCHEMA_VERSION}`);
-  }).immediate();
 }
 
 /** Folds the WAL back into the main file so a cold start reads a clean
@@ -295,7 +243,7 @@ export class StoreHandle {
   /** The injected wall clock this handle was opened with; every timestamp the handle writes comes from it. */
   readonly now: () => number;
   // Every transaction caller is a write unit: take the write lock up front
-  // (BEGIN IMMEDIATE) instead of upgrading mid-transaction.
+  // (BEGIN IMMEDIATE) instead of acquiring the lock mid-transaction.
   readonly transaction = <T>(operation: () => T): T => this.db.transaction(operation).immediate();
   protected readonly db: Database;
   private closed = false;

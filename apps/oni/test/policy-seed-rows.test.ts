@@ -19,7 +19,7 @@ const generationOf = (
   handlers: ReadonlyMap<string, object> = new Map(),
 ) => ({ rows, handlers });
 
-test("gate rows project onto the legacy seed shape: obligation, constant verdicts and transforms", () => {
+test("gate rows project onto the policy seed shape: obligation, constant verdicts and transforms", () => {
   const seeds = gateRowPolicySeeds(generationOf([
     row({ how: { ref: "kernel/budget-clamp", metric: "notifications", limit: 8 } }),
     row({ id: "probe/tool.pre#2", how: {} }),
@@ -115,5 +115,5 @@ test("a row the live plane cannot seed is an invariant failure, never a silent d
   );
   expect(() =>
     gateRowPolicySeeds(generationOf([row({ on: "ghost.pre" as Bundle.BundleGateRow["on"] })])),
-  ).toThrow("has no legacy policy address");
+  ).toThrow(AppInvariantError);
 });

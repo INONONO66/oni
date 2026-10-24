@@ -8,7 +8,7 @@ import {
   type PolicyRow,
 } from "@oni/protocol";
 import { z } from "zod";
-import { legacyPolicyAddress } from "../bundles/core-policy/index";
+import { policyAddress } from "../bundles/core-policy/index";
 import { ADMISSION_DEPTH_MAX, DELEGATION_GUARD_REFS, SPAWN_DEPTH_REF } from "../bundles/delegation-policy/index";
 import { SECRETS_GUARD_REF } from "../bundles/hooks-json/index";
 import { AppInvariantError } from "../invariant";
@@ -147,7 +147,7 @@ function compileHandlerRow(
 function compileRow(row: PolicyFileRow, source: string): SeedRow | Bundle.BundleGateRow {
   const point = PointId.safeParse(row.point);
   if (!point.success) refuse(source, "unknown_point", `row ${row.id} targets unknown point ${row.point}`);
-  const address = legacyPolicyAddress(point.data);
+  const address = policyAddress(point.data);
   if (address === undefined) refuse(source, "unknown_point", `row ${row.id} targets unsupported point ${row.point}`);
   const message = row.point === "message.pre" ? MessageRule.safeParse(row.when.message) : undefined;
   if (message !== undefined && !message.success)
