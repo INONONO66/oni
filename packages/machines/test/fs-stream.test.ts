@@ -1,10 +1,35 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Machine } from "@oni/protocol";
 import { createFsDriver } from "./helpers/native";
+
+test.each(["file", "symlink"])("exclusive stream publication refuses a competing %s after begin", async (kind) => {
+  const root = mkdtempSync(join(tmpdir(), "oni-exclusive-stream-"));
+  const driver = createFsDriver(new Map([["work", root]]));
+  try {
+    writeFileSync(join(root, "sibling"), "untouched");
+    expect(await driver.stream({
+      op: "begin", mode: "write", transferId: "exclusive", export: "work", path: "target", create: "exclusive",
+    })).toMatchObject({ status: "begun" });
+    expect(await driver.stream({
+      op: "write", transferId: "exclusive", seq: 0, data: Buffer.from("new").toString("base64"),
+      last: true, digest: createHash("sha256").update("new").digest("hex"),
+    })).toMatchObject({ status: "written", last: true });
+    if (kind === "file") writeFileSync(join(root, "target"), "winner");
+    else symlinkSync("sibling", join(root, "target"));
+    expect(await driver.stream({ op: "finish", transferId: "exclusive" }))
+      .toMatchObject({ status: "refused", reason: "already_exists" });
+    expect(readFileSync(join(root, "target"), "utf8")).toBe(kind === "file" ? "winner" : "untouched");
+    expect(readFileSync(join(root, "sibling"), "utf8")).toBe("untouched");
+    expect(readdirSync(root).sort()).toEqual(["sibling", "target"]);
+  } finally {
+    driver.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("transfer cursors replay a lost read frame without advancing the digest twice", async () => {
   const root = mkdtempSync(join(tmpdir(), "om-fs-stream-"));

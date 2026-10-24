@@ -3,16 +3,17 @@ import { injectedOptions } from "./injected";
 import { TelegramAdapter } from "../../src/provider/telegram/surface";
 import { ChannelProviders } from "../../src/provider/registry";
 import type { PublishPort } from "../../src/types";
+import { DiscordOwnerAdapter } from "../../src/provider/discord/owner";
 
-/** The providers still posting over `fetch`; Slack's boundary is the agent-messenger SDK (#1569). */
-type Provider = "discord" | "telegram";
+type Provider = "discord" | "discord-owner" | "telegram";
 
 export function deliveryFixture(provider: Provider, publish: PublishPort = () => undefined) {
-  const adapter =
-    provider === "discord"
+  const adapter = provider === "telegram"
+    ? new TelegramAdapter("token", {}, publish, injectedOptions())
+    : provider === "discord"
       ? new DiscordAdapter("token", {}, publish, injectedOptions())
-      : new TelegramAdapter("token", {}, publish, injectedOptions());
-  const limit = ChannelProviders[provider].capabilities.render.messageLimit;
+      : new DiscordOwnerAdapter({ token: "token" }, { intake: "none", autoReply: false }, publish, injectedOptions());
+  const limit = ChannelProviders[provider === "telegram" ? "telegram" : "discord"].capabilities.render.messageLimit;
   if (limit === null) throw new Error("delivery fixture requires a bounded provider");
   return { adapter, limit, address: "123" };
 }

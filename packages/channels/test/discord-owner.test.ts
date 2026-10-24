@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { type Channel, Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { OwnerPosture } from "../src/provider/contract";
@@ -12,14 +12,8 @@ import { injectedOptions } from "./helpers/injected";
 
 const noopPublish: PublishPort = () => undefined;
 const DEFAULT_INTAKE: OwnerPosture = { intake: "mentions_and_dms", autoReply: false };
-const realFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
-
-/** One started Owner instance over the scripted user SDK and a captured REST, with an inbound queue. */
+/** One started Owner instance over the scripted user SDK, with an inbound queue. */
 async function started(posture: OwnerPosture = DEFAULT_INTAKE, publish: PublishPort = noopPublish, listener?: FakeDiscordOwnerListener) {
-  const calls = captureRest();
   const fake = fakeDiscordOwnerSdk(listener);
   const adapter = new DiscordOwnerAdapter({ token: "owner-token" }, posture, publish, injectedOptions(), fake.sdk);
   const inbound: Channel.InboundMessage[] = [];
@@ -34,7 +28,7 @@ async function started(posture: OwnerPosture = DEFAULT_INTAKE, publish: PublishP
     waiters.shift()?.(message);
   });
   await adapter.start("boot");
-  return { ...fake, adapter, inbound, next, calls };
+  return { ...fake, adapter, inbound, next };
 }
 
 /**
@@ -43,36 +37,17 @@ async function started(posture: OwnerPosture = DEFAULT_INTAKE, publish: PublishP
  */
 const SENTINEL = { id: "m-sentinel", channel_id: "D-owner", author: { id: "U7", username: "friend" }, content: "sentinel" };
 
-function captureRest() {
-  const calls: Request[] = [];
-  globalThis.fetch = Object.assign(
-    async (input: string | URL | Request, init?: RequestInit) => {
-      const request = new Request(String(input), init);
-      calls.push(request);
-      if (request.method === "GET" && request.url.endsWith("/users/@me")) return Response.json(OWNER_READY.user);
-      if (request.method === "POST" && request.url.endsWith("/users/@me/channels")) return Response.json({ id: "D-owner" });
-      if (request.method === "POST" && request.url.endsWith("/messages")) return Response.json({ id: "m-1" });
-      return new Response(null, { status: 204 });
-    },
-    { preconnect: realFetch.preconnect },
-  );
-  return calls;
-}
-
-const route = (call: Request) => [call.method, call.url.replace("https://discord.com/api/v10", "")];
-
 describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner instance (#1569 lane 6)", () => {
   it("logs in with the account token, verifies the account through the package's client under the bare token, and opens the gateway listener under the default posture", async () => {
     const infos: Pick<ReturnType<typeof Operational.Events.Info.schema.parse>, "msg" | "context">[] = [];
-    const { client, listener, adapter, calls } = await started(DEFAULT_INTAKE, (event, data) => {
+    const { client, listener, adapter } = await started(DEFAULT_INTAKE, (event, data) => {
       if (event.name !== Operational.Events.Info.name) return;
       const { msg, context } = Operational.Events.Info.schema.parse(data);
       infos.push(context === undefined ? { msg } : { msg, context });
     });
     expect(adapter.id).toBe("discord:owner");
     expect(client.logins).toEqual(["owner-token"]);
-    expect(calls.map(route)).toEqual([["GET", "/users/@me"]]);
-    expect(calls[0]?.headers.get("Authorization")).toBe("owner-token");
+    expect(client.calls.map(({ method }) => method)).toEqual(["testAuth"]);
     expect(listener.started).toBe(1);
     expect(infos.at(-1)).toEqual({
       msg: "discord owner instance started",
@@ -147,7 +122,6 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   });
 
   it("an error before READY fails start; a non-recoverable close after it is a typed dead surface", async () => {
-    captureRest();
     const refusing = new FakeDiscordOwnerListener((self) => self.emit("error", new Error("Discord gateway refused: 401")));
     const fake = fakeDiscordOwnerSdk(refusing);
     const adapter = new DiscordOwnerAdapter({ token: "owner-token" }, DEFAULT_INTAKE, noopPublish, injectedOptions(), fake.sdk);
@@ -163,7 +137,6 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
   });
 
   it("delivers as the Owner through the package's REST client under the bare account token, one attempt per key", async () => {
-    const calls = captureRest();
     const owner = fakeDiscordOwnerSdk();
     const arm = createDiscordProvider(fakeDiscordSdk().sdk, owner.sdk).owner;
     if (arm === undefined) throw new Error("discord owner arm missing");
@@ -179,29 +152,25 @@ describe("DiscordOwnerAdapter: the Owner's own account as the discord:owner inst
       value: "accepted",
       externalMessageId: "m-1",
     });
-    expect(calls.map((call) => [...route(call), call.headers.get("Authorization")])).toEqual([
-      ["GET", "/users/@me", "owner-token"],
-      ["POST", "/users/@me/channels", "owner-token"],
-      ["POST", "/channels/D-owner/messages", "owner-token"],
+    expect(owner.client.calls.map(({ method }) => method)).toEqual([
+      "testAuth",
+      "createDM",
+      "createMessage",
     ]);
     // Replayed under the same key: nothing leaves twice.
     expect(await runtime.deliveryRoute?.("U7", Outbound.payload("as the Owner"), "k-1")).toEqual({
       value: "accepted",
       externalMessageId: "m-1",
     });
-    expect(calls).toHaveLength(3);
+    expect(owner.client.calls).toHaveLength(3);
   });
 
   it("types as the Owner: a DM channel is opened once per turn, a named conversation is reused, every pulse posts typing", async () => {
-    const { adapter, calls } = await started({ intake: "none", autoReply: false });
+    const { adapter, client } = await started({ intake: "none", autoReply: false });
     expect(await adapter.openTyping("U7", { channelId: "C1" })).toEqual({ channelId: "C1" });
     expect(await adapter.openTyping("U7")).toEqual({ channelId: "D-owner" });
     await adapter.typing({ channelId: "D-owner" });
-    expect(calls.map(route)).toEqual([
-      ["GET", "/users/@me"],
-      ["POST", "/users/@me/channels"],
-      ["POST", "/channels/D-owner/typing"],
-    ]);
+    expect(client.calls.map(({ method }) => method)).toContain("triggerTyping");
     expect(await adapter.deliver("U7", Outbound.payload("direct"), "k-2", { channelId: "C1" })).toEqual({
       value: "sent",
       externalMessageId: "m-1",

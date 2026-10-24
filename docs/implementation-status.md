@@ -799,7 +799,28 @@ paths, the first live run).
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
 main (PRs #1586–#1597); this section is the one place the shipped state is
 summarized, and the per-lane sections under it are the receipts. Messenger
-I/O is `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per
+I/O is the repository's agent-messenger fork pinned by commit in
+`packages/channels/package.json` (byte uploads, per-client retry control:
+Discord bot, Discord Owner and Telegram bot SDK clients set `retries: 0`;
+Slack pins its inner Web API client to one attempt but retains up to three
+SDK retries after an explicit 429 refusal — Telegram
+`getFile`/`answerCallbackQuery`/`sendChatAction`, Discord typing/DM/interaction
+responses, errors carrying `httpStatus`/`retryAfter`); the hand-rolled Discord
+and Telegram REST clients are gone and every REST call goes through the SDK
+seam. When `ONI_MACHINES_INBOX` (or `machines.inbox`) is configured,
+`composition/attachments.ts` best-effort stores inbound attachments on the
+default machine before handoff and rewrites successful references to
+`<machine>:<path>`. Telegram `file_id` and Slack file IDs use the bot's
+authenticated `ProviderRuntime.attachments` download (Slack needs
+`files:read`); public URLs such as Discord CDN links use the composition
+media resolver. Slack Owner exposes no attachment download port, and
+private-URL-only references cannot be fetched through the bot's file-ID
+download; those references remain as received. A failed fetch or write keeps
+the original reference and warns. Authenticated downloads are bounded by the
+50 MiB media cap and a 30-second deadline; conversation-scoped hashed inbox keys distinguish messages,
+and exclusive-create writes refuse an existing leaf or symlink. Receipts:
+`apps/oni/test/attachment-inbox.test.ts`, `test/config.test.ts`.
+Before that, messenger I/O was `agent-messenger@2.39.0`, one `sdk.ts`/`owner-sdk.ts` seam per
 messenger provider (Slack, Discord, Telegram, Instagram, KakaoTalk), under
 `support/sdk-listener.ts` custody; GitHub, Linear, webhook and A2A are
 hand-rolled over fetch and webhook ingress. The SDK's own credential store

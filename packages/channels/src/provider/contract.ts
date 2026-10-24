@@ -1,5 +1,5 @@
 import type { Channel, Gateway, Outbound } from "@oni/protocol";
-import type { EffectRunner, MediaResolver, PublishPort } from "../types.js";
+import type { AttachmentFetch, EffectRunner, MediaResolver, PublishPort } from "../types.js";
 import { z } from "zod";
 
 /**
@@ -120,6 +120,8 @@ export interface ProviderRuntime {
   readonly webhookHandler?: (request: Request) => Promise<Response>;
   /** #1600: the account this runtime speaks as, known once the surface started; an Owner instance's is bound to the Owner Person. */
   readonly account?: () => AccountIdentity | undefined;
+  /** The platform's authenticated download for the references its normalizer emits; absent when they are public URLs. */
+  readonly attachments?: AttachmentFetch;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { SlackBotListenerEventMap } from "agent-messenger/slackbot";
+import type { SlackBotEventMap as SlackBotListenerEventMap } from "../../src/provider/slack/sdk";
 import type { PlainValue } from "@oni/protocol";
 import type {
   SlackBotApi,
@@ -136,6 +136,11 @@ export class FakeSlackClient implements SlackBotApi {
 
   login(credentials: { token: string }): Promise<object> {
     return this.record("login", [credentials.token], this);
+  }
+
+  downloadFile(fileId: string): Promise<{ buffer: Uint8Array; file: { name?: string; mimetype?: string } }> {
+    this.calls.push({ method: "downloadFile", args: [fileId] });
+    return Promise.resolve({ buffer: new TextEncoder().encode(fileId), file: { name: `${fileId}.txt`, mimetype: "text/plain" } });
   }
 
   testAuth(): Promise<{ user_id: string; team_id: string }> {

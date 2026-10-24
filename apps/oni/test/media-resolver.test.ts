@@ -12,6 +12,7 @@ import {
   mediaMime,
 } from "../src/composition/media";
 import type { FilePorts } from "../src/bundles/tools/core/filesystem";
+import { eventSignal } from "./helpers/event-signal";
 
 type ToolMachine = ReturnType<NonNullable<FilePorts["machines"]>["get"]>;
 
@@ -69,7 +70,8 @@ type Resolve = ReturnType<typeof createMediaResolver>;
 async function refusal(resolve: Resolve, part: Parameters<Resolve>[0]): Promise<string> {
   const error = await resolve(part).catch((caught) => caught);
   expect(error).toBeInstanceOf(MediaRefused);
-  return (error as MediaRefused).data.code;
+  if (!(error instanceof MediaRefused)) throw error;
+  return error.data.code;
 }
 
 test("a machine path is read whole through the daemon's bounded reads; name and mime follow the part or the path", async () => {
@@ -253,4 +255,52 @@ test("mime follows the extension table and falls back to octet-stream", () => {
   expect(mediaMime("a.JPG")).toBe("image/jpeg");
   expect(mediaMime("archive.tar.gz")).toBe("application/gzip");
   expect(mediaMime("noext")).toBe("application/octet-stream");
+});
+
+test.each([
+  { status: 200, headers: new Headers({ "content-length": String(MEDIA_BYTE_CAP + 1) }), code: "too_large" },
+  { status: 503, headers: new Headers(), code: "fetch_failed" },
+])("refused HTTP $status bodies are canceled without reading", async ({ status, headers, code }) => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({ cancel() { canceled = true; } });
+  const resolve = createMediaResolver({}, () => Promise.resolve(new Response(body, { status, headers })));
+  expect(await refusal(resolve, { kind: "file", ref: "https://cdn.test/refused", name: "file" })).toBe(code);
+  expect(canceled).toBe(true);
+  expect(body.locked).toBe(false);
+});
+
+test("one deadline follows redirects and interrupts a pending public response body", async () => {
+  const controller = new AbortController();
+  const entered = eventSignal<void>("body read entered");
+  const pulling = Promise.withResolvers<void>();
+  const signals: (AbortSignal | null | undefined)[] = [];
+  const body = new ReadableStream<Uint8Array>({
+    start(stream) {
+      controller.signal.addEventListener("abort", () => {
+        stream.error(new DOMException("download deadline", "AbortError"));
+        pulling.resolve();
+      }, { once: true });
+    },
+    pull() {
+      entered.resolve();
+      return pulling.promise;
+    },
+  }, { highWaterMark: 0 });
+  const resolve = createMediaResolver({}, (url, init) => {
+    signals.push(init.signal);
+    return Promise.resolve(url.pathname === "/start"
+      ? Response.redirect("https://cdn.test/body")
+      : new Response(body));
+  });
+  const running = resolve({ kind: "file", ref: "https://cdn.test/start", name: "file" }, {
+    maxBytes: MEDIA_BYTE_CAP, signal: controller.signal,
+  });
+  const outcome = running.then(() => undefined, (error: Error) => error);
+  await entered.promise;
+  controller.abort();
+  expect(await outcome).toMatchObject({
+    name: "OniMediaRefused", data: expect.objectContaining({ code: "fetch_failed" }),
+  });
+  expect(signals).toEqual([controller.signal, controller.signal]);
+  expect(body.locked).toBe(false);
 });

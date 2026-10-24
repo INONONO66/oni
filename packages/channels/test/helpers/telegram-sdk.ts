@@ -1,4 +1,4 @@
-import type { TelegramBotListenerEventMap } from "agent-messenger/telegrambot";
+import type { TelegramBotEventMap as TelegramBotListenerEventMap } from "../../src/provider/telegram/sdk";
 import type { PlainValue } from "@oni/protocol";
 import type {
   TelegramBotApi,
@@ -62,11 +62,67 @@ export class FakeTelegramListener implements TelegramBotEvents {
 
 export class FakeTelegramClient implements TelegramBotApi {
   readonly logins: string[] = [];
+  readonly calls: Array<{ method: string; chatId?: string | number; options?: object }> = [];
+  private readonly failures = new Map<string, Error>();
+
+  fail(method: string, error: Error): void {
+    this.failures.set(method, error);
+  }
+
+  private check(method: string): void {
+    const error = this.failures.get(method);
+    if (error !== undefined) {
+      this.failures.delete(method);
+      throw error;
+    }
+  }
 
   login(credentials: { token: string }): Promise<object> {
     this.logins.push(credentials.token);
     return Promise.resolve(this);
   }
+
+  sendMessage(chatId: string | number, text: string, options?: object): Promise<{ message_id: number | string }> {
+    this.calls.push({ method: "sendMessage", chatId, options: { text, ...options } });
+    this.check("sendMessage");
+    return Promise.resolve({ message_id: 42 });
+  }
+
+  sendPhoto(chatId: string | number, _photo: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; message_thread_id?: number }): Promise<{ message_id: number | string }> {
+    this.check("sendPhoto");
+    this.calls.push({ method: "sendPhoto", chatId, options });
+    return Promise.resolve({ message_id: 17 });
+  }
+
+  sendDocument(chatId: string | number, _file: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; message_thread_id?: number }): Promise<{ message_id: number | string }> {
+    this.check("sendDocument");
+    this.calls.push({ method: "sendDocument", chatId, options });
+    return Promise.resolve({ message_id: 17 });
+  }
+
+  setMessageReaction(chatId: string | number, messageId: number, reaction: { type: "emoji"; emoji: string }[]): Promise<boolean> {
+    this.check("setMessageReaction");
+    this.calls.push({ method: "setMessageReaction", chatId, options: { messageId, reaction } });
+    return Promise.resolve(true);
+  }
+
+  sendChatAction(chatId: string | number, action: "typing", options?: object): Promise<boolean> {
+    this.check("sendChatAction");
+    this.calls.push({ method: "sendChatAction", chatId, options: { action, ...options } });
+    return Promise.resolve(true);
+  }
+
+  downloadFile(fileId: string): Promise<{ buffer: Uint8Array; file: { file_path?: string } }> {
+    this.calls.push({ method: "downloadFile", options: { fileId } });
+    return Promise.resolve({ buffer: new TextEncoder().encode(fileId), file: { file_path: `documents/${fileId}.bin` } });
+  }
+
+  answerCallbackQuery(id: string): Promise<boolean> {
+    this.calls.push({ method: "answerCallbackQuery", options: { id } });
+    this.check("answerCallbackQuery");
+    return Promise.resolve(true);
+  }
+
 }
 
 export function fakeTelegramSdk(listener?: FakeTelegramListener): {

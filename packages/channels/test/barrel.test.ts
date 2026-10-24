@@ -5,6 +5,7 @@ test("channels barrel exposes only its runtime public surface", () => {
   expect(Object.keys(barrel).sort()).toEqual([
     "A2AClient",
     "A2ACredentials",
+    "AttachmentRefused",
     "AutomationConfigurationError",
     "AutomationEnableRefused",
     "ChannelProviders",

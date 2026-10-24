@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const CHANNEL_ROOT = fileURLToPath(new URL("../src", import.meta.url));
+const CHANNEL_ROOT = fileURLToPath(new URL("..", import.meta.url));
 // zod is pure schema validation — no I/O, no authority — and providers declare
 // their credential/settings schemas in-band (docs/provisioning-and-providers.md §4).
 const DRIVER_ALLOWED_PACKAGES = new Set(["@oni/protocol", "zod", "effect"]);
@@ -29,13 +29,15 @@ const SQLITE_BAND_DIR = "src/store/sqlite/";
 type ScannedSource = Readonly<{ path: string; text: string }>;
 
 function channelSources(): readonly ScannedSource[] {
-  return readdirSync(CHANNEL_ROOT, { recursive: true })
-    .map(String)
-    .filter((entry) => entry.endsWith(".ts"))
-    .map((entry) => ({
-      path: join("src", entry),
-      text: ts.sys.readFile(join(CHANNEL_ROOT, entry)) ?? "",
-    }));
+  return ["src", "test"].flatMap((directory) =>
+    readdirSync(join(CHANNEL_ROOT, directory), { recursive: true })
+      .map(String)
+      .filter((entry) => entry.endsWith(".ts"))
+      .map((entry) => ({
+        path: join(directory, entry),
+        text: ts.sys.readFile(join(CHANNEL_ROOT, directory, entry)) ?? "",
+      })),
+  );
 }
 
 function collectModuleSpecifiers(source: ts.SourceFile): readonly string[] {
@@ -73,6 +75,7 @@ function packageName(specifier: string): string {
 }
 
 function isAllowed(specifier: string, path: string): boolean {
+  if (path.startsWith("test/") && packageName(specifier) !== "agent-messenger") return true;
   if (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("node:")) {
     return true;
   }
@@ -145,6 +148,10 @@ describe("channels band import boundary", () => {
           path: "src/provider/discord/owner.ts",
           text: 'import { DiscordClient } from "agent-messenger/discord";',
         },
+        {
+          path: "test/helpers/discord-sdk.ts",
+          text: 'import { DiscordBotError } from "agent-messenger/discordbot";',
+        },
       ]),
     ).toEqual([
       "src/provider/slack/surface.ts: imports agent-messenger/slackbot",
@@ -152,6 +159,7 @@ describe("channels band import boundary", () => {
       "src/router/index.ts: imports agent-messenger/slackbot",
       "src/provider/slack/sdk.ts: imports agent-messenger/slack",
       "src/provider/discord/owner.ts: imports agent-messenger/discord",
+      "test/helpers/discord-sdk.ts: imports agent-messenger/discordbot",
     ]);
   });
 

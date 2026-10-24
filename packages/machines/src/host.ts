@@ -61,6 +61,7 @@ const REPORT_STALE_AFTER_MS = 15_000;
 /** A bulk read still fits a single codemode tool reply after base64 encoding. */
 const BULK_READ_MAX_BYTES = 8 * 1024 * 1024;
 type Value<O extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: O }>;
+type WriteOptions = Pick<Extract<Machine.FsRequest, { op: "write" }>, "create">;
 type ReadValue = Omit<Value<"read">, "data"> & { readonly data: Uint8Array };
 type ExecValue = Omit<Extract<Machine.ExecResult, { status: "completed" }>, "stdout" | "stderr"> & { readonly stdout: Uint8Array; readonly stderr: Uint8Array };
 type ScreenValue = Omit<Extract<Machine.ScreenReadResult, { status: "ok" }>, "png"> & { readonly png: Uint8Array };
@@ -68,7 +69,7 @@ type DetachReason = import("zod").infer<typeof Machine.Events.Detached.schema>["
 export interface MachineHandle {
   readonly fs: {
     read(path: string, window?: { offset?: number; limit?: number }): Effect.Effect<ReadValue, MachineError>;
-    write(path: string, data: Uint8Array): Effect.Effect<Value<"write">, MachineError>;
+    write(path: string, data: Uint8Array, options?: WriteOptions): Effect.Effect<Value<"write">, MachineError>;
     list(path: string): Effect.Effect<Value<"list">, MachineError>;
     stat(path: string): Effect.Effect<Value<"stat">, MachineError>;
   };
@@ -346,7 +347,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       error._tag === "IpcConnectionError"
         ? new MachineRefusalError({ reason: "disconnected", message: error.message || "connection closed" })
         : new TransportFailure({ operation, message: error.message || String(error), cause: String(error) });
-    function filesystem<O extends Machine.FsValue["op"]>(id: string, path: string, op: O, extra: { data?: string; offset?: number; limit?: number } = {}): Effect.Effect<Value<O>, MachineError> {
+    function filesystem<O extends Machine.FsValue["op"]>(id: string, path: string, op: O, extra: { data?: string; offset?: number; limit?: number } & WriteOptions = {}): Effect.Effect<Value<O>, MachineError> {
       return Effect.gen(function* () {
         const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
         const request = yield* Effect.try({ try: () => Machine.FsRequest.parse({ op, export: target.export, path: target.path, ...extra }), catch: decodeMachineFailure("fs.request") });
@@ -419,12 +420,12 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
       return streamCall(peer, request).pipe(Effect.flatMap((part) => part.status === "written" && part.seq === request.seq && part.bytesWritten === expectedBytes && part.last === request.last
         ? Effect.void : new MachineRefusalError({ reason: "invalid_response", message: "filesystem write acknowledgement mismatch" })));
     }
-    function streamWrite(id: string, path: string, data: Uint8Array): Effect.Effect<Value<"write">, MachineError> {
+    function streamWrite(id: string, path: string, data: Uint8Array, writeOptions: WriteOptions): Effect.Effect<Value<"write">, MachineError> {
       return Effect.gen(function* () {
         const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
         const transferId = options.id();
         return yield* withTransfer(target.peer, transferId, Effect.gen(function* () {
-          const begin = yield* streamCall(target.peer, { op: "begin", mode: "write", transferId, export: target.export, path: target.path });
+          const begin = yield* streamCall(target.peer, { op: "begin", mode: "write", transferId, export: target.export, path: target.path, ...writeOptions });
           if (begin.status !== "begun" || begin.seq !== 0) return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
           const hash = createHash("sha256");
           let written = 0;
@@ -456,9 +457,9 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           read: (path, window = {}) => window.limit === undefined || window.limit <= Machine.FS_READ_MAX_BYTES
             ? filesystem(id, path, "read", window).pipe(Effect.map((value) => ({ ...value, data: Buffer.from(value.data, "base64") })))
             : streamRead(id, path, window),
-          write: (path, data) => data.byteLength <= Machine.FS_WRITE_MAX_BYTES
-            ? filesystem(id, path, "write", { data: Buffer.from(data).toString("base64") })
-            : streamWrite(id, path, data),
+          write: (path, data, writeOptions = {}) => data.byteLength <= Machine.FS_WRITE_MAX_BYTES
+            ? filesystem(id, path, "write", { data: Buffer.from(data).toString("base64"), ...writeOptions })
+            : streamWrite(id, path, data, writeOptions),
           list: (path) => filesystem(id, path, "list"), stat: (path) => filesystem(id, path, "stat"),
         },
         exec: (cmd, cwd) => Effect.gen(function* () {

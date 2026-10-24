@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TelegramBotClient, TelegramBotListener } from "agent-messenger/telegrambot";
+import { TelegramBotClient, TelegramBotListener } from "../src/provider/telegram/sdk";
 import {
   isTelegramTerminal,
   TELEGRAM_ALLOWED_UPDATES,

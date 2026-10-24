@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SlackBotClient, SlackBotListener } from "agent-messenger/slackbot";
+import { SlackBotClient, SlackBotListener } from "../src/provider/slack/sdk";
 import {
   classifySlackFailure,
   isSettledState,

@@ -144,7 +144,7 @@ export function toolPorts(
               return {
                 fs: {
                   read: (path, window) => runAppEffect(runtime, handle.fs.read(path, window)),
-                  write: (path, data) => runAppEffect(runtime, handle.fs.write(path, data)),
+                  write: (path, data, options) => runAppEffect(runtime, handle.fs.write(path, data, options)),
                   list: (path) => runAppEffect(runtime, handle.fs.list(path)),
                   stat: (path) => runAppEffect(runtime, handle.fs.stat(path)),
                 },

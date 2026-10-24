@@ -491,7 +491,7 @@ export const FsRequest = z.discriminatedUnion("op", [
       limit: z.number().int().positive().optional(),
     })
     .strict(),
-  z.object({ op: z.literal("write"), export: ExportName, path: FsPath, data: Base64 }).strict(),
+  z.object({ op: z.literal("write"), export: ExportName, path: FsPath, data: Base64, create: z.literal("exclusive").optional() }).strict(),
   z.object({ op: z.literal("list"), export: ExportName, path: FsPath }).strict(),
   z.object({ op: z.literal("stat"), export: ExportName, path: FsPath }).strict(),
 ]);
@@ -561,6 +561,7 @@ export const FsResult = z.discriminatedUnion("status", [
         "export_not_available",
         "path_escapes_export",
         "not_found",
+        "already_exists",
         "wrong_kind",
         "io_error",
         "too_large",
@@ -579,7 +580,7 @@ const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const TransferSeq = z.number().int().nonnegative();
 const FsChunk = Base64.max(Math.ceil(FS_WRITE_MAX_BYTES / 3) * 4);
 export const FsStreamRequest = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("begin"), transferId: TransferId, mode: z.enum(["read", "write"]), export: ExportName, path: FsPath, offset: TransferSeq.optional(), limit: z.number().int().positive().optional() }).strict(),
+  z.object({ op: z.literal("begin"), transferId: TransferId, mode: z.enum(["read", "write"]), export: ExportName, path: FsPath, offset: TransferSeq.optional(), limit: z.number().int().positive().optional(), create: z.literal("exclusive").optional() }).strict(),
   z.object({ op: z.literal("read"), transferId: TransferId, seq: TransferSeq }).strict(),
   z.object({ op: z.literal("write"), transferId: TransferId, seq: TransferSeq, data: FsChunk, last: z.boolean(), digest: Digest.optional() }).strict(),
   z.object({ op: z.literal("finish"), transferId: TransferId }).strict(),
@@ -592,7 +593,7 @@ export const FsStreamResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("chunk"), seq: TransferSeq, data: FsChunk, last: z.boolean(), digest: Digest.optional() }).strict(),
   z.object({ status: z.literal("written"), seq: TransferSeq, bytesWritten: TransferSeq, last: z.boolean() }).strict(),
   z.object({ status: z.literal("finished") }).strict(),
-  z.object({ status: z.literal("refused"), reason: z.enum(["export_not_available", "path_escapes_export", "not_found", "wrong_kind", "io_error", "too_large", "fs_not_available", "machine_not_attached", "ambiguous_export", "transfer_not_found", "invalid_sequence", "digest_mismatch"]), message: z.string().min(1) }).strict(),
+  z.object({ status: z.literal("refused"), reason: z.enum(["export_not_available", "path_escapes_export", "not_found", "already_exists", "wrong_kind", "io_error", "too_large", "fs_not_available", "machine_not_attached", "ambiguous_export", "transfer_not_found", "invalid_sequence", "digest_mismatch"]), message: z.string().min(1) }).strict(),
 ]);
 export type FsStreamResult = z.infer<typeof FsStreamResult>;
 

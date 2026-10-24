@@ -6,10 +6,11 @@ import type { Machine } from "@oni/protocol";
 import { parseLocus, type Locus } from "../locus/index";
 
 type FsValue<Op extends Machine.FsValue["op"]> = Extract<Machine.FsValue, { op: Op }>;
+type WriteOptions = Pick<Extract<Machine.FsRequest, { op: "write" }>, "create">;
 interface ToolMachine {
   readonly fs: {
     read(path: string, window?: { offset?: number; limit?: number }): Promise<Omit<FsValue<"read">, "data"> & { readonly data: Uint8Array }>;
-    write(path: string, data: Uint8Array): Promise<FsValue<"write">>;
+    write(path: string, data: Uint8Array, options?: WriteOptions): Promise<FsValue<"write">>;
     list(path: string): Promise<FsValue<"list">>;
     stat(path: string): Promise<FsValue<"stat">>;
   };
@@ -56,7 +57,7 @@ export function filesystem(path: string, ports: FilePorts) {
   return {
     locus,
     read: () => remoteRead(remote, locus.path),
-    write: async (data: Uint8Array) => (await remote.fs.write(locus.path, data)).bytesWritten,
+    write: async (data: Uint8Array, options?: WriteOptions) => (await remote.fs.write(locus.path, data, options)).bytesWritten,
     list: () => remoteList(remote, locus.path),
     kind: async () => (await remote.fs.stat(locus.path)).kind,
     size: async () => (await remote.fs.stat(locus.path)).size,

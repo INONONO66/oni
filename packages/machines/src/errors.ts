@@ -19,7 +19,7 @@ const RefusalFields = z.object({
   status: z.literal("refused").optional(),
   reason: z.enum([
     "machine_not_attached", "fs_not_available", "export_not_available", "path_escapes_export",
-    "not_found", "wrong_kind", "io_error", "too_large", "ambiguous_export", "invalid_method",
+    "not_found", "already_exists", "wrong_kind", "io_error", "too_large", "ambiguous_export", "invalid_method",
     "invalid_response", "closed", "ambiguous_machine", "peer_key_mismatch", "disconnected",
     "host_tool_missing", "machine_saturated", "lease_expired", "lease_scheduler_missing", "stale_generation",
     "transfer_not_found", "invalid_sequence", "digest_mismatch",

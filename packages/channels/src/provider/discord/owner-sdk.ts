@@ -1,19 +1,19 @@
-import { DiscordClient, DiscordListener, loginWithRemoteAuth } from "agent-messenger/discord";
+import { DiscordClient, DiscordError, DiscordListener, loginWithRemoteAuth } from "agent-messenger/discord";
 import type { DiscordListenerEventMap } from "agent-messenger/discord";
+import { checkedDiscordReceipt, type DiscordApi } from "./sdk";
+import { DiscordApiError } from "../../errors";
+import { transportFailure, type TransportFailure } from "../../support/transport-failure";
 
 /**
  * The slice of the agent-messenger Discord USER SDK the Owner instance
- * speaks (#1569 lane 6): the gateway listener and the login that holds its
- * token. Every request — the identity check at start included — rides the
- * package's own `DiscordClient` under the account token, for the same
- * reason as the bot: the SDK client re-sends 429/5xx up to three times
- * with no off switch, and custody allows one physical attempt per
- * idempotency key. The SDK classes satisfy these shapes structurally; tests
- * pass scripted fakes.
+ * speaks (#1569 lane 6): the gateway listener and one-attempt REST client.
+ * Every request — the identity check at start included — rides the same
+ * account token through this seam. The SDK classes satisfy these shapes
+ * structurally; tests pass scripted fakes.
  */
-export interface DiscordOwnerApi {
-  /** Holds the token the gateway identifies with; no request leaves here. */
-  login(credentials: { token: string }): Promise<object>;
+export interface DiscordOwnerApi extends Omit<DiscordApi, "createDm"> {
+  createDM(userId: string): Promise<{ id?: string }>;
+  testAuth(): Promise<{ id: string; username: string }>;
 }
 
 /** The SDK's user-gateway event map, re-exported so the surface never imports the SDK itself. */
@@ -34,12 +34,32 @@ export interface DiscordOwnerSdk {
   listener(client: DiscordOwnerApi): DiscordOwnerEvents;
 }
 
+function ownerListener(client: DiscordOwnerApi): DiscordOwnerEvents {
+  if (!(client instanceof DiscordClient))
+    throw new DiscordApiError({ message: "Discord listener requires its SDK client" });
+  return new DiscordListener(client);
+}
+
 export function discordOwnerSdk(): DiscordOwnerSdk {
   return {
-    client: () => new DiscordClient(),
-    // The listener only ever receives the client this same factory built.
-    listener: (client) => new DiscordListener(client as DiscordClient),
+    client: () => new CheckedDiscordOwnerClient({ retries: 0 }),
+    listener: ownerListener,
   };
+}
+
+class CheckedDiscordOwnerClient extends DiscordClient {
+  override async createMessage(...args: Parameters<DiscordClient["createMessage"]>) {
+    return checkedDiscordReceipt(await super.createMessage(...args));
+  }
+}
+
+export type DiscordOwnerFailure = TransportFailure;
+
+export function classifyDiscordOwnerFailure(error: Error): DiscordOwnerFailure {
+  const normalized = error instanceof DiscordError
+    ? error
+    : new DiscordError(error.message, "network_error", { cause: error });
+  return transportFailure(normalized);
 }
 
 /**

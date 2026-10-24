@@ -166,6 +166,7 @@
             "export_not_available",
             "path_escapes_export",
             "not_found",
+            "already_exists",
             "wrong_kind",
             "io_error",
             "too_large",

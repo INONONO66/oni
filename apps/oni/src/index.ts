@@ -114,6 +114,7 @@ import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
 import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
+import { inboxHandler } from "./composition/attachments";
 import { createSessionForkExecutor } from "./composition/session-fork";
 import { alarmCapabilityView, createWatchPlane } from "./composition/watch-plane";
 import { ComposedGeneration, composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
@@ -186,6 +187,7 @@ async function composeMachinePlane(
   readonly host: MachineHost;
   readonly self: SelfMachine;
   readonly defaultMachine: string;
+  readonly inbox?: string;
 }> {
   const plane = Result.getOrThrowWith(
     Result.try({
@@ -254,7 +256,7 @@ async function composeMachinePlane(
       onClose: (error) => runAppEffect(runtime, Effect.logError("self machine detached", error)),
     }),
   );
-  return { host, self, defaultMachine: plane.defaultMachine };
+  return { host, self, defaultMachine: plane.defaultMachine, ...(plane.inbox === undefined ? {} : { inbox: plane.inbox }) };
 }
 
 /** The path every declared webhook target is served under, by its slug (#1600 lane R3): `/webhook/<slug>`. */
@@ -1006,6 +1008,7 @@ export async function startOni(options: StartOptions = {}) {
     // reconcile and every tool-driven mutation run the SAME diff over
     // declared ChannelInstances, the only source of external channel config.
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
+    const inbox = inboxHandler(machinery.inbox, tools.machines, services.observations.publish, services.now);
     const supervisor = createChannelSupervisor({
       desired: () =>
         desiredChannels(
@@ -1018,6 +1021,7 @@ export async function startOni(options: StartOptions = {}) {
             random: services.entropy.random,
             run: (effect) => runAppEffect(runtime, effect),
             media: createMediaResolver(tools.machines === undefined ? {} : { machines: tools.machines }),
+            ...(inbox === undefined ? {} : { inbox }),
           },
         ),
       build: (component) => component.build(routingHandler),

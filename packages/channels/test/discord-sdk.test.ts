@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { DiscordBotClient, DiscordBotListener } from "agent-messenger/discordbot";
+import { DiscordApiError } from "../src/errors";
+import { discordOwnerSdk } from "../src/provider/discord/owner-sdk";
+import { DiscordBotClient, DiscordBotListener } from "../src/provider/discord/sdk";
 import { DISCORD_INTENTS, discordSdk } from "../src/provider/discord/sdk";
+import { FakeDiscordOwnerClient } from "./helpers/discord-owner-sdk";
 
 /**
  * Pins the SDK facts the Discord surface relies on (#1569): the default seam
@@ -44,5 +47,19 @@ describe("agent-messenger discord bot SDK seam", () => {
     await expect(listener.start()).rejects.toThrow("Discord gateway refused: 401");
     listener.stop();
     expect(errors).toEqual(["Discord gateway refused: 401"]);
+  });
+});
+
+describe("agent-messenger discord owner SDK seam", () => {
+  test("the listener rejects a structurally compatible foreign client with a typed error", () => {
+    expect(() => discordOwnerSdk().listener(new FakeDiscordOwnerClient())).toThrow(DiscordApiError);
+  });
+
+  test("the listener accepts the real owner client", () => {
+    const sdk = discordOwnerSdk();
+    const listener = sdk.listener(sdk.client());
+    expect(listener.constructor.name).toBe("DiscordListener");
+    expect(listener.on("error", () => undefined)).toBe(listener);
+    listener.stop();
   });
 });

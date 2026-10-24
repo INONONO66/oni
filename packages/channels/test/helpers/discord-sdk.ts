@@ -1,4 +1,4 @@
-import type { DiscordBotListenerEventMap } from "agent-messenger/discordbot";
+import type { DiscordBotEventMap as DiscordBotListenerEventMap } from "../../src/provider/discord/sdk";
 import type { DiscordBotApi, DiscordBotEvents, DiscordSdk } from "../../src/provider/discord/sdk";
 
 type Handler = (...args: never[]) => void;
@@ -67,6 +67,20 @@ export class FakeDiscordListener implements DiscordBotEvents {
 
 export class FakeDiscordClient implements DiscordBotApi {
   readonly logins: string[] = [];
+  readonly calls: Array<{ method: string; channelId?: string; messageId?: string; emoji?: string; type?: number }> = [];
+  private readonly failures = new Map<string, Error>();
+
+  fail(method: string, error: Error): void {
+    this.failures.set(method, error);
+  }
+
+  private check(method: string): void {
+    const error = this.failures.get(method);
+    if (error !== undefined) {
+      this.failures.delete(method);
+      throw error;
+    }
+  }
 
   login(credentials: { token: string }): Promise<object> {
     this.logins.push(credentials.token);
@@ -75,6 +89,46 @@ export class FakeDiscordClient implements DiscordBotApi {
 
   gatewayConnect(): Promise<{ token: string }> {
     return Promise.resolve({ token: this.logins[0] ?? "" });
+  }
+
+  testAuth(): Promise<{ id: string; username: string }> {
+    this.check("testAuth");
+    return Promise.resolve({ id: "bot", username: "oni" });
+  }
+
+  createMessage(channelId: string, _options: { content?: string }): Promise<{ id: string }> {
+    this.calls.push({ method: "createMessage", channelId });
+    this.check("createMessage");
+    return Promise.resolve({ id: "m-17" });
+  }
+
+  createDm(userId: string): Promise<{ id: string }> {
+    this.check("createDm");
+    this.calls.push({ method: "createDm", channelId: userId });
+    return Promise.resolve({ id: "D-owner" });
+  }
+
+  triggerTyping(channelId: string): Promise<void> {
+    this.check("triggerTyping");
+    this.calls.push({ method: "triggerTyping", channelId });
+    return Promise.resolve();
+  }
+
+  async respondToInteraction(id: string, token: string, type = 6): Promise<void> {
+    this.calls.push({ method: "respondToInteraction", messageId: id, emoji: token, type });
+    this.check(`respondToInteraction:${id}`);
+  }
+
+  addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    this.check("addReaction");
+    this.calls.push({ method: "addReaction", channelId, messageId, emoji });
+    return Promise.resolve();
+  }
+
+  removeReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    this.check("removeReaction");
+    this.calls.push({ method: "removeReaction", channelId, messageId, emoji });
+    return Promise.resolve();
   }
 }
 

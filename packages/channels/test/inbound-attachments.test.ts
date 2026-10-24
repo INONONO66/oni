@@ -79,7 +79,7 @@ describe("Slack incoming files", () => {
       { kind: "image", ref: "https://files.slack.com/private/photo", mime: "image/png", name: "photo.png", bytes: 12 },
       { kind: "audio", ref: "https://files.slack.com/private/audio", mime: "audio/mpeg", name: "note.mp3", bytes: 13 },
       { kind: "file", ref: "https://files.slack.com/private/file", mime: "application/pdf", name: "report.pdf", bytes: 14 },
-      { kind: "file", ref: "https://files.slack.com/private/ext", name: "ext.txt" },
+      { kind: "file", ref: "F-ext", name: "ext.txt" },
       { kind: "file", ref: "F-stub", name: "stub" },
     ]);
   });

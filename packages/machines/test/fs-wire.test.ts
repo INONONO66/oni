@@ -30,6 +30,37 @@ async function fixture(run: (root: string) => Promise<void>) {
 }
 
 describe("real machine consumer surface", () => {
+  test.each([16, Machine.FS_WRITE_MAX_BYTES + 1])("exclusive %i-byte writes refuse occupied and symlink inbox leaves", async (size) => {
+    await fixture(async (root) => {
+      mkdirSync(join(root, "inbox"));
+      writeFileSync(join(root, "sibling"), "untouched");
+      symlinkSync("../sibling", join(root, "inbox", "link"));
+      symlinkSync("inbox", join(root, "alias"));
+      const path = socketPath();
+      const host = await wireHost(path);
+      const daemon = await wireDaemon(path, root);
+      try {
+        const target = host.get("m-1");
+        const bytes = Buffer.alloc(size, 42);
+        await expect(target.fs.write(join(root, "inbox", "link"), bytes, { create: "exclusive" }))
+          .rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "already_exists" });
+        expect(readFileSync(join(root, "sibling"), "utf8")).toBe("untouched");
+        await expect(target.fs.write(join(root, "alias", "escape"), bytes, { create: "exclusive" }))
+          .rejects.toBeInstanceOf(MachineRefusalError);
+        expect(readdirSync(join(root, "inbox"))).toEqual(["link"]);
+        expect(await target.fs.write(join(root, "inbox", "new"), bytes, { create: "exclusive" }))
+          .toEqual({ op: "write", bytesWritten: size });
+        await expect(target.fs.write(join(root, "inbox", "new"), Buffer.from("replace"), { create: "exclusive" }))
+          .rejects.toMatchObject({ _tag: "MachineRefusalError", reason: "already_exists" });
+        expect(readFileSync(join(root, "inbox", "new"))).toEqual(bytes);
+        expect(readdirSync(join(root, "inbox")).sort()).toEqual(["link", "new"]);
+      } finally {
+        await daemon.close();
+        await host.close();
+      }
+    });
+  });
+
   test("write/read/list/stat preserve binary bytes and raw metadata", async () => {
     await fixture(async (root) => {
       const path = socketPath();

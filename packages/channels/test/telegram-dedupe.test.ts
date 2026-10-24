@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { FIXED_NOW, injectedOptions } from "./helpers/injected";
 import { Outbound } from "@oni/protocol";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { TelegramAdapter } from "../src/provider/telegram/surface";
 import { Dedupe } from "../src/support/dedupe";
 import { DeliveryReconciliation, type DeliveryReceipt } from "../src/support/deliver";
+import { fakeDiscordSdk } from "./helpers/discord-sdk";
+import { fakeTelegramSdk } from "./helpers/telegram-sdk";
 
 /**
  * Outbound dedupe over the delivery reconciliation: a stale claim released
@@ -12,8 +14,6 @@ import { DeliveryReconciliation, type DeliveryReceipt } from "../src/support/del
  * D1 case (per-chat message_id, dedupe keyed on `${chat.id}:${message_id}`)
  * rides the SDK listener fake in telegram-surface.test.ts (#1569).
  */
-
-const realFetch = globalThis.fetch;
 
 function expectStaleReleasePreservesReplacement(
   dedupe: Dedupe,
@@ -39,32 +39,18 @@ type DeliveryOwner = Readonly<{
 }>;
 
 function telegramFixture(): { owner: DeliveryOwner; outboundCalls: () => number } {
-  let calls = 0;
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    if (!String(input).endsWith("/sendMessage")) throw new Error(`unexpected request: ${input}`);
-    calls += 1;
-    return Response.json({ ok: true, result: { message_id: calls } });
-  }) as typeof fetch;
+  const fake = fakeTelegramSdk();
   return {
-    owner: new TelegramAdapter("token", config, () => undefined, injectedOptions()),
-    outboundCalls: () => calls,
+    owner: new TelegramAdapter("token", config, () => undefined, injectedOptions(), fake.sdk),
+    outboundCalls: () => fake.client.calls.filter(({ method }) => method === "sendMessage").length,
   };
 }
 
 function discordFixture(): { owner: DeliveryOwner; outboundCalls: () => number } {
-  let calls = 0;
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input);
-    if (url.endsWith("/users/@me/channels")) return Response.json({ id: "dm-1" });
-    if (url.endsWith("/channels/dm-1/messages")) {
-      calls += 1;
-      return Response.json({ id: `discord-message-${calls}` });
-    }
-    throw new Error(`unexpected request: ${url}`);
-  }) as typeof fetch;
+  const fake = fakeDiscordSdk();
   return {
-    owner: new DiscordAdapter("token", config, () => undefined, injectedOptions()),
-    outboundCalls: () => calls,
+    owner: new DiscordAdapter("token", config, () => undefined, injectedOptions(), fake.sdk),
+    outboundCalls: () => fake.client.calls.filter(({ method }) => method === "createMessage").length,
   };
 }
 
@@ -72,10 +58,6 @@ const owners = [
   ["Telegram", telegramFixture],
   ["Discord", discordFixture],
 ] as const;
-
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
 
 describe("outbound adapter delivery dedupe capability", () => {
   test.each(
@@ -112,7 +94,7 @@ describe("outbound adapter delivery dedupe capability", () => {
     );
 
     expect(outboundCalls()).toBe(2);
-    expect(receipt).toEqual({ value: "sent", externalMessageId: "discord-message-2" });
+    expect(receipt).toEqual({ value: "sent", externalMessageId: "m-17" });
   });
 
   test("only a proven not-sent delivery releases custody for retry", async () => {
