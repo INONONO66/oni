@@ -1,4 +1,5 @@
 import { Outbound } from "@oni/protocol";
+import { z } from "zod";
 import { DeliveryNotSent, MediaTooLarge } from "../errors";
 import type { MediaLimits, RenderPolicy } from "../provider/contract";
 import type { MediaBytes, MediaResolver } from "../types";
@@ -67,6 +68,10 @@ const LIMIT_OF = {
   video: "videoBytes",
 } as const satisfies Record<MediaPart["kind"], keyof MediaLimits>;
 
+const ResolveRefused = z
+  .preprocess(String, z.string())
+  .transform((cause) => new DeliveryNotSent({ operation: "media.resolve", cause }));
+
 /** The bytes one letter may hold in memory before its first send. */
 const LETTER_MEDIA_BYTES = 64 * 1024 * 1024;
 
@@ -125,9 +130,8 @@ async function plan(
     }
     steps.push(...textSteps(pending, render));
     pending = [];
-    const bytes = await media.resolve(part).catch((error) => {
-      throw new DeliveryNotSent({ operation: "media.resolve", cause: String(error) });
-    });
+    const bytes = await media.resolve(part).catch(ResolveRefused.parse);
+    if (bytes instanceof DeliveryNotSent) throw bytes;
     const limit = media.limits[LIMIT_OF[part.kind]];
     if (bytes.bytes.byteLength > limit)
       throw new MediaTooLarge({ kind: part.kind, bytes: bytes.bytes.byteLength, limit });
@@ -143,7 +147,7 @@ async function plan(
         cause: `${totalBytes} bytes exceeds the letter limit ${LETTER_MEDIA_BYTES}`,
       });
     steps.push({ kind: "media", part, bytes, upload: media.upload, caption: media.captionAsText ? undefined : part.caption });
-    if (media.captionAsText && part.caption !== undefined)
+    if (media.captionAsText && part.caption)
       steps.push({ kind: "text", chunk: part.caption });
   }
   steps.push(...textSteps(pending, render));

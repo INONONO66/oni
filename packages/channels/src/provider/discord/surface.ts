@@ -1,10 +1,9 @@
 import { newTraceId } from "../../support/trace";
 import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import type { z } from "zod";
-import { Dedupe } from "../../support/dedupe";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { requireHandler } from "../../support/handler-frame";
-import { type DeliveryReceipt, DeliveryReconciliation } from "../../support/deliver";
+import type { DeliveryReceipt } from "../../support/deliver";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
 import { DiscordHandlerMissingError } from "../../errors";
@@ -27,6 +26,7 @@ import {
 } from "./types";
 import type { PublishPort } from "../../types";
 import type { ProviderOptions } from "../contract";
+import { BotState, botClient } from "../bot-state";
 
 /**
  * Discord over the agent-messenger bot SDK's gateway listener (#1569): the
@@ -35,30 +35,24 @@ import type { ProviderOptions } from "../contract";
  * interaction acks, delivery custody and rendering. Every request rides the
  * SDK client with retries disabled.
  */
-export class DiscordAdapter implements Channel.Surface {
+export class DiscordAdapter extends BotState implements Channel.Surface {
   readonly id = "discord:bot";
   private readonly bot: DiscordBotApi;
   private readonly ready: Promise<void>;
-  private readonly dedupe: Dedupe;
-  private readonly outbound = new DeliveryReconciliation();
   private custody: ListenerCustody | null = null;
   private normalizer: DiscordNormalizer | null = null;
-  private handler: Channel.MessageHandler | null = null;
 
   constructor(
-    private readonly token: string,
+    token: string,
     readonly config: Channel.Config,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
     private readonly sdk: DiscordSdk = discordSdk(),
   ) {
-    this.dedupe = new Dedupe(options.now);
-    this.bot = sdk.client();
-    this.ready = this.bot.login({ token }).then(() => undefined);
-  }
-
-  onMessage(handler: Channel.MessageHandler): void {
-    this.handler = handler;
+    super(options.now);
+    const client = botClient(sdk, token);
+    this.bot = client.bot;
+    this.ready = client.ready;
   }
 
   /** Settles on READY; an error or close before it fails this start and leaves no listener. */
@@ -187,7 +181,7 @@ export class DiscordAdapter implements Channel.Surface {
     if (conversation !== undefined) return conversation;
     await this.ready;
     return {
-      channelId: await discordDmChannel(this.bot, classifyDiscordFailure, externalId),
+      channelId: await discordDmChannel(this.bot, externalId),
     };
   }
 

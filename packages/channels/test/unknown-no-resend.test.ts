@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { DeliveryReconciliation, deliverKeyed } from "../src/support/deliver";
+import { DeliveryNotSent } from "../src/errors";
 import type { PublishPort } from "../src/types";
 import { FIXED_NOW, sequentialIds } from "./helpers/injected";
 
@@ -76,5 +77,22 @@ test("a proven not_sent refusal keeps retry open and warns nothing", async () =>
   expect(first).toEqual({ value: "not_sent" });
   await deliverKeyed(h.reconciliation, "key-3", send, () => false, h.publish, h.options);
   expect(sends).toBe(2); // proof of no connection permits a real retry
+  expect(h.warns).toEqual([]);
+});
+
+test.each(["sync", "async"] as const)("a %s preflight refusal releases its delivery key", async (mode) => {
+  const h = harness();
+  let sends = 0;
+  const refused = new DeliveryNotSent({ operation: "preflight", cause: "no channel" });
+  const send = () => {
+    sends++;
+    if (mode === "sync") throw refused;
+    return Promise.reject(refused);
+  };
+  expect(await deliverKeyed(h.reconciliation, "preflight", send, () => false, h.publish, h.options))
+    .toEqual({ value: "not_sent" });
+  expect(await deliverKeyed(h.reconciliation, "preflight", send, () => false, h.publish, h.options))
+    .toEqual({ value: "not_sent" });
+  expect(sends).toBe(2);
   expect(h.warns).toEqual([]);
 });

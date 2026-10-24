@@ -41,8 +41,11 @@ function slackReply(
   return {};
 }
 
-function slackText(event: SlackMessageEvent, changed: SlackMessageEvent["message"], reaction: boolean) {
-  return reaction ? event.reaction : changed?.text ?? event.text;
+function slackContent(event: SlackMessageEvent, changed: SlackMessageEvent["message"], reaction: boolean) {
+  return {
+    text: reaction ? event.reaction : changed?.text ?? event.text,
+    attachments: reaction ? [] : slackAttachments(changed?.files ?? event.files ?? []),
+  };
 }
 
 function slackPostback(event: SlackInteraction, ctx: SlackNormalizerContext): Channel.InboundMessage {
@@ -91,9 +94,7 @@ export class SlackNormalizer implements InboundNormalizer<SlackMessageEvent | Sl
     if (authorId === this.ctx.botUserId) return null;
     // A frame with no identifiable author at all is not an outside message.
     if (authorId === undefined) return null;
-    const text = slackText(event, changed, reaction);
-    // Slack private download URLs require the bot token when fetched.
-    const attachments = reaction ? [] : slackAttachments(changed?.files ?? event.files ?? []);
+    const { text, attachments } = slackContent(event, changed, reaction);
     // A frame without renderable content is not an outside message.
     if (!text && attachments.length === 0) return null;
 

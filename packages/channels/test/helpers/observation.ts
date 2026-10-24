@@ -1,4 +1,4 @@
-import type { BusEvent } from "@oni/protocol";
+import { type BusEvent, Operational } from "@oni/protocol";
 import { Effect, FiberSet, PubSub, Scope, Stream } from "effect";
 import { runEffect } from "./effect";
 
@@ -32,13 +32,30 @@ export const Bus = {
   },
   observe(watcher: Watcher): () => void {
     const fiber = fixture.fork(
-      Effect.scoped(Effect.flatMap(PubSub.subscribe(fixture.pubsub), (subscription) =>
-        Stream.runForEach(Stream.fromSubscription(subscription), (published) =>
-          Effect.sync(() => watcher({ name: published.name }, published.data))))),
+      Effect.scoped(
+        Effect.flatMap(PubSub.subscribe(fixture.pubsub), (subscription) =>
+          Stream.runForEach(Stream.fromSubscription(subscription), (published) =>
+            Effect.sync(() => watcher({ name: published.name }, published.data)),
+          ),
+        ),
+      ),
     );
     return () => fiber.interruptUnsafe();
   },
   reset(): void {
     for (const fiber of fixture.taps) fiber.interruptUnsafe();
   },
+};
+
+type Info = Pick<ReturnType<typeof Operational.Events.Info.schema.parse>, "msg" | "context">;
+
+/** Collects every Info event's msg/context as a publish port the Owner adapters accept. */
+export const infoCollector = () => {
+  const infos: Info[] = [];
+  const publish: BusEvent.Sink["publish"] = (event, data) => {
+    if (event.name !== Operational.Events.Info.name) return;
+    const { msg, context } = Operational.Events.Info.schema.parse(data);
+    infos.push(context === undefined ? { msg } : { msg, context });
+  };
+  return { infos, publish };
 };

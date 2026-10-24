@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { type Channel, Operational } from "@oni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { DISCORD_INTENTS } from "../src/provider/discord/sdk";
 import type { PublishPort } from "../src/types";
 import { bounded } from "./helpers/bounded";
+import { inboundQueue } from "./helpers/inbound-queue";
 import { FakeDiscordListener, READY, fakeDiscordSdk } from "./helpers/discord-sdk";
 import { injectedOptions } from "./helpers/injected";
 
@@ -13,19 +14,9 @@ const noopPublish: PublishPort = () => undefined;
 async function started(publish: PublishPort = noopPublish, listener?: FakeDiscordListener) {
   const fake = fakeDiscordSdk(listener);
   const adapter = new DiscordAdapter("token", {}, publish, injectedOptions(), fake.sdk);
-  const inbound: Channel.InboundMessage[] = [];
-  const waiters: Array<(message: Channel.InboundMessage) => void> = [];
-  const next = () => {
-    const waiter = Promise.withResolvers<Channel.InboundMessage>();
-    waiters.push(waiter.resolve);
-    return bounded(waiter.promise);
-  };
-  adapter.onMessage(async (message) => {
-    inbound.push(message);
-    waiters.shift()?.(message);
-  });
+  const queue = inboundQueue(adapter);
   await adapter.start("boot");
-  return { ...fake, adapter, inbound, next };
+  return { ...fake, adapter, ...queue };
 }
 
 describe("DiscordAdapter over the agent-messenger gateway listener", () => {

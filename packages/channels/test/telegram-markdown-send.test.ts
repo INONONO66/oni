@@ -23,23 +23,32 @@ describe("Telegram markdown delivery", () => {
   });
 
   it("falls back to plain text after an entity parse refusal", async () => {
-    const warnings: string[] = [];
+    let warnings = 0;
     const fake = fakeTelegramSdk();
     fake.client.fail("sendMessage", new TelegramBotError("can't parse entities", "api_error", { httpStatus: 400 }));
     const adapter = new TelegramAdapter(
       "token",
       {},
-      (event, data) => {
+      (event) => {
         if (event.name === Operational.Events.Warn.name)
-          warnings.push(Operational.Events.Warn.schema.parse(data).msg);
+          warnings += 1;
       },
       injectedOptions(),
       fake.sdk,
     );
-    expect(await adapter.deliver("chat-1", Outbound.payload("*broken"), "markdown-2")).toMatchObject({
+    const conversation = { channelId: "chat-1", threadId: "55", replyToMessageId: "77" };
+    expect(await adapter.deliver("chat-1", Outbound.payload("*broken"), "markdown-2", conversation)).toMatchObject({
       value: "sent",
     });
-    expect(warnings).toContain("telegram markdown rejected — delivered as plain text");
+    expect(fake.client.calls).toEqual([
+      { method: "sendMessage", chatId: "chat-1", options: {
+        text: "\\*broken", parse_mode: "MarkdownV2", message_thread_id: 55, reply_to_message_id: 77,
+      } },
+      { method: "sendMessage", chatId: "chat-1", options: {
+        text: "\\*broken", message_thread_id: 55, reply_to_message_id: 77,
+      } },
+    ]);
+    expect(warnings).toBe(1);
   });
 
   it("does not resend a non-parse rejection", async () => {

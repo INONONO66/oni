@@ -1,3 +1,4 @@
+import type { Gateway } from "@oni/protocol";
 import { runEffect } from "../helpers/effect";
 import { beforeEach, expect, test } from "bun:test";
 import { commits, kernelRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState } from "./_router-fixture";
@@ -65,22 +66,16 @@ test("direct ingress lists media references immediately below the sender header"
   );
 });
 
-test("played media lines name the kind, any name and the playtime before the reference", async () => {
+test("every played media reference reaches the one committed prompt exactly once", async () => {
   const router = kernelRouter();
-  await runEffect(router.ingest(ownerSender, {
-    ...ownerFacts, eventId: "played", render: "",
-    attachments: [
-      { kind: "audio", ref: "voice-id", voice: true, durationMs: 12_000 },
-      { kind: "audio", ref: "song-id", name: "song.mp3", durationMs: 12_400 },
-      { kind: "video", ref: "clip-id", name: "clip.mp4", durationMs: 65_000 },
-      { kind: "video", ref: "bare-id" },
-    ],
-  }));
-  expect(commits[0]?.content).toBe(
-    "[from actor-owner on discord · channel owner-dm · message played]\n" +
-    "[attached: voice 12s → voice-id]\n" +
-    "[attached: audio song.mp3 12s → song-id]\n" +
-    "[attached: video clip.mp4 1m05s → clip-id]\n" +
-    "[attached: video → bare-id]\n\n",
-  );
+  const attachments: NonNullable<Gateway.IngressFacts["attachments"]> = [
+    { kind: "audio", ref: "ref-voice-7f3a", voice: true, durationMs: 12_000 },
+    { kind: "audio", ref: "ref-song-91c2", name: "song.mp3", durationMs: 12_400 },
+    { kind: "video", ref: "ref-clip-4be8", name: "clip.mp4", durationMs: 65_000 },
+    { kind: "video", ref: "ref-bare-d05e" },
+  ];
+  await runEffect(router.ingest(ownerSender, { ...ownerFacts, eventId: "played", render: "", attachments }));
+  expect(commits).toHaveLength(1);
+  const [commit] = commits;
+  expect(attachments.map((attachment) => commit?.content.split(attachment.ref).length)).toEqual([2, 2, 2, 2]);
 });

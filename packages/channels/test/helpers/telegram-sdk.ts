@@ -5,6 +5,7 @@ import type {
   TelegramBotEvents,
   TelegramSdk,
 } from "../../src/provider/telegram/sdk";
+import { ScriptedClient } from "./scripted-failures";
 
 type Handler = (...args: never[]) => void;
 
@@ -60,72 +61,53 @@ export class FakeTelegramListener implements TelegramBotEvents {
   }
 }
 
-export class FakeTelegramClient implements TelegramBotApi {
-  readonly logins: string[] = [];
+export class FakeTelegramClient extends ScriptedClient implements TelegramBotApi {
   readonly calls: Array<{ method: string; chatId?: string | number; options?: object }> = [];
-  private readonly failures = new Map<string, Error>();
-
-  fail(method: string, error: Error): void {
-    this.failures.set(method, error);
-  }
-
-  private check(method: string): void {
-    const error = this.failures.get(method);
-    if (error !== undefined) {
-      this.failures.delete(method);
-      throw error;
-    }
-  }
-
-  login(credentials: { token: string }): Promise<object> {
-    this.logins.push(credentials.token);
-    return Promise.resolve(this);
-  }
 
   sendMessage(chatId: string | number, text: string, options?: object): Promise<{ message_id: number | string }> {
     this.calls.push({ method: "sendMessage", chatId, options: { text, ...options } });
-    this.check("sendMessage");
+    this.failures.check("sendMessage");
     return Promise.resolve({ message_id: 42 });
   }
 
   sendPhoto(chatId: string | number, _photo: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; message_thread_id?: number }): Promise<{ message_id: number | string }> {
-    this.check("sendPhoto");
+    this.failures.check("sendPhoto");
     this.calls.push({ method: "sendPhoto", chatId, options });
     return Promise.resolve({ message_id: 17 });
   }
 
   sendDocument(chatId: string | number, _file: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; message_thread_id?: number }): Promise<{ message_id: number | string }> {
-    this.check("sendDocument");
+    this.failures.check("sendDocument");
     this.calls.push({ method: "sendDocument", chatId, options });
     return Promise.resolve({ message_id: 17 });
   }
 
   sendAudio(chatId: string | number, _audio: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number }): Promise<{ message_id: number | string }> {
-    this.check("sendAudio");
+    this.failures.check("sendAudio");
     this.calls.push({ method: "sendAudio", chatId, options });
     return Promise.resolve({ message_id: 18 });
   }
 
   sendVoice(chatId: string | number, _voice: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number }): Promise<{ message_id: number | string }> {
-    this.check("sendVoice");
+    this.failures.check("sendVoice");
     this.calls.push({ method: "sendVoice", chatId, options });
     return Promise.resolve({ message_id: 19 });
   }
 
   sendVideo(chatId: string | number, _video: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number }): Promise<{ message_id: number | string }> {
-    this.check("sendVideo");
+    this.failures.check("sendVideo");
     this.calls.push({ method: "sendVideo", chatId, options });
     return Promise.resolve({ message_id: 20 });
   }
 
   setMessageReaction(chatId: string | number, messageId: number, reaction: { type: "emoji"; emoji: string }[]): Promise<boolean> {
-    this.check("setMessageReaction");
+    this.failures.check("setMessageReaction");
     this.calls.push({ method: "setMessageReaction", chatId, options: { messageId, reaction } });
     return Promise.resolve(true);
   }
 
   sendChatAction(chatId: string | number, action: "typing", options?: object): Promise<boolean> {
-    this.check("sendChatAction");
+    this.failures.check("sendChatAction");
     this.calls.push({ method: "sendChatAction", chatId, options: { action, ...options } });
     return Promise.resolve(true);
   }
@@ -137,7 +119,7 @@ export class FakeTelegramClient implements TelegramBotApi {
 
   answerCallbackQuery(id: string): Promise<boolean> {
     this.calls.push({ method: "answerCallbackQuery", options: { id } });
-    this.check("answerCallbackQuery");
+    this.failures.check("answerCallbackQuery");
     return Promise.resolve(true);
   }
 

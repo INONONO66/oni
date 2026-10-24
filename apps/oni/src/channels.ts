@@ -64,8 +64,8 @@ export interface ChannelComponent {
   readonly webhookKey?: string;
 }
 
-type RuntimeFactory = (options: Parameters<ChannelProvider<never>["create"]>[3]) => ProviderRuntime;
-type ProviderRuntime = ReturnType<ChannelProvider<never>["create"]>;
+type RuntimeFactory = (options: Parameters<ChannelProvider<PlainValue>["create"]>[3]) => ProviderRuntime;
+type ProviderRuntime = ReturnType<ChannelProvider<PlainValue>["create"]>;
 
 /**
  * One row: construct the provider runtime with the installation's typed

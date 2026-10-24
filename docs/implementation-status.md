@@ -824,6 +824,28 @@ frame sampling) and a KakaoTalk download client. Receipts:
 `packages/channels/test/router/messaging/actor-receipt.test.ts`,
 `apps/oni/test/{media-resolver,attachment-inbox,send-message-contacts}.test.ts`.
 
+## DoD sweep over the media-parts landing (PR #1643 follow-up)
+
+On `feat/g1s-dod-sweep` (2026-10-25, base `5a1797a82` after #1643, no
+issue). The #1643 diff was reviewed line by line twice and every High and
+Medium finding fixed in the same tree: `attachments.ts` keeps every stored
+outcome instead of evicting at 1,024; `media.ts` DNS admission races the
+lookup against the request abort and bodyless successes check their declared
+length; Discord reaction removal and the typed rejection callbacks in
+`deliver.ts`/`attachment-download.ts` run inside the handled promise chain;
+the Discord DM-opening failure message is retained in `DeliveryNotSent.cause`;
+the KakaoTalk push schema extends the SDK export only at its attachment field;
+and the Slack/Telegram bot `stop()` lives once in `support/sdk-listener.ts`.
+Test duplicates folded into `test/helpers/inbound-queue.ts`,
+`test/helpers/observation.ts` (`infoCollector`) and per-file helpers. Measured
+against base `e9eaaf9e7` with the repository's own tools: jscpd clones 282 ->
+246 with zero new pairs, patch coverage 100% of changed executable lines
+(`check-patch-coverage.ts` on the lane LCOV), no new dead exports, cognitive
+complexity findings 0 on every touched path, and the sixteen-step local gate
+chain exit 0 (protocol 947, channels 1117, machines 341, apps/oni 1165 tests).
+Not established: the scoped mutation run, because every campaign currently dies
+in reach discovery on Bun macro imports (#1644, fix in PR #1645).
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

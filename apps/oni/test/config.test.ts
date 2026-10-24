@@ -68,6 +68,16 @@ function containing<T extends object>(shape: Partial<T> & object): T {
   return expect.objectContaining(shape) as T;
 }
 
+function configurationRefusal(run: () => void): ConfigurationError {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof ConfigurationError) return error;
+    throw error;
+  }
+  throw new Error("expected a configuration refusal");
+}
+
 beforeEach(() => {
   saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   for (const key of ENV_KEYS) delete process.env[key];
@@ -787,8 +797,9 @@ describe("machines self enrollment config (#1271)", () => {
     ["no capabilities", { capabilities: [], exports: [{ name: "workspace", path: "/a" }] }],
   ])("refuses self with %s before boot", (_name, self) => {
     process.env.ONI_MACHINES_SELF = JSON.stringify(self);
-    expect(loadConfig).toThrow(ConfigurationError);
-    expect(loadConfig).toThrow("ONI_MACHINES_SELF is invalid");
+    const error = configurationRefusal(loadConfig);
+    expect(error.data.code).toBe("invalid_env_json");
+    expect(error.message).toContain("ONI_MACHINES_SELF is invalid");
   });
 
   it("rejects a self id colliding with an enrolled machine", () => {
@@ -830,24 +841,26 @@ describe("machines self enrollment config (#1271)", () => {
   it("rejects a relative attachment inbox", () => {
     process.env.ONI_MACHINES_SELF = selfEnv;
     process.env.ONI_MACHINES_INBOX = "inbox";
-    expect(loadConfig).toThrow(ConfigurationError);
-    expect(loadConfig).toThrow("machines.inbox must be an absolute path: inbox");
+    const error = configurationRefusal(loadConfig);
+    expect(error.data.code).toBe("invalid_machines_inbox");
+    expect(error.message).toBe("machines.inbox must be an absolute path: inbox");
   });
 
   it.each(["relative", "/srv/../inbox", "/srv/in\0box"])("refuses injected inbox %p before boot", (inbox) => {
-    expect(() => validateMachinePlane({
+    const validate = () => validateMachinePlane({
       self: { capabilities: ["fs.write"], exports: selfExports },
       listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox,
-    })).toThrow(expect.objectContaining({
-      name: "OniConfigurationError", data: expect.objectContaining({ code: "invalid_machines_inbox" }),
-    }));
+    });
+    const error = configurationRefusal(validate);
+    expect(error.data.code).toBe("invalid_machines_inbox");
+    expect(error.message).toBe(`machines.inbox must be an absolute path: ${inbox}`);
   });
 
   it("an inbox alone configures the plane and requires self", () => {
     process.env.ONI_MACHINES_INBOX = "/srv/inbox";
-    expect(loadConfig).toThrow(expect.objectContaining({
-      name: "OniConfigurationError", data: expect.objectContaining({ code: "invalid_machines_self" }),
-    }));
+    const error = configurationRefusal(loadConfig);
+    expect(error.data.code).toBe("invalid_machines_self");
+    expect(error.message).toBe("ONI_MACHINES_SELF is required when the machine plane is configured");
   });
 });
 

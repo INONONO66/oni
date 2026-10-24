@@ -1,11 +1,11 @@
+import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { Duration, Effect } from "effect";
 import { z } from "zod";
-import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
 import { ChannelsFailure, DeliveryNotSent } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
-import { requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
+import { requireHandler } from "../../support/handler-frame";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
@@ -19,9 +19,11 @@ import {
   type KakaoTalkOwnerEventMap,
   type KakaoTalkOwnerEvents,
   type KakaoTalkOwnerSdk,
+  KakaoTalkMessageSchema,
   kakaoChatKind,
   kakaoMediaKind,
   kakaoTalkOwnerSdk,
+  KakaoTalkOwnerError,
 } from "./owner-sdk";
 
 /** The vault-opened account session: the OAuth token the login helper registered for a device. */
@@ -52,9 +54,9 @@ const LocoMedia = z.object({
 
 function kakaoAttachments(message: KakaoTalkMessage) {
   const kind = kakaoMediaKind(message.message_type);
-  const media = LocoMedia.safeParse(message.attachment);
-  if (kind === undefined || !media.success) return [];
-  const { url, name, mt, s } = media.data;
+  const media = LocoMedia.catch({ url: "" }).parse(message.attachment);
+  if (kind === undefined || media.url.length === 0) return [];
+  const { url, name, mt, s } = media;
   return [{
     kind,
     ref: url,
@@ -66,15 +68,16 @@ function kakaoAttachments(message: KakaoTalkMessage) {
 
 /** A send's settled answer: its log id, or the failure the status proves. */
 function settled(sent: { success: boolean; status_code: number; log_id: string }, operation: string, media = false): string {
-  if (sent.success) return sent.log_id;
+  if (sent.success && (!media || (sent.log_id.length > 0 && sent.log_id !== "0"))) return sent.log_id;
+  if (sent.success && media)
+    throw new ChannelsFailure({ operation, cause: "media acknowledgement carried no usable log id" });
   if (sent.status_code === CONNECTION_CLOSED_STATUS || (media && sent.status_code === 0))
     throw new ChannelsFailure({ operation, cause: media && sent.status_code === 0 ? "media COMPLETE acknowledgement missing" : "connection closed before the reply" });
   throw new DeliveryNotSent({ operation, cause: `status ${sent.status_code}` });
 }
 
 function kakaoCode(error: Error): string | undefined {
-  const code = (error as Error & { readonly code?: string }).code;
-  return error.name === "KakaoTalkError" && typeof code === "string" ? code : undefined;
+  return error instanceof KakaoTalkOwnerError ? error.code : undefined;
 }
 
 /**
@@ -182,7 +185,10 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
         this.live = true;
       },
     });
-    listener.on("message", (message) => this.handleMessage(message));
+    listener.on("message", (message) => {
+      const parsed = KakaoTalkMessageSchema.safeParse(message);
+      if (parsed.success) this.handleMessage(parsed.data);
+    });
     listener.on("disconnected", () => this.reopen());
     // A refused reopen emits only `error` (custody, subscribed first, has
     // already ended a terminal one): the next backoff step follows.
@@ -191,13 +197,11 @@ export class KakaoTalkOwnerAdapter implements Channel.Surface {
     });
     this.listener = listener;
     this.custody = custody;
-    try {
-      await custody.start();
-    } catch (error) {
+    await custody.start().catch((error: Error) => {
       this.listener = null;
       this.custody = null;
       throw error;
-    }
+    });
   }
 
   /**

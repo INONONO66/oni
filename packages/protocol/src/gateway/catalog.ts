@@ -19,25 +19,10 @@ const TableProps = z
   .strict();
 const ImageProps = z.object({ ref: Ref, caption: z.string().optional() }).strict();
 const FileProps = z.object({ ref: Ref, name: Id, mime: Id.optional() }).strict();
-const AudioProps = z
-  .object({
-    ref: Ref,
-    name: Id.optional(),
-    mime: Id.optional(),
-    caption: z.string().optional(),
-    voice: z.boolean().optional(),
-    durationMs: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-const VideoProps = z
-  .object({
-    ref: Ref,
-    name: Id.optional(),
-    mime: Id.optional(),
-    caption: z.string().optional(),
-    durationMs: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+const media = { ref: Ref, name: Id.optional(), mime: Id.optional(), caption: z.string().optional() };
+const durationMs = z.number().int().nonnegative().optional();
+export const AudioProps = z.object({ ...media, voice: z.boolean().optional(), durationMs }).strict();
+export const VideoProps = z.object({ ...media, durationMs }).strict();
 const EmptyProps = z.object({}).strict();
 const CardProps = z.object({ title: z.string(), image: Ref.optional(), body: z.string().optional() }).strict();
 const PollProps = z

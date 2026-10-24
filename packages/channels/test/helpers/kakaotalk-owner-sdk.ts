@@ -23,7 +23,7 @@ export interface KakaoScript {
   /** A scripted send outcome: a thrown error, or a refused status (the SDK's synthetic −1 is a socket closed before the reply). */
   readonly send?: Error | { readonly success: false; readonly status_code: number }
     | ((text: string) => Error | { readonly success: false; readonly status_code: number } | undefined);
-  readonly upload?: { readonly success: false; readonly status_code: number };
+  readonly upload?: { readonly success: boolean; readonly status_code: number; readonly log_id?: string };
 }
 
 /** A scripted stand-in for the SDK client (#1569 lane 7): every call recorded, chats and sends scripted. */
@@ -77,7 +77,7 @@ export class FakeKakaoTalkOwnerClient implements KakaoTalkOwnerApi {
 
   private upload(method: string, args: readonly PlainValue[]): Promise<{ success: boolean; status_code: number; log_id: string }> {
     this.calls.push({ method, args });
-    if (this.script.upload !== undefined) return Promise.resolve({ ...this.script.upload, log_id: "" });
+    if (this.script.upload !== undefined) return Promise.resolve({ log_id: "", ...this.script.upload });
     this.counter += 1;
     return Promise.resolve({ success: true, status_code: 0, log_id: `log-${this.counter}` });
   }

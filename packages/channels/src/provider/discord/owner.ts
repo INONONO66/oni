@@ -46,7 +46,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
   private selfId: string | null = null;
 
   constructor(
-    readonly credentials: { token: string },
+    credentials: { token: string },
     readonly posture: OwnerPosture,
     private readonly publish: PublishPort,
     private readonly options: ProviderOptions,
@@ -70,7 +70,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
    */
   async start(traceId: string): Promise<void> {
     await this.ready;
-    // The identity check rides the package's client: one attempt, no hidden sleeps.
+    // The Owner SDK disables request replay but may wait for its rate-limit bucket.
     const identity = await this.account.testAuth();
     this.selfId = identity.id;
     this.normalizer = new DiscordNormalizer(identity.id);
@@ -177,7 +177,7 @@ export class DiscordOwnerAdapter implements Channel.Surface {
     if (conversation !== undefined) return conversation;
     await this.ready;
     return {
-      channelId: await discordDmChannel(this.account, classifyDiscordOwnerFailure, externalId),
+      channelId: await discordDmChannel(this.account, externalId),
     };
   }
 

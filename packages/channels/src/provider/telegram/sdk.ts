@@ -26,20 +26,20 @@ export interface TelegramBotApi {
       reply_to_message_id?: number;
       message_thread_id?: number;
     },
-  ): Promise<{ message_id?: string | number }>;
+  ): Promise<{ message_id: string | number }>;
   sendPhoto(
     chatId: string | number,
     photo: string | { data: Uint8Array; filename: string; contentType?: string },
     options?: { caption?: string; message_thread_id?: number; reply_to_message_id?: number },
-  ): Promise<{ message_id?: string | number }>;
+  ): Promise<{ message_id: string | number }>;
   sendDocument(
     chatId: string | number,
     file: string | { data: Uint8Array; filename: string; contentType?: string },
     options?: { caption?: string; message_thread_id?: number; reply_to_message_id?: number },
-  ): Promise<{ message_id?: string | number }>;
-  sendAudio(chatId: string | number, audio: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id?: string | number }>;
-  sendVoice(chatId: string | number, voice: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id?: string | number }>;
-  sendVideo(chatId: string | number, video: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id?: string | number }>;
+  ): Promise<{ message_id: string | number }>;
+  sendAudio(chatId: string | number, audio: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id: string | number }>;
+  sendVoice(chatId: string | number, voice: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id: string | number }>;
+  sendVideo(chatId: string | number, video: string | { data: Uint8Array; filename: string; contentType?: string }, options?: { caption?: string; duration?: number; message_thread_id?: number; reply_to_message_id?: number }): Promise<{ message_id: string | number }>;
   setMessageReaction(
     chatId: string | number,
     messageId: number,
@@ -105,10 +105,11 @@ const LISTENER_TERMINAL = new Set(["unauthorized", "conflict"]);
 
 const MessageReceipt = z.object({ message_id: z.union([z.string().min(1), z.number()]) });
 
-function checkedReceipt<T>(message: T): T {
-  if (!MessageReceipt.safeParse(message).success)
+function checkedReceipt<T extends object>(message: T): T & z.infer<typeof MessageReceipt> {
+  const parsed = MessageReceipt.safeParse(message);
+  if (!parsed.success)
     throw new TelegramApiError({ message: "Telegram response carried no message id" });
-  return message;
+  return { ...message, ...parsed.data };
 }
 
 function checkedAck(ack: boolean): boolean {
