@@ -68,11 +68,41 @@ test("reach overlay serves instrumented twins by resolved path and leaves the co
 	expect(installed).toEqual(["quality-mutation-reach"]);
 });
 
-test("macro imports load under the instrumented reach overlay", () => {
+test.each([
+	{
+		name: "named import",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "namespace import",
+		source: 'import * as macros from "./macro" with { type: "macro" };\nexport const run = macros.inline("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "parenthesized callee",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = (inline)("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "non-null callee",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline!("fixture") + 42;\n',
+		argument: '"fixture"', dependency: "", shadow: "",
+	},
+	{
+		name: "compile-time argument dependency",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nconst value = "fixture";\nexport const run = inline(value) + 42;\n',
+		argument: "value", dependency: '"fixture"', shadow: "",
+	},
+	{
+		name: "shadowed ordinary callee",
+		source: 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\nexport const shadow = (inline: (value: string) => string) => inline("runtime");\n',
+		argument: '"fixture"', dependency: "", shadow: '"runtime"',
+	},
+])("macro imports load under the instrumented reach overlay: $name", ({ source, argument, dependency, shadow }) => {
 	const temporary = mkdtempSync(join(tmpdir(), "omo-reach-macro-"));
 	try {
 		const root = join(temporary, "fixture");
-		const source = 'import { inline } from "./macro" with { type: "macro" };\nexport const run = inline("fixture") + 42;\n';
 		const path = "src/a.ts";
 		const marker = join(temporary, "ordinary");
 		const overlay: ReachOverlay = { root, instrumented: join(temporary, "instrumented"), paths: [path] };
@@ -80,11 +110,17 @@ test("macro imports load under the instrumented reach overlay", () => {
 		mkdirSync(join(overlay.instrumented, "src"), { recursive: true });
 		writeFileSync(join(root, path), source);
 		writeFileSync(join(root, "src/macro.ts"), 'export function inline(value: string): string { return value; }\n');
-		writeFileSync(join(root, "src/a.test.ts"), 'import { expect, test } from "bun:test"; import { run } from "./a"; test("macro", () => expect(run).toBe("fixture42"));\n');
-		const start = source.indexOf('"fixture"', source.indexOf("export const"));
+		writeFileSync(join(root, "src/a.test.ts"), `import { expect, test } from "bun:test"; import { run${shadow ? ", shadow" : ""} } from "./a"; test("macro", () => { expect(run).toBe("fixture42"); ${shadow ? 'expect(shadow((value) => value)).toBe("runtime");' : ""} });\n`);
+		const start = source.indexOf(argument, source.indexOf("export const run"));
+		const site = (id: string, offset: number, length: number) => ({
+			id, path, sourceSha256: sha256(source),
+			site: { start: offset, end: offset + length, mode: "expression" as const }, tests: [],
+		});
 		writeFileSync(join(overlay.instrumented, path), instrument(source, [
-			{ id: "macro", path, sourceSha256: sha256(source), site: { start, end: start + '"fixture"'.length, mode: "expression" }, tests: [] },
-			{ id: "ordinary", path, sourceSha256: sha256(source), site: { start: source.indexOf("42"), end: source.indexOf("42") + 2, mode: "expression" }, tests: [] },
+			site("macro", start, argument.length),
+			site("ordinary", source.indexOf("42"), 2),
+			...(dependency ? [site("dependency", source.indexOf(dependency), dependency.length)] : []),
+			...(shadow ? [site("shadow", source.indexOf(shadow), shadow.length)] : []),
 		], temporary));
 		const overlayPath = join(temporary, "overlay.txt");
 		writeFileSync(overlayPath, encodeOverlay(overlay));
@@ -96,5 +132,7 @@ test("macro imports load under the instrumented reach overlay", () => {
 		expect(run.exitCode).toBe(0);
 		expect(existsSync(marker)).toBe(true);
 		expect(existsSync(join(temporary, "macro"))).toBe(false);
+		if (dependency) expect(existsSync(join(temporary, "dependency"))).toBe(false);
+		if (shadow) expect(existsSync(join(temporary, "shadow"))).toBe(true);
 	} finally { rmSync(temporary, { recursive: true, force: true }); }
 });

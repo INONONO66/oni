@@ -989,30 +989,81 @@ function reachInsertions(source: string, row: ReachSite, directory: string, inde
 }
 export function instrument(source: string, sites: ReachSite[], directory: string): string {
 	const parsed = ts.createSourceFile("reach.ts", source, ts.ScriptTarget.Latest, true);
-	const macroBindings = new Set<string>();
+	const options: ts.CompilerOptions = { noLib: true, noResolve: true };
+	const compilerHost = ts.createCompilerHost(options);
+	const getSourceFile = compilerHost.getSourceFile;
+	const host: ts.CompilerHost = {
+		...compilerHost,
+		getSourceFile: (file, languageVersion, onError, shouldCreateNewSourceFile) =>
+			file === parsed.fileName ? parsed : getSourceFile(file, languageVersion, onError, shouldCreateNewSourceFile),
+	};
+	const checker = ts.createProgram([parsed.fileName], options, host).getTypeChecker();
+	const macroBindings = new Set<ts.Symbol>();
+	const macroNamespaces = new Set<ts.Symbol>();
 	for (const statement of parsed.statements) {
 		if (!ts.isImportDeclaration(statement) ||
 			!statement.attributes?.elements.some((attribute) =>
 				attribute.name.text === "type" && ts.isStringLiteral(attribute.value) && attribute.value.text === "macro")) continue;
 		const clause = statement.importClause;
-		if (clause?.name) macroBindings.add(clause.name.text);
+		if (clause?.name) {
+			const symbol = checker.getSymbolAtLocation(clause.name);
+			if (symbol) macroBindings.add(symbol);
+		}
 		if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings))
-			for (const binding of clause.namedBindings.elements) macroBindings.add(binding.name.text);
+			for (const binding of clause.namedBindings.elements) {
+				const symbol = checker.getSymbolAtLocation(binding.name);
+				if (symbol) macroBindings.add(symbol);
+			}
+		if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+			const symbol = checker.getSymbolAtLocation(clause.namedBindings.name);
+			if (symbol) macroNamespaces.add(symbol);
+		}
 	}
-	const macroCalls: { start: number; end: number }[] = [];
-	if (macroBindings.size) {
+	const protectedSpans: { start: number; end: number }[] = [];
+	if (macroBindings.size || macroNamespaces.size) {
+		const unwrap = (expression: ts.Expression): ts.Expression => {
+			let current = expression;
+			while (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current))
+				current = current.expression;
+			return current;
+		};
+		const dependencies = new Set<ts.Symbol>();
+		const protectDependencies = (node: ts.Node): void => {
+			if (ts.isIdentifier(node)) {
+				const symbol = checker.getSymbolAtLocation(node);
+				if (symbol && !dependencies.has(symbol)) {
+					dependencies.add(symbol);
+					for (const declaration of symbol.declarations ?? []) {
+						if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) continue;
+						const statement = declaration.parent.parent;
+						protectedSpans.push({ start: statement.getStart(parsed), end: statement.end });
+						ts.forEachChild(declaration.initializer, protectDependencies);
+					}
+				}
+			}
+			ts.forEachChild(node, protectDependencies);
+		};
 		const visit = (node: ts.Node): void => {
-			if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
-				macroBindings.has(node.expression.text))
-				macroCalls.push({ start: node.getStart(parsed), end: node.end });
+			if (ts.isCallExpression(node)) {
+				const callee = unwrap(node.expression);
+				const owner = ts.isPropertyAccessExpression(callee) ? unwrap(callee.expression) : undefined;
+				const binding = ts.isIdentifier(callee) ? checker.getSymbolAtLocation(callee) : undefined;
+				const namespace = owner && ts.isIdentifier(owner) ? checker.getSymbolAtLocation(owner) : undefined;
+				const direct = binding && macroBindings.has(binding);
+				const member = namespace && macroNamespaces.has(namespace);
+				if (direct || member) {
+					protectedSpans.push({ start: node.getStart(parsed), end: node.end });
+					for (const argument of node.arguments) protectDependencies(argument);
+					return;
+				}
+			}
 			ts.forEachChild(node, visit);
 		};
 		visit(parsed);
 	}
-	// Bun expands macro calls only while their argument syntax remains intact.
-	// Sites inside them retain noCoverage; other sites in the same file still report reach.
+	// Macro expansion evaluates arguments and their referenced local initializers at build time.
 	const ordered = sites.filter(({ site }) =>
-		!macroCalls.some((call) => site.start >= call.start && site.end <= call.end))
+		!protectedSpans.some((span) => site.start <= span.end && site.end >= span.start))
 		.sort((a, b) => a.site.start - b.site.start || b.site.end - a.site.end);
 	const edits = ordered.flatMap((row, index) => reachInsertions(source, row, directory, index));
 	edits.sort((a, b) => b.offset - a.offset || b.order - a.order);
