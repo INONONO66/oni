@@ -1,7 +1,7 @@
 import { configureAction, generationSnapshot } from "../../../src/core/store/configure";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -265,33 +265,33 @@ describe("Session.fork", () => {
     expect(childKernel.latestAction(CHILD)?.id).toBe(receipt.head);
   });
 
-  test("refuses a real old-schemaVersion parent file and leaves its bytes identical", () => {
+  test("refuses an unstamped parent file and leaves its bytes identical", () => {
     fixture.buildParent();
-    // A REAL legacy fixture file on disk: tables and rows, but no
+    // A real file on disk: tables and rows, but no
     // schemaVersion marker (user_version 0, not SESSION_FILE_SCHEMA_VERSION).
-    const directory = mkdtempSync(join(tmpdir(), "fork-legacy-"));
+    const directory = mkdtempSync(join(tmpdir(), "fork-unstamped-"));
     try {
-      const legacyPath = join(directory, "legacy-parent.sqlite");
-      const legacy = new Database(legacyPath);
-      legacy.run("CREATE TABLE legacy_actions (id TEXT PRIMARY KEY, payload TEXT)");
-      legacy.run("INSERT INTO legacy_actions VALUES ('a-1', 'old-world row')");
-      legacy.close();
-      const sha256 = () => createHash("sha256").update(readFileSync(legacyPath)).digest("hex");
+      const parentPath = join(directory, "unstamped-parent.sqlite");
+      const raw = new Database(parentPath);
+      raw.run("CREATE TABLE previous_actions (id TEXT PRIMARY KEY, payload TEXT)");
+      raw.run("INSERT INTO previous_actions VALUES ('a-1', 'old-world row')");
+      raw.close();
+      const sha256 = () => createHash("sha256").update(readFileSync(parentPath)).digest("hex");
       const before = sha256();
 
       // The probe is read-only and sees an old version; the fork refuses on it.
-      const probed = readSessionFileSchemaVersion(legacyPath);
+      const probed = readSessionFileSchemaVersion(parentPath);
       expect(probed).not.toBe(SESSION_FILE_SCHEMA_VERSION);
       const refusal = fixture.refusalOf(
         fixture.fork("turn-1:terminal", { parentSchemaVersion: probed }),
       );
       expect(refusal.reason).toBe("schema_version");
 
-      // Zero writes on the legacy file: byte identity, no stamp, no WAL/SHM.
+      // Zero writes on the file: byte identity, no stamp, no WAL/SHM.
       expect(sha256()).toBe(before);
-      expect(readSessionFileSchemaVersion(legacyPath)).toBe(probed);
-      expect(existsSync(`${legacyPath}-wal`)).toBeFalse();
-      expect(existsSync(`${legacyPath}-shm`)).toBeFalse();
+      expect(readSessionFileSchemaVersion(parentPath)).toBe(probed);
+      expect(existsSync(`${parentPath}-wal`)).toBeFalse();
+      expect(existsSync(`${parentPath}-shm`)).toBeFalse();
       // And no child was materialized anywhere.
       expect(child().sessions.get(CHILD)).toBeUndefined();
       expect(stores.catalog.sessionIndex(CHILD)).toBeUndefined();
@@ -300,48 +300,21 @@ describe("Session.fork", () => {
     }
   });
 
-  test("#1347 a real version-1 parent file upgrades through v2 to v3 before the fork's read-only probe", () => {
+  test("refuses a stamped parent file at another version before fork writes", () => {
     fixture.buildParent();
-    const directory = mkdtempSync(join(tmpdir(), "fork-v1-"));
+    const directory = mkdtempSync(join(tmpdir(), "fork-v2-"));
     try {
-      // A historical session schema without `strikes`, stamped 1,
-      // with one armed occurrence waiting in the index.
-      const v1Path = join(directory, "v1-parent.sqlite");
-      const v1 = new Database(v1Path);
-      v1.exec(readFileSync(join(import.meta.dir, "../helpers/session-v2.sql"), "utf8"));
-      v1.run("DROP TABLE armed_alarms");
-      v1.run("CREATE TABLE armed_alarms (alarm_id TEXT PRIMARY KEY, occurrence_id TEXT NOT NULL UNIQUE, fire_at INTEGER NOT NULL)");
-      v1.run("INSERT INTO armed_alarms VALUES ('alarm-1', 'occ-1', 500)");
-      v1.run("PRAGMA user_version = 1");
-      v1.close();
-      const rawUserVersion = () => {
-        const raw = new Database(v1Path, { readonly: true });
-        try {
-          return z.object({ user_version: z.number() }).parse(raw.query("PRAGMA user_version").get()).user_version;
-        } finally {
-          raw.close();
-        }
-      };
-      expect(rawUserVersion()).toBe(1);
-
-      // The probe the fork executor calls upgrades a stamped older file through
-      // the guarded path (column added inside the stamping transaction), then
-      // reports the current marker, so the fork admits the parent.
-      const probed = readSessionFileSchemaVersion(v1Path);
-      expect(probed).toBe(SESSION_FILE_SCHEMA_VERSION);
-      expect(rawUserVersion()).toBe(3);
-      const upgraded = new Database(v1Path, { readonly: true });
-      const Column = z.object({ name: z.string() });
-      expect(Column.array().parse(upgraded.query("PRAGMA table_info(armed_alarms)").all()).map((c) => c.name)).toEqual(["alarm_id", "occurrence_id", "fire_at", "strikes"]);
-      expect(upgraded.query("SELECT strikes FROM armed_alarms WHERE occurrence_id = 'occ-1'").get()).toEqual({ strikes: 0 });
-      upgraded.close();
-      expect(Result.getOrThrowWith(fixture.fork("turn-1:terminal", { parentSchemaVersion: probed }), (error) => error).forkedFrom.copied).toBe(4);
-
-      // Idempotent: a second probe is a pure read-only read of the stamp.
-      const sha256 = () => createHash("sha256").update(readFileSync(v1Path)).digest("hex");
-      const settled = sha256();
-      expect(readSessionFileSchemaVersion(v1Path)).toBe(SESSION_FILE_SCHEMA_VERSION);
-      expect(sha256()).toBe(settled);
+      const path = join(directory, "parent.sqlite");
+      const raw = new Database(path);
+      raw.run("PRAGMA user_version = 2");
+      raw.close();
+      const before = readFileSync(path);
+      const probed = readSessionFileSchemaVersion(path);
+      expect(probed).toBe(2);
+      const refusal = fixture.refusalOf(fixture.fork("turn-1:terminal", { parentSchemaVersion: probed }));
+      expect(refusal).toMatchObject({ _tag: "ForkRefused", reason: "schema_version" });
+      expect(readFileSync(path)).toEqual(before);
+      expect(child().sessions.get(CHILD)).toBeUndefined();
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

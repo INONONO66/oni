@@ -2,8 +2,8 @@ import { Bundle, Core } from "@oni/agent";
 import { PointId, type PlainValue, type PolicyRow } from "@oni/protocol";
 import { AppInvariantError } from "../../invariant";
 
-/** The live policy plane's legacy `kind`/`phase` address of each #1251 point. */
-const LEGACY_ADDRESS_BY_POINT: Readonly<Record<string, { kind: string; phase: PolicyRow.Phase }>> = {
+/** The live policy plane's `kind`/`phase` address for each point. */
+const ADDRESS_BY_POINT: Readonly<Record<string, { kind: string; phase: PolicyRow.Phase }>> = {
   "ingress.pre": { kind: "ingress", phase: "pre" },
   "session.open": { kind: "session.configure", phase: "pre" },
   "prompt.pre": { kind: "prompt", phase: "pre" },
@@ -19,10 +19,10 @@ const LEGACY_ADDRESS_BY_POINT: Readonly<Record<string, { kind: string; phase: Po
   "alarm.fired": { kind: "alarm.fired", phase: "post" },
 };
 
-/** The legacy `kind`/`phase` address of a #1251 point; `undefined` names no point. */
-export function legacyPolicyAddress(point: string): { kind: string; phase: PolicyRow.Phase } | undefined {
+/** The `kind`/`phase` address of a point; `undefined` names no point. */
+export function policyAddress(point: string): { kind: string; phase: PolicyRow.Phase } | undefined {
   const parsed = PointId.safeParse(point);
-  return parsed.success ? LEGACY_ADDRESS_BY_POINT[parsed.data] : undefined;
+  return parsed.success ? ADDRESS_BY_POINT[parsed.data] : undefined;
 }
 
 /**
@@ -99,7 +99,7 @@ function rewriteRowVerdict(
 
 /**
  * Projects the composed generation's gate rows (#1255 S2, frozen #1251 shape)
- * onto the legacy rows the live policy plane seeds. The row id stays the
+ * onto the rows the live policy plane seeds. The row id stays the
  * durable name, so a recompose re-seeding the same rows is the no-op write
  * `seedKernelPolicyRows` already recognizes.
  */
@@ -111,9 +111,9 @@ export function gateRowPolicySeeds(
 ): readonly Omit<PolicyRow.Row, "generation">[] {
   const consultants = consultantRefs(generation);
   return generation.rows.map((row) => {
-    const address = legacyPolicyAddress(row.on);
+    const address = policyAddress(row.on);
     if (address === undefined)
-      throw new AppInvariantError(`gate row ${row.id} targets ${row.on}, which has no legacy policy address`);
+      throw new AppInvariantError(`gate row ${row.id} targets ${row.on}, which has no policy address`);
     return {
       name: row.id,
       kind: address.kind,
