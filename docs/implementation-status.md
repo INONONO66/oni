@@ -794,9 +794,9 @@ suites: `packages/channels` 1010 pass, `apps/oni` 1032 pass,
 0 fail. Not in this lane: the remaining #1600 lanes (reply door, dead
 paths, the first live run).
 
-## Media parts: audio and video on every fork platform (PR pending)
+## Media parts: audio and video on every fork platform (PR #1643)
 
-On `feat/g1-media-parts` (2026-10-25, base `2feeb3eaf` after #1619, no
+On `feat/g1-media-parts` (2026-10-25, base `cd71e4bda` after #1619, no
 issue). `Outbound.Part` gains `kind: audio` (`voice`, `durationMs`,
 caption) and `kind: video` (`durationMs`, caption), with matching `Audio` and
 `Video` catalog elements. Inbound attachments gain the `video` kind plus
