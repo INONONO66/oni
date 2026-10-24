@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import type { AttachmentFetch, MediaBytes } from "@oni/channels";
+import { type AttachmentFetch, inboundOnce, type MediaBytes } from "@oni/channels";
 import { type BusEvent, type Channel, type Gateway, Operational } from "@oni/protocol";
 import { type FilePorts, defaultMachineOf, filesystem } from "../bundles/tools/core/filesystem";
+import type { ChannelRuntimeDeps } from "../channels";
 import { assertMediaSize, createMediaResolver, mediaBounds } from "./media";
 
 /**
@@ -26,26 +27,33 @@ export interface AttachmentInbox {
   readonly now: () => number;
 }
 
-export function inboxHandlerFactory(
-  input: Pick<AttachmentInbox, "root" | "publish" | "now"> & { readonly machines: NonNullable<FilePorts["machines"]> },
-): (fetch: AttachmentFetch | undefined, handler: Channel.MessageHandler) => Channel.MessageHandler {
-  return (fetch, handler) => withAttachmentInbox({
-    root: input.root,
-    files: { machines: input.machines },
-    media: createMediaResolver({ machines: input.machines }),
-    publish: input.publish,
-    now: input.now,
-  }, fetch, handler);
-}
-
+/**
+ * The Resident's routing handler with the inbox in front of it. The physical
+ * message is claimed first (#1569 lane 6: the bot and the Owner's account can
+ * both observe one message), so only the copy that carries the message is
+ * downloaded and stored; each instance's own downloader travels with its copy
+ * into the claim. A refused or failed admission releases the claim to the
+ * next copy, as before.
+ */
 export function inboxHandler(
   root: AttachmentInbox["root"] | undefined,
   machines: FilePorts["machines"],
   publish: AttachmentInbox["publish"],
   now: AttachmentInbox["now"],
-): ReturnType<typeof inboxHandlerFactory> | undefined {
-  if (root === undefined || machines === undefined) return undefined;
-  return inboxHandlerFactory({ root, machines, publish, now });
+  admit: Channel.MessageHandler,
+): { readonly handler: Channel.MessageHandler; readonly inbox?: ChannelRuntimeDeps["inbox"] } {
+  if (root === undefined || machines === undefined) return { handler: inboundOnce(admit) };
+  const downloaders = new WeakMap<Channel.InboundMessage, AttachmentFetch>();
+  const store = withAttachmentInbox({
+    root, files: { machines }, media: createMediaResolver({ machines }), publish, now,
+  }, admit);
+  return {
+    handler: inboundOnce((message) => store(message, downloaders.get(message))),
+    inbox: (fetch, handler) => fetch === undefined ? handler : (message) => {
+      downloaders.set(message, fetch);
+      return handler(message);
+    },
+  };
 }
 
 type Attachment = NonNullable<Gateway.IngressFacts["attachments"]>[number];
@@ -93,29 +101,33 @@ function storageKey(facts: Gateway.IngressFacts, index: number, ref: string): st
 /** Wraps the Resident handler so every attachment the inbox can hold is on the machine when the message arrives. */
 export function withAttachmentInbox(
   inbox: AttachmentInbox,
-  fetchRef: AttachmentFetch | undefined,
   handler: Channel.MessageHandler,
-): Channel.MessageHandler {
+): (message: Channel.InboundMessage, fetchRef?: AttachmentFetch) => Promise<void> {
   const machine = defaultMachineOf(inbox.files);
-  return async (message) => {
+  const kept = new Map<string, Attachment>();
+  const store = async (key: string, attachment: Attachment, fetchRef: AttachmentFetch | undefined): Promise<Attachment> => {
+    const known = kept.get(key);
+    if (known !== undefined) return known;
+    const fetched = await fetchBytes(attachment, fetchRef, inbox);
+    if (fetched === undefined) return attachment;
+    const locus = `${machine}:${inbox.root}/${key}-${safeName(fetched.name)}`;
+    await filesystem(locus, inbox.files).write(fetched.bytes, { create: "exclusive" });
+    const stored = {
+      ...attachment, ref: locus, name: fetched.name,
+      mime: attachment.mime ?? fetched.mime, bytes: fetched.bytes.byteLength,
+    };
+    kept.set(key, stored);
+    return stored;
+  };
+  return async (message, fetchRef) => {
     const attachments = message.facts.attachments;
     if (attachments === undefined || attachments.length === 0) return handler(message);
+    const keys: string[] = [];
     const stored: Attachment[] = [];
     for (const [index, attachment] of attachments.entries()) {
-      try {
-        const fetched = await fetchBytes(attachment, fetchRef, inbox);
-        if (fetched === undefined) {
-          stored.push(attachment);
-          continue;
-        }
-        const key = storageKey(message.facts, index, attachment.ref);
-        const locus = `${machine}:${inbox.root}/${key}-${safeName(fetched.name)}`;
-        await filesystem(locus, inbox.files).write(fetched.bytes, { create: "exclusive" });
-        stored.push({
-          ...attachment, ref: locus, name: fetched.name,
-          mime: attachment.mime ?? fetched.mime, bytes: fetched.bytes.byteLength,
-        });
-      } catch (error) {
+      const key = storageKey(message.facts, index, attachment.ref);
+      keys.push(key);
+      stored.push(await store(key, attachment, fetchRef).catch((error: Error) => {
         inbox.publish(Operational.Events.Warn, {
           traceId: message.facts.eventId,
           time: inbox.now(),
@@ -123,9 +135,10 @@ export function withAttachmentInbox(
           msg: "inbound attachment not stored; reference kept",
           context: { surface: message.facts.surface, ref: attachment.ref, err: String(error) },
         });
-        stored.push(attachment);
-      }
+        return attachment;
+      }));
     }
-    return handler({ ...message, facts: { ...message.facts, attachments: stored } });
+    await handler({ ...message, facts: { ...message.facts, attachments: stored } });
+    for (const key of keys) kept.delete(key);
   };
 }

@@ -1,19 +1,19 @@
 import { z } from "zod";
 import { AttachmentRefused } from "../errors";
 import type { AttachmentBounds } from "../types";
-
-const Refusal = z.object({ code: z.enum(["too_large", "aborted"]) });
+import { ThrownError } from "./thrown";
 
 export async function attachmentDownload<T>(
   bounds: AttachmentBounds,
   download: () => Promise<T>,
 ): Promise<T> {
-  try {
-    return await download();
-  } catch (error) {
-    const refusal = Refusal.safeParse(error);
-    if (refusal.success)
-      throw new AttachmentRefused({ reason: refusal.data.code, maxBytes: bounds.maxBytes });
-    throw error;
-  }
+  const Failure = z.union([
+    z
+      .object({ code: z.enum(["too_large", "aborted"]) })
+      .transform(({ code }) => new AttachmentRefused({ reason: code, maxBytes: bounds.maxBytes })),
+    ThrownError,
+  ]);
+  const outcome = await Promise.resolve().then(download).then((value) => ({ value }), Failure.parse);
+  if (outcome instanceof Error) throw outcome;
+  return outcome.value;
 }

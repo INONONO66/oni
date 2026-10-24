@@ -29,27 +29,8 @@ const ImagePart = z
 const FilePart = z
   .object({ kind: z.literal("file"), ref: Ref, name: Id, mime: Id.optional(), caption: z.string().optional() })
   .strict();
-const AudioPart = z
-  .object({
-    kind: z.literal("audio"),
-    ref: Ref,
-    name: Id.optional(),
-    mime: Id.optional(),
-    caption: z.string().optional(),
-    voice: z.boolean().optional(),
-    durationMs: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-const VideoPart = z
-  .object({
-    kind: z.literal("video"),
-    ref: Ref,
-    name: Id.optional(),
-    mime: Id.optional(),
-    caption: z.string().optional(),
-    durationMs: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+const AudioPart = z.object({ kind: z.literal("audio"), ...catalogModule.AudioProps.shape }).strict();
+const VideoPart = z.object({ kind: z.literal("video"), ...catalogModule.VideoProps.shape }).strict();
 const PartSchema = z.discriminatedUnion("kind", [TextPart, CodePart, ImagePart, FilePart, AudioPart, VideoPart]);
 
 /** A letter is ordered parts or one catalog spec (#1545), never both. */
@@ -111,8 +92,13 @@ function tableChunk(props: { columns: { header: string }[]; rows: string[][] }):
   return [props.columns.map((column) => column.header).join(" | "), ...props.rows.map((row) => row.join(" | "))].join("\n");
 }
 
-function compactPart(part: MessagePart): MessagePart {
-  return PartSchema.parse(Object.fromEntries(Object.entries(part).filter(([, value]) => value !== undefined)));
+function mediaFields({ name, mime, caption, durationMs }: z.infer<typeof catalogModule.VideoProps>) {
+  return {
+    ...(name === undefined ? {} : { name }),
+    ...(mime === undefined ? {} : { mime }),
+    ...(caption === undefined ? {} : { caption }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+  };
 }
 
 function buttonChunk(element: Extract<catalogModule.Element, { type: "Button" }>): Chunk[] {
@@ -156,10 +142,12 @@ function elementChunks(element: catalogModule.Element): Chunk[] {
       const { ref, name, mime } = element.props;
       return [mime === undefined ? { kind: "file", ref, name } : { kind: "file", ref, name, mime }];
     }
-    case "Audio":
-      return [compactPart({ kind: "audio", ...element.props })];
+    case "Audio": {
+      const { ref, voice } = element.props;
+      return [{ kind: "audio", ref, ...mediaFields(element.props), ...(voice === undefined ? {} : { voice }) }];
+    }
     case "Video":
-      return [compactPart({ kind: "video", ...element.props })];
+      return [{ kind: "video", ref: element.props.ref, ...mediaFields(element.props) }];
     case "Button":
       return buttonChunk(element);
     case "Card":

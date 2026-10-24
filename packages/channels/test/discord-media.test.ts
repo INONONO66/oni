@@ -1,9 +1,62 @@
 import { describe, expect, test } from "bun:test";
+import { Outbound } from "@oni/protocol";
 import { createDiscordProvider } from "../src/provider/discord/provider";
 import { injectedOptions } from "./helpers/injected";
 import { recordHttp } from "./helpers/http";
+import { fakeDiscordSdk } from "./helpers/discord-sdk";
+import { discordDmChannel } from "../src/provider/discord/delivery";
 
 describe("Discord outbound SDK requests", () => {
+  test("DM preflight keeps the underlying SDK failure in its typed cause", async () => {
+    const fake = fakeDiscordSdk();
+    fake.client.fail("createDm", new Error("missing SEND_MESSAGES permission"));
+    await expect(discordDmChannel(fake.client, "U1")).rejects.toMatchObject({
+      _tag: "DeliveryNotSent",
+      cause: "missing SEND_MESSAGES permission",
+    });
+    expect(fake.client.calls).toHaveLength(0);
+  });
+
+  test.each(["sync", "async"] as const)("replacement adds after a %s settled removal", async (mode) => {
+    const fake = fakeDiscordSdk();
+    const settled = Object.assign(new Error("already removed"), { httpStatus: 404 });
+    let removals = 0;
+    fake.client.removeReaction = () => {
+      removals++;
+      if (mode === "sync") throw settled;
+      return Promise.reject(settled);
+    };
+    const runtime = createDiscordProvider(fake.sdk).create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
+    expect(await runtime.deliveryRoute?.("U1", {
+      kind: "react", messageId: "m-17", emoji: "✅", replaces: "👀",
+    }, "settled-reaction", { channelId: "D-owner" })).toEqual({
+      value: "accepted", externalMessageId: "m-17",
+    });
+    expect(removals).toBe(1);
+    expect(fake.client.calls).toEqual([
+      { method: "addReaction", channelId: "D-owner", messageId: "m-17", emoji: "✅" },
+    ]);
+  });
+
+  test("opens the scripted DM once per key and replaces its reaction in order", async () => {
+    const fake = fakeDiscordSdk();
+    const runtime = createDiscordProvider(fake.sdk).create({ token: "dc-test" }, {}, () => undefined, injectedOptions());
+    const send = () => runtime.deliveryRoute?.("U1", Outbound.payload("hello"), "dm-key");
+    expect(await send()).toEqual({ value: "accepted", externalMessageId: "m-17" });
+    expect(await send()).toEqual({ value: "accepted", externalMessageId: "m-17" });
+    expect(fake.client.calls).toEqual([
+      { method: "createDm", channelId: "U1" },
+      { method: "createMessage", channelId: "D-owner" },
+    ]);
+    expect(await runtime.deliveryRoute?.("U1", {
+      kind: "react", messageId: "m-17", emoji: "✅", replaces: "👀",
+    }, "reaction-key", { channelId: "D-owner" })).toEqual({ value: "accepted", externalMessageId: "m-17" });
+    expect(fake.client.calls.slice(2)).toEqual([
+      { method: "removeReaction", channelId: "D-owner", messageId: "m-17", emoji: "👀" },
+      { method: "addReaction", channelId: "D-owner", messageId: "m-17", emoji: "✅" },
+    ]);
+  });
+
   test("uploads bytes with filename, MIME, caption, destination, and reply reference", async () => {
     const wire = recordHttp(() => Response.json({ id: "m-17" }));
     try {

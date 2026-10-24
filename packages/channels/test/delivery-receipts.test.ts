@@ -6,21 +6,25 @@ import { recordHttp } from "./helpers/http";
 const providers = ["discord", "discord-owner", "telegram"] as const;
 const neverConnected = ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ConnectionRefused"];
 
-for (const provider of providers) {
-  test.each(neverConnected)(`${provider}: a 503 quoting %s retains uncertain custody`, async (token) => {
-    let sends = 0;
-    const restore = installDeliveryFetch(() => {
-      sends++;
-      return Response.json({ message: token, ok: false, error_code: 503, description: token }, { status: 503 });
-    });
-    try {
-      const { adapter, address } = deliveryFixture(provider);
-      const send = () => adapter.deliver(address, Outbound.payload("hello"), "503");
-      expect(await send()).toEqual({ value: "unknown" });
-      expect(await send()).toEqual({ value: "unknown" });
-      expect(sends).toBe(1);
-    } finally { restore(); }
+async function expectHeldUncertain(provider: (typeof providers)[number], respond: () => Response) {
+  let sends = 0;
+  const restore = installDeliveryFetch(() => {
+    sends++;
+    return respond();
   });
+  try {
+    const { adapter, address } = deliveryFixture(provider);
+    const send = () => adapter.deliver(address, Outbound.payload("hello"), "uncertain");
+    expect(await send()).toEqual({ value: "unknown" });
+    expect(await send()).toEqual({ value: "unknown" });
+    expect(sends).toBe(1);
+  } finally { restore(); }
+}
+
+for (const provider of providers) {
+  test.each(neverConnected)(`${provider}: a 503 quoting %s retains uncertain custody`, (token) =>
+    expectHeldUncertain(provider, () =>
+      Response.json({ message: token, ok: false, error_code: 503, description: token }, { status: 503 })));
 
   test.each(neverConnected)(`${provider}: typed %s permits a same-key physical retry`, async (code) => {
     let sends = 0;
@@ -53,39 +57,19 @@ for (const provider of providers) {
   });
 
   test.each(["ECONNRESET", "ETIMEDOUT", "message-only"])(
-    `${provider}: ambiguous transport %s never permits retry`, async (code) => {
-      let sends = 0;
-      const restore = installDeliveryFetch(() => {
-        sends++;
+    `${provider}: ambiguous transport %s never permits retry`, (code) =>
+      expectHeldUncertain(provider, () => {
         throw Object.assign(new Error("ECONNREFUSED in untrusted prose"), { code });
-      });
-      try {
-        const { adapter, address } = deliveryFixture(provider);
-        const send = () => adapter.deliver(address, Outbound.payload("hello"), "uncertain");
-        expect(await send()).toEqual({ value: "unknown" });
-        expect(await send()).toEqual({ value: "unknown" });
-        expect(sends).toBe(1);
-      } finally { restore(); }
-    },
+      }),
   );
 
   test.each(["missing", "boolean", "wrong-type", "invalid-json"] as const)(
-    `${provider}: a %s receipt remains uncertain`, async (shape) => {
-      let sends = 0;
-      const restore = installDeliveryFetch(() => {
-        sends++;
+    `${provider}: a %s receipt remains uncertain`, (shape) =>
+      expectHeldUncertain(provider, () => {
         if (shape === "invalid-json") return new Response("{");
         const id = shape === "missing" ? undefined : shape === "boolean" ? true : provider === "telegram" ? {} : 17;
         return Response.json({ id, ok: true, result: { message_id: id } });
-      });
-      try {
-        const { adapter, address } = deliveryFixture(provider);
-        const send = () => adapter.deliver(address, Outbound.payload("hello"), "bad-receipt");
-        expect(await send()).toEqual({ value: "unknown" });
-        expect(await send()).toEqual({ value: "unknown" });
-        expect(sends).toBe(1);
-      } finally { restore(); }
-    },
+      }),
   );
 }
 

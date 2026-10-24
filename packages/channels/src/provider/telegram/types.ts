@@ -22,15 +22,6 @@ const TelegramEntitySchema = z.object({
   user: TelegramUserSchema.optional(),
 });
 
-/** A played file; `duration` is in seconds. */
-interface TelegramTimedFile {
-  file_id: string;
-  file_name?: string;
-  mime_type?: string;
-  file_size?: number;
-  duration?: number;
-}
-
 const TelegramTimedFileSchema = z.object({
   file_id: z.string(),
   file_name: z.string().optional(),
@@ -38,6 +29,8 @@ const TelegramTimedFileSchema = z.object({
   file_size: z.number().optional(),
   duration: z.number().optional(),
 });
+/** A played file; `duration` is in seconds. */
+type TelegramTimedFile = z.infer<typeof TelegramTimedFileSchema>;
 
 export interface TelegramMessage {
   message_id: number;

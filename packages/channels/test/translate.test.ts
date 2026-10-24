@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Outbound } from "@oni/protocol";
+import { z } from "zod";
 import { DeliveryNotSent, MediaTooLarge } from "../src/errors";
 import type { MediaLimits, RenderPolicy } from "../src/provider/contract";
 import { slackEmojiName } from "../src/provider/slack/emoji";
@@ -25,6 +26,7 @@ const LIMITS: MediaLimits = { imageBytes: 10, fileBytes: 20, audioBytes: 30, vid
 function recorder(
   options: {
     media?: boolean;
+    captionAsText?: boolean;
     limits?: MediaLimits;
     react?: boolean;
     ids?: (string | undefined)[];
@@ -43,6 +45,7 @@ function recorder(
       ? {
           media: {
             limits: options.limits ?? LIMITS,
+            ...(options.captionAsText ? { captionAsText: true } : {}),
             upload: async (
               mediaKind: MediaKind,
               bytes: MediaBytes,
@@ -156,9 +159,9 @@ describe("translate: media", () => {
   test("a reference that fails to resolve refuses the whole letter before anything is sent", async () => {
     const r = recorder({ media: true });
     const failing = () => Promise.reject(new Error("no such file"));
-    const error = await translate(letter, UNBOUNDED, r.sends, failing).catch((e) => e);
-    expect(error).toBeInstanceOf(DeliveryNotSent);
-    expect(error).toMatchObject({ operation: "media.resolve", cause: "Error: no such file" });
+    const refused = expect(translate(letter, UNBOUNDED, r.sends, failing)).rejects;
+    await refused.toBeInstanceOf(DeliveryNotSent);
+    await refused.toMatchObject({ operation: "media.resolve", cause: "Error: no such file" });
     expect(r.sent).toEqual([]);
   });
 
@@ -189,27 +192,27 @@ describe("translate: media", () => {
     { part: { kind: "video", ref: "/large.mp4" } as const, bytes: 41, limit: 40 },
   ])("refuses an oversize $part.kind as MediaTooLarge before text or upload", async ({ part, bytes, limit }) => {
     const r = recorder({ media: true });
-    const error = await translate(
+    const refused = expect(translate(
       { kind: "message", parts: [{ kind: "text", text: "before" }, part] },
       UNBOUNDED,
       r.sends,
       async () => ({ bytes: new Uint8Array(bytes), name: "part", mime: "application/octet-stream" }),
-    ).catch((e) => e);
-    expect(error).toBeInstanceOf(MediaTooLarge);
-    expect(error).toMatchObject({ kind: part.kind, bytes, limit });
+    )).rejects;
+    await refused.toBeInstanceOf(MediaTooLarge);
+    await refused.toMatchObject({ kind: part.kind, bytes, limit });
     expect(r.sent).toEqual([]);
   });
 
   test("refuses an overlong caption before text or upload", async () => {
     const r = recorder({ media: true });
-    const error = await translate(
+    const refused = expect(translate(
       { kind: "message", parts: [{ kind: "text", text: "before" }, { kind: "image", ref: "/caption.png", caption: "123456789" }] },
       UNBOUNDED,
       r.sends,
       async () => ({ bytes: new Uint8Array(3), name: "part", mime: "application/octet-stream" }),
-    ).catch((e) => e);
-    expect(error).toBeInstanceOf(DeliveryNotSent);
-    expect(error).toMatchObject({ operation: "media.caption", cause: "9 characters exceeds the caption limit 8" });
+    )).rejects;
+    await refused.toBeInstanceOf(DeliveryNotSent);
+    await refused.toMatchObject({ operation: "media.caption", cause: "9 characters exceeds the caption limit 8" });
     expect(r.sent).toEqual([]);
   });
 
@@ -225,7 +228,7 @@ describe("translate: media", () => {
       },
     });
     const bytes = new Uint8Array(33 * 1024 * 1024);
-    const error = await translate(
+    const refused = expect(translate(
       {
         kind: "message",
         parts: [
@@ -237,9 +240,9 @@ describe("translate: media", () => {
       UNBOUNDED,
       r.sends,
       async () => ({ bytes, name: "part.png", mime: "image/png" }),
-    ).catch((e) => e);
-    expect(error).toBeInstanceOf(DeliveryNotSent);
-    expect(error).toMatchObject({
+    )).rejects;
+    await refused.toBeInstanceOf(DeliveryNotSent);
+    await refused.toMatchObject({
       operation: "media.limit",
       cause: "69206016 bytes exceeds the letter limit 67108864",
     });
@@ -261,6 +264,49 @@ describe("translate: media", () => {
       resolve,
     );
     expect(outcome).toEqual({ accepted: true, externalMessageId: "m1" });
+  });
+
+  test.each([undefined, ""])("a caption-as-text surface sends only the upload for caption %p", async (caption) => {
+    const r = recorder({ media: true, captionAsText: true });
+    const outcome = await translate(
+      { kind: "message", parts: [{ kind: "image", ref: "/a.png", ...(caption === undefined ? {} : { caption }) }] },
+      UNBOUNDED,
+      r.sends,
+      resolve,
+    );
+    expect(r.sent).toEqual([{ kind: "media", mediaKind: "image", name: "image.png", caption: undefined }]);
+    expect(outcome).toEqual({ accepted: true, externalMessageId: "m1" });
+  });
+
+  test("a caption-as-text surface sends a nonempty caption after its upload", async () => {
+    const r = recorder({ media: true, captionAsText: true });
+    await translate(
+      { kind: "message", parts: [{ kind: "image", ref: "/a.png", caption: "the shot" }] },
+      UNBOUNDED,
+      r.sends,
+      resolve,
+    );
+    expect(r.sent).toEqual([
+      { kind: "media", mediaKind: "image", name: "image.png", caption: undefined },
+      { kind: "text", chunk: "the shot" },
+    ]);
+  });
+
+  test("a caption that fails after its upload landed is a partial delivery", async () => {
+    const r = recorder({ media: true, captionAsText: true });
+    const sends: SurfaceSends = { ...r.sends, text: () => Promise.reject(new Error("socket reset")) };
+    await expect(translate(
+      { kind: "message", parts: [{ kind: "image", ref: "/a.png", caption: "the shot" }] },
+      UNBOUNDED,
+      sends,
+      resolve,
+    )).rejects.toMatchObject({
+      name: "PartialDeliveryError",
+      reason: "send_failed",
+      attemptedChunks: 2,
+      totalChunks: 2,
+      acceptedChunks: [{ index: 1, externalMessageId: "m1" }],
+    });
   });
 });
 
@@ -284,9 +330,9 @@ describe("translate: reactions", () => {
 
   test("a surface without reactions refuses, never posts the emoji as text", async () => {
     const r = recorder();
-    const error = await translate(react, UNBOUNDED, r.sends).catch((e) => e);
-    expect(error).toBeInstanceOf(DeliveryNotSent);
-    expect(error).toMatchObject({ operation: "react" });
+    const refused = expect(translate(react, UNBOUNDED, r.sends)).rejects;
+    await refused.toBeInstanceOf(DeliveryNotSent);
+    await refused.toMatchObject({ operation: "react" });
     expect(r.sent).toEqual([]);
   });
 });
@@ -302,40 +348,38 @@ describe("translate: partial delivery", () => {
   });
   test("a failure after an accepted chunk is reported as partial with what landed", async () => {
     let calls = 0;
+    const failure = new Error("socket reset");
     const sends: SurfaceSends = {
       text: async () => {
         calls += 1;
-        if (calls === 2) throw new Error("socket reset");
+        if (calls === 2) throw failure;
         return `m${calls}`;
       },
     };
-    const error = await translate(long, RENDER, sends).catch((e) => e);
-    expect(error).toBeInstanceOf(PartialDeliveryError);
-    const partial = error as PartialDeliveryError;
-    expect(partial.reason).toBe("send_failed");
-    expect(partial.attemptedChunks).toBe(2);
-    expect(partial.totalChunks).toBe(chunkCount);
-    expect(partial.acceptedChunks).toEqual([{ index: 1, externalMessageId: "m1" }]);
-    expect(partial.cause).toBeInstanceOf(Error);
+    const partial = await translate(long, RENDER, sends).then(
+      () => { throw new Error("Expected partial delivery"); },
+      z.instanceof(PartialDeliveryError).parse,
+    );
+    expect(partial).toMatchObject({
+      reason: "send_failed",
+      attemptedChunks: 2,
+      totalChunks: chunkCount,
+      acceptedChunks: [{ index: 1, externalMessageId: "m1" }],
+    });
+    expect(z.instanceof(Error).parse(partial.cause)).toBe(failure);
   });
 
   test("a failure on the first chunk propagates as itself so the send stays retryable", async () => {
     const sends: SurfaceSends = { text: () => Promise.reject(new Error("refused")) };
-    const error = await translate(Outbound.payload("hi"), UNBOUNDED, sends).catch(
-      (e) => e,
-    );
-    expect(error).toBeInstanceOf(Error);
-    expect(error).not.toBeInstanceOf(PartialDeliveryError);
+    await expect(translate(Outbound.payload("hi"), UNBOUNDED, sends)).rejects.toEqual(new Error("refused"));
   });
 
   test("a chunk accepted without a receipt after one with a receipt is a missing-receipt partial", async () => {
     const r = recorder({ ids: ["m1", undefined] });
-    const error = await translate(long, RENDER, r.sends).catch((e) => e);
+    const partial = expect(translate(long, RENDER, r.sends)).rejects;
+    await partial.toBeInstanceOf(PartialDeliveryError);
+    await partial.toMatchObject({ reason: "missing_receipt", acceptedChunks: [{ index: 1, externalMessageId: "m1" }] });
     expect(r.sent.length).toBe(chunkCount);
-    expect(error).toBeInstanceOf(PartialDeliveryError);
-    const partial = error as PartialDeliveryError;
-    expect(partial.reason).toBe("missing_receipt");
-    expect(partial.acceptedChunks).toEqual([{ index: 1, externalMessageId: "m1" }]);
   });
 });
 

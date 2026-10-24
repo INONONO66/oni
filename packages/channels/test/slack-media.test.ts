@@ -1,29 +1,35 @@
 import { describe, expect, test } from "bun:test";
 import type { Outbound } from "@oni/protocol";
 import { createSlackProvider } from "../src/provider/slack/provider";
+import type { MediaBytes } from "../src/types";
 import { injectedOptions } from "./helpers/injected";
 import { SlackBotError } from "../src/provider/slack/sdk";
 import { DM_CHANNEL, fakeSlackSdk, platformError } from "./helpers/slack-sdk";
 
 const CREDENTIALS = { botToken: "xoxb-test", appToken: "xapp-test" };
 
+function mediaRuntime(fake: ReturnType<typeof fakeSlackSdk>, media: () => Promise<MediaBytes>) {
+  return createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
+    ...injectedOptions(),
+    media,
+  });
+}
+
+function reactionRuntime(fake: ReturnType<typeof fakeSlackSdk>) {
+  return createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, injectedOptions());
+}
+
 describe("Slack outbound calls through the SDK", () => {
-  test("uploads bytes into the thread with the caption as the share comment", async () => {
+  test.each([
+    { part: { kind: "file", ref: "/report", name: "report.pdf", caption: "read this" }, name: "report.pdf", mime: "application/pdf", caption: "read this" },
+    { part: { kind: "audio", ref: "/clip", name: "clip.audio", durationMs: 4_000, caption: "hear this" }, name: "clip.audio", mime: "audio/mp4", caption: "hear this" },
+    { part: { kind: "video", ref: "/clip", name: "clip.video", durationMs: 4_000, caption: "hear this" }, name: "clip.video", mime: "video/mp4", caption: "hear this" },
+  ] as const)("uploads $part.kind bytes into the thread with its caption", async ({ part, name, mime, caption }) => {
     const fake = fakeSlackSdk();
-    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
-      ...injectedOptions(),
-      media: async () => ({
-        bytes: new Uint8Array([1, 2, 3]),
-        name: "report.pdf",
-        mime: "application/pdf",
-      }),
-    });
-    const media: Outbound.Payload = {
-      kind: "message",
-      parts: [{ kind: "file", ref: "/report", name: "report.pdf", caption: "read this" }],
-    };
+    const runtime = mediaRuntime(fake, async () => ({ bytes: new Uint8Array([1, 2, 3]), name, mime }));
+    const media: Outbound.Payload = { kind: "message", parts: [part] };
     expect(
-      await runtime.deliveryRoute?.("T1:U1", media, "upload-1", {
+      await runtime.deliveryRoute?.("T1:U1", media, `upload-${part.kind}`, {
         channelId: "C1",
         threadId: "42.0",
       }),
@@ -31,36 +37,14 @@ describe("Slack outbound calls through the SDK", () => {
     expect(fake.client.calls).toEqual([
       {
         method: "uploadFile",
-        args: ["C1", [1, 2, 3], "report.pdf", { thread_ts: "42.0", initial_comment: "read this" }],
+        args: ["C1", [1, 2, 3], name, { thread_ts: "42.0", initial_comment: caption }],
       },
-    ]);
-  });
-
-  test.each(["audio", "video"] as const)("uploads %s bytes through uploadFile like a file", async (kind) => {
-    const fake = fakeSlackSdk();
-    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
-      ...injectedOptions(),
-      media: async () => ({ bytes: new Uint8Array([5, 6]), name: `clip.${kind}`, mime: `${kind}/mp4` }),
-    });
-    const media: Outbound.Payload = {
-      kind: "message",
-      parts: [{ kind, ref: "/clip", name: `clip.${kind}`, durationMs: 4_000, caption: "hear this" }],
-    };
-    expect(await runtime.deliveryRoute?.("T1:U1", media, `upload-${kind}`, { channelId: "C1", threadId: "42.0" }))
-      .toEqual({ value: "accepted" });
-    expect(fake.client.calls).toEqual([
-      { method: "uploadFile", args: ["C1", [5, 6], `clip.${kind}`, { thread_ts: "42.0", initial_comment: "hear this" }] },
     ]);
   });
 
   test("uses the short emoji name in addReaction", async () => {
     const fake = fakeSlackSdk();
-    const runtime = createSlackProvider(fake.sdk).create(
-      CREDENTIALS,
-      {},
-      () => undefined,
-      injectedOptions(),
-    );
+    const runtime = reactionRuntime(fake);
     expect(
       await runtime.deliveryRoute?.(
         "T1:U1",
@@ -81,12 +65,7 @@ describe("Slack outbound calls through the SDK", () => {
         addReaction: () => platformError("already_reacted"),
       },
     });
-    const runtime = createSlackProvider(fake.sdk).create(
-      CREDENTIALS,
-      {},
-      () => undefined,
-      injectedOptions(),
-    );
+    const runtime = reactionRuntime(fake);
     expect(
       await runtime.deliveryRoute?.(
         "T1:U1",
@@ -103,12 +82,7 @@ describe("Slack outbound calls through the SDK", () => {
 
   test("a platform refusal of the reaction is rejected, never accepted", async () => {
     const fake = fakeSlackSdk({ fail: { addReaction: () => platformError("invalid_name") } });
-    const runtime = createSlackProvider(fake.sdk).create(
-      CREDENTIALS,
-      {},
-      () => undefined,
-      injectedOptions(),
-    );
+    const runtime = reactionRuntime(fake);
     expect(
       await runtime.deliveryRoute?.(
         "T1:U1",
@@ -123,10 +97,7 @@ describe("Slack outbound calls through the SDK", () => {
 
   test("a conversation-less upload goes into the opened direct channel, never to a bare user id", async () => {
     const fake = fakeSlackSdk();
-    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
-      ...injectedOptions(),
-      media: async () => ({ bytes: new Uint8Array([7]), name: "pic.png", mime: "image/png" }),
-    });
+    const runtime = mediaRuntime(fake, async () => ({ bytes: new Uint8Array([7]), name: "pic.png", mime: "image/png" }));
     const media: Outbound.Payload = { kind: "message", parts: [{ kind: "image", ref: "/pic" }] };
     expect(await runtime.deliveryRoute?.("T1:U1", media, "upload-dm")).toEqual({
       value: "accepted",
@@ -162,10 +133,7 @@ describe("Slack outbound calls through the SDK", () => {
     },
   ])("$name", async ({ error, value, uploads }) => {
     const fake = fakeSlackSdk({ fail: { uploadFile: error } });
-    const runtime = createSlackProvider(fake.sdk).create(CREDENTIALS, {}, () => undefined, {
-      ...injectedOptions(),
-      media: async () => ({ bytes: new Uint8Array([1]), name: "a.pdf", mime: "application/pdf" }),
-    });
+    const runtime = mediaRuntime(fake, async () => ({ bytes: new Uint8Array([1]), name: "a.pdf", mime: "application/pdf" }));
     const media: Outbound.Payload = {
       kind: "message",
       parts: [{ kind: "file", ref: "/a", name: "a.pdf" }],
@@ -179,12 +147,7 @@ describe("Slack outbound calls through the SDK", () => {
 
   test("refuses an unmapped emoji before any platform call", async () => {
     const fake = fakeSlackSdk();
-    const runtime = createSlackProvider(fake.sdk).create(
-      CREDENTIALS,
-      {},
-      () => undefined,
-      injectedOptions(),
-    );
+    const runtime = reactionRuntime(fake);
     expect(
       await runtime.deliveryRoute?.(
         "T1:U1",

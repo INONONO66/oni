@@ -30,7 +30,7 @@ export interface DiscordApi {
         }[];
       reply_to?: string;
     },
-  ): Promise<{ id?: string }>;
+  ): Promise<{ id: string }>;
   createDm(userId: string): Promise<{ id?: string }>;
   triggerTyping(channelId: string): Promise<void>;
   addReaction(channelId: string, messageId: string, emoji: string): Promise<void>;
@@ -38,9 +38,7 @@ export interface DiscordApi {
 }
 
 export interface DiscordBotApi extends DiscordApi {
-  gatewayConnect(): Promise<{ token: string }>;
   respondToInteraction(id: string, token: string, type?: number): Promise<void>;
-  testAuth(): Promise<{ id: string; username: string }>;
 }
 
 /** The SDK's gateway event map, re-exported so the surface never imports the SDK itself. */
@@ -87,10 +85,11 @@ export function discordSdk(): DiscordSdk {
 
 const MessageReceipt = z.object({ id: z.string().min(1) });
 
-export function checkedDiscordReceipt<T>(message: T): T {
-  if (!MessageReceipt.safeParse(message).success)
+export function checkedDiscordReceipt<T extends object>(message: T): T & z.infer<typeof MessageReceipt> {
+  const parsed = MessageReceipt.safeParse(message);
+  if (!parsed.success)
     throw new DiscordApiError({ message: "Discord response carried no string id" });
-  return message;
+  return { ...message, ...parsed.data };
 }
 
 class CheckedDiscordBotClient extends DiscordBotClient {

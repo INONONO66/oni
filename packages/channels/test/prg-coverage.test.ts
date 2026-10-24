@@ -29,20 +29,20 @@ function jsonResponse(body: object): Response {
   return new Response(JSON.stringify(body), { status: 200 });
 }
 
+const ROUTES: readonly (readonly [string, string | undefined, object])[] = [
+  ["slack.com", "/api/conversations.open", { ok: true, channel: { id: "D1" } }],
+  ["discord.com", "/api/v10/users/@me/channels", { id: "dm-1" }],
+  ["api.telegram.org", undefined, { ok: true, result: { message_id: 5 } }],
+  ["slack.com", undefined, { ok: true, ts: "1.2" }],
+];
+
 describe("provider retry and receipt paths", () => {
   it("provider delivery routes return accepted receipts", async () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : input);
-      if (url.hostname === "api.github.com")
-        return init?.method === "POST" ? jsonResponse({ id: 42 }) : jsonResponse([]);
-      if (url.hostname === "slack.com" && url.pathname === "/api/conversations.open")
-        return jsonResponse({ ok: true, channel: { id: "D1" } });
-      if (url.hostname === "discord.com" && url.pathname === "/api/v10/users/@me/channels")
-        return jsonResponse({ id: "dm-1" });
-      if (url.hostname === "api.telegram.org")
-        return jsonResponse({ ok: true, result: { message_id: 5 } });
-      if (url.hostname === "slack.com") return jsonResponse({ ok: true, ts: "1.2" });
-      return jsonResponse({ id: "m-9" });
+      if (url.hostname === "api.github.com") return jsonResponse(init?.method === "POST" ? { id: 42 } : []);
+      const route = ROUTES.find(([host, path]) => url.hostname === host && (path === undefined || url.pathname === path));
+      return jsonResponse(route?.[2] ?? { id: "m-9" });
     }) as typeof fetch;
 
     const telegramSdk = fakeTelegramSdk();

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { type Channel, Operational } from "@oni/protocol";
+import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { createTelegramProvider } from "../src/provider/telegram/provider";
 import { TELEGRAM_ALLOWED_UPDATES, TelegramBotError } from "../src/provider/telegram/sdk";
@@ -8,6 +8,7 @@ import { RECONNECT_ATTEMPT_BOUND } from "../src/support/sdk-listener";
 import type { PublishPort } from "../src/types";
 import { bounded } from "./helpers/bounded";
 import { injectedOptions } from "./helpers/injected";
+import { inboundQueue } from "./helpers/inbound-queue";
 import { FakeTelegramListener, ME, fakeTelegramSdk } from "./helpers/telegram-sdk";
 
 const noopPublish: PublishPort = () => undefined;
@@ -44,19 +45,9 @@ const callback = (id: string) => ({
 async function started(publish: PublishPort = noopPublish, listener?: FakeTelegramListener) {
   const fake = fakeTelegramSdk(listener);
   const adapter = new TelegramAdapter("token", {}, publish, injectedOptions(), fake.sdk);
-  const inbound: Channel.InboundMessage[] = [];
-  const waiters: Array<(message: Channel.InboundMessage) => void> = [];
-  const next = () => {
-    const waiter = Promise.withResolvers<Channel.InboundMessage>();
-    waiters.push(waiter.resolve);
-    return bounded(waiter.promise);
-  };
-  adapter.onMessage(async (message) => {
-    inbound.push(message);
-    waiters.shift()?.(message);
-  });
+  const queue = inboundQueue(adapter);
   await adapter.start("boot");
-  return { ...fake, adapter, inbound, next };
+  return { ...fake, adapter, ...queue };
 }
 
 describe("TelegramAdapter over the agent-messenger long-poll listener", () => {

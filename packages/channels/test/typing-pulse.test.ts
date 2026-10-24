@@ -11,7 +11,7 @@ import { fakeTelegramSdk } from "./helpers/telegram-sdk";
 import { TelegramBotError } from "../src/provider/telegram/sdk";
 import { DeliveryNotSent } from "../src/errors";
 
-async function pulseUntil(clock: ReturnType<typeof testClockRuntime>, route: ProviderTypingRoute, externalId: string, conversation?: { channelId: string }) {
+async function pulseUntil(clock: ReturnType<typeof testClockRuntime>, route: ProviderTypingRoute, externalId: string, conversation?: { channelId: string; threadId?: string }) {
   const stop = await clock.run(Deferred.make<void>());
   const running = clock.run(Effect.scoped(Effect.gen(function* () {
     yield* typingPulse(route, externalId, conversation).pipe(Effect.forkScoped);
@@ -25,11 +25,16 @@ test("Telegram typing pulses use the SDK action and stop with the turn", async (
   const route = createTelegramProvider(fake.sdk).create({ token: "token" }, {}, () => undefined, injectedOptions()).typingRoute;
   if (route === undefined) throw new Error("telegram has no typing route");
   const clock = testClockRuntime();
-  const { stop, running } = await pulseUntil(clock, route, "123", { channelId: "456" });
+  const { stop, running } = await pulseUntil(clock, route, "123", { channelId: "456", threadId: "77" });
   try {
     await clock.adjust(0);
-    await clock.adjust(4_000);
-    expect(fake.client.calls.filter(({ method }) => method === "sendChatAction")).toHaveLength(2);
+    const pulses = () => fake.client.calls.filter(({ method }) => method === "sendChatAction");
+    expect(pulses()).toEqual([{ method: "sendChatAction", chatId: "456", options: { action: "typing", message_thread_id: 77 } }]);
+    await clock.adjust(3_999);
+    expect(pulses()).toHaveLength(1);
+    await clock.adjust(1);
+    expect(pulses()).toHaveLength(2);
+    expect(pulses()[1]).toEqual(pulses()[0]);
   } finally {
     await clock.run(Deferred.succeed(stop, undefined));
     await running;
@@ -47,8 +52,15 @@ test("Discord typing pulses use the SDK action and open a DM once", async () => 
   const { stop, running } = await pulseUntil(clock, route, "123");
   try {
     await clock.adjust(0);
-    await clock.adjust(8_000);
+    expect(fake.client.calls).toMatchObject([
+      { method: "createDm", channelId: "123" },
+      { method: "triggerTyping", channelId: "D-owner" },
+    ]);
+    await clock.adjust(7_999);
+    expect(fake.client.calls).toHaveLength(2);
+    await clock.adjust(1);
     expect(fake.client.calls.map(({ method }) => method)).toEqual(["createDm", "triggerTyping", "triggerTyping"]);
+    expect(fake.client.calls[2]).toMatchObject({ channelId: "D-owner" });
   } finally {
     await clock.run(Deferred.succeed(stop, undefined));
     await running;

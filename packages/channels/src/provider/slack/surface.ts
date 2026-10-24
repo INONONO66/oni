@@ -3,7 +3,7 @@ import { Dedupe } from "../../support/dedupe";
 import { requireHandler } from "../../support/handler-frame";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
-import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
+import { type ListenerCustody, listenerCustody, stopBotListener } from "../../support/sdk-listener";
 import { newTraceId } from "../../support/trace";
 import { translate } from "../../support/translate";
 import { SLACK_MEDIA_LIMITS, SLACK_RENDER } from "./format";
@@ -118,14 +118,10 @@ export class SlackAdapter implements Channel.Surface {
   }
 
   stop(traceId: string): void {
-    this.custody?.stop();
-    this.custody = null;
-    this.publish(Operational.Events.Info, {
-      traceId,
-      time: this.options.now(),
-      component: "server",
-      msg: "slack bot stopped",
+    stopBotListener(this.custody, {
+      publish: this.publish, traceId, now: this.options.now, message: "slack bot stopped",
     });
+    this.custody = null;
   }
 
   /** Binds the consumed Socket Mode events; hello, errors and closes are the custody wrapper's. */

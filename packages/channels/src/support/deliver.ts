@@ -3,7 +3,9 @@ import { Operational, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { PublishPort } from "../types";
 import { type DeliveryOutcome, PartialDeliveryError } from "./translate";
+import { ThrownError } from "./thrown";
 import { newTraceId } from "./trace";
+import { NeverConnected } from "./transport-failure";
 
 export const DeliveryReceipt = z.object({
   value: z.enum(["sent", "not_sent", "unknown"]),
@@ -13,10 +15,7 @@ export const DeliveryReceipt = z.object({
 });
 export type DeliveryReceipt = z.infer<typeof DeliveryReceipt>;
 
-// These failures prove the connection was never established, unlike a reset or timeout.
-const NotConnected = z.object({
-  code: z.enum(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ConnectionRefused"]),
-});
+const NotConnected = z.object({ code: NeverConnected });
 
 /** Physical evidence that the platform never received the message, so a resend is safe. */
 export function isNotSent(error: Error, isRejected: (error: Error) => boolean): boolean {
@@ -93,41 +92,40 @@ export function deliverKeyed(
     });
     return { value: "unknown" };
   };
+  const refused = (traceId: string, error: Error): DeliveryReceipt => {
+    if (error instanceof PartialDeliveryError) {
+      publish(Operational.Events.Warn, {
+        traceId,
+        time: options.now(),
+        component: "server",
+        msg: "partial message delivery",
+        context: {
+          delivery: "partial",
+          idempotencyKey,
+          acceptedChunks: error.acceptedChunks,
+          attemptedChunks: error.attemptedChunks,
+          totalChunks: error.totalChunks,
+          reason: error.reason,
+        },
+      });
+      return { value: "unknown" };
+    }
+    if (error instanceof MediaTooLarge)
+      return {
+        value: "not_sent",
+        reason: `media_too_large ${error.kind} ${error.bytes}>${error.limit}`,
+      };
+    if (isNotSent(error, isRejected)) return { value: "not_sent" };
+    return unknownNotice(traceId, String(error));
+  };
   const attempt = async (): Promise<DeliveryReceipt> => {
     const traceId = newTraceId(options.id);
-    try {
-      const outcome = await send(traceId);
-      if (!outcome.accepted) return unknownNotice(traceId, "platform returned no message id");
-      return outcome.externalMessageId === undefined
-        ? { value: "sent" }
-        : { value: "sent", externalMessageId: outcome.externalMessageId };
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      if (error instanceof PartialDeliveryError) {
-        publish(Operational.Events.Warn, {
-          traceId,
-          time: options.now(),
-          component: "server",
-          msg: "partial message delivery",
-          context: {
-            delivery: "partial",
-            idempotencyKey,
-            acceptedChunks: error.acceptedChunks,
-            attemptedChunks: error.attemptedChunks,
-            totalChunks: error.totalChunks,
-            reason: error.reason,
-          },
-        });
-        return { value: "unknown" };
-      }
-      if (error instanceof MediaTooLarge)
-        return {
-          value: "not_sent",
-          reason: `media_too_large ${error.kind} ${error.bytes}>${error.limit}`,
-        };
-      if (isNotSent(error, isRejected)) return { value: "not_sent" };
-      return unknownNotice(traceId, String(error));
-    }
+    const outcome = await Promise.resolve().then(() => send(traceId)).catch(ThrownError.parse);
+    if (outcome instanceof Error) return refused(traceId, outcome);
+    if (!outcome.accepted) return unknownNotice(traceId, "platform returned no message id");
+    return outcome.externalMessageId === undefined
+      ? { value: "sent" }
+      : { value: "sent", externalMessageId: outcome.externalMessageId };
   };
   return reconciliation.run(idempotencyKey, attempt);
 }

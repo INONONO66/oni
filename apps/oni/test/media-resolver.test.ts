@@ -3,10 +3,11 @@
  * delivery time, from an attached machine (the `read` tool's door) or an
  * https URL; anything else is a typed refusal before any channel call.
  */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
   MEDIA_BYTE_CAP,
   type MediaFetch,
+  type MediaLookup,
   MediaRefused,
   createMediaResolver,
   mediaMime,
@@ -66,11 +67,29 @@ function ports(machine: ToolMachine, defaultMachine = "self"): FilePorts {
   return { machines: { defaultMachine, get: () => machine } };
 }
 
+const RESOLVED: Readonly<Record<string, readonly string[]>> = {
+  "cdn.test": ["93.184.216.34"],
+  "dual.test": ["2606:4700::1", "93.184.216.34"],
+  "v6.test": ["2606:4700::1"],
+  localhost: ["::1", "127.0.0.1"],
+  "rebind.test": ["10.0.0.7"],
+  "mixed.test": ["93.184.216.34", "192.168.1.1"],
+  "mapped.test": ["::ffff:7f00:1"],
+  "tailnet.test": ["100.100.1.2"],
+  "empty.test": [],
+};
+const lookupTable: MediaLookup = (hostname) => {
+  const addresses = RESOLVED[hostname];
+  return addresses === undefined
+    ? Promise.reject(new Error(`ENOTFOUND ${hostname}`))
+    : Promise.resolve(addresses.map((address) => ({ address, family: address.includes(":") ? 6 : 4 })));
+};
+
 type Resolve = ReturnType<typeof createMediaResolver>;
 async function refusal(resolve: Resolve, part: Parameters<Resolve>[0]): Promise<string> {
-  const error = await resolve(part).catch((caught) => caught);
+  const error = await resolve(part).then(() => undefined, (caught: Error) => caught);
   expect(error).toBeInstanceOf(MediaRefused);
-  if (!(error instanceof MediaRefused)) throw error;
+  if (!(error instanceof MediaRefused)) throw new Error("expected a media refusal");
   return error.data.code;
 }
 
@@ -144,7 +163,7 @@ test("an https URL is fetched; non-https schemes, private hosts, failed fetches 
       }),
     );
   };
-  const resolve = createMediaResolver(ports(machineWith({})), fetchImpl);
+  const resolve = createMediaResolver(ports(machineWith({})), fetchImpl, lookupTable);
   expect(await resolve({ kind: "image", ref: "https://cdn.test/pics/cat.webp?x=1" })).toEqual({
     bytes: new Uint8Array([7, 8]),
     name: "cat.webp",
@@ -194,7 +213,7 @@ test("a streamed body with no content-length stops at the cap instead of bufferi
     },
   });
   const fetchImpl: MediaFetch = () => Promise.resolve(new Response(endless));
-  const resolve = createMediaResolver(ports(machineWith({})), fetchImpl);
+  const resolve = createMediaResolver(ports(machineWith({})), fetchImpl, lookupTable);
   expect(await refusal(resolve, { kind: "file", ref: "https://cdn.test/stream", name: "s" })).toBe(
     "too_large",
   );
@@ -210,12 +229,22 @@ test("a streamed body with no content-length stops at the cap instead of bufferi
   const short = createMediaResolver(
     ports(machineWith({})),
     () => Promise.resolve(new Response(chunked, { headers: { "content-type": "image/png" } })),
+    lookupTable,
   );
   expect(await short({ kind: "image", ref: "https://cdn.test/two.png" })).toEqual({
     bytes: new Uint8Array([1, 2, 3]),
     name: "two.png",
     mime: "image/png",
   });
+});
+
+test("a bodyless response with an oversized declared length is refused", async () => {
+  const resolve = createMediaResolver(
+    {},
+    () => Promise.resolve(new Response(null, { headers: { "content-length": String(MEDIA_BYTE_CAP + 1) } })),
+    lookupTable,
+  );
+  expect(await refusal(resolve, { kind: "file", ref: "https://cdn.test/empty", name: "empty" })).toBe("too_large");
 });
 
 test("redirects are followed hop by hop with every hop admitted; the final hop names the download", async () => {
@@ -248,7 +277,7 @@ test("redirects are followed hop by hop with every hop admitted; the final hop n
         );
     }
   };
-  const resolve = createMediaResolver(ports(machineWith({})), fetchImpl);
+  const resolve = createMediaResolver(ports(machineWith({})), fetchImpl, lookupTable);
   expect(await resolve({ kind: "image", ref: "https://cdn.test/start" })).toEqual({
     bytes: new Uint8Array([1]),
     name: "final.gif",
@@ -290,7 +319,7 @@ test.each([
 ])("refused HTTP $status bodies are canceled without reading", async ({ status, headers, code }) => {
   let canceled = false;
   const body = new ReadableStream<Uint8Array>({ cancel() { canceled = true; } });
-  const resolve = createMediaResolver({}, () => Promise.resolve(new Response(body, { status, headers })));
+  const resolve = createMediaResolver({}, () => Promise.resolve(new Response(body, { status, headers })), lookupTable);
   expect(await refusal(resolve, { kind: "file", ref: "https://cdn.test/refused", name: "file" })).toBe(code);
   expect(canceled).toBe(true);
   expect(body.locked).toBe(false);
@@ -318,16 +347,98 @@ test("one deadline follows redirects and interrupts a pending public response bo
     return Promise.resolve(url.pathname === "/start"
       ? Response.redirect("https://cdn.test/body")
       : new Response(body));
-  });
+  }, lookupTable);
   const running = resolve({ kind: "file", ref: "https://cdn.test/start", name: "file" }, {
     maxBytes: MEDIA_BYTE_CAP, signal: controller.signal,
   });
   const outcome = running.then(() => undefined, (error: Error) => error);
   await entered.promise;
   controller.abort();
-  expect(await outcome).toMatchObject({
-    name: "OniMediaRefused", data: expect.objectContaining({ code: "fetch_failed" }),
-  });
+  const error = await outcome;
+  expect(error).toBeInstanceOf(MediaRefused);
+  if (!(error instanceof MediaRefused)) throw new Error("expected a media refusal");
+  expect(error.data.code).toBe("fetch_failed");
   expect(signals).toEqual([controller.signal, controller.signal]);
   expect(body.locked).toBe(false);
+});
+
+test("an aborted lookup settles without waiting for DNS or invoking transport", async () => {
+  const controller = new AbortController();
+  const entered = eventSignal<void>("lookup entered");
+  const held = Promise.withResolvers<readonly { address: string; family: number }[]>();
+  const transported: string[] = [];
+  const resolve = createMediaResolver({}, (url) => {
+    transported.push(url.href);
+    return Promise.resolve(new Response("bytes"));
+  }, () => {
+    entered.resolve();
+    return held.promise;
+  });
+  const running = resolve({ kind: "file", ref: "https://cdn.test/held", name: "held" }, {
+    maxBytes: MEDIA_BYTE_CAP, signal: controller.signal,
+  }).then(() => undefined, (error: Error) => error);
+
+  await entered.promise;
+  controller.abort(new Error("deadline exceeded"));
+  const error = await running;
+  expect(error).toBeInstanceOf(MediaRefused);
+  if (!(error instanceof MediaRefused)) throw new Error("expected a media refusal");
+  expect(error.data.code).toBe("fetch_failed");
+  expect(transported).toEqual([]);
+});
+
+test("every hop connects to its admitted address; names resolving to private or mapped-private addresses never reach the transport", async () => {
+  const calls: string[] = [];
+  const fetchImpl: MediaFetch = (url, _init, address) => {
+    calls.push(`${url.host} -> ${address.address}`);
+    return Promise.resolve(url.pathname === "/to-rebind"
+      ? Response.redirect("https://rebind.test/x.png", 302)
+      : new Response(new Uint8Array([1])));
+  };
+  const resolve = createMediaResolver({}, fetchImpl, lookupTable);
+  await resolve({ kind: "image", ref: "https://dual.test/a.png" });
+  await resolve({ kind: "image", ref: "https://v6.test/a.png" });
+  await resolve({ kind: "image", ref: "https://[2606:4700::2]/a.png" });
+  expect(calls).toEqual(["dual.test -> 93.184.216.34", "v6.test -> 2606:4700::1", "[2606:4700::2] -> 2606:4700::2"]);
+  for (const host of [
+    "[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "[::ffff:a00:7]", "[::]",
+    "rebind.test", "mixed.test", "mapped.test", "tailnet.test", "empty.test",
+  ])
+    expect(await refusal(resolve, { kind: "image", ref: `https://${host}/a.png` })).toBe("host");
+  expect(await refusal(resolve, { kind: "image", ref: "https://cdn.test/to-rebind" })).toBe("host");
+  expect(await refusal(resolve, { kind: "image", ref: "https://unknown.test/a.png" })).toBe("fetch_failed");
+  expect(calls).toEqual([
+    "dual.test -> 93.184.216.34", "v6.test -> 2606:4700::1", "[2606:4700::2] -> 2606:4700::2", "cdn.test -> 93.184.216.34",
+  ]);
+});
+
+test("the default transport dials the admitted address while the Host header and TLS server name keep the URL's name", async () => {
+  const dialed = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(new Response("a"))
+    .mockResolvedValueOnce(new Response("b"));
+  try {
+    const resolve = createMediaResolver({}, undefined, lookupTable);
+    await resolve({ kind: "file", ref: "https://cdn.test:8443/a.bin?x=1", name: "a" });
+    await resolve({ kind: "file", ref: "https://v6.test/b.bin", name: "b" });
+    expect(dialed.mock.calls.map(([target, init]) => [String(target), init])).toEqual([
+      ["https://93.184.216.34:8443/a.bin?x=1", expect.objectContaining({
+        redirect: "manual", headers: { host: "cdn.test:8443" }, tls: { serverName: "cdn.test" },
+      })],
+      ["https://[2606:4700::1]/b.bin", expect.objectContaining({
+        redirect: "manual", headers: { host: "v6.test" }, tls: { serverName: "v6.test" },
+      })],
+    ]);
+  } finally {
+    dialed.mockRestore();
+  }
+});
+
+test("the default lookup resolves through the system resolver and refuses a name on the host's own loopback", async () => {
+  const transported: string[] = [];
+  const resolve = createMediaResolver({}, (url) => {
+    transported.push(url.href);
+    return Promise.resolve(new Response("secret"));
+  });
+  expect(await refusal(resolve, { kind: "image", ref: "https://localhost/a.png" })).toBe("host");
+  expect(transported).toEqual([]);
 });

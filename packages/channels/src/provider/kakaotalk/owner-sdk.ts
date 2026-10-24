@@ -4,9 +4,11 @@ import {
   KakaoTalkClient,
   KakaoTalkError,
   KakaoTalkListener,
+  KakaoTalkPushMessageEventSchema,
   loginFlow,
 } from "agent-messenger/kakaotalk";
-import type { KakaoTalkListenerEventMap, KakaoTalkPushMessageEvent } from "agent-messenger/kakaotalk";
+import type { KakaoTalkListenerEventMap } from "agent-messenger/kakaotalk";
+import { z } from "zod";
 
 /**
  * The slice of the agent-messenger KakaoTalk SDK the Owner instance speaks
@@ -40,8 +42,11 @@ export interface KakaoTalkOwnerApi {
 
 export type KakaoTalkDeviceType = "pc" | "tablet";
 
-/** One pushed message as the SDK reports it. */
-export type KakaoTalkMessage = KakaoTalkPushMessageEvent;
+/** The pushed message after its SDK attachment crosses the JSON boundary. */
+export const KakaoTalkMessageSchema = KakaoTalkPushMessageEventSchema.extend({
+  attachment: z.record(z.string(), z.json()).nullable().catch(null),
+});
+export type KakaoTalkMessage = z.infer<typeof KakaoTalkMessageSchema>;
 
 /** The SDK's push event map, re-exported so the surface never imports the SDK itself. */
 export type KakaoTalkOwnerEventMap = KakaoTalkListenerEventMap;

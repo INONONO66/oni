@@ -47,7 +47,6 @@ import {
   createChannelStores,
   decodeChannelFailure,
   ChannelsFailure,
-  inboundOnce,
   WebSocketHandler,
   createWebhookSender,
   A2AClient,
@@ -67,7 +66,6 @@ import {
   Outbound,
   traceIdFromUuid,
   type BusEvent,
-  type Channel,
   type Machine,
 } from "@oni/protocol";
 import {
@@ -986,8 +984,9 @@ export async function startOni(options: StartOptions = {}) {
 
     // One physical platform message reaches routing once (#1569 lane 6): a
     // mention of the Owner in a channel the bot is in is observed by both
-    // instances, and the first observer's copy is the one admitted.
-    const routingHandler: Channel.MessageHandler = inboundOnce(async ({ sender, facts }) => {
+    // instances, and the first observer's copy is the one admitted; only that
+    // copy's attachments are stored.
+    const routing = inboxHandler(machinery.inbox, tools.machines, services.observations.publish, services.now, async ({ sender, facts }) => {
       const admission = await runAppEffect(runtime, messages.ingest(sender, facts));
       if (admission.status === "blocked_pre") {
         throw new MessageAdmissionRefused(admission.reasonCode);
@@ -1008,7 +1007,6 @@ export async function startOni(options: StartOptions = {}) {
     // reconcile and every tool-driven mutation run the SAME diff over
     // declared ChannelInstances, the only source of external channel config.
     const webhookHandlers = new Map<string, (request: Request) => Promise<Response>>();
-    const inbox = inboxHandler(machinery.inbox, tools.machines, services.observations.publish, services.now);
     const supervisor = createChannelSupervisor({
       desired: () =>
         desiredChannels(
@@ -1021,10 +1019,10 @@ export async function startOni(options: StartOptions = {}) {
             random: services.entropy.random,
             run: (effect) => runAppEffect(runtime, effect),
             media: createMediaResolver(tools.machines === undefined ? {} : { machines: tools.machines }),
-            ...(inbox === undefined ? {} : { inbox }),
+            ...(routing.inbox === undefined ? {} : { inbox: routing.inbox }),
           },
         ),
-      build: (component) => component.build(routingHandler),
+      build: (component) => component.build(routing.handler),
       // The tier is the row's, never this call site's: mounting a named
       // surface materializes no owner authority (#931).
       grant: createMountedChannelGrantRegistrar(

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { AttachmentRefused } from "../src/errors";
+import { attachmentDownload } from "../src/support/attachment-download";
 import { createTelegramProvider } from "../src/provider/telegram/provider";
 import { createSlackProvider } from "../src/provider/slack/provider";
 import { slackSdk } from "../src/provider/slack/sdk";
@@ -83,16 +84,28 @@ for (const provider of ["telegram", "slack"] as const) {
     try {
       const fetch = instance.attachments;
       if (!fetch) throw new Error("Missing attachment port");
-      const pending = fetch("f", { maxBytes: 2, signal: controller.signal }).catch(error => {
-        if (!(error instanceof Error)) throw error;
-        return error;
-      });
+      const refused = expect(bounded(fetch("f", { maxBytes: 2, signal: controller.signal }))).rejects;
       await bounded(entered.promise);
       controller.abort();
-      const result = await bounded(pending);
-      expect(result).toBeInstanceOf(AttachmentRefused);
-      expect(result).toMatchObject({ reason: "aborted", maxBytes: 2 });
+      await refused.toBeInstanceOf(AttachmentRefused);
+      await refused.toMatchObject({ reason: "aborted", maxBytes: 2 });
       expect(wire.requests).toHaveLength(1);
     } finally { wire.restore(); }
   });
 }
+
+test("a download failure that is not a refusal propagates as itself", async () => {
+  const failure = new Error("socket reset");
+  await expect(attachmentDownload({ maxBytes: 2, signal: new AbortController().signal }, () => Promise.reject(failure)))
+    .rejects.toBe(failure);
+});
+
+test.each(["sync", "async"] as const)("an invocation-time or rejected %s cancellation is typed", async (mode) => {
+  const failure = Object.assign(new Error("cancelled"), { code: "aborted" });
+  const download = () => {
+    if (mode === "sync") throw failure;
+    return Promise.reject(failure);
+  };
+  await expect(attachmentDownload({ maxBytes: 2, signal: new AbortController().signal }, download))
+    .rejects.toMatchObject({ _tag: "AttachmentRefused", reason: "aborted", maxBytes: 2 });
+});

@@ -1,6 +1,6 @@
-import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider } from "../contract.js";
+import { kernelDeliveryRoute } from "../delivery-route.js";
 import { TELEGRAM_MEDIA_LIMITS, TELEGRAM_RENDER } from "./format.js";
 import { type TelegramSdk, telegramSdk } from "./sdk.js";
 import { TelegramAdapter } from "./surface.js";
@@ -38,10 +38,7 @@ export function createTelegramProvider(
       return {
         surface,
         attachments: (ref, bounds) => surface.download(ref, bounds),
-        deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-          surface
-            .deliver(externalId, payload, idempotencyKey, conversation)
-            .then(kernelDeliveryReceipt),
+        deliveryRoute: kernelDeliveryRoute(surface),
         // sendChatAction shows "typing" for about five seconds.
         typingRoute: {
           everyMs: 4_000,

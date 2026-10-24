@@ -818,6 +818,15 @@ function promptsFromEnv(
   };
 }
 
+function assertActorsRetired(env: Record<string, string | undefined>): void {
+  if ((env.ONI_ACTORS?.trim() ?? "").length > 0) {
+    throw new ConfigurationError({
+      code: "retired_env",
+      message: "ONI_ACTORS is retired (#1569): declare people as Person rows through contact_add, with reach: true for those the Resident may write to",
+    });
+  }
+}
+
 export function loadConfig(
   home: string = homedir(),
   env: Record<string, string | undefined> = process.env,
@@ -826,12 +835,7 @@ export function loadConfig(
   const host = env.ONI_WS_HOST?.trim() || "127.0.0.1";
   const wsToken = env.ONI_WS_TOKEN?.trim();
   const machines = machinesFromEnv(home, env);
-  if ((env.ONI_ACTORS?.trim() ?? "").length > 0) {
-    throw new ConfigurationError({
-      code: "retired_env",
-      message: "ONI_ACTORS is retired (#1569): declare people as Person rows through contact_add, with reach: true for those the Resident may write to",
-    });
-  }
+  assertActorsRetired(env);
   const socialBudgets = socialBudgetsFromEnv(env);
   const alarmSweep = alarmSweepFromEnv(env);
   const forkCopyByteCap = forkCopyByteCapFromEnv(env);

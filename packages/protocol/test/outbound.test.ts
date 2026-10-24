@@ -289,7 +289,7 @@ describe("Outbound (#1497)", () => {
     const spec: Outbound.Spec = {
       root: "stack",
       elements: {
-        stack: { type: "Stack", props: {}, children: ["voice", "clip"] },
+        stack: { type: "Stack", props: {}, children: ["voice", "clip", "quiet", "named"] },
         voice: {
           type: "Audio",
           props: { ref: "/tmp/voice.ogg", voice: true, name: undefined, mime: undefined, durationMs: undefined },
@@ -300,11 +300,19 @@ describe("Outbound (#1497)", () => {
           props: { ref: "/tmp/clip.mp4", name: undefined, mime: undefined, durationMs: undefined },
           children: [],
         },
+        quiet: { type: "Audio", props: { ref: "/tmp/q.ogg", voice: false, durationMs: 0, caption: undefined }, children: [] },
+        named: {
+          type: "Video",
+          props: { ref: "/tmp/n.mp4", name: "n.mp4", mime: "video/mp4", caption: "look" },
+          children: [],
+        },
       },
     };
     expect(Outbound.parts({ kind: "message", spec })).toStrictEqual([
       { kind: "audio", ref: "/tmp/voice.ogg", voice: true },
       { kind: "video", ref: "/tmp/clip.mp4" },
+      { kind: "audio", ref: "/tmp/q.ogg", voice: false, durationMs: 0 },
+      { kind: "video", ref: "/tmp/n.mp4", name: "n.mp4", mime: "video/mp4", caption: "look" },
     ]);
   });
 

@@ -80,6 +80,24 @@ export interface ListenerCustody {
   readonly dead: boolean;
 }
 
+export function stopBotListener(
+  custody: ListenerCustody | null,
+  observation: {
+    readonly publish: PublishPort;
+    readonly traceId: string;
+    readonly now: () => number;
+    readonly message: string;
+  },
+): void {
+  custody?.stop();
+  observation.publish(Operational.Events.Info, {
+    traceId: observation.traceId,
+    time: observation.now(),
+    component: "server",
+    msg: observation.message,
+  });
+}
+
 /**
  * Custody over an SDK listener (#1569): the SDK owns the socket, the pings
  * and its own reconnect loop; this wrapper owns what the kernel must see.

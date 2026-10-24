@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Channel, Operational, Outbound } from "@oni/protocol";
+import { Operational, Outbound } from "@oni/protocol";
 import { z } from "zod";
 import type { OwnerPosture } from "../src/provider/contract";
 import { InstagramOwnerAdapter } from "../src/provider/instagram/owner";
@@ -10,7 +10,8 @@ import { InstagramOwnerError, instagramOwnerSdk } from "../src/provider/instagra
 import { createInstagramProvider } from "../src/provider/instagram/provider";
 import { RECONNECT_ATTEMPT_BOUND } from "../src/support/sdk-listener";
 import type { PublishPort } from "../src/types";
-import { bounded } from "./helpers/bounded";
+import { infoCollector } from "./helpers/observation";
+import { inboundQueue } from "./helpers/inbound-queue";
 import { injectedOptions } from "./helpers/injected";
 import {
   FakeInstagramOwnerListener,
@@ -32,20 +33,16 @@ async function started(
   listener?: FakeInstagramOwnerListener,
 ) {
   const fake = fakeInstagramOwnerSdk(script, listener);
-  const adapter = new InstagramOwnerAdapter({ session: INSTAGRAM_SESSION }, posture, publish, injectedOptions(), fake.sdk);
-  const inbound: Channel.InboundMessage[] = [];
-  const waiters: Array<(message: Channel.InboundMessage) => void> = [];
-  const next = () => {
-    const waiter = Promise.withResolvers<Channel.InboundMessage>();
-    waiters.push(waiter.resolve);
-    return bounded(waiter.promise);
-  };
-  adapter.onMessage(async (message) => {
-    inbound.push(message);
-    waiters.shift()?.(message);
-  });
+  const adapter = new InstagramOwnerAdapter(
+    { session: INSTAGRAM_SESSION },
+    posture,
+    publish,
+    injectedOptions(),
+    fake.sdk,
+  );
+  const queue = inboundQueue(adapter);
   await adapter.start("boot");
-  return { ...fake, adapter, inbound, next };
+  return { ...fake, adapter, ...queue };
 }
 
 /** The one shape the SDK's listener gives a refused inbox read, whatever the platform's reason. */
@@ -56,12 +53,8 @@ const SENTINEL = { id: "ig-sentinel", thread_id: "t-sentinel", from: "900", text
 
 describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner instance (#1569 lane 7)", () => {
   it("restores the vault session through a file it removes, leaves the SDK nothing to persist, and opens the inbox listener", async () => {
-    const infos: Pick<ReturnType<typeof Operational.Events.Info.schema.parse>, "msg" | "context">[] = [];
-    const { client, listener, adapter } = await started(DEFAULT_INTAKE, {}, (event, data) => {
-      if (event.name !== Operational.Events.Info.name) return;
-      const { msg, context } = Operational.Events.Info.schema.parse(data);
-      infos.push(context === undefined ? { msg } : { msg, context });
-    });
+    const { infos, publish } = infoCollector();
+    const { client, listener, adapter } = await started(DEFAULT_INTAKE, {}, publish);
     expect(adapter.id).toBe("instagram:owner");
     expect(client.loaded).toEqual({ existed: true, session: INSTAGRAM_SESSION });
     // The file is gone and the SDK has no path to write a session back to.
@@ -85,7 +78,10 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
       injectedOptions(),
       fake.sdk,
     );
-    await expect(adapter.start("boot")).rejects.toMatchObject({ _tag: "ChannelsFailure", operation: "instagram.owner.start" });
+    await expect(adapter.start("boot")).rejects.toMatchObject({
+      _tag: "ChannelsFailure",
+      operation: "instagram.owner.start",
+    });
     expect(fake.client.sessionPath).toBe("");
     const path = fake.client.loaded?.existed === true ? "" : "missing";
     expect(path).toBe("");
@@ -94,17 +90,48 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
   it("every inbox message is a DM to the Owner, received by the Owner; the account's own are never an outside event", async () => {
     const { listener, next, inbound } = await started();
     const dm = next();
-    listener.message({ id: "ig-1", thread_id: "t-1", from: "500", from_name: "friend", text: "hey" });
+    listener.message({
+      id: "ig-1",
+      thread_id: "t-1",
+      from: "500",
+      from_name: "friend",
+      text: "hey",
+    });
     expect(await dm).toMatchObject({
       sender: { kind: "external", surface: "instagram", externalId: "500" },
-      facts: { eventId: "ig-1", channelId: "t-1", dm: true, event: "message", receivedBy: "owner", render: "hey" },
+      facts: {
+        eventId: "ig-1",
+        channelId: "t-1",
+        dm: true,
+        event: "message",
+        receivedBy: "owner",
+        render: "hey",
+      },
     });
-    listener.message({ id: "ig-2", thread_id: "t-1", from: INSTAGRAM_OWNER_ID, text: "my reply", is_outgoing: true });
+    listener.message({
+      id: "ig-2",
+      thread_id: "t-1",
+      from: INSTAGRAM_OWNER_ID,
+      text: "my reply",
+      is_outgoing: true,
+    });
     listener.message({ id: "ig-3", thread_id: "t-1", from: INSTAGRAM_OWNER_ID, text: "also mine" });
     listener.message({ id: "ig-4", thread_id: "t-1", from: "500" });
     const media = next();
-    listener.message({ id: "ig-5", thread_id: "t-1", from: "500", type: "media", media_url: "https://cdn/i.jpg" });
-    expect(await media).toMatchObject({ facts: { eventId: "ig-5", render: "", attachments: [{ kind: "image", ref: "https://cdn/i.jpg" }] } });
+    listener.message({
+      id: "ig-5",
+      thread_id: "t-1",
+      from: "500",
+      type: "media",
+      media_url: "https://cdn/i.jpg",
+    });
+    expect(await media).toMatchObject({
+      facts: {
+        eventId: "ig-5",
+        render: "",
+        attachments: [{ kind: "image", ref: "https://cdn/i.jpg" }],
+      },
+    });
     const sentinel = next();
     listener.message(SENTINEL);
     await sentinel;
@@ -122,26 +149,47 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
 
   it("delivers into the person's thread, or opens the direct thread with them cold; a platform refusal is not_sent, a lost response unknown", async () => {
     const { adapter, client } = await started(SEND_ONLY);
-    expect(await adapter.deliver("500", Outbound.payload("into the thread"), "k-1", { channelId: "t-1" })).toEqual({
+    expect(
+      await adapter.deliver("500", Outbound.payload("into the thread"), "k-1", {
+        channelId: "t-1",
+      }),
+    ).toEqual({
       value: "sent",
       externalMessageId: "ig-1",
     });
-    expect(await adapter.deliver("500", Outbound.payload("cold"), "k-2")).toEqual({ value: "sent", externalMessageId: "ig-2" });
+    expect(await adapter.deliver("500", Outbound.payload("cold"), "k-2")).toEqual({
+      value: "sent",
+      externalMessageId: "ig-2",
+    });
     expect(client.of("sendMessage").map((call) => call.args)).toEqual([["t-1", "into the thread"]]);
     expect(client.of("sendMessageToUser").map((call) => call.args)).toEqual([["500", "cold"]]);
-    const limited = await started(SEND_ONLY, { sendMessage: new InstagramOwnerError("Rate limited", "rate_limited") });
-    expect((await limited.adapter.deliver("500", Outbound.payload("x"), "k-3", { channelId: "t-1" })).value).toBe("not_sent");
-    const refused = await started(SEND_ONLY, { sendMessageToUser: new InstagramOwnerError("Failed to send message", "send_failed") });
-    expect((await refused.adapter.deliver("500", Outbound.payload("x"), "k-4")).value).toBe("not_sent");
+    const limited = await started(SEND_ONLY, {
+      sendMessage: new InstagramOwnerError("Rate limited", "rate_limited"),
+    });
+    expect(
+      (await limited.adapter.deliver("500", Outbound.payload("x"), "k-3", { channelId: "t-1" }))
+        .value,
+    ).toBe("not_sent");
+    const refused = await started(SEND_ONLY, {
+      sendMessageToUser: new InstagramOwnerError("Failed to send message", "send_failed"),
+    });
+    expect((await refused.adapter.deliver("500", Outbound.payload("x"), "k-4")).value).toBe(
+      "not_sent",
+    );
     const lost = await started(SEND_ONLY, { sendMessage: new Error("socket hang up") });
-    expect((await lost.adapter.deliver("500", Outbound.payload("x"), "k-5", { channelId: "t-1" })).value).toBe("unknown");
+    expect(
+      (await lost.adapter.deliver("500", Outbound.payload("x"), "k-5", { channelId: "t-1" })).value,
+    ).toBe("unknown");
   });
 
   it("a realtime failure at boot hands over to polling; a streak of refused inbox reads is a typed dead surface; a refused read or a second failure at boot leaves no listener", async () => {
     const seen: string[] = [];
     const publish: PublishPort = (event, data) => {
       const { msg } = z.object({ msg: z.string() }).parse(data);
-      if (event.name === Operational.Events.Error.name || event.name === Operational.Events.Warn.name)
+      if (
+        event.name === Operational.Events.Error.name ||
+        event.name === Operational.Events.Warn.name
+      )
         seen.push(`${event.name}: ${msg}`);
     };
     // The SDK's hybrid emits its realtime failure first, then the poller's `connected` after its first inbox read.
@@ -151,7 +199,9 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     });
     const { listener, next } = await started(DEFAULT_INTAKE, {}, publish, hybrid);
     expect(listener.stopped).toBe(0);
-    expect(seen).toEqual([`${Operational.Events.Warn.name}: instagram inbox error, sdk falling back`]);
+    expect(seen).toEqual([
+      `${Operational.Events.Warn.name}: instagram inbox error, sdk falling back`,
+    ]);
     const dm = next();
     listener.message({ id: "ig-7", thread_id: "t-3", from: "502", text: "still read" });
     expect((await dm).facts.eventId).toBe("ig-7");
@@ -171,7 +221,10 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     listener.emit("connected", { userId: INSTAGRAM_OWNER_ID, transport: "realtime" });
     for (let i = 0; i < RECONNECT_ATTEMPT_BOUND; i += 1) listener.emit("error", inboxRefused());
     expect(listener.stopped).toBe(1);
-    expect(errorsSeen()).toEqual([unreachable, `${Operational.Events.Error.name}: instagram inbox dead: Failed to fetch inbox`]);
+    expect(errorsSeen()).toEqual([
+      unreachable,
+      `${Operational.Events.Error.name}: instagram inbox dead: Failed to fetch inbox`,
+    ]);
     listener.emit("error", inboxRefused());
     expect(listener.stopped).toBe(1);
     // At boot a refused inbox read is the poller's own first cycle failing; so is any second error.
@@ -184,7 +237,13 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
         self.emit("error", second);
       });
       const fake = fakeInstagramOwnerSdk({}, refusing);
-      const adapter = new InstagramOwnerAdapter({ session: INSTAGRAM_SESSION }, DEFAULT_INTAKE, noopPublish, injectedOptions(), fake.sdk);
+      const adapter = new InstagramOwnerAdapter(
+        { session: INSTAGRAM_SESSION },
+        DEFAULT_INTAKE,
+        noopPublish,
+        injectedOptions(),
+        fake.sdk,
+      );
       adapter.onMessage(async () => undefined);
       await expect(adapter.start("boot")).rejects.toThrow(message);
       expect(refusing.stopped).toBe(1);
@@ -194,13 +253,29 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
   it("the provider is Owner-only: the owner arm builds the instance with delivery and no typing; the bot arm refuses", () => {
     const owner = fakeInstagramOwnerSdk();
     const provider = createInstagramProvider(owner.sdk);
-    expect(provider.owner?.capabilities).toEqual({ deliver: true, react: false, media: false, typing: false });
+    expect(provider.owner?.capabilities).toEqual({
+      deliver: true,
+      react: false,
+      media: false,
+      typing: false,
+    });
     expect(provider.owner?.listen).toBe(true);
-    expect(provider.owner?.credentials.safeParse({ session: INSTAGRAM_SESSION }).success).toBe(true);
+    expect(provider.owner?.credentials.safeParse({ session: INSTAGRAM_SESSION }).success).toBe(
+      true,
+    );
     expect(provider.owner?.credentials.safeParse({ session: "not json" }).success).toBe(false);
-    expect(provider.owner?.credentials.safeParse({ session: JSON.stringify({ device: {} }) }).success).toBe(false);
-    expect(provider.owner?.credentials.safeParse({ session: INSTAGRAM_SESSION, extra: 1 }).success).toBe(false);
-    const runtime = provider.owner?.create({ session: INSTAGRAM_SESSION }, SEND_ONLY, noopPublish, injectedOptions());
+    expect(
+      provider.owner?.credentials.safeParse({ session: JSON.stringify({ device: {} }) }).success,
+    ).toBe(false);
+    expect(
+      provider.owner?.credentials.safeParse({ session: INSTAGRAM_SESSION, extra: 1 }).success,
+    ).toBe(false);
+    const runtime = provider.owner?.create(
+      { session: INSTAGRAM_SESSION },
+      SEND_ONLY,
+      noopPublish,
+      injectedOptions(),
+    );
     expect(runtime?.surface.id).toBe("instagram:owner");
     expect(runtime?.deliveryRoute).toBeDefined();
     expect(runtime?.typingRoute).toBeUndefined();
@@ -212,10 +287,20 @@ describe("InstagramOwnerAdapter: the Owner's own account as the instagram:owner 
     const owner = fakeInstagramOwnerSdk();
     const arm = createInstagramProvider(owner.sdk).owner;
     if (arm === undefined) throw new Error("instagram owner arm missing");
-    const runtime = arm.create({ session: INSTAGRAM_SESSION }, SEND_ONLY, noopPublish, injectedOptions());
-    if (runtime.deliveryRoute === undefined) throw new Error("instagram owner arm mounts no delivery route");
+    const runtime = arm.create(
+      { session: INSTAGRAM_SESSION },
+      SEND_ONLY,
+      noopPublish,
+      injectedOptions(),
+    );
+    if (runtime.deliveryRoute === undefined)
+      throw new Error("instagram owner arm mounts no delivery route");
     await runtime.surface.start("boot");
-    expect(await runtime.deliveryRoute("500", Outbound.payload("as the Owner"), "k-1", { channelId: "t-1" })).toEqual({
+    expect(
+      await runtime.deliveryRoute("500", Outbound.payload("as the Owner"), "k-1", {
+        channelId: "t-1",
+      }),
+    ).toEqual({
       value: "accepted",
       externalMessageId: "ig-1",
     });

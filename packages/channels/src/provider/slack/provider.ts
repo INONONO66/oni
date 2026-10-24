@@ -1,6 +1,7 @@
 import { kernelDeliveryReceipt } from "../../support/deliver.js";
 import { z } from "zod";
 import type { ChannelProvider, OwnerArm } from "../contract.js";
+import { kernelDeliveryRoute } from "../delivery-route.js";
 import { SLACK_MEDIA_LIMITS, SLACK_RENDER } from "./format.js";
 import { SlackOwnerAdapter } from "./owner.js";
 import { type SlackOwnerSdk, slackOwnerSdk } from "./owner-sdk.js";
@@ -45,10 +46,7 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
       return {
         surface,
         account: () => surface.account(),
-        deliveryRoute: (externalId, payload, idempotencyKey, conversation) =>
-          surface
-            .deliver(externalId, payload, idempotencyKey, conversation)
-            .then(kernelDeliveryReceipt),
+        deliveryRoute: kernelDeliveryRoute(surface),
       };
     },
   };

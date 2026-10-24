@@ -6,6 +6,7 @@ import { SlackBotError } from "../src/provider/slack/sdk";
 import { SlackEndpointKeyError, SlackHandlerMissingError } from "../src/errors";
 import type { PublishPort } from "../src/types";
 import { bounded } from "./helpers/bounded";
+import { inboundQueue } from "./helpers/inbound-queue";
 import {
   DM_CHANNEL,
   FakeSlackListener,
@@ -21,19 +22,9 @@ const CREDENTIALS = { botToken: "xoxb-1", appToken: "xapp-1" };
 async function started(script: FakeSlackScript = {}, publish: PublishPort = noopPublish) {
   const fake = fakeSlackSdk(script);
   const adapter = new SlackAdapter(CREDENTIALS, {}, publish, injectedOptions(), fake.sdk);
-  const inbound: Channel.InboundMessage[] = [];
-  const waiters: Array<(message: Channel.InboundMessage) => void> = [];
-  const next = () => {
-    const waiter = Promise.withResolvers<Channel.InboundMessage>();
-    waiters.push(waiter.resolve);
-    return bounded(waiter.promise);
-  };
-  adapter.onMessage(async (message) => {
-    inbound.push(message);
-    waiters.shift()?.(message);
-  });
+  const queue = inboundQueue(adapter);
   await adapter.start("trace-start");
-  return { ...fake, adapter, inbound, next };
+  return { ...fake, adapter, ...queue };
 }
 
 describe("SlackAdapter over the agent-messenger bot SDK", () => {
