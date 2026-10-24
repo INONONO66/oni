@@ -10,7 +10,10 @@ stamped with a `PRAGMA user_version` other than 0 or
 `SESSION_FILE_SCHEMA_VERSION` (3) is refused with the typed
 `CatalogVersionRefused` before DDL runs and leaves the file byte-identical;
 fresh files are stamped 3 inside the DDL transaction;
-`readSessionFileSchemaVersion` only probes. The v2 SQL fixture and the
+`readSessionFileSchemaVersion` only probes, and the open reads the version
+through a readonly or `immutable=1` handle before the writable open, so a
+refused checkpointed WAL file gains no `-wal`/`-shm` sidecars and a negative
+stamp is refused typed rather than as a parse error. The v2 SQL fixture and the
 migration tests are replaced by version-refusal tests (open and fork). In
 `apps/oni` the core-policy point-to-kind/phase table is `ADDRESS_BY_POINT`
 with `policyAddress`; it was never legacy. No wire or schema change.
