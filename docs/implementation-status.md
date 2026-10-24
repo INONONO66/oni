@@ -1,5 +1,20 @@
 # Implementation Status
 
+## #1637 session-file migration removal (PR pending)
+
+On `core/1637-legacy-migration-removal` (2026-10-24, base `7705b035e` after
+#1636). No pre-v3 session file was ever operated, so the v2->v3 upgrade path
+and the `legacy_fork_digest` table it left in every upgraded file are gone
+from `packages/agent/src/core/store/session-file/index.ts`. Opening a file
+stamped with a `PRAGMA user_version` other than 0 or
+`SESSION_FILE_SCHEMA_VERSION` (3) is refused with the typed
+`CatalogVersionRefused` before DDL runs and leaves the file byte-identical;
+fresh files are stamped 3 inside the DDL transaction;
+`readSessionFileSchemaVersion` only probes. The v2 SQL fixture and the
+migration tests are replaced by version-refusal tests (open and fork). In
+`apps/oni` the core-policy point-to-kind/phase table is `ADDRESS_BY_POINT`
+with `policyAddress`; it was never legacy. No wire or schema change.
+
 ## #1630 slop follow-up (epic #1630, PR #1636)
 
 On `core/1630-slop-followup` (2026-10-24, base `76f91c63c` after #1635,
