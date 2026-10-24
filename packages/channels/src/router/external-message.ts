@@ -205,6 +205,15 @@ export function externalMessage(
       message: { ...message, grantTier: message.grantTier || automationGrant }, facts,
       content: routedContent(automation, automationGrant, () =>
         promptContent(facts, resolved.existing === undefined, promptSender(route, facts, event, sender))),
+      ...(facts.attachments === undefined ? {} : { parts: facts.attachments.map(
+        ({ kind, ref, mime, name, durationMs, voice }) => ({
+          kind, ref,
+          ...(mime === undefined ? {} : { mime }),
+          ...(name === undefined ? {} : { name }),
+          ...(durationMs === undefined ? {} : { durationMs }),
+          ...(voice === undefined ? {} : { voice }),
+        }),
+      ) }),
       pending: outcome.pending,
       disposition: disposition ?? (automation === undefined && !message.grantTier &&
         outcome.rows[0]?.stage === "automation" ? outcome.rows[0].decision : undefined),

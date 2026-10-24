@@ -92,6 +92,11 @@ export interface OniConfig {
      * uses the primary.
      */
     readonly fallbacks?: readonly Model.Ref[];
+    /**
+     * The `ONI_PROVIDERS_PATH` rows when at least one names a `transcription`
+     * model; absent leaves speech-to-text on the bundled rows.
+     */
+    readonly transcriptionRows?: readonly ProviderRow[];
   };
   /**
    * Absent means this brain has no body: no socket is bound and machine-backed
@@ -714,6 +719,7 @@ function modelFromEnv(env: Record<string, string | undefined>): OniConfig["model
     ...(baseUrl === undefined || baseUrl.length === 0 ? {} : { baseUrl }),
     ...(headers === undefined ? {} : { headers }),
     ...(fallbacks === undefined ? {} : { fallbacks }),
+    ...(rows.some((candidate) => candidate.transcription !== undefined) ? { transcriptionRows: rows } : {}),
   };
 }
 

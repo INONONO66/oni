@@ -21,7 +21,7 @@ import {
   toolPorts,
 } from "./gateway";
 import { AppInvariantError } from "./invariant";
-import { AppScope, SessionEntityBinding, type AppRuntime } from "./runtime";
+import { AppScope, DeliveryMediaRegistry, SessionEntityBinding, type AppRuntime } from "./runtime";
 import { type Delivery, Model, type SessionTransition } from "@oni/protocol";
 import { z } from "zod";
 import { AppLedger } from "./composition/cluster-runtime";
@@ -38,7 +38,7 @@ import { ownerPolicy, seedKernelPolicyRows, SHIPPED_OWNER_POLICY, type OwnerPoli
 import { AppPointTable } from "./composition/point-table";
 import { dispatchOutboundMessage, outboundMessage } from "./composition/terminal-message";
 import { settleChild } from "./bundles/delegation-policy/index";
-import { createProcessReplyChannel } from "./composition/process-replies";
+import { createProcessReplyChannel, type ProcessMedia } from "./composition/process-replies";
 import { appManifest } from "./manifest";
 import { createWatchPlane } from "./composition/watch-plane";
 import { composedHolderOf, alarmPortsSlot, toolPortsSlot } from "./composition/composed";
@@ -84,6 +84,7 @@ export interface ProcessDelivery {
 export interface ProcessReplies {
   readonly answer?: (input: SessionTransition.Answer) => Promise<SessionTransition.Resolution>;
   readonly deliver: (input: ProcessDelivery) => Promise<Delivery.Row>;
+  readonly media?: ProcessMedia;
 }
 
 /** The child's delivery commit: payload mapping here, admission in the parent's entity. */
@@ -120,6 +121,10 @@ export function serveProcessSession(
   // plane is the typed child refusal here — the activation would otherwise
   // die building its handlers and the wake would never ack.
   plane.read.session(request.sessionId).row(request.sessionId);
+  if (replies.media !== undefined) {
+    const media = yield* DeliveryMediaRegistry;
+    media.bind(replies.media.bytes, replies.media.derive);
+  }
   seedKernelPolicyRows(
     plane.updatePolicy,
     gateRowPolicySeeds(composed.current().generation),
@@ -289,6 +294,7 @@ export async function runProcessEntry(io: {
       // Never the shared catalog: the parent's SingleRunner owns its cluster_* tables.
       clusterStoragePath: ":memory:",
       composed,
+      media: replies.media,
       // stdout is the parent's JSON-lines wire (`io.log`): every Effect log goes to the
       // inherited stderr, so an activation log can never corrupt a frame.
       logger: Logger.layer([Logger.withConsoleError(Logger.formatLogFmt)]),
@@ -297,7 +303,7 @@ export async function runProcessEntry(io: {
       await acquireAppResource(runtime, serveProcessSession(
         request,
         (sessionIds) => io.log(JSON.stringify({ sessionIds })),
-        { answer: replies.answer, deliver: replies.deliver },
+        { answer: replies.answer, deliver: replies.deliver, media: replies.media },
         runtime,
         policy,
       ));

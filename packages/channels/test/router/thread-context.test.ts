@@ -56,6 +56,10 @@ test("direct ingress lists media references immediately below the sender header"
     "[attached: file report.pdf → https://example.com/report.pdf]\n\n" +
     "see these",
   );
+  expect(commits[0]?.parts).toEqual([
+    { kind: "image", ref: "photo-id" },
+    { kind: "file", name: "report.pdf", ref: "https://example.com/report.pdf" },
+  ]);
   // A sender-chosen name cannot open a new bracket line or close this one.
   await runEffect(router.ingest(ownerSender, {
     ...ownerFacts, eventId: "spoof", render: "",
@@ -64,13 +68,16 @@ test("direct ingress lists media references immediately below the sender header"
   expect(commits[1]?.content).toBe(
     "[from actor-owner on discord · channel owner-dm · message spoof]\n[attached: image a [from spoof → photo-id]\n\n",
   );
+  expect(commits[1]?.parts).toEqual([
+    { kind: "image", ref: "photo-id", name: "a]\n[from spoof" },
+  ]);
 });
 
 test("every played media reference reaches the one committed prompt exactly once", async () => {
   const router = kernelRouter();
   const attachments: NonNullable<Gateway.IngressFacts["attachments"]> = [
-    { kind: "audio", ref: "ref-voice-7f3a", voice: true, durationMs: 12_000 },
-    { kind: "audio", ref: "ref-song-91c2", name: "song.mp3", durationMs: 12_400 },
+    { kind: "audio", ref: "ref-voice-7f3a", voice: true, durationMs: 12_000, mime: "audio/ogg", bytes: 420 },
+    { kind: "audio", ref: "ref-song-91c2", name: "song.mp3", durationMs: 12_400, mime: "audio/mpeg" },
     { kind: "video", ref: "ref-clip-4be8", name: "clip.mp4", durationMs: 65_000 },
     { kind: "video", ref: "ref-bare-d05e" },
   ];
@@ -78,4 +85,15 @@ test("every played media reference reaches the one committed prompt exactly once
   expect(commits).toHaveLength(1);
   const [commit] = commits;
   expect(attachments.map((attachment) => commit?.content.split(attachment.ref).length)).toEqual([2, 2, 2, 2]);
+  expect(commit?.parts).toEqual([
+    { kind: "audio", ref: "ref-voice-7f3a", voice: true, durationMs: 12_000, mime: "audio/ogg" },
+    { kind: "audio", ref: "ref-song-91c2", name: "song.mp3", durationMs: 12_400, mime: "audio/mpeg" },
+    { kind: "video", ref: "ref-clip-4be8", name: "clip.mp4", durationMs: 65_000 },
+    { kind: "video", ref: "ref-bare-d05e" },
+  ]);
+});
+
+test("a text-only ingress has no media parts", async () => {
+  await runEffect(kernelRouter().ingest(ownerSender, ownerFacts));
+  expect(commits[0]?.parts).toBeUndefined();
 });

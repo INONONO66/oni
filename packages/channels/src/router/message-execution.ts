@@ -122,6 +122,7 @@ function deliveryAdmission(
     sessionId: prepared.target,
     kind: external?.automation?.kind ?? (send.type === "message" ? "prompt" : send.type),
     content,
+    ...(external?.parts === undefined ? {} : { parts: external.parts }),
     createdAt: commitAt,
     parentActionId: null,
     ...(prepared.sender === undefined ? {} : { sender: prepared.sender }),

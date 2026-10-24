@@ -7,6 +7,7 @@ import { Author, Input } from "../ingress/input.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 import { Outbound } from "./outbound.js";
 import { Channel } from "../channel/index.js";
+import { MediaPart } from "./media.js";
 
 const Id = z.string().min(1);
 const DurationMs = z.number().nonnegative();
@@ -123,15 +124,7 @@ const IngressFacts = z
       label: z.string().min(1),
       messageRef: Id.optional(),
     }).strict().optional(),
-    attachments: z.array(z.object({
-      kind: z.enum(["image", "audio", "video", "file"]),
-      ref: Id,
-      name: z.string().min(1).optional(),
-      mime: z.string().min(1).optional(),
-      bytes: z.number().int().nonnegative().optional(),
-      durationMs: z.number().int().nonnegative().optional(),
-      voice: z.boolean().optional(),
-    }).strict()).readonly().optional(),
+    attachments: z.array(MediaPart).readonly().optional(),
     // What the person could see that the model has not: the thread's earlier
     // messages (shown once, when the thread's session starts) and the message
     // this one quotes (shown with every such message).

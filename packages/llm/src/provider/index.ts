@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Effect } from "effect";
 import { ModelResolutionError as ResolutionError, type LlmError } from "../errors";
 import { ModelsDev } from "../model";
+import { Modality } from "../model/schema";
 import { Auth } from "../auth/storage";
 import { enrichWithCatalog, fetchProxyModels } from "./proxy-models";
 import { BUNDLED_ROWS, type ProviderRow } from "./rows";
@@ -32,6 +33,7 @@ export namespace Provider {
         context: z.number(),
       })
       .optional(),
+    input: z.array(Modality).optional(),
   });
   export type Model = z.infer<typeof Model>;
 
@@ -49,6 +51,7 @@ export namespace Provider {
       limit: {
         context: model.limit?.context ?? 0,
       },
+      ...(model.input === undefined ? {} : { input: model.input }),
     };
   }
 

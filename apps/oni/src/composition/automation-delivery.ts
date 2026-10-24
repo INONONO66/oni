@@ -24,6 +24,7 @@ export function createAutomationDelivery(
     if (wake.deliver === undefined)
       return yield* new Core.AgentFailure({ operation: "automation.deliver", cause: "alarm intake is not composed" });
     const payload = yield* deliverPayload(input);
+    deps.media?.remember(input.id, input.parts);
     const receipt = yield* wake.deliver(payload).pipe(
       Effect.mapError((error) => new Core.AgentFailure({ operation: "automation.deliver", cause: error._tag })),
     );
@@ -45,8 +46,9 @@ export function createAutomationDelivery(
       yield* materializeDeliveryTarget(deps.plane, input, deps.clock);
       const instructions = automation.newSession ? automation.instructions : undefined;
       if (instructions !== undefined && input.kind === "action") {
+        const { parts: _media, ...text } = input;
         yield* deliver({
-          ...input, id: `${input.id}:instructions`, kind: "prompt", content: instructions,
+          ...text, id: `${input.id}:instructions`, kind: "prompt", content: instructions,
         });
       }
       const row = yield* deliver(instructions !== undefined && input.kind === "prompt"

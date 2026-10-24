@@ -6,6 +6,7 @@ import { Ingress } from "../ingress/index.js";
 import { SessionTransition } from "../ledger/session-transition.js";
 import { EpochMs } from "../time.js";
 import { MessageContract } from "./message.js";
+import { MediaPart as MediaPartSchema } from "./media.js";
 import { Outbound } from "./outbound.js";
 import { Channel } from "../channel/index.js";
 
@@ -366,6 +367,10 @@ export namespace Gateway {
 
   export const IngressFacts = MessageContract.IngressFacts;
   export type IngressFacts = z.infer<typeof IngressFacts>;
+
+  /** One inbound attachment, also carried beside a delivered prompt's text as `Delivery.Commit.parts`. */
+  export const MediaPart = MediaPartSchema;
+  export type MediaPart = z.infer<typeof MediaPart>;
 
   export const IngestResult = MessageContract.Result;
   export type IngestResult = z.infer<typeof IngestResult>;

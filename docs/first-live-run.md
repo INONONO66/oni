@@ -15,6 +15,18 @@ what it records becomes the first live evidence. Shipped state is in
   `oni doctor`: every check `PASS`, `health` answering.
 - The daemon's socket stays on loopback for every step below: a login and a
   channel declaration carry a credential across it in clear.
+- Voice notes and video, when the model cannot read them: a voice note is
+  transcribed and the text added to the prompt; a video becomes at most
+  eight frames, cut by `ffmpeg` on the attached machine (absent: only a
+  `[video <duration>, 0 frames]` line, and one warning). Speech-to-text
+  uses the first provider row naming a `transcription` model: the
+  `ONI_PROVIDERS_PATH` rows when one of them does, else the bundled OpenAI
+  row (`gpt-4o-transcribe`). Its key comes only from the auth file
+  (`ONI_AUTH_FILE`, default `~/.oni/auth.json`), never from
+  `ONI_MODEL_API_KEY`. Both need `ONI_MACHINES_INBOX`. Media the model
+  can read (and the frames) reach the model call as content, held in the
+  daemon's memory between delivery and turn: a restart in between leaves
+  only the `[attached …]` line, which still names the inbox file.
 
 ## 1. Declare
 

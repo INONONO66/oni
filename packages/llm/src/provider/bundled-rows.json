@@ -10,7 +10,8 @@
     {
       "id": "openai",
       "npm": "@ai-sdk/openai",
-      "api": "responses"
+      "api": "responses",
+      "transcription": "gpt-4o-transcribe"
     }
   ]
 }
