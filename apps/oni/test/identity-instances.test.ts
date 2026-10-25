@@ -133,20 +133,20 @@ describe("declared Owner instances", () => {
 
   test("a platform without an owner arm reports identity_unsupported and mounts nothing", () => {
     const { rows, statuses } = declaredChannelProfile(
-      [instance({ id: "channel:telegram:owner", provider: "telegram", credentialRef: "secret:tg" })],
-      reader('{"token":"tg"}'),
+      [instance({ id: "channel:github:owner", provider: "github", credentialRef: "secret:gh" })],
+      reader('{"secret":"s"}'),
       testChannelDeps(),
     );
     expect(rows).toEqual([]);
     expect(statuses).toEqual([
       {
-        id: "channel:telegram:owner",
-        provider: "telegram",
+        id: "channel:github:owner",
+        provider: "github",
         state: "identity_unsupported",
-        detail: "telegram has no Owner-account arm",
+        detail: "github has no Owner-account arm",
       },
     ]);
-    expect(validateProviderCredential("telegram", { token: "tg" }, "owner")).toBe("telegram has no Owner-account arm");
+    expect(validateProviderCredential("github", { secret: "s" }, "owner")).toBe("github has no Owner-account arm");
   });
 });
 

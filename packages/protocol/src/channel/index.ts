@@ -15,6 +15,7 @@
  */
 import { z } from "zod";
 import { NamedError } from "../error/index.js";
+import * as History from "./history.js";
 
 /**
  * Typed refusal for a malformed or empty surface key: the wire-format
@@ -28,6 +29,23 @@ export const SurfaceKeyError = NamedError.create(
 export type SurfaceKeyError = InstanceType<typeof SurfaceKeyError>;
 
 export namespace Channel {
+  export const HistoryAttachment = History.HistoryAttachment;
+  export type HistoryAttachment = History.HistoryAttachment;
+  export const HistoryMessage = History.HistoryMessage;
+  export type HistoryMessage = History.HistoryMessage;
+  export const HistoryPage = History.HistoryPage;
+  export type HistoryPage = History.HistoryPage;
+  export const HistoryQuery = History.HistoryQuery;
+  export type HistoryQuery = History.HistoryQuery;
+  export const HistoryRequest = History.HistoryRequest;
+  export type HistoryRequest = History.HistoryRequest;
+  export const HistoryRefusalReason = History.HistoryRefusalReason;
+  export type HistoryRefusalReason = History.HistoryRefusalReason;
+  export const HistoryRefused = History.HistoryRefused;
+  export type HistoryRefused = History.HistoryRefused;
+  export const HistoryResponse = History.HistoryResponse;
+  export type HistoryResponse = History.HistoryResponse;
+
   /**
    * The identity a mounted instance speaks as (#1569): the bot account, or the
    * Owner's own account. A surface's id is `<platform>:<identity>` for the

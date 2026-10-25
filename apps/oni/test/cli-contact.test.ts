@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Core } from "@oni/agent";
-import { type LeaseHandle, type MachineHandle, type MachineHost, MachineRefusalError } from "@oni/machines";
+import { type LeaseHandle, type MachineHost, MachineRefusalError, type StreamingMachineHandle } from "@oni/machines";
 import { Effect } from "effect";
 import { executeChannelDeclare, channelDomainRevisions, CHANNEL_DECLARE_INPUT } from "../src/bundles/provision/channels";
 import { provisionApproval } from "../src/bundles/provision/execution";
@@ -116,7 +116,7 @@ interface Scripted {
 
 function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "exports"> {
   const unused = Effect.die(new Error("unused machine operation"));
-  const handle: MachineHandle = {
+  const handle: StreamingMachineHandle = {
     fs: {
       read: (path) => {
         const text = script.files.get(path);
@@ -131,6 +131,7 @@ function scriptedHost(script: Scripted): Pick<MachineHost, "place" | "get" | "ex
         }),
       list: () => unused,
       stat: () => unused,
+      writeStream: () => unused,
     },
     exec: (cmd) =>
       Effect.sync(() => {

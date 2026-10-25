@@ -18,6 +18,7 @@ import type { Ask } from "./onboard";
 import { gatherOnboarding } from "./onboard";
 import { login, type LoginDeps } from "./login";
 import { channelAdd } from "./channel";
+import { channelHistory, type ChannelHistoryDeps } from "./channel-history";
 import { type MessagingFacts, messagingReadiness } from "./messaging";
 
 /**
@@ -39,6 +40,7 @@ export interface CliDeps {
   readonly follow: (argv: readonly string[]) => Promise<number>;
   /** #1569 lane 5b: the Owner's platform sign-ins and the socket that declares the instance. */
   readonly login: LoginDeps;
+  readonly channelHistory: ChannelHistoryDeps;
   /** #1600 lane R4: the catalog's declared instances, Persons and sealed credentials, read for the readiness report. */
   readonly messagingFacts: () => Promise<MessagingFacts>;
 }
@@ -52,8 +54,9 @@ Usage:
   oni machine attach <json> attach a machine daemon using a JSON config
   oni doctor                read-only diagnostics
   oni logs                  follow the daemon logs
-  oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk)
+  oni login <platform>      sign the Owner's own account in and declare it (slack | discord | instagram | kakaotalk | telegram)
   oni channel add <platform> declare a bot (slack | discord | telegram | github | webhook | a2a) or Linear with its grant
+      history <instance-id> <chat-id> [--before <cursor>] [--limit <1..100>]  page an Owner account's chat
   oni messaging             the messaging readiness report: who reads, how the Resident writes, where you are known
   oni help                  show this message`;
 
@@ -89,8 +92,9 @@ export async function runCli(args: readonly string[], deps: CliDeps): Promise<nu
     case "login":
       return await login(args.slice(1), deps.login, deps);
     case "channel":
+      if (args[1] === "history") return await channelHistory(args.slice(2), deps.channelHistory, deps);
       if (args[1] !== "add") {
-        deps.stderr("usage: oni channel add <platform> [flags]");
+        deps.stderr("usage: oni channel add <platform> [flags] | oni channel history <instance-id> <chat-id> [--before <cursor>] [--limit <1..100>]");
         return 1;
       }
       return await channelAdd(args.slice(2), deps.login, deps);

@@ -1,5 +1,6 @@
 import type { MachineHost } from "@oni/machines";
 import { machineWire } from "./composition/machine-wire";
+import { channelHistoryWire, type ChannelHistoryLookup } from "./composition/channel-history";
 import type { WsParts } from "./composition/ws-parts";
 import type { ComposedCodemode } from "./composition/codemode";
 import type { ToolPorts } from "./composition/catalog";
@@ -374,6 +375,7 @@ export function webSocketCallbacks(
       Effect.Effect<Provisioning.ChannelDeclareResponse>;
   },
   parts?: WsParts,
+  history?: ChannelHistoryLookup,
 ) {
   const inflight = new Set<Promise<void>>();
   const readers = new Map<WsConnection, Map<string, () => void>>();
@@ -449,6 +451,15 @@ export function webSocketCallbacks(
         handler.ws.close(ws);
       },
       message(ws: WsConnection, data: string | Buffer): Promise<void> {
+        const historyRead = channelHistoryWire(data, {
+          authenticated: ws.data.authenticated === true,
+          caller: wsCaller(ws.data.externalId),
+        }, history ?? (() => ({ status: "refused", reason: "owner_not_ready" })));
+        if (historyRead !== undefined) {
+          return runtime.runPromise(historyRead).then((frame) => {
+            ws.send(JSON.stringify(frame));
+          });
+        }
         const machine = machineWire(data, machines);
         if (machine !== undefined) {
           ws.send(JSON.stringify(machine));

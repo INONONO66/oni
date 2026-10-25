@@ -130,8 +130,10 @@ async function plan(
     }
     steps.push(...textSteps(pending, render));
     pending = [];
-    const bytes = await media.resolve(part).catch(ResolveRefused.parse);
-    if (bytes instanceof DeliveryNotSent) throw bytes;
+    // A resolver's structured size refusal keeps its typed reason; any other refusal is not-sent.
+    const bytes = await media.resolve(part)
+      .catch((error: Error) => (error instanceof MediaTooLarge ? error : ResolveRefused.parse(error)));
+    if (bytes instanceof DeliveryNotSent || bytes instanceof MediaTooLarge) throw bytes;
     const limit = media.limits[LIMIT_OF[part.kind]];
     if (bytes.bytes.byteLength > limit)
       throw new MediaTooLarge({ kind: part.kind, bytes: bytes.bytes.byteLength, limit });

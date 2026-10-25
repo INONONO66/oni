@@ -21,6 +21,7 @@ export const Statuses = z.array(
         "mounted",
         "start_failed",
         "paused_by_breaker",
+        "withdrawn",
       ]),
       detail: z.string().optional(),
     })

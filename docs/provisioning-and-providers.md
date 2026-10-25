@@ -338,7 +338,10 @@ Runner operations (adopted from the same survey):
   (`channel_enable`); no reconnect thrash during a sustained platform outage.
 - **Pause is not unmount**: a paused instance keeps its declaration and drops
   inbound; `provision_status` reports `running | paused | paused_by_breaker`
-  with the last error.
+  with the last error. A mounted Owner account whose session withdrew
+  readiness reports `withdrawn` with its latched reason
+  (`login_action_required` or `session_lost`); its history route is revoked
+  and history refusals carry that reason.
 - **Outbound pacing**: `capabilities.outboundRate` (telegram ~30/s global,
   discord 5/5s per channel, slack ~1/s per channel) wraps deliveryRoute in a
   token bucket — pre-paced, with the existing 429 retry as the second layer.

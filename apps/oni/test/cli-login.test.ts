@@ -32,6 +32,7 @@ function deps(overrides: Partial<LoginDeps> = {}, declared: Provisioning.Channel
         onPasscode("4821");
         return { oauthToken: `oauth-${email}`, userId: "1001", deviceUuid: "dev-1", deviceType: "tablet" };
       },
+      telegram: async () => ({ userId: "owner-telegram" }),
     },
     declare: async (request) => {
       declared.push(request);
@@ -50,10 +51,10 @@ describe("oni login (#1569 lane 5b)", () => {
     expect(parseLoginArgs(["kakaotalk", "--id", "channel:kakaotalk:me", "--intake", "all", "--outbound", "--auto-reply", "--print"])).toEqual({
       platform: "kakaotalk", instanceId: "channel:kakaotalk:me", intake: "all", outbound: true, autoReply: true, print: true,
     });
-    for (const args of [[], ["telegram"], ["slack", "--intake", "loud"], ["slack", "--id"], ["slack", "--bogus"], ["slack", "--auto-reply"]]) {
+    for (const args of [[], ["telegram", "--print"], ["slack", "--intake", "loud"], ["slack", "--id"], ["slack", "--bogus"], ["slack", "--auto-reply"]]) {
       expect(() => parseLoginArgs(args)).toThrow(CliError);
     }
-    expect(() => parseLoginArgs(["telegram"])).toThrow(LOGIN_USAGE);
+    expect(() => parseLoginArgs(["telegram", "--print"])).toThrow(LOGIN_USAGE);
   });
 
   test("each platform's sign-in asks only what it needs and returns the Owner arm's credential payload", async () => {
@@ -81,6 +82,7 @@ describe("oni login (#1569 lane 5b)", () => {
       "Instagram password [secret]",
       "KakaoTalk password [secret]",
     ]);
+    await expect(signIn("telegram", deps(), io)).rejects.toThrow(CliError);
   });
 
   test("a declaration the daemon cannot take after the sign-in shows the payload instead of losing it; a failed sign-in declares nothing", async () => {

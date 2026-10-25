@@ -712,7 +712,7 @@ describe("oni messaging (#1600 lane R4)", () => {
     const err: string[] = [];
     const cli: CliDeps = { ...createCliDeps(home), stdout: (line) => out.push(line), stderr: (line) => err.push(line), ask: () => Promise.resolve("tg-token") };
     expect(await runCli(["channel"], cli)).toBe(1);
-    expect(err).toEqual(["usage: oni channel add <platform> [flags]"]);
+    expect(err).toEqual(["usage: oni channel add <platform> [flags] | oni channel history <instance-id> <chat-id> [--before <cursor>] [--limit <1..100>]"]);
     expect(await runCli(["channel", "add", "telegram", "--tier", "manager", "--print"], cli)).toBe(0);
     expect(out).toEqual([JSON.stringify({ id: "channel:telegram:main", provider: "telegram", identity: "bot", grant: { defaultTier: "manager" }, credential: { token: "tg-token" } })]);
     expect(await runCli(["channel", "add"], cli)).toBe(1);
@@ -764,11 +764,16 @@ describe("cli dispatch", () => {
             discord: () => Promise.reject(new Error("no discord login in this test")),
             instagram: () => Promise.reject(new Error("no instagram login in this test")),
             kakaotalk: () => Promise.reject(new Error("no kakaotalk login in this test")),
+            telegram: () => Promise.reject(new Error("no telegram login in this test")),
           },
           declare: () => Promise.reject(new Error("no daemon in this test")),
           id: () => "request-1",
         },
         messagingFacts: () => Promise.reject(new Error("no catalog in this test")),
+        channelHistory: {
+          id: () => "request-1",
+          read: () => Promise.reject(new Error("no history in this test")),
+        },
         doctorPorts: () =>
           Promise.resolve({
             bunVersion: "1.3.0",
@@ -819,7 +824,7 @@ describe("cli dispatch", () => {
       JSON.stringify({ provider: "discord", identity: "owner", credential: { token: "user-token" } }),
     ]);
     expect(await runCli(["login", "telegram"], cli)).toBe(1);
-    expect(err.at(-1)).toContain("usage: oni login");
+    expect(err.at(-1)).toBe("Telegram login is not configured");
   });
 
   test("unknown command prints usage and exits 1", async () => {

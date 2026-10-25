@@ -31,7 +31,7 @@ const staging = process.argv[2] ?? join(appDir, "dist-npm");
  */
 const nativeAddonVersions = new Map<string, string>();
 const sdkDir = dirname(Bun.resolveSync("agent-messenger/package.json", join(appDir, "..", "..", "packages", "channels")));
-for (const name of ["opusscript", "@discordjs/opus", "@snazzah/davey"]) {
+for (const name of ["opusscript", "@discordjs/opus", "@snazzah/davey", "koffi", "prebuilt-tdlib"]) {
   const manifest = Bun.resolveSync(`${name}/package.json`, sdkDir);
   const { version } = JSON.parse(readFileSync(manifest, "utf-8")) as { readonly version: string };
   nativeAddonVersions.set(name, version);
@@ -39,7 +39,7 @@ for (const name of ["opusscript", "@discordjs/opus", "@snazzah/davey"]) {
 const externalNativeAddons: BunPlugin = {
   name: "external-native-addons",
   setup(build) {
-    build.onResolve({ filter: /^(classic-level|@discordjs\/voice|prism-media)$/ }, (args) => {
+    build.onResolve({ filter: /^(classic-level|@discordjs\/voice|prism-media|koffi|prebuilt-tdlib)$/ }, (args) => {
       const manifest = Bun.resolveSync(`${args.path}/package.json`, dirname(args.importer));
       const { version } = JSON.parse(readFileSync(manifest, "utf-8")) as { readonly version: string };
       nativeAddonVersions.set(args.path, version);

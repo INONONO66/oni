@@ -1,18 +1,21 @@
-import type { OwnerLogin } from "@oni/channels";
+import type { OwnerLoginWithTelegram } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
 import { CliError } from "./errors";
 import type { Ask } from "./onboard";
+import { telegramSignIn, type TelegramLoginEnvironment } from "./telegram-login";
+import { ThrownError } from "../thrown";
 
 /** The platforms the Owner's own account can be signed in on (#1569 lane 5b). */
-const LOGIN_PLATFORMS = ["slack", "discord", "instagram", "kakaotalk"] as const;
+const LOGIN_PLATFORMS = ["slack", "discord", "instagram", "kakaotalk", "telegram"] as const;
 export type LoginPlatform = (typeof LOGIN_PLATFORMS)[number];
 
 export interface LoginDeps {
   /** The platform sign-in flows; the shipped ones ride the agent-messenger SDK. */
-  readonly logins: OwnerLogin;
+  readonly logins: OwnerLoginWithTelegram;
   /** Declares the instance over the Owner's socket; absent when no daemon is reachable. */
   readonly declare: (request: Provisioning.ChannelDeclareRequest) => Promise<Provisioning.ChannelDeclareResponse>;
   readonly id: () => string;
+  readonly telegram?: TelegramLoginEnvironment;
 }
 
 export interface LoginOptions {
@@ -25,8 +28,14 @@ export interface LoginOptions {
   readonly print: boolean;
 }
 
-export const LOGIN_USAGE = `usage: oni login <slack|discord|instagram|kakaotalk> [--id channel:<platform>:owner]
+export const LOGIN_USAGE = `usage: oni login <slack|discord|instagram|kakaotalk|telegram> [--id channel:<platform>:owner]
                      [--intake mentions_and_dms|all|none] [--outbound] [--auto-reply] [--print]`;
+
+/** Names a rejected argument without its value: a flag's bare name, never a positional or an `=value`. */
+function rejectedArgument(argument: string | undefined): string {
+  const name = argument?.split("=", 1)[0] ?? "";
+  return /^--[a-z][a-z-]*$/.test(name) ? `unknown login flag: ${name}` : "unexpected login argument";
+}
 
 /** Parses the login command line; a bad shape is a typed CLI error naming the usage. */
 export function parseLoginArgs(args: readonly string[]): LoginOptions {
@@ -63,10 +72,11 @@ export function parseLoginArgs(args: readonly string[]): LoginOptions {
         options.autoReply = true;
         break;
       case "--print":
+        if (platform === "telegram") throw new CliError(`Telegram cannot print credentials\n${LOGIN_USAGE}`);
         options.print = true;
         break;
       default:
-        throw new CliError(`unknown login flag: ${flag}\n${LOGIN_USAGE}`);
+        throw new CliError(`${rejectedArgument(flag)}\n${LOGIN_USAGE}`);
     }
   }
   if (options.autoReply && !options.outbound)
@@ -134,6 +144,8 @@ export async function signIn(
         deviceType: session.deviceType,
       };
     }
+    case "telegram":
+      throw new CliError("Telegram login requires its private sign-in flow");
   }
 }
 
@@ -188,7 +200,38 @@ export function reportDeclared(
  * than losing a sign-in the platform counted (a device registration, a
  * single-use code).
  */
+async function loginTelegram(args: readonly string[], deps: LoginDeps, io: LoginReport): Promise<number> {
+  const seal = async (): Promise<number> => {
+    const options = parseLoginArgs(args);
+    if (deps.telegram === undefined) throw new CliError("Telegram login is not configured");
+    const { credential, userId } = await telegramSignIn(deps.logins.telegram, deps.telegram, io.ask);
+    const response = await deps.declare({
+      type: "channel_add",
+      requestId: deps.id(),
+      id: options.instanceId,
+      provider: "telegram",
+      identity: "owner",
+      settings: { intake: options.intake, autoReply: options.autoReply },
+      ...(options.outbound ? { outbound: true } : {}),
+      credential,
+    });
+    if (response.type === "channel_add_refused") {
+      io.stderr(`channel_add refused (${response.reason}): ${response.detail}`);
+      return 1;
+    }
+    io.stdout(`Signed in to Telegram as ${userId}`);
+    return reportDeclared(response, options.instanceId, io);
+  };
+  const result = await seal().then((code) => ({ code }), ThrownError.parse);
+  if (result instanceof Error) {
+    io.stderr(result instanceof CliError ? result.message : `Telegram login failed: ${result.message}`);
+    return 1;
+  }
+  return result.code;
+}
+
 export async function login(args: readonly string[], deps: LoginDeps, io: LoginReport): Promise<number> {
+  if (args[0] === "telegram") return loginTelegram(args, deps, io);
   const signedIn = await signInFor(args, deps, io);
   if (typeof signedIn === "number") return signedIn;
   const { options, credential } = signedIn;

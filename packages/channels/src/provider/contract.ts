@@ -1,5 +1,6 @@
 import type { Channel, Gateway, Outbound } from "@oni/protocol";
-import type { AttachmentFetch, EffectRunner, MediaResolver, PublishPort } from "../types.js";
+import type { AttachmentFetch, AttachmentFetchWithStream, EffectRunner, MediaResolver, PublishPort } from "../types.js";
+import type { ProviderHistoryRoute } from "./history.js";
 import type { ProviderVoiceRoute } from "./voice.js";
 import { z } from "zod";
 
@@ -81,6 +82,8 @@ export interface MediaLimits {
  * duck-typing the constructed object.
  */
 interface ProviderCapabilities {
+  /** Optional read-only platform history, independent of delivery authority. */
+  readonly history?: boolean;
   /** The runtime exposes `deliveryRoute` — the Resident can message into it. */
   readonly deliver: boolean;
   /** The runtime exposes `webhookHandler` — ingress arrives over HTTP. */
@@ -132,7 +135,15 @@ export interface AccountIdentity {
   readonly workspace?: string;
 }
 
+/** The latched cause an Owner account runtime withdrew its readiness for. */
+export type OwnerWithdrawal = "login_action_required" | "session_lost";
+
 export interface ProviderRuntime {
+  readonly historyRoute?: ProviderHistoryRoute;
+  /** Notifies the mount owner once when a started account runtime withdraws readiness. */
+  readonly onWithdrawn?: (listener: (reason: OwnerWithdrawal) => void) => void;
+  /** Streaming-capable intake; buffered providers keep `attachments`. */
+  readonly streamingAttachments?: AttachmentFetchWithStream;
   readonly surface: Channel.Surface;
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
@@ -164,7 +175,7 @@ export interface ProviderRuntime {
 export interface OwnerArm<TCredentials> {
   readonly credentials: z.ZodType<TCredentials, TCredentials>;
   readonly preconditions: readonly string[];
-  readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing" | "voice">;
+  readonly capabilities: Pick<ProviderCapabilities, "deliver" | "react" | "media" | "typing" | "voice" | "history">;
   /** Whether the account's own listener exists (#1569 lane 6); where false the instance only sends. */
   readonly listen: boolean;
   create(
@@ -246,6 +257,8 @@ export interface ChannelProvider<TCredentials, TId extends string = string, TOwn
 
 /** The injected sources every driver constructs from. */
 export interface ProviderOptions {
+  /** App-resolved host directory; credentials still come only from the vault. */
+  readonly telegramDataDir?: string;
   readonly now: () => number;
   readonly id: () => string;
   readonly random: () => number;

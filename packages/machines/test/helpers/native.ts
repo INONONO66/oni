@@ -30,11 +30,12 @@ function nativeRunner(runner: CodeRunner): Native.CodeRunner {
     close: () => foreign(() => runner.close()),
   };
 }
-function machineHandle(native: Native.MachineHandle) {
+function machineHandle(native: Native.StreamingMachineHandle) {
   return { native,
     fs: {
       read: (...args: Parameters<typeof native.fs.read>) => run(native.fs.read(...args)),
       write: (...args: Parameters<typeof native.fs.write>) => run(native.fs.write(...args)),
+      writeStream: (...args: Parameters<typeof native.fs.writeStream>) => run(native.fs.writeStream(...args)),
       list: (...args: Parameters<typeof native.fs.list>) => run(native.fs.list(...args)),
       stat: (...args: Parameters<typeof native.fs.stat>) => run(native.fs.stat(...args)),
     },

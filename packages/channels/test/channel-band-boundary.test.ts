@@ -15,6 +15,7 @@ const SDK_SUBPATH_HOMES: ReadonlyMap<string, string> = new Map([
   ["agent-messenger/slackbot", "src/provider/slack/sdk.ts"],
   ["agent-messenger/discordbot", "src/provider/discord/sdk.ts"],
   ["agent-messenger/telegrambot", "src/provider/telegram/sdk.ts"],
+  ["agent-messenger/telegram", "src/provider/telegram/owner-sdk.ts"],
   ["agent-messenger/slack", "src/provider/slack/owner-sdk.ts"],
   ["agent-messenger/discord", "src/provider/discord/owner-sdk.ts"],
   ["agent-messenger/instagram", "src/provider/instagram/owner-sdk.ts"],
@@ -152,6 +153,14 @@ describe("channels band import boundary", () => {
           path: "test/helpers/discord-sdk.ts",
           text: 'import { DiscordBotError } from "agent-messenger/discordbot";',
         },
+        {
+          path: "src/provider/telegram/owner-sdk.ts",
+          text: 'import { createTelegramAccountClient } from "agent-messenger/telegram";',
+        },
+        {
+          path: "src/provider/telegram/owner.ts",
+          text: 'import { createTelegramAccountClient } from "agent-messenger/telegram";',
+        },
       ]),
     ).toEqual([
       "src/provider/slack/surface.ts: imports agent-messenger/slackbot",
@@ -160,6 +169,7 @@ describe("channels band import boundary", () => {
       "src/provider/slack/sdk.ts: imports agent-messenger/slack",
       "src/provider/discord/owner.ts: imports agent-messenger/discord",
       "test/helpers/discord-sdk.ts: imports agent-messenger/discordbot",
+      "src/provider/telegram/owner.ts: imports agent-messenger/telegram",
     ]);
   });
 

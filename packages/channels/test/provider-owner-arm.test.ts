@@ -18,12 +18,13 @@ const noopPublish: PublishPort = () => undefined;
  * `identity_unsupported` rather than mounting anything.
  */
 describe("provider owner arms", () => {
-  test("slack, discord and the Owner-only platforms carry an Owner arm, all listening; the rest have none", () => {
+  test("telegram, slack, discord and the Owner-only platforms carry an Owner arm, all listening; the rest have none", () => {
     expect(
       Object.entries(ChannelProviders)
         .filter(([, provider]) => provider.owner !== undefined)
         .map(([key, provider]) => [key, provider.owner?.listen]),
     ).toEqual([
+      ["telegram", true],
       ["discord", true],
       ["slack", true],
       ["instagram", true],

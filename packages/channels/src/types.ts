@@ -43,6 +43,21 @@ export interface AttachmentBounds {
  */
 export type AttachmentFetch = (ref: string, bounds: AttachmentBounds) => Promise<MediaBytes>;
 
+/** One bounded, single-consumer source; size is checked before atomic publication. */
+export interface MediaStream {
+  readonly chunks: AsyncIterable<Uint8Array>;
+  readonly name: string;
+  readonly mime: string;
+  readonly size: number;
+}
+
+/** Additive form: buffered consumers keep their existing AttachmentFetch contract. */
+export type AttachmentFetchResult = MediaBytes | MediaStream;
+export type AttachmentFetchWithStream = (
+  ref: string,
+  bounds: AttachmentBounds,
+) => Promise<AttachmentFetchResult>;
+
 /**
  * Raw platform payload → Channel.InboundMessage.
  * MUST NOT: call platform API, manage state, or have side effects.
