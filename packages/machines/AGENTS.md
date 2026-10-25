@@ -8,7 +8,7 @@ Machine execution package (`@oni/machines`): a machine is WHERE execution happen
 
 ```
 src/
-├── index.ts             # Barrel: host/daemon, typedCall, ipc transport, errors, structural codemode contracts
+├── index.ts             # Barrel: host/daemon, typedCall, ipc transport, errors, structural codemode contracts, normalizeExportRoot (the one export-root spelling, also used by app config)
 ├── host.ts              # createMachineHost — machine.attach server side; listener SET (unix + optional pinned-TLS tcp) into one registry
 ├── daemon.ts            # attachMachineDaemon — daemon client side, serves fs/exec/run_code/screen_read/input_write/pty_*; unix or tcp+pinned-host-key connection
 ├── generation-store.ts  # AttachGenerationStore port + memory/file (recoverable owner-pid lock dir, tmp+rename, 0600) stores for the host-minted attach generation (#1624)

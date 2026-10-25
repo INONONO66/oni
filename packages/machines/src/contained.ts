@@ -7,7 +7,10 @@ import { posix } from "node:path";
  * double slash or a trailing slash on the same configured export.
  */
 export function normalizeExportRoot(path: string): string {
-  return posix.normalize(path).replace(/\/+$/, "") || "/";
+  // `posix.normalize` leaves at most one trailing slash, so one slice drops it
+  // in linear time where a `/\/+$/` replace backtracks on long slash runs.
+  const normalized = posix.normalize(path);
+  return normalized.length > 1 && normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
 }
 
 /**

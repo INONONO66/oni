@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, posix } from "node:path";
+import { join } from "node:path";
+import { normalizeExportRoot } from "@oni/machines";
 import { Gateway, Machine, NamedError, type Model, type PlainValue } from "@oni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
@@ -592,8 +593,8 @@ export function validateMachinePlane(
     });
   }
   if (machines.inbox === undefined) return { self, defaultMachine };
-  const inbox = posix.normalize(machines.inbox).replace(/\/+$/, "") || "/";
-  if (defaultMachine !== self.id || self.exports.some((entry) => (posix.normalize(entry.path).replace(/\/+$/, "") || "/") === inbox))
+  const inbox = normalizeExportRoot(machines.inbox);
+  if (defaultMachine !== self.id || self.exports.some((entry) => normalizeExportRoot(entry.path) === inbox))
     return { self, defaultMachine, inbox };
   if (self.exports.some((entry) => entry.name === "inbox"))
     throw new ConfigurationError({
