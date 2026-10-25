@@ -6,7 +6,7 @@ import { Cause, Deferred, Effect, Exit, Option, Schema, type Scope } from "effec
 import { LeaseLost, SessionAdmissionRefused, type SessionError } from "../ports/failure";
 import { createSessionAdmission, decideSessionAdmission } from "./admission";
 import { createSessionRecovery } from "./recovery";
-import { type SessionAdmissionSnapshot, type SessionEntityPorts, type SessionControllerState, type ResolvedSessionRuntime, type SessionRunner, type SessionRunnerResult, createSessionTurn } from "./run";
+import { type SessionAdmissionSnapshot, type SessionEntityAuthority, type SessionEntityPorts, type SessionControllerState, type ResolvedSessionRuntime, type SessionRunner, type SessionRunnerResult, createSessionTurn } from "./run";
 import { deliveryActions, receivedMessageAction } from "../journal/delivery";
 import { createRawSlots } from "../loop/executor";
 import { decideRequestTransition } from "./request";
@@ -408,25 +408,12 @@ export function createSessionEntityRunTurn(
 ): SessionEntityPorts["runTurn"] {
   return (input) => Effect.gen(function* () {
     const { kernel, authority, decision } = input;
-    const state: SessionControllerState = {
-      active: undefined, controller: undefined, fence: authority.fence,
-      closed: false, terminalFrozen: false, released: false, successor: undefined,
-      retainedRunner: undefined,
-      rawSlots: createRawSlots(), activeApprovals: undefined,
-    };
-    const { runTurn, seal } = createSessionTurn(kernel, authority.sessionId, runner, runtime, state, authority.owner, runtime.clock, runtime.entropy, scope, {
-      createExecutionLedger: (...args) => admission.createExecutionLedger(...args),
-      evaluatePromptPolicies: (...args) => admission.evaluatePromptPolicies(...args),
-      consumePolicyBlockedDeliveries: (...args) => admission.consumePolicyBlockedDeliveries(...args),
-      hibernate: () => Effect.void,
-    });
-    const detachedRunTurn: typeof runTurn = (turnInput) =>
-      input.detach(runTurn(turnInput).pipe(Effect.asVoid)).pipe(
+    const { admission, runTurn, seal } = createEntityTurn(kernel, authority, runner, runtime, scope, (turn) => (turnInput) =>
+      input.detach(turn(turnInput).pipe(Effect.asVoid)).pipe(
         Effect.as<SessionRunnerResult>({ kind: "waiting", reason: "live_wait", alarmIds: [], text: "" }),
-      );
-    const admission = createSessionAdmission(kernel, authority.sessionId, runtime, state, authority.owner, runtime.clock, runtime.entropy, { awaitRetainedRunner: () => Effect.void, runTurn: detachedRunTurn, seal });
+      ));
     const recovery = createSessionRecovery(kernel, authority.sessionId, runtime, runtime.clock, runtime.entropy, {
-      awaitRetainedRunner: () => Effect.void, runTurn: detachedRunTurn, seal,
+      awaitRetainedRunner: () => Effect.void, runTurn, seal,
       commitSession: admission.commitSession, createExecutionLedger: admission.createExecutionLedger, consumeNoopDeliveries: admission.consumeNoopDeliveries,
     });
     switch (decision.kind) {
@@ -435,4 +422,35 @@ export function createSessionEntityRunTurn(
       case "resume": return void (yield* recovery.resumeInterrupted(decision.item));
     }
   });
+}
+
+type EntityTurnRun = ReturnType<typeof createSessionTurn>["runTurn"];
+
+/** A fresh controller at the activation fence, its session turn, and the admission that opens it. */
+export function createEntityTurn(
+  kernel: SessionKernel,
+  authority: SessionEntityAuthority,
+  runner: SessionRunner,
+  runtime: ResolvedSessionRuntime,
+  scope: Scope.Scope,
+  admit: (runTurn: EntityTurnRun) => EntityTurnRun = (runTurn) => runTurn,
+): {
+  readonly admission: ReturnType<typeof createSessionAdmission>;
+  readonly runTurn: EntityTurnRun;
+  readonly seal: ReturnType<typeof createSessionTurn>["seal"];
+} {
+  const state: SessionControllerState = {
+    active: undefined, controller: undefined, fence: authority.fence,
+    closed: false, terminalFrozen: false, released: false, successor: undefined,
+    retainedRunner: undefined, rawSlots: createRawSlots(), activeApprovals: undefined,
+  };
+  const turn = createSessionTurn(kernel, authority.sessionId, runner, runtime, state, authority.owner, runtime.clock, runtime.entropy, scope, {
+    createExecutionLedger: (...args) => admission.createExecutionLedger(...args),
+    evaluatePromptPolicies: (...args) => admission.evaluatePromptPolicies(...args),
+    consumePolicyBlockedDeliveries: (...args) => admission.consumePolicyBlockedDeliveries(...args),
+    hibernate: () => Effect.void,
+  });
+  const runTurn = admit(turn.runTurn);
+  const admission = createSessionAdmission(kernel, authority.sessionId, runtime, state, authority.owner, runtime.clock, runtime.entropy, { awaitRetainedRunner: () => Effect.void, runTurn, seal: turn.seal });
+  return { admission, runTurn, seal: turn.seal };
 }

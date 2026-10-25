@@ -1,14 +1,11 @@
 import { canonicalJson, Tool } from "@oni/protocol";
 import { Deferred, Effect, Option, type Scope } from "effect";
 import { ToolTurnRefused } from "../journal/messages";
-import { createRawSlots } from "../loop/executor";
 import { AgentFailure } from "../ports/failure";
 import { interruptOn } from "../ports/ports";
-import { createSessionAdmission } from "./admission";
 import type { ActivationHandle } from "./entity-activation";
-import { drain } from "./entity-delivery";
-import { createSessionTurn } from "./run";
-import type { ResolvedSessionRuntime, SessionControllerState, SessionEntityPorts, SessionToolExecution, SessionRunner } from "./runtime";
+import { createEntityTurn, drain } from "./entity-delivery";
+import type { ResolvedSessionRuntime, SessionEntityPorts, SessionToolExecution, SessionRunner } from "./runtime";
 import { inboundAuthority, toolSourceOrigin } from "./turn-open";
 
 /** Wait only for admission, never time out an already admitted side effect. */
@@ -93,11 +90,6 @@ export function createSessionEntityRunTool(
     const origin = toolSourceOrigin(kernel, authority.sessionId, sourceTurnId);
     if (origin === undefined || inboundAuthority(origin.value).authority !== "act")
       return yield* new AgentFailure({ operation: "session.tool", cause: "origin" });
-    const state: SessionControllerState = {
-      active: undefined, controller: undefined, fence: authority.fence,
-      closed: false, terminalFrozen: false, released: false, successor: undefined,
-      retainedRunner: undefined, rawSlots: createRawSlots(), activeApprovals: undefined,
-    };
     let output: Tool.Result | undefined;
     const runner: SessionRunner = (input) => execute(input, call).pipe(
       Effect.map((result) => {
@@ -105,19 +97,7 @@ export function createSessionEntityRunTool(
         return { kind: "result" as const, text: "" };
       }),
     );
-    const { runTurn, seal } = createSessionTurn(
-      kernel, authority.sessionId, wrap?.(runner) ?? runner,
-      runtime, state, authority.owner, runtime.clock, runtime.entropy, scope, {
-        createExecutionLedger: (...args) => admission.createExecutionLedger(...args),
-        evaluatePromptPolicies: (...args) => admission.evaluatePromptPolicies(...args),
-        consumePolicyBlockedDeliveries: (...args) => admission.consumePolicyBlockedDeliveries(...args),
-        hibernate: () => Effect.void,
-      },
-    );
-    const admission = createSessionAdmission(
-      kernel, authority.sessionId, runtime, state, authority.owner, runtime.clock, runtime.entropy,
-      { awaitRetainedRunner: () => Effect.void, runTurn, seal },
-    );
+    const { admission } = createEntityTurn(kernel, authority, wrap?.(runner) ?? runner, runtime, scope);
     const result = yield* admission.startTurn({ call, sourceTurnId, origin });
     return output ?? {
       id: call.id, toolCallId: call.id, toolName: call.tool, isError: true,

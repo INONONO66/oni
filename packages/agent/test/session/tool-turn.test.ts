@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { canonicalJson, type Tool } from "@oni/protocol";
+import { canonicalJson, type PlainValue, type Tool } from "@oni/protocol";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { SingleRunner } from "effect/cluster";
@@ -27,7 +27,33 @@ const probe = defineTool({
   execute: async (input) => input, render: (_input, output) => JSON.stringify(output),
 });
 
-function entityLayer(world: Effect.Success<ReturnType<typeof toolTurnWorld>>) {
+type World = Effect.Success<ReturnType<typeof toolTurnWorld>>;
+
+/** A world whose first prompt has sealed, and the external call input naming that turn. */
+function sealedWorld(options: Parameters<typeof toolTurnWorld>[0] = { definitions: [probe] }, origin?: PlainValue) {
+  return Effect.gen(function* () {
+    const world = yield* toolTurnWorld(options);
+    yield* world.prompt(origin);
+    yield* world.settled;
+    return { world, input: source(world) };
+  });
+}
+
+/** Holds a second model turn open until `finish` completes. */
+function busyTurn(world: World) {
+  return Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const finish = yield* Deferred.make<void>();
+    world.run(() => Deferred.succeed(entered, undefined).pipe(
+      Effect.andThen(Deferred.await(finish)), Effect.as({ kind: "result", text: "" }),
+    ));
+    yield* world.prompt();
+    yield* Deferred.await(entered);
+    return { finish, before: world.kernel.row(world.sessionId).revision };
+  });
+}
+
+function entityLayer(world: World) {
   const slot = createSessionPortsSlot();
   slot.bind(world.handle.env.ports);
   return createSessionEntityLayer(world.handle.drain).pipe(
@@ -42,10 +68,7 @@ function entityLayer(world: Effect.Success<ReturnType<typeof toolTurnWorld>>) {
 
 test("the bound session tool client reaches the real entity activation and current fence", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe] });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
+    const { world, input } = yield* sealedWorld();
     const result = yield* Effect.gen(function* () {
       const execute = yield* sessionTool;
       return yield* execute(world.sessionId, input);
@@ -71,10 +94,7 @@ test("interrupting the real client cancels the admitted body and seals before re
         return input;
       },
     });
-    const world = yield* toolTurnWorld({ definitions: [blocking] });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
+    const { world, input } = yield* sealedWorld({ definitions: [blocking] });
     yield* Effect.gen(function* () {
       const execute = yield* sessionTool;
       const fiber = yield* Effect.forkChild(execute(world.sessionId, input));
@@ -87,10 +107,7 @@ test("interrupting the real client cancels the admitted body and seals before re
 
 test("a cancellation received before execution prevents a late request from running", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe] });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
+    const { world, input } = yield* sealedWorld();
     const revision = world.kernel.row(world.sessionId).revision;
     yield* Effect.gen(function* () {
       const client = (yield* SessionEntity.client)(world.sessionId);
@@ -105,21 +122,19 @@ test("a cancellation received before execution prevents a late request from runn
 test("a retained tool generation releases after its external turn seals", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
     const retained = Promise.withResolvers<() => void>();
-    const world = yield* toolTurnWorld({ definitions: [defineTool({
-      ...probe, execute: async (input) => {
+    const { world, input } = yield* sealedWorld({ definitions: [defineTool({
+      ...probe, execute: async (value) => {
         retained.resolve(currentInvocation().generation.retain());
-        return input;
+        return value;
       },
     })] });
-    yield* world.prompt();
-    yield* world.settled;
-    expect((yield* world.tool(source(world))).structuredContent).toEqual({ n: 7 });
+    expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
     const release = yield* Effect.promise(() => retained.promise);
     release();
     yield* world.runtime.generations.settle;
   }))));
 
-function source(world: Effect.Success<ReturnType<typeof toolTurnWorld>>) {
+function source(world: World) {
   const terminal = world.kernel.latestTurnTerminal(world.sessionId);
   if (terminal === undefined) throw new Error("source turn has not sealed");
   return { sourceTurnId: terminal.effect.turnId, call, waitMs: 500 };
@@ -127,18 +142,8 @@ function source(world: Effect.Success<ReturnType<typeof toolTurnWorld>>) {
 
 test("an external tool waits for the active turn's terminal without interleaving", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe] });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
-    const entered = yield* Deferred.make<void>();
-    const finish = yield* Deferred.make<void>();
-    world.run(() => Deferred.succeed(entered, undefined).pipe(
-      Effect.andThen(Deferred.await(finish)), Effect.as({ kind: "result", text: "" }),
-    ));
-    yield* world.prompt();
-    yield* Deferred.await(entered);
-    const before = world.kernel.row(world.sessionId).revision;
+    const { world, input } = yield* sealedWorld();
+    const { finish, before } = yield* busyTurn(world);
     const pending = yield* Effect.forkChild(world.tool(input), { startImmediately: true });
     expect(world.kernel.row(world.sessionId).revision).toBe(before);
     yield* Deferred.succeed(finish, undefined);
@@ -154,18 +159,8 @@ test("an external tool waits for the active turn's terminal without interleaving
 
 test("bounded busy admission returns its typed refusal and commits nothing", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe] });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
-    const entered = yield* Deferred.make<void>();
-    const finish = yield* Deferred.make<void>();
-    world.run(() => Deferred.succeed(entered, undefined).pipe(
-      Effect.andThen(Deferred.await(finish)), Effect.as({ kind: "result", text: "" }),
-    ));
-    yield* world.prompt();
-    yield* Deferred.await(entered);
-    const before = world.kernel.row(world.sessionId).revision;
+    const { world, input } = yield* sealedWorld();
+    const { finish, before } = yield* busyTurn(world);
     const pending = yield* Effect.forkChild(Effect.flip(world.tool(input)), { startImmediately: true });
     expect(yield* Effect.flip(world.tool(input))).toEqual(new ToolTurnRefused({ code: "busy" }));
     yield* TestClock.adjust(500);
@@ -180,10 +175,7 @@ test.each([
   ["evidence", { kind: "external", inboundTreatment: "evidence_only" }],
 ] as const)("a %s source authority cannot enter an external tool turn", (_name, origin) =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe] });
-    yield* world.prompt(origin);
-    yield* world.settled;
-    const input = source(world);
+    const { world, input } = yield* sealedWorld({ definitions: [probe] }, origin);
     const before = world.kernel.row(world.sessionId).revision;
     expect(yield* Effect.flip(world.tool({
       ...input, sourceTurnId: _name === "missing" ? "absent" : input.sourceTurnId,
@@ -193,10 +185,7 @@ test.each([
 
 test("an external turn retains its source authority after a later evidence-only prompt", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe] });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
+    const { world, input } = yield* sealedWorld();
     yield* world.prompt({ kind: "external", inboundTreatment: "evidence_only" });
     yield* world.settled;
     expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
@@ -219,10 +208,7 @@ test.each([
 
 test.each(["closed", "busy", "unavailable"] as const)("external admission refuses a %s activation", (code) =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld();
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
+    const { world, input } = yield* sealedWorld({});
     if (code === "closed") world.handle.closing.current = true;
     if (code === "busy") {
       const row = world.kernel.row(world.sessionId);
@@ -240,14 +226,12 @@ test.each(["closed", "busy", "unavailable"] as const)("external admission refuse
 
 test("a denied external turn returns one failure without running its tool", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
-    const world = yield* toolTurnWorld({ definitions: [probe], policy: compiledPolicy([{
+    const { world, input } = yield* sealedWorld({ definitions: [probe], policy: compiledPolicy([{
       name: "deny-turn", kind: "turn", phase: "pre", priority: 1, generation: 1,
       match: { encodingVersion: 1, value: {} },
       verdict: { encodingVersion: 1, value: { type: "deny", reason: "turn_denied" } },
     }]) });
-    yield* world.prompt();
-    yield* world.settled;
-    const result = yield* world.tool(source(world));
+    const result = yield* world.tool(input);
     expect(result.isError).toBe(true);
     expect(result.content).toBe("session policy refused");
     expect(world.kernel.historyPage(world.sessionId).actions.filter((row) => row.kind === "tool")).toHaveLength(0);
@@ -266,13 +250,10 @@ test("the run port independently refuses a missing source before writing", () =>
 test("external tool turns bind the app's live runner surfaces", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
     const turns: string[] = [];
-    const world = yield* toolTurnWorld({ definitions: [probe], wrap: (runner) => (turn) => {
+    const { world, input } = yield* sealedWorld({ definitions: [probe], wrap: (runner) => (turn) => {
         turns.push(turn.turnId);
         return runner(turn);
       } });
-    yield* world.prompt();
-    yield* world.settled;
-    const input = source(world);
     expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
     expect(turns).toHaveLength(1);
     expect(turns[0]).not.toBe(input.sourceTurnId);

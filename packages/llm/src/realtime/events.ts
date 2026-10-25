@@ -1,4 +1,4 @@
-import { PlainObjectSchema } from "@oni/protocol";
+import { parseJson, PlainObjectSchema } from "@oni/protocol";
 import { z } from "zod";
 import { InvalidProviderData } from "../errors";
 
@@ -41,30 +41,19 @@ const event = z.union([
 export type ServerEvent = z.infer<typeof event>;
 
 export function decodeFrame(data: string): ServerEvent | undefined {
-  let value: unknown;
-  try { value = JSON.parse(data); }
-  catch {
-    throw new InvalidProviderData({ operation: "realtime.frame", message: "Invalid realtime frame", cause: "invalid JSON event" });
-  }
-  const parsed = z.json().safeParse(value);
-  // A server can send additional event kinds. They are not instructions.
-  const header = parsed.success ? z.object({ type: text }).safeParse(parsed.data) : undefined;
-  if (!header?.success) throw new InvalidProviderData({
+  const frame = parseJson(z.looseObject({ type: text }), data);
+  if (frame === undefined) throw new InvalidProviderData({
     operation: "realtime.frame", message: "Invalid realtime frame", cause: "invalid JSON event",
   });
-  const type = header.data.type;
-  if (!Object.keys(schemas).includes(type)) return undefined;
-  const result = event.safeParse(parsed.data);
+  // A server can send additional event kinds. They are not instructions.
+  if (!Object.keys(schemas).includes(frame.type)) return undefined;
+  const result = event.safeParse(frame);
   if (!result.success) throw new InvalidProviderData({
-    operation: "realtime.frame", message: `Invalid realtime ${type} frame`, cause: "invalid event fields",
+    operation: "realtime.frame", message: `Invalid realtime ${frame.type} frame`, cause: "invalid event fields",
   });
   return result.data;
 }
 
 export function decodeArguments(textValue: string) {
-  let value: unknown;
-  try { value = JSON.parse(textValue); }
-  catch { return PlainObjectSchema.safeParse(null); }
-  const parsed = z.json().safeParse(value);
-  return parsed.success ? PlainObjectSchema.safeParse(parsed.data) : PlainObjectSchema.safeParse(null);
+  return PlainObjectSchema.safeParse(parseJson(z.json(), textValue) ?? null);
 }
