@@ -49,15 +49,16 @@ export async function ownerSession(
   } catch {
     throw refused("session_in_use");
   }
+  let held = false;
   try {
     const entry = fstatSync(fd);
     if (!entry.isFile() || entry.nlink !== 1 ||
       (process.getuid !== undefined && entry.uid !== process.getuid()) ||
       native.flock(fd, LOCK_EX_NB) !== 0) throw refused("session_in_use");
     fchmodSync(fd, 0o600);
-  } catch (error) {
-    closeSync(fd);
-    throw error;
+    held = true;
+  } finally {
+    if (!held) closeSync(fd);
   }
   let released = false;
   return {

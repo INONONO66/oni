@@ -52,7 +52,7 @@ test("process death releases custody without replacing the lock file", async () 
     process.on("message", () => process.exit(0));
   `, directory], {
     stdin: "ignore", stdout: "ignore", stderr: "inherit",
-    ipc: (message) => { if (message === "held") held.resolve(); },
+    ipc: (message: string) => { if (message === "held") held.resolve(); },
   });
   try {
     await held.promise;
