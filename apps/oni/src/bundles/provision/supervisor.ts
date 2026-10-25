@@ -119,22 +119,22 @@ function tierRank(tier: Actor.TrustTier): number {
   return Actor.TrustTier.options.indexOf(tier);
 }
 
-function registerVoiceRoute(
-  routes: Map<string, ProviderVoiceRoute> | undefined,
+function registerRoute<T>(
+  routes: Map<string, T> | undefined,
   surface: string,
-  route: ProviderVoiceRoute | undefined,
+  route: T | undefined,
 ): () => void {
   if (route !== undefined) routes?.set(surface, route);
-  return () => { routes?.delete(surface); };
+  return () => {
+    if (route !== undefined && routes?.get(surface) === route) routes.delete(surface);
+  };
 }
 
-function registerHistoryRoute(
-  routes: Map<string, ProviderHistoryRoute> | undefined,
-  surface: string,
-  route: ProviderHistoryRoute | undefined,
-): () => void {
-  if (route !== undefined) routes?.set(surface, route);
-  return () => { routes?.delete(surface); };
+class ChannelSurfaceBusy extends Error {
+  readonly code = "session_in_use";
+  constructor() {
+    super("session_in_use");
+  }
 }
 
 export interface ChannelSupervisor {
@@ -157,6 +157,11 @@ const DEFAULT_BREAKER_THRESHOLD = 3;
 export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor {
   const threshold = deps.breakerThreshold ?? DEFAULT_BREAKER_THRESHOLD;
   const mounted = new Map<string, MountedRow>();
+  const surfaces = new Set<string>();
+  const pending = new Map<string, () => Promise<void>>();
+  let generation = 0;
+  let reconciles: Promise<void> = Promise.resolve();
+  let stopping: Promise<void> | undefined;
   const failures = new Map<string, number>();
   // The platform's ingress grant is one row (#1569 lane 6): the bot and the
   // Owner instance of one platform both read under it. The row is held while
@@ -222,7 +227,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     });
     return {
       register: () => {
-        if (withdrawal === undefined) revoke = registerHistoryRoute(deps.historyRoutes, surfaceId, built.historyRoute);
+        if (withdrawal === undefined) revoke = registerRoute(deps.historyRoutes, surfaceId, built.historyRoute);
       },
       close: () => {
         live = false;
@@ -232,67 +237,72 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     };
   }
 
-  async function mountRow(row: DesiredChannelRow): Promise<void> {
+  async function mountRow(row: DesiredChannelRow, epoch: number): Promise<void> {
     const built = deps.build(row.component);
-    // Routes key by the instance surface id (`<platform>:<identity>`, #1569);
-    // the ingress grant and the webhook path key by the platform the inbound
-    // facts name, and only a bot instance reads inbound (lane 6 mounts the
-    // Owner listener under its own posture).
+    // Routes key by the instance surface id (`<platform>:<identity>`, #1569).
+    // Bot and Owner readers share the grant for the inbound facts' platform,
+    // each under its declared posture. Webhooks use the declaration's own
+    // instance key when supplied, otherwise the platform key.
     const surfaceId = built.surface.id;
+    if (surfaces.has(surfaceId)) throw new ChannelSurfaceBusy();
+    surfaces.add(surfaceId);
     const platform = row.component.id;
     // #1600 lane R3: a webhook declaration's handler is keyed by the instance, never shared with the platform's others.
     const webhookKey = row.component.webhookKey ?? platform;
     const revokeGrant = row.component.listens ? holdGrant(platform, row) : () => undefined;
-    if (built.deliveryRoute !== undefined) {
-      deps.deliveryRoutes.set(surfaceId, built.deliveryRoute);
-    }
-    if (built.typingRoute !== undefined) {
-      deps.typingRoutes.set(surfaceId, built.typingRoute);
-    }
-    const revokeVoice = registerVoiceRoute(deps.voiceRoutes, surfaceId, built.voiceRoute);
     const history = holdHistory(row.instanceId, surfaceId, built);
-    if (built.webhookHandler !== undefined) {
-      deps.webhookHandlers.set(webhookKey, built.webhookHandler);
-    }
-    if (built.autoReply === true) deps.autoReplies?.add(surfaceId);
+    const revokers: (() => void)[] = [];
+    let closing: Promise<void> | undefined;
+    const stop = () => closing ??= Promise.resolve().then(() => built.surface.stop(deps.traceId()));
     const unwind = async (stopSurface: boolean) => {
       history.close();
-      if (stopSurface) await built.surface.stop(deps.traceId());
-      if (built.webhookHandler !== undefined) deps.webhookHandlers.delete(webhookKey);
-      deps.autoReplies?.delete(surfaceId);
-      deps.deliveryRoutes.delete(surfaceId);
-      deps.typingRoutes.delete(surfaceId);
-      revokeVoice();
+      for (const revoke of revokers) revoke();
       revokeGrant();
+      if (stopSurface) await stop();
+      surfaces.delete(surfaceId);
     };
-    const failure = await built.surface.start(deps.traceId()).then(() => undefined, ThrownError.parse);
-    if (failure !== undefined) {
-      // Fail-closed: a stage that did not start owns nothing.
-      await unwind(false);
-      throw failure;
-    }
-    // #1600: a started Owner instance names its account; the Owner Person gets the
-    // endpoint. A binding that throws unwinds the stage like a failed start.
-    const account = row.component.identity === "owner" ? built.account?.() : undefined;
-    if (account !== undefined) {
-      const bound = await Promise.resolve()
-        .then(() => deps.bindAccount?.(platform, account))
-        .then(() => undefined, ThrownError.parse);
-      if (bound !== undefined) {
+    pending.set(row.instanceId, stop);
+    try {
+      const failure = await built.surface.start(deps.traceId()).then(() => undefined, ThrownError.parse);
+      if (epoch !== generation) {
         await unwind(true);
-        throw bound;
+        return;
       }
+      if (failure !== undefined) {
+        // The provider owns cleanup of its partial failed start.
+        await unwind(false);
+        throw failure;
+      }
+      const bound = await Promise.resolve().then(() => {
+        if (epoch !== generation) return;
+        const account = row.component.identity === "owner" ? built.account?.() : undefined;
+        if (account !== undefined) deps.bindAccount?.(platform, account);
+      }).then(() => undefined, ThrownError.parse);
+      if (bound !== undefined || epoch !== generation) {
+        await unwind(true);
+        if (bound !== undefined) throw bound;
+        return;
+      }
+      revokers.push(
+        registerRoute(deps.deliveryRoutes, surfaceId, built.deliveryRoute),
+        registerRoute(deps.typingRoutes, surfaceId, built.typingRoute),
+        registerRoute(deps.voiceRoutes, surfaceId, built.voiceRoute),
+        registerRoute(deps.webhookHandlers, webhookKey, built.webhookHandler),
+      );
+      if (built.autoReply === true) {
+        deps.autoReplies?.add(surfaceId);
+        revokers.push(() => { deps.autoReplies?.delete(surfaceId); });
+      }
+      history.register();
+      mounted.set(row.instanceId, {
+        key: row.key, surfaceId, stop: () => unwind(true), withdrawn: history.withdrawn,
+      });
+    } finally {
+      pending.delete(row.instanceId);
     }
-    history.register();
-    mounted.set(row.instanceId, {
-      key: row.key,
-      surfaceId,
-      stop: () => unwind(true),
-      withdrawn: history.withdrawn,
-    });
   }
 
-  async function startRow(row: DesiredChannelRow, statuses: ChannelRuntimeStatus[]): Promise<void> {
+  async function startRow(row: DesiredChannelRow, statuses: ChannelRuntimeStatus[], epoch: number): Promise<void> {
     const failed = failures.get(row.instanceId) ?? 0;
     if (failed >= threshold) {
       statuses.push({
@@ -303,7 +313,8 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       });
       return;
     }
-    const failure = await mountRow(row).then(() => undefined, ThrownError.parse);
+    const failure = await mountRow(row, epoch).then(() => undefined, ThrownError.parse);
+    if (epoch !== generation) return;
     if (failure === undefined) {
       failures.delete(row.instanceId);
       // A mounted stage reports the surface it mounted under (`<platform>:<identity>`, #1569), first time and after.
@@ -323,7 +334,8 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     });
   }
 
-  async function reconcile(): Promise<ChannelRuntimeStatus[]> {
+  async function reconcileRows(epoch: number): Promise<ChannelRuntimeStatus[]> {
+    if (epoch !== generation) return [];
     const desired = deps.desired();
     lastSource = desired.source;
     const want = new Map(desired.rows.map((row) => [row.instanceId, row]));
@@ -331,6 +343,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     // Phase 1 — stop: removed or changed stages release everything they own
     // BEFORE their replacement starts (§8.7 stop → swap → start).
     for (const [instanceId, row] of [...mounted]) {
+      if (epoch !== generation) return [];
       const target = want.get(instanceId);
       if (target === undefined || target.key !== row.key) {
         await row.stop();
@@ -346,19 +359,27 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       ...(status.detail === undefined ? {} : { detail: status.detail }),
     }));
     for (const row of desired.rows) {
+      if (epoch !== generation) return [];
       const running = mounted.get(row.instanceId);
       if (running !== undefined) {
         statuses.push(mountedStatus(row.instanceId, running));
         continue;
       }
-      await startRow(row, statuses);
+      await startRow(row, statuses, epoch);
     }
+    if (epoch !== generation) return [];
     lastStatuses = statuses;
     return statuses;
   }
 
   return {
-    reconcile,
+    reconcile: () => {
+      if (stopping !== undefined) return stopping.then(() => []);
+      const epoch = generation;
+      const result = reconciles.then(() => reconcileRows(epoch));
+      reconciles = result.then(() => undefined, () => undefined);
+      return result;
+    },
     resume(instanceId: string): boolean {
       return failures.delete(instanceId);
     },
@@ -371,12 +392,19 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     source(): "declared" {
       return lastSource;
     },
-    stopAll: async (): Promise<void> => {
-      for (const [instanceId, row] of [...mounted].reverse()) {
-        await row.stop();
-        mounted.delete(instanceId);
-      }
-      lastStatuses = [];
+    stopAll: (): Promise<void> => {
+      if (stopping !== undefined) return stopping;
+      generation++;
+      stopping = (async () => {
+        await Promise.all([...pending.values()].map((stop) => stop()));
+        await reconciles;
+        for (const [instanceId, row] of [...mounted].reverse()) {
+          await row.stop();
+          mounted.delete(instanceId);
+        }
+        lastStatuses = [];
+      })().finally(() => { stopping = undefined; });
+      return stopping;
     },
   };
 }

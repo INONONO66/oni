@@ -140,6 +140,20 @@ describe("listenerCustody", () => {
     expect(listener.stopped).toBe(1);
   });
 
+  test("a stop before connected settles the waiting start with a typed failure", async () => {
+    const listener = new FakeListener();
+    const wrapped = custody(listener, () => undefined);
+    const started = wrapped.start();
+    wrapped.stop();
+    await expect(started).rejects.toMatchObject({
+      _tag: "ChannelsFailure",
+      operation: "fake socket.start",
+      cause: "stopped before the first hello",
+    });
+    expect(wrapped.dead).toBe(true);
+    expect(listener.stopped).toBe(1);
+  });
+
   test("a close before connected is left to an SDK whose own start settles it (failOnCloseBeforeConnected: false)", async () => {
     const { seen, publish } = recorder();
     const listener = new FakeListener((self) => {

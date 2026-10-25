@@ -4,7 +4,7 @@ import { createChannelStores, WebSocketHandler, type WsConnection } from "@oni/c
 import { channelHistoryLookup, channelHistoryWire } from "../src/composition/channel-history";
 import type { ChannelHistoryLookup } from "../src/composition/channel-history";
 import { channelHistory, parseChannelHistoryArgs } from "../src/cli/channel-history";
-import { createChannelSupervisor } from "../src/bundles/provision/supervisor";
+import { createChannelSupervisor, type DesiredChannelRow } from "../src/bundles/provision/supervisor";
 import type { ProviderHistoryRoute } from "@oni/channels";
 import { gatewayRuntime, webSocketCallbacks, channelStoreSource } from "../src/gateway";
 import { composedHolder } from "./helpers/bundle-fixture";
@@ -30,6 +30,16 @@ const request = JSON.stringify({
   type: "channel_history", requestId: "req-1", instanceId: "kakaotalk:owner",
   chatId: "chat-1", limit: 2,
 });
+
+function historySupervisor(rows: () => readonly DesiredChannelRow[], historyRoutes: Map<string, ProviderHistoryRoute>) {
+  return createChannelSupervisor({
+    desired: () => ({ source: "declared", rows: rows(), statuses: [] }),
+    build: (component) => component.build(async () => undefined),
+    grant: () => () => undefined,
+    deliveryRoutes: new Map(), typingRoutes: new Map(), webhookHandlers: new Map(),
+    historyRoutes, traceId: () => "trace",
+  });
+}
 
 describe("channel history read boundary", () => {
   test("non-Telegram route returns a page without ingress", async () => {
@@ -191,14 +201,7 @@ test("supervisor publishes history only after start and removes it before close"
       }),
     },
   }];
-  const supervisor = createChannelSupervisor({
-    desired: () => ({ source: "declared", rows, statuses: [] }),
-    build: (component) => component.build(async () => undefined),
-    grant: () => () => undefined,
-    deliveryRoutes: new Map(), typingRoutes: new Map(), webhookHandlers: new Map(),
-    historyRoutes: routes,
-    traceId: () => "trace",
-  });
+  const supervisor = historySupervisor(() => rows, routes);
   await supervisor.reconcile();
   expect(observed).toEqual(["start:0"]);
   expect(routes.get("kakaotalk:owner")).toBe(history);
@@ -228,14 +231,7 @@ test("an Owner withdrawal revokes mounted history, reports withdrawn and keeps i
     },
   };
   let rows = [first];
-  const supervisor = createChannelSupervisor({
-    desired: () => ({ source: "declared", rows, statuses: [] }),
-    build: (component) => component.build(async () => undefined),
-    grant: () => () => undefined,
-    deliveryRoutes: new Map(), typingRoutes: new Map(), webhookHandlers: new Map(),
-    historyRoutes: routes,
-    traceId: () => "trace",
-  });
+  const supervisor = historySupervisor(() => rows, routes);
   const lookup = channelHistoryLookup(routes, supervisor);
   await supervisor.reconcile();
   expect(lookup("telegram:owner")).toEqual({ status: "ready", history });

@@ -2,8 +2,20 @@ import type {
   TelegramOwnerClient, TelegramOwnerHistoryPage, TelegramOwnerLoginAction,
   TelegramOwnerMessage, TelegramOwnerSdk, TelegramOwnerSendContent, TelegramOwnerState,
 } from "../../src/provider/telegram/owner-sdk";
+import { createTelegramProvider } from "../../src/provider/telegram/provider";
+import { injectedOptions } from "./injected";
 
 type State = { readonly state: TelegramOwnerLoginAction; readonly userId?: string };
+
+export function ownerRuntime(sdk: TelegramOwnerSdk, telegramDataDir: string) {
+  const arm = createTelegramProvider(undefined, sdk).owner;
+  if (arm === undefined) throw new Error("missing Owner arm");
+  return arm.create(
+    { apiId: "123", apiHash: "a".repeat(32) },
+    { intake: "all", autoReply: false }, () => undefined,
+    { ...injectedOptions(), telegramDataDir },
+  );
+}
 
 /** One scripted seam for login and the mounted provider; no native TDLib or credential store. */
 export function fakeTelegramOwner(script: {

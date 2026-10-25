@@ -153,7 +153,9 @@ export function listenerCustody<Map extends SdkListenerEventMap>(
       { ...context, failures: state.failures },
     );
   };
+  let rejectReady: (error: Error) => void = () => undefined;
   const ready = new Promise<void>((resolve, reject) => {
+    rejectReady = reject;
     listener.on("connected", (...info: Map["connected"]) => {
       if (state.dead) return;
       const recovered = state.failures > 0;
@@ -222,14 +224,25 @@ export function listenerCustody<Map extends SdkListenerEventMap>(
         await listener.start();
         await ready;
       } catch (error) {
-        state.dead = true;
-        listener.stop();
+        if (!state.dead) {
+          state.dead = true;
+          listener.stop();
+        }
         throw error;
       }
     },
     stop() {
       state.dead = true;
       listener.stop();
+      // A stopped listener never says hello: a start still waiting must settle, or its caller hangs.
+      if (state.settled) return;
+      state.settled = true;
+      rejectReady(
+        new ChannelsFailure({
+          operation: `${options.label}.start`,
+          cause: "stopped before the first hello",
+        }),
+      );
     },
   };
 }

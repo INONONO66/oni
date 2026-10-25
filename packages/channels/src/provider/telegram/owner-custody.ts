@@ -1,9 +1,14 @@
-import { chmod, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dlopen, FFIType } from "bun:ffi";
+import { closeSync, constants, fchmodSync, fstatSync, openSync } from "node:fs";
+import { chmod, lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 import type { TelegramOwnerErrorCode } from "./owner-sdk.js";
 
-const FailureCode = z.object({ code: z.string() });
+const { symbols: native } = dlopen(
+  process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6",
+  { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } },
+);
+const LOCK_EX_NB = 2 | 4;
 
 class TelegramSessionError extends Error {
   constructor(readonly code: Extract<TelegramOwnerErrorCode, "session_in_use" | "session_lost">) {
@@ -24,30 +29,9 @@ async function privateDirectory(path: string): Promise<void> {
   await chmod(path, 0o700);
 }
 
-async function recoverDeadLock(lock: string): Promise<void> {
-  const entry = await lstat(lock);
-  if (!entry.isDirectory() || entry.isSymbolicLink() || (process.getuid !== undefined && entry.uid !== process.getuid()))
-    throw refused("session_in_use");
-  let pid: number;
-  try {
-    pid = Number(await readFile(join(lock, "pid"), "utf8"));
-  } catch {
-    throw refused("session_in_use");
-  }
-  if (!Number.isSafeInteger(pid) || pid <= 0) throw refused("session_in_use");
-  const dead = await Promise.resolve().then(() => process.kill(pid, 0))
-    .then(() => false, (failure: Error) => FailureCode.safeParse(failure).data?.code === "ESRCH");
-  if (!dead) throw refused("session_in_use");
-  if ((await lstat(lock)).ino !== entry.ino) throw refused("session_in_use");
-  await rm(lock, { recursive: true });
-  await mkdir(lock, { mode: 0o700 }).catch(() => { throw refused("session_in_use"); });
-}
-
 /** The login and mounted adapter share one exclusive host-process and cross-process session lock. */
 export async function ownerSession(
   dataDir: string,
-  writePid: (path: string, pid: string) => Promise<void> =
-    (path, pid) => writeFile(path, pid, { flag: "wx", mode: 0o600 }),
 ): Promise<{
   readonly databaseDir: string;
   readonly filesDir: string;
@@ -59,22 +43,31 @@ export async function ownerSession(
   await privateDirectory(databaseDir);
   await privateDirectory(filesDir);
   const lock = join(dataDir, "session.lock");
-  await mkdir(lock, { mode: 0o700 }).catch(async (error: Error) => {
-    if (FailureCode.safeParse(error).data?.code !== "EEXIST") throw error;
-    await recoverDeadLock(lock);
-  });
-  await writePid(join(lock, "pid"), String(process.pid)).catch(async (error: Error) => {
-    await rm(lock, { recursive: true });
+  let fd: number;
+  try {
+    fd = openSync(lock, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
+  } catch {
+    throw refused("session_in_use");
+  }
+  try {
+    const entry = fstatSync(fd);
+    if (!entry.isFile() || entry.nlink !== 1 ||
+      (process.getuid !== undefined && entry.uid !== process.getuid()) ||
+      native.flock(fd, LOCK_EX_NB) !== 0) throw refused("session_in_use");
+    fchmodSync(fd, 0o600);
+  } catch (error) {
+    closeSync(fd);
     throw error;
-  });
+  }
   let released = false;
   return {
     databaseDir,
     filesDir,
     release: async () => {
       if (released) return;
+      // Never unlink: all contenders must lock the same inode. The OS also releases on process exit.
+      closeSync(fd);
       released = true;
-      await rm(lock, { recursive: true });
     },
   };
 }
