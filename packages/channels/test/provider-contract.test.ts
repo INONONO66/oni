@@ -10,6 +10,8 @@ import type { DiscordVoiceHandle } from "../src/provider/discord/sdk";
 import { createSlackProvider } from "../src/provider/slack/provider";
 import { fakeSlackOwnerSdk } from "./helpers/slack-owner-sdk";
 import { fakeSlackSdk } from "./helpers/slack-sdk";
+import { createTelegramProvider } from "../src/provider/telegram/provider";
+import { fakeTelegramOwner } from "./helpers/telegram-owner-sdk";
 
 /**
  * Provider conformance: every registry entry honors the contract's structural
@@ -199,6 +201,31 @@ describe("provider conformance", () => {
     expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d", huddle: { token: "xoxc-2", cookie: "d2" } }).success).toBe(false);
     const runtime = owner?.create({ token: "xoxc-1", cookie: "d" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
     expect(runtime?.voiceRoute).toBeDefined();
+  });
+  test("Telegram Owner declares history, streaming intake and bounded byte-upload support", () => {
+    const provider = createTelegramProvider(undefined, fakeTelegramOwner().sdk);
+    const arm = provider.owner;
+    if (arm === undefined) throw new Error("Telegram Owner arm absent");
+    const runtime = arm.create(
+      { apiId: "123", apiHash: "a".repeat(32) },
+      { intake: "none", autoReply: false }, noopPublish, injectedOptions(),
+    );
+    expect(arm.credentials.safeParse({ apiId: "123", apiHash: "a".repeat(32) }).success).toBe(true);
+    expect(arm.credentials.safeParse({ apiId: "0", apiHash: "a".repeat(32) }).success).toBe(false);
+    expect(arm.credentials.safeParse({ apiId: "2147483648", apiHash: "a".repeat(32) }).success).toBe(false);
+    expect(arm.listen).toBe(true);
+    expect(arm.capabilities).toMatchObject({
+      deliver: true, history: true, react: false, typing: false, voice: false,
+    });
+    expect(arm.capabilities.media).toEqual({
+      imageBytes: 10_000_000, fileBytes: 50_000_000,
+      audioBytes: 50_000_000, videoBytes: 50_000_000, captionLength: 1024,
+    });
+    expect(runtime.surface.id).toBe("telegram:owner");
+    expect(runtime.deliveryRoute).toBeDefined();
+    expect(runtime.historyRoute).toBeDefined();
+    expect(runtime.streamingAttachments).toBeDefined();
+    expect(runtime.attachments).toBeUndefined();
   });
   test("Discord bot alone exposes voice, and stopping its surface leaves the joined handle", async () => {
     const fake = fakeDiscordSdk();

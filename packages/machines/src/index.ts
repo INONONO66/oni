@@ -8,3 +8,4 @@ export * from "./ipc";
 export { typedCall } from "./typed-call";
 export { normalizeExportRoot } from "./contained";
 export { onAbort } from "./interrupt-on";
+export type { MachineStreamWriter, StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";

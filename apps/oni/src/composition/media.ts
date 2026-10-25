@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
-import type { AttachmentBounds, MediaBytes } from "@oni/channels";
+import { type AttachmentBounds, type MediaBytes, MediaTooLarge } from "@oni/channels";
 import { NamedError, type Outbound } from "@oni/protocol";
 import { z } from "zod";
 import { type FilePorts, filesystem } from "../bundles/tools/core/filesystem";
@@ -255,7 +255,8 @@ async function fromUrl(
 async function fromMachine(part: MediaPart, ports: FilePorts): Promise<MediaBytes> {
   const file = filesystem(part.ref, ports);
   const size = await file.size();
-  assertMediaSize(part.ref, size);
+  // The channel's typed size receipt survives the resolver boundary (`media_too_large`).
+  if (size > MEDIA_BYTE_CAP) throw new MediaTooLarge({ kind: part.kind, bytes: size, limit: MEDIA_BYTE_CAP });
   const bytes = await file.read();
   const name = part.name ?? basename(part.ref);
   return { bytes, name, mime: declaredMime(part) ?? mediaMime(name) };

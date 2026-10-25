@@ -14,6 +14,13 @@ import {
 } from "../src/composition/media";
 import type { FilePorts } from "../src/bundles/tools/core/filesystem";
 import { eventSignal } from "./helpers/event-signal";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MediaTooLarge } from "@oni/channels";
+import { createTelegramProvider } from "../../../packages/channels/src/provider/telegram/provider";
+import { fakeTelegramOwner } from "../../../packages/channels/test/helpers/telegram-owner-sdk";
+import { injectedOptions } from "../../../packages/channels/test/helpers/injected";
 
 type ToolMachine = ReturnType<NonNullable<FilePorts["machines"]>["get"]>;
 
@@ -138,9 +145,26 @@ test("an oversize machine file is refused on stat, before any byte is read", asy
     "/tmp/huge.bin": MEDIA_BYTE_CAP + 1,
   });
   const resolve = createMediaResolver(ports(machine));
-  expect(await refusal(resolve, { kind: "file", ref: "/tmp/huge.bin", name: "huge.bin" })).toBe(
-    "too_large",
-  );
+  const error = await resolve({ kind: "file", ref: "/tmp/huge.bin", name: "huge.bin" })
+    .then(() => undefined, (caught: Error) => caught);
+  expect(error).toBeInstanceOf(MediaTooLarge);
+  expect(error).toMatchObject({ kind: "file", bytes: MEDIA_BYTE_CAP + 1, limit: MEDIA_BYTE_CAP });
+  expect(reads).toEqual([]);
+  // Through the real Owner adapter the stat-time refusal keeps its typed size receipt, with no physical send.
+  const dir = mkdtempSync(join(tmpdir(), "oni-media-owner-"));
+  try {
+    const fake = fakeTelegramOwner();
+    const arm = createTelegramProvider(undefined, fake.sdk).owner;
+    const runtime = arm?.create({ apiId: "123", apiHash: "a".repeat(32) }, { intake: "none", autoReply: false },
+      () => undefined, { ...injectedOptions(), telegramDataDir: dir, media: resolve });
+    await runtime?.surface.start("start");
+    expect(await runtime?.deliveryRoute?.("peer", { kind: "message", parts: [{ kind: "video", ref: "/tmp/huge.bin" }] }, "oversize"))
+      .toEqual({ value: "rejected", reason: `media_too_large video ${MEDIA_BYTE_CAP + 1}>${MEDIA_BYTE_CAP}` });
+    expect(fake.sends).toEqual([]);
+    await runtime?.surface.stop("stop");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
   expect(reads).toEqual([]);
 });
 

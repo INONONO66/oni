@@ -97,8 +97,10 @@ describe("npm package staging", () => {
     };
     expect(manifest.name).toBe("oni");
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
-      "@discordjs/voice", "@snazzah/davey", "classic-level", "opusscript", "prism-media",
+      "@discordjs/voice", "@snazzah/davey", "classic-level", "koffi", "opusscript", "prebuilt-tdlib", "prism-media",
     ]);
+    expect(manifest.dependencies.koffi).toBe("2.15.2");
+    expect(manifest.dependencies["prebuilt-tdlib"]).toBe("0.1008062.2");
     expect(Object.keys(manifest.optionalDependencies)).toEqual(["@discordjs/opus"]);
     for (const version of Object.values({ ...manifest.dependencies, ...manifest.optionalDependencies }))
       expect(version).toMatch(/^\d+\.\d+\.\d+$/);

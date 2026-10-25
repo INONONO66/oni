@@ -1,4 +1,4 @@
-import type { AccountIdentity, ChannelDeliveryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
+import type { AccountIdentity, ChannelDeliveryRoute, OwnerWithdrawal, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
 import { ThrownError } from "../../thrown";
 import { Actor } from "@oni/protocol";
 import type { BuiltChannel, ChannelComponent, DeclaredChannelStatus } from "../../channels";
@@ -53,7 +53,8 @@ type ChannelRuntimeState =
   | DeclaredChannelStatus["state"]
   | "mounted"
   | "start_failed"
-  | "paused_by_breaker";
+  | "paused_by_breaker"
+  | "withdrawn";
 
 export interface ChannelRuntimeStatus {
   readonly id: string;
@@ -81,6 +82,7 @@ export interface SupervisorDeps {
   readonly deliveryRoutes: Map<string, ChannelDeliveryRoute>;
   readonly typingRoutes: Map<string, ProviderTypingRoute>;
   readonly voiceRoutes?: Map<string, ProviderVoiceRoute>;
+  readonly historyRoutes?: Map<string, ProviderHistoryRoute>;
   readonly webhookHandlers: Map<string, (request: Request) => Promise<Response>>;
   /** #1569 lane 7: the `<platform>:owner` surfaces whose declaration lets the reply door answer through the account. */
   readonly autoReplies?: Set<string>;
@@ -93,6 +95,15 @@ interface MountedRow {
   readonly key: string;
   readonly surfaceId: string;
   readonly stop: () => Promise<void>;
+  /** The latched cause a started account runtime withdrew readiness for. */
+  readonly withdrawn: () => OwnerWithdrawal | undefined;
+}
+
+function mountedStatus(instanceId: string, row: MountedRow): ChannelRuntimeStatus {
+  const withdrawn = row.withdrawn();
+  return withdrawn === undefined
+    ? { id: instanceId, surface: row.surfaceId, state: "mounted" }
+    : { id: instanceId, surface: row.surfaceId, state: "withdrawn", detail: withdrawn };
 }
 
 /** The one grant row of a platform and the reading instances holding it. */
@@ -117,6 +128,15 @@ function registerVoiceRoute(
   return () => { routes?.delete(surface); };
 }
 
+function registerHistoryRoute(
+  routes: Map<string, ProviderHistoryRoute> | undefined,
+  surface: string,
+  route: ProviderHistoryRoute | undefined,
+): () => void {
+  if (route !== undefined) routes?.set(surface, route);
+  return () => { routes?.delete(surface); };
+}
+
 export interface ChannelSupervisor {
   /** THE reconcile path: diff declarations against running stages and bounce only the changed. */
   reconcile(): Promise<ChannelRuntimeStatus[]>;
@@ -124,6 +144,8 @@ export interface ChannelSupervisor {
   resume(instanceId: string): boolean;
   /** Last reconcile's verdict per instance plus what is mounted right now. */
   status(): ChannelRuntimeStatus[];
+  /** The latched withdrawal of the mounted surface, if its runtime withdrew readiness. */
+  withdrawal(surfaceId: string): OwnerWithdrawal | undefined;
   /** Channel truth comes only from declared instances. */
   source(): "declared";
   /** Reverse-order teardown of every running stage (composer disposer). */
@@ -185,6 +207,30 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
   }
   let lastStatuses: ChannelRuntimeStatus[] = [];
   let lastSource: DesiredChannels["source"] = "declared";
+  // R09: a withdrawal revokes the ready-only history registration and is reported, never left mounted.
+  function holdHistory(instanceId: string, surfaceId: string, built: BuiltChannel) {
+    let revoke: (() => void) | undefined;
+    let withdrawal: OwnerWithdrawal | undefined;
+    let live = true;
+    built.onWithdrawn?.((reason) => {
+      if (!live || withdrawal !== undefined) return;
+      withdrawal = reason;
+      revoke?.();
+      revoke = undefined;
+      lastStatuses = lastStatuses.map((status) => status.id === instanceId && status.state === "mounted"
+        ? { ...status, state: "withdrawn", detail: reason } : status);
+    });
+    return {
+      register: () => {
+        if (withdrawal === undefined) revoke = registerHistoryRoute(deps.historyRoutes, surfaceId, built.historyRoute);
+      },
+      close: () => {
+        live = false;
+        revoke?.();
+      },
+      withdrawn: () => withdrawal,
+    };
+  }
 
   async function mountRow(row: DesiredChannelRow): Promise<void> {
     const built = deps.build(row.component);
@@ -204,11 +250,13 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
       deps.typingRoutes.set(surfaceId, built.typingRoute);
     }
     const revokeVoice = registerVoiceRoute(deps.voiceRoutes, surfaceId, built.voiceRoute);
+    const history = holdHistory(row.instanceId, surfaceId, built);
     if (built.webhookHandler !== undefined) {
       deps.webhookHandlers.set(webhookKey, built.webhookHandler);
     }
     if (built.autoReply === true) deps.autoReplies?.add(surfaceId);
     const unwind = async (stopSurface: boolean) => {
+      history.close();
       if (stopSurface) await built.surface.stop(deps.traceId());
       if (built.webhookHandler !== undefined) deps.webhookHandlers.delete(webhookKey);
       deps.autoReplies?.delete(surfaceId);
@@ -235,10 +283,12 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
         throw bound;
       }
     }
+    history.register();
     mounted.set(row.instanceId, {
       key: row.key,
       surfaceId,
       stop: () => unwind(true),
+      withdrawn: history.withdrawn,
     });
   }
 
@@ -257,11 +307,10 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     if (failure === undefined) {
       failures.delete(row.instanceId);
       // A mounted stage reports the surface it mounted under (`<platform>:<identity>`, #1569), first time and after.
-      statuses.push({
-        id: row.instanceId,
-        surface: mounted.get(row.instanceId)?.surfaceId ?? row.component.id,
-        state: "mounted",
-      });
+      const running = mounted.get(row.instanceId);
+      statuses.push(running === undefined
+        ? { id: row.instanceId, surface: row.component.id, state: "mounted" }
+        : mountedStatus(row.instanceId, running));
       return;
     }
     const count = failed + 1;
@@ -299,7 +348,7 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     for (const row of desired.rows) {
       const running = mounted.get(row.instanceId);
       if (running !== undefined) {
-        statuses.push({ id: row.instanceId, surface: running.surfaceId, state: "mounted" });
+        statuses.push(mountedStatus(row.instanceId, running));
         continue;
       }
       await startRow(row, statuses);
@@ -315,6 +364,9 @@ export function createChannelSupervisor(deps: SupervisorDeps): ChannelSupervisor
     },
     status(): ChannelRuntimeStatus[] {
       return [...lastStatuses];
+    },
+    withdrawal(surfaceId: string): OwnerWithdrawal | undefined {
+      return [...mounted.values()].find((row) => row.surfaceId === surfaceId)?.withdrawn();
     },
     source(): "declared" {
       return lastSource;

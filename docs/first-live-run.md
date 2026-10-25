@@ -41,6 +41,16 @@ CLI side.
   account could carry is delivered to you as a draft. With `--outbound
   --auto-reply` the account answers those conversations itself and sends
   `as: owner` when you say so from an Owner-origin turn.
+- Your Telegram account: set `ONI_TELEGRAM_API_ID` and
+  `ONI_TELEGRAM_API_HASH` in the service user's `~/.oni/env`, or enter
+  missing values at the private terminal. Run
+  `oni login telegram [--id channel:telegram:owner] [--intake mentions_and_dms|all|none] [--outbound] [--auto-reply]`.
+  The API hash, phone, code and password prompts do not echo. The account
+  database and retained download cache live only under the service user's
+  `~/.oni/telegram/owner/{db,files}`. Stop or disable an already mounted
+  account before logging in again; the database has one owner at a time.
+  An unreachable daemon cannot seal credentials: rerun login when it is
+  reachable. Telegram login never prints the credential payload.
 - A bot (Slack, Discord, Telegram, GitHub, a webhook target, an A2A peer) or
   Linear (a personal API key, so the Owner instance):
   `oni channel add <platform> [--tier manager] [--allow <id>,<id>] [--mention-only]`.
@@ -113,3 +123,12 @@ Each check is one line in the lane's section of
 refusal, the log line. A platform with every step passing is the first
 one the shipped-state doc may call live; until then every claim there is
 fake-tested only.
+
+## Telegram account history
+
+After the account is ready, configure `ONI_WS_TOKEN` and use
+`oni channel history telegram:owner <chat-id> [--before <cursor>] [--limit <1..100>]`.
+The default limit is 50. Use the page's `before` cursor for the next,
+exclusive older page; an empty page ends the walk. This read needs the
+authenticated Owner socket and does not ingest messages or download media.
+History works regardless of the account's intake and outbound posture.

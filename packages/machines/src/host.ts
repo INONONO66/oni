@@ -5,13 +5,14 @@ import { isContained, normalizeExportRoot } from "./contained";
 import { createIpcServer, createIpcTcpServer, type IpcServer, type IpcTlsIdentity } from "./ipc";
 import { typedCall } from "./typed-call";
 import { type BusEvent, type Ipc, Machine } from "@oni/protocol";
-import { Effect, Fiber, Semaphore, type Scope } from "effect";
+import { Effect, Exit, Fiber, Semaphore, type Scope } from "effect";
 import { MachinesFailure, MachineCellError, MachineRefusalError, TransportFailure, type MachineError } from "./errors";
 import { decodeMachineFailure } from "./failure";
 import { onAbort } from "./interrupt-on";
 import { createPtyHandle, type PtyHandle } from "./pty-host";
 import { createCapacity, type HostPlacement, type HostPlacementRequest, type LeaseClass, type LeaseScheduler } from "./capacity";
 import type { AttachGenerationStore } from "./generation-store";
+import type { StreamingMachineHandle, StreamWriteOptions, StreamWriteReceipt } from "./stream-write";
 
 interface MachineHostOptions {
   /**
@@ -91,7 +92,7 @@ export interface MachineHost {
   list(): MachineInfo[];
   place(request: HostPlacementRequest, workClass?: LeaseClass): HostPlacement;
   capacity(): ReturnType<ReturnType<typeof createCapacity>["capacity"]>;
-  get(id: Machine.MachineId): MachineHandle;
+  get(id: Machine.MachineId): StreamingMachineHandle;
   /**
    * The attachment's effective exports with their offered roots (#1512): the
    * names the enrollment allows, each at the canonical root the daemon offered
@@ -169,7 +170,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
     /** Machines that attached at least once: their detached window reads `disconnected`. */
     const known = new Set<string>();
     const inFlight = new Map<string, Set<string>>();
-    const handles = new Map<string, MachineHandle>();
+    const handles = new Map<string, StreamingMachineHandle>();
     const revoked = new Map<string, number>();
     let closed = false;
     /** Latest accepted heartbeat per attachment key, stamped with host receipt time. */
@@ -444,7 +445,111 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         }));
       });
     }
-    function get(id: string): MachineHandle {
+    function writeStreamChunk(peer: Attachment, transferId: string, data: Uint8Array, hash: ReturnType<typeof createHash>, written: number, seq: number): Effect.Effect<{ written: number; seq: number }, MachineError> {
+      return Effect.gen(function* () {
+        let position = written;
+        let sequence = seq;
+        for (let offset = 0; offset < data.byteLength; offset += Machine.FS_WRITE_MAX_BYTES) {
+          const part = data.subarray(offset, offset + Machine.FS_WRITE_MAX_BYTES);
+          hash.update(part);
+          position += part.byteLength;
+          yield* writePart(peer, {
+            op: "write", transferId, seq: sequence, data: Buffer.from(part).toString("base64"), last: false,
+          }, position);
+          sequence += 1;
+        }
+        return { written: position, seq: sequence };
+      });
+    }
+    function checkStreamChunk(data: Uint8Array, remaining: number): Effect.Effect<Uint8Array, MachineError> {
+      if (!(data instanceof Uint8Array))
+        return new MachineRefusalError({ reason: "invalid_response", message: "filesystem producer chunk is not bytes" });
+      if (data.byteLength > remaining)
+        return new MachineRefusalError({ reason: "too_large", message: "filesystem stream exceeds bound" });
+      return Effect.succeed(data);
+    }
+    function streamWriteBody(peer: Attachment, transferId: string, iterator: AsyncIterator<Uint8Array>, maxBytes: number, expectedBytes: number): Effect.Effect<StreamWriteReceipt, MachineError> {
+      return Effect.gen(function* () {
+        const hash = createHash("sha256");
+        let written = 0;
+        let seq = 0;
+        for (;;) {
+          const next = yield* Effect.tryPromise({
+            try: () => iterator.next(),
+            catch: decodeMachineFailure("fs.stream.producer"),
+          });
+          if (next.done) break;
+          const data = yield* checkStreamChunk(next.value, maxBytes - written);
+          ({ written, seq } = yield* writeStreamChunk(peer, transferId, data, hash, written, seq));
+        }
+        if (written !== expectedBytes)
+          return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem stream size mismatch" });
+        const sha256 = hash.digest("hex");
+        yield* writePart(peer, { op: "write", transferId, seq, data: "", last: true, digest: sha256 }, written);
+        yield* finishStream(peer, transferId);
+        return { op: "write", bytesWritten: written, sha256 };
+      });
+    }
+    function closeStreamIterator(iterator: AsyncIterator<Uint8Array>, background: boolean): Effect.Effect<void, MachineError, Scope.Scope> {
+      return Effect.gen(function* () {
+        const closeIterator = iterator.return;
+        if (closeIterator === undefined) return;
+        const closing = yield* Effect.try({
+          try: () => closeIterator.call(iterator),
+          catch: decodeMachineFailure("fs.stream.producer.close"),
+        });
+        const release = Effect.tryPromise({
+          try: () => closing,
+          catch: decodeMachineFailure("fs.stream.producer.close"),
+        });
+        if (background) yield* release.pipe(
+          Effect.catch((error) => Effect.logWarning(`filesystem stream producer cleanup failed: ${error}`)),
+          Effect.forkScoped,
+        );
+        else yield* release;
+      });
+    }
+    // Each release step runs even when an earlier one failed; a failure is logged, never hides the other.
+    function releaseEach<A, R>(steps: readonly Effect.Effect<A, MachineError, R>[]): Effect.Effect<void, never, R> {
+      return Effect.forEach(steps, (step) => step.pipe(
+        Effect.catch((failure) => Effect.logWarning(`filesystem stream cleanup failed: ${failure}`)),
+      ), { discard: true });
+    }
+    function writeStream(id: string, path: string, chunks: AsyncIterable<Uint8Array>, settings: StreamWriteOptions): Effect.Effect<StreamWriteReceipt, MachineError> {
+      return Effect.suspend(() => {
+        const { maxBytes, expectedBytes, signal } = settings;
+        if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || !Number.isSafeInteger(expectedBytes) || expectedBytes < 0 || expectedBytes > maxBytes)
+          return new MachineRefusalError({ reason: "invalid_response", message: "invalid stream size bounds" });
+        if (signal.aborted) return new MachineRefusalError({ reason: "closed", message: "filesystem stream aborted" });
+        return Effect.scoped(Effect.gen(function* () {
+          const target = yield* Effect.try({ try: () => location(id, path), catch: decodeMachineFailure("fs.location") });
+          const transferId = options.id();
+          const iterator = chunks[Symbol.asyncIterator]();
+          let completed = false;
+          let beginDispatched = false;
+          const cancelled = onAbort(signal, Effect.fail(new MachineRefusalError({ reason: "closed", message: "filesystem stream aborted" })));
+          const operation = Effect.gen(function* () {
+            beginDispatched = true;
+            const begin = yield* streamCall(target.peer, {
+              op: "begin", mode: "write", transferId, export: target.export, path: target.path, create: "exclusive",
+            });
+            if (begin.status !== "begun" || begin.seq !== 0 || begin.size !== 0)
+              return yield* new MachineRefusalError({ reason: "invalid_response", message: "filesystem begin mismatch" });
+            const receipt = yield* streamWriteBody(target.peer, transferId, iterator, maxBytes, expectedBytes);
+            completed = true;
+            return receipt;
+          }).pipe(Effect.raceFirst(cancelled));
+          // R05: an unfinished transfer releases the peer staging and the producer independently, in a
+          // finalizer that also covers caller interruption.
+          const cleanup = (interrupted: boolean) => releaseEach([
+            ...(beginDispatched ? [streamCall(target.peer, { op: "abort", transferId })] : []),
+            closeStreamIterator(iterator, interrupted || signal.aborted),
+          ]);
+          return yield* operation.pipe(Effect.onExit((exit) => completed ? Effect.void : cleanup(Exit.hasInterrupts(exit))));
+        }));
+      });
+    }
+    function get(id: string): StreamingMachineHandle {
       const existing = handles.get(id);
       if (existing !== undefined) return existing;
       const terminal = createPtyHandle((method, params, timeoutMs) => Effect.gen(function* () {
@@ -452,7 +557,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
         peer.server.useConnection(peer.rawId);
         return yield* peer.server.call(method, params as Ipc.Request["params"], timeoutMs).pipe(Effect.mapError(transportFailure("pty.call")));
       }), (name) => capacity.terminalClosed(id, name));
-      const handle: MachineHandle = {
+      const handle: StreamingMachineHandle = {
         fs: {
           read: (path, window = {}) => window.limit === undefined || window.limit <= Machine.FS_READ_MAX_BYTES
             ? filesystem(id, path, "read", window).pipe(Effect.map((value) => ({ ...value, data: Buffer.from(value.data, "base64") })))
@@ -460,6 +565,7 @@ export function createMachineHost(options: MachineHostOptions): Effect.Effect<Ma
           write: (path, data, writeOptions = {}) => data.byteLength <= Machine.FS_WRITE_MAX_BYTES
             ? filesystem(id, path, "write", { data: Buffer.from(data).toString("base64"), ...writeOptions })
             : streamWrite(id, path, data, writeOptions),
+          writeStream: (path, chunks, settings) => writeStream(id, path, chunks, settings),
           list: (path) => filesystem(id, path, "list"), stat: (path) => filesystem(id, path, "stat"),
         },
         exec: (cmd, cwd) => Effect.gen(function* () {

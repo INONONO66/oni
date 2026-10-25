@@ -27,6 +27,8 @@ import {
   lifecycleFailure,
 } from "./runtime";
 import { timingSafeEqual } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { compactionOptions } from "./bundles/compaction/index";
 import { readHooksJson } from "./bundles/hooks-json/index";
 import { ownerPolicy } from "./composition/policy";
@@ -44,8 +46,10 @@ const ExecutionApprovalError = Core.ExecutionApprovalError;
 import { canonicalJson, SessionTransition, type PlainValue } from "@oni/protocol";
 import {
   type ChannelDeliveryRoute,
+  type ChannelProviders,
   type ProviderTypingRoute,
   type ProviderVoiceRoute,
+  type ProviderHistoryRoute,
   type GatewayRouter,
   createChannelStores,
   decodeChannelFailure,
@@ -116,7 +120,9 @@ import { GATEWAY_INGRESS_SESSION } from "./composition/ingress-executor";
 import { captureNow, effectScheduler } from "./composition/platform";
 import { createWatchSources, type PathWatchInstaller } from "./composition/watch-sources";
 import { createMediaResolver } from "./composition/media";
+import { channelHistoryLookup } from "./composition/channel-history";
 import { inboxHandler } from "./composition/attachments";
+import { inboxStreamWriter } from "./composition/attachment-stream";
 import { type MediaInputPorts, inboxPartBytes, mediaDerive } from "./composition/media-input";
 import type { DeliveryMedia } from "./composition/delivery-media";
 import { makeRealtime, makeStt, resolveAuthFilePath } from "@oni/llm";
@@ -168,6 +174,8 @@ interface StartOptions {
     "closeGraceMs" | "approvalTimeoutMs" | "retryAlarm" | "openIntent" | "onHibernate"
   >;
   readonly config?: OniConfig;
+  readonly channelProviders?: typeof ChannelProviders;
+  readonly telegramDataDir?: string;
 }
 
 /**
@@ -875,6 +883,7 @@ export async function startOni(options: StartOptions = {}) {
     services.composed.alarms.bind(await createMonitorPorts(runtime, alarmPlane));
     const typingRoutes = new Map<string, ProviderTypingRoute>();
     const voiceRoutes = new Map<string, ProviderVoiceRoute>();
+    const historyRoutes = new Map<string, ProviderHistoryRoute>();
     const liveVoice = createLiveVoice({
       routes: voiceRoutes,
       realtime: makeRealtime({
@@ -1021,12 +1030,15 @@ export async function startOni(options: StartOptions = {}) {
     // mention of the Owner in a channel the bot is in is observed by both
     // instances, and the first observer's copy is the one admitted; only that
     // copy's attachments are stored.
+    // App shutdown aborts every in-flight inbox download and its machine write first (R04).
+    const inboxShutdown = new AbortController();
     const routing = inboxHandler(machinery.inbox, tools.machines, services.observations.publish, services.now, async ({ sender, facts }) => {
       const admission = await runAppEffect(runtime, messages.ingest(sender, facts));
       if (admission.status === "blocked_pre") {
         throw new MessageAdmissionRefused(admission.reasonCode);
       }
-    });
+    }, inboxStreamWriter(machinery.host, machinery.defaultMachine, (effect) => runAppEffect(runtime, effect)),
+    inboxShutdown.signal);
     let wsHandler: WebSocketHandler | undefined;
     const wsRoute = async (externalId: string, payload: Outbound.Payload, idempotencyKey: string) => {
       if (wsHandler === undefined)
@@ -1052,10 +1064,12 @@ export async function startOni(options: StartOptions = {}) {
             now: services.now,
             id: services.entropy.id,
             random: services.entropy.random,
+            telegramDataDir: options.telegramDataDir ?? join(homedir(), ".oni", "telegram", "owner"),
             run: (effect) => runAppEffect(runtime, effect),
             media: createMediaResolver(tools.machines === undefined ? {} : { machines: tools.machines }),
             ...(routing.inbox === undefined ? {} : { inbox: routing.inbox }),
           },
+          options.channelProviders,
         ),
       build: (component) => component.build(routing.handler),
       // The tier is the row's, never this call site's: mounting a named
@@ -1068,6 +1082,7 @@ export async function startOni(options: StartOptions = {}) {
       deliveryRoutes,
       typingRoutes,
       voiceRoutes,
+      historyRoutes,
       webhookHandlers,
       autoReplies,
       // #1600: an Owner instance's account is the Owner — its platform id joins the
@@ -1326,7 +1341,10 @@ export async function startOni(options: StartOptions = {}) {
 
     await acquire(Effect.succeed(supervisor), (resource) =>
       Effect.tryPromise({
-        try: () => resource.stopAll(),
+        try: () => {
+          inboxShutdown.abort(new Error("app shutdown"));
+          return resource.stopAll();
+        },
         catch: lifecycleFailure("channels.close"),
       }),
     );
@@ -1365,7 +1383,8 @@ export async function startOni(options: StartOptions = {}) {
         now: services.now,
         id: services.entropy.id,
       }), { respond: automationWire(provisioningPort.automations), stores: channelStores }, host,
-      { respond: channelWire(provisioningPort, services.now) }, wsMedia);
+      { respond: channelWire(provisioningPort, services.now) }, wsMedia,
+      channelHistoryLookup(historyRoutes, supervisor));
     const server = Bun.serve({
       hostname: config.host,
       port: config.wsPort,
@@ -1470,6 +1489,7 @@ export async function startOni(options: StartOptions = {}) {
       };
     };
     const stop = async () => {
+      inboxShutdown.abort(new Error("app shutdown"));
       await boundServer.stop(true);
       await watchSources.closeAll();
       await liveVoice.endAll("shutdown");

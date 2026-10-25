@@ -12,7 +12,7 @@
  * and no default credential — absence of config is absence of the component.
  */
 
-import type { AccountIdentity, AttachmentFetch, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, ProviderDeliveryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
+import type { AccountIdentity, AttachmentFetch, AttachmentFetchWithStream, ChannelProvider, EffectRunner, MediaResolver, OwnerArm, OwnerWithdrawal, ProviderDeliveryRoute, ProviderHistoryRoute, ProviderTypingRoute, ProviderVoiceRoute } from "@oni/channels";
 import { A2ACredentials, ChannelProviders, createA2AProvider, createWebhookProvider, OwnerPosture } from "@oni/channels";
 import type { BusEvent, Channel, PlainValue, Provisioning } from "@oni/protocol";
 import { Result } from "effect";
@@ -27,12 +27,17 @@ export interface ChannelRuntimeDeps {
   readonly now: () => number;
   readonly id: () => string;
   readonly random: () => number;
+  readonly telegramDataDir?: string;
   /** Executes driver Effect programs (retry schedules, reconnect fibers, deadlines) on the app runtime. */
   readonly run: EffectRunner;
   /** Resolves an image or file part's reference to bytes at delivery time; absent, media parts stay as reference lines. */
   readonly media?: MediaResolver;
   /** Stores inbound attachments on the default machine before the handler runs; absent, references stay the platform's. */
-  readonly inbox?: (fetch: AttachmentFetch | undefined, handler: Channel.MessageHandler) => Channel.MessageHandler;
+  readonly inbox?: (
+    fetch: AttachmentFetch | undefined,
+    handler: Channel.MessageHandler,
+    streamingFetch?: AttachmentFetchWithStream,
+  ) => Channel.MessageHandler;
 }
 
 export interface BuiltChannel {
@@ -43,6 +48,9 @@ export interface BuiltChannel {
   readonly deliveryRoute?: ProviderDeliveryRoute;
   readonly typingRoute?: ProviderTypingRoute;
   readonly voiceRoute?: ProviderVoiceRoute;
+  readonly historyRoute?: ProviderHistoryRoute;
+  /** An Owner account runtime's readiness withdrawal, observed by the supervisor. */
+  readonly onWithdrawn?: (listener: (reason: OwnerWithdrawal) => void) => void;
   /** Ingress seam: present only for webhook-fed channels. */
   readonly webhookHandler?: (request: Request) => Promise<Response>;
   /** #1600: the account the runtime speaks as, known after start; an Owner instance's becomes the Owner Person's endpoint. */
@@ -84,6 +92,8 @@ function providerRow(
   /** #1569 lane 7: an Owner instance whose posture lets the reply door answer through the account. */
   autoReply = false,
 ): ChannelComponent {
+  const telegramOptions = id === "telegram" && identity === "owner" && deps.telegramDataDir !== undefined
+    ? { telegramDataDir: deps.telegramDataDir } : {};
   return {
     id,
     identity,
@@ -93,16 +103,20 @@ function providerRow(
         now: deps.now,
         id: deps.id,
         random: deps.random,
+        ...telegramOptions,
         run: deps.run,
         ...(deps.media === undefined ? {} : { media: deps.media }),
       });
-      runtime.surface.onMessage(deps.inbox === undefined ? handler : deps.inbox(runtime.attachments, handler));
+      runtime.surface.onMessage(deps.inbox === undefined ? handler :
+        deps.inbox(runtime.attachments, handler, runtime.streamingAttachments));
       return {
         surface: runtime.surface,
         ...(autoReply && outbound ? { autoReply: true } : {}),
         ...(runtime.deliveryRoute === undefined || !outbound ? {} : { deliveryRoute: runtime.deliveryRoute }),
         ...(runtime.typingRoute === undefined || !outbound ? {} : { typingRoute: runtime.typingRoute }),
         ...(runtime.voiceRoute === undefined || !outbound ? {} : { voiceRoute: runtime.voiceRoute }),
+        ...(runtime.historyRoute && { historyRoute: runtime.historyRoute }),
+        onWithdrawn: runtime.onWithdrawn,
         ...(runtime.webhookHandler === undefined ? {} : { webhookHandler: runtime.webhookHandler }),
         ...(runtime.account === undefined ? {} : { account: runtime.account }),
       };

@@ -215,6 +215,6 @@ describe("Owner sign-ins", () => {
   });
 
   test("the shipped sign-ins are the four platforms' flows", () => {
-    expect(Object.keys(OwnerLogins).sort()).toEqual(["discord", "instagram", "kakaotalk", "slack"]);
+    expect(Object.keys(OwnerLogins).sort()).toEqual(["discord", "instagram", "kakaotalk", "slack", "telegram"]);
   });
 });

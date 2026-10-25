@@ -264,7 +264,7 @@ test("the attachment deadline reaches the provider and releases the handler on t
   const attachment: Attachment = { kind: "file", ref: "slow" };
   const running = withAttachmentInbox({ ...inbox, downloadSignal: () => controller.signal }, handler)(inboundWith([attachment]), (ref, bounds) => {
     expect(bounds.maxBytes).toBe(MEDIA_BYTE_CAP);
-    expect(bounds.signal).toBe(controller.signal);
+    expect(bounds.signal.aborted).toBe(false);
     return new Promise((_resolve, reject) => {
       bounds.signal.addEventListener("abort", () =>
         reject(new MediaRefused({ code: "fetch_failed", ref, detail: "deadline exceeded" })), { once: true });

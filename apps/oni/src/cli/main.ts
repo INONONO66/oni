@@ -1,7 +1,7 @@
 import { CliError } from "./errors";
 import { Clock, Effect, Fiber, Layer, ManagedRuntime, Scope } from "effect";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -9,7 +9,7 @@ import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { Core } from "@oni/agent";
 import { createChannelInstanceStore, createPersonStore, createSecretStore, openChannelStore, OwnerLogins } from "@oni/channels";
-import { listenForAbort, type Machine, Provisioning } from "@oni/protocol";
+import { Channel, listenForAbort, type Machine, parseJson, PlainValueSchema, Provisioning } from "@oni/protocol";
 import { loadConfig } from "../config";
 import { installShutdownHandlers, startOni } from "..";
 import { type CliDeps, runCli } from "./commands";
@@ -275,6 +275,43 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
     return declareOver(new WebSocket(url, token === undefined ? [] : ["auth", token]), url, request);
   }
 
+  async function readChannelHistory(request: Channel.HistoryRequest): Promise<Channel.HistoryResponse> {
+    const env = mergeEnvFile(existsSync(envPath) ? await Bun.file(envPath).text() : "");
+    const host = env.get("ONI_WS_HOST") ?? "127.0.0.1";
+    if (!LOOPBACK_HOSTS.has(host)) throw new CliError("channel history requires the local daemon");
+    const token = env.get("ONI_WS_TOKEN");
+    if (token === undefined || token.length === 0)
+      throw new CliError("channel history requires ONI_WS_TOKEN");
+    const url = `ws://${host}:${env.get("ONI_WS_PORT") ?? "3000"}/ws`;
+    const socket = new WebSocket(url, ["auth", token]);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => finish(() => reject(new CliError("channel history timed out"))), DECLARE_DEADLINE_MS);
+      let pending = true;
+      function finish(done: () => void): void {
+        if (!pending) return;
+        pending = false;
+        clearTimeout(timeout);
+        socket.close();
+        done();
+      }
+      socket.addEventListener("open", () => socket.send(JSON.stringify(request)));
+      socket.addEventListener("error", () => finish(() => reject(new CliError("channel history socket failed"))));
+      socket.addEventListener("close", () => finish(() => reject(new CliError("channel history socket closed"))));
+      socket.addEventListener("message", (event) => {
+        const frame = parseJson(PlainValueSchema, String(event.data));
+        if (frame === null || typeof frame !== "object" || Array.isArray(frame)) {
+          finish(() => reject(new CliError("invalid channel history response")));
+          return;
+        }
+        if (frame.requestId !== request.requestId) return;
+        const parsed = Channel.HistoryResponse.safeParse(frame);
+        finish(() => parsed.success
+          ? resolve(parsed.data)
+          : reject(new CliError("invalid channel history response")));
+      });
+    });
+  }
+
   /**
    * The readiness report's facts (#1600 lane R4): the catalog the daemon
    * writes, opened read-only (`query_only`, which the channel schema honors
@@ -340,7 +377,14 @@ export function createCliDeps(home: string = homedir(), options: CliRuntimeOptio
       logins: OwnerLogins,
       declare: declareChannel,
       id: () => platformEntropy().id(),
+      telegram: {
+        apiId: mergeEnvFile(existsSync(envPath) ? readFileSync(envPath, "utf-8") : "").get("ONI_TELEGRAM_API_ID"),
+        apiHash: mergeEnvFile(existsSync(envPath) ? readFileSync(envPath, "utf-8") : "").get("ONI_TELEGRAM_API_HASH"),
+        dataDir: join(home, ".oni", "telegram", "owner"),
+        isTTY: process.stdin.isTTY === true,
+      },
     },
+    channelHistory: { id: () => platformEntropy().id(), read: readChannelHistory },
     messagingFacts,
   };
 }

@@ -2,6 +2,12 @@ import { type DiscordOwnerLoginInput, discordOwnerLogin } from "./discord/owner-
 import { type InstagramOwnerLoginInput, instagramOwnerLogin } from "./instagram/owner-sdk.js";
 import { type KakaoTalkOwnerLoginInput, kakaoTalkOwnerLogin } from "./kakaotalk/owner-sdk.js";
 import { type SlackOwnerLoginInput, slackOwnerLogin } from "./slack/owner-sdk.js";
+import { type TelegramOwnerLogin, telegramOwnerLogin } from "./telegram/owner-sdk.js";
+
+/** Implemented by the login lane without changing the existing login value here. */
+export type OwnerLoginWithTelegram = OwnerLogin & {
+  readonly telegram: TelegramOwnerLogin;
+};
 
 /**
  * The Owner's own sign-in on each platform (#1569 lane 5b): each flow rides
@@ -19,9 +25,10 @@ export interface OwnerLogin {
   ) => Promise<{ oauthToken: string; userId: string; deviceUuid: string; deviceType: "pc" | "tablet" }>;
 }
 
-export const OwnerLogins: OwnerLogin = {
+export const OwnerLogins: OwnerLoginWithTelegram = {
   slack: (input) => slackOwnerLogin(input),
   discord: (input) => discordOwnerLogin(input),
   instagram: (input) => instagramOwnerLogin(input),
   kakaotalk: (input) => kakaoTalkOwnerLogin(input),
+  telegram: (input) => telegramOwnerLogin(input),
 };

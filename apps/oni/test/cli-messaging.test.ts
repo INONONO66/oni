@@ -154,3 +154,12 @@ test("#1600 lane R4: a declared, sealed bot with a tier is ready; nobody reachab
   expect(report.ok).toBe(true);
   expect(report.lines.at(-1)).toBe("reach: nobody — the Resident writes cold to no one until contact_add grants reach");
 });
+
+test("a sealed Telegram Owner declaration reports readiness only as catalog facts", () => {
+  const owner = instance("channel:telegram:owner", "telegram", {
+    identity: "owner", settings: { intake: "none", autoReply: false },
+  });
+  const report = messagingReadiness({ instances: [owner], persons: [], sealed: sealedOf([owner]) });
+  expect(report.ok).toBe(true);
+  expect(report.lines.length).toBeGreaterThan(5);
+});

@@ -20,7 +20,7 @@ export interface MessagingReport {
 /** The platforms reached through the Owner's account alone: no bot arm exists. */
 const OWNER_ONLY = new Set(["instagram", "kakaotalk", "linear"]);
 /** The Owner arms that name the account they speak as once started, so the mount binds it to the Owner Person (#1600 lane R1). */
-const NAMES_ITS_ACCOUNT = new Set(["slack", "discord", "instagram", "kakaotalk"]);
+const NAMES_ITS_ACCOUNT = new Set(["slack", "discord", "instagram", "kakaotalk", "telegram"]);
 /** What every sender on a surface gets who is not a declared Person, when the declaration names no tier (`MOUNTED_CHANNEL_DEFAULT_TIER`). */
 const MOUNT_TIER = "assigned_worker";
 /** The tiers the owner policy's `message.external.grant_tier` row admits for a full-access turn. */
@@ -159,6 +159,9 @@ export function messagingReadiness(facts: MessagingFacts): MessagingReport {
     const bot = rows.find((row) => row.identity === "bot");
     const ownerInstance = rows.find((row) => row.identity === "owner");
     lines.push(...readLines(platform, bot, ownerInstance), ...writeLines(platform, bot, ownerInstance), ownerLine(platform, owner, bot, ownerInstance));
+    if (platform === "telegram" && ownerInstance !== undefined)
+      lines.push("  HISTORY Owner-authenticated oni channel history telegram:owner reads live account pages; sealed credentials do not prove connection",
+        "  STORAGE account DB and retained files are under the service HOME/.oni/telegram/owner; outbound media remains bounded");
   }
   const reachable = facts.persons.filter((person) => person.reach === true || person.trustTier === "owner");
   lines.push(

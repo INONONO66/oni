@@ -1,5 +1,5 @@
 import { Result } from "effect";
-import { Vault, type AccountIdentity, type ActorRegistry, type ChannelInstanceStore, type PersonStore, type SecretStore } from "@oni/channels";
+import { ChannelProviders, Vault, type AccountIdentity, type ActorRegistry, type ChannelInstanceStore, type PersonStore, type SecretStore } from "@oni/channels";
 import type { Provisioning } from "@oni/protocol";
 import { a2aRoster, type ChannelRuntimeDeps, type CredentialReader, declaredChannelProfile } from "../../channels";
 import { MOUNTED_CHANNEL_DEFAULT_TIER } from "../../gateway";
@@ -47,6 +47,7 @@ export function desiredChannels(
   // Resolved once in config (#1245): provisioning never reads the environment.
   kek: KekResolution,
   deps: ChannelRuntimeDeps,
+  providers: typeof ChannelProviders = ChannelProviders,
 ): DesiredChannels {
   const instances = stores.instances.list();
   const secrets = new Map<string, ReturnType<SecretStore["get"]>>();
@@ -57,7 +58,7 @@ export function desiredChannels(
   const reader = vaultCredentialReader(kek, readSecret);
   // The A2A door's roster reads the store and the vault as they are at request time, never this reconcile's snapshot.
   const roster = a2aRoster(() => stores.instances.list(), vaultCredentialReader(kek, (ref) => stores.secrets.get(ref)));
-  const { rows, statuses } = declaredChannelProfile(instances, reader, deps, undefined, roster);
+  const { rows, statuses } = declaredChannelProfile(instances, reader, deps, providers, roster);
   const byId = new Map(instances.map((instance) => [instance.id, instance]));
   return {
     source: "declared",
