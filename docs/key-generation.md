@@ -65,6 +65,55 @@ over Tailscale, put the tailnet IP (or MagicDNS name) in `tcp.host` — there is
 no app-level Tailscale integration; on a LAN, the host's interface address.
 Pinning makes the transport safe on any reachable network.
 
+## Client join (`mclient join`, #1626)
+
+The Rust client needs none of the openssl steps above. `mclient join <host>`
+generates its own identity and records the host's key in one run:
+
+1. `<host>` is `name`, `name:port`, `ip`, `[ipv6]:port` or a bare peer
+   name. An IP address or a dotted name is used as given; a bare name is
+   looked up through `tailscale status --json` (searched on `PATH`, then
+   `/usr/bin/tailscale`, then the macOS app bundle) by `HostName` or the
+   first label of `DNSName`, and its first tailnet IP is taken. No resolver
+   found, a failed lookup or an unknown name refuses `host_unresolved`. The
+   port defaults to 7643. `--unix <socket>` skips resolution and trust
+   entirely (same-box use; the unix door carries no peer key).
+2. Host trust is chosen in this precedence, first match wins:
+   `--host-pin <64 hex>` (the host key's SPKI SHA-256; a malformed value is
+   `invalid host pin`), then `--host-cert <pem>`, then
+   `~/.oni/tls/host-cert.pem` if present, then `--trust-on-first-use`.
+   None of them is `pin_required`: the client never connects unpinned by
+   default.
+3. `~/.oni/machine-client/` is created 0700 and `client.json` written 0600
+   (`machineId`, `name`, `host`, `exports`, `tags`, `memoryBudgetMb`,
+   `unix`). `machineId` is the slug of `--name` (default: the hostname).
+   Each `--export name=/abs/path` needs a lowercase name (`[a-z][a-z0-9_-]{0,63}`)
+   and an absolute path without `..`; duplicates refuse `invalid export`.
+4. A self-signed EC P-256 identity valid for ten years is written as
+   `client-key.pem` and `client-cert.pem`, both 0600. Its SPKI SHA-256 is
+   the `publicKey` in the receipt, so `join` can be rerun to rotate: the
+   enrollment pin then changes and the Owner must re-admit the id.
+5. Over TLS the client connects once with the chosen trust, verifying the
+   handshake signature as well as the key. The host's SPKI SHA-256 is then
+   persisted as `host-pin` (0600) and that file is the only trust `run`
+   consults afterwards. A certificate given by `--host-cert` or the shared
+   PEM must carry the key that is presented; `--trust-on-first-use` records
+   whatever key answered and prints it once as `{"hostPin": "<hex>"}` on
+   stderr so the Owner can compare it out of band. A host that later
+   presents a different key is refused `peer_key_mismatch` (exit 3); nothing
+   downgrades.
+6. Any saved attach generation (`state.json`) is cleared, and the enrollment
+   receipt is printed on stdout as one JSON object:
+   `{"machineId", "name", "publicKey", "allowedCapabilities":
+   ["fs.read","fs.write","shell.exec","pty.session"], "allowedExports":
+   [names]}`. Hand it to `provision machine_add` (or the
+   `ONI_MACHINES_ENROLLED` seed) unchanged.
+
+A join that fails after step 3 leaves the config and identity behind but no
+`host-pin`, so `run` refuses with the missing-file I/O error until the join
+completes. The host side needs nothing beyond the enrollment: the same
+`ONI_MACHINES_TCP_*`/`ONI_MACHINES_TLS_*` tuple serves daemons and clients.
+
 ## Rotation
 
 DAEMON certificates may be re-issued freely as long as the KEY inside is
@@ -79,7 +128,9 @@ refuses typed exactly like a mismatch (`IpcPeerKeyMismatchError`, code
 `CERT_HAS_EXPIRED`) — choose a long validity when generating it. Rotating a
 daemon key is an out-of-band admission change: update the enrollment
 `publicKey`, then swap the files. A stale host PEM or enrollment pin refuses
-with `peer_key_mismatch`; nothing downgrades.
+with `peer_key_mismatch`; nothing downgrades. The Rust client pins the host
+KEY, not the certificate, so a same-key host re-issue keeps working for it;
+a host key change needs a fresh `mclient join` (or an edited `host-pin`).
 
 ## QA recipe (ten lines)
 
