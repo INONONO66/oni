@@ -1097,6 +1097,57 @@ and the fork's `src/platforms/slack/huddle*.test.ts`.
 
 DoD sweep PR #1661 (G4S): review r1 of the landed diff (R01-R06, L01) fixed; a Slack Owner voice join is admitted only after the current start generation authenticated and received the RTM hello, a rejected leave of a late handle reaches `stop()` as the typed join refusal, `not_in_a_huddle` without a `call_id` ends the current room, a conflict for an older room clears only that room's pending resolution, and the unconsumed SDK `off` seam is removed.
 
+## Telegram Owner account over TDLib (PR #1659)
+
+On `feat/g5-telegram-owner` (2026-10-25, base `47b51f61a` after #1661, no
+issue). The agent-messenger fork dist pin `de49e8fb` (source `914ea5be`) gives
+`telegram` an account client with one TDLib receive owner, Bot API chat ids
+and forum topics, staged byte sends settled per chat that report a definite
+`not_sent` apart from an ambiguous outcome, one awaited native close, and an
+account-state stream in which TDLib parameter setup is not a login step.
+`packages/channels` adds the `telegram:owner` arm behind `owner-sdk.ts` (the
+only importer of `agent-messenger/telegram`). It subscribes to account state
+before it starts and withdraws once, with a latched reason, on
+`login_action_required` or `session_lost`; an optional `onWithdrawn` hears it.
+Its byte sends use the Telegram media limits (10 MB image, 50 MB file, audio
+and video, 1,024-character caption), and an oversized attachment is refused
+`too_large` before any request. `OwnerLogins.telegram` signs in through the
+same client. The login and the mounted account share one exclusive session
+under `~/.oni/telegram/owner/{db,files}`: 0700 directories that refuse
+symlinks and foreign owners, and a pid lock that refuses a live holder
+(`session_in_use`) and recovers a dead one; a native close that is not
+confirmed keeps that custody. A generic `historyRoute` pages an Owner
+account's chat (`Channel.HistoryRequest`/`HistoryQuery` in
+`packages/protocol`: limit 1..100, a `before` cursor, a page of at most 100
+messages) and refuses with `owner_auth_required`, `owner_not_ready`,
+`session_in_use`, `session_lost`, `login_action_required`,
+`history_unavailable` or `invalid_request`. `packages/machines` adds
+`fs.writeStream`: bounded chunks over `machine.fs_stream` that succeed only
+when the digest-checked atomic finish is acknowledged; a held write
+acknowledgment pauses the producer, and a detach or caller interruption
+aborts the transfer and releases it. `apps/oni` adds `oni login telegram`,
+which refuses a non-interactive terminal, reads
+`ONI_TELEGRAM_API_ID`/`ONI_TELEGRAM_API_HASH` from `~/.oni/env` or asks for
+them, asks for each sign-in step (phone number, code, password, email)
+without echo, and declares a `telegram` channel with identity `owner` and the
+sealed credential. It also adds `oni channel history <instance-id> <chat-id>
+[--before <cursor>] [--limit <1..100>]` against the local daemon, and
+attachment intake that streams onto the attached machine under a 2 GiB bound
+with one deadline signal; app shutdown aborts a held download. The
+provisioning supervisor reports a withdrawn Owner instance as `withdrawn`
+with its typed cause and revokes its mounted history. Review r1 (2 High,
+10 Medium) was fixed in the same tree; its two Lows are PR comments. A local
+end-to-end scenario (`apps/oni/test/telegram-owner-local.test.ts`) runs
+login, mount, history paging and a streamed attachment against an injected
+account client. Not established: live acceptance, which needs the packed
+build on the host (#1648) and the Owner's API id/hash and private sign-in
+(#1642). Receipts:
+`packages/channels/test/{telegram-owner,owner-login,provider-owner-arm,provider-contract,provider-golden}.test.ts`,
+`packages/machines/test/stream-write.test.ts`,
+`packages/protocol/test/channel-history.test.ts`,
+`apps/oni/test/{telegram-owner-local,channel-history,cli-history-socket,cli-telegram-login,cli-login,attachment-inbox,attachment-inbox-stream,npm-package}.test.ts`,
+and the fork's `src/platforms/telegram/account.test.ts`.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
