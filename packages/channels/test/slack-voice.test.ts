@@ -8,18 +8,19 @@ import { fakeHuddle, fakeSlackOwnerSdk } from "./helpers/slack-owner-sdk";
 import { inboundQueue } from "./helpers/inbound-queue";
 import { injectedOptions } from "./helpers/injected";
 import { bounded } from "./helpers/bounded";
+import { testClockRuntime } from "./helpers/effect";
 
 const credential = { token: "xoxc-owner", cookie: "owner-cookie" };
 const address = { surface: "slack:owner", channelId: "C1", speakerExternalId: "T1:U-owner" };
 const posture = { intake: "all" as const, autoReply: false };
 
-function fixture(intake: "all" | "mentions_and_dms" | "none" = "all") {
+function fixture(intake: "all" | "mentions_and_dms" | "none" = "all", run = injectedOptions().run) {
   const fake = fakeSlackOwnerSdk();
   const warning = Promise.withResolvers<string>();
   const adapter = new SlackOwnerAdapter(credential, { ...posture, intake }, (event, data) => {
     if (event.name === Operational.Events.Warn.name)
       warning.resolve(z.object({ msg: z.string() }).parse(data).msg);
-  }, injectedOptions(), fake.sdk);
+  }, injectedOptions(run), fake.sdk);
   const queue = inboundQueue(adapter);
   const changed = (ts: string, room = "R1", user = "U-owner", team = "T1") => {
     fake.listener.emit("user_huddle_changed", {
@@ -41,6 +42,14 @@ async function expectNextResolvedRoom(f: ReturnType<typeof fixture>): Promise<vo
   f.changed("1700.2", "R2");
   expect((await next).facts.channelId).toBe("C2");
   expect(f.inbound).toHaveLength(1);
+}
+
+async function acceptedEntry(f: ReturnType<typeof fixture>): Promise<void> {
+  await f.adapter.start("start");
+  f.room();
+  const first = f.next();
+  f.changed("1700.1");
+  await first;
 }
 
 test("voice rejects malformed addresses and an unstarted arm before SDK I/O", async () => {
@@ -107,6 +116,39 @@ test("a failed fork event iterator emits a safe error and releases the active se
   f.setJoin(async () => fakeHuddle().handle);
   await (await f.adapter.joinVoice(address)).leave();
   await f.adapter.stop("stop");
+});
+
+test("stop retains terminal handle custody until cleanup settles", async () => {
+  const f = fixture("none");
+  const h = fakeHuddle();
+  const cleanup = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  f.setJoin(async () => ({
+    ...h.handle,
+    events: (async function* () {
+      yield { type: "disconnected" as const, reason: "room_closed" };
+    })(),
+    leave: async () => {
+      entered.resolve();
+      await cleanup.promise;
+      await h.handle.leave();
+    },
+  }));
+  await f.adapter.start("start");
+  const voice = await f.adapter.joinVoice(address);
+  const events = voice.events[Symbol.asyncIterator]();
+  const terminal = await bounded(events.next());
+  expect(terminal.value).toEqual({ type: "disconnected", reason: "room_closed" });
+  expect((await bounded(events.next())).done).toBe(true);
+  let stopped = false;
+  const stopping = f.adapter.stop("stop").then(() => { stopped = true; });
+  const first = await bounded(Promise.race([entered.promise.then(() => "cleanup"), stopping.then(() => "stop")]));
+  expect(first).toBe("cleanup");
+  expect(stopped).toBe(false);
+  expect(h.leaves).toBe(0);
+  cleanup.resolve();
+  await bounded(stopping);
+  expect(h.leaves).toBe(1);
 });
 
 test("untrusted fork descriptions never expose a URL, cookie or response body", async () => {
@@ -199,18 +241,74 @@ test("an RTM disconnect discards unresolved rooms before a reconnect", async () 
   await f.adapter.stop("stop");
 });
 
-test("an unresolved room emits a bounded warning and no fabricated call", async () => {
+test("reconnect preserves the last accepted same-room transition", async () => {
+  const f = fixture();
+  await acceptedEntry(f);
+  f.listener.emit("disconnected");
+  f.room();
+  f.room("R2", "C2");
+  f.changed("1700.05", "R2");
+  f.changed("1700.2");
+  expect(f.inbound.map((message) => message.facts.eventId)).toEqual([
+    "call:slack:T1:U-owner:1700.1:R1",
+  ]);
+  await f.adapter.stop("stop");
+});
+
+test("an unknown state cannot reset a same-room transition", async () => {
+  const f = fixture();
+  await acceptedEntry(f);
+  f.listener.emit("user_huddle_changed", {
+    type: "user_huddle_changed", user: {
+      id: "U-owner", team_id: "T1",
+      profile: { huddle_state: "new_unknown_state", huddle_state_call_id: null },
+    }, event_ts: "1700.2",
+  });
+  f.changed("1700.3");
+  expect(f.inbound.map((message) => message.facts.eventId)).toEqual([
+    "call:slack:T1:U-owner:1700.1:R1",
+  ]);
+  await f.adapter.stop("stop");
+});
+
+test("the 33rd conflict evicts the oldest of 32 room associations", async () => {
   const f = fixture();
   await f.adapter.start("start");
-  const deadline = Promise.withResolvers<never>();
-  const timer = setTimeout(() => deadline.reject(new Error("huddle warning deadline exceeded")), 12_000);
-  f.changed("1700.1", "R1");
+  for (let index = 1; index <= 32; index++) {
+    f.room(`R${index}`, `C${index}`);
+    f.room(`R${index}`, `D${index}`);
+  }
+  f.room("R32", "C32");
+  f.changed("1700.1", "R32");
+  f.room("R33", "C33");
+  f.room("R33", "D33");
+  f.room("R2", "C2");
+  f.changed("1700.2", "R2");
+  f.room("R1", "C1");
+  f.changed("1700.3", "R1");
+  const flushed = f.next();
+  f.listener.message({ channel: "D2", user: "U-other", text: "flush", ts: "1701.1" });
+  await flushed;
+  f.room("R33", "C33");
+  f.changed("1700.4", "R33");
+  expect(f.inbound.filter((message) => message.facts.event === "call").map((message) => message.facts.channelId))
+    .toEqual(["C1"]);
+  await f.adapter.stop("stop");
+});
+
+test("an unresolved room emits a bounded warning and no fabricated call", async () => {
+  const clock = testClockRuntime();
+  const f = fixture("all", clock.run);
   try {
-    expect(await Promise.race([f.warning, deadline.promise])).toBe("huddle_channel_unresolved");
+    await f.adapter.start("start");
+    const warning = f.warning;
+    f.changed("1700.1", "R1");
+    await clock.adjust(10_000);
+    expect(await bounded(warning)).toBe("huddle_channel_unresolved");
     expect(f.inbound).toEqual([]);
   } finally {
-    clearTimeout(timer);
     await f.adapter.stop("stop");
+    await clock.dispose();
   }
 });
 

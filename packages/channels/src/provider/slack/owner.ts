@@ -1,4 +1,5 @@
 import { type Channel, type Gateway, Operational, type Outbound, type PlainValue } from "@oni/protocol";
+import { Effect } from "effect";
 import { DeliveryNotSent, SlackEndpointKeyError, VoiceJoinRefused } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
@@ -106,10 +107,9 @@ export class SlackOwnerAdapter implements Channel.Surface {
   private generation = 0;
   private joining: { readonly controller: AbortController; readonly settled: Promise<void> } | null = null;
   private live: PcmVoiceHandle | null = null;
-  private readonly rooms = new Map<string, string>();
-  private readonly conflictedRooms = new Set<string>();
+  private readonly rooms = new Map<string, string | null>();
   private readonly pendingRooms = new Map<string, HuddleChanged>();
-  private pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingTimer: (() => void) | null = null;
   private currentRoom: string | null = null;
   private lastHuddleTs: string | null = null;
 
@@ -183,7 +183,6 @@ export class SlackOwnerAdapter implements Channel.Surface {
     } finally {
       this.live = null;
       this.rooms.clear();
-      this.conflictedRooms.clear();
       this.clearPending();
       this.currentRoom = null;
       this.lastHuddleTs = null;
@@ -202,10 +201,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
   private wire(listener: SlackOwnerEvents): void {
     listener.on("disconnected", () => {
       this.rooms.clear();
-      this.conflictedRooms.clear();
       this.clearPending();
-      this.currentRoom = null;
-      this.lastHuddleTs = null;
     });
     listener.on("sh_room_join", (event) => this.roomJoined(event));
     listener.on("user_huddle_changed", (event) => this.huddleChanged(event));
@@ -220,19 +216,18 @@ export class SlackOwnerAdapter implements Channel.Surface {
   }
 
   private clearPending(): void {
-    if (this.pendingTimer !== null) clearTimeout(this.pendingTimer);
+    this.pendingTimer?.();
     this.pendingTimer = null;
     this.pendingRooms.clear();
   }
 
   private roomJoined(event: RoomJoined): void {
     if (event.user !== this.userId || event.room.has_ended || !conversation(event.huddle.channel_id)) return;
-    if (this.conflictedRooms.has(event.room.id)) return;
+    if (this.rooms.get(event.room.id) === null) return;
     const previous = this.rooms.get(event.room.id);
     if (previous !== undefined && previous !== event.huddle.channel_id) {
-      this.rooms.delete(event.room.id);
       this.clearPending();
-      this.conflictedRooms.add(event.room.id);
+      this.rooms.set(event.room.id, null);
       this.publish(Operational.Events.Warn, {
         traceId: newTraceId(this.options.id), time: this.options.now(),
         component: "server", msg: "huddle_channel_unresolved",
@@ -253,6 +248,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     if (event.user.id !== this.userId || event.user.team_id !== this.team) return;
     const profile = event.user.profile;
     if (profile.huddle_state !== "in_a_huddle") {
+      if (profile.huddle_state !== "not_in_a_huddle") return;
       if (profile.huddle_state_call_id === null &&
           (this.lastHuddleTs === null || newer(event.event_ts, this.lastHuddleTs))) {
         this.lastHuddleTs = event.event_ts;
@@ -267,22 +263,29 @@ export class SlackOwnerAdapter implements Channel.Surface {
     if (room === this.currentRoom) return;
     this.currentRoom = room;
     this.clearPending();
-    if (this.conflictedRooms.has(room)) return;
+    if (this.rooms.get(room) === null) return;
     // The browser is this same account: its RTM transition is tracked but is
     // never replayed as a new invitation after this call leaves.
     if (this.joining !== null || this.live !== null) return;
     const channel = this.rooms.get(room);
-    if (channel !== undefined) {
+    if (channel !== undefined && channel !== null) {
       this.emitHuddle(event, channel);
     } else {
       this.pendingRooms.set(room, event);
-      this.pendingTimer = setTimeout(() => {
+      const cancelled = Promise.withResolvers<void>();
+      const cancel = () => cancelled.resolve();
+      this.pendingTimer = cancel;
+      void this.options.run(Effect.raceFirst(
+        Effect.as(Effect.sleep(10_000), true),
+        Effect.as(Effect.promise(() => cancelled.promise), false),
+      )).then((expired) => {
+        if (!expired || this.pendingTimer !== cancel) return;
         this.clearPending();
         this.publish(Operational.Events.Warn, {
           traceId: newTraceId(this.options.id), time: this.options.now(),
           component: "server", msg: "huddle_channel_unresolved",
         });
-      }, 10_000);
+      });
     }
   }
 
@@ -353,13 +356,23 @@ export class SlackOwnerAdapter implements Channel.Surface {
     const release = () => {
       if (this.live?.pcmIn === raw.pcmIn) this.live = null;
     };
+    let leaving: Promise<void> | null = null;
+    const leave = (): Promise<void> => {
+      leaving ??= Promise.resolve().then(() => raw.leave()).finally(release);
+      return leaving;
+    };
+    const startLeave = () => {
+      // The retained promise is awaited by stop(); handle rejection here only
+      // when no caller is awaiting the fire-and-forget terminal cleanup.
+      void leave().catch(() => undefined);
+    };
     return {
       pcmIn: raw.pcmIn, pcmOut: raw.pcmOut,
       events: (async function* () {
         try {
           for await (const event of raw.events) {
             if (event.type === "disconnected" || event.type === "error" ||
-                event.type === "speaker_left" && event.userId === userId) release();
+                event.type === "speaker_left" && event.userId === userId) startLeave();
             yield event.type === "speaker_left"
               ? { type: "speaker_left", externalId: `${team}:${event.userId}` } satisfies VoiceEvent
               : event.type === "disconnected" || event.type === "error"
@@ -367,19 +380,13 @@ export class SlackOwnerAdapter implements Channel.Surface {
                 : event;
           }
         } catch {
-          release();
+          startLeave();
           yield { type: "error", reason: "voice_event_failed" } satisfies VoiceEvent;
         } finally {
-          release();
+          startLeave();
         }
       })(),
-      leave: async () => {
-        try {
-          await raw.leave();
-        } finally {
-          release();
-        }
-      },
+      leave,
     };
   }
 
