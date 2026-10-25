@@ -196,9 +196,11 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     const releaseVoice = (): Promise<void> => {
       const leaving = handle;
       if (leaving === undefined) return Promise.resolve();
-      return voiceRelease ??= leaving.leave().then(() => undefined, ThrownError.parse).then((failure) => {
-        if (failure !== undefined) releaseFailure = String(failure);
-      });
+      if (voiceRelease === undefined)
+        voiceRelease = leaving.leave().then(() => undefined, ThrownError.parse).then((failure) => {
+          if (failure !== undefined) releaseFailure = String(failure);
+        });
+      return voiceRelease;
     };
     // Every terminal path closes tool admission before it waits on the voice leave.
     const terminate = (): Promise<void> => {

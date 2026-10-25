@@ -37,14 +37,6 @@ export class FakeSlackOwnerListener implements SlackOwnerEvents {
     this.handlers.set(event, list);
     return this;
   }
-  off<K extends keyof SlackOwnerEventMap>(
-    event: K,
-    listener: (...args: SlackOwnerEventMap[K]) => void,
-  ): this {
-    this.handlers.set(event, (this.handlers.get(event) ?? []).filter((handler) => handler !== listener));
-    return this;
-  }
-
   async start(): Promise<void> {
     this.started += 1;
     this.onStart(this);
@@ -179,9 +171,12 @@ export function fakeSlackOwnerSdk(
   };
 }
 
+/** One event of the external SDK's huddle stream. */
+export type HuddleEvent = SlackHuddleHandle["events"] extends AsyncIterable<infer T> ? T : never;
+
 /** The external SDK's already-ready handle, with a controllable event stream. */
 export function fakeHuddle() {
-  const events: (SlackHuddleHandle["events"] extends AsyncIterable<infer T> ? T : never)[] = [];
+  const events: HuddleEvent[] = [];
   let wake = Promise.withResolvers<void>();
   let closed = false;
   let leaves = 0;
@@ -189,9 +184,9 @@ export function fakeHuddle() {
     emit(event: (typeof events)[number]) { events.push(event); wake.resolve(); },
     get leaves() { return leaves; },
     handle: {
-      pcmIn: (async function* () { yield new Uint8Array([1, 0, 2, 0]); })(),
+      pcmIn: (async function* (): AsyncGenerator<Uint8Array, void, void> { yield new Uint8Array([1, 0, 2, 0]); })(),
       pcmOut: { write: async (_pcm: Uint8Array) => undefined },
-      events: (async function* () {
+      events: (async function* (): AsyncGenerator<HuddleEvent, void, void> {
         while (!closed || events.length > 0) {
           const next = events.shift();
           if (next !== undefined) yield next;

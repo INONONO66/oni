@@ -1,6 +1,6 @@
 import { type Channel, type Gateway, Operational, type Outbound, type PlainValue } from "@oni/protocol";
 import { Effect } from "effect";
-import { DeliveryNotSent, SlackEndpointKeyError, VoiceJoinRefused } from "../../errors";
+import { ChannelsFailure, DeliveryNotSent, SlackEndpointKeyError, VoiceJoinRefused } from "../../errors";
 import { Dedupe } from "../../support/dedupe";
 import { type DeliveryReceipt, DeliveryReconciliation, deliverKeyed } from "../../support/deliver";
 import { requireHandler } from "../../support/handler-frame";
@@ -38,6 +38,12 @@ const JOIN_REASONS: Record<SlackHuddleError["code"], VoiceJoinRefused["reason"]>
 
 function voiceRefused(reason: VoiceJoinRefused["reason"], detail: string): VoiceJoinRefused {
   return new VoiceJoinRefused({ reason, surface: "slack:owner", detail });
+}
+
+function joinRefusal(error: Error): VoiceJoinRefused {
+  return error instanceof SlackHuddleError
+    ? voiceRefused(JOIN_REASONS[error.code], safeVoiceReason(error.detail, "voice_join_failed"))
+    : voiceRefused("join_failed", "voice_join_failed");
 }
 
 function safeVoiceReason(reason: string, fallback: string): string {
@@ -105,6 +111,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
   private team: string | null = null;
   private userId: string | null = null;
   private generation = 0;
+  private readyGeneration: number | null = null;
   private joining: { readonly controller: AbortController; readonly settled: Promise<void> } | null = null;
   private live: PcmVoiceHandle | null = null;
   private readonly rooms = new Map<string, string | null>();
@@ -120,26 +127,48 @@ export class SlackOwnerAdapter implements Channel.Surface {
    * failing this start on an error before it.
    */
   async start(traceId: string): Promise<void> {
-    this.generation += 1;
-    await this.client.login(this.credentials);
-    singleAttempt(this.client);
-    const identity = await this.client.testAuth();
-    this.team = identity.team_id;
-    this.userId = identity.user_id;
-    this.normalizer = new SlackNormalizer({ botUserId: identity.user_id, team: identity.team_id });
-    const listens = this.posture.intake !== "none" && this.handler !== null;
-    if (listens) await this.listen();
-    this.publish(Operational.Events.Info, {
-      traceId,
-      time: this.options.now(),
-      component: "server",
-      msg: "slack owner instance started",
-      context: {
-        userId: identity.user_id,
-        team: identity.team_id,
-        listener: listens ? this.posture.intake : "none",
-      },
-    });
+    const generation = ++this.generation;
+    this.readyGeneration = null;
+    const requireCurrent = () => {
+      if (this.generation !== generation)
+        throw new ChannelsFailure({ operation: "slack owner.start", cause: "start superseded" });
+    };
+    let started = false;
+    try {
+      await this.client.login(this.credentials);
+      requireCurrent();
+      singleAttempt(this.client);
+      const identity = await this.client.testAuth();
+      requireCurrent();
+      this.team = identity.team_id;
+      this.userId = identity.user_id;
+      this.normalizer = new SlackNormalizer({ botUserId: identity.user_id, team: identity.team_id });
+      const listens = this.posture.intake !== "none" && this.handler !== null;
+      if (listens) await this.listen();
+      requireCurrent();
+      this.readyGeneration = generation;
+      this.publish(Operational.Events.Info, {
+        traceId,
+        time: this.options.now(),
+        component: "server",
+        msg: "slack owner instance started",
+        context: {
+          userId: identity.user_id,
+          team: identity.team_id,
+          listener: listens ? this.posture.intake : "none",
+        },
+      });
+      started = true;
+    } finally {
+      if (!started && this.generation === generation) {
+        this.readyGeneration = null;
+        this.team = null;
+        this.userId = null;
+        this.normalizer = null;
+        this.custody?.stop();
+        this.custody = null;
+      }
+    }
   }
 
   /** The account's Slack identity (#1600), the shape a Slack endpoint takes: `TEAM:USER` in workspace `TEAM`. */
@@ -173,12 +202,14 @@ export class SlackOwnerAdapter implements Channel.Surface {
 
   async stop(traceId: string): Promise<void> {
     this.generation += 1;
+    this.readyGeneration = null;
     this.team = null;
     this.userId = null;
+    this.normalizer = null;
     const pending = this.joining;
     pending?.controller.abort();
-    if (pending !== null) await pending.settled;
     try {
+      if (pending !== null) await pending.settled;
       if (this.live !== null) await this.live.leave();
     } finally {
       this.live = null;
@@ -188,13 +219,10 @@ export class SlackOwnerAdapter implements Channel.Surface {
       this.lastHuddleTs = null;
       this.custody?.stop();
       this.custody = null;
-      this.publish(Operational.Events.Info, {
-        traceId,
-        time: this.options.now(),
-        component: "server",
-        msg: "slack owner instance stopped",
-      });
     }
+    this.publish(Operational.Events.Info, {
+      traceId, time: this.options.now(), component: "server", msg: "slack owner instance stopped",
+    });
   }
 
   /** Binds the consumed RTM frames; hello, errors and closes are the custody wrapper's. */
@@ -226,7 +254,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     if (this.rooms.get(event.room.id) === null) return;
     const previous = this.rooms.get(event.room.id);
     if (previous !== undefined && previous !== event.huddle.channel_id) {
-      this.clearPending();
+      if (this.pendingRooms.has(event.room.id)) this.clearPending();
       this.rooms.set(event.room.id, null);
       this.publish(Operational.Events.Warn, {
         traceId: newTraceId(this.options.id), time: this.options.now(),
@@ -249,7 +277,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     const profile = event.user.profile;
     if (profile.huddle_state !== "in_a_huddle") {
       if (profile.huddle_state !== "not_in_a_huddle") return;
-      if (profile.huddle_state_call_id === null &&
+      if (profile.huddle_state_call_id == null &&
           (this.lastHuddleTs === null || newer(event.event_ts, this.lastHuddleTs))) {
         this.lastHuddleTs = event.event_ts;
         this.currentRoom = null;
@@ -314,7 +342,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
       throw voiceRefused("address_incomplete", "voice_address_invalid");
     const team = this.team;
     const userId = this.userId;
-    if (team === null || userId === null)
+    if (team === null || userId === null || this.readyGeneration !== this.generation)
       throw voiceRefused("not_started", "owner_not_started");
     if (input.speakerExternalId !== `${team}:${userId}`)
       throw voiceRefused("address_incomplete", "speaker_mismatch");
@@ -328,18 +356,19 @@ export class SlackOwnerAdapter implements Channel.Surface {
     input.signal?.addEventListener("abort", abort, { once: true });
     if (input.signal?.aborted) controller.abort();
     const finished = Promise.withResolvers<void>();
+    void finished.promise.catch(() => undefined);
     const reservation = { controller, settled: finished.promise };
     this.joining = reservation;
     try {
       const raw = await this.sdk.joinHuddle(team, input.channelId, {
         credentials: this.credentials, speakerId: userId, signal: controller.signal,
-      }).catch((error: Error) => {
-        if (error instanceof SlackHuddleError)
-          throw voiceRefused(JOIN_REASONS[error.code], safeVoiceReason(error.detail, "voice_join_failed"));
-        throw voiceRefused("join_failed", "voice_join_failed");
-      });
+      }).catch((error: Error) => { throw joinRefusal(error); });
       if (this.generation !== generation || controller.signal.aborted) {
-        await raw.leave();
+        await Promise.resolve().then(() => raw.leave()).catch((error: Error) => {
+          const refusal = joinRefusal(error);
+          finished.reject(refusal);
+          throw refusal;
+        });
         throw voiceRefused(controller.signal.aborted ? "aborted" : "not_started", "join_stopped");
       }
       const handle = this.adaptVoice(raw, team, userId);
@@ -368,7 +397,7 @@ export class SlackOwnerAdapter implements Channel.Surface {
     };
     return {
       pcmIn: raw.pcmIn, pcmOut: raw.pcmOut,
-      events: (async function* () {
+      events: (async function* (): AsyncGenerator<VoiceEvent, void, void> {
         try {
           for await (const event of raw.events) {
             if (event.type === "disconnected" || event.type === "error" ||

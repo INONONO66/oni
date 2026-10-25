@@ -33,10 +33,6 @@ export interface SlackOwnerEvents {
     event: K,
     listener: (...args: SlackListenerEventMap[K]) => void,
   ): this;
-  off<K extends keyof SlackListenerEventMap>(
-    event: K,
-    listener: (...args: SlackListenerEventMap[K]) => void,
-  ): this;
   start(): Promise<void>;
   stop(): void;
 }
