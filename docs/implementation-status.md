@@ -1095,6 +1095,8 @@ selected-speaker isolation. Receipts:
 `apps/oni/test/{live-voice,send-message-contacts,channel-composition,npm-package}.test.ts`,
 and the fork's `src/platforms/slack/huddle*.test.ts`.
 
+DoD sweep PR #1661 (G4S): review r1 of the landed diff (R01-R06, L01) fixed; a Slack Owner voice join is admitted only after the current start generation authenticated and received the RTM hello, a rejected leave of a late handle reaches `stop()` as the typed join refusal, `not_in_a_huddle` without a `call_id` ends the current room, a conflict for an older room clears only that room's pending resolution, and the unconsumed SDK `off` seam is removed.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on
