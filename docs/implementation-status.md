@@ -871,14 +871,20 @@ is never sent to a surface that rejects it. `RunInput.media = {parts, bytes,
 derive?}` is resolved inside `run()` after router selection: the caller's
 `PartDerive` runs only for the modality or format misses of the chosen
 candidate (`message/parts.ts`); `stt.ts` is the transcription port the app
-binds. `apps/oni` keeps the per-session
-`DeliveryMediaRegistry` (`composition/delivery-media.ts`: remember, recall,
-bind) and passes `mediaDerive` as `input.media.derive`; `composition/
+binds. `apps/oni` keeps one `DeliveryMediaRegistry` per app runtime
+(`composition/delivery-media.ts`: remember, recall, bind). It lives in process
+memory, so a restart between commit and run loses the held parts; the
+parent's 256-entry retention limit is shared by all of its sessions, and each
+process child holds its own registry. The app passes `mediaDerive` as
+`input.media.derive`; `composition/
 media-input.ts` sniffs the MIME type from bytes (an `ftyp` brand table maps
 M4A/M4B to `audio/mp4`, `qt` to `video/quicktime`, `3gp*` brands; the MPEG
 frame sync rejects reserved version, layer, bitrate and sampling fields),
 derives a transcript from audio and sampled frames from video, and caches each
-derivation per ref; `runtime.ts` loads media metadata lazily per
+derivation per ref. Automatic reads require an export rooted exactly at the
+inbox (implicit for self, required on a remote default machine), otherwise
+`inbox_not_exported` refuses them; video frames are cut from a staged copy of
+the confined bytes. `runtime.ts` loads media metadata lazily per
 history message through one seen-set path, a lookup failure logged as a
 warning instead of a Die; a process child requests bytes and derivations over
 `request_media`, `request_bytes` and `request_derive` frames

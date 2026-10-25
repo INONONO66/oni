@@ -187,6 +187,7 @@ describe("ModelsDev catalog loading", () => {
           npm: "@ai-sdk/openai",
           models: {
             "gpt-4o": { id: "gpt-4o", name: "Cached GPT-4o" },
+            "gpt-4o-mini": { id: "gpt-4o-mini", name: "Cached GPT-4o mini", input: [] },
             "local-model": { id: "local-model", name: "Local Model" },
           },
         },
@@ -195,6 +196,8 @@ describe("ModelsDev catalog loading", () => {
       const data = await runEffect(ModelsDev.get());
       expect(data.openai?.models["gpt-4o"]?.input).toEqual(["text", "image"]);
       expect(Capability.accepts(data.openai?.models["gpt-4o"] ?? {}, { kind: "image", mime: "image/png" })).toBe(true);
+      expect(data.openai?.models["gpt-4o-mini"]?.input).toEqual([]);
+      expect(Capability.accepts(data.openai?.models["gpt-4o-mini"] ?? {}, { kind: "image", mime: "image/png" })).toBe(false);
       expect(data.openai?.models["local-model"]?.input).toBeUndefined();
       expect(Capability.accepts(data.openai?.models["local-model"] ?? {}, { kind: "image", mime: "image/png" })).toBe(false);
       const path = process.env.ONI_MODELS_PATH;

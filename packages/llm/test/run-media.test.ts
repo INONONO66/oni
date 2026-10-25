@@ -36,6 +36,14 @@ describe("per-message input media", () => {
     parts: [{ messageId, parts: [image] }],
     bytes: () => Effect.succeed({ bytes: pixels, mime: "image/png" }),
   });
+  const transcribed = (text: string) => capture.run({
+    model: vision, messages: [user("u1", "listen")],
+    media: {
+      parts: [{ messageId: "u1", parts: [{ kind: "audio", ref: "voice" }] }],
+      bytes: () => Effect.die(new Error("audio must derive before byte lookup")),
+      derive: () => Effect.succeed({ text, parts: [] }),
+    },
+  });
 
   test("historical images stay on u1 rather than the last user", async () => {
     const messages = [user("u1", "first"), assistant, user("u2", "second")];
@@ -110,6 +118,51 @@ describe("per-message input media", () => {
       { role: "assistant", content: "answer" },
       { role: "user", content: "second", providerOptions: { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } } },
     ]);
+  });
+
+  test("input abort cancels pending media bytes and releases their source", async () => {
+    const controller = new AbortController();
+    const started = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    const pending = capture.run({
+      model: vision, messages: [user("u1", "first")], signal: controller.signal,
+      media: {
+        parts: [{ messageId: "u1", parts: [image] }],
+        bytes: () => Effect.callback(() => {
+          started.resolve();
+          return Effect.sync(() => released.resolve());
+        }),
+      },
+    });
+    await started.promise;
+    controller.abort();
+    const outcome = await pending;
+    await released.promise;
+    expect(outcome.type).toBe("aborted");
+  });
+
+  test("estimated usage counts derived transcript text when provider usage is missing", async () => {
+    capture.stream([{ type: "finish-step", finishReason: "stop" }]);
+    const plain = await capture.run({ model: vision, messages: [user("u1", "listen")] });
+    const transcript = "TRANSCRIPT_WORD ".repeat(2000);
+    const derived = await transcribed(transcript);
+    expect(plain.type).toBe("stop");
+    expect(derived.type).toBe("stop");
+    if (plain.type !== "stop" || derived.type !== "stop") return;
+    expect(derived.evidence?.usageProvenance).toBe("estimated");
+    expect(derived.evidence?.usage.inputTokens).toBe((plain.evidence?.usage.inputTokens ?? 0) + transcript.length / 4);
+    expect(capture.args.messages).toEqual([{ role: "user", content: [
+      { type: "text", text: "listen" }, { type: "text", text: transcript },
+    ] }]);
+  });
+
+  test("reported usage wins over derived transcript estimation", async () => {
+    capture.stream([{ type: "finish-step", finishReason: "stop", usage: { inputTokens: 7, outputTokens: 3 } }]);
+    const outcome = await transcribed("TRANSCRIPT_WORD ".repeat(2000));
+    expect(outcome.type).toBe("stop");
+    if (outcome.type !== "stop") return;
+    expect(outcome.evidence?.usageProvenance).toBe("reported");
+    expect(outcome.evidence?.usage).toMatchObject({ inputTokens: 7, outputTokens: 3 });
   });
 
   test.each([

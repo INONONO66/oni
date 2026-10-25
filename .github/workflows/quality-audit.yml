@@ -63,6 +63,9 @@ jobs:
       - name: Browser prerequisites (codemode, #1275)
         if: matrix.key == 'codemode'
         uses: ./.github/actions/browser-prerequisites
+      - name: ffmpeg prerequisites (oni app media)
+        if: matrix.key == 'oniApp'
+        uses: ./.github/actions/ffmpeg-prerequisites
       - name: Same test command and coverage as CI
         env:
           LANE: ${{ matrix.key }}

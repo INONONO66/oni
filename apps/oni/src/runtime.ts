@@ -17,6 +17,7 @@ export const LlmLive = Layer.sync(Core.Llm, () => makeLlmService());
 import { pid } from "node:process";
 import { type Clock, Context, Data, Effect, Layer, type ManagedRuntime, type Scope, flow } from "effect";
 import { BunCrypto } from "./composition/cluster-crypto";
+import { addBounded } from "./composition/bounded-set";
 import { type DeliveryMedia, deliveryMedia, mediaLlm } from "./composition/delivery-media";
 import type { ProcessMedia } from "./composition/process-replies";
 import {
@@ -226,11 +227,7 @@ function processMediaLlm(service: LlmService, media: DeliveryMedia, remote: Proc
         }))),
         Effect.tap(() => Effect.sync(() => {
           if (media.recall(id) !== undefined) return;
-          empty.add(id);
-          for (const oldest of empty) {
-            if (empty.size <= 256) break;
-            empty.delete(oldest);
-          }
+          addBounded(empty, id, 256);
         })),
       ), { discard: true }).pipe(Effect.andThen(service.run(input, sink, dependencies)));
     }),

@@ -10,7 +10,7 @@ import { MEDIA_BYTE_CAP, mediaMime } from "./media";
 export const PartUnreadable = NamedError.create(
   "OniPartUnreadable",
   z.object({
-    code: z.enum(["not_inbox", "too_large", "read_failed"]),
+    code: z.enum(["not_inbox", "inbox_not_exported", "too_large", "read_failed"]),
     ref: z.string(),
     detail: z.string(),
   }),
@@ -24,7 +24,7 @@ const unreadable = (ref: string) =>
   ]).parse;
 
 export interface MediaWarning {
-  readonly code: "ffmpeg_missing" | "frames_failed" | "transcript_failed" | "model_unresolved";
+  readonly code: "ffmpeg_missing" | "frames_failed" | "transcript_failed";
   readonly ref: string;
   readonly detail: string;
 }
@@ -100,11 +100,22 @@ function inboxLocus(ref: string, files: FilePorts, root: string) {
   return locus.machine === machine && locus.path.startsWith(`${root}/`) ? locus : undefined;
 }
 
-export function inboxPartBytes(files: FilePorts, root: string): PartBytes<PartUnreadable> {
+export function inboxPartBytes(
+  files: FilePorts,
+  root: string,
+  exports: MediaInputPorts["exports"],
+): PartBytes<PartUnreadable> {
   return (ref) => {
     const locus = inboxLocus(ref, files, root);
     if (locus === undefined)
       return Effect.fail(new PartUnreadable({ code: "not_inbox", ref, detail: `not under ${root}` }));
+    const offered = Result.try({ try: () => exports(locus.machine), catch: CauseText.parse });
+    if (Result.isFailure(offered))
+      return Effect.fail(new PartUnreadable({ code: "read_failed", ref, detail: offered.failure }));
+    if (!offered.success.some((entry) => entry.path === root))
+      return Effect.fail(new PartUnreadable({
+        code: "inbox_not_exported", ref, detail: `export the inbox root ${root} on machine ${locus.machine}`,
+      }));
     return Effect.tryPromise({
       try: async () => {
         const file = filesystem(`${locus.machine}:${locus.path}`, files);
@@ -147,9 +158,16 @@ function durationText(ms: number | undefined): string {
   return ms === undefined ? "unknown duration" : `${Math.round(ms / 1000)}s`;
 }
 
+function frameNames(entries: readonly { readonly name: string; readonly kind: string }[]): string[] {
+  return entries.filter((entry) => entry.kind === "file" && /^frame-\d+\.jpg$/.test(entry.name))
+    .map((entry) => entry.name).sort();
+}
+
 export interface MediaInputPorts {
   readonly files: FilePorts;
   readonly root: string;
+  readonly exports: (machine: string) => readonly { readonly path: string }[];
+  readonly id: () => string;
   readonly stt: Stt;
   readonly warn: (warning: MediaWarning) => void;
 }
@@ -159,13 +177,17 @@ const NOTHING: DerivedPart = { parts: [] };
 /** Candidates share expensive derivatives, but only a candidate that reads images starts extraction. */
 export function mediaDerive(ports: MediaInputPorts): PartDerive {
   const machines = ports.files.machines;
-  const bytes = inboxPartBytes(ports.files, ports.root);
+  const bytes = inboxPartBytes(ports.files, ports.root, ports.exports);
   const cached = new Map<string, Effect.Effect<DerivedPart>>();
   let ffmpegWarned = false;
   const warnMissing = (ref: string) => {
     if (ffmpegWarned) return;
     ffmpegWarned = true;
     ports.warn({ code: "ffmpeg_missing", ref, detail: "ffmpeg is not on the attached machine; video kept as its duration line" });
+  };
+  const warnCut = (ref: string, outcome: ExecOutcome) => {
+    if (outcome.kind === "missing") warnMissing(ref);
+    if (outcome.kind === "failed") ports.warn({ code: "frames_failed", ref, detail: outcome.detail });
   };
 
   const transcript = (attachment: Attachment): Effect.Effect<DerivedPart> =>
@@ -191,32 +213,56 @@ export function mediaDerive(ports: MediaInputPorts): PartDerive {
     const locus = inboxLocus(attachment.ref, ports.files, ports.root);
     if (locus === undefined || machines === undefined)
       return { text: `[video ${durationText(attachment.durationMs)}, 0 frames]`, parts: [] };
-    const probed = attachment.durationMs ?? (yield* probe(machines, locus.machine, locus.path));
-    if (probed === "missing") {
-      warnMissing(attachment.ref);
-      return { text: `[video ${durationText(undefined)}, 0 frames]`, parts: [] };
-    }
-    const every = Math.max(1, Math.ceil((probed ?? 0) / 1000 / MAX_FRAMES));
-    const dir = `${locus.path}.frames`;
-    const cut = yield* exec(machines, locus.machine, [
-      `mkdir -p ${quote(dir)} &&`,
-      `ffmpeg -nostdin -v error -y -i ${quote(locus.path)} -vf fps=1/${every} -frames:v ${MAX_FRAMES} ${quote(`${dir}/frame-%02d.jpg`)}`,
-    ].join(" "), ports.root);
-    const line = (count: number) => `[video ${durationText(probed)}, ${count} frames]`;
-    if (cut.kind === "missing") warnMissing(attachment.ref);
-    if (cut.kind === "failed") ports.warn({ code: "frames_failed", ref: attachment.ref, detail: cut.detail });
-    if (cut.kind !== "ok") return { text: line(0), parts: [] };
-    const listed = yield* Effect.promise(() => filesystem(`${locus.machine}:${dir}`, ports.files).list().then(
-      (entries) => entries.filter((entry) => entry.kind === "file" && /^frame-\d+\.jpg$/.test(entry.name)).map((entry) => entry.name).sort(),
-      (error: Error) => {
-        ports.warn({ code: "frames_failed", ref: attachment.ref, detail: String(error) });
-        return [];
-      },
-    ));
-    const cutFrames = listed.slice(0, MAX_FRAMES).map((name): Attachment => ({
-      kind: "image", ref: `${locus.machine}:${dir}/${name}`, name, mime: "image/jpeg",
+    const source = yield* bytes(attachment.ref).pipe(Effect.match({
+      onSuccess: (value) => Result.succeed(value),
+      onFailure: (error) => Result.fail(error),
     }));
-    return { text: line(cutFrames.length), parts: cutFrames };
+    if (Result.isFailure(source)) {
+      if (source.failure.data.code !== "not_inbox")
+        ports.warn({ code: "frames_failed", ref: attachment.ref, detail: source.failure.data.detail });
+      return { text: `[video ${durationText(attachment.durationMs)}, 0 frames]`, parts: [] };
+    }
+    const id = ports.id();
+    const staged = `${id}.video`;
+    const dir = `${id}.frames`;
+    const file = filesystem(`${locus.machine}:${ports.root}/${staged}`, ports.files);
+    return yield* Effect.gen(function* () {
+      yield* Effect.tryPromise({ try: () => file.write(source.success.bytes, { create: "exclusive" }), catch: String });
+      return yield* Effect.gen(function* () {
+        const probed = attachment.durationMs ?? (yield* probe(machines, locus.machine, staged));
+        if (probed === "missing") {
+          warnMissing(attachment.ref);
+          return { text: `[video ${durationText(undefined)}, 0 frames]`, parts: [] };
+        }
+        const every = Math.max(1, Math.ceil((probed ?? 0) / 1000 / MAX_FRAMES));
+        const cut = yield* exec(machines, locus.machine, [
+          `mkdir ${quote(dir)} &&`,
+          `ffmpeg -nostdin -v error -y -i ${quote(staged)} -vf fps=1/${every}:round=up -frames:v ${MAX_FRAMES} ${quote(`${dir}/frame-%02d.jpg`)}`,
+        ].join(" "), ports.root);
+        const line = (count: number) => `[video ${durationText(probed)}, ${count} frames]`;
+        warnCut(attachment.ref, cut);
+        if (cut.kind !== "ok") return { text: line(0), parts: [] };
+        const listed = yield* Effect.promise(() => filesystem(`${locus.machine}:${ports.root}/${dir}`, ports.files).list().then(
+          frameNames,
+          (error: Error) => {
+            ports.warn({ code: "frames_failed", ref: attachment.ref, detail: String(error) });
+            return [];
+          },
+        ));
+        const cutFrames = listed.slice(0, MAX_FRAMES).map((name): Attachment => ({
+          kind: "image", ref: `${locus.machine}:${ports.root}/${dir}/${name}`, name, mime: "image/jpeg",
+        }));
+        return { text: line(cutFrames.length), parts: cutFrames };
+      }).pipe(Effect.ensuring(exec(machines, locus.machine, `rm -f ${quote(staged)}`, ports.root).pipe(
+        Effect.tap((removed) => Effect.sync(() => {
+          if (removed.kind !== "ok")
+            ports.warn({ code: "frames_failed", ref: attachment.ref, detail: removed.kind === "failed" ? removed.detail : "rm unavailable" });
+        })),
+      )));
+    }).pipe(Effect.catch((detail) => Effect.sync(() => {
+      ports.warn({ code: "frames_failed", ref: attachment.ref, detail });
+      return { text: `[video ${durationText(attachment.durationMs)}, 0 frames]`, parts: [] };
+    })));
   });
 
   return (attachment, model: Capability.InputModel) => Effect.gen(function* () {

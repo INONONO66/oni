@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { ProcessDelivery } from "../process-entry";
 import type { DeliveryMedia } from "./delivery-media";
 import { MEDIA_BYTE_CAP } from "./media";
+import { addBounded } from "./bounded-set";
 
 // Promise band (#1423): readline and stdio force the reply channel onto Promises;
 // every bounded wait enters Effect through the injected run port.
@@ -107,11 +108,7 @@ export function createProcessReplyChannel(
         Effect.timeoutOrElse({
           duration: RECEIPT_DEADLINE_MS,
           orElse: () => {
-            expired.add(input.inputId);
-            for (const oldest of expired) {
-              if (expired.size <= 256) break;
-              expired.delete(oldest);
-            }
+            addBounded(expired, input.inputId, 256);
             return Effect.fail(new ProcessReplyError("timeout", `process ${input.operation} receipt timed out`));
           },
         }),

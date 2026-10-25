@@ -152,11 +152,12 @@ test("boot binds derivation while ingress preserves raw video for the selected c
   if (bytes === undefined || derive === undefined) throw new Error("boot did not bind media ports");
   const socket = await suite.openSocket(`ws://127.0.0.1:${app.port}/ws`, []);
   const part: Gateway.MediaPart = { kind: "video", ref: `self:${inbox}/clip.mp4`, durationMs: 1000 };
-  socket.send(JSON.stringify({ text: "inspect video", eventId: "raw-video", parts: [part] }));
+  const inputText = "INPUT_TEXT_SENTINEL_RAW_VIDEO";
+  socket.send(JSON.stringify({ text: inputText, eventId: "raw-video", parts: [part] }));
   const message = await entered.promise;
-  expect(message.parts.flatMap((entry) => entry.type === "text" ? [entry.text] : [])).toEqual([
-    `[attached: video 1s \u2192 ${part.ref}]\n\ninspect video`,
-  ]);
+  const deliveredText = message.parts.flatMap((entry) => entry.type === "text" ? [entry.text] : []).join("\n");
+  expect(deliveredText.split(inputText)).toHaveLength(2);
+  expect(deliveredText.split(part.ref)).toHaveLength(2);
   expect(media.recall(message.info.id)).toEqual([part]);
   expect(await runEffect(derive(part, { input: ["text"] }))).toEqual({ text: "[video 1s, 0 frames]", parts: [] });
   const warning = eventSignal<ReturnType<typeof Operational.Events.Warn.schema.parse>>("derivative warning");

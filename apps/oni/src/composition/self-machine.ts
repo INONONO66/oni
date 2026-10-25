@@ -5,6 +5,7 @@ import {
   type MachineError,
   type MachineHost,
 } from "@oni/machines";
+import { mkdirSync } from "node:fs";
 import { Machine, NamedError } from "@oni/protocol";
 import { Effect, type Scope } from "effect";
 import { z } from "zod";
@@ -89,6 +90,11 @@ export function attachSelfMachine(
 ): Effect.Effect<SelfMachine, SelfAttachError, Scope.Scope> {
   return Effect.gen(function* () {
     const { plane } = options;
+    const inbox = plane.inbox;
+    if (inbox !== undefined && plane.defaultMachine === plane.self.id)
+      yield* Effect.try({ try: () => mkdirSync(inbox, { recursive: true, mode: 0o700 }), catch: String }).pipe(
+        Effect.mapError((detail) => selfAttachFailure(`self inbox creation failed: ${detail}`)),
+      );
     let runner: CodeRunner | undefined;
     const selfRunner: CodeRunner = {
       runCode: (request, call, signal) => runner === undefined
