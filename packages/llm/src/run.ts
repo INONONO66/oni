@@ -16,6 +16,7 @@ import { adaptStream, streamArguments } from "./provider/stream";
 import { isContextOverflow, retryAfterMs as providerRetryAfterMs } from "./classify";
 import type { RoutingFacts } from "./router/decide";
 import type { StreamEvent } from "./processor/event-schema";
+import { estimateUsage } from "./token";
 
 export interface RunInput {
   /** An explicit turn identity keeps affinity across continuation calls. */
@@ -184,6 +185,7 @@ export function run(
   };
 
   let credential: ReturnType<typeof Auth.reference> | undefined;
+  let resolvedText = "";
   const createStream: Processor.ProcessorOptions["createStream"] = (streamInput) => Effect.gen(function* () {
     const auth = yield* Auth.resolve(
       model.providerID,
@@ -197,7 +199,14 @@ export function run(
     const effectiveModel = model.api === undefined ? model : {
       ...model, api: { ...model.api, style: effectiveStyle(model, auth) },
     };
-    const blocksById = yield* resolveMessageParts({ ...input, model: effectiveModel });
+    const cancelled = Effect.callback<never, LlmError>((resume) => {
+      const onAbort = () => resume(Effect.fail(decodeLlmFailure("media.abort")(new DOMException("Media resolution aborted", "AbortError"))));
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+      if (abortSignal.aborted) onAbort();
+      return Effect.sync(() => abortSignal.removeEventListener("abort", onAbort));
+    });
+    const blocksById = yield* Effect.raceFirst(resolveMessageParts({ ...input, model: effectiveModel }), cancelled);
+    resolvedText = [...blocksById.values()].flatMap((blocks) => blocks.filter((block) => block.type === "text").map((block) => block.text)).join("");
     const streamResult = yield* Effect.try({
       try: () => streamText(streamArguments(input, streamInput.system, abortSignal, wireNames, getLanguage(model, auth, input.transport), blocksById)),
       catch: decodeLlmFailure("provider.stream"),
@@ -219,6 +228,7 @@ export function run(
     sessionID,
     model,
     abort: abortSignal,
+    estimateUsage: (prompt, output) => estimateUsage(prompt + resolvedText, output),
     now: input.now,
     id: input.id,
     sink,

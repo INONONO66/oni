@@ -1,6 +1,6 @@
 import { composedHolder } from "./helpers/bundle-fixture";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
@@ -17,6 +17,8 @@ import { attachConfiguredMachine } from "../src/cli/machine";
 import { testSelfMachine } from "./helpers/self-machine";
 import { residentSuite } from "./helpers/resident-suite";
 import { testBus } from "../../../packages/agent/test/helpers/isolated";
+import { inboxPartBytes } from "../src/composition/media-input";
+import type { FilePorts } from "../src/bundles/tools/core/filesystem";
 
 const suite = residentSuite();
 function fixtureConfig(machines: OniConfig["machines"]): OniConfig {
@@ -64,6 +66,33 @@ test("boot reaches the attached self state before any tool port exists", async (
     expect(seen).toEqual([["self"]]);
   } finally {
     await app.stop();
+  }
+});
+
+test("boot creates a missing private self inbox before daemon attach and reads its file", async () => {
+  const base = mkdtempSync(join(tmpdir(), "oni-self-inbox-"));
+  const inbox = join(base, "inbox");
+  let machines: FilePorts["machines"];
+  let exports: ((machine: string) => readonly { readonly path: string }[]) | undefined;
+  const original = Gateway.toolPorts;
+  track(spyOn(Gateway, "toolPorts").mockImplementation((runtime, ports) => {
+    const result = original(runtime, ports);
+    machines = result.machines;
+    exports = ports.machines === undefined ? undefined : (machine) => ports.machines?.host.exports(machine) ?? [];
+    return result;
+  }));
+  const app = await startOni({
+    config: fixtureConfig({ self: testSelfMachine(base), listen: { unix: socketPath() }, enrolled: [], inbox }),
+  });
+  try {
+    expect(statSync(inbox).mode & 0o777).toBe(0o700);
+    writeFileSync(join(inbox, "ordinary.txt"), "inbox-data");
+    if (machines === undefined || exports === undefined) throw new Error("machine ports missing");
+    const bytes = inboxPartBytes({ machines }, inbox, exports);
+    expect(new TextDecoder().decode((await runEffect(bytes(`self:${join(inbox, "ordinary.txt")}`))).bytes)).toBe("inbox-data");
+  } finally {
+    await app.stop();
+    rmSync(base, { recursive: true, force: true });
   }
 });
 

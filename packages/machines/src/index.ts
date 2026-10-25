@@ -6,4 +6,5 @@ export { createMemoryGenerationStore, createFileGenerationStore, type AttachGene
 export type { LeaseHandle, LeaseClass } from "./capacity";
 export * from "./ipc";
 export { typedCall } from "./typed-call";
+export { normalizeExportRoot } from "./contained";
 export { onAbort } from "./interrupt-on";

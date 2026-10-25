@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { WebSocketHandler, type WsConnection } from "@oni/channels";
-import type { PlainValue } from "@oni/protocol";
 import { Effect } from "effect";
+import { z } from "zod";
 import { wsParts } from "../src/composition/ws-parts";
 import { gatewayRuntime, webSocketCallbacks } from "../src/gateway";
 import { composedHolder } from "./helpers/bundle-fixture";
@@ -62,8 +62,10 @@ test("the gateway socket answers a refused parts frame with the error frame and 
       ws,
       JSON.stringify({ text: "x", eventId: "e1", parts: [{ kind: "sticker", ref: "r" }] }),
     );
-    const decodeJson: (frame: string) => PlainValue = JSON.parse;
-    expect(frames.map(decodeJson)).toEqual([{ type: "error", reason: "invalid_parts", detail: expect.any(String) }]);
+    expect(frames).toHaveLength(1);
+    z.object({
+      type: z.literal("error"), reason: z.literal("invalid_parts"), detail: z.string().min(1),
+    }).strict().parse(JSON.parse(frames[0] ?? "null"));
     expect(ingested).toBe(0);
     gatewaySocket.callbacks.close(ws);
   } finally {

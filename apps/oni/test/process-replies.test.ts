@@ -8,6 +8,7 @@ import { Effect, Logger } from "effect";
 import { runEffect } from "./helpers/effect";
 import { bounded } from "./helpers/protected-dispatch";
 import { answer } from "./helpers/child-answer";
+import { MEDIA_BYTE_CAP } from "../src/composition/media";
 
 const commit: Delivery.Commit = {
   id: "delivery",
@@ -132,6 +133,29 @@ test("invalid base64 cannot enter a byte source", async () => {
   await f.channel.first;
   await expect(runEffect(f.channel.media.bytes("ref"))).rejects.toMatchObject({ code: "invalid_receipt" });
 });
+
+test.each([MEDIA_BYTE_CAP - 1, MEDIA_BYTE_CAP, MEDIA_BYTE_CAP + 1])(
+  "child byte receipts admit decoded size %i exactly through the cap", async (size) => {
+    using f = fixture((line) => {
+      const { inputId } = MediaRequest.parse(JSON.parse(line));
+      const encoded = Buffer.alloc(size, 0x5a).toString("base64");
+      expect(encoded.length).toBe(Math.ceil(MEDIA_BYTE_CAP / 3) * 4);
+      f.input.write(`${JSON.stringify({ ok: true, inputId, bytes: encoded, mime: "image/png" })}\n`);
+    });
+    f.input.write("initial\n");
+    await f.channel.first;
+    const result = runEffect(f.channel.media.bytes("ref"));
+    if (size > MEDIA_BYTE_CAP) {
+      await expect(result).rejects.toMatchObject({ name: "ProcessReplyError", code: "invalid_receipt" });
+    } else {
+      const accepted = await bounded(result);
+      expect(accepted.mime).toBe("image/png");
+      expect(accepted.bytes).toHaveLength(size);
+      expect(accepted.bytes[0]).toBe(0x5a);
+      expect(accepted.bytes.at(-1)).toBe(0x5a);
+    }
+  },
+);
 
 test.each(["parts", "wrong"] as const)("a derive reply with %s and absent model metadata stays typed", async (mode) => {
   using f = fixture((line) => {

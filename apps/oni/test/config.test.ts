@@ -835,7 +835,42 @@ describe("machines self enrollment config (#1271)", () => {
     process.env.ONI_MACHINES_INBOX = "/srv/inbox";
     const machines = loadConfig().machines;
     if (machines === undefined) throw new Error("machines plane expected");
-    expect(validateMachinePlane(machines).inbox).toBe("/srv/inbox");
+    expect(validateMachinePlane(machines)).toMatchObject({
+      inbox: "/srv/inbox",
+      self: { exports: [{ name: "workspace", path: "/tmp/self-root" }, { name: "inbox", path: "/srv/inbox" }] },
+    });
+  });
+
+  it("normalizes an inbox spelling and retains an existing exact self export", () => {
+    const plane = validateMachinePlane({
+      self: { capabilities: ["fs.read"], exports: [{ name: "workspace", path: "/srv/inbox/" }] },
+      listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox: "/srv//inbox///",
+    });
+    expect(plane.inbox).toBe("/srv/inbox");
+    expect(plane.self.exports).toEqual([{ name: "workspace", path: "/srv/inbox/" }]);
+  });
+
+  it("does not append a self export for a remote default inbox", () => {
+    const plane = validateMachinePlane({
+      self: { capabilities: ["fs.read"], exports: [{ name: "workspace", path: "/tmp/self-root" }] },
+      default: "alpha", listen: { unix: "/tmp/oni-test.sock" },
+      enrolled: [{
+        machineId: "alpha", name: "remote", allowedCapabilities: ["fs.read"],
+        allowedExports: ["inbox"], publicKey: "ab".repeat(32), enrolledAt: 1,
+      }],
+      inbox: "/srv/inbox/",
+    });
+    expect(plane.inbox).toBe("/srv/inbox");
+    expect(plane.self.exports).toEqual([{ name: "workspace", path: "/tmp/self-root" }]);
+  });
+
+  it("refuses a self inbox export named for a different root", () => {
+    const error = configurationRefusal(() => validateMachinePlane({
+      self: { capabilities: ["fs.read"], exports: [{ name: "inbox", path: "/other" }] },
+      listen: { unix: "/tmp/oni-test.sock" }, enrolled: [], inbox: "/srv/inbox",
+    }));
+    expect(error.data.code).toBe("invalid_machines_inbox");
+    expect(error.message).toContain("/other");
   });
 
   it("rejects a relative attachment inbox", () => {

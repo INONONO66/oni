@@ -215,6 +215,12 @@ whole suite) consume it. A scheduled workflow that skips it fails before any
 measurement: the audit lane with `ModuleNotFoundError: playwright`, the
 mutation shards with `baseline test selection is not green`.
 
+The oni app media tests encode real H.264 clips and sample their frames
+through a machine daemon, so they need ffmpeg (with libx264) and ffprobe.
+`.github/actions/ffmpeg-prerequisites` installs them from apt and fails when
+the encoder is missing; the CI `oniApp` lane, the Quality Audit `oniApp`
+coverage lane and every `quality-mutation` shard consume it.
+
 `script/check-effect-boundaries.ts` is the fail-closed boundary gate. It scans tracked and non-ignored untracked TypeScript under `apps/`, `packages/` and `script/`, resolves Effect runners through imports and repository re-exports, and permits execution only in `apps/oni/src/cli/main.ts` and `apps/oni/src/gateway.ts`. It also rejects Effect imports in protocol/UI/desktop/tool surfaces, forbidden excluded-package dependencies and Promise twins; the runner-site JSON (`script/conformance/effect-runner-sites.json`) is a shrink-only ratchet whose live rows are reported without failure and whose stale rows fail. Ratchet rows may name only non-production sites (`packages|apps/<ws>/test|bench/...` or `script/*.test.ts`); a production `src/` row is `R2_INVALID_ALLOWLIST`, so production runners outside the two app edges always fail. The remaining test/helper/bench rows are owed to W5 #1113 (zero target).
 
 `script/scripts-lanes.ts` is the explicit recursive test manifest. Its contract

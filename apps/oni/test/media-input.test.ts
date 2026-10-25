@@ -24,7 +24,12 @@ function machine(options: {
   readonly listFails?: boolean;
 }) {
   const commands: string[] = [];
-  const files = options.files ?? {};
+  const files: Record<string, Uint8Array> = {
+    "/inbox/k2-clip.mp4": encode("video"),
+    "/inbox/second.mp4": encode("second video"),
+    ...options.files,
+  };
+  const writes: string[] = [];
   const host: ToolMachine = {
     fs: {
       stat: (path) => {
@@ -43,24 +48,31 @@ function machine(options: {
         op: "list", truncated: false,
         entries: [{ name: "stray.txt", kind: "file" }, ...(options.frames ?? []).map((name) => ({ name, kind: "file" as const }))],
       }),
-      write: unsupported,
+      write: (path, data, settings) => {
+        if (settings?.create !== "exclusive" || files[path] !== undefined) return Promise.reject(new Error("not exclusive"));
+        files[path] = data;
+        writes.push(path);
+        return Promise.resolve({ op: "write", bytesWritten: data.byteLength });
+      },
     },
     exec: (cmd) => {
       commands.push(cmd);
-      return Promise.resolve(options.exec?.(cmd) ?? completed(0));
+      return Promise.resolve(cmd.startsWith("rm -f ") ? completed(0) : options.exec?.(cmd) ?? completed(0));
     },
     pty: { open: unsupported, write: unsupported, read: unsupported },
   };
   const ports: FilePorts = { machines: { defaultMachine: "mac", get: () => host } };
-  return { ports, commands };
+  return { ports, commands, writes };
 }
 
 function harness(options: Parameters<typeof machine>[0] & {
   readonly input?: readonly Modality[];
   readonly npm?: string;
   readonly style?: "chat" | "responses";
+  readonly exported?: boolean;
 }) {
-  const { ports, commands } = machine(options);
+  const { ports, commands, writes } = machine(options);
+  const exports = () => options.exported === false ? [{ path: "/" }] : [{ path: "/inbox" }];
   const warnings: MediaWarning[] = [];
   const heard: string[] = [];
   const stt: Stt = {
@@ -69,9 +81,12 @@ function harness(options: Parameters<typeof machine>[0] & {
       return { text: "see you at noon" };
     }),
   };
+  let nextId = 0;
   const derive = mediaDerive({
     files: ports,
     root: "/inbox",
+    exports,
+    id: () => `derived-${++nextId}`,
     stt,
     warn: (warning) => warnings.push(warning),
   });
@@ -80,7 +95,7 @@ function harness(options: Parameters<typeof machine>[0] & {
     ...(options.npm === undefined ? {} : { api: { npm: options.npm, style: options.style } }),
   };
   const consume = (part: Gateway.MediaPart, candidate = model) => derive(part, candidate);
-  return { consume, derive, model, ports, commands, warnings, heard };
+  return { consume, derive, model, ports, commands, writes, exports, warnings, heard };
 }
 
 const voice: Gateway.MediaPart = { kind: "audio", ref: "mac:/inbox/k1-note.ogg", voice: true };
@@ -90,7 +105,7 @@ const clip = (durationMs?: number): Gateway.MediaPart => ({
 
 test("the inbox port reads bytes and mime from the attached machine and refuses refs outside the inbox", async () => {
   const { ports } = machine({ files: { "/inbox/k1-note.ogg": encode("ogg") } });
-  const bytes = inboxPartBytes(ports, "/inbox");
+  const bytes = inboxPartBytes(ports, "/inbox", () => [{ path: "/inbox" }]);
 
   const read = await runEffect(bytes("mac:/inbox/k1-note.ogg"));
   expect({ text: new TextDecoder().decode(read.bytes), mime: read.mime }).toEqual({ text: "ogg", mime: "audio/ogg" });
@@ -119,8 +134,28 @@ test("the inbox port refuses a part over the media byte cap before reading it", 
       }),
     },
   };
-  const refused = await runEffect(Effect.flip(inboxPartBytes(capped, "/inbox")("mac:/inbox/big.ogg")));
+  const refused = await runEffect(Effect.flip(inboxPartBytes(capped, "/inbox", () => [{ path: "/inbox" }])("mac:/inbox/big.ogg")));
   expect(refused.data.code).toBe("too_large");
+});
+
+test("automatic byte and frame reads refuse an inbox without its own export", async () => {
+  const h = harness({ input: ["text", "image"], exported: false, files: { "/inbox/k1-note.ogg": encode("voice") } });
+  const refused = await runEffect(Effect.flip(inboxPartBytes(h.ports, "/inbox", h.exports)(voice.ref)));
+  expect(refused.data.code).toBe("inbox_not_exported");
+  expect(refused.data.detail).toContain("/inbox");
+  expect(await runEffect(h.consume(clip(5_000)))).toEqual({ text: "[video 5s, 0 frames]", parts: [] });
+  expect(h.warnings).toHaveLength(1);
+  expect(h.warnings[0]?.code).toBe("frames_failed");
+  expect(h.commands).toEqual([]);
+  expect(h.writes).toEqual([]);
+});
+
+test("a detached machine whose exports cannot be queried refuses the read", async () => {
+  const { ports } = machine({ files: { "/inbox/note": encode("voice") } });
+  const bytes = inboxPartBytes(ports, "/inbox", () => { throw new Error("machine detached"); });
+  const refusal = await runEffect(Effect.flip(bytes("mac:/inbox/note")));
+  expect(refusal.data.code).toBe("read_failed");
+  expect(refusal.data.detail).toContain("machine detached");
 });
 
 test.each([
@@ -142,7 +177,7 @@ test.each([
   ["mkv", [26, 69, 223, 163, 109, 97, 116, 114, 111, 115, 107, 97], "video/x-matroska"],
 ] satisfies readonly (readonly [string, readonly number[], string])[])("the inbox port sniffs %s before trusting an extensionless filename", async (_name, signature, mime) => {
   const { ports } = machine({ files: { "/inbox/note": Uint8Array.from(signature) } });
-  const result = await runEffect(inboxPartBytes(ports, "/inbox")("mac:/inbox/note"));
+  const result = await runEffect(inboxPartBytes(ports, "/inbox", () => [{ path: "/inbox" }])("mac:/inbox/note"));
   expect(result.mime).toBe(mime);
 });
 
@@ -155,14 +190,14 @@ test.each([
   ["a frame sync with a reserved sampling rate", "clip.bin", [255, 251, 156, 0], "application/octet-stream"],
 ] satisfies readonly (readonly [string, string, readonly number[], string])[])("%s sniffs nothing and the filename decides", async (_name, name, signature, mime) => {
   const { ports } = machine({ files: { [`/inbox/${name}`]: Uint8Array.from(signature) } });
-  const result = await runEffect(inboxPartBytes(ports, "/inbox")(`mac:/inbox/${name}`));
+  const result = await runEffect(inboxPartBytes(ports, "/inbox", () => [{ path: "/inbox" }])(`mac:/inbox/${name}`));
   expect(result.mime).toBe(mime);
 });
 
 test("an extensionless declared WAV reaches the byte source as audio/wav", async () => {
   const wav = Uint8Array.from([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]);
   const { ports } = machine({ files: { "/inbox/note": wav } });
-  const read = await runEffect(inboxPartBytes(ports, "/inbox")("mac:/inbox/note"));
+  const read = await runEffect(inboxPartBytes(ports, "/inbox", () => [{ path: "/inbox" }])("mac:/inbox/note"));
   expect({ bytes: read.bytes, mime: read.mime }).toEqual({ bytes: wav, mime: "audio/wav" });
 });
 
@@ -200,23 +235,25 @@ test("a video-capable model samples unsupported video instead of bypassing degra
     input: ["text", "image", "video"], npm: "@ai-sdk/openai", frames: ["frame-01.jpg"],
   });
   const result = await runEffect(consume({ ...clip(8_000), mime: "video/mp4" }));
-  expect(commands).toHaveLength(1);
+  expect(commands).toHaveLength(2);
   expect(result.text).toBe("[video 8s, 1 frames]");
   expect(result.parts.at(-1)?.kind).toBe("image");
 });
 
 test("a video the model cannot watch is sampled into at most eight frames on the machine", async () => {
   const frames = [...new Array(9).keys()].map((index) => `frame-${String(index + 1).padStart(2, "0")}.jpg`).reverse();
-  const { consume, commands, warnings } = harness({ input: ["text", "image"], frames });
+  const { consume, commands, writes, warnings } = harness({ input: ["text", "image"], frames });
 
   const result = await runEffect(consume(clip(20_000)));
 
   expect(commands).toEqual([
-    "mkdir -p '/inbox/k2-clip.mp4.frames' && ffmpeg -nostdin -v error -y -i '/inbox/k2-clip.mp4' -vf fps=1/3 -frames:v 8 '/inbox/k2-clip.mp4.frames/frame-%02d.jpg'",
+    "mkdir 'derived-1.frames' && ffmpeg -nostdin -v error -y -i 'derived-1.video' -vf fps=1/3:round=up -frames:v 8 'derived-1.frames/frame-%02d.jpg'",
+    "rm -f 'derived-1.video'",
   ]);
+  expect(writes).toEqual(["/inbox/derived-1.video"]);
   expect(result.text).toBe("[video 20s, 8 frames]");
   expect(result.parts).toEqual([...frames].sort().slice(0, 8).map((name) => ({
-    kind: "image", ref: `mac:/inbox/k2-clip.mp4.frames/${name}`, name, mime: "image/jpeg",
+    kind: "image", ref: `mac:/inbox/derived-1.frames/${name}`, name, mime: "image/jpeg",
   })));
   expect(warnings).toEqual([]);
 });
@@ -230,7 +267,7 @@ test("a video without a duration is probed with ffprobe before sampling", async 
 
   const result = await runEffect(consume(clip()));
 
-  expect(commands[1]).toContain("-vf fps=1/2 -frames:v 8");
+  expect(commands[1]).toContain("-vf fps=1/2:round=up -frames:v 8");
   expect(result.text).toBe("[video 13s, 1 frames]");
 });
 
@@ -249,6 +286,14 @@ test("a rejected machine command warns and preserves the video line", async () =
   const source = clip(5_000);
   expect(await runEffect(h.consume(source))).toEqual({ text: "[video 5s, 0 frames]", parts: [] });
   expect(h.warnings).toEqual([{ code: "frames_failed", ref: source.ref, detail: "Error: machine disconnected" }]);
+});
+
+test("a refused staging write warns without running or removing anything on the machine", async () => {
+  const h = harness({ input: ["text", "image"], files: { "/inbox/derived-1.video": encode("another writer") } });
+  const source = clip(5_000);
+  expect(await runEffect(h.consume(source))).toEqual({ text: "[video 5s, 0 frames]", parts: [] });
+  expect(h.warnings).toEqual([{ code: "frames_failed", ref: source.ref, detail: "Error: not exclusive" }]);
+  expect({ commands: h.commands, writes: h.writes }).toEqual({ commands: [], writes: [] });
 });
 
 test("an absent ffmpeg keeps the text line and warns once across messages", async () => {
@@ -292,10 +337,10 @@ test("a text primary leaves extraction available to a later vision candidate and
   ], { concurrency: "unbounded" }));
   expect(second).toEqual({
     text: "[video 1s, 1 frames]",
-    parts: [{ kind: "image", ref: "mac:/inbox/k2-clip.mp4.frames/frame-01.jpg", name: "frame-01.jpg", mime: "image/jpeg" }],
+    parts: [{ kind: "image", ref: "mac:/inbox/derived-1.frames/frame-01.jpg", name: "frame-01.jpg", mime: "image/jpeg" }],
   });
   expect(third).toEqual(second);
-  expect(h.commands).toHaveLength(1);
+  expect(h.commands).toHaveLength(2);
   expect((await runEffect(h.consume(source))).text).toBe("[video 1s, 1 frames]");
 });
 
@@ -318,7 +363,7 @@ test("a resolved chat model keeps native WAV without a catalog-shaped ingress de
   });
   const result = await runEffect(resolveInputParts({
     parts: [{ kind: "audio", ref: "mac:/inbox/note" }], model: h.model,
-    bytes: inboxPartBytes(h.ports, "/inbox"), derive: h.derive,
+    bytes: inboxPartBytes(h.ports, "/inbox", h.exports), derive: h.derive,
   }));
   expect(result).toEqual({ blocks: [{ type: "file", data: wav, mediaType: "audio/wav" }], unaccepted: [] });
   expect(h.heard).toEqual([]);
@@ -329,7 +374,7 @@ test("source-MIME refusal still derives an audio part without a declared MIME", 
     input: ["text", "audio"], npm: "@ai-sdk/openai", style: "chat", files: { "/inbox/k1-note.ogg": encode("OggS") },
   });
   const result = await runEffect(resolveInputParts({
-    parts: [voice], model: h.model, bytes: inboxPartBytes(h.ports, "/inbox"), derive: h.derive,
+    parts: [voice], model: h.model, bytes: inboxPartBytes(h.ports, "/inbox", h.exports), derive: h.derive,
   }));
   expect(result).toEqual({ blocks: [{ type: "text", text: "[voice transcript]\nsee you at noon" }], unaccepted: [] });
   expect(h.heard).toEqual(["OggS"]);

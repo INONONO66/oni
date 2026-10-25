@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { normalizeExportRoot } from "@oni/machines";
 import { Gateway, Machine, NamedError, type Model, type PlainValue } from "@oni/protocol";
 import { loadPromptCatalog, type PromptCatalog } from "./bundles/prompt/data";
 import { type KekResolution, resolveKek } from "./bundles/provision/vault-key";
@@ -591,7 +592,16 @@ export function validateMachinePlane(
       message: `machines.default is not an enrolled machine: ${defaultMachine}`,
     });
   }
-  return { self, defaultMachine, ...(machines.inbox === undefined ? {} : { inbox: machines.inbox }) };
+  if (machines.inbox === undefined) return { self, defaultMachine };
+  const inbox = normalizeExportRoot(machines.inbox);
+  if (defaultMachine !== self.id || self.exports.some((entry) => normalizeExportRoot(entry.path) === inbox))
+    return { self, defaultMachine, inbox };
+  if (self.exports.some((entry) => entry.name === "inbox"))
+    throw new ConfigurationError({
+      code: "invalid_machines_inbox",
+      message: `machines.inbox ${inbox} conflicts with self export named inbox rooted at ${self.exports.find((entry) => entry.name === "inbox")?.path}`,
+    });
+  return { self: { ...self, exports: [...self.exports, { name: "inbox", path: inbox }] }, defaultMachine, inbox };
 }
 const SocialBudgets = z.array(Gateway.SocialBudget);
 
@@ -774,8 +784,9 @@ function machinesTcpFromEnv(env: Record<string, string | undefined>) {
  * Env mapping (#1271): `ONI_MACHINES_SELF` declares the host's own
  * machine, `ONI_MACHINES_DEFAULT` names the prefix-less target (defaults
  * to the self id), `ONI_MACHINES_ENROLLED` admits remote machines,
- * `ONI_MACHINES_INBOX` names the existing absolute directory on the
- * default machine that receives inbound chat attachments. Any
+ * `ONI_MACHINES_INBOX` names the absolute directory receiving attachments;
+ * self exports it implicitly, while a remote default machine must export
+ * that exact root for automatic media reads. Any
  * of these configures the plane; a configured plane without self is a
  * contradiction, because boot attaches the in-process daemon unconditionally.
  */

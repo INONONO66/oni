@@ -1,0 +1,11 @@
+name: ffmpeg prerequisites
+description: Install ffmpeg and ffprobe for the oni app media tests that encode and sample real H.264 clips through a machine daemon
+runs:
+  using: composite
+  steps:
+    - run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends ffmpeg
+        ffmpeg -hide_banner -encoders | grep libx264
+        ffprobe -version > /dev/null
+      shell: bash

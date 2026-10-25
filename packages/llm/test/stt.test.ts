@@ -23,13 +23,17 @@ async function authFile(): Promise<string> {
   return path;
 }
 
-const audio = { bytes: new Uint8Array([79, 103, 103, 83]) };
+const audio = { bytes: new Uint8Array([79, 103, 103, 83, 17, 204, 5]) };
 
 describe("Stt", () => {
   test("transcribes through the first row that names a transcription model", async () => {
     const requests: { url: string; model: string | File | null }[] = [];
     globalThis.fetch = mockFetch(async (input, init) => {
       const form = init?.body instanceof FormData ? init.body : undefined;
+      const file = form?.get("file");
+      expect(file).toBeInstanceOf(File);
+      if (!(file instanceof File)) throw new Error("transcription file missing");
+      expect(new Uint8Array(await file.arrayBuffer())).toEqual(audio.bytes);
       requests.push({ url: String(input), model: form?.get("model") ?? null });
       return jsonResponse({ text: "hello there", language: "english", duration: 1.25 });
     });
