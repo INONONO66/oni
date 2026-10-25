@@ -18,6 +18,7 @@
     "clients:build": "cd clients && cargo build --release",
     "clients:lint": "cd clients && cargo fmt --all --check && cargo clippy --all-targets -- -D warnings -D clippy::unwrap_used",
     "clients:test": "cd clients && cargo test",
+    "clients:conformance": "cd script && bun test ./check-clients-conformance.test.ts --timeout 15000 --coverage --coverage-reporter=lcov --coverage-dir=coverage",
     "dev": "turbo run dev",
     "prepare": "lefthook install",
     "lint": "bun run lint:guards && bun run lint:side-effects && bun run lint:docs && bunx ultracite check --formatter-enabled=false .",

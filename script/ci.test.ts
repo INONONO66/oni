@@ -300,11 +300,11 @@ test("patch coverage unions every lane's lcov evidence and gates only pull reque
     .object({ jobs: z.object({ "patch-coverage": jobSchema, deps: jobSchema, ci: jobSchema }) })
     .parse(Bun.YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"))).jobs;
   const job = jobs["patch-coverage"];
-  expect(job.needs).toEqual(["plan", "tests", "scripts-contracts"]);
+  expect(job.needs).toEqual(["plan", "clients", "tests", "scripts-contracts"]);
   // A skipped or failed test lane must skip the gate rather than let it pass
   // with partial evidence; !cancelled() keeps the skip observable at fan-in.
   expect(job.if).toBe(
-    "!cancelled() && github.event_name == 'pull_request' && needs.plan.outputs.verify == 'true' && needs.tests.result == 'success' && needs.scripts-contracts.result == 'success'",
+    "!cancelled() && github.event_name == 'pull_request' && needs.plan.outputs.verify == 'true' && needs.tests.result == 'success' && needs.scripts-contracts.result == 'success' && (needs.clients.result == 'success' || needs.clients.result == 'skipped')",
   );
   expect(job.steps.some((step) => step.with?.pattern === "coverage-*" && step.with?.path === "coverage-artifacts")).toBe(true);
   const run = job.steps.find((step) => step.run?.includes("check-patch-coverage.ts"));

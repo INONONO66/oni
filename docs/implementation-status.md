@@ -1,5 +1,101 @@
 # Implementation Status
 
+## #1626 machine client P3: transport, attach and the daemon-parity drivers (epic #1622, PR pending)
+
+On `feat/1626-machine-client-p3-transport` (2026-10-25, base `690f14487`).
+`mclient` is now a working client peer. The #1623 paragraph below (CLI
+skeleton, `join`/`run` exit 2) is superseded by this section; the contract export and
+`clients/protocol` are unchanged except for the regenerated
+`create: "exclusive"` shapes that main already carried.
+
+`clients/machine-client/src/transport/` owns the wire: LF-terminated JSON
+frames capped at 16 MiB (`framing.rs`), v2 envelope classification that
+keeps the original response fields (`envelope.rs`), monotonic `c<n>` call
+ids with a 30 s timeout and pending-call cleanup (`request_table.rs`), one
+256-slot writer plus a 16-running/64-waiting inbound dispatcher that answers
+the 81st blocked request with error 4001 and closes (`client.rs`), and unix
+or mutual-TLS connections with a 5 s connect timeout and host SPKI SHA-256
+pinning with handshake signature checks (`connection.rs`). `config.rs` owns
+`join` parsing: host resolution (IP or dotted name as given; a bare name
+through the tailnet status peer list, else `host_unresolved`; port default
+7643), trust precedence `--host-pin` > `--host-cert` >
+`~/.oni/tls/host-cert.pem` > `--trust-on-first-use` > `pin_required`,
+export validation, the 0700 directory and 0600 files, and the ten-year
+self-signed EC P-256 client identity. `attach.rs` owns the loop: the Offer
+with `peer.kind = "client"` (the `generation` key omitted on a first
+attach, never `null`), the saved generation in `state.json`, a 5 s heartbeat
+that appends `metrics.jsonl` and sends `machine.report`, full-jitter
+reconnect (250 ms doubling, 30 s cap, reset after a connection that was
+attached), and the exit codes: 3 for `stale_generation`,
+`unsupported_contract`, `peer_key_mismatch` or a connect-time pin mismatch,
+4 for the memory budget, 2 otherwise, each with one `{"reason"}` line on
+stderr. `budget.rs` and `report.rs` own the RSS/load probes and the
+over/under counters: shed and restrict on the first beat over budget
+(`machine.exec` refused `exec_not_available`, `fs_stream` `begin` refused
+`too_large`), lift after two beats under, exit 4 on the third consecutive
+beat over.
+
+`handlers.rs` is the dispatch: `SUPPORTED` is `fs.read`, `fs.write`,
+`shell.exec`, `pty.session`; the attach offers the filesystem only with an
+export, terminals only when `tmux` passed its probe, exec always. Granted
+methods route to the drivers; a granted-but-unoffered method answers the
+driver's refusal; `run_code`/`peek_code` answer `kernel_not_available`,
+`screen_read` `screen_not_available`, `input_write` `input_not_available`,
+`cancel_code` `{cancelled: false}` (the strict result schema has no
+refusal), and host-served names are invalid methods. Detach drops the grant
+and aborts every transfer; `Pressure::retained` reports
+`{pty_bytes, transfers}` and `shed` aborts all transfers then releases the
+largest terminal buffer with cursors kept valid. `fs/` (confine, op,
+stream) mirrors the host driver: descriptor-pinned no-follow traversal with
+bounded link expansion, 256 KiB read/write caps, 1000 list entries, 32 open
+transfers, staged writes published after digest match, and exclusive create
+(`O_EXCL`, no link following, `already_exists` for file, directory or
+symlink, no-replace rename at `finish`; the host uses a hard link, and a
+filesystem without no-replace rename answers `io_error`). `exec.rs` confines
+cwd to a granted export, shares a 256 KiB output budget, and kills the
+process group on timeout, cancel or drop. `pty/` runs one tmux control
+client on the default server (control session `oni-pty-control`) with
+attach-time replay, a 1 MiB live window per terminal, 256 KiB reads, a
+1000-terminal cap and restart rediscovery.
+
+`script/check-clients-conformance.ts` (root `bun run clients:conformance`,
+run by the Clients CI job after `clients:test`, lcov uploaded for the
+patch-coverage gate) drives a prebuilt `clients/target/debug/mclient`
+against `createMachineHost` over a temporary unix socket through ten
+checks: join receipt, first attach at generation 1 with `peer.kind` client,
+fs parity plus `already_exists`, a 528,609-byte chunked stream with digest,
+exec and `timed_out`, the terminal sequence over tmux, kill and re-admission
+at the same generation, routing to the re-admitted connection, a synthetic
+stale generation refused with exit 3, and an attach with tmux stripped from
+`PATH` that offers no `pty.session` and refuses `pty_open`
+`pty_not_available`. An absent binary fails the run instead of building.
+`script/scripts-lanes.ts` gives the harness its own `clients-conformance`
+lane owned by the Clients job, and `script/ci-plan.ts` selects that job for
+the two script files.
+
+Not shipped: code cells, screen reading and input injection on the client;
+replay-cache bytes of open transfers in `metrics.jsonl` (measured by
+`FsDriver::retained_bytes`, not yet wired through `Retained`); session
+sync, project sync and any dialect-pack work (later phases of #1622). The
+generated Rust type names follow the alphabetically first literal property
+of a variant (adding `create` renamed `FsStreamRequestBeginMode` to
+`FsStreamRequestExclusiveMode`), which the client absorbs but a later
+generator fix should stabilize.
+
+Receipts (node reports under the campaign's `waves/mc-p3/`, lead-verified
+2026-10-22 to 2026-10-25): `cargo llvm-cov -p oni-machine-client` lines at
+100.00% for every source file across the `attach`, `cli`, `transport`,
+`fs`, `exec`, `pty` and `handlers` targets (attach 28, cli 7, transport 31,
+fs 18, exec 10, pty 9, handlers 9 integration tests plus 52 library tests,
+0 failures); `cargo clippy --all-targets -- -D warnings` and `cargo fmt
+--check` clean; no `#[allow]`, `#[ignore]` or coverage exclusions.
+Conformance: `clients conformance: 10 checks passed` with
+`script/check-clients-conformance.ts` at 372/372 lines; `bun test` over
+`script/ci-plan.test.ts`, `script/scripts-lanes.test.ts`, `script/ci.test.ts`
+and `script/check-clients-conformance.test.ts` 116 pass / 0 fail once the
+null-generation offer fix landed in `attach.rs`. A live host-to-client run
+over TLS on the fleet was not part of these receipts.
+
 ## #1637 session-file migration removal (PR pending)
 
 On `core/1637-legacy-migration-removal` (2026-10-24, base `7705b035e` after

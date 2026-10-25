@@ -1,17 +1,17 @@
-//! `mclient`: the machine-side client that joins a machine to an oni host.
-//! This phase only fixes the command surface; `join` and `run` are not
-//! implemented yet.
-
-use std::process::ExitCode;
+use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
+use oni_machine_client::{
+    attach::{self, AttachError},
+    config::{self, JoinOptions},
+    handlers,
+};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
 #[command(name = "mclient", disable_version_flag = true)]
 struct Cli {
-    /// Print the client version and the machine contract version.
     #[arg(long)]
     version: bool,
     #[command(subcommand)]
@@ -20,16 +20,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Enroll this machine with an oni host.
-    Join {
-        /// Host to join.
-        host: String,
+    Join(JoinOptions),
+    Run {
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
-    /// Serve the machine contract for an enrolled host.
-    Run,
 }
 
-fn main() -> ExitCode {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
     let cli = Cli::parse();
     if cli.version {
         println!(
@@ -38,14 +37,26 @@ fn main() -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
-    match cli.command {
-        Some(Command::Join { .. } | Command::Run) => {
-            eprintln!("not implemented in this phase");
-            ExitCode::from(2)
-        }
+    let result = match cli.command {
+        Some(Command::Join(options)) => join(&options).await,
+        Some(Command::Run { config }) => attach::run_default(config.as_deref()).await,
         None => {
             eprintln!("usage: mclient --version | join <host> | run");
-            ExitCode::from(2)
+            return ExitCode::from(2);
+        }
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{}", serde_json::json!({"reason": error.reason()}));
+            ExitCode::from(error.exit_code())
         }
     }
+}
+
+async fn join(options: &JoinOptions) -> Result<(), AttachError> {
+    let enrollment = attach::join(options, &config::root(), &handlers::SUPPORTED).await?;
+    eprint!("{}", enrollment.notice());
+    println!("{}", enrollment.receipt);
+    Ok(())
 }

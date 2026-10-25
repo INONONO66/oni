@@ -35,6 +35,10 @@ test("shard commands execute each assigned test exactly once without hash shardi
     expect(command.some((arg) => arg.startsWith("--shard"))).toBe(false);
     return command.filter((arg) => arg.endsWith(".test.ts")).map((arg) => arg.slice(2));
   });
-  expect(selected.sort()).toEqual([...new Bun.Glob("**/*.test.ts").scanSync({ cwd: import.meta.dir })].sort());
+  const partitionOwned = [...new Bun.Glob("**/*.test.ts").scanSync({ cwd: import.meta.dir })].filter(
+    (path) => !scriptsLanes["clients-conformance"].some((entry) => entry === path),
+  );
+  expect(selected.sort()).toEqual(partitionOwned.sort());
+  expect(scriptTests("clients-conformance")).toEqual(["check-clients-conformance.test.ts"]);
   expect(() => scriptTestCommand("scripts-tooling-3")).toThrow("invalid script partition");
 });

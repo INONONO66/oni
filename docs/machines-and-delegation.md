@@ -242,6 +242,112 @@ closed as `MachinesFailure` (`generation.read` / `generation.compareAndSet`).
 The app passes `createFileGenerationStore` with `ONI_MACHINES_GENERATIONS`,
 default `~/.oni/machines/generations.json`.
 
+### 2.3.2 The machine client (`mclient`, #1626)
+
+`clients/machine-client` is the second peer kind on the same wire: a single
+Rust binary that joins a host once and then attaches with
+`peer: { kind: "client", contractVersion: oni_protocol::CONTRACT_VERSION }`.
+The host treats it like any daemon (same enrollment, same admission order,
+same handles); the differences are what it offers and how it is operated.
+
+**Transport.** Frames are UTF-8, LF-terminated JSON, at most 16 MiB whether
+complete or still pending. Calls get monotonic `c<n>` ids, a 30 s timeout,
+and a 5 s connect timeout. Inbound host requests run 16 at a time with 64
+waiting; the 81st blocked request is answered with error code 4001 and the
+connection is closed. A unix socket (`join --unix <path>`) carries no peer
+key; TLS connections present the client's own certificate and verify the
+host by the SHA-256 of its SPKI DER against the persisted pin (next
+paragraph and `docs/key-generation.md`). A pin mismatch at connect time is
+`peer_key_mismatch` and terminal.
+
+**Join and run.** `mclient join <host> [--name] [--tag]* [--export
+name=/abs/path]* [--host-pin hex | --host-cert pem | --trust-on-first-use]
+[--unix path] [--memory-budget-mb N]` writes `~/.oni/machine-client/`
+(directory 0700; `client.json`, `client-key.pem`, `client-cert.pem`,
+`host-pin`, `state.json` and `metrics.jsonl` all 0600), prints the
+enrollment receipt `{machineId, name, publicKey, allowedCapabilities,
+allowedExports}` on stdout for the Owner's `provision machine_add`, and
+clears any saved generation. `machineId` is the slug of `--name` (default:
+the hostname). `allowedCapabilities` always lists all four supported
+capabilities so a later attach can offer whatever is available then.
+`mclient run [--config path]` loads that file and attaches forever; the
+process ends only on a terminal condition. Failures print one JSON line
+`{"reason": ...}` on stderr and exit 3 for a terminal refusal
+(`stale_generation`, `unsupported_contract`, `peer_key_mismatch`, or a host
+pin mismatch on connect), 4 for the memory budget, 2 for anything else.
+
+**Generation and reconnect.** The accepted `AttachResult.attached.generation`
+is saved to `state.json` and presented on every later offer; a first offer
+omits the `generation` key entirely, because the Offer schema allows absence,
+never `null`. An unreachable host, a timed-out attach call, or a
+non-terminal refusal (for example `machine_not_enrolled`) is a loss, not a
+failure: the client sleeps a full-jitter backoff (250 ms doubling per
+attempt, capped at 30 s) and redials. A connection that closes after a
+successful attach resets the backoff. A terminal refusal exits 3 and nothing
+is rescheduled, which is how the host's `stale_generation` fence ends a
+displaced client.
+
+**Offered capabilities.** `fs.read` and `fs.write` are offered only when the
+config has at least one export, `pty.session` only when `tmux` answers its
+version probe at start, and `shell.exec` always. Enrollment ∩ offer stays
+the authority: a granted-but-unoffered method answers the driver's own
+refusal (`fs_not_available`, `exec_not_available`, `pty_not_available`,
+`export_not_available`), and before attach every method is refused
+(`machine_not_attached` for `fs_stream`). Detach drops the grant and aborts
+every open transfer.
+
+**Parity with the daemon.** Filesystem: `fs_op` read/write/list/stat and
+`fs_stream` begin/chunk/finish/abort over the same descriptor-pinned,
+no-follow confinement (each symlink expanded by rewriting the remaining path
+from the export root, at most 40 expansions), 256 KiB read and write caps
+with `truncated`, 1000 list entries, 32 open transfers (the 33rd is refused
+without eviction), staged writes under `.oni-transfer-<sha256(id)[..32]>`
+published only after the SHA-256 digest matches at `finish`, and the
+exclusive-create contract: `create: "exclusive"` opens with `O_EXCL`,
+follows no link anywhere on the path, refuses an existing file, directory or
+symlink with `already_exists`, and publishes a stream with a no-replace
+rename (the host uses a hard link; the observable result is the same on
+ext4 and APFS, and a filesystem without a no-replace rename answers
+`io_error`). Exec: `machine.exec` with cwd confined to a granted export, a
+256 KiB shared stdout+stderr budget with `truncated`, the 30 s host deadline
+answered `timed_out`, and the whole process group killed on timeout,
+cancellation or drop. Terminals: `pty_open/write/read/resize/close/list` over
+one tmux control-mode client on the user's default server (control session
+`oni-pty-control`), with the attach-time scrollback replay, a 1 MiB live
+window per terminal, 256 KiB reads, cursor continuity across client restart,
+and `pty_read` with `source: "screen"` for the pane snapshot.
+
+**Not offered.** `run_code` and `peek_code` answer `kernel_not_available`,
+`cancel_code` answers `{cancelled: false}` (the result schema has no refusal
+variant), `screen_read` answers `screen_not_available` and `input_write`
+answers `input_not_available`, each after its params decode; a host-served
+name (`attach`, `report`, `call_tool`, `pty_output`) is an invalid method.
+
+**Memory budget and metrics.** Every 5 s heartbeat appends one line to
+`metrics.jsonl` (`at`, `rssBytes`, `inFlight`, `retainedPtyBytes`,
+`transfers`) and samples RSS against `memoryBudgetMb` (default 96). The
+first beat over budget sheds (every open transfer is aborted, then the
+terminal holding the most output releases its buffers; its cursors stay
+valid and a reader inside the released range gets `data: ""` with
+`truncated: true`) and enters a restricted state in which `machine.exec` is
+refused `exec_not_available` and `fs_stream` `begin` is refused `too_large`;
+two consecutive beats under budget lift the restriction, and the third
+consecutive beat over budget exits 4 (`memory budget exceeded`). Replay-cache
+bytes held by open transfers are measured but not yet written to
+`metrics.jsonl`.
+
+**Conformance.** `bun run clients:conformance`
+(`script/check-clients-conformance.ts`) drives a prebuilt
+`clients/target/debug/mclient` against the TypeScript host over a temporary
+unix socket: join, first attach (`peer.kind` client at generation 1), fs
+parity including the `already_exists` refusal, a chunked 528,609-byte
+stream with digest, exec and its `timed_out` deadline, the full terminal
+sequence over tmux, kill and re-admission at the same generation, a
+synthetic stale generation refused with exit 3, and finally an attach with
+tmux stripped from `PATH` that must offer no `pty.session` and refuse
+`pty_open` with `pty_not_available`. The harness never builds the binary
+and never sleeps; it waits on host `Attached`/`Detached` events.
+
 ### 2.4 Self machine (#1271)
 
 The brain host is an ordinary attached machine. `machines.self` enrolls the
