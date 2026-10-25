@@ -168,7 +168,7 @@ export const ReadRpc = Rpc.make("Read", {
 export class ToolTurnRefused extends Schema.TaggedError<ToolTurnRefused>(
   "@oni/agent/cluster/ToolTurnRefused",
 )("ToolTurnRefused", {
-  code: Schema.Literals(["busy", "closed", "origin", "malformed", "unavailable"]),
+  code: Schema.Literals(["busy", "closed", "origin", "malformed", "unavailable", "duplicate"]),
 }) {}
 
 /** A live caller owns this request; unlike deliveries it must not replay after disconnect. */

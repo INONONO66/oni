@@ -5,7 +5,9 @@ import { TransportFailure, type Realtime, type RealtimeEvent, type RealtimeToolC
 import type { PlainValue, Tool } from "@oni/protocol";
 import { Effect, Queue, Stream } from "effect";
 import { z } from "zod";
+import { createUpsampler } from "../src/composition/live-pcm";
 import { createLiveVoice, type CallEndReason } from "../src/composition/live-voice";
+import { bindSessionToolTurn, createSessionLivePlane } from "../src/composition/cluster-runtime";
 import { createSendMessageTool } from "../src/bundles/messaging/send-message/index";
 import { compiledPolicy } from "../../../packages/agent/test/helpers/compiled-policy";
 import { toolTurnWorld } from "../../../packages/agent/test/helpers/tool-turn";
@@ -24,7 +26,7 @@ afterEach(async () => {
 const target = { kind: "contact", id: "person:owner", surface: "discord:bot", conversation: { channelId: "voice" } } as const;
 const request = { to: target, kind: "call" as const };
 
-function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failResponse = false) {
+function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failResponse = false, opening?: Promise<void>, modelPcm = new Uint8Array([1, 0])) {
   const plane = testPlane();
   planes.push(plane);
   plane.stores.persons.put({
@@ -42,9 +44,11 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   const outputs: Uint8Array[] = [];
   const responses: { id: string; value: PlainValue }[] = [];
   const outcomes: { sessionId: string; call: string; reason: CallEndReason; releaseFailure?: string }[] = [];
+  const incidents: { message: string; error: string }[] = [];
   const joined = Promise.withResolvers<void>();
   const answered = Promise.withResolvers<void>();
   const audioWritten = Promise.withResolvers<void>();
+  const leaveStarted = Promise.withResolvers<void>();
   const ended = Promise.withResolvers<void>();
   const speech = Promise.withResolvers<void>();
   const capturedSpeech: Uint8Array[] = [];
@@ -52,12 +56,16 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   let closes = 0;
   let bodyCalls = 0;
   let failLeave = false;
+  let failEnd = false;
+  let holdLeave: Promise<void> | undefined;
   const handle: PcmVoiceHandle = {
     pcmIn: Stream.toAsyncIterable(Stream.fromQueue(inbound)),
     pcmOut: { write: async (pcm) => { outputs.push(pcm); audioWritten.resolve(); } },
     events: Stream.toAsyncIterable(Stream.fromQueue(voiceEvents).pipe(Stream.takeWhile((event) => event !== null))),
     leave: async () => {
       leaves += 1;
+      leaveStarted.resolve();
+      await holdLeave;
       await runEffect(Queue.shutdown(inbound));
       await runEffect(Queue.shutdown(voiceEvents));
       if (failLeave) throw new Error("voice release refused");
@@ -67,7 +75,7 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   const realtime: Realtime = {
     open: ({ audioIn, audioOut }) => failRealtime
       ? Effect.fail(new TransportFailure({ operation: "realtime.socket", message: "handshake rejected", cause: "rejected" }))
-      : Effect.acquireRelease(
+      : Effect.promise(() => opening ?? Promise.resolve()).pipe(Effect.andThen(Effect.acquireRelease(
       Effect.succeed({
         toolCalls: Stream.fromQueue(calls),
         events: Stream.fromQueue(events).pipe(Stream.takeWhile((event) => event !== null)),
@@ -84,8 +92,8 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
         capturedSpeech.push(pcm);
         speech.resolve();
       })))),
-      Effect.tap(() => Effect.forkScoped(audioOut(new Uint8Array([1, 0])))),
-    ),
+      Effect.tap(() => Effect.forkScoped(audioOut(modelPcm))),
+    ))),
   };
   let world: Effect.Success<ReturnType<typeof toolTurnWorld>>;
   const driver = createLiveVoice({
@@ -94,7 +102,12 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
     id: () => "call-1",
     run: (effect, signal) => signal === undefined ? runEffect(effect) : runAbortableEffect(effect, signal),
     executeTool: (_id, input) => world.tool({ ...input, waitMs: toolWaitMs }),
-    ended: (end) => { outcomes.push(end); ended.resolve(); },
+    incident: (message, error) => { incidents.push({ message, error: String(error) }); },
+    ended: (end) => {
+      outcomes.push(end);
+      ended.resolve();
+      if (failEnd) throw new Error("end callback failed");
+    },
   });
   const nested = Core.defineTool({
     name: "probe", category: "query", description: "Probe",
@@ -111,6 +124,9 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
     priority: 1, generation: 1,
   }] : []);
   world = acquireSyncEffect(toolTurnWorld({ plane, sessionId, definitions: [send, nested], policy }));
+  const turns = runSyncEffect(world.plane.runtime(world.runtime).turns.pipe(Effect.provide(world.context)));
+  const runTool = bindSessionToolTurn(turns, world.runtime, world.handle.scope, createSessionLivePlane());
+  Object.assign(world.handle.env.ports, { runTool });
   cleanups.push(async () => { await driver.endAll("shutdown"); });
   const execute = async (value = request) => {
     let receipt: Tool.Result | undefined;
@@ -127,10 +143,13 @@ function fixture(deny = false, failRealtime = false, toolWaitMs = 5_000, failRes
   };
   return {
     plane, kernel, world, sessionId, execute, driver, routes, inbound, voiceEvents, calls, events, answeredCalls,
-    joined: joined.promise, answered: answered.promise, audioWritten: audioWritten.promise, ended: ended.promise,
-    speech: speech.promise, capturedSpeech, responses, outputs, outcomes,
+    joined: joined.promise, answered: answered.promise, audioWritten: audioWritten.promise, leaveStarted: leaveStarted.promise, ended: ended.promise,
+    speech: speech.promise, capturedSpeech, responses, outputs, outcomes, incidents,
     leaves: () => leaves, closes: () => closes, bodyCalls: () => bodyCalls,
+    usesAppDispatcher: () => world.handle.env.ports.runTool === runTool,
     rejectLeave: () => { failLeave = true; },
+    rejectEnd: () => { failEnd = true; },
+    holdLeave: (pending: Promise<void>) => { holdLeave = pending; },
   };
 }
 
@@ -146,6 +165,7 @@ test("a completed Resident turn admits a later tool in a separate gated turn", a
   await bounded(f.answered);
   expect(f.responses).toEqual([{ id: "tool-1", value: { n: 7 } }]);
   expect(f.bodyCalls()).toBe(1);
+  expect(f.usesAppDispatcher()).toBe(true);
   const actions = f.kernel.historyPage(f.sessionId, { afterRevision: 0 }).actions;
   const tool = actions.filter((row) => row.kind === "tool" && z.object({ op: z.literal("probe"), phase: z.string() }).safeParse(row.intent.value).success);
   expect(tool.filter((row) => z.object({ phase: z.literal("intent") }).safeParse(row.intent.value).success)).toHaveLength(1);
@@ -160,6 +180,7 @@ test("a completed Resident turn admits a later tool in a separate gated turn", a
   await f.driver.end(f.sessionId, "interrupted");
   expect(f.leaves()).toBe(1);
   expect(f.closes()).toBe(1);
+  expect(f.incidents).toEqual([]);
 });
 
 test("a denied realtime tool is answered once and never runs its body", async () => {
@@ -224,16 +245,43 @@ test("the call releases both scopes when voice leave fails, and end is idempoten
   expect(f.leaves()).toBe(1);
   expect(f.closes()).toBe(1);
   expect(f.outcomes).toEqual([{ sessionId: f.sessionId, call: "call-1", reason: "shutdown", releaseFailure: "Error: voice release refused" }]);
+  expect(f.incidents).toEqual([{ message: "live call call-1 release failed", error: "Error: Error: voice release refused" }]);
+});
+
+test("interrupt is a no-op when the session has no live call", async () => {
+  const f = fixture();
+  await runEffect(f.driver.interrupt(f.sessionId));
+  expect(f.outcomes).toEqual([]);
+});
+
+test("interrupt ends a live call with an interrupted outcome", async () => {
+  const f = fixture();
+  await bounded(f.execute());
+  await runEffect(f.driver.interrupt(f.sessionId));
+  expect(f.outcomes[0]?.reason).toBe("interrupted");
+  expect(f.leaves()).toBe(1);
+  expect(f.closes()).toBe(1);
+});
+
+test("interrupt maps an end rejection to the typed call failure", async () => {
+  const f = fixture();
+  await bounded(f.execute());
+  f.rejectEnd();
+  expect(await runEffect(Effect.flip(f.driver.interrupt(f.sessionId)))).toMatchObject({
+    _tag: "AgentFailure", operation: "call.interrupt", cause: "Error: end callback failed",
+  });
 });
 
 test.each([
-  ["owner_left", { type: "speaker_left", externalId: "owner-user" }],
-  ["voice_disconnected", { type: "disconnected", reason: "left" }],
-  ["voice_error", { type: "error", reason: "bad voice" }],
-] as const)("a %s voice event ends the call and releases both scopes", async (reason, event) => {
+  ["owner_left", (f: ReturnType<typeof fixture>) => Queue.offer(f.voiceEvents, { type: "speaker_left", externalId: "owner-user" })],
+  ["voice_disconnected", (f: ReturnType<typeof fixture>) => Queue.offer(f.voiceEvents, { type: "disconnected", reason: "left" })],
+  ["voice_error", (f: ReturnType<typeof fixture>) => Queue.offer(f.voiceEvents, { type: "error", reason: "bad voice" })],
+  ["realtime_closed", (f: ReturnType<typeof fixture>) => Queue.offer(f.events, { type: "closed", reason: "limit" })],
+  ["realtime_error", (f: ReturnType<typeof fixture>) => Queue.offer(f.events, { type: "error", reason: "socket" })],
+] as const)("a %s event ends the call and releases both scopes", async (reason, send) => {
   const f = fixture();
   await bounded(f.execute());
-  await runEffect(Queue.offer(f.voiceEvents, event));
+  await runEffect(send(f));
   await bounded(f.ended);
   expect(f.outcomes[0]?.reason).toBe(reason);
   expect(f.leaves()).toBe(1);
@@ -251,19 +299,6 @@ test.each(["voice", "realtime"] as const)("ending the %s event stream releases b
   expect(f.closes()).toBe(1);
 });
 
-test.each([
-  ["realtime_closed", { type: "closed", reason: "limit" }],
-  ["realtime_error", { type: "error", reason: "socket" }],
-] as const)("a %s event ends the call and releases both scopes", async (reason, event) => {
-  const f = fixture();
-  await bounded(f.execute());
-  await runEffect(Queue.offer(f.events, event));
-  await bounded(f.ended);
-  expect(f.outcomes[0]?.reason).toBe(reason);
-  expect(f.leaves()).toBe(1);
-  expect(f.closes()).toBe(1);
-});
-
 test("a PCM frame split across input chunks reaches the realtime stream", async () => {
   const f = fixture();
   await bounded(f.execute());
@@ -274,8 +309,58 @@ test("a PCM frame split across input chunks reaches the realtime stream", async 
   await bounded(f.speech);
   expect(f.capturedSpeech.reduce((sum, chunk) => sum + chunk.length, 0)).toBe(2);
   await bounded(f.audioWritten);
-  expect(f.outputs[0]?.length).toBe(8);
+  expect(f.outputs[0]).toEqual(createUpsampler().push(new Uint8Array([1, 0])));
   await f.driver.endAll("shutdown");
+});
+
+test("model PCM reaches voice output with distinguishable ordered samples after filter startup", async () => {
+  const waveform = new Uint8Array(256 * 2);
+  const view = new DataView(waveform.buffer);
+  for (let i = 0; i < 256; i++) view.setInt16(i * 2, i < 96 ? 12_000 : i < 176 ? -8_000 : 4_000, true);
+  const f = fixture(false, false, 5_000, false, undefined, waveform);
+  await bounded(f.execute());
+  await bounded(f.audioWritten);
+  const expected = createUpsampler().push(waveform);
+  expect(f.outputs).toEqual([expected]);
+  expect(Array.from(expected.subarray(512, 768)).some((sample) => sample !== 0)).toBe(true);
+  await f.driver.endAll("shutdown");
+});
+
+test("stopping closes tool admission before a held voice leave settles", async () => {
+  const f = fixture();
+  await bounded(f.execute());
+  const leave = Promise.withResolvers<void>();
+  f.holdLeave(leave.promise);
+  const stopping = f.driver.end(f.sessionId, "shutdown");
+  try {
+    await bounded(f.leaveStarted);
+    await runEffect(Queue.offer(f.calls, { callId: "after-stop", name: "probe", arguments: { n: 5 } }));
+    expect(f.bodyCalls()).toBe(0);
+  } finally {
+    leave.resolve();
+    await bounded(stopping);
+  }
+  expect(f.bodyCalls()).toBe(0);
+});
+
+test.each([
+  ["owner_left", { type: "speaker_left", externalId: "owner-user" }],
+  ["voice_disconnected", { type: "disconnected", reason: "dropped" }],
+  ["voice_error", { type: "error", reason: "device" }],
+] as const)("%s during realtime acquisition refuses the joined receipt and releases voice", async (reason, event) => {
+  const handshake = Promise.withResolvers<void>();
+  const f = fixture(false, false, 5_000, false, handshake.promise);
+  const receipt = f.execute();
+  await bounded(f.joined);
+  try {
+    await runEffect(Queue.offer(f.voiceEvents, event));
+    expect((await bounded(receipt)).isError).toBe(true);
+    await bounded(f.ended);
+    expect(f.outcomes[0]?.reason).toBe(reason);
+    expect(f.leaves()).toBe(1);
+  } finally {
+    handshake.resolve();
+  }
 });
 
 test("join refusal and realtime failure do not return a joined receipt", async () => {

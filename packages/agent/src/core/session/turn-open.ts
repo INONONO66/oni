@@ -119,12 +119,17 @@ export function promptInboundAuthority(
 
 const ToolTurnOrigin = z.object({ toolCall: Tool.Call, sourceTurnId: z.string() });
 
+export function externalToolCall(origin: PlainValue): Tool.Call | undefined {
+  const marker = ToolTurnOrigin.safeParse(origin);
+  return marker.success ? marker.data.toolCall : undefined;
+}
+
 /** Only Core's external entry writes this marker on an action consumed by its own turn. */
 export function externalToolOrigin(kernel: SessionKernel, turnId: string): Delivery.Origin | undefined {
   const intent = turnIntent(kernel.actionById(turnId));
   for (const id of intent?.deliveryIds ?? []) {
     const action = kernel.actionById(id);
-    if (action?.kind === "action" && ToolTurnOrigin.safeParse(action.intent.value).success)
+    if (action?.kind === "action" && externalToolCall(action.intent.value) !== undefined)
       return action.intent;
   }
   return undefined;
@@ -132,8 +137,14 @@ export function externalToolOrigin(kernel: SessionKernel, turnId: string): Deliv
 
 export function turnInboundAuthority(kernel: SessionKernel, turnId: string, promptId: string | undefined) {
   const external = externalToolOrigin(kernel, turnId);
+  const action = turnIntent(kernel.actionById(turnId))?.deliveryIds
+    .map((id) => kernel.actionById(id))
+    .find((row) => row?.kind === "action" && externalToolCall(row.intent.value) === undefined);
   const origin = promptId === undefined ? undefined : kernel.actionById(promptId)?.intent;
-  return external === undefined ? promptInboundAuthority(promptId, origin?.value) : inboundAuthority(external.value);
+  if (external !== undefined) return inboundAuthority(external.value);
+  if (action !== undefined && turnIntent(kernel.actionById(turnId))?.deliveryIds
+    .every((id) => kernel.actionById(id)?.kind !== "prompt")) return inboundAuthority(action.intent.value);
+  return promptInboundAuthority(promptId, origin?.value);
 }
 
 /** Reuse the recorded initiating treatment, never a tier chosen by an external model. */
@@ -141,11 +152,14 @@ export function toolSourceOrigin(kernel: SessionKernel, sessionId: string, turnI
   const turn = kernel.actionById(turnId);
   if (turn?.sessionId !== sessionId) return undefined;
   const intent = turnIntent(turn);
+  let actionOrigin: Delivery.Origin | undefined;
   for (const id of [...(intent?.deliveryIds ?? [])].reverse()) {
     const action = kernel.actionById(id);
     if (action?.kind === "prompt") return action.intent;
+    if (action?.kind === "action" && externalToolCall(action.intent.value) === undefined)
+      actionOrigin ??= action.intent;
   }
-  return externalToolOrigin(kernel, turnId);
+  return actionOrigin ?? externalToolOrigin(kernel, turnId);
 }
 
 /** A runner with no output is a typed missing-output failure, not a policy refusal. */

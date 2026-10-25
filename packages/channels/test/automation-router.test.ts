@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Ingress } from "@oni/protocol";
+import { z } from "zod";
 import { ledger } from "./helpers/ledger.js";
 import { runEffect } from "./helpers/effect.js";
 import { commits, createMappedOwnerSession, makeRouter, ownerFacts, ownerPrompt, ownerSender, registerOwnerDm, resetRouterState, routingDecisions } from "./router/_router-fixture.js";
@@ -161,7 +162,10 @@ test("an unrouted call records a filtered decision without preparing or running 
     .toMatchObject({ status: "executed", handle: { target: "worker" } });
   expect(commits).toHaveLength(1);
   expect(commits[0]?.kind).toBe("action");
-  expect(JSON.parse(commits[0]?.content ?? "").event.messages[0].body).toBeDefined();
+  const recorded = z.object({
+    event: z.object({ messages: z.array(z.object({ body: z.string() })) }),
+  }).parse(JSON.parse(commits[0]?.content ?? ""));
+  expect(recorded.event.messages[0]?.body).toBeDefined();
   expect((await runEffect(matchedRouter.ingest(ownerSender, { ...ownerFacts, eventId: "ordinary" }))).status)
     .toBe("executed");
 });

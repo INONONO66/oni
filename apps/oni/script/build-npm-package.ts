@@ -31,7 +31,7 @@ const staging = process.argv[2] ?? join(appDir, "dist-npm");
  */
 const nativeAddonVersions = new Map<string, string>();
 const sdkDir = dirname(Bun.resolveSync("agent-messenger/package.json", join(appDir, "..", "..", "packages", "channels")));
-for (const name of ["opusscript", "@discordjs/opus"]) {
+for (const name of ["opusscript", "@discordjs/opus", "@snazzah/davey"]) {
   const manifest = Bun.resolveSync(`${name}/package.json`, sdkDir);
   const { version } = JSON.parse(readFileSync(manifest, "utf-8")) as { readonly version: string };
   nativeAddonVersions.set(name, version);

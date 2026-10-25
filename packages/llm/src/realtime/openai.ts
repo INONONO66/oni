@@ -9,6 +9,9 @@ import { authHeaders, echoMatches, sessionUpdate } from "./config";
 import { decodeArguments, decodeFrame, type ServerEvent } from "./events";
 import type { Realtime, RealtimeEvent, RealtimeToolCall, RealtimeSession } from "./index";
 
+const MAX_QUEUED_PCM_BYTES = 48_000;
+const HANDSHAKE_TIMEOUT_MS = 10_000;
+
 export interface RealtimeSocket {
   onmessage: ((event: MessageEvent) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
@@ -25,19 +28,11 @@ function transport(message: string): TransportFailure {
   return new TransportFailure({ operation: "realtime.socket", message, cause: message });
 }
 
-function decodeIncoming(message: MessageEvent):
-  | { readonly ok: true; readonly frame: ServerEvent | undefined }
-  | { readonly ok: false; readonly failure: LlmError } {
-  try { return { ok: true, frame: decodeFrame(String(message.data)) }; }
-  catch (cause) {
-    return { ok: false, failure: cause instanceof InvalidProviderData ? cause : transport("Invalid realtime frame") };
-  }
-}
-
 export function makeRealtime(input: {
   readonly authFilePath: string;
   readonly rows?: readonly ProviderRow[];
   readonly socket?: SocketFactory;
+  readonly handshakeTimeoutMs?: number;
 }): Realtime {
   return {
     open: (request) => Effect.gen(function* () {
@@ -61,11 +56,15 @@ export function makeRealtime(input: {
       let open = false;
       let created = false;
       const update = sessionUpdate(request, selected);
-      const names = update.session.tools.map((tool) => tool.name);
+      let queuedBytes = 0;
 
       const finish = (reason: string) => {
         if (closed) return;
         closed = true;
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close(1000);
         Deferred.doneUnsafe(stopped, Effect.void);
         Queue.offerUnsafe(events, { type: "closed", reason });
         Queue.offerUnsafe(events, null);
@@ -82,12 +81,8 @@ export function makeRealtime(input: {
           ),
           catch: () => transport("Realtime socket could not open"),
         }),
-        (connection) => Effect.sync(() => {
+        () => Effect.sync(() => {
           finish("scope closed");
-          connection.onmessage = null;
-          connection.onclose = null;
-          connection.onerror = null;
-          connection.close(1000);
         }),
       );
       const send = (frame: PlainValue): Effect.Effect<void, LlmError> => Effect.try({
@@ -146,7 +141,18 @@ export function makeRealtime(input: {
               emitError("Invalid output audio delta");
               return;
             }
-            Queue.offerUnsafe(output, Uint8Array.from(Buffer.from(frame.delta, "base64")));
+            const pcm = Uint8Array.from(Buffer.from(frame.delta, "base64"));
+            if (pcm.byteLength > MAX_QUEUED_PCM_BYTES - queuedBytes) {
+              const error = new InvalidProviderData({
+                operation: "realtime.audio", message: "Realtime output audio queue overflow",
+                cause: "queued PCM byte limit exceeded",
+              });
+              emitError(error.message);
+              finish("output audio overflow");
+              return;
+            }
+            queuedBytes += pcm.byteLength;
+            Queue.offerUnsafe(output, pcm);
             return;
           }
           case "conversation.item.input_audio_transcription.completed":
@@ -164,7 +170,7 @@ export function makeRealtime(input: {
         frame: Extract<ServerEvent, { type: "session.updated" }>,
         succeed: () => void, fail: (failure: LlmError) => void,
       ) => {
-        if (!echoMatches(frame, names)) {
+        if (!echoMatches(frame, update.session)) {
           fail(new InvalidProviderData({
             operation: "realtime.handshake", message: "Realtime session echo differs from requested audio or tools",
             cause: "session.updated mismatch",
@@ -195,7 +201,7 @@ export function makeRealtime(input: {
         message: MessageEvent, succeed: () => void, fail: (failure: LlmError) => void,
       ) => {
         if (closed) return;
-        const incoming = decodeIncoming(message);
+        const incoming = decodeFrame(String(message.data));
         if (!incoming.ok) {
           if (open) emitError(incoming.failure.message);
           else fail(incoming.failure);
@@ -223,18 +229,29 @@ export function makeRealtime(input: {
         socket.onmessage = (message) => {
           receive(message, () => { settled = true; resume(Effect.void); }, fail);
         };
-      });
-      yield* Effect.forkScoped(Stream.runForEach(
+      }).pipe(Effect.timeoutOrElse({
+        duration: input.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS,
+        orElse: () => Effect.fail(new TransportFailure({
+          operation: "realtime.handshake", message: "Realtime handshake timed out", cause: "handshake timeout",
+        })),
+      }));
+      const supervise = <A, E>(pump: Effect.Effect<A, E>, reason: string) =>
+        Effect.raceFirst(pump, Deferred.await(stopped)).pipe(
+          Effect.catchCause((cause) => Effect.sync(() => {
+            emitError(`${reason}: ${cause}`);
+            finish(reason);
+          })),
+        );
+      yield* Effect.forkScoped(supervise(Stream.runForEach(
         Stream.takeWhile(Stream.fromQueue(output), (chunk) => chunk !== null),
-        (chunk) => request.audioOut(chunk),
-      ));
-      yield* Effect.forkScoped(Effect.raceFirst(Stream.runForEach(request.audioIn, (chunk) =>
-        send({ type: "input_audio_buffer.append", audio: Buffer.from(chunk).toString("base64") })
-          .pipe(Effect.catch((failure) => Effect.sync(() => {
-            emitError(failure.message);
-            finish("socket send failed");
-          }))),
-      ), Deferred.await(stopped)));
+        (chunk) => {
+          queuedBytes -= chunk.byteLength;
+          return request.audioOut(chunk);
+        },
+      ), "Realtime audio output failed"));
+      yield* Effect.forkScoped(supervise(Stream.runForEach(request.audioIn, (chunk) =>
+        send({ type: "input_audio_buffer.append", audio: Buffer.from(chunk).toString("base64") }),
+      ), "Realtime audio input failed"));
       const session: RealtimeSession = {
         toolCalls: Stream.takeWhile(Stream.fromQueue(calls), (call) => call !== null),
         events: Stream.takeWhile(Stream.fromQueue(events), (event) => event !== null),

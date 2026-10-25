@@ -2,8 +2,9 @@ import { Core } from "@oni/agent";
 import { VoiceJoinRefused, type PersonStore, type ProviderVoiceRoute, type PcmVoiceHandle } from "@oni/channels";
 import type { Realtime, RealtimeSession, RealtimeToolCall } from "@oni/llm";
 import { toolResultText, type PlainValue, type Tool } from "@oni/protocol";
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 import { createDownsampler, createUpsampler } from "./live-pcm";
+import { ThrownError } from "../thrown";
 import type { CallPort } from "../bundles/messaging/send-message/index";
 
 interface CallRequest {
@@ -41,7 +42,8 @@ export interface LiveVoiceInputs {
   readonly role: (sessionId: string) => string | undefined;
   readonly id: () => string;
   readonly run: <A, E>(effect: Effect.Effect<A, E>, signal?: AbortSignal) => Promise<A>;
-  readonly ended: (outcome: LiveCallEnd) => void;
+  readonly ended?: (outcome: LiveCallEnd) => void;
+  readonly incident: (message: string, error: Error) => void;
   readonly executeTool: (
     sessionId: string,
     input: { readonly sourceTurnId: string; readonly call: Tool.Call; readonly waitMs: number },
@@ -58,15 +60,15 @@ function refused(code: string, detail: string): Core.ToolRefused {
 }
 
 async function joinVoice(route: ProviderVoiceRoute, request: CallRequest, speaker: string, signal: AbortSignal) {
-  try {
-    return await route({
-      surface: request.surface, channelId: request.channelId, speakerExternalId: speaker, signal,
-    });
-  } catch (error) {
-    if (error instanceof VoiceJoinRefused)
-      throw refused("call_join_refused", `${error.reason}: ${error.detail}`);
-    throw error;
+  const result = await route({
+    surface: request.surface, channelId: request.channelId, speakerExternalId: speaker, signal,
+  }).then((voice) => ({ voice }), ThrownError.transform((failure) => ({ failure })).parse);
+  if ("failure" in result) {
+    if (result.failure instanceof VoiceJoinRefused)
+      throw refused("call_join_refused", `${result.failure.reason}: ${result.failure.detail}`);
+    throw result.failure;
   }
+  return result.voice;
 }
 
 function failedCall(
@@ -94,7 +96,7 @@ function toolOutput(result: Tool.Result): PlainValue {
 }
 
 function endOnVoiceEvents(voice: PcmVoiceHandle, speaker: string, release: () => Promise<void>) {
-  return Stream.fromAsyncIterable(voice.events, (error) => new Error(String(error)))
+  return Stream.fromAsyncIterable(voice.events, ThrownError.parse)
     .pipe(Stream.runForEach((event) => {
       if (event.type === "speaker_left" && event.externalId === speaker)
         return Effect.promise(release).pipe(Effect.andThen(Effect.fail("owner_left" as CallEndReason)));
@@ -129,24 +131,30 @@ function runCall(
 ): Promise<CallEndReason> {
   const down = createDownsampler();
   const up = createUpsampler();
-  const speech = Stream.fromAsyncIterable(voice.pcmIn, (error) => new Error(String(error)))
+  const speech = Stream.fromAsyncIterable(voice.pcmIn, ThrownError.parse)
     .pipe(Stream.map((pcm) => down.push(pcm)), Stream.filter((pcm) => pcm.length > 0), Stream.orDie);
   const instructions = "You are the Owner's agent on a live voice call. Act only through your tools and keep spoken replies short.";
   return input.run(Effect.scoped(Effect.gen(function* () {
-    const session = yield* input.realtime.open({
-      instructions: request.opening === undefined ? instructions : `${instructions}\n${request.opening}`,
-      tools: specs,
-      audioIn: speech,
-      audioOut: (pcm) => Effect.tryPromise({
-        try: () => voice.pcmOut.write(up.push(pcm)),
-        catch: (error) => new Error(String(error)),
-      }).pipe(Effect.orDie),
-    });
-    joined();
-    const tools = Stream.runForEach(session.toolCalls, (call) => dispatchTool(input, session, call, request, callId))
-      .pipe(Effect.andThen(Effect.promise(release)), Effect.as("realtime_closed" as CallEndReason));
+    const voiceTermination = yield* Effect.forkScoped(
+      endOnVoiceEvents(voice, speaker, release), { startImmediately: true },
+    );
     return yield* Effect.raceAllFirst([
-      tools, endOnRealtimeEvents(session, release), endOnVoiceEvents(voice, speaker, release),
+      Effect.gen(function* () {
+        const session = yield* input.realtime.open({
+          instructions: request.opening === undefined ? instructions : `${instructions}\n${request.opening}`,
+          tools: specs,
+          audioIn: speech,
+          audioOut: (pcm) => Effect.tryPromise({
+            try: () => voice.pcmOut.write(up.push(pcm)),
+            catch: ThrownError.parse,
+          }).pipe(Effect.orDie),
+        });
+        joined();
+        const tools = Stream.runForEach(session.toolCalls, (call) => dispatchTool(input, session, call, request, callId, signal))
+          .pipe(Effect.andThen(Effect.promise(release)), Effect.as("realtime_closed" as CallEndReason));
+        return yield* Effect.raceAllFirst([tools, endOnRealtimeEvents(session, release)]);
+      }),
+      Fiber.join(voiceTermination),
     ]);
   })), signal);
 }
@@ -157,6 +165,7 @@ export function createLiveVoice(input: LiveVoiceInputs): {
   readonly end: (sessionId: string, reason: CallEndReason) => Promise<void>;
   readonly endAll: (reason: CallEndReason) => Promise<void>;
   readonly has: (sessionId: string) => boolean;
+  readonly interrupt: (sessionId: string) => Effect.Effect<void, Core.AgentFailure>;
 } {
   const active = new Map<string, ActiveCall>();
 
@@ -183,37 +192,44 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     let reason: CallEndReason = "realtime_closed";
     let handle: PcmVoiceHandle | undefined;
     let releaseFailure: string | undefined;
-    let voiceReleased = false;
+    let voiceRelease: Promise<void> | undefined;
     let stopped = false;
-    const releaseVoice = async () => {
-      if (voiceReleased || handle === undefined) return;
-      voiceReleased = true;
-      try { await handle.leave(); }
-      catch (error) { releaseFailure = String(error); }
+    const releaseVoice = (): Promise<void> => {
+      const leaving = handle;
+      if (leaving === undefined) return Promise.resolve();
+      return voiceRelease ??= leaving.leave().then(() => undefined, ThrownError.parse).then((failure) => {
+        if (failure !== undefined) releaseFailure = String(failure);
+      });
     };
     const stop = async (next: CallEndReason) => {
       if (!stopped) {
         stopped = true;
         reason = next;
-        await releaseVoice();
         controller.abort();
+        await releaseVoice();
       }
       await done;
     };
 
     const drive = async (): Promise<void> => {
-      try {
-        handle = await joinVoice(route, request, endpoint.externalId, controller.signal);
-        reason = await runCall(input, request, handle, specs, callId, endpoint.externalId,
-          joined.resolve, releaseVoice, controller.signal);
-      } catch (error) {
-        if (!stopped) reason = failedCall(error instanceof Error ? error : String(error), handle, stopped, joinedSettled, joined);
-      } finally {
-        await releaseVoice();
-        joined.reject(refused("call_realtime_failed", "call ended before the realtime session opened"));
-        active.delete(request.sessionId);
-        input.ended(finalOutcome(request.sessionId, callId, reason, releaseFailure));
-      }
+      const outcome = await joinVoice(route, request, endpoint.externalId, controller.signal)
+        .then((voice) => {
+          handle = voice;
+          return runCall(input, request, voice, specs, callId, endpoint.externalId,
+            joined.resolve, releaseVoice, controller.signal);
+        }, ThrownError.parse).then((value) => value, ThrownError.parse);
+      if (outcome instanceof Error) {
+        if (!stopped) {
+          reason = failedCall(outcome, handle, stopped, joinedSettled, joined);
+          if (isEndReason(outcome.message)) reason = outcome.message;
+        }
+      } else reason = outcome;
+      await releaseVoice();
+      joined.reject(refused("call_realtime_failed", "call ended before the realtime session opened"));
+      active.delete(request.sessionId);
+      if (releaseFailure !== undefined)
+        input.incident(`live call ${callId} release failed`, new Error(releaseFailure));
+      input.ended?.(finalOutcome(request.sessionId, callId, reason, releaseFailure));
     };
     let joinedSettled = false;
     void joined.promise.then(() => { joinedSettled = true; }, () => { joinedSettled = true; });
@@ -228,6 +244,15 @@ export function createLiveVoice(input: LiveVoiceInputs): {
     has: (sessionId) => active.has(sessionId),
     end: async (sessionId, reason) => { await active.get(sessionId)?.stop(reason); },
     endAll: async (reason) => { await Promise.all([...active.values()].map((call) => call.stop(reason))); },
+    interrupt: (sessionId) => Effect.suspend(() => {
+      const call = active.get(sessionId);
+      return call === undefined ? Effect.void : Effect.tryPromise({
+        try: () => call.stop("interrupted"),
+        catch: ThrownError.transform((error) => new Core.AgentFailure({
+          operation: "call.interrupt", cause: String(error),
+        })).parse,
+      });
+    }),
   };
 }
 
@@ -241,8 +266,10 @@ function dispatchTool(
   call: RealtimeToolCall,
   request: CallRequest,
   callId: string,
+  signal: AbortSignal,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
+    if (signal.aborted) return;
     const result = yield* input.executeTool(request.sessionId, {
       sourceTurnId: request.turnId,
       call: { id: `live:${callId}:${call.callId}`, tool: call.name, input: call.arguments },
@@ -252,8 +279,9 @@ function dispatchTool(
       Effect.catch((error) => Effect.succeed(
         error instanceof Core.ToolTurnRefused ? { error: { code: error.code } } : { error: String(error) },
       )),
-      Effect.catchDefect((error) => Effect.succeed({ error: String(error) })),
+      Effect.catchDefect(ThrownError.transform((error) => Effect.succeed({ error: String(error) })).parse),
     );
+    if (signal.aborted) return;
     yield* session.respondTool(call.callId, result);
   }).pipe(Effect.orDie);
 }

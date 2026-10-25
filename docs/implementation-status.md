@@ -902,6 +902,55 @@ model (blocked on the realtime key, #1641). Receipts:
 `apps/oni/test/{delivery-media,media-input,ws-parts}.test.ts`,
 `apps/oni/test/{process-media,process-media-transport,process-replies-timeout}.test.ts`.
 
+## Discord voice calls with a realtime model (PR #1656)
+
+On `feat/g3-discord-voice` (2026-10-25, base `690f14487` after #1653, no
+issue). The agent-messenger fork dist pin `5ff4c722` (source `410a0857`)
+gives `discordbot` gateway opcode 4, voice-state and voice-server events and
+`joinVoice`: a 48 kHz stereo s16le PCM handle subscribed to one speaker, its
+speaker observer registered before any voice resource is acquired, a second
+concurrent write refused `voice_busy`, received PCM bounded at 384,000 bytes
+in flight (`voice_overflow` disconnects the call) and one idempotent cleanup
+of every acquired resource. `packages/channels` declares the Discord bot
+`voice: true`: its `voiceRoute` holds one joining or live handle per guild and
+refuses with the typed `VoiceJoinRefused` (`address_incomplete`,
+`not_started`, `busy`, `aborted`, `join_failed`); the nonprivileged
+GuildVoiceStates intent turns an Owner voice-state join or move into an
+inbound `event: "call"` fact (the newest sequence wins), an unrouted call is
+filtered as `call_unrouted`, a refused author lookup is logged and emits no
+call, a failing event pump emits one error event and frees the guild, and
+`stop()` leaves every live handle. `Ingress.Trigger` gains `{type: "call",
+surface}`. `packages/llm` `makeRealtime` opens one realtime WebSocket per
+call: the `session.update` echo is checked (PCM16 24 kHz both ways, semantic
+VAD, transcription, voice, tool names), the handshake is bounded at 10 s,
+frames parse through Zod, queued model audio is capped at 48,000 bytes, each
+tool call is surfaced once per call id and answered with `respondTool` then
+`response.create`, and nothing retries. `packages/agent` `Core.sessionTool`
+admits each external tool call as its own turn in the same session through the
+session entity's activation and fence: it waits for the active turn's terminal
+(bounded, `ToolTurnRefused{busy}`), refuses a call id already recorded in the
+journal with `ToolTurnRefused{duplicate}` (also from a new activation), takes
+authority from the initiating turn's recorded origin, returns the tool result
+only when the turn sealed successfully, and recovery settles an interrupted
+external turn without entering the model loop. `apps/oni` adds
+`send_message(kind: "call")` through a `CallPort` with typed refusals;
+`composition/live-voice.ts` bridges voice PCM and the realtime session and
+sends every model tool call, in arrival order, through `bindSessionToolTurn`
+(`composition/cluster-runtime.ts`, the binding the session's own runTool port
+uses); `composition/live-pcm.ts` is a 63-tap FIR resampler between 48 kHz
+stereo and 24 kHz mono; an interrupt first delivers and drains the durable
+interrupt of a live turn and then ends the call, a failed leave reports one
+`live call <id> release failed` incident, shutdown ends every call, and the npm artifact keeps the
+voice and codec packages external. Review r1 (12 High, 13 Medium) was fixed in
+the same tree. Not established: a live call, which needs a voice-capable guild
+(#1639), host audio packages (#1640) and a realtime model lane (#1641).
+Receipts: `packages/channels/test/{discord-surface,discord-sdk,discord-normalizer,provider-contract}.test.ts`,
+`packages/channels/test/{automation-router,automation-matcher}.test.ts`,
+`packages/llm/test/realtime.test.ts`,
+`packages/agent/test/session/{tool-turn,admission-writer-fiber}.test.ts`,
+`apps/oni/test/{live-voice,live-pcm,automation-delivery,npm-package}.test.ts`,
+and the fork's `src/platforms/discordbot/voice.test.ts`.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

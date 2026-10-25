@@ -6,7 +6,22 @@ import { interruptOn } from "../ports/ports";
 import type { ActivationHandle } from "./entity-activation";
 import { createEntityTurn, drain } from "./entity-delivery";
 import type { ResolvedSessionRuntime, SessionEntityPorts, SessionToolExecution, SessionRunner } from "./runtime";
-import { inboundAuthority, toolSourceOrigin } from "./turn-open";
+import { externalToolCall, externalToolOrigin, inboundAuthority, toolSourceOrigin } from "./turn-open";
+
+function recordedExternalCall(handle: ActivationHandle, callId: string): boolean {
+  let revision = 0;
+  for (;;) {
+    const page = handle.kernel.historyPage(handle.authority.sessionId, {
+      afterRevision: revision, limit: 256,
+    });
+    if (page.actions.some((action) =>
+      action.kind === "turn" &&
+      externalToolCall(externalToolOrigin(handle.kernel, action.id)?.value ?? null)?.id === callId
+    )) return true;
+    if (page.nextRevision === null) return false;
+    revision = page.nextRevision;
+  }
+}
 
 /** Wait only for admission, never time out an already admitted side effect. */
 export function executeExternalTool(
@@ -20,12 +35,14 @@ export function executeExternalTool(
     });
     if (!Number.isFinite(payload.waitMs) || payload.waitMs < 0 || payload.waitMs > 60_000)
       return yield* new ToolTurnRefused({ code: "malformed" });
+    const recorded = recordedExternalCall(handle, call.id);
     const previous = handle.toolCalls.get(call.id);
     if (previous === null) {
       handle.toolCalls.delete(call.id);
       return yield* Effect.interrupt;
     }
     if (previous !== undefined) return yield* new ToolTurnRefused({ code: "busy" });
+    if (recorded) return yield* new ToolTurnRefused({ code: "duplicate" });
     const active = { controller: new AbortController(), done: yield* Deferred.make<void>() };
     handle.toolCalls.set(call.id, active);
     return yield* admitExternalTool(handle, { ...payload, call }).pipe(
@@ -99,7 +116,7 @@ export function createSessionEntityRunTool(
     );
     const { admission } = createEntityTurn(kernel, authority, wrap?.(runner) ?? runner, runtime, scope);
     const result = yield* admission.startTurn({ call, sourceTurnId, origin });
-    return output ?? {
+    return result?.kind === "result" && output !== undefined ? output : {
       id: call.id, toolCallId: call.id, toolName: call.tool, isError: true,
       content: result?.text ?? "tool turn did not execute",
     };

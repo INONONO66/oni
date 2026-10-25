@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { resolveAuthFilePath } from "@oni/llm";
+import { Auth, makeRealtime, resolveAuthFilePath } from "@oni/llm";
+import { Effect, Stream } from "effect";
 import { loadConfig, modelTransport } from "../src/config";
+import { runEffect } from "./helpers/effect";
 
 const KEYS = [
   "ONI_PROVIDERS_PATH",
@@ -94,6 +96,64 @@ describe("ONI_PROVIDERS_PATH", () => {
     useRows(JSON.stringify({ providers: [sttRow] }));
     const config = loadConfig();
     expect(config.model.transcriptionRows).toEqual([sttRow]);
+  });
+
+  it("hands a non-default realtime endpoint and model to the live-call factory", () => {
+    process.env.GATEWAY_API_KEY = "sk-row";
+    const realtimeRow = {
+      ...gatewayRow,
+      npm: "@ai-sdk/openai" as const,
+      baseUrl: "https://hub.test/v1",
+      id: "gateway",
+      headers: { "x-tenant": "voice-owner" },
+      realtime: { model: "voice-custom", endpoint: "wss://hub.test/v1/realtime", voice: "echo" },
+    };
+    useRows(JSON.stringify({ providers: [realtimeRow] }));
+
+    const config = loadConfig();
+    expect(config.model.realtimeRows).toEqual([realtimeRow]);
+    expect(config.model.realtimeRows?.[0]?.realtime).toEqual({
+      model: "voice-custom", endpoint: "wss://hub.test/v1/realtime", voice: "echo",
+    });
+    expect(config.model.realtimeRows?.[0]?.headers).toEqual({ "x-tenant": "voice-owner" });
+  });
+
+  it("uses configured endpoint, model and identity header through the realtime factory", async () => {
+    process.env.GATEWAY_API_KEY = "sk-row";
+    const row = {
+      ...gatewayRow,
+      npm: "@ai-sdk/openai" as const,
+      baseUrl: "https://hub.test/v1",
+      headers: { "x-identity": "owner-voice" },
+      realtime: { endpoint: "wss://hub.test/v1/realtime", model: "voice-custom", voice: "echo" },
+    };
+    useRows(JSON.stringify({ providers: [row] }));
+    const rows = loadConfig().model.realtimeRows;
+    const authFilePath = join(directory, "voice-auth.json");
+    await runEffect(Auth.set("gateway", {
+      type: "proxy", baseURL: row.baseUrl, apiKey: "sk-row",
+    }, { id: () => "credential", authFilePath }));
+    const constructed: { url: string; headers: Readonly<Record<string, string>> }[] = [];
+    const request = { tools: [], instructions: "", audioIn: Stream.empty, audioOut: () => Effect.void };
+    const opened = await runEffect(Effect.result(Effect.scoped(makeRealtime({
+      authFilePath, rows, socket: (url, options) => {
+        constructed.push({ url, headers: options.headers });
+        throw new Error("stop after socket construction");
+      },
+    }).open(request))));
+    expect(opened).toMatchObject({ _tag: "Failure", failure: { _tag: "TransportFailure", operation: "realtime.socket" } });
+    expect(constructed).toEqual([{
+      url: "wss://hub.test/v1/realtime?model=voice-custom",
+      headers: { "x-identity": "owner-voice", Authorization: "Bearer sk-row" },
+    }]);
+
+    const refused: object[] = [];
+    const foreign = await runEffect(Effect.result(Effect.scoped(makeRealtime({
+      authFilePath, rows: [{ ...row, realtime: { ...row.realtime, endpoint: "wss://foreign.test/v1/realtime" } }],
+      socket: () => { refused.push({ constructed: true }); throw new Error("unexpected socket"); },
+    }).open(request))));
+    expect(foreign).toMatchObject({ _tag: "Failure", failure: { _tag: "AuthResolutionError", reason: "invalid_auth" } });
+    expect(refused).toEqual([]);
   });
 
   it("uses one auth path resolution for chat and speech-to-text with a padded override", () => {

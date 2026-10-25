@@ -193,7 +193,10 @@ describe("provider conformance", () => {
     const ended = Promise.withResolvers<void>();
     const handle: DiscordVoiceHandle = {
       pcmIn: emptyVoiceStream(), pcmOut: { write: async () => undefined },
-      events: (async function* () { await ended.promise; yield { type: "ready" } as const; })(),
+      events: (async function* (): AsyncGenerator<{ type: "ready" }, void, void> {
+        yield { type: "ready" };
+        await ended.promise;
+      })(),
       leave: async () => { left += 1; ended.resolve(); },
     };
     fake.sdk.joinVoice = async () => handle;

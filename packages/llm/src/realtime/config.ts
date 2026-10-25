@@ -46,10 +46,21 @@ export function sessionUpdate(input: RealtimeOpenInput, row: RealtimeRow) {
   };
 }
 
-export function echoMatches(frame: Extract<ServerEvent, { type: "session.updated" }>, names: readonly string[]): boolean {
+export function echoMatches(
+  frame: Extract<ServerEvent, { type: "session.updated" }>,
+  requested: ReturnType<typeof sessionUpdate>["session"],
+): boolean {
   const echoed = frame.session.tools.map((tool) => tool.name);
   const audio = frame.session.audio;
-  return audio.input.format.type === "audio/pcm" && audio.input.format.rate === 24000
-    && audio.output.format.type === "audio/pcm" && audio.output.format.rate === 24000
-    && echoed.length === names.length && echoed.every((name, index) => name === names[index]);
+  const expected = requested.audio;
+  return audio.input.format.type === expected.input.format.type
+    && audio.input.format.rate === expected.input.format.rate
+    && audio.input.turn_detection?.type === expected.input.turn_detection.type
+    && audio.input.turn_detection?.create_response === expected.input.turn_detection.create_response
+    && audio.input.transcription?.model === expected.input.transcription.model
+    && audio.output.format.type === expected.output.format.type
+    && audio.output.format.rate === expected.output.format.rate
+    && audio.output.voice === expected.output.voice
+    && echoed.length === requested.tools.length
+    && echoed.every((name, index) => name === requested.tools[index]?.name);
 }

@@ -3,7 +3,7 @@ import { Operational } from "@oni/protocol";
 import { z } from "zod";
 import { DiscordAdapter } from "../src/provider/discord/surface";
 import { DISCORD_INTENTS, DiscordVoiceError, type DiscordVoiceHandle } from "../src/provider/discord/sdk";
-import { VoiceJoinRefused } from "../src/errors";
+import { ChannelsFailure, VoiceJoinRefused } from "../src/errors";
 import type { PublishPort } from "../src/types";
 import { bounded } from "./helpers/bounded";
 import { inboundQueue } from "./helpers/inbound-queue";
@@ -11,6 +11,8 @@ import { FakeDiscordListener, READY, emptyVoiceStream, fakeDiscordSdk } from "./
 import { injectedOptions } from "./helpers/injected";
 
 const noopPublish: PublishPort = () => undefined;
+const voiceAddress = { surface: "discord", channelId: "channel", workspaceId: "guild",
+  speakerExternalId: "owner" } as const;
 /** One started adapter over the scripted SDK listener, with an inbound queue. */
 async function started(publish: PublishPort = noopPublish, listener?: FakeDiscordListener) {
   const fake = fakeDiscordSdk(listener);
@@ -253,7 +255,7 @@ function fakeVoice(events?: DiscordVoiceHandle["events"]) {
   const handle: DiscordVoiceHandle = {
     pcmIn: emptyVoiceStream(),
     pcmOut: { write: async () => undefined },
-    events: events ?? (async function* () {
+    events: events ?? (async function* (): AsyncGenerator<{ type: "ready" }, void, void> {
       await ended.promise;
       yield { type: "ready" } as const;
     })(),
@@ -263,6 +265,64 @@ function fakeVoice(events?: DiscordVoiceHandle["events"]) {
 }
 
 describe("Discord bot voice route and call facts", () => {
+  it("warns and drops a call when the author lookup fails", async () => {
+    const warnings: string[] = [];
+    const { client, listener, next, inbound } = await started((event, data) => {
+      if (event.name === Operational.Events.Warn.name)
+        warnings.push(z.object({ context: z.object({ err: z.string() }) }).parse(data).context.err);
+    });
+    client.getUser = async (userId) => {
+      if (userId === "owner") throw new Error("author unavailable");
+      return { bot: false };
+    };
+    listener.emit("voice_state_update", state("voice", "owner", "guild"), 10);
+    const fresh = next();
+    listener.emit("voice_state_update", state("voice", "other-owner", "guild"), 11);
+    expect((await bounded(fresh)).facts.eventId).toBe("call:guild:other-owner:session:11");
+    expect(inbound.map(({ facts }) => facts.eventId)).toEqual(["call:guild:other-owner:session:11"]);
+    expect(warnings).toEqual(["Error: author unavailable"]);
+  });
+
+  it("suppresses a first-guild join when departure arrives during author lookup", async () => {
+    const { client, listener, next, inbound } = await started();
+    const lookup = Promise.withResolvers<{ bot: boolean }>();
+    const entered = Promise.withResolvers<void>();
+    client.getUser = () => { entered.resolve(); return lookup.promise; };
+    listener.emit("voice_state_update", state("voice", "owner", "new-guild"), 10);
+    await bounded(entered.promise);
+    listener.emit("voice_state_update", state(null, "owner", "new-guild"), 11);
+    lookup.resolve({ bot: false });
+    const fresh = next();
+    listener.emit("voice_state_update", state("other", "other-owner", "new-guild"), 12);
+    expect((await bounded(fresh)).facts.eventId).toBe("call:new-guild:other-owner:session:12");
+    expect(inbound.map(({ facts }) => facts.eventId)).toEqual(["call:new-guild:other-owner:session:12"]);
+  });
+
+  it("keeps the latest move when author lookups complete out of order", async () => {
+    const { client, listener, next, inbound } = await started();
+    const first = Promise.withResolvers<{ bot: boolean }>();
+    const second = Promise.withResolvers<{ bot: boolean }>();
+    const entered = Promise.withResolvers<void>();
+    let lookups = 0;
+    client.getUser = () => {
+      if (++lookups === 1) return first.promise;
+      entered.resolve();
+      return second.promise;
+    };
+    listener.emit("voice_state_update", state("old", "owner", "guild"), 10);
+    listener.emit("voice_state_update", state("new", "owner", "guild"), 11);
+    await bounded(entered.promise);
+    second.resolve({ bot: false });
+    expect((await bounded(next())).facts.eventId).toBe("call:guild:owner:session:11");
+    first.resolve({ bot: false });
+    const fresh = next();
+    listener.emit("voice_state_update", state("other", "other-owner", "guild"), 12);
+    expect((await bounded(fresh)).facts.eventId).toBe("call:guild:other-owner:session:12");
+    expect(inbound.map(({ facts }) => facts.eventId)).toEqual([
+      "call:guild:owner:session:11", "call:guild:other-owner:session:12",
+    ]);
+  });
+
   it("dispatches one exact call fact per join or move, without replay, departure, echo or missing guild", async () => {
     const { client, listener, next, inbound, adapter } = await started();
     const first = next();
@@ -317,28 +377,31 @@ describe("Discord bot voice route and call facts", () => {
     });
     fake.client.fail("getChannel", new Error("REST refused"));
     fake.client.getChannel = async () => { throw new Error("REST refused"); };
-    await expect(adapter.joinVoice(address)).rejects.toMatchObject({
-      reason: "address_incomplete", detail: "channel lookup failed: Error: REST refused",
-    });
+    await expect(adapter.joinVoice(address)).rejects.toEqual(new VoiceJoinRefused({
+      reason: "address_incomplete", surface: "discord",
+      detail: "channel lookup failed: Error: REST refused",
+    }));
     await adapter.stop("stop");
   });
 
   it("maps each fork refusal exactly and fences a second live guild join until leave", async () => {
-    const fake = fakeDiscordSdk();
-    const adapter = new DiscordAdapter("token", {}, noopPublish, injectedOptions(), fake.sdk);
-    adapter.onMessage(async () => undefined);
-    await adapter.start("boot");
-    const address = { surface: "discord", channelId: "channel", workspaceId: "guild",
-      speakerExternalId: "owner" };
+    const fake = await started();
+    const { adapter } = fake;
+    const address = voiceAddress;
     for (const [code, reason] of [
       ["voice_aborted", "aborted"], ["voice_join_failed", "join_failed"],
       ["voice_not_ready", "not_started"], ["voice_busy", "busy"],
+      ["voice_overflow", "join_failed"],
     ] as const) {
       fake.sdk.joinVoice = async () => { throw new DiscordVoiceError(code); };
       await expect(adapter.joinVoice(address)).rejects.toMatchObject({
         _tag: "VoiceJoinRefused", reason, surface: "discord", detail: code,
       });
     }
+    fake.sdk.joinVoice = async () => { throw new Error("foreign join failed"); };
+    await expect(adapter.joinVoice(address)).rejects.toEqual(new ChannelsFailure({
+      operation: "discord voice join", cause: "Error: foreign join failed",
+    }));
     const voice = fakeVoice();
     fake.sdk.joinVoice = async () => voice.handle;
     await adapter.joinVoice(address);
@@ -349,19 +412,18 @@ describe("Discord bot voice route and call facts", () => {
   });
 
   it("maps speaker_left and other handle events and releases a completed handle", async () => {
-    const fake = fakeDiscordSdk();
-    const adapter = new DiscordAdapter("token", {}, noopPublish, injectedOptions(), fake.sdk);
-    adapter.onMessage(async () => undefined);
-    await adapter.start("boot");
-    const voice = fakeVoice((async function* () {
+    const fake = await started();
+    const { adapter } = fake;
+    const voice = fakeVoice((async function* (): AsyncGenerator<
+      { type: "ready" } | { type: "speaker_left"; userId: string } |
+      { type: "disconnected"; reason: string } | { type: "error"; reason: string }, void, void> {
       yield { type: "ready" } as const;
       yield { type: "speaker_left", userId: "owner" } as const;
       yield { type: "disconnected", reason: "closed" } as const;
       yield { type: "error", reason: "failed" } as const;
     })());
     fake.sdk.joinVoice = async () => voice.handle;
-    const address = { surface: "discord", channelId: "channel", workspaceId: "guild",
-      speakerExternalId: "owner" };
+    const address = voiceAddress;
     const handle = await adapter.joinVoice(address);
     const events: import("../src/provider/voice").VoiceEvent[] = [];
     for await (const event of handle.events) events.push(event);
@@ -374,13 +436,11 @@ describe("Discord bot voice route and call facts", () => {
   });
 
   it("releases a disconnected handle even without an event consumer", async () => {
-    const fake = fakeDiscordSdk();
-    const adapter = new DiscordAdapter("token", {}, noopPublish, injectedOptions(), fake.sdk);
-    adapter.onMessage(async () => undefined);
-    await adapter.start("boot");
+    const fake = await started();
+    const { adapter } = fake;
     const terminated = Promise.withResolvers<void>();
     const consumed = Promise.withResolvers<void>();
-    const first = fakeVoice((async function* () {
+    const first = fakeVoice((async function* (): AsyncGenerator<{ type: "disconnected"; reason: string }, void, void> {
       await terminated.promise;
       yield { type: "disconnected", reason: "closed" } as const;
       consumed.resolve();
@@ -388,8 +448,7 @@ describe("Discord bot voice route and call facts", () => {
     const second = fakeVoice();
     let joins = 0;
     fake.sdk.joinVoice = async () => (++joins === 1 ? first.handle : second.handle);
-    const address = { surface: "discord", channelId: "voice", workspaceId: "guild",
-      speakerExternalId: "owner" };
+    const address = { ...voiceAddress, channelId: "voice" };
     await adapter.joinVoice(address);
     terminated.resolve();
     await consumed.promise;
@@ -399,13 +458,30 @@ describe("Discord bot voice route and call facts", () => {
     expect(second.left.count).toBe(1);
   });
 
+  it("emits one error and terminates the event stream when the SDK iterator fails", async () => {
+    const fake = await started();
+    const failing = fakeVoice((async function* (): AsyncGenerator<{ type: "ready" }, void, void> {
+      yield { type: "ready" };
+      throw new Error("stream failed");
+    })());
+    fake.sdk.joinVoice = async () => failing.handle;
+    const handle = await fake.adapter.joinVoice(voiceAddress);
+    const events: import("../src/provider/voice").VoiceEvent[] = [];
+    await bounded((async () => {
+      for await (const event of handle.events) events.push(event);
+    })());
+    expect(events).toEqual([{ type: "ready" }, { type: "error", reason: "Error: stream failed" }]);
+    const nextVoice = fakeVoice();
+    fake.sdk.joinVoice = async () => nextVoice.handle;
+    await fake.adapter.joinVoice(voiceAddress);
+    await fake.adapter.stop("stop");
+    expect(nextVoice.left.count).toBe(1);
+  });
+
   it("refuses while disconnected and releases a join that finishes after stop", async () => {
-    const fake = fakeDiscordSdk();
-    const adapter = new DiscordAdapter("token", {}, noopPublish, injectedOptions(), fake.sdk);
-    adapter.onMessage(async () => undefined);
-    await adapter.start("boot");
-    const address = { surface: "discord", channelId: "channel", workspaceId: "guild",
-      speakerExternalId: "owner" };
+    const fake = await started();
+    const { adapter } = fake;
+    const address = voiceAddress;
     fake.listener.emit("disconnected");
     await expect(adapter.joinVoice(address)).rejects.toMatchObject({ reason: "not_started" });
     fake.listener.emit("connected", READY);
@@ -422,10 +498,8 @@ describe("Discord bot voice route and call facts", () => {
   });
 
   it("stops the listener after attempting every live leave even if one fails", async () => {
-    const fake = fakeDiscordSdk();
-    const adapter = new DiscordAdapter("token", {}, noopPublish, injectedOptions(), fake.sdk);
-    adapter.onMessage(async () => undefined);
-    await adapter.start("boot");
+    const fake = await started();
+    const { adapter } = fake;
     const left: string[] = [];
     const secondLeave = Promise.withResolvers<void>();
     const secondStarted = Promise.withResolvers<void>();
@@ -433,7 +507,9 @@ describe("Discord bot voice route and call facts", () => {
       const ended = Promise.withResolvers<void>();
       return {
         pcmIn: emptyVoiceStream(), pcmOut: { write: async () => undefined },
-        events: (async function* () { await ended.promise; yield { type: "ready" } as const; })(),
+        events: (async function* (): AsyncGenerator<{ type: "ready" }, void, void> {
+          await ended.promise; yield { type: "ready" };
+        })(),
         leave: async () => {
           left.push(guild);
           if (guild === "one") {

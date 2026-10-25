@@ -1,12 +1,12 @@
 import { newTraceId } from "../../support/trace";
 import { type Channel, type Gateway, Operational, type Outbound } from "@oni/protocol";
-import type { z } from "zod";
+import { z } from "zod";
 import { handoffInbound } from "../../support/inbound-handoff";
 import { requireHandler } from "../../support/handler-frame";
 import type { DeliveryReceipt } from "../../support/deliver";
 import { type ListenerCustody, listenerCustody } from "../../support/sdk-listener";
 import { type DiscordDelivery, deliverThroughDiscord, discordDmChannel } from "./delivery";
-import { DiscordHandlerMissingError, VoiceJoinRefused } from "../../errors";
+import { ChannelsFailure, decodeChannelFailure, DiscordHandlerMissingError, VoiceJoinRefused } from "../../errors";
 import { DiscordNormalizer, discordCall } from "./normalizer";
 import {
   DISCORD_INTENTS,
@@ -35,6 +35,28 @@ function voiceRefused(reason: VoiceJoinRefused["reason"], detail: string): Voice
   return new VoiceJoinRefused({ reason, surface: "discord", detail });
 }
 
+/** Every fork join refusal code; a join reads no PCM yet, so an overflow there is a failed join. */
+const JOIN_REFUSAL: Record<DiscordVoiceError["code"], VoiceJoinRefused["reason"]> = {
+  voice_aborted: "aborted",
+  voice_join_failed: "join_failed",
+  voice_not_ready: "not_started",
+  voice_busy: "busy",
+  voice_overflow: "join_failed",
+};
+
+const parseVoiceJoinFailure = z.union([
+  z.instanceof(DiscordVoiceError),
+  z.preprocess(String, z.string().transform((cause) =>
+    new ChannelsFailure({ operation: "discord voice join", cause }))),
+]).parse;
+
+type VoiceStateRecord = {
+  readonly channel: string | null;
+  readonly sequence: number;
+  readonly sessionId: string;
+  confirmed: boolean;
+};
+
 /**
  * Discord over the agent-messenger bot SDK's gateway listener (#1569): the
  * SDK owns identify/resume, heartbeats and reconnects; this surface owns the
@@ -52,9 +74,7 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
   private sessionId: string | null = null;
   private readonly live = new Map<string, PcmVoiceHandle>();
   private readonly joining = new Set<string>();
-  private readonly lastChannel = new Map<string, Map<string, {
-    channel: string | null; sequence: number; sessionId: string;
-  }>>();
+  private readonly lastChannel = new Map<string, Map<string, VoiceStateRecord>>();
 
   constructor(
     token: string,
@@ -172,42 +192,52 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
     }
   }
 
-  private async handleVoiceState(state: DiscordVoiceStateUpdate, sequence: number | null): Promise<void> {
+  private admitVoiceState(state: DiscordVoiceStateUpdate, sequence: number | null): {
+    listener: DiscordBotEvents; sessionId: string; selfId: string;
+    guild: Map<string, VoiceStateRecord>; record: VoiceStateRecord;
+  } | null {
     const listener = this.listener;
     const sessionId = this.sessionId;
     const selfId = listener?.botUserId();
-    if (!this.custody || !sessionId || !selfId || sequence === null || !state.guild_id ||
-        state.user_id === selfId) return;
-    const guild = this.lastChannel.get(state.guild_id) ??
-      new Map<string, { channel: string | null; sequence: number; sessionId: string }>();
-    const previous = guild.get(state.user_id);
-    if (previous?.sessionId === sessionId && previous.sequence >= sequence) return;
-    if (state.channel_id === null) {
-      guild.set(state.user_id, { channel: null, sequence, sessionId });
-      return;
-    }
-    if (previous?.channel === state.channel_id) {
-      guild.set(state.user_id, { channel: state.channel_id, sequence, sessionId });
-      return;
-    }
-    try {
-      if ((await this.bot.getUser(state.user_id)).bot === true) return;
-    } catch (error) {
-      this.warn(newTraceId(this.options.id), "discord voice author lookup failed; dropped",
-        { err: String(error) });
-      return;
-    }
-    const latest = guild.get(state.user_id);
-    if (this.listener !== listener || this.sessionId !== sessionId || listener?.botUserId() !== selfId ||
-        (latest?.sessionId === sessionId && latest.sequence >= sequence)) return;
-    if (!this.lastChannel.has(state.guild_id)) {
+    if (!this.custody || !listener || !sessionId || !selfId || sequence === null || !state.guild_id ||
+        state.user_id === selfId) return null;
+    let guild = this.lastChannel.get(state.guild_id);
+    if (!guild) {
       if (this.lastChannel.size >= 64) this.lastChannel.delete(this.lastChannel.keys().next().value ?? "");
+      guild = new Map();
       this.lastChannel.set(state.guild_id, guild);
     }
-    if (guild.size >= 256 && !guild.has(state.user_id))
-      guild.delete(guild.keys().next().value ?? "");
-    guild.set(state.user_id, { channel: state.channel_id, sequence, sessionId });
-    const inbound = discordCall(state, sequence, sessionId, selfId);
+    const previous = guild.get(state.user_id);
+    if (previous?.sessionId === sessionId && previous.sequence >= sequence) return null;
+    if (guild.size >= 256 && !previous) guild.delete(guild.keys().next().value ?? "");
+    const record: VoiceStateRecord = {
+      channel: state.channel_id, sequence, sessionId, confirmed: state.channel_id === null,
+    };
+    guild.set(state.user_id, record);
+    if (record.channel === null || (previous?.sessionId === sessionId &&
+        previous.channel === record.channel && previous.confirmed)) {
+      record.confirmed = true;
+      return null;
+    }
+    return { listener, sessionId, selfId, guild, record };
+  }
+
+  private async handleVoiceState(state: DiscordVoiceStateUpdate, sequence: number | null): Promise<void> {
+    const admitted = this.admitVoiceState(state, sequence);
+    if (!admitted || !state.guild_id) return;
+    const { listener, sessionId, selfId, guild, record } = admitted;
+    const author = await this.bot.getUser(state.user_id)
+      .catch(decodeChannelFailure("discord voice author lookup"));
+    if (author instanceof ChannelsFailure) {
+      this.warn(newTraceId(this.options.id), "discord voice author lookup failed; dropped",
+        { err: author.cause });
+      return;
+    }
+    if (author.bot === true) return;
+    if (this.listener !== listener || this.sessionId !== sessionId || listener.botUserId() !== selfId ||
+        this.lastChannel.get(state.guild_id) !== guild || guild.get(state.user_id) !== record) return;
+    record.confirmed = true;
+    const inbound = discordCall(state, record.sequence, sessionId, selfId);
     if (inbound === null) return;
     const traceId = newTraceId(this.options.id);
     void handoffInbound({
@@ -232,7 +262,9 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
       const raw = await this.sdk.joinVoice(guild, input.channelId, {
         listener, speakerId: input.speakerExternalId,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
-      });
+      }).catch(parseVoiceJoinFailure);
+      if (raw instanceof ChannelsFailure) throw raw;
+      if (raw instanceof DiscordVoiceError) throw voiceRefused(JOIN_REFUSAL[raw.code], raw.message);
       if (this.listener !== listener || this.sessionId === null || !listener.botUserId()) {
         await raw.leave();
         throw voiceRefused("not_started", "Discord gateway stopped during voice join");
@@ -240,31 +272,19 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
       const handle = this.adaptVoice(raw, guild);
       this.live.set(guild, handle);
       return handle;
-    } catch (error) {
-      if (!(error instanceof DiscordVoiceError)) throw error;
-      let reason: VoiceJoinRefused["reason"];
-      switch (error.code) {
-        case "voice_aborted": reason = "aborted"; break;
-        case "voice_join_failed": reason = "join_failed"; break;
-        case "voice_not_ready": reason = "not_started"; break;
-        case "voice_busy": reason = "busy"; break;
-      }
-      throw voiceRefused(reason, error.message);
     } finally {
       this.joining.delete(guild);
     }
   }
 
   private async guildOf(channelId: string): Promise<string> {
-    try {
-      const channel = await this.bot.getChannel(channelId);
-      if (channel.type !== 2 || !channel.guild_id)
-        throw voiceRefused("address_incomplete", "channel is not a guild voice channel");
-      return channel.guild_id;
-    } catch (error) {
-      if (error instanceof VoiceJoinRefused) throw error;
-      throw voiceRefused("address_incomplete", `channel lookup failed: ${String(error)}`);
-    }
+    const channel = await this.bot.getChannel(channelId)
+      .catch(decodeChannelFailure("discord channel lookup"));
+    if (channel instanceof ChannelsFailure)
+      throw voiceRefused("address_incomplete", `channel lookup failed: ${channel.cause}`);
+    if (channel.type !== 2 || !channel.guild_id)
+      throw voiceRefused("address_incomplete", "channel is not a guild voice channel");
+    return channel.guild_id;
   }
 
   private adaptVoice(raw: DiscordVoiceHandle, guild: string): PcmVoiceHandle {
@@ -276,25 +296,30 @@ export class DiscordAdapter extends BotState implements Channel.Surface {
       queue.push(event);
       wake.resolve();
     };
+    const release = () => {
+      if (live.get(guild)?.pcmIn === raw.pcmIn) live.delete(guild);
+    };
+    const pump = async () => {
+      for await (const event of raw.events) {
+        if (event.type === "disconnected" || event.type === "error") release();
+        push(event.type === "speaker_left"
+          ? { type: "speaker_left", externalId: event.userId } : event);
+      }
+    };
     void (async () => {
       try {
-        for await (const event of raw.events) {
-          if (event.type === "disconnected" || event.type === "error") live.delete(guild);
-          push(event.type === "speaker_left"
-            ? { type: "speaker_left", externalId: event.userId } : event);
-        }
-      } catch (error) {
-        push({ type: "error", reason: String(error) });
+        const failure = await pump().catch(decodeChannelFailure("discord voice events"));
+        if (failure instanceof ChannelsFailure) push({ type: "error", reason: failure.cause });
       } finally {
         done = true;
-        live.delete(guild);
+        release();
         wake.resolve();
       }
     })();
     return {
       pcmIn: raw.pcmIn,
       pcmOut: raw.pcmOut,
-      events: (async function* (): AsyncIterable<VoiceEvent> {
+      events: (async function* (): AsyncGenerator<VoiceEvent, void, void> {
         while (!done || queue.length > 0) {
           const event = queue.shift();
           if (event !== undefined) yield event;

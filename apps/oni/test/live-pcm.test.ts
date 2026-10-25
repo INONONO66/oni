@@ -22,7 +22,7 @@ function stereo(values: readonly (readonly [number, number])[]): Uint8Array {
 
 function samples(bytes: Uint8Array): number[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return Array.from({ length: bytes.length / 2 }, (_, index) => view.getInt16(index * 2, true));
+  return Array.from(new Uint16Array(bytes.length / 2).keys(), (index) => view.getInt16(index * 2, true));
 }
 
 function pushSplit(
@@ -42,10 +42,8 @@ function pushSplit(
 }
 
 function sine(frequency: number, rate: number, count: number, amplitude = 12_000): number[] {
-  return Array.from(
-    { length: count },
-    (_, index) => Math.round(amplitude * Math.sin(2 * Math.PI * frequency * index / rate)),
-  );
+  return Array.from(new Uint16Array(count).keys(),
+    (index) => Math.round(amplitude * Math.sin(2 * Math.PI * frequency * index / rate)));
 }
 
 function rms(values: readonly number[]): number {
@@ -57,7 +55,7 @@ function db(output: readonly number[], input: readonly number[]): number {
 }
 
 test("downsampler preserves bytes across partial stereo frames and decimation phases", () => {
-  const input = stereo(Array.from({ length: 301 }, (_, i) => [i * 37 - 4000, 5000 - i * 27] as const));
+  const input = stereo(Array.from(new Uint16Array(301).keys(), (i) => [i * 37 - 4000, 5000 - i * 27] as const));
   const expected = createDownsampler().push(input);
   for (const boundaries of [[1], [2], [3], [1, 2, 3, 7, 5]]) {
     expect(pushSplit(createDownsampler(), input, boundaries)).toEqual(expected);
@@ -123,7 +121,7 @@ test("one kilohertz round trip retains correlated waveform after group delay", (
   const input = sine(1000, 24_000, 4096);
   const output = samples(createDownsampler().push(createUpsampler().push(mono(input))));
   const start = 256;
-  const correlations = Array.from({ length: 9 }, (_, offset) => {
+  const correlations = Array.from(new Uint16Array(9).keys(), (offset) => {
     const delay = 27 + offset;
     let product = 0;
     let inputPower = 0;

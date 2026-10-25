@@ -107,6 +107,7 @@ import {
 } from "./bundles/delegation-policy/index";
 import {
   AppLedger,
+  bindSessionToolTurn,
   createSessionLivePlane,
   interruptFailureCause,
   rescanOccurrences,
@@ -876,16 +877,16 @@ export async function startOni(options: StartOptions = {}) {
     const voiceRoutes = new Map<string, ProviderVoiceRoute>();
     const liveVoice = createLiveVoice({
       routes: voiceRoutes,
-      realtime: makeRealtime({ authFilePath: resolveAuthFilePath() }),
+      realtime: makeRealtime({
+        authFilePath: resolveAuthFilePath(),
+        ...(config.model.realtimeRows === undefined ? {} : { rows: config.model.realtimeRows }),
+      }),
       persons: plane.stores.persons,
       role: (sessionId) => plane.read.sessions.list().find((row) => row.id === sessionId)?.role,
       id: services.entropy.id,
       executeTool: executeSessionTool,
       run: (effect, signal) => runAppEffect(runtime, effect, signal),
-      ended: (outcome) => {
-        if (outcome.releaseFailure !== undefined)
-          incident(`live call ${outcome.call} release failed`, new Error(outcome.releaseFailure));
-      },
+      incident,
     });
     // Live table: channel components register and revoke their own outbound
     // routes (declared beside the typing routes; the resident's draft arm reads it).
@@ -1242,13 +1243,7 @@ export async function startOni(options: StartOptions = {}) {
     const turns = await runAppBoot(runtime, sessionRuntime.turns);
     services.entityPorts.bind({
       approvalPolicy: sessionRuntime.options.approvalPolicy, dispatchOutbound: turns.dispatchOutbound,
-      runTool: turns.tool((input, call) =>
-        Bundle.createTurnDispatcher(input, sessionRuntime.options).pipe(
-          Effect.flatMap((dispatcher) => dispatcher.execute(call, {
-            sessionId: input.sessionId, turnId: input.turnId, signal: input.signal,
-          })),
-        ), services.scope, (runner) => (input) =>
-          liveTurns.wrapRunner(input.sessionId, runner)(input)),
+      runTool: bindSessionToolTurn(turns, sessionRuntime.options, services.scope, liveTurns),
       runTurn: (input) =>
         sessionRunner(input.authority.sessionId) === "process"
           ? Effect.tryPromise({
@@ -1460,10 +1455,7 @@ export async function startOni(options: StartOptions = {}) {
                 Effect.ensuring(Effect.sync(release)),
               );
             }
-            if (liveVoice.has(id)) yield* Effect.tryPromise({
-              try: () => liveVoice.end(id, "interrupted"),
-              catch: (error) => new AgentFailure({ operation: "call.interrupt", cause: String(error) }),
-            });
+            yield* liveVoice.interrupt(id);
           }),
         tools: {
           add: (additions) =>

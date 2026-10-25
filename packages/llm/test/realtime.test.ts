@@ -2,8 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Cause, Effect, Exit, Fiber, Option, Stream } from "effect";
+import { parseJson } from "@oni/protocol";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Stream } from "effect";
+import { z } from "zod";
 import { Auth, makeRealtime, ProviderRow } from "../src";
+import type { RealtimeEvent } from "../src/realtime";
 import type { RealtimeSocket } from "../src/realtime/openai";
 import type { RealtimeOpenInput } from "../src/realtime";
 import { runTestExit } from "./helpers/runner";
@@ -30,10 +33,35 @@ const request: RealtimeOpenInput = {
   audioOut: () => Effect.void,
 };
 
+const clientFrame = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("session.update"), session: z.object({
+    type: z.literal("realtime"), model: z.string(), output_modalities: z.array(z.literal("audio")),
+    instructions: z.string(),
+    tools: z.array(z.object({
+      type: z.literal("function"), name: z.string(), description: z.string(), parameters: z.json().optional(),
+    })),
+    audio: z.object({
+      input: z.object({
+        format: z.object({ type: z.string(), rate: z.number() }),
+        turn_detection: z.object({ type: z.string(), create_response: z.boolean() }),
+        transcription: z.object({ model: z.string() }),
+      }),
+      output: z.object({ format: z.object({ type: z.string(), rate: z.number() }), voice: z.string() }),
+    }),
+  }) }),
+  z.object({ type: z.literal("input_audio_buffer.append"), audio: z.string() }),
+  z.object({ type: z.literal("conversation.item.create"), item: z.object({
+    type: z.literal("function_call_output"), call_id: z.string(), output: z.string(),
+  }) }),
+  z.object({ type: z.literal("response.create") }),
+]);
+
 class Socket implements RealtimeSocket {
-  readonly sent: object[] = [];
+  readonly sent: z.infer<typeof clientFrame>[] = [];
   readonly closes: number[] = [];
   readonly echo: "valid" | "mismatch" | "error" | "close" | "socketError";
+  echoField?: "vad" | "createResponse" | "transcription" | "voice" | "inputType" | "outputType" | "outputRate" | "tools";
+  silent = false;
   throwOn?: string;
   private listener: ((event: MessageEvent) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
@@ -46,24 +74,37 @@ class Socket implements RealtimeSocket {
       if (this.echo === "error") this.push({ type: "error", error: { message: "unavailable" } });
       else if (this.echo === "close") this.remoteClose();
       else if (this.echo === "socketError") this.onerror?.(new Event("error"));
-      else this.push({ type: "session.created" });
+      else if (!this.silent) this.push({ type: "session.created" });
     }
   }
   push(frame: object) { this.listener?.(new MessageEvent("message", { data: JSON.stringify(frame) })); }
   raw(data: string) { this.listener?.(new MessageEvent("message", { data })); }
   send(data: string) {
-    const frame = JSON.parse(data);
+    const frame = parseJson(clientFrame, data);
+    if (frame === undefined) throw new Error("Malformed client frame");
     if (frame.type === this.throwOn) throw new Error("injected socket failure");
     this.sent.push(frame);
     if (frame.type === "session.update") {
+      const audio = frame.session.audio;
       this.push({
         type: "session.updated",
         session: {
           audio: {
-            input: { format: { type: "audio/pcm", rate: this.echo === "mismatch" ? 16000 : 24000 } },
-            output: { format: { type: "audio/pcm", rate: 24000 } },
+            input: {
+              format: { type: this.echoField === "inputType" ? "audio/other" : audio.input.format.type,
+                rate: this.echo === "mismatch" ? 16000 : audio.input.format.rate },
+              turn_detection: this.echoField === "vad" ? null : {
+                ...audio.input.turn_detection, create_response: this.echoField !== "createResponse",
+              },
+              transcription: this.echoField === "transcription" ? null : audio.input.transcription,
+            },
+            output: {
+              format: { type: this.echoField === "outputType" ? "audio/other" : audio.output.format.type,
+                rate: this.echoField === "outputRate" ? 16000 : audio.output.format.rate },
+              voice: this.echoField === "voice" ? "wrong" : audio.output.voice,
+            },
           },
-          tools: frame.session.tools.map((tool: { name: string }) => ({ name: tool.name })),
+          tools: this.echoField === "tools" ? [] : frame.session.tools.map((tool) => ({ name: tool.name })),
         },
       });
     }
@@ -76,6 +117,33 @@ function failure<A, E>(exit: Exit.Exit<A, E>): E | undefined {
   if (Exit.isSuccess(exit)) return undefined;
   const error = Cause.findErrorOption(exit.cause);
   return Option.isSome(error) ? error.value : undefined;
+}
+
+function socketSession(socket: Socket, input: RealtimeOpenInput = request) {
+  return Effect.gen(function* () {
+    const authFilePath = yield* Effect.promise(() => credentials({ type: "api", key: "key" }));
+    return yield* makeRealtime({ authFilePath, socket: () => socket }).open(input);
+  });
+}
+
+function completedCall(socket: Socket, id = "c") {
+  socket.push({ type: "response.created", response: { id: "r" } });
+  socket.push({ type: "response.output_item.done", item: {
+    type: "function_call", status: "completed", call_id: id, name: "file_read", arguments: "{}",
+  } });
+}
+
+function socketEvents(socket: Socket, count: number, emit: () => void) {
+  return Effect.scoped(Effect.gen(function* () {
+    const session = yield* socketSession(socket);
+    const events = yield* Effect.forkScoped(Stream.runCollect(Stream.take(session.events, count)));
+    emit();
+    return yield* Fiber.join(events);
+  }));
+}
+
+function reasons<E>(exit: Exit.Exit<readonly RealtimeEvent[], E>): string[] {
+  return Exit.isSuccess(exit) ? exit.value.map((event) => event.type === "transcript" ? "" : event.reason) : [];
 }
 
 describe("realtime socket", () => {
@@ -99,11 +167,9 @@ describe("realtime socket", () => {
           { type: "function", name: "file_write", description: "Write a file", parameters: tools[1]?.inputSchema },
         ],
         audio: {
-          input: {
-            format: { type: "audio/pcm", rate: 24000 },
+          input: { format: { type: "audio/pcm", rate: 24000 },
             turn_detection: { type: "semantic_vad", create_response: true },
-            transcription: { model: "gpt-4o-mini-transcribe" },
-          },
+            transcription: { model: "gpt-4o-mini-transcribe" } },
           output: { format: { type: "audio/pcm", rate: 24000 }, voice: "marin" },
         },
       },
@@ -154,12 +220,97 @@ describe("realtime socket", () => {
     }
   });
 
+  test("refuses each mismatched field in the requested session echo", async () => {
+    for (const field of ["vad", "createResponse", "transcription", "voice",
+      "inputType", "outputType", "outputRate", "tools"] as const) {
+      const socket = new Socket();
+      socket.echoField = field;
+      const result = await runTestExit(Effect.scoped(socketSession(socket)));
+      expect(failure(result)).toMatchObject({ _tag: "InvalidProviderData", operation: "realtime.handshake" });
+      expect(socket.closes).toEqual([1000]);
+    }
+  });
+
+  test("times out a silent handshake without waiting", async () => {
+    const socket = new Socket();
+    socket.silent = true;
+    const authFilePath = await credentials({ type: "api", key: "key" });
+    const result = await runTestExit(Effect.scoped(makeRealtime({
+      authFilePath, socket: () => socket, handshakeTimeoutMs: 0,
+    }).open(request)));
+    expect(failure(result)).toMatchObject({ _tag: "TransportFailure", operation: "realtime.handshake" });
+    expect(socket.closes).toEqual([1000]);
+  });
+
+  test("fails malformed outgoing client frames at the fake socket boundary", () => {
+    expect(() => new Socket().send('{"type":"session.update","session":{"tools":"broken"}}')).toThrow("Malformed client frame");
+  });
+
+  test("ends both streams and closes the socket when playback fails", async () => {
+    const socket = new Socket();
+    const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
+      const failed = yield* Deferred.make<void>();
+      const session = yield* socketSession(socket, { ...request, audioOut: () => Effect.die(new Error("playback failed")).pipe(
+        Effect.ensuring(Deferred.succeed(failed, undefined)),
+      ) });
+      const events = yield* Effect.forkScoped(Stream.runCollect(session.events));
+      const calls = yield* Effect.forkScoped(Stream.runCollect(session.toolCalls));
+      socket.push({ type: "response.output_audio.delta", delta: "AQI=" });
+      yield* Deferred.await(failed);
+      return { events: [...(yield* Fiber.join(events))], calls: [...(yield* Fiber.join(calls))] };
+    })));
+    expect(Exit.isSuccess(exit) && exit.value.calls).toEqual([]);
+    expect(Exit.isSuccess(exit) && exit.value.events.map((event) => event.type)).toEqual(["error", "closed"]);
+    expect(Exit.isSuccess(exit) && exit.value.events[0]?.type === "error"
+      && exit.value.events[0].reason).toContain("Realtime audio output failed");
+    expect(socket.closes).toEqual([1000]);
+  });
+
+  test("ends a failing input stream and closes the socket", async () => {
+    const socket = new Socket();
+    const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
+      const session = yield* socketSession(socket, { ...request, audioIn: Stream.die(new Error("microphone failed")) });
+      return yield* Stream.runCollect(session.events);
+    })));
+    expect(Exit.isSuccess(exit) && [...exit.value].map((event) => event.type)).toEqual(["error", "closed"]);
+    expect(reasons(exit)[0]).toContain("Realtime audio input failed");
+    expect(socket.closes).toEqual([1000]);
+  });
+
+  test("allows exactly the queued PCM byte budget then ends on one byte more", async () => {
+    for (const extra of [0, 1]) {
+      const socket = new Socket();
+      const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const session = yield* socketSession(socket, {
+          ...request, audioOut: () => Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+          ),
+        });
+        const events = yield* Effect.forkScoped(Stream.runCollect(session.events));
+        socket.push({ type: "response.output_audio.delta", delta: "AQ==" });
+        yield* Deferred.await(entered);
+        socket.push({ type: "response.output_audio.delta", delta: Buffer.alloc(48_000 + extra).toString("base64") });
+        const closes = [...socket.closes];
+        yield* Deferred.succeed(release, undefined);
+        if (extra === 0) socket.remoteClose("done");
+        return { closes, events: [...(yield* Fiber.join(events))] };
+      })));
+      expect(Exit.isSuccess(exit) && exit.value).toMatchObject(extra === 0
+        ? { closes: [], events: [{ type: "closed", reason: "done" }] }
+        : { closes: [1000], events: [
+          { type: "error", reason: "Realtime output audio queue overflow" },
+          { type: "closed", reason: "output audio overflow" },
+        ] });
+    }
+  });
+
   test("streams input base64, ordered output bytes and both transcripts", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
     const heard: number[][] = [];
     const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open({
+      const session = yield* socketSession(socket, {
         ...request,
         audioIn: Stream.fromIterable([new Uint8Array([0, 255, 1]), new Uint8Array([2, 3])]),
         audioOut: (pcm) => Effect.sync(() => { heard.push([...pcm]); }),
@@ -184,9 +335,8 @@ describe("realtime socket", () => {
 
   test("deduplicates calls, defers one continuation for two answers and refuses repeated answers", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
     const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
+      const session = yield* socketSession(socket);
       const pending = yield* Effect.forkScoped(Stream.runCollect(Stream.take(session.toolCalls, 2)));
       socket.push({ type: "response.created", response: { id: "r1" } });
       for (const [call_id, name] of [["c1", "file_read"], ["c2", "file_write"]]) {
@@ -199,7 +349,7 @@ describe("realtime socket", () => {
       } });
       const calls = yield* Fiber.join(pending);
       yield* session.respondTool("c1", { ok: true });
-      const beforeDone = socket.sent.filter((frame) => "type" in frame && frame.type === "response.create");
+      const beforeDone = socket.sent.filter((frame) => frame.type === "response.create").length;
       socket.push({ type: "response.done", response: { id: "r1" } });
       yield* session.respondTool("c2", { ok: false });
       const duplicate = yield* Effect.exit(session.respondTool("c1", "again"));
@@ -211,7 +361,7 @@ describe("realtime socket", () => {
         { callId: "c1", name: "file.read", arguments: { path: "a" } },
         { callId: "c2", name: "file.write", arguments: { path: "a" } },
       ],
-      beforeDone: [],
+      beforeDone: 0,
       duplicate: { _tag: "InvalidProviderData" },
       unknown: { _tag: "InvalidProviderData" },
     });
@@ -224,9 +374,8 @@ describe("realtime socket", () => {
 
   test("invalid arguments and unknown wire names yield events without calls; close ends streams and refuses answers", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
     const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
+      const session = yield* socketSession(socket);
       const calls = yield* Effect.forkScoped(Stream.runCollect(session.toolCalls));
       const events = yield* Effect.forkScoped(Stream.runCollect(session.events));
       socket.push({ type: "response.created", response: { id: "r" } });
@@ -242,15 +391,13 @@ describe("realtime socket", () => {
         refusal: failure(yield* Effect.exit(session.respondTool("bad", 1))),
       };
     })));
-    expect(Exit.isSuccess(exit) && exit.value).toEqual({
-      calls: [],
-      events: [
+    expect(Exit.isSuccess(exit) && exit.value.calls).toEqual([]);
+    expect(Exit.isSuccess(exit) && exit.value.events).toEqual([
         { type: "error", reason: "Invalid completed tool call bad" },
         { type: "error", reason: "Invalid completed tool call missing" },
         { type: "closed", reason: "finished" },
-      ],
-      refusal: expect.objectContaining({ _tag: "InvalidProviderData", cause: "closed" }),
-    });
+      ]);
+    expect(Exit.isSuccess(exit) && exit.value.refusal).toMatchObject({ _tag: "InvalidProviderData", cause: "closed" });
   });
 
   test("rejects malformed rows and socket construction failures", async () => {
@@ -285,15 +432,11 @@ describe("realtime socket", () => {
 
   test("reports malformed provider frames, invalid audio and post-open provider errors", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
-    const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
-      const events = yield* Effect.forkScoped(Stream.runCollect(Stream.take(session.events, 3)));
+    const exit = await runTestExit(socketEvents(socket, 3, () => {
       socket.raw("{");
       socket.push({ type: "response.output_audio.delta", delta: "not base64" });
       socket.push({ type: "error", error: { message: "service unavailable" } });
-      return yield* Fiber.join(events);
-    })));
+    }));
     expect(Exit.isSuccess(exit) && exit.value).toEqual([
       { type: "error", reason: "Invalid realtime frame" },
       { type: "error", reason: "Invalid output audio delta" },
@@ -303,25 +446,18 @@ describe("realtime socket", () => {
 
   test("rejects malformed arguments once, unsupported calls and calls outside a response", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
-    const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
-      const events = yield* Effect.forkScoped(Stream.runCollect(Stream.take(session.events, 3)));
+    const exit = await runTestExit(socketEvents(socket, 3, () => {
       socket.push({ type: "response.output_item.done", item: {
         type: "function_call", status: "completed", call_id: "orphan", name: "file_read", arguments: "{}",
       } });
       socket.push({ type: "response.created", response: { id: "r" } });
-      socket.push({ type: "response.output_item.done", item: {
-        type: "function_call", status: "completed", call_id: "invalid", name: "file_read", arguments: "{",
-      } });
-      socket.push({ type: "response.output_item.done", item: {
+      for (const _ of [0, 1]) socket.push({ type: "response.output_item.done", item: {
         type: "function_call", status: "completed", call_id: "invalid", name: "file_read", arguments: "{",
       } });
       socket.push({ type: "response.output_item.done", item: {
         type: "function_call", status: "completed", call_id: "array", name: "file_read", arguments: "[]",
       } });
-      return yield* Fiber.join(events);
-    })));
+    }));
     expect(Exit.isSuccess(exit) && exit.value).toEqual([
       { type: "error", reason: "Tool call orphan has no active response" },
       { type: "error", reason: "Invalid completed tool call invalid" },
@@ -331,13 +467,9 @@ describe("realtime socket", () => {
 
   test("respondTool refuses invalid output and reports socket send failure", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
     const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
-      socket.push({ type: "response.created", response: { id: "r" } });
-      socket.push({ type: "response.output_item.done", item: {
-        type: "function_call", status: "completed", call_id: "c", name: "file_read", arguments: "{}",
-      } });
+      const session = yield* socketSession(socket);
+      completedCall(socket);
       const invalid = yield* Effect.exit(session.respondTool("c", Number.NaN));
       socket.throwOn = "conversation.item.create";
       const rejected = yield* Effect.exit(session.respondTool("c", "valid"));
@@ -351,16 +483,12 @@ describe("realtime socket", () => {
 
   test("ignores unrecognized events, reports malformed known frames and ignores post-open session notices", async () => {
     const socket = new Socket();
-    const authFilePath = await credentials({ type: "api", key: "key" });
-    const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
-      const events = yield* Effect.forkScoped(Stream.runCollect(Stream.take(session.events, 2)));
+    const exit = await runTestExit(socketEvents(socket, 2, () => {
       socket.push({ type: "response.future_event", value: true });
       socket.push({ type: "session.created" });
       socket.push({});
       socket.push({ type: "response.output_audio.delta", delta: 42 });
-      return yield* Fiber.join(events);
-    })));
+    }));
     expect(Exit.isSuccess(exit) && exit.value).toEqual([
       { type: "error", reason: "Invalid realtime frame" },
       { type: "error", reason: "Invalid realtime response.output_audio.delta frame" },
@@ -370,29 +498,22 @@ describe("realtime socket", () => {
   test("an input-send failure closes the streams with an error event", async () => {
     const socket = new Socket();
     socket.throwOn = "input_audio_buffer.append";
-    const authFilePath = await credentials({ type: "api", key: "key" });
     const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open({
+      const session = yield* socketSession(socket, {
         ...request, audioIn: Stream.fromIterable([new Uint8Array([1, 2])]),
       });
       return yield* Stream.runCollect(session.events);
     })));
-    expect(Exit.isSuccess(exit) && exit.value).toEqual([
-      { type: "error", reason: "Realtime socket send failed" },
-      { type: "closed", reason: "socket send failed" },
-    ]);
+    expect(Exit.isSuccess(exit) && exit.value.map((event) => event.type)).toEqual(["error", "closed"]);
+    expect(reasons(exit)[0]).toContain("Realtime audio input failed");
   });
 
   test("a failed response.create is a typed refusal rather than a successful tool reply", async () => {
     const socket = new Socket();
     socket.throwOn = "response.create";
-    const authFilePath = await credentials({ type: "api", key: "key" });
     const exit = await runTestExit(Effect.scoped(Effect.gen(function* () {
-      const session = yield* makeRealtime({ authFilePath, socket: () => socket }).open(request);
-      socket.push({ type: "response.created", response: { id: "r" } });
-      socket.push({ type: "response.output_item.done", item: {
-        type: "function_call", status: "completed", call_id: "c", name: "file_read", arguments: "{}",
-      } });
+      const session = yield* socketSession(socket);
+      completedCall(socket);
       socket.push({ type: "response.done", response: { id: "r" } });
       return failure(yield* Effect.exit(session.respondTool("c", { result: "ok" })));
     })));

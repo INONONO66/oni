@@ -4,8 +4,12 @@ import { InvalidProviderData } from "../errors";
 
 const text = z.string();
 const audio = z.object({
-  input: z.object({ format: z.object({ type: text, rate: z.number() }) }),
-  output: z.object({ format: z.object({ type: text, rate: z.number() }) }),
+  input: z.object({
+    format: z.object({ type: text, rate: z.number() }),
+    turn_detection: z.object({ type: text, create_response: z.boolean() }).nullable(),
+    transcription: z.object({ model: text }).nullable(),
+  }),
+  output: z.object({ format: z.object({ type: text, rate: z.number() }), voice: text }),
 });
 const schemas = {
   "session.created": z.object({ type: z.literal("session.created") }),
@@ -40,18 +44,20 @@ const event = z.union([
 ]);
 export type ServerEvent = z.infer<typeof event>;
 
-export function decodeFrame(data: string): ServerEvent | undefined {
-  const frame = parseJson(z.looseObject({ type: text }), data);
-  if (frame === undefined) throw new InvalidProviderData({
+export function decodeFrame(data: string):
+  | { readonly ok: true; readonly frame: ServerEvent | undefined }
+  | { readonly ok: false; readonly failure: InvalidProviderData } {
+  const frame = parseJson(z.object({ type: text }).catchall(z.json()), data);
+  if (frame === undefined) return { ok: false, failure: new InvalidProviderData({
     operation: "realtime.frame", message: "Invalid realtime frame", cause: "invalid JSON event",
-  });
+  }) };
   // A server can send additional event kinds. They are not instructions.
-  if (!Object.keys(schemas).includes(frame.type)) return undefined;
+  if (!Object.keys(schemas).includes(frame.type)) return { ok: true, frame: undefined };
   const result = event.safeParse(frame);
-  if (!result.success) throw new InvalidProviderData({
+  if (!result.success) return { ok: false, failure: new InvalidProviderData({
     operation: "realtime.frame", message: `Invalid realtime ${frame.type} frame`, cause: "invalid event fields",
-  });
-  return result.data;
+  }) };
+  return { ok: true, frame: result.data };
 }
 
 export function decodeArguments(textValue: string) {

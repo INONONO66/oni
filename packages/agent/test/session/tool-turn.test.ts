@@ -9,7 +9,7 @@ import { defineTool } from "../../src/core/loop/tool";
 import { executeExternalTool, createSessionEntityRunTool } from "../../src/core/session/tool-turn";
 import { drain } from "../../src/core/session/entity-delivery";
 import { ToolTurnRefused } from "../../src/core/journal/messages";
-import { turnIntentAction } from "../../src/core/journal/turn-rows";
+import { turnIntentAction, turnStopAction } from "../../src/core/journal/turn-rows";
 import { receivedMessageAction, deliveryActions } from "../../src/core/journal/delivery";
 import { runAgent } from "../helpers/isolated";
 import { toolTurnWorld } from "../helpers/tool-turn";
@@ -18,6 +18,7 @@ import { createSessionEntityLayer, SessionEntity, SessionEntityContext } from ".
 import { createSessionPortsSlot, sessionTool } from "../../src/core/session/host";
 import { BunTestCrypto } from "../helpers/cluster-runtime";
 import { currentInvocation } from "../../src/core/loop/invocation";
+import { deliver } from "../../src/core/session/entity-delivery";
 
 const call: Tool.Call = { id: "outside-1", tool: "probe", input: { n: 7 } };
 const probe = defineTool({
@@ -26,6 +27,15 @@ const probe = defineTool({
   visibility: { model: ["resident"], cell: ["resident"] },
   execute: async (input) => input, render: (_input, output) => JSON.stringify(output),
 });
+
+function countedProbe(onExecute: () => void) {
+  return defineTool({
+    ...probe, execute: async (value) => {
+      onExecute();
+      return value;
+    },
+  });
+}
 
 type World = Effect.Success<ReturnType<typeof toolTurnWorld>>;
 
@@ -134,6 +144,100 @@ test("a retained tool generation releases after its external turn seals", () =>
     yield* world.runtime.generations.settle;
   }))));
 
+test("a completed external call id refuses replay without executing its body twice", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    let executions = 0;
+    const { world, input } = yield* sealedWorld({ definitions: [countedProbe(() => { executions++; })] });
+    expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
+    const revision = world.kernel.row(world.sessionId).revision;
+    expect(yield* Effect.flip(world.tool(input))).toEqual(new ToolTurnRefused({ code: "duplicate" }));
+    expect(world.kernel.row(world.sessionId).revision).toBe(revision);
+    expect(executions).toBe(1);
+  }))));
+
+test("a new activation over the same store refuses an already recorded external call", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    let executions = 0;
+    const { world, input } = yield* sealedWorld({ definitions: [countedProbe(() => { executions++; })] });
+    yield* world.tool(input);
+    const kernel = world.plane.openKernel(world.sessionId);
+    const authority = {
+      ...world.handle.authority, fence: world.plane.catalog.rotateFence(world.sessionId),
+    };
+    yield* kernel.adoptFence(authority);
+    const replacement = {
+      ...world.handle, kernel, authority, toolCalls: new Map(world.handle.toolCalls),
+    };
+    const revision = kernel.row(world.sessionId).revision;
+    expect(yield* Effect.flip(executeExternalTool(replacement, {
+      ...input, call: canonicalJson(input.call),
+    }))).toEqual(new ToolTurnRefused({ code: "duplicate" }));
+    expect(kernel.row(world.sessionId).revision).toBe(revision);
+    expect(executions).toBe(1);
+  }))));
+
+test("changing parameters cannot reuse a recorded external call id", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    const { world, input } = yield* sealedWorld();
+    yield* world.tool(input);
+    const revision = world.kernel.row(world.sessionId).revision;
+    expect(yield* Effect.flip(world.tool({
+      ...input, call: { ...call, input: { n: 8 } },
+    }))).toEqual(new ToolTurnRefused({ code: "duplicate" }));
+    expect(world.kernel.row(world.sessionId).revision).toBe(revision);
+  }))));
+
+test("a distinct external call id still runs after another call seals", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    let executions = 0;
+    const { world, input } = yield* sealedWorld({ definitions: [countedProbe(() => { executions++; })] });
+    expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
+    expect((yield* world.tool({
+      ...input, call: { ...input.call, id: "outside-2" },
+    })).structuredContent).toEqual({ n: 7 });
+    expect(executions).toBe(2);
+  }))));
+
+test("a distinct external call id scans past the first history page", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    const { world, input } = yield* sealedWorld();
+    yield* world.tool(input);
+    const row = world.kernel.row(world.sessionId);
+    const actions: ReturnType<typeof turnStopAction>[] = [];
+    for (let index = 0; index < 260; index++) {
+      actions.push(turnStopAction({
+        id: `page-stop-${index}`, parentId: null, sessionId: world.sessionId,
+        generation: 1, verdict: {}, state: {}, ts: 1,
+      }));
+    }
+    yield* world.kernel.commit({
+      ...world.handle.authority, now: 1, expectedRevision: row.revision, state: row.state,
+      actions,
+    });
+    expect((yield* world.tool({
+      ...input, call: { ...input.call, id: "after-page" },
+    })).structuredContent).toEqual({ n: 7 });
+  }))));
+
+test("a recorded external call remains busy while its body is in flight", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const release = Promise.withResolvers<void>();
+    const { world, input } = yield* sealedWorld({ definitions: [defineTool({
+      ...probe, execute: async (value) => {
+        Deferred.doneUnsafe(entered, Exit.void);
+        await release.promise;
+        return value;
+      },
+    })] });
+    const running = yield* Effect.forkChild(world.tool(input), { startImmediately: true });
+    yield* Deferred.await(entered);
+    expect(yield* Effect.flip(world.tool(input))).toEqual(new ToolTurnRefused({ code: "busy" }));
+    release.resolve();
+    expect((yield* Fiber.join(running)).structuredContent).toEqual({ n: 7 });
+    expect(yield* Effect.flip(world.tool(input))).toEqual(new ToolTurnRefused({ code: "duplicate" }));
+  }))));
+
 function source(world: World) {
   const terminal = world.kernel.latestTurnTerminal(world.sessionId);
   if (terminal === undefined) throw new Error("source turn has not sealed");
@@ -183,6 +287,20 @@ test.each([
     expect(world.kernel.row(world.sessionId).revision).toBe(before);
   }))));
 
+test("an action-only turn never borrows an earlier trusted prompt", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    const { world } = yield* sealedWorld();
+    yield* deliver(world.handle, {
+      kind: "action", body: '{"content":"untrusted call"}',
+      source: canonicalJson({ kind: "external", inboundTreatment: "evidence_only" }),
+      idempotencyKey: "untrusted-action",
+    });
+    yield* world.settled;
+    const before = world.kernel.row(world.sessionId).revision;
+    expect(yield* Effect.flip(world.tool(source(world)))).toEqual(new ToolTurnRefused({ code: "origin" }));
+    expect(world.kernel.row(world.sessionId).revision).toBe(before);
+  }))));
+
 test("an external turn retains its source authority after a later evidence-only prompt", () =>
   runAgent(Effect.scoped(Effect.gen(function* () {
     const { world, input } = yield* sealedWorld();
@@ -191,6 +309,39 @@ test("an external turn retains its source authority after a later evidence-only 
     expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
     // A tool that starts another external producer uses that turn's recorded source.
     expect((yield* world.tool({ ...source(world), call: { ...call, id: "outside-2" } })).structuredContent).toEqual({ n: 7 });
+  }))));
+
+test.each([
+  ["full_access", true],
+  ["evidence_only", false],
+] as const)("an action-only %s turn gates a later external tool from its recorded origin", (treatment, allowed) =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    let authority: string | undefined;
+    const world = yield* toolTurnWorld({
+      definitions: [probe],
+      runner: (input) => {
+        authority = input.authority;
+        return Effect.succeed({ kind: "result", text: "" });
+      },
+    });
+    yield* deliver(world.handle, {
+      kind: "action", body: '{"content":"start call"}',
+      source: canonicalJson({
+        kind: "external", inboundTreatment: treatment,
+        automation: { id: "call-rule", newSession: false },
+      }), idempotencyKey: "call-trigger",
+    });
+    yield* world.settled;
+    const input = source(world);
+    const before = world.kernel.row(world.sessionId).revision;
+    if (allowed) {
+      expect(authority).toBe("act");
+      expect((yield* world.tool(input)).structuredContent).toEqual({ n: 7 });
+    } else {
+      expect(authority).toBe("evidence_only");
+      expect(yield* Effect.flip(world.tool(input))).toEqual(new ToolTurnRefused({ code: "origin" }));
+      expect(world.kernel.row(world.sessionId).revision).toBe(before);
+    }
   }))));
 
 test.each([
@@ -235,6 +386,32 @@ test("a denied external turn returns one failure without running its tool", () =
     expect(result.isError).toBe(true);
     expect(result.content).toBe("session policy refused");
     expect(world.kernel.historyPage(world.sessionId).actions.filter((row) => row.kind === "tool")).toHaveLength(0);
+  }))));
+
+test("a turn.post refusal returns the sealed error even after the tool body succeeds", () =>
+  runAgent(Effect.scoped(Effect.gen(function* () {
+    let executions = 0;
+    const world = yield* toolTurnWorld({
+      definitions: [defineTool({
+        ...probe, execute: async (input) => {
+          executions++;
+          return input;
+        },
+      })],
+      policy: compiledPolicy([{
+        name: "deny-terminal", kind: "turn", phase: "post", priority: 1, generation: 1,
+        match: { encodingVersion: 1, value: {} },
+        verdict: { encodingVersion: 1, value: { type: "deny", reason: "terminal_refused" } },
+      }]),
+    });
+    yield* world.prompt();
+    yield* world.settled;
+    const result = yield* world.tool(source(world));
+    expect(executions).toBe(1);
+    expect(world.kernel.latestTurnTerminal(world.sessionId)?.effect.kind).toBe("error");
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toBe("session policy refused");
   }))));
 
 test("the run port independently refuses a missing source before writing", () =>
