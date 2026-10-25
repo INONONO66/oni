@@ -43,6 +43,24 @@ function profile(rows = instances) {
 }
 
 describe("declared channel composition", () => {
+  test("a Slack Owner voice route mounts only with the outbound grant", () => {
+    const declared: Provisioning.ChannelInstance = {
+      id: "channel:slack:owner", provider: "slack", identity: "owner",
+      enabled: true, settings: { intake: "none" }, credentialRef: "owner-session",
+      grant: { outbound: true }, revision: 0, createdBy: "owner", updatedAt: 0,
+    };
+    const credential = new TextEncoder().encode(JSON.stringify({ token: "xoxc-owner", cookie: "d" }));
+    const select = (outbound: boolean) => declaredChannelProfile(
+      [{ ...declared, grant: outbound ? { outbound: true } : { outbound: false } }],
+      () => ({ kind: "ok", plaintext: credential }),
+      testChannelDeps(),
+    );
+    const granted = select(true);
+    const blocked = select(false);
+    expect(granted.statuses[0]?.state).toBe("ready");
+    expect(granted.rows[0]?.component.build(handler).voiceRoute).toBeDefined();
+    expect(blocked.rows[0]?.component.build(handler).voiceRoute).toBeUndefined();
+  });
   test("a provisioned webhook row boots with its own credential schema, not GitHub's (H3)", async () => {
     const webhookCredential = { id: "hook-1", secretRef: "secret:hook-1" };
     const signingSecret = "hook-1-signing-secret";

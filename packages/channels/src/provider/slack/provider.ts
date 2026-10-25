@@ -38,8 +38,10 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
     preconditions: [
       "Owner session from the Slack QR login, sealed into the vault (the login helper lands with its own lane): client token xoxc- plus the d cookie",
       "the Owner accepts automation under their own account (declared outbound grant)",
+      "live huddles require Linux Chromium, PipeWire-Pulse devices and an active room that the Owner account can join without switching away from its existing device",
+      "automatic huddle intake requires the Owner RTM room-to-conversation association and an ingress grant that admits unaddressed call facts",
     ],
-    capabilities: { deliver: true, react: true, media: false, typing: false, voice: false },
+    capabilities: { deliver: true, react: true, media: false, typing: false, voice: true },
     listen: true,
     create(credentials, posture, publish, options) {
       const surface = new SlackOwnerAdapter(credentials, posture, publish, options, sdk);
@@ -47,6 +49,7 @@ function createSlackOwnerArm(sdk: SlackOwnerSdk = slackOwnerSdk()): OwnerArm<Sla
         surface,
         account: () => surface.account(),
         deliveryRoute: kernelDeliveryRoute(surface),
+        voiceRoute: (input) => surface.joinVoice(input),
       };
     },
   };

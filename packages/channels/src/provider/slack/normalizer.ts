@@ -2,6 +2,40 @@ import type { Channel } from "@oni/protocol";
 import { kindOfMime } from "../../support/media-kind";
 import type { InboundNormalizer } from "../../types";
 import type { SlackInteraction, SlackMessageEvent } from "./types";
+import type { SlackOwnerEventMap } from "./owner-sdk";
+
+type SlackHuddleChanged = SlackOwnerEventMap["user_huddle_changed"][0];
+
+/** A resolved Owner room is an unaddressed call fact; a room id is never a conversation id. */
+export function slackCall(
+  event: SlackHuddleChanged,
+  context: { readonly team: string; readonly ownerUserId: string; readonly channelId: string; readonly dm: boolean },
+): Channel.InboundMessage | null {
+  const room = event.user.profile.huddle_state_call_id;
+  if (event.user.id !== context.ownerUserId || event.user.team_id !== context.team ||
+      event.user.profile.huddle_state !== "in_a_huddle" || !room) return null;
+  const externalId = `${context.team}:${context.ownerUserId}`;
+  return {
+    sender: { kind: "external", surface: "slack", externalId },
+    facts: {
+      eventId: `call:slack:${context.team}:${context.ownerUserId}:${event.event_ts}:${room}`,
+      event: "call",
+      author: { externalId, isBot: false },
+      surface: "slack",
+      receivedBy: "owner",
+      workspaceId: context.team,
+      channelId: context.channelId,
+      addressees: [],
+      dm: context.dm,
+      payload: {
+        roomId: room,
+        state: event.user.profile.huddle_state,
+        channelId: context.channelId,
+      },
+      render: `Owner joined a huddle in ${context.channelId}`,
+    },
+  };
+}
 
 interface SlackNormalizerContext {
   botUserId: string;

@@ -7,6 +7,9 @@ import type { PublishPort } from "../src/types";
 import { createDiscordProvider } from "../src/provider/discord/provider";
 import { emptyVoiceStream, fakeDiscordSdk } from "./helpers/discord-sdk";
 import type { DiscordVoiceHandle } from "../src/provider/discord/sdk";
+import { createSlackProvider } from "../src/provider/slack/provider";
+import { fakeSlackOwnerSdk } from "./helpers/slack-owner-sdk";
+import { fakeSlackSdk } from "./helpers/slack-sdk";
 
 /**
  * Provider conformance: every registry entry honors the contract's structural
@@ -187,6 +190,16 @@ const cases: readonly ConformanceCase[] = [
 ];
 
 describe("provider conformance", () => {
+  test("Slack Owner alone exposes a huddle route with the sealed Owner session", () => {
+    const provider = createSlackProvider(fakeSlackSdk().sdk, fakeSlackOwnerSdk().sdk);
+    const owner = provider.owner;
+    expect(provider.capabilities.voice).toBe(false);
+    expect(owner?.capabilities.voice).toBe(true);
+    expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d" }).success).toBe(true);
+    expect(owner?.credentials.safeParse({ token: "xoxc-1", cookie: "d", huddle: { token: "xoxc-2", cookie: "d2" } }).success).toBe(false);
+    const runtime = owner?.create({ token: "xoxc-1", cookie: "d" }, { intake: "none", autoReply: false }, noopPublish, injectedOptions());
+    expect(runtime?.voiceRoute).toBeDefined();
+  });
   test("Discord bot alone exposes voice, and stopping its surface leaves the joined handle", async () => {
     const fake = fakeDiscordSdk();
     let left = 0;

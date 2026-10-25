@@ -953,6 +953,52 @@ and the fork's `src/platforms/discordbot/voice.test.ts`.
 
 DoD sweep PR #1660 (G3S): review r1 of the landed diff (3 High, 3 Medium) fixed; every terminal path of a live call closes tool admission before the voice leave, a batched turn and its external tools share the most restrictive delivery's authority, an old Discord voice handle never releases its replacement, and a realtime endpoint keeps its own query.
 
+## Slack Owner huddle calls (PR #1657)
+
+On `feat/g4-slack-huddle` (2026-10-25, base `3288877fc` after #1660, no
+issue). The agent-messenger fork dist pin `eb65d4b8` (source `2d9d99e6`) gives `slack`
+`joinHuddle`: a supervised browser host process joins the huddle under the
+Owner's sealed `{token, cookie}` and exchanges bounded PCM frames with
+transport credit (38,400 bytes in flight), refuses with four typed codes
+(`voice_not_ready`, `voice_busy`, `voice_aborted`, `voice_join_failed`) and
+reports one event iterator (`speaker_left`, `disconnected`, `error`).
+Capture starts only after the huddle admission settles, readiness re-checks
+room isolation after an unmute, and the parent owns a 0700 browser profile
+(an `owner.json` with its pid) that every cleanup path removes; the next
+join's sweep removes a profile whose recorded owner is dead, or an ownerless
+one older than 10 minutes. Discord voice uses the extracted shared
+event queue. `packages/channels` declares the Slack Owner account
+`voice: true`; the Slack bot stays `voice: false`. Its `voiceRoute` admits
+locally before any fork I/O (a started account, a `TEAM:USER` speaker equal to
+the Owner, the account's workspace, a `C`/`D`/`G` conversation, one pending or
+live call, a signal not already aborted) and maps the fork refusals onto
+`VoiceJoinRefused` (`not_started`, `busy`, `aborted`, `join_failed`) with
+sanitized details. `stop()` is generation-fenced: it aborts a pending join,
+leaves a handle that arrives late and awaits the one retained leave that any
+terminal path starts (a terminal event, an iterator error or end, an explicit
+leave). An Owner RTM `user_huddle_changed` into a huddle becomes an inbound
+`event: "call"` fact once `sh_room_join` associates the room with its
+conversation, in either order: at most 32 rooms in one FIFO map where a
+conflicting association is stored as blocked, and an unresolved room warns
+`huddle_channel_unresolved` after 10 s run through the injected Effect runner.
+A reconnect drops the associations but keeps the current room and timestamp,
+only `not_in_a_huddle` counts as leaving, and the account's own browser seat
+never raises a call while one is pending or live. The account never joins by
+itself, and mention-only routing still filters an unaddressed call. `apps/oni`
+stages the SDK's compiled `huddle-host.js` beside both npm bundle entries (the
+artifact test forks the staged host and receives `left`), and the
+`send_message` call description names the account-specific `call_as_owner`
+refusal. Review r1 (3 High, 8 Medium) was fixed across both trees. Not
+established: live acceptance (#1655) — current Slack selectors, the cookie
+bootstrap, room association delivery, browser media and the PipeWire-Pulse
+devices, duplex audio and latency, notification-sound exclusion,
+force-kill membership expiry, same-identity Owner departure and
+selected-speaker isolation. Receipts:
+`packages/channels/test/{slack-voice,slack-normalizer,slack-owner,provider-contract}.test.ts`,
+`packages/channels/test/router/mention-only.test.ts`,
+`apps/oni/test/{live-voice,send-message-contacts,channel-composition,npm-package}.test.ts`,
+and the fork's `src/platforms/slack/huddle*.test.ts`.
+
 ## #1569 Messaging on the agent-messenger SDK — epic closure (lane 10)
 
 On `feat/1569-cleanup` (2026-10-17, PR #1598, lane 10). The twelve lanes below are all on

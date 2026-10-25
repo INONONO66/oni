@@ -421,7 +421,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     expect(receipt.value).toBe(value);
   });
 
-  it("the provider's owner arm builds the same instance with delivery only, beside the bot arm", () => {
+  it("the provider's owner arm builds delivery and voice beside the text-only bot arm", () => {
     const owner = fakeSlackOwnerSdk();
     const provider = createSlackProvider(fakeSlackSdk().sdk, owner.sdk);
     expect(provider.owner?.capabilities).toEqual({
@@ -429,7 +429,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
       react: true,
       media: false,
       typing: false,
-      voice: false,
+      voice: true,
     });
     expect(provider.owner?.credentials.safeParse(CREDENTIALS).success).toBe(true);
     expect(
@@ -439,6 +439,7 @@ describe("SlackOwnerAdapter: the Owner's own account as the slack:owner instance
     const runtime = provider.owner?.create(CREDENTIALS, SEND_ONLY, noopPublish, injectedOptions());
     expect(runtime?.surface.id).toBe("slack:owner");
     expect(runtime?.deliveryRoute).toBeDefined();
+    expect(runtime?.voiceRoute).toBeDefined();
     expect(runtime?.webhookHandler).toBeUndefined();
     expect(runtime?.typingRoute).toBeUndefined();
   });

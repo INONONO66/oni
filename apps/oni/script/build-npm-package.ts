@@ -51,9 +51,13 @@ const externalNativeAddons: BunPlugin = {
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(join(staging, "bin"), { recursive: true });
 
-for (const entrypoint of ["src/cli/main.ts", "src/process-entry.ts"]) {
+for (const entrypoint of [
+  join(appDir, "src/cli/main.ts"),
+  join(appDir, "src/process-entry.ts"),
+  join(dirname(Bun.resolveSync("agent-messenger/slack", sdkDir)), "huddle-host.js"),
+]) {
   const result = await Bun.build({
-    entrypoints: [join(appDir, entrypoint)],
+    entrypoints: [entrypoint],
     outdir: join(staging, "dist", "app"),
     target: "bun",
     plugins: [externalNativeAddons],

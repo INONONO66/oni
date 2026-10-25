@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { fork } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -78,16 +79,13 @@ describe("npm package staging", () => {
       ONI_MODEL_ID: "pack-smoke",
       ONI_MODEL_API_KEY: "test-key",
     };
-    const build = Bun.spawnSync([process.execPath, "run", "script/build-npm-package.ts", staging], {
-      cwd: appDir,
-      env,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 10_000,
-      killSignal: "SIGKILL",
-    });
-    expect(build.exitCode, build.stderr.toString()).toBe(0);
+    const argv = process.argv;
+    try {
+      process.argv = [argv[0] ?? "", argv[1] ?? "", staging];
+      await import("../script/build-npm-package");
+    } finally {
+      process.argv = argv;
+    }
 
     // Manifest contract: no workspace dep may leak into the registry artifact;
     // the only dependencies are native addons, pinned exactly.
@@ -108,9 +106,25 @@ describe("npm package staging", () => {
     // W5.2: no migration plane ships; the schema is embedded in the bundle.
     expect(existsSync(join(staging, "migration"))).toBe(false);
     expect(existsSync(join(staging, "dist", "app", "process-entry.js"))).toBe(true);
+    const host = join(staging, "dist", "app", "huddle-host.js");
+    const huddle = fork(host, [], {
+      cwd: staging, execPath: process.execPath, stdio: ["ignore", "ignore", "pipe", "ipc"],
+    });
+    const left = Promise.withResolvers<object>();
+    const exited = Promise.withResolvers<number | null>();
+    huddle.once("message", left.resolve);
+    huddle.once("exit", exited.resolve);
+    huddle.once("error", left.reject);
+    huddle.send({ type: "leave" });
+    try {
+      expect(await bounded(left.promise, 5_000)).toEqual({ type: "left" });
+      expect(await bounded(exited.promise, 5_000)).toBe(0);
+    } finally {
+      if (huddle.exitCode === null) huddle.kill();
+    }
     // A bundle that inlines a native addon freezes the build host's absolute
     // path as that module's __dirname and refuses to load anywhere else.
-    for (const bundle of ["main.js", "process-entry.js"]) {
+    for (const bundle of ["main.js", "process-entry.js", "huddle-host.js"]) {
       expect(readFileSync(join(staging, "dist", "app", bundle), "utf-8")).not.toContain(repoRoot);
     }
     // `npm install` places the pinned addons beside the bundle; the smoke boot

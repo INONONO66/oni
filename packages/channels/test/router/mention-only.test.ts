@@ -47,6 +47,16 @@ test("an unaddressed channel message on a mention-only grant is filtered before 
   )).toHaveLength(1);
 });
 
+test("a Slack Owner huddle call remains unaddressed under a mention-only grant", async () => {
+  mount(true);
+  const call: Gateway.IngressFacts = {
+    ...channelFacts, eventId: "call:slack:T1:U-owner:1700.1:R1",
+    event: "call", receivedBy: "owner", payload: { roomId: "R1", channelId: "C-general" },
+  };
+  expect(await ingest(call)).toEqual({ status: "blocked_pre", reasonCode: "mention_only" });
+  expect(commits).toHaveLength(0);
+});
+
 test("#1600: a message the surface classified as a mention of the bot is addressed, whether or not the bot's account is a registered identity", async () => {
   mount(true);
   // The addressee is not a registered identity: only the surface's own `event: mention` makes this addressed.

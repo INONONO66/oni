@@ -1,5 +1,5 @@
-import { loginWithQr, SlackClient, SlackError, SlackListener } from "agent-messenger/slack";
-import type { SlackListenerEventMap } from "agent-messenger/slack";
+import { joinHuddle, loginWithQr, SlackClient, SlackError, SlackHuddleError, SlackListener } from "agent-messenger/slack";
+import type { SlackHuddleHandle, SlackListenerEventMap, SlackSessionCredentials } from "agent-messenger/slack";
 
 /**
  * The slice of the agent-messenger Slack USER SDK the Owner instance speaks
@@ -33,6 +33,10 @@ export interface SlackOwnerEvents {
     event: K,
     listener: (...args: SlackListenerEventMap[K]) => void,
   ): this;
+  off<K extends keyof SlackListenerEventMap>(
+    event: K,
+    listener: (...args: SlackListenerEventMap[K]) => void,
+  ): this;
   start(): Promise<void>;
   stop(): void;
 }
@@ -41,6 +45,11 @@ export interface SlackOwnerEvents {
 export interface SlackOwnerSdk {
   client(): SlackOwnerApi;
   listener(client: SlackOwnerApi): SlackOwnerEvents;
+  joinHuddle(
+    workspaceId: string,
+    channelId: string,
+    options: { readonly credentials: SlackSessionCredentials; readonly speakerId: string; readonly signal?: AbortSignal },
+  ): Promise<SlackHuddleHandle>;
 }
 
 export function slackOwnerSdk(): SlackOwnerSdk {
@@ -48,8 +57,11 @@ export function slackOwnerSdk(): SlackOwnerSdk {
     client: () => new SlackClient(),
     // The listener only ever receives the client this same factory built.
     listener: (client) => new SlackListener(client as SlackClient),
+    joinHuddle,
   };
 }
+export { SlackHuddleError };
+export type { SlackHuddleHandle };
 
 /**
  * The user SDK's error class: `code` is the `@slack/web-api` code the SDK
